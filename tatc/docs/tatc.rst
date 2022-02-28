@@ -1,6 +1,8 @@
 Analysis Module
 ---------------
+
 Contains Core analysis functions found in tatc.analysis
+
 .. automodule:: tatc.analysis
    :members:
    :undoc-members:
