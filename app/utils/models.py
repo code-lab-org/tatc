@@ -1,8 +1,17 @@
-from fastapi_users.db import SQLAlchemyBaseUserTable
-from sqlalchemy import Column, String
-
-from .database import Base
+from fastapi_users import models
 
 
-class UserTable(Base, SQLAlchemyBaseUserTable):
-    name = Column(String)
+class User(models.BaseUser):
+    pass
+
+
+class UserCreate(models.BaseUserCreate):
+    pass
+
+
+class UserUpdate(models.BaseUserUpdate):
+    pass
+
+
+class UserDB(User, models.BaseUserDB):
+    pass
