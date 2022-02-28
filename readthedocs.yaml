@@ -1,0 +1,7 @@
+version: 2
+
+sphinx:
+   configuration: tatc/docs/conf.py
+
+conda:
+   environment: tatc/environment.yml
