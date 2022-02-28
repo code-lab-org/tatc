@@ -1,0 +1,8 @@
+name: tatc_env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.8.10
+  - pip:
+    - sgp4==2.17
+    - skyfield==1.37

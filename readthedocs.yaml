@@ -4,4 +4,4 @@ sphinx:
    configuration: tatc/docs/conf.py
 
 conda:
-   environment: tatc/environment.yml
+   environment: tatc/docs/environment.yml
