@@ -9,11 +9,10 @@ Contains Core analysis functions found in tatc.analysis
 Generation module
 -----------------
 
-.. automodule:: tatc.generations
+.. automodule:: tatc.generation
    :members:
    :undoc-members:
-   :show-inheritance:   tatc.generation
-   tatc.schemas
+   :show-inheritance:
 
 Schemas module
 --------------
