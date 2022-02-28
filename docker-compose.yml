@@ -1,0 +1,30 @@
+version: "3.9"
+services:
+  server:
+    build:
+      context: .
+      target: tatc_server
+    ports:
+      - "8000:8000"
+    links:
+      - worker
+      - broker
+      - backend
+    environment:
+      TATC_BROKER: amqp://guest:guest@broker:5672//
+      TATC_BACKEND: redis://backend:6379/
+      TATC_CESIUM_TOKEN: ${TATC_CESIUM_TOKEN}
+  worker:
+    build:
+      context: .
+      target: tatc_worker
+    links:
+      - broker
+      - backend
+    environment:
+      TATC_BROKER: amqp://guest:guest@broker:5672//
+      TATC_BACKEND: redis://backend:6379/
+  broker:
+    image: rabbitmq:3
+  backend:
+    image: redis:6

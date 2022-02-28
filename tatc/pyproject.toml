@@ -1,0 +1,15 @@
+[project]
+name = "tatc-core"
+version = "3.0.0"
+description = "Tradespace Analysis Tool for Constellations (TAT-C) Core"
+authors = [
+  "Paul Grogan <pgrogan@stevens.edu>"
+]
+readme = "README.md"
+
+[build-system]
+requires = [
+    "setuptools >= 57.0.0",
+    "wheel"
+]
+build-backend = "setuptools.build_meta"
