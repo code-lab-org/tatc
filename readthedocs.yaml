@@ -1,17 +1,16 @@
 version: 2
-
-sphinx:
-   configuration: tatc/docs/conf.py
-
 build:
   os: "ubuntu-20.04"
   tools:
     python: "mambaforge-4.10"
+
+sphinx:
+   configuration: tatc/docs/conf.py
 
 conda:
    environment: tatc/docs/environment.yml
 
 python:
    install:
-    - method: setuptools
+    - method: pip
       path: tatc
