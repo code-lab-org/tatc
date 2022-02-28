@@ -10,3 +10,8 @@ build:
 
 conda:
    environment: tatc/docs/environment.yml
+
+python:
+   install:
+    - method: setuptools
+      path: tatc
