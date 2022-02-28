@@ -9,6 +9,42 @@ var viewer = new Cesium.Viewer('cesiumContainer', {
   navigationInstructionsInitiallyVisible: false,
   timeline: true,
 });
+function initializeCesium() {
+  // perform get request
+  $.get("/cesium/token")
+  .done(function(data) {
+    Cesium.Ion.defaultAccessToken = data;
+    viewer.entities.removeAll();
+    viewer.destroy();
+    viewer = new Cesium.Viewer('cesiumContainer', {
+      terrainProvider: Cesium.createWorldTerrain(),
+      baseLayerPicker: false,
+      homeButton: false,
+      infoBox: false,
+      geocoder: false,
+      selectionIndicator: false,
+      navigationHelpButton: false,
+      navigationInstructionsInitiallyVisible: false,
+      timeline: true,
+      imageryProvider: new Cesium.IonImageryProvider({ assetId: 3845 })
+    });
+  })
+  .fail(function() {
+    viewer.entities.removeAll();
+    viewer.destroy();
+    viewer = new Cesium.Viewer('cesiumContainer', {
+      baseLayerPicker: false,
+      homeButton: false,
+      infoBox: false,
+      geocoder: false,
+      selectionIndicator: false,
+      navigationHelpButton: false,
+      navigationInstructionsInitiallyVisible: false,
+      timeline: true,
+    });
+  });
+}
+initializeCesium();
 
 function clearEntities(parent) {
   var entitiesToRemove = [];
@@ -53,28 +89,6 @@ function getUserInformation() {
     $('#nav-info-tab').on('hide.bs.tab', function (e) {
       e.preventDefault();
       $("#login-modal").modal("show");
-    });
-  });
-}
-function initializeCesium() {
-  // perform get request
-  $.get("/cesium/token")
-  .done(function(data) {
-    Cesium.Ion.defaultAccessToken = data;
-    viewer.entities.removeAll();
-    viewer.destroy();
-    // Initialize the Cesium Viewer in the HTML element with the `cesiumContainer` ID.
-    viewer = new Cesium.Viewer('cesiumContainer', {
-      terrainProvider: Cesium.createWorldTerrain(),
-      baseLayerPicker: false,
-      homeButton: false,
-      infoBox: false,
-      geocoder: false,
-      selectionIndicator: false,
-      navigationHelpButton: false,
-      navigationInstructionsInitiallyVisible: false,
-      timeline: true,
-      imageryProvider: new Cesium.IonImageryProvider({ assetId: 3845 })
     });
   });
 }
