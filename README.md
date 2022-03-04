@@ -8,6 +8,8 @@ The TAT-C application contains several components:
 
 TAT-C is configured to support the RabbitMQ Broker and Redis Backend.
 
+Documentation: https://tatc.readthedocs.io
+
 ## Installation and Usage (Docker)
 
 Due to the installation complexity and platform dependencies for the parallel
