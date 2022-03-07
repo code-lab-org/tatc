@@ -17,7 +17,9 @@ task-queuing system (Celery), it is strongly recommended to use Docker
 containers to install and run TAT-C.
 
 To enable the Cesium client-side geospatial visualization, your will require
-an access token from https://cesium.com/ion/tokens . Paste your access token in
+an access token from https://cesium.com/ion/tokens .  After you create your
+account, you *must* add the Asset "Blue Marble Next Generation July, 2004"
+from the Asset Depot (ID 3845) to your assets. Paste your access token in
 a new file named `.env` in the root of this project in the following format:
 ```
 TATC_CESIUM_TOKEN=your alphanumeric access token here
