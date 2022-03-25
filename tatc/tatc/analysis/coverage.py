@@ -38,15 +38,15 @@ def collect_observations(
     Collect single satellite observations of a geodetic point of interest.
 
     :param point: The ground point of interest
-    :type point: class:`tatc.schemas.point.Point`
+    :type point: :class:`tatc.schemas.point.Point`
     :param satellite: The observing satellite
-    :type satellite: class:`tatc.schemas.satellite.Satellite`
+    :type satellite: :class:`tatc.schemas.satellite.Satellite`
     :param instrument: The instrument used to make observations
-    :type instrument: class:`tatc.schemas.instrument.instrument`
+    :type instrument::`tatc.schemas.instrument.instrument`
     :param start: The start of the mission window
-    :type start: class:`datetime.datetime`
+    :type start::`datetime.datetime`
     :param end: The end of the mission window
-    :type end: class:`datetime.datetime`
+    :type end::`datetime.datetime`
     :param omit_solar: True, if solar angles should be omitted
         to improve computational efficiency, defaults to True
     :type omit_solar: bool, optional
@@ -55,7 +55,7 @@ def collect_observations(
     :type sample_distance: int, optional
     :return: An instance of :class:`geopandas.GeoDataFrame` containing all
         recorded reduce_observations
-    :rtype: class:`geopandas.GeoDataFrame`
+    :rtype::`geopandas.GeoDataFrame`
     """
 
     # build a topocentric point at the designated geodetic point
@@ -285,13 +285,13 @@ def collect_multi_observations(
     Collect multiple satellite observations of a geodetic point of interest.
 
     :param point: The ground point of interest
-    :type point: class:`tatc.schemas.point.Point`
+    :type point: :class:`tatc.schemas.point.Point`
     :param satellites: The observing satellites
     :type satellites: list of :class:`tatc.schemas.satellite.Satellite`
     :param start: The start of the mission window
-    :type start: class:`datetime.datetime`
+    :type start: :`datetime.datetime`
     :param end: The end of the mission window
-    :type end: class:`datetime.datetime`
+    :type end: :class:`datetime.datetime`
     :param omit_solar: True, if solar angles should be omitted
         to improve computational efficiency, defaults to True
     :type omit_solar: bool, optional
@@ -300,7 +300,7 @@ def collect_multi_observations(
     :type sample_distance: int, optional
     :return: an instance of :class:`geopandas.GeoDataFrame` containing all
         recorded observations
-    :rtype: class:`geopandas.GeoDataFrame`
+    :rtype: :class:`geopandas.GeoDataFrame`
     """
     gdfs = [
         collect_observations(
@@ -322,10 +322,10 @@ def aggregate_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     Aggregate constellation observations for a geodetic point of interest.
 
     :param gdf: The individual observations.
-    :type gdf: class:`geopandas.GeoDataFrame`
+    :type gdf: :class:`geopandas.GeoDataFrame`
     :return: An instance of :class:`geopandas.GeoDataFrame` The data frame
         with aggregated observations.
-    :rtype: class:`geopandas.GeoDataFrame`
+    :rtype: :class:`geopandas.GeoDataFrame`
     """
     if len(gdf.index) == 0:
         empty_df = pd.DataFrame(
@@ -388,10 +388,10 @@ def reduce_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     Reduce constellation observations for a geodetic point of interest.
 
     :param gdf: The aggregated observations
-    :type gdf: class:`geopandas.GeodataFrame`
+    :type gdf: :class:`geopandas.GeodataFrame`
     :return: An instance of :class:`geopandas.GeoDataFrame`: The data frame
         with reduced observations.
-    :rtype: class:`geopanadas.GeodataFrame`
+    :rtype: :class:`geopanadas.GeodataFrame`
     """
     if len(gdf.index) == 0:
         empty_df = pd.DataFrame(

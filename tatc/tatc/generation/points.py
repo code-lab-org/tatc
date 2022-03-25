@@ -33,7 +33,7 @@ def generate_fibonacci_lattice_points(
     :param distance: The typical surface distance (meters) between points.
     :type distance: float
     :param mask: An optional mask to constrain generated points.
-    :type mask: class:`shapely.geometry.Polygon` or class:`shapely.geometry.MultiPolygon`, optional
+    :type mask: :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`, optional
     :return: An instance of :class:`geopandas.GeoDataFrame` specifying the points
     :rtype: :class:`geopandas.GeodataFrame`
     """
@@ -146,7 +146,7 @@ def generate_cubed_sphere_points(
     :param distance: The typical surface distance (meters) between points
     :type distance: float
     :param mask: An optional mask to constrain generated points
-    :type mask: class:`shapely.geometry.Polygon` or class:`shapely.geometry.MultiPolygon`, optional
+    :type mask: :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`, optional
     :return: An instance of :class:`geopandas.GeoDataFrame` specifying the points
     :rtype: :class:`geopandas.GeodataFrame`
     """

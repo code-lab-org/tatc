@@ -30,7 +30,7 @@ def generate_cubed_sphere_cells(
     :param distance: The typical surface distance (meters) between points.
     :type distance: float
     :param strips: An optional mask to constrain generated cells, defaults to None
-    :type mask: class:`shapely.geometry.Polygon` or class:`shapely.geometry.MultiPolygon`, optional
+    :type mask: :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`, optional
     :param strips: An optional argument to generate strips of
         constant latitude (`lat`) or strips of constant longitude (`lon`), defaults to None
     :type strips: str, optional
