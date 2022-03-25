@@ -1,8 +1,7 @@
-tatc.analysis package
-=====================
-
-Submodules
-----------
+===============
+Analysis Module
+===============
+This module contains information on the analysis functions used in TAT-C
 
 tatc.analysis.calibration module
 --------------------------------
@@ -32,14 +31,6 @@ tatc.analysis.track module
 --------------------------
 
 .. automodule:: tatc.analysis.track
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Module contents
----------------
-
-.. automodule:: tatc.analysis
    :members:
    :undoc-members:
    :show-inheritance:
