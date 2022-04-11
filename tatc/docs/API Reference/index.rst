@@ -4,8 +4,9 @@
 API REFERENCE
 =============
 
-The following API reference details information on the classes and
-functions contained within core TAT-C library.
+Below is the table of contents for the four core TAT-C modules. "Schemas" contains information
+on the TAT-C object schemas, "Generation" contains information on geospatial cell and point
+generation functions, and "Analysis" contains information on the TAT-C core analysis functions.
 
 
 .. toctree::
