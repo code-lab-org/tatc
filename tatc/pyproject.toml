@@ -1,11 +1,28 @@
 [project]
-name = "tatc-core"
-version = "3.0.0"
-description = "Tradespace Analysis Tool for Constellations (TAT-C) Core"
-authors = [
-  "Paul Grogan <pgrogan@stevens.edu>"
-]
+name = "tatc"
+version = "3.0.1"
+description = "Tradespace Analysis Tool for Constellations (TAT-C)"
 readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+  {name="Paul Grogan", email="pgrogan@stevens.edu"},
+  {name="I. Josue Tapia-Tamayo", email="itapiata@stevens.edu"},
+  {name="Isaac Feldman", email="ifeldma1@stevens.edu"}
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Programming Language :: Python"
+]
+dependencies = [
+  "pydantic",
+  "sgp4",
+  "skyfield"
+]
+
+[project.urls]
+homepage = "https://tatc.readthedocs.io"
+repository = "https://github.com/code-lab-org/tatc"
+documentation = "https://tatc.readthedocs.io"
 
 [build-system]
 requires = [
