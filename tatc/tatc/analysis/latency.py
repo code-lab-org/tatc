@@ -65,7 +65,7 @@ def collect_downlinks(
     # initialize dataframe
     df = pd.DataFrame({
             'station_name': pd.Series([], dtype='str'),
-            'geometry': pd.Series([]),
+            'geometry': pd.Series([], dtype="object"),
             'satellite': pd.Series([], dtype='str'),
             'start': pd.Series([], dtype='datetime64[ns, utc]'),
             'epoch': pd.Series([], dtype='datetime64[ns, utc]'),
@@ -73,14 +73,19 @@ def collect_downlinks(
             })
     # check for geocentricity
     if numpy.all(events == 1):
-        df = df.append({
-            'station_name': station.name,
-            'geometry': geo.Point(station.longitude, station.latitude),
-            'satellite': satellite.name,
-            'start': start,
-            'epoch': start + (end - start) / 2,
-            'end': end
-        }, ignore_index=True)
+        df = pd.concat([
+            df,
+            pd.DataFrame.from_records(
+                {
+                    'station_name': station.name,
+                    'geometry': geo.Point(station.longitude, station.latitude),
+                    'satellite': satellite.name,
+                    'start': start,
+                    'epoch': start + (end - start) / 2,
+                    'end': end
+                }, index=[0]
+            )
+        ], ignore_index=True)
     # define variables for stepping through the events list
     t_rise = None
     t_culminate = None
@@ -100,14 +105,19 @@ def collect_downlinks(
                 # check if the observation meets minimum access duration,
                 # ground sunlit conditions, and satellite sunlit conditions
                 if (station.min_access_time <= t_set - t_rise <= max_access_time*2):
-                    df = df.append({
-                        'station_name': station.name,
-                        'geometry': geo.Point(station.longitude, station.latitude),
-                        'satellite': satellite.name,
-                        'start': pd.Timestamp(t_rise),
-                        'epoch': pd.Timestamp(t_culminate),
-                        'end': pd.Timestamp(t_set)
-                    }, ignore_index=True)
+                    df = pd.concat([
+                        df,
+                        pd.DataFrame.from_records(
+                            {
+                                'station_name': station.name,
+                                'geometry': geo.Point(station.longitude, station.latitude),
+                                'satellite': satellite.name,
+                                'start': pd.Timestamp(t_rise),
+                                'epoch': pd.Timestamp(t_culminate),
+                                'end': pd.Timestamp(t_set)
+                            }, index=[0]
+                        )
+                    ], ignore_index=True)
             # reset the variables for stepping through the event list
             t_rise = None
             t_culminate = None
@@ -131,14 +141,14 @@ def aggregate_downlinks(gdfs: List[gpd.GeoDataFrame]):
     """
     if all(len(gdf.index)==0 for gdf in gdfs):
         empty_df = pd.DataFrame({
-            'station_name': pd.Series([]),
-            'geometry': pd.Series([]),
-            'satellite': pd.Series([]),
-            'start': pd.Series([]),
-            'epoch': pd.Series([]),
-            'end': pd.Series([]),
-            'access': pd.Series([]),
-            'revisit': pd.Series([])
+            'station_name': pd.Series([], dtype="str"),
+            'geometry': pd.Series([], dtype="object"),
+            'satellite': pd.Series([], dtype="str"),
+            'start': pd.Series([], dtype="datetime64[ns, utc]"),
+            'epoch': pd.Series([], dtype="datetime64[ns, utc]"),
+            'end': pd.Series([], dtype="datetime64[ns, utc]"),
+            'access': pd.Series([], dtype="timedelta64[ns]"),
+            'revisit': pd.Series([], dtype="timedelta64[ns]")
         })
         return gpd.GeoDataFrame(
             empty_df,
@@ -168,7 +178,7 @@ def compute_latency(
     # Create a database to save latencies
     df = pd.DataFrame({
         'point_id': pd.Series([], dtype='int'),
-        'geometry': pd.Series([]),
+        'geometry': pd.Series([], dtype="object"),
         'satellite': pd.Series([], dtype='str'),
         'observing_instrument':pd.Series([], dtype='str'),
         'station_name':pd.Series([], dtype='str'),
@@ -181,15 +191,20 @@ def compute_latency(
     obs_time = observation['epoch']
     # return an empty dataframe if no downlink opportunities input
     if downlinks.empty:
-        df = df.append({'point_id': observation.point_id,
-                        'geometry': observation.geometry,
-                        'satellite': observation.satellite,
-                        'observing_instrument': observation.instrument,
-                        'station_name': None,
-                        'observed': obs_time,
-                        'downlinked': None,
-                        'latency': None
-                        }, ignore_index=True)
+        df = pd.concat([
+            df, pd.DataFrame.from_records(
+                {
+                    'point_id': observation.point_id,
+                    'geometry': observation.geometry,
+                    'satellite': observation.satellite,
+                    'observing_instrument': observation.instrument,
+                    'station_name': None,
+                    'observed': obs_time,
+                    'downlinked': None,
+                    'latency': None
+                }, index=[0]
+            )
+        ], ignore_index=True)
 
         return gpd.GeoDataFrame(df, geometry=df.geometry, crs="EPSG:4326")
     # filter the downlink opportunities to be only those after the
@@ -198,15 +213,21 @@ def compute_latency(
     # return an empty data frame if there are no downlink opportunities
     # after the observation
     if downlinksd.empty:
-        df = df.append({'point_id': observation.point_id,
-                        'geometry': observation.geometry,
-                        'satellite': observation.satellite,
-                        'observing_instrument': observation.instrument,
-                        'station_name': None,
-                        'observed': obs_time,
-                        'downlinked': None,
-                        'latency': None
-                        }, ignore_index=True)
+        df = pd.concat([
+            df,
+            pd.DataFrame.from_records(
+                {
+                    'point_id': observation.point_id,
+                    'geometry': observation.geometry,
+                    'satellite': observation.satellite,
+                    'observing_instrument': observation.instrument,
+                    'station_name': None,
+                    'observed': obs_time,
+                    'downlinked': None,
+                    'latency': None
+                }, index=[0]
+            )
+        ], ignore_index=True)
 
         return gpd.GeoDataFrame(df, geometry=df.geometry, crs="EPSG:4326")
     # reindex the downlink opportunities starting at zero
@@ -220,15 +241,21 @@ def compute_latency(
     # the first observation
     latency = pd.Timestamp(first_dl_time) - pd.Timestamp(obs_time)
 
-    df = df.append({'point_id': observation.point_id,
-                    'geometry': observation.geometry,
-                    'satellite': observation.satellite,
-                    'observing_instrument': observation.instrument,
-                    'station_name': first_dl_op.station_name,
-                    'observed': obs_time,
-                    'downlinked': first_dl_time,
-                    'latency': latency
-                    }, ignore_index=True)
+    df = pd.concat([
+        df,
+        pd.DataFrame.from_records(
+            {
+                'point_id': observation.point_id,
+                'geometry': observation.geometry,
+                'satellite': observation.satellite,
+                'observing_instrument': observation.instrument,
+                'station_name': first_dl_op.station_name,
+                'observed': obs_time,
+                'downlinked': first_dl_time,
+                'latency': latency
+            }, index=[0]
+        )
+    ], ignore_index=True)
 
     return gpd.GeoDataFrame(df, geometry=df.geometry, crs="EPSG:4326")
 
@@ -244,14 +271,14 @@ def aggregate_latencies(dfs: List[pd.DataFrame]):
     """
     if all(len(df.index)==0 for df in dfs):
         empty_df = pd.DataFrame({
-                'point_id': pd.Series([]),
-                'geometry': pd.Series([]),
-                'satellite': pd.Series([]),
-                'observing_instrument': pd.Series([]),
-                'station_name': pd.Series([]),
-                'observed': pd.Series([]),
-                'downlinked': pd.Series([]),
-                'latency': pd.Series([]),
+                'point_id': pd.Series([], dtype="int"),
+                'geometry': pd.Series([], dtype="object"),
+                'satellite': pd.Series([], dtype="str"),
+                'observing_instrument': pd.Series([], dtype="str"),
+                'station_name': pd.Series([], dtype="str"),
+                'observed': pd.Series([], dtype="datetime64[ns, utc]"),
+                'downlinked': pd.Series([], dtype="datetime64[ns, utc]"),
+                'latency': pd.Series([], dtype="timedelta64[ns]"),
                 }, ignore_index=True)
         return gpd.GeoDataFrame(
             empty_df,
