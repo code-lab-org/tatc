@@ -164,8 +164,6 @@ $(document).ready(function() {
   }
   scaleColorbar([]);
 
-  const coveragePoints = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
-  const coverageCells = viewer.scene.primitives.add(new Cesium.PrimitiveCollection());
   function processCoverage() {
     clearCoverage();
     $("#coverage-data").prop("disabled", false);
