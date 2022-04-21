@@ -202,7 +202,6 @@ $(document).ready(function() {
     $("#region-longitude-max").attr("min", $("#region-longitude-min").val());
   };
 
-  const points = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
   function generatePoints() {
     clearPoints();
     points.show = true;
@@ -234,8 +233,6 @@ $(document).ready(function() {
     points.removeAll();
   }
 
-  const cells = viewer.scene.primitives.add(new Cesium.PrimitiveCollection());
-  const cellOutlines = viewer.scene.primitives.add(new Cesium.PolylineCollection());
   function generateCells() {
     clearCells();
     cells.show = true;

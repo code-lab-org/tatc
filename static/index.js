@@ -9,6 +9,9 @@ var viewer = new Cesium.Viewer('cesiumContainer', {
   navigationInstructionsInitiallyVisible: false,
   timeline: true,
 });
+var points = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+var cells = viewer.scene.primitives.add(new Cesium.PrimitiveCollection());
+var cellOutlines = viewer.scene.primitives.add(new Cesium.PolylineCollection());
 function initializeCesium() {
   // perform get request
   $.get("/cesium/token")
@@ -28,6 +31,9 @@ function initializeCesium() {
       timeline: true,
       imageryProvider: new Cesium.IonImageryProvider({ assetId: 3845 })
     });
+    points = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+    cells = viewer.scene.primitives.add(new Cesium.PrimitiveCollection());
+    cellOutlines = viewer.scene.primitives.add(new Cesium.PolylineCollection());
   })
   .fail(function() {
     viewer.entities.removeAll();
