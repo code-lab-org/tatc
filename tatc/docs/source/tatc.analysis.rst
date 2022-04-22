@@ -4,6 +4,14 @@ tatc.analysis package
 Submodules
 ----------
 
+tatc.analysis.calibration module
+--------------------------------
+
+.. automodule:: tatc.analysis.calibration
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tatc.analysis.coverage module
 -----------------------------
 

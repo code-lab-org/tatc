@@ -17,14 +17,14 @@ import re
 
 from .. import constants
 
-
-class Orbit(BaseModel):
-    type: str = Field(..., description="Type of orbit.")
-
-
-class TwoLineElements(Orbit):
+class TwoLineElements(BaseModel):
     """
     Orbit defined with standard two line elements.
+
+    :param type: The type of orbit
+    :type type: literal["tle"], restricted: literal["tle"]
+    :param tle: The two line elements.
+    :type tle: list[str]
     """
 
     type: Literal["tle"] = Field("tle")
@@ -42,7 +42,7 @@ class TwoLineElements(Orbit):
     @validator("tle")
     def valid_tle(cls, v):
         """
-
+        Validate the two line element set
         """
         # based on orekit's TLE.isFormatOK function
         if len(v[0]) != 69:
@@ -73,12 +73,26 @@ class TwoLineElements(Orbit):
         return v
 
     def to_tle(self):
+        """
+        Return the two line element set for this orbit
+
+        :return: The two line element set  representation of the orbits.
+        :rtype: list[str]
+        """
+
         return self
 
 
-class OrbitBase(Orbit):
+class OrbitBase(BaseModel):
     """
-    Base class for orbit definition
+    Base class for orbit definition"
+
+    :param altitude:  Mean altitude (meters).
+    :type altitude: float
+    :param true_anomaly: True anomaly (degrees).
+    :type true_anomaly: float, default: 0
+    :param epoch: Timestamp (epoch) of the  initial orbital state.
+    :type epoch: :class:`datetime.datetime`, optional, default: None
     """
     altitude: float = Field(..., description="Mean altitude (meters).")
     true_anomaly: float = Field(0, description="True anomaly (degrees).", ge=0, lt=360)
@@ -90,6 +104,13 @@ class OrbitBase(Orbit):
 class CircularOrbit(OrbitBase):
     """
     Orbit specification using Keplerian elements for elliptical motion -- circular motion case.
+
+    :param type: The type of orbit.
+    :type type: literal["circular"], restricted: literal["circular"]
+    :param inclination: Orbit inclination (degrees).
+    :type inclination: float
+    :param right_ascension_ascending_node: Right ascension of ascending node (degrees).
+    :type right_ascension_ascending_node: float (0 to 360), default: 0
     """
 
     type: Literal["circular"] = Field("circular")
@@ -99,6 +120,12 @@ class CircularOrbit(OrbitBase):
     )
 
     def to_tle(self) -> TwoLineElements:
+        """
+        Create a two line element set  representation of the  orbit
+
+        :return: The two line element set  representation of the  orbit
+        :rtype: list[str]
+        """
         return KeplerianOrbit(
             altitude=self.altitude,
             inclination=self.inclination,

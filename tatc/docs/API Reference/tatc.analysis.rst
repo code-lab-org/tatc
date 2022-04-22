@@ -3,6 +3,14 @@ Analysis Module
 ===============
 This module contains information on the analysis functions used in TAT-C
 
+tatc.analysis.calibration module
+--------------------------------
+
+.. automodule:: tatc.analysis.calibration
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tatc.analysis.coverage module
 -----------------------------
 

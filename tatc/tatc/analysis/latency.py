@@ -32,16 +32,16 @@ def collect_downlinks(
     Collect satellite downlik opportunities to a groundstation of interest.
 
     :param station: The ground station of interest.
-    :type station: class:`tatc.schemas.point.GroundStation`
+    :type station: :class:`tatc.schemas.point.GroundStation`
     :param satellite: The satellite performing the downlink
-    :type satellite: class:`tatc.schemas.satellite.Satellite`
+    :type satellite: :class:`tatc.schemas.satellite.Satellite`
     :param start: The start of the mission window
-    :type start: class:`datetime.datetime`
+    :type start: :class:`datetime.datetime`
     :param end: The end of the mission window
-    :type end: class:`datetime.datetime`
-    :return: An instance of :class:`geopandas.GeoDataFrame`
+    :type end: :class:`datetime.datetime`
+    :return: An instance of  :class:`geopandas.GeoDataFrame`
         with all recorded downlink opportunities.
-    :rtype: class:`geopandas.GeoDataFrame`
+    :rtype: :class:`geopandas.GeoDataFrame`
     """
     # build a topocentric point at the designated geodetic point (the ground station)
     topos = wgs84.latlon(station.latitude, station.longitude)
@@ -135,9 +135,9 @@ def aggregate_downlinks(gdfs: List[gpd.GeoDataFrame]):
     Aggregate constellation downlink opportunities for a ground station of interest.
 
     :param gdfs: The individual downlink opportunities.
-    :type gdfs: list of class:`geopandas.GeoDataFrame`
-    :return: An instance of :class:`geopandas.GeoDataFrame` with aggregated observations.
-    :rtype: class:`geopandas.GeoDataFrame`
+    :type gdfs: list of :class:`geopandas.GeoDataFrame`
+    :return: An instance of  :class:`geopandas.GeoDataFrame` with aggregated observations.
+    :rtype: :class:`geopandas.GeoDataFrame`
     """
     if all(len(gdf.index)==0 for gdf in gdfs):
         empty_df = pd.DataFrame({
@@ -167,13 +167,13 @@ def compute_latency(
     """
     Compute data latency between an observation and the first downlink opportunity.
 
-    :param observation: An instance of :class:`geopandas.GeoDataFrame` containing
+    :param observation: An instance of  :class:`geopandas.GeoDataFrame` containing
         a single observation
-    :type observation: class:`geopandas.GeoDataFrame`
-    :param: downlink_ops_full: The full collection of dowlink opportunities
-    :type: downlink_ops_full: class:`geopandas.GeoDataFrame`
-    :return: An instance of :class:`geopandas.GeoDataFrame` with data latency information.
-    :rtype: class:`geopandas.GeoDataFrame`
+    :type observation: :class:`geopandas.GeoDataFrame`
+    :param downlink_ops_full: The full collection of dowlink opportunities
+    :type downlink_ops_full: :class:`geopandas.GeoDataFrame`
+    :return: An instance of  :class:`geopandas.GeoDataFrame` with data latency information.
+    :rtype: :class:`geopandas.GeoDataFrame`
     """
     # Create a database to save latencies
     df = pd.DataFrame({
@@ -264,10 +264,10 @@ def aggregate_latencies(dfs: List[pd.DataFrame]):
     Aggregate constellation latency information for a ground station of interest
 
     :param dfs: The individual downlink opportunities.
-    :type dfs: list class:`pandas.DataFrame`
-    :return: An instance of :class:`geopandas.GeoDataFrame` with
+    :type dfs: list :class:`pandas.DataFrame`
+    :return: An instance of  :class:`geopandas.GeoDataFrame` with
         aggregated latency information.
-    :rtype: :class:`geopandas.GeoDataFrame`
+    :rtype:  :class:`geopandas.GeoDataFrame`
     """
     if all(len(df.index)==0 for df in dfs):
         empty_df = pd.DataFrame({

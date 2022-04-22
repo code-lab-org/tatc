@@ -34,17 +34,17 @@ def collect_ground_track(
     Collect ground track points for a satellite of interest.
 
     :param satellite: The observing satellite
-    :type satellite: class:`tatc.schemas.satellite.Satellite`
+    :type satellite: :class:`tatc.schemas.satellite.Satellite`
     :param instrument: The instrument used to make observations
-    :type instrument: class:`tatc.schemas.instrument.Instrument`
+    :type instrument: :class:`tatc.schemas.instrument.Instrument`
     :param times: The list of times to sample.
     :type times: list
-    :param: target: A target region to prioritize operations.
-    :type target: class:`shapely.Polygon` or :class:`shapely.MultyPolygon`, optional
+    :param target: A target region to prioritize operations.
+    :type target: :class:`shapely.Polygon` or :class:`shapely.MultyPolygon`, optional
     :param mask: A mask to constrain ground track.
-    :type mask: class:`shapely.Polygon` or :class:`shapely.MultiPolygon`, optional
+    :type mask: :class:`shapely.Polygon` or :class:`shapely.MultiPolygon`, optional
     :return: An instance of :class:`geopandas.GeoDataFrame` with all recorded points.
-    :rtype: class:`geopandas.GeodataFrame`
+    :rtype: :class:`geopandas.GeodataFrame`
     """
 
     # load the timescale and define starting and ending points
@@ -118,15 +118,15 @@ def collect_ground_track_swath(
     Model the ground track swath for a satellite of interest.
 
     :param satellite: The observing satellite
-    :type satellite: class:`tatc.schemas.satellite.Satellite`
+    :type satellite: :class:`tatc.schemas.satellite.Satellite`
     :param instrument: The observing instrument
-    :type instrument: class:`tatc.schemas.instrument.Instrument`
+    :type instrument: :class:`tatc.schemas.instrument.Instrument`
     :param times: The list of times to sample
     :type times: list
-    :param: target: A target region to prioritize operations.
-    :type target: class:`shapely.Polygon` or :class:`shapely.MultyPolygon`, optional
+    :param target: A target region to prioritize operations.
+    :type target: :class:`shapely.Polygon` or :class:`shapely.MultyPolygon`, optional
     :param mask: A mask to constrain ground track.
-    :type mask: class:`shapely.Polygon` or :class:`shapely.MultiPolygon`, optional
+    :type mask: :class:`shapely.Polygon` or :class:`shapely.MultiPolygon`, optional
     :param target: An optionatarget region to prioritize operations.
     :param fast: Whether to use a fast (True) or accurate (False)
             projection. Fast uses EPSG:4087 (World Equidistant Cylindrical)
@@ -136,7 +136,7 @@ def collect_ground_track_swath(
     :param resolution: Resolution of the projected swath
     :type resolution: int, optional
     :return: An instance of :class:`geopandas.GeoDataFrame` with all recorded polygons.
-    :rtype: class:`geopandas.GeoDataFrame`
+    :rtype: :class:`geopandas.GeoDataFrame`
     """
     # first, compute the ground track of the satellite
     gdf = collect_ground_track(satellite, instrument, times, target, mask)

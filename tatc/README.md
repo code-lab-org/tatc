@@ -21,7 +21,7 @@ mode (`-e`) from current directory (`.`):
 python -m pip install -e .
 ```
 
-Now, the library `tatc` can be import from Python scripts running in the
+Now, the library `tatc` can be imported from Python scripts running in the
 environment. To verify, try:
 ```shell
 python

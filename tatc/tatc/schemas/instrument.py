@@ -17,6 +17,9 @@ from ..utils import compute_orbit_period
 
 
 class DutyCycleScheme(str, Enum):
+    """
+    Representation of duty cycle informaton
+    """
     fixed = "fixed"
     opportunistic = "opportunistic"
 
@@ -24,6 +27,21 @@ class DutyCycleScheme(str, Enum):
 class Instrument(BaseModel):
     """
     Representation of a remote sensing instrument.
+
+    :param name: Name of this instrument
+    :type  name: str
+    :param field_of_regard: Angular field (degrees) of possible observations (with pointing).
+    :type field_of_regard: float (0 to 360), default: 180
+    :param min_access_time: Minimum access (integration) time to record an observation.
+    :type min_access_time: :class:`datetime.timedelta`, default: 0
+    :param req_self_sunlit: Option to set the required instrument sunlit state for observation.
+    :type req_self_sunlit: bool, optional, default: None
+    :param req_target_sunlit: Option to set the required target sunlit state for observation.
+    :type req_target_sunlit: bool, optional, default: None
+    :param duty_cycle: Fraction of orbit the instrument is operational.
+    :type duty_cycle: :class:`pydantic.confloat`, default: 1
+    :param duty_cycle_scheme: Scheme for duty cycling instrument (default: fixed)
+    :type duty_cycle_scheme: :class:`tatc.schemas.instrument.DutyCycleScheme`, default: fixed
     """
 
     name: str = Field(..., description="Name of this instrument.")
@@ -58,12 +76,14 @@ class Instrument(BaseModel):
     def is_valid_observation(self, eph, time, position):
         """Determines if an instrument can provide a valid observations.
 
-        Args:
-            eph (:obj:`SpiceKernel`): Planetary ephemerides (Skyfield).
-            time (:obj:`Time`): Observation time (Skyfield).
-            position (:obj:`Geocentric`): Instrument geocentric position (Skyfield).
-        Returns:
-            bool: True if instrument can provide valid observations, otherwise False
+        :param eph: Planetary ephemerides (Skyfield).
+        :type eph: :obj:`SpiceKernel`
+        :param time: Observation time (Skyfield).
+        :type time: :obj:`Time`
+        :param position: Instrument geocentric position (Skyfield).
+        :type position: :obj:`Geocentric`
+        :return: True if instrument can provide valid observations, otherwise False
+        :rtype: bool
         """
         if self.req_target_sunlit is not None:
             subpoint = wgs84.subpoint(position)
@@ -81,14 +101,18 @@ class Instrument(BaseModel):
     def generate_ops_intervals(self, eph, ts, sat, times, target_region=None):
         """Generate intervals when this instrument is operational.
 
-        Args:
-            eph (:obj:`SpiceKernel`): Planetary ephemerides (Skyfield).
-            ts (:obj:`Timescale`): Timescale (Skyfield).
-            sat (:obj:`EarthSatellite`): Satellite hosting this instrument (Skyfield).
-            times (List[datetime]): List of potential observation times.
-            target_region (:obj:`Polygon` or :obj:`MultiPolygon`): Target region (default: None).
-        Returns:
-            :obj:`DataFrame`: the intervals when the instrument is operational
+        :param eph: Planetary ephemerides (Skyfield).
+        :type eph: :obj:`SpiceKernel`
+        :param ts: Timescale (Skyfield).
+        :type ts: :obj:`Timescale`
+        :param sat: Satellite hosting this instrument (Skyfield).
+        :type sat: :obj:`EarthSatellite`
+        :param times: List of potential observation times.
+        :type times list[:obj:`datetime.datetime`]
+        :param target_region: Target region (default: None).
+        :type target_region: :obj:`Polygon` or :obj:`MultiPolygon`
+        :returns: The intervals when the instrument is operational
+        :rtype: :obj:`DataFrame`
         """
         if self.duty_cycle >= 1:
             return pd.Series(
