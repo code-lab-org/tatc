@@ -17,18 +17,7 @@ import re
 
 from .. import constants
 
-
-class Orbit(BaseModel):
-    """
-    Base class for orbit representation
-
-    :param type: Type of orbit
-    :type type: str
-    """
-    type: str = Field(..., description="Type of orbit.")
-
-
-class TwoLineElements(Orbit):
+class TwoLineElements(BaseModel):
     """
     Orbit defined with standard two line elements.
 
@@ -94,7 +83,7 @@ class TwoLineElements(Orbit):
         return self
 
 
-class OrbitBase(Orbit):
+class OrbitBase(BaseModel):
     """
     Base class for orbit definition"
 
