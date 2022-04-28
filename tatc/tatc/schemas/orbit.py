@@ -141,6 +141,12 @@ class SunSynchronousOrbit(OrbitBase):
     """
 
     type: Literal["sso"] = Field("sso")
+    altitude: float = Field(
+        ...,
+        description="Mean altitude (meters).",
+        ge=0,
+        lt=12352000 - constants.earth_mean_radius
+    )
     equator_crossing_time: time = Field(
         ..., description="Equator crossing time (local solar time)."
     )
