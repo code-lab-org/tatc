@@ -2,7 +2,7 @@ name: tatc_env
 channels:
   - conda-forge
 dependencies:
-  - python=3.8
+  - python
   - cartopy=0.18.0
   - geopandas=0.9.0
   - geoplot=0.4.3
@@ -13,6 +13,5 @@ dependencies:
   - pydantic=1.8.2
   - pyproj=3.1.0
   - shapely=1.7.1
-  - pip:
-    - sgp4
-    - skyfield
+  - skyfield
+  - sgp4
