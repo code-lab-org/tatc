@@ -6,6 +6,11 @@ Numerical constants.
 """
 
 import numpy as np
+from skyfield.api import load
+
+
+# load ephemeris file
+de421 = load("de421.bsp")
 
 # wgs84 oblate spheroid parameters
 earth_flattening = 1 / 298.257223563
