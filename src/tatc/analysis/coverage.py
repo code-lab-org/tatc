@@ -140,44 +140,52 @@ def collect_observations(
         sat_alt, sat_az, sat_dist = (sat - topos).at(t[0]).altaz()
         # if ommiting solar angles
         if omit_solar:
-            df = pd.concat([
-                df,
-                pd.DataFrame.from_records(
-                    {
-                        "point_id": point.id,
-                        "geometry": geo.Point(point.longitude, point.latitude),
-                        "satellite": satellite.name,
-                        "instrument": instrument.name,
-                        "start": start,
-                        "epoch": start + (end - start) / 2,
-                        "end": end,
-                        "sat_alt": sat_alt.degrees,
-                        "sat_az": sat_az.degrees,
-                    }, index=[0]
-                )
-            ], ignore_index=True)
+            df = pd.concat(
+                [
+                    df,
+                    pd.DataFrame.from_records(
+                        {
+                            "point_id": point.id,
+                            "geometry": geo.Point(point.longitude, point.latitude),
+                            "satellite": satellite.name,
+                            "instrument": instrument.name,
+                            "start": start,
+                            "epoch": start + (end - start) / 2,
+                            "end": end,
+                            "sat_alt": sat_alt.degrees,
+                            "sat_az": sat_az.degrees,
+                        },
+                        index=[0],
+                    ),
+                ],
+                ignore_index=True,
+            )
         # otherwise if solar angles are included
         else:
-            df = pd.concat([
-                df,
-                pd.DataFrame.from_records(
-                    {
-                        "point_id": point.id,
-                        "geometry": geo.Point(point.longitude, point.latitude),
-                        "satellite": satellite.name,
-                        "instrument": instrument.name,
-                        "start": start,
-                        "epoch": start + (end - start) / 2,
-                        "end": end,
-                        "sat_alt": sat_alt.degrees,
-                        "sat_az": sat_az.degrees,
-                        "sat_sunlit": None,
-                        "solar_alt": None,
-                        "solar_az": None,
-                        "solar_time": None
-                    }, index=[0]
-                )
-            ], ignore_index=True)
+            df = pd.concat(
+                [
+                    df,
+                    pd.DataFrame.from_records(
+                        {
+                            "point_id": point.id,
+                            "geometry": geo.Point(point.longitude, point.latitude),
+                            "satellite": satellite.name,
+                            "instrument": instrument.name,
+                            "start": start,
+                            "epoch": start + (end - start) / 2,
+                            "end": end,
+                            "sat_alt": sat_alt.degrees,
+                            "sat_az": sat_az.degrees,
+                            "sat_sunlit": None,
+                            "solar_alt": None,
+                            "solar_az": None,
+                            "solar_time": None,
+                        },
+                        index=[0],
+                    ),
+                ],
+                ignore_index=True,
+            )
         # compute the access time for the observation (end - start)
         df["access"] = df["end"] - df["start"]
         # compute the revisit time for each observation (previous end - start)
@@ -226,44 +234,56 @@ def collect_observations(
                 ):
                     # if omitting solar angles
                     if omit_solar:
-                        df = pd.concat([
-                            df,
-                            pd.DataFrame.from_records(
-                                {
-                                    "point_id": point.id,
-                                    "geometry": geo.Point(point.longitude, point.latitude),
-                                    "satellite": satellite.name,
-                                    "instrument": instrument.name,
-                                    "start": pd.Timestamp(t_rise),
-                                    "epoch": pd.Timestamp(t_culminate),
-                                    "end": pd.Timestamp(t_set),
-                                    "sat_alt": sat_alt.degrees,
-                                    "sat_az": sat_az.degrees,
-                                }, index=[0]
-                            )
-                        ], ignore_index=True)
+                        df = pd.concat(
+                            [
+                                df,
+                                pd.DataFrame.from_records(
+                                    {
+                                        "point_id": point.id,
+                                        "geometry": geo.Point(
+                                            point.longitude, point.latitude
+                                        ),
+                                        "satellite": satellite.name,
+                                        "instrument": instrument.name,
+                                        "start": pd.Timestamp(t_rise),
+                                        "epoch": pd.Timestamp(t_culminate),
+                                        "end": pd.Timestamp(t_set),
+                                        "sat_alt": sat_alt.degrees,
+                                        "sat_az": sat_az.degrees,
+                                    },
+                                    index=[0],
+                                ),
+                            ],
+                            ignore_index=True,
+                        )
                     # otherwise if solar angles are included
                     else:
-                        df = pd.concat([
-                            df,
-                            pd.DataFrame.from_records(
-                                {
-                                    "point_id": point.id,
-                                    "geometry": geo.Point(point.longitude, point.latitude),
-                                    "satellite": satellite.name,
-                                    "instrument": instrument.name,
-                                    "start": pd.Timestamp(t_rise),
-                                    "epoch": pd.Timestamp(t_culminate),
-                                    "end": pd.Timestamp(t_set),
-                                    "sat_alt": sat_alt.degrees,
-                                    "sat_az": sat_az.degrees,
-                                    "sat_sunlit": sat_sunlit,
-                                    "solar_alt": solar_alt.degrees,
-                                    "solar_az": solar_az.degrees,
-                                    "solar_time": solar_time,
-                                }, index=[0]
-                            )
-                        ], ignore_index=True)
+                        df = pd.concat(
+                            [
+                                df,
+                                pd.DataFrame.from_records(
+                                    {
+                                        "point_id": point.id,
+                                        "geometry": geo.Point(
+                                            point.longitude, point.latitude
+                                        ),
+                                        "satellite": satellite.name,
+                                        "instrument": instrument.name,
+                                        "start": pd.Timestamp(t_rise),
+                                        "epoch": pd.Timestamp(t_culminate),
+                                        "end": pd.Timestamp(t_set),
+                                        "sat_alt": sat_alt.degrees,
+                                        "sat_az": sat_az.degrees,
+                                        "sat_sunlit": sat_sunlit,
+                                        "solar_alt": solar_alt.degrees,
+                                        "solar_az": solar_az.degrees,
+                                        "solar_time": solar_time,
+                                    },
+                                    index=[0],
+                                ),
+                            ],
+                            ignore_index=True,
+                        )
             # reset the variables for stepping through the event list
             t_rise = None
             t_culminate = None
@@ -346,7 +366,7 @@ def aggregate_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
                 "satellite": pd.Series([], dtype="str"),
                 "instrument": pd.Series([], dtype="str"),
                 "access": pd.Series([], dtype="timedelta64[ns]"),
-                "revisit": pd.Series([], dtype="timedelta64[ns]")
+                "revisit": pd.Series([], dtype="timedelta64[ns]"),
             }
         )
         return gpd.GeoDataFrame(empty_df, geometry=empty_df.geometry, crs="EPSG:4326")

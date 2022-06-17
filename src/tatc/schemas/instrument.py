@@ -20,6 +20,7 @@ class DutyCycleScheme(str, Enum):
     """
     Representation of duty cycle informaton
     """
+
     fixed = "fixed"
     opportunistic = "opportunistic"
 
