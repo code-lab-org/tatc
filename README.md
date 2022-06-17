@@ -6,20 +6,37 @@ Earth-observing space missions.
 
 ## Installation
 
-TAT-C uses conda to manage dependencies.
+TAT-C uses conda and the conda-forge channel for distribution because some of
+the underlying libraries are platform dependent.
 
-Configure conda package:
+The simplest way to use TAT-C is to install it with the command:
 ```shell
-conda-build tatc
-conda install --use-local tatc
+conda install tatc -c conda-forge
+```
+Then, TAT-C is available for use in any Python script my importing:
+```python
+import python
 ```
 
-Now, the library `tatc` can be imported from Python scripts running in the
-environment. To verify, try:
+Alternatively, to run TAT-C from a local source, (e.g., for editing
+TAT-C functionality), clone this repository and create a new conda environment:
 ```shell
-python
-import tatc
+conda env create -f environment.yml
 ```
+Then, activate the tatc_env environment and install the tatc library:
+```shell
+conda activate tatc_env
+pip install -e .
+```
+
+### Faster Installation
+
+For faster dependency solving during installation, consider installing the
+mamba package:
+```shell
+conda install mamba -c conda-forge
+```
+and replace `conda` with `mamba` in the installation instructions above.
 
 ## Unit Tests
 
