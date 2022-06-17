@@ -29,11 +29,11 @@ class Point(BaseModel):
 
 class GroundStation(BaseModel):
     """
-    Representation of a grounstation in the geodetic frame
+    Representation of a groun station in the geodetic frame.
     """
 
     name: str = Field(
-        ..., description="The name of the groundstation", example="station 1"
+        ..., description="The name of the ground station", example="station 1"
     )
     latitude: float = Field(
         ..., description="Latitude (decimal degrees).", ge=-90, le=90, example=40.74259
@@ -47,7 +47,7 @@ class GroundStation(BaseModel):
     )
     min_elevation_angle: float = Field(
         0,
-        description="The minimum elevation angle required to downlink with the groundstation",
+        description="The minimum elevation angle (decimal degrees) required to downlink with the ground station",
         ge=0,
         le=90,
     )
