@@ -17,6 +17,7 @@ import re
 
 from .. import constants
 
+
 class TwoLineElements(BaseModel):
     """
     Orbit defined with standard two line elements.
@@ -38,6 +39,149 @@ class TwoLineElements(BaseModel):
             "2 25544  51.6455  41.4969 0003508  68.0432  78.3395 15.48957534286754",
         ],
     )
+
+    def get_catalog_number(self) -> int:
+        """
+        Gets the TLE catalog number.
+        """
+        return int(self.tle[0][2:7])
+
+    def get_classification(self) -> str:
+        """
+        Gets the TLE classification type (U: unclassified; C: classified).
+        """
+        return self.tle[0][7]
+
+    def get_international_designator(self) -> str:
+        """
+        Gets the TLE international designator.
+        """
+        year = self.tle[0][9:11]
+        launch = self.tle[0][11:14]
+        piece = self.tle[0][14:17]
+        return str(
+            ("" if not year.isdigit() else "20" if int(year) < 57 else "19")
+            + year
+            + "-"
+            + launch
+            + piece
+        ).strip()
+
+    def get_epoch(self) -> datetime:
+        """
+        Gets the TLE epoch time.
+        """
+        year = int(self.tle[0][18:20])
+        days = float(self.tle[0][20:32])
+        return datetime(
+            year + (2000 if year < 57 else 1900), 1, 1, tzinfo=timezone.utc
+        ) + timedelta(days=days)
+
+    def get_first_derivative_mean_motion(self) -> float:
+        """
+        Gets the first derivative of mean motion (ballistic coefficient).
+        """
+        return float(self.tle[0][33:43])
+
+    def get_second_derivative_mean_motion(self) -> float:
+        """
+        Gets the second derivative of mean motion.
+        """
+        return float("0." + self.tle[0][44:50].strip()) * 10 ** (
+            int(self.tle[0][50:52])
+        )
+
+    def get_b_star(self) -> float:
+        """
+        Gets the b-star term (drag or radiation pressure coefficient).
+        """
+        return float("0." + self.tle[0][53:59].strip()) * 10 ** (
+            int(self.tle[0][59:61])
+        )
+
+    def get_ephemeris_type(self) -> int:
+        """
+        Gets the TLE ephemeris type.
+        """
+        return int(self.tle[0][62])
+
+    def get_element_set_number(self) -> int:
+        """
+        Gets the TLE element set number.
+        """
+        return int(self.tle[0][64:68])
+
+    def get_inclination(self) -> float:
+        """
+        Gets the orbit inclination (decimal degrees).
+        """
+        return float(self.tle[1][8:16])
+
+    def get_right_ascension_ascending_node(self) -> float:
+        """
+        Gets the right ascension of ascending node (decimal degrees).
+        """
+        return float(self.tle[1][17:25])
+
+    def get_eccentricity(self) -> float:
+        """
+        Gets the eccentricity.
+        """
+        return float("0." + self.tle[1][26:33].strip())
+
+    def get_perigee_argument(self) -> float:
+        """
+        Gets the argument of perigee (decimal degrees).
+        """
+        return float(self.tle[1][34:42])
+
+    def get_mean_anomaly(self) -> float:
+        """
+        Gets the mean anomaly (decimal degrees).
+        """
+        return float(self.tle[1][43:51])
+
+    def get_mean_motion(self) -> float:
+        """
+        Gets the mean motion (revolutions per day).
+        """
+        return float(self.tle[1][52:63])
+
+    def get_revolution_number_at_epoch(self) -> int:
+        """
+        Gets the revolution number at epoch.
+        """
+        return int(self.tle[1][63:68])
+
+    def get_semimajor_axis(self) -> float:
+        """
+        Gets the semimajor axis (meters).
+        """
+        mean_motion_rad_s = self.get_mean_motion() * 2 * np.pi / 86400
+        return np.power(
+            constants.earth_mu / mean_motion_rad_s ** 2,
+            1 / 3,
+        )
+
+    def get_altitude(self) -> float:
+        """
+        Gets the altitude (meters).
+        """
+        return self.get_semimajor_axis() - constants.earth_mean_radius
+
+    def get_true_anomaly(self) -> float:
+        """
+        Gets the true anomaly (decimal degrees).
+        """
+        M = np.radians(self.get_mean_anomaly())
+        e = self.get_eccentricity()
+        nu = (
+            M
+            + (2 * e - (1 / 4) * e ** 3) * np.sin(M)
+            + (5 / 4) * e ** 2 * np.sin(2 * M)
+            + (13 / 12) * e ** 3 * np.sin(3 * M)
+        )
+        return np.degrees(nu)
 
     @validator("tle")
     def valid_tle(cls, v):
@@ -74,10 +218,7 @@ class TwoLineElements(BaseModel):
 
     def to_tle(self):
         """
-        Return the two line element set for this orbit
-
-        :return: The two line element set  representation of the orbits.
-        :rtype: list[str]
+        Return the two line element set for this orbit.
         """
 
         return self
@@ -94,10 +235,12 @@ class OrbitBase(BaseModel):
     :param epoch: Timestamp (epoch) of the  initial orbital state.
     :type epoch: :class:`datetime.datetime`, optional, default: None
     """
+
     altitude: float = Field(..., description="Mean altitude (meters).")
     true_anomaly: float = Field(0, description="True anomaly (degrees).", ge=0, lt=360)
     epoch: Optional[datetime] = Field(
-        None, description="Timestamp (epoch) of the initial orbital state."
+        datetime.now(tz=timezone.utc),
+        description="Timestamp (epoch) of the initial orbital state.",
     )
 
 
@@ -121,10 +264,7 @@ class CircularOrbit(OrbitBase):
 
     def to_tle(self) -> TwoLineElements:
         """
-        Create a two line element set  representation of the  orbit
-
-        :return: The two line element set  representation of the  orbit
-        :rtype: list[str]
+        Create a two line element set representation of the orbit.
         """
         return KeplerianOrbit(
             altitude=self.altitude,
@@ -145,7 +285,7 @@ class SunSynchronousOrbit(OrbitBase):
         ...,
         description="Mean altitude (meters).",
         ge=0,
-        lt=12352000 - constants.earth_mean_radius
+        lt=12352000 - constants.earth_mean_radius,
     )
     equator_crossing_time: time = Field(
         ..., description="Equator crossing time (local solar time)."
@@ -155,9 +295,24 @@ class SunSynchronousOrbit(OrbitBase):
         description="True, if the equator crossing time is ascending (south-to-north).",
     )
 
-    def to_tle(self) -> TwoLineElements:
-        semimajor_axis = constants.earth_mean_radius + self.altitude
-        inclination = np.arccos(-np.power(semimajor_axis / 12352000, 7 / 2))
+    def get_inclination(self):
+        """
+        Gets the inclination (decimal degrees).
+        """
+        return np.degrees(
+            np.arccos(-np.power(self.get_semimajor_axis() / 12352000, 7 / 2))
+        )
+
+    def get_semimajor_axis(self):
+        """
+        Gets the semimajor axis (meters).
+        """
+        return constants.earth_mean_radius + self.altitude
+
+    def get_right_ascension_ascending_node(self):
+        """
+        Gets the right ascension of ascending node (decimal degrees).
+        """
         ect_day = (
             timedelta(
                 hours=self.equator_crossing_time.hour,
@@ -167,27 +322,26 @@ class SunSynchronousOrbit(OrbitBase):
             )
             / timedelta(days=1)
         )
-        if self.epoch is None:
-            epoch = datetime.now(tz=timezone.utc)
-        else:
-            epoch = self.epoch
         ts = load.timescale()
-        t = ts.from_datetime(epoch)
-        eph = load("de421.bsp")
-        sun = eph["sun"]
-        earth = eph["earth"]
+        t = ts.from_datetime(self.epoch)
+        sun = constants.de421["sun"]
+        earth = constants.de421["earth"]
         ra, _, _ = earth.at(t).observe(sun).radec()
-        right_ascension_ascending_node = (
-            ra.radians + 2 * np.pi * ect_day - np.pi * self.equator_crossing_ascending
-        ) % (2 * np.pi)
-        if right_ascension_ascending_node < 0:
-            right_ascension_ascending_node += 2 * np.pi
+        return (
+            ra._degrees + 360 * ect_day + 180 * self.equator_crossing_ascending
+        ) % 360
+
+    def to_tle(self) -> TwoLineElements:
+        """
+        Create a two line element set representation of the orbit.
+        """
+        semimajor_axis = constants.earth_mean_radius + self.altitude
         return KeplerianOrbit(
             altitude=self.altitude,
-            inclination=np.degrees(inclination),
-            right_ascension_ascending_node=np.degrees(right_ascension_ascending_node),
+            inclination=self.get_inclination(),
+            right_ascension_ascending_node=self.get_right_ascension_ascending_node(),
             true_anomaly=self.true_anomaly,
-            epoch=epoch,
+            epoch=self.epoch,
         ).to_tle()
 
 
@@ -202,41 +356,51 @@ class KeplerianOrbit(CircularOrbit):
         0, description="Perigee argument (degrees).", ge=0, lt=360
     )
 
-    def to_tle(self) -> TwoLineElements:
-        semimajor_axis = constants.earth_mean_radius + self.altitude
-        mean_motion = np.sqrt(constants.earth_mu / semimajor_axis ** 3)
-        eccentricity = self.eccentricity
-        inclination = np.radians(self.inclination)
-        perigee_argument = np.radians(self.perigee_argument)
-        right_ascension_ascending_node = np.radians(self.right_ascension_ascending_node)
-        true_anomaly = np.radians(self.true_anomaly)
-        mean_anomaly = (
-            true_anomaly
-            - 2 * eccentricity * np.sin(true_anomaly)
-            + (3 / 4 * eccentricity ** 2 + 1 / 8 * eccentricity ** 4)
-            * np.sin(2 * true_anomaly)
-            - 1 / 3 * eccentricity ** 3 * np.sin(3 * true_anomaly)
-            + 5 / 32 * eccentricity ** 4 * np.sin(4 * true_anomaly)
+    def get_semimajor_axis(self):
+        """
+        Gets the semimajor axis (meters).
+        """
+        return constants.earth_mean_radius + self.altitude
+
+    def get_mean_motion(self):
+        """
+        Gets the mean motion (revolutions per day).
+        """
+        mean_motion_rad_s = np.sqrt(constants.earth_mu / self.get_semimajor_axis() ** 3)
+        return mean_motion_rad_s * 86400 / (2 * np.pi)
+
+    def get_mean_anomaly(self):
+        """
+        Gets the mean anomaly (decimal degrees).
+        """
+        e = self.eccentricity
+        nu = np.radians(self.true_anomaly)
+        M = (
+            nu
+            - 2 * e * np.sin(nu)
+            + (3 / 4 * e ** 2 + 1 / 8 * e ** 4) * np.sin(2 * nu)
+            - 1 / 3 * e ** 3 * np.sin(3 * nu)
+            + 5 / 32 * e ** 4 * np.sin(4 * nu)
         )
-        if self.epoch is None:
-            epoch = datetime.now(tz=timezone.utc)
-        else:
-            epoch = self.epoch
+        return np.degrees(M)
+
+    def to_tle(self) -> TwoLineElements:
         satrec = Satrec()
         satrec.sgp4init(
             WGS72,
             "i",
             0,
-            (epoch - datetime(1949, 12, 31, tzinfo=timezone.utc)) / timedelta(days=1),
+            (self.epoch - datetime(1950, 1, 1, tzinfo=timezone.utc))
+            / timedelta(days=1),
             0,
             0.0,
             0.0,
-            eccentricity,
-            perigee_argument,
-            inclination,
-            mean_anomaly,
-            mean_motion * 60,
-            right_ascension_ascending_node,
+            self.eccentricity,
+            np.radians(self.perigee_argument),
+            np.radians(self.inclination),
+            np.radians(self.get_mean_anomaly()),
+            self.get_mean_motion() * 2 * np.pi / 1440,
+            np.radians(self.right_ascension_ascending_node),
         )
         tle1, tle2 = exporter.export_tle(satrec)
         return TwoLineElements(tle=[tle1.replace("\x00", "U"), tle2])
