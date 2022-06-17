@@ -20,14 +20,17 @@ Then, TAT-C is available for use in any Python script my importing:
 import python
 ```
 
-Alternatively, to run TAT-C from a local source, (e.g., for editing
+Alternatively, to run TAT-C from a local editable source, (e.g., for modifying
 TAT-C functionality), clone this repository and create a new conda environment:
 ```shell
 conda env create -f environment.yml
 ```
-Then, activate the tatc_env environment and install the tatc library:
+Then, activate the tatc_env environment:
 ```shell
 conda activate tatc_env
+```
+And finally install the tatc library in "editable" mode:
+```shell
 pip install -e .
 ```
 
