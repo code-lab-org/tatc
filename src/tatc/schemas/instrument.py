@@ -10,6 +10,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, confloat
 from datetime import timedelta
 import pandas as pd
+import numpy as np
 from skyfield.api import wgs84, EarthSatellite
 from shapely.geometry import Point
 
@@ -75,24 +76,36 @@ class Instrument(BaseModel):
         description="Scheme for duty cycling instrument (default: fixed).",
     )
 
-    def is_valid_observation(self, time, position):
+    def is_valid_observation(self, sat, time, target_region=None):
         """Determines if an instrument can provide a valid observations.
 
-        :param time: Observation time (Skyfield).
+        :param sat: Satellite hosting this instrument (Skyfield).
+        :type sat: :obj:`EarthSatellite`
+        :param time: Observation time(s) (Skyfield).
         :type time: :obj:`Time`
-        :param position: Instrument geocentric position (Skyfield).
-        :type position: :obj:`Geocentric`
+        :param target_region: Target region (default: None).
+        :type target_region: :obj:`Polygon` or :obj:`MultiPolygon`
         :return: True if instrument can provide valid observations, otherwise False
         :rtype: bool
         """
-        is_valid = True
-        if self.req_target_sunlit is not None:
-            subpoint = wgs84.subpoint_of(position).at(time)
-            if self.req_target_sunlit != subpoint.is_sunlit(de421):
-                is_valid = False
+        is_scalar = isinstance(time.tt, float)
+        is_valid = True if is_scalar else np.ones(len(time), dtype=bool)
         if self.req_self_sunlit is not None:
-            if self.req_self_sunlit != position.is_sunlit(de421):
-                is_valid = False
+            p = sat.at(time)
+            if is_scalar:
+                is_valid = is_valid and (self.req_self_sunlit == p.is_sunlit(de421))
+            else:
+                is_valid = np.logical_and(
+                    is_valid, self.req_self_sunlit == p.is_sunlit(de421)
+                )
+        if self.req_target_sunlit is not None:
+            p = wgs84.subpoint_of(sat.at(time)).at(time)
+            if is_scalar:
+                is_valid = is_valid and (self.req_target_sunlit == p.is_sunlit(de421))
+            else:
+                is_valid = np.logical_and(
+                    is_valid, self.req_target_sunlit == p.is_sunlit(de421)
+                )
         return is_valid
 
     def generate_ops_intervals(self, sat, times, target_region=None):
@@ -113,7 +126,7 @@ class Instrument(BaseModel):
             )
         else:
             # determine operational/non-operational periods based on duty cycle
-            satellite_height = wgs84.subpoint_of(
+            satellite_height = wgs84.geographic_position_of(
                 sat.at(timescale.utc(times[0]))
             ).elevation.m
             orbit_period = timedelta(seconds=compute_orbit_period(satellite_height))
@@ -131,13 +144,12 @@ class Instrument(BaseModel):
                 # construct list of intervals based on opportunistic observation
                 ops_intervals = pd.Series([], dtype="interval")
                 # pre-compute skyfield times, positions, and subpoints
-                ts_times = [timescale.from_datetime(time) for time in times]
-                positions = [sat.at(time) for time in ts_times]
-                subpoints = [wgs84.subpoint_of(position) for position in positions]
+                ts_times = timescale.from_datetime(times)
+                subpoints = wgs84.subpoint_of(sat.at(ts_times))
                 # loop over each supplied time
                 for i, time in enumerate(times):
                     if (
-                        self.is_valid_observation(ts_times[i], positions[i])
+                        self.is_valid_observation(sat, ts_times[i])
                         and (
                             target_region is None
                             or target_region.contains(
