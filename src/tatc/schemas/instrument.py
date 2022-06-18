@@ -14,12 +14,7 @@ import numpy as np
 from skyfield.api import wgs84, EarthSatellite
 from shapely.geometry import Point
 
-from ..utils import (
-    compute_orbit_period,
-    field_of_regard_to_swath_width,
-    compute_min_altitude,
-)
-from .. import constants
+from .. import constants, utils
 from ..constants import de421, timescale
 
 
@@ -91,7 +86,7 @@ class Instrument(BaseModel):
         Returns:
             float: The observation diameter (meters).
         """
-        return field_of_regard_to_swath_width(height, self.field_of_regard)
+        return utils.field_of_regard_to_swath_width(height, self.field_of_regard)
 
     def get_min_elevation_angle(self, height) -> float:
         """
@@ -103,7 +98,7 @@ class Instrument(BaseModel):
         Returns:
             float: The minimum elevation angle (degrees) for observation.
         """
-        return compute_min_altitude(height, self.field_of_regard)
+        return utils.compute_min_altitude(height, self.field_of_regard)
 
     def is_valid_observation(self, sat, time) -> bool:
         """Determines if an instrument can provide a valid observations.
@@ -156,7 +151,7 @@ class Instrument(BaseModel):
             satellite_height = wgs84.geographic_position_of(
                 sat.at(timescale.utc(times[0]))
             ).elevation.m
-            orbit_period = timedelta(seconds=compute_orbit_period(satellite_height))
+            orbit_period = timedelta(seconds=utils.compute_orbit_period(satellite_height))
             ops_duration = orbit_period * self.duty_cycle
             no_ops_duration = orbit_period - ops_duration
 

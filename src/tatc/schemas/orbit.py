@@ -15,9 +15,7 @@ from typing import List, Optional
 from typing_extensions import Literal
 import re
 
-from .. import constants
-
-from .. import utils
+from .. import constants, utils
 
 
 class TwoLineElements(BaseModel):
@@ -289,14 +287,13 @@ class OrbitBase(BaseModel):
         """
         Gets the mean motion (revolutions per day).
         """
-        mean_motion_rad_s = np.sqrt(constants.earth_mu / self.get_semimajor_axis() ** 3)
-        return mean_motion_rad_s * 86400 / (2 * np.pi)
+        return 1 / (self.get_orbit_period()/timedelta(days=1))
 
     def get_orbit_period(self) -> timedelta:
         """
         Gets the approximate orbit period.
         """
-        return timedelta(days=1 / self.get_mean_motion())
+        return timedelta(seconds=utils.compute_orbit_period(self.altitude))
 
 
 class CircularOrbit(OrbitBase):

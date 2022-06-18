@@ -21,7 +21,6 @@ from ..utils import (
     compute_min_altitude,
     swath_width_to_field_of_regard,
     compute_max_access_time,
-    compute_orbit_period,
 )
 from ..constants import de421, timescale
 

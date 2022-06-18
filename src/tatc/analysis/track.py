@@ -19,7 +19,6 @@ from ..schemas.instrument import Instrument, DutyCycleScheme
 from ..utils import (
     normalize_geometry,
     field_of_regard_to_swath_width,
-    compute_orbit_period,
 )
 from ..constants import timescale
 

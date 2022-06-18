@@ -163,13 +163,9 @@ def compute_orbit_period(height):
     Returns:
         float: The orbital period (seconds).
     """
-    return (
-        2
-        * np.pi
-        * np.sqrt(
-            np.power(constants.earth_mean_radius + height, 3) / constants.earth_mu
-        )
-    )
+    semimajor_axis = constants.earth_mean_radius + height
+    mean_motion_rad_s = np.sqrt(constants.earth_mu / semimajor_axis ** 3)
+    return 2 * np.pi / mean_motion_rad_s
 
 
 @njit
