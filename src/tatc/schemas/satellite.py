@@ -84,7 +84,7 @@ class TrainConstellation(Satellite):
         degrees) for adjacent member satellites.
         """
         if self.repeat_ground_track:
-            return 360 * (self.interval / timedelta(days=1))
+            return -1 * 360 * (self.interval / timedelta(days=1))
         else:
             return 0
 
@@ -93,7 +93,7 @@ class TrainConstellation(Satellite):
             Satellite(
                 name=f"{self.name} #{i+1:02d}",
                 orbit=self.orbit.get_derived_orbit(
-                    i * self.get_delta_mean_anomaly(), -1 * i * self.get_delta_raan()
+                    i * self.get_delta_mean_anomaly(), i * self.get_delta_raan()
                 ),
                 instruments=copy.deepcopy(self.instruments),
             )

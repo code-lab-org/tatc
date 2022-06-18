@@ -147,6 +147,12 @@ class TwoLineElements(BaseModel):
         """
         return float(self.tle[1][52:63])
 
+    def get_orbit_period(self) -> timedelta:
+        """
+        Gets the approximate orbit period.
+        """
+        return timedelta(days=1 / self.get_mean_motion())
+
     def get_revolution_number_at_epoch(self) -> int:
         """
         Gets the revolution number at epoch.
