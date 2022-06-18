@@ -76,6 +76,24 @@ class TestInstrument(unittest.TestCase):
         self.assertEqual(o.duty_cycle, good_data.get("duty_cycle"))
         self.assertEqual(o.duty_cycle_scheme, good_data.get("duty_cycle_scheme"))
 
+    def test_get_swath_width(self):
+        o = Instrument(
+            **{
+                "name": "GMI",
+                "field_of_regard": 15.0,
+            }
+        )
+        self.assertAlmostEqual(o.get_swath_width(705000), 185815, delta=1.0)
+
+    def test_get_min_elevation_angle(self):
+        o = Instrument(
+            **{
+                "name": "GMI",
+                "field_of_regard": 15.0,
+            }
+        )
+        self.assertAlmostEqual(o.get_min_elevation_angle(705000), 81.66446, delta=0.01)
+
     def test_valid_observation_no_constraints(self):
         o = Instrument(name="Test Instrument")
         self.assertTrue(o.is_valid_observation(self.test_sat_1, self.test_time))

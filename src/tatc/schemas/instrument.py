@@ -15,6 +15,7 @@ from skyfield.api import wgs84, EarthSatellite
 from shapely.geometry import Point
 
 from ..utils import compute_orbit_period
+from .. import constants
 from ..constants import de421, timescale
 
 
@@ -76,15 +77,53 @@ class Instrument(BaseModel):
         description="Scheme for duty cycling instrument (default: fixed).",
     )
 
-    def is_valid_observation(self, sat, time, target_region=None):
+    def get_swath_width(self, height):
+        """
+        Gets the instrument swath width projected to the Earth's surface.
+
+        Args:
+            height (float): Height (meters) above surface of the observation.
+
+        Returns:
+            float: The observation diameter (meters).
+        """
+        # rho is the angular radius of the earth viewed by the satellite
+        sin_rho = constants.earth_mean_radius / (constants.earth_mean_radius + height)
+        # eta is the angular radius of the region viewable by the satellite
+        sin_eta = min(sin_rho, np.sin(np.radians(self.field_of_regard) / 2))
+        # epsilon is the min satellite elevation for obs (grazing angle)
+        cos_epsilon = sin_eta / sin_rho
+        # lambda is the Earth central angle
+        _lambda = np.pi / 2 - np.arcsin(sin_eta) - np.arccos(cos_epsilon)
+        return 2 * constants.earth_mean_radius * _lambda
+
+    def get_min_elevation_angle(self, height) -> float:
+        """
+        Get the minimum elevation angle required to observe a point.
+
+        Args:
+            height (float): Height (meters) above surface of the observation.
+
+        Returns:
+            float: The minimum elevation angle (degrees) for observation.
+        """
+        # eta is the angular radius of the region viewable by the satellite
+        sin_eta = np.sin(np.radians(self.field_of_regard) / 2)
+        # rho is the angular radius of the earth viewed by the satellite
+        sin_rho = constants.earth_mean_radius / (constants.earth_mean_radius + height)
+        # epsilon is the min satellite elevation for obs (grazing angle)
+        cos_epsilon = sin_eta / sin_rho
+        if cos_epsilon > 1:
+            return 0
+        return np.degrees(np.arccos(cos_epsilon))
+
+    def is_valid_observation(self, sat, time) -> bool:
         """Determines if an instrument can provide a valid observations.
 
         :param sat: Satellite hosting this instrument (Skyfield).
         :type sat: :obj:`EarthSatellite`
         :param time: Observation time(s) (Skyfield).
         :type time: :obj:`Time`
-        :param target_region: Target region (default: None).
-        :type target_region: :obj:`Polygon` or :obj:`MultiPolygon`
         :return: True if instrument can provide valid observations, otherwise False
         :rtype: bool
         """

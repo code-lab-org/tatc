@@ -221,8 +221,7 @@ def collect_observations(
                 if (
                     instrument.min_access_time <= t_set - t_rise <= max_access_time * 2
                     and instrument.is_valid_observation(
-                        ts.from_datetime(t_culminate),
-                        sat.at(ts.from_datetime(t_culminate)),
+                        sat, timescale.from_datetime(t_culminate)
                     )
                     and (
                         instrument.duty_cycle >= 1

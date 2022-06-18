@@ -53,19 +53,16 @@ def collect_ground_track(
     # construct a satellite for propagation
     sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
 
-    ts_times = [timescale.from_datetime(time) for time in times]
-    positions = [sat.at(time) for time in ts_times]
-    subpoints = [wgs84.subpoint(position) for position in positions]
+    ts_times = timescale.from_datetime(times)
+    positions = sat.at(ts_times)
+    subpoints = wgs84.geographic_position_of(positions)
     points = [
         Point(
             subpoint.longitude.degrees, subpoint.latitude.degrees, subpoint.elevation.m
         )
         for subpoint in subpoints
     ]
-    valid_obs = [
-        instrument.is_valid_observation(ts_times[i], positions[i])
-        for i, time in enumerate(times)
-    ]
+    valid_obs = instrument.is_valid_observation(sat, ts_times)
     ops_intervals = instrument.generate_ops_intervals(sat, times, target)
 
     df = pd.DataFrame(

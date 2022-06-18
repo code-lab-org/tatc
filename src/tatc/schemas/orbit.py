@@ -242,18 +242,24 @@ class OrbitBase(BaseModel):
         description="Timestamp (epoch) of the initial orbital state.",
     )
 
-    def get_semimajor_axis(self):
+    def get_semimajor_axis(self) -> float:
         """
         Gets the semimajor axis (meters).
         """
         return constants.earth_mean_radius + self.altitude
 
-    def get_mean_motion(self):
+    def get_mean_motion(self) -> float:
         """
         Gets the mean motion (revolutions per day).
         """
         mean_motion_rad_s = np.sqrt(constants.earth_mu / self.get_semimajor_axis() ** 3)
         return mean_motion_rad_s * 86400 / (2 * np.pi)
+
+    def get_orbit_period(self) -> timedelta:
+        """
+        Gets the approximate orbit period.
+        """
+        return timedelta(days=1 / self.get_mean_motion())
 
 
 class CircularOrbit(OrbitBase):
@@ -307,7 +313,7 @@ class SunSynchronousOrbit(OrbitBase):
         description="True, if the equator crossing time is ascending (south-to-north).",
     )
 
-    def get_inclination(self):
+    def get_inclination(self) -> float:
         """
         Gets the inclination (decimal degrees).
         """
@@ -315,7 +321,7 @@ class SunSynchronousOrbit(OrbitBase):
             np.arccos(-np.power(self.get_semimajor_axis() / 12352000, 7 / 2))
         )
 
-    def get_right_ascension_ascending_node(self):
+    def get_right_ascension_ascending_node(self) -> float:
         """
         Gets the right ascension of ascending node (decimal degrees).
         """
@@ -358,7 +364,7 @@ class KeplerianOrbit(CircularOrbit):
         0, description="Perigee argument (degrees).", ge=0, lt=360
     )
 
-    def get_mean_anomaly(self):
+    def get_mean_anomaly(self) -> float:
         """
         Gets the mean anomaly (decimal degrees).
         """
