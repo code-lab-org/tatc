@@ -71,44 +71,34 @@ class TrainConstellation(Satellite):
         description="True, if the train satellites should repeat the same ground track.",
     )
 
+    def get_delta_mean_anomaly(self):
+        """
+        Gets the difference in mean anomaly (decimal degrees) for adjacent
+        member satellites.
+        """
+        return 360 * self.orbit.get_mean_motion() * (self.interval / timedelta(days=1))
+
+    def get_delta_raan(self):
+        """
+        Gets the difference in right ascension of ascending node (decimal
+        degrees) for adjacent member satellites.
+        """
+        if self.repeat_ground_track:
+            return 360 * (self.interval / timedelta(days=1))
+        else:
+            return 0
+
     def generate_members(self) -> List[Satellite]:
-        members = []
-        lead_orbit = self.orbit.to_tle()
-        lead_tle = Satrec.twoline2rv(lead_orbit.tle[0], lead_orbit.tle[1])
-        epoch = sat_epoch_datetime(lead_tle)
-        for satellite in range(self.number_satellites):
-            delta_mean_anomaly = (
-                lead_tle.no_kozai * satellite * (self.interval / timedelta(minutes=1))
+        return [
+            Satellite(
+                name=f"{self.name} #{i+1:02d}",
+                orbit=self.orbit.get_derived_orbit(
+                    i * self.get_delta_mean_anomaly(), -1 * i * self.get_delta_raan()
+                ),
+                instruments=copy.deepcopy(self.instruments),
             )
-            if self.repeat_ground_track:
-                delta_raan = 2 * np.pi * satellite * (self.interval / timedelta(days=1))
-            else:
-                delta_raan = 0
-            satrec = Satrec()
-            satrec.sgp4init(
-                WGS72,
-                "i",
-                0,
-                (epoch - datetime(1950, 1, 1, tzinfo=timezone.utc)) / timedelta(days=1),
-                lead_tle.bstar,
-                lead_tle.ndot,
-                lead_tle.nddot,
-                lead_tle.ecco,
-                lead_tle.argpo,
-                lead_tle.inclo,
-                np.mod(lead_tle.mo + delta_mean_anomaly, 2 * np.pi),
-                lead_tle.no_kozai,
-                np.mod(lead_tle.nodeo - delta_raan, 2 * np.pi),
-            )
-            tle1, tle2 = exporter.export_tle(satrec)
-            members.append(
-                Satellite(
-                    name=f"{self.name} #{satellite+1:02d}",
-                    orbit=TwoLineElements(tle=[tle1.replace("\x00", "U"), tle2]),
-                    instruments=copy.deepcopy(self.instruments),
-                )
-            )
-        return members
+            for i in range(self.number_satellites)
+        ]
 
 
 class WalkerConfiguration(str, Enum):
@@ -156,54 +146,53 @@ class WalkerConstellation(Satellite):
             raise ValueError("relative spacing exceeds number planes - 1")
         return values
 
+    def get_satellites_per_plane():
+        """
+        Gets the (max) number of satellites per plane.
+        """
+        return math.ceil(self.number_satellites / self.number_planes)
+
+    def get_delta_mean_anomaly_within_planes(self):
+        """
+        Gets the difference in mean anomaly (decimal degrees) for adjacent
+        member satellites within a single plane.
+        """
+        return 360 / self.get_satellites_per_plane()
+
+    def get_delta_mean_anomaly_between_planes(self):
+        """
+        Gets the difference in mean anomaly (decimal degrees) for adjacent
+        member satellites between adjacenet planes.
+        """
+        return (
+            360
+            * self.relative_spacing
+            / (self.get_satellites_per_plane() * self.number_planes)
+        )
+
+    def get_delta_raan_between_planes(self):
+        """
+        Gets the difference in right ascension of ascending node (decimal
+        degrees) for adjacent planes of member satellites.
+        """
+        if self.configuration == WalkerConfiguration.delta:
+            return 360 / self.number_planes
+        else:
+            return 180 / self.number_planes
+
     def generate_members(self) -> List[Satellite]:
-        members = []
-        lead_orbit = self.orbit.to_tle()
-        lead_tle = Satrec.twoline2rv(lead_orbit.tle[0], lead_orbit.tle[1])
-        epoch = sat_epoch_datetime(lead_tle)
-        satellites_per_plane = math.ceil(self.number_satellites / self.number_planes)
-        for satellite in range(self.number_satellites):
-            plane = satellite // satellites_per_plane
-            delta_mean_anomaly = (
-                (
-                    np.mod(satellite, satellites_per_plane) * self.number_planes
-                    + self.relative_spacing * plane
-                )
-                * 2
-                * np.pi
-                / (satellites_per_plane * self.number_planes)
+        return [
+            Satellite(
+                name=f"{self.name} #{i+1}",
+                orbit=self.orbit.get_derived_orbit(
+                    np.mod(i, self.get_satellites_per_plane())
+                    * self.get_delta_mean_anomaly_within_planes()
+                    + (i // self.get_satellites_per_plane())
+                    * self.get_delta_mean_anomaly_between_planes(),
+                    (i // self.get_satellites_per_plane())
+                    * self.get_delta_raan_between_planes(),
+                ),
+                instruments=copy.deepcopy(self.instruments),
             )
-            delta_raan = (
-                plane
-                * (
-                    2 * np.pi
-                    if self.configuration == WalkerConfiguration.delta
-                    else np.pi
-                )
-                / self.number_planes
-            )
-            satrec = Satrec()
-            satrec.sgp4init(
-                WGS72,
-                "i",
-                0,
-                (epoch - datetime(1950, 1, 1, tzinfo=timezone.utc)) / timedelta(days=1),
-                lead_tle.bstar,
-                lead_tle.ndot,
-                lead_tle.nddot,
-                lead_tle.ecco,
-                lead_tle.argpo,
-                lead_tle.inclo,
-                np.mod(lead_tle.mo + delta_mean_anomaly, 2 * np.pi),
-                lead_tle.no_kozai,
-                np.mod(lead_tle.nodeo + delta_raan, 2 * np.pi),
-            )
-            tle1, tle2 = exporter.export_tle(satrec)
-            members.append(
-                Satellite(
-                    name=f"{self.name} #{satellite+1}",
-                    orbit=TwoLineElements(tle=[tle1.replace("\x00", "U"), tle2]),
-                    instruments=copy.deepcopy(self.instruments),
-                )
-            )
-        return members
+            for i in range(self.number_satellites)
+        ]

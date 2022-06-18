@@ -14,7 +14,11 @@ import numpy as np
 from skyfield.api import wgs84, EarthSatellite
 from shapely.geometry import Point
 
-from ..utils import compute_orbit_period
+from ..utils import (
+    compute_orbit_period,
+    field_of_regard_to_swath_width,
+    compute_min_altitude,
+)
 from .. import constants
 from ..constants import de421, timescale
 
@@ -87,15 +91,7 @@ class Instrument(BaseModel):
         Returns:
             float: The observation diameter (meters).
         """
-        # rho is the angular radius of the earth viewed by the satellite
-        sin_rho = constants.earth_mean_radius / (constants.earth_mean_radius + height)
-        # eta is the angular radius of the region viewable by the satellite
-        sin_eta = min(sin_rho, np.sin(np.radians(self.field_of_regard) / 2))
-        # epsilon is the min satellite elevation for obs (grazing angle)
-        cos_epsilon = sin_eta / sin_rho
-        # lambda is the Earth central angle
-        _lambda = np.pi / 2 - np.arcsin(sin_eta) - np.arccos(cos_epsilon)
-        return 2 * constants.earth_mean_radius * _lambda
+        return field_of_regard_to_swath_width(height, self.field_of_regard)
 
     def get_min_elevation_angle(self, height) -> float:
         """
@@ -107,15 +103,7 @@ class Instrument(BaseModel):
         Returns:
             float: The minimum elevation angle (degrees) for observation.
         """
-        # eta is the angular radius of the region viewable by the satellite
-        sin_eta = np.sin(np.radians(self.field_of_regard) / 2)
-        # rho is the angular radius of the earth viewed by the satellite
-        sin_rho = constants.earth_mean_radius / (constants.earth_mean_radius + height)
-        # epsilon is the min satellite elevation for obs (grazing angle)
-        cos_epsilon = sin_eta / sin_rho
-        if cos_epsilon > 1:
-            return 0
-        return np.degrees(np.arccos(cos_epsilon))
+        return compute_min_altitude(height, self.field_of_regard)
 
     def is_valid_observation(self, sat, time) -> bool:
         """Determines if an instrument can provide a valid observations.

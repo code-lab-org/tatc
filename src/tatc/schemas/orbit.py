@@ -10,11 +10,14 @@ import numpy as np
 from pydantic import BaseModel, Field, validator
 from sgp4.api import Satrec, WGS72
 from sgp4 import exporter
+from sgp4.conveniences import sat_epoch_datetime
 from typing import List, Optional
 from typing_extensions import Literal
 import re
 
 from .. import constants
+
+from .. import utils
 
 
 class TwoLineElements(BaseModel):
@@ -172,15 +175,9 @@ class TwoLineElements(BaseModel):
         """
         Gets the true anomaly (decimal degrees).
         """
-        M = np.radians(self.get_mean_anomaly())
-        e = self.get_eccentricity()
-        nu = (
-            M
-            + (2 * e - (1 / 4) * e**3) * np.sin(M)
-            + (5 / 4) * e**2 * np.sin(2 * M)
-            + (13 / 12) * e**3 * np.sin(3 * M)
+        return utils.mean_anomaly_to_true_anomaly(
+            self.get_mean_anomaly(), self.get_eccentricity()
         )
-        return np.degrees(nu)
 
     @validator("tle")
     def valid_tle(cls, v):
@@ -215,6 +212,40 @@ class TwoLineElements(BaseModel):
             raise ValueError("Invalid tle: line 2 checksum failed.")
         return v
 
+    def get_derived_orbit(self, delta_mean_anomaly, delta_raan):
+        """
+        Gets a derived orbit.
+
+        Args:
+            :param delta_mean_anomaly:  Delta mean anomaly (degrees).
+            :type delta_mean_anomaly: float
+            :param delta_raan:  Delta right ascension of ascending node (degrees).
+            :type delta_raan: float
+
+        Returns:
+            TwoLineElements
+        """
+        lead_tle = Satrec.twoline2rv(self.tle[0], self.tle[1])
+        epoch = sat_epoch_datetime(lead_tle)
+        satrec = Satrec()
+        satrec.sgp4init(
+            WGS72,
+            "i",
+            0,
+            (epoch - datetime(1950, 1, 1, tzinfo=timezone.utc)) / timedelta(days=1),
+            lead_tle.bstar,
+            lead_tle.ndot,
+            lead_tle.nddot,
+            lead_tle.ecco,
+            lead_tle.argpo,
+            lead_tle.inclo,
+            np.mod(lead_tle.mo + np.radians(delta_mean_anomaly), 2 * np.pi),
+            lead_tle.no_kozai,
+            np.mod(lead_tle.nodeo + np.radians(delta_raan), 2 * np.pi),
+        )
+        tle1, tle2 = exporter.export_tle(satrec)
+        return TwoLineElements(tle=[tle1.replace("\x00", "U"), tle2])
+
     def to_tle(self):
         """
         Return the two line element set for this orbit.
@@ -241,6 +272,12 @@ class OrbitBase(BaseModel):
         datetime.now(tz=timezone.utc),
         description="Timestamp (epoch) of the initial orbital state.",
     )
+
+    def get_mean_anomaly(self) -> float:
+        """
+        Gets the mean anomaly (decimal degrees).
+        """
+        return utils.true_anomaly_to_mean_anomaly(self.true_anomaly)
 
     def get_semimajor_axis(self) -> float:
         """
@@ -280,16 +317,41 @@ class CircularOrbit(OrbitBase):
         0, description="Right ascension of ascending node (degrees).", ge=0, lt=360
     )
 
+    def get_derived_orbit(self, delta_mean_anomaly, delta_raan):
+        """
+        Gets a derived orbit.
+
+        Args:
+            :param delta_mean_anomaly:  Delta mean anomaly (degrees).
+            :type delta_mean_anomaly: float
+            :param delta_raan:  Delta right ascension of ascending node (degrees).
+            :type delta_raan: float
+
+        Returns:
+            CircularOrbit
+        """
+        true_anomaly = utils.mean_anomaly_to_true_anomaly(
+            self.get_mean_anomaly() + delta_mean_anomaly
+        )
+        raan = self.right_ascension_ascending_node + delta_raan
+        return CircularOrbit(
+            altitude=self.altitude,
+            true_anomaly=true_anomaly,
+            epoch=self.epoch,
+            inclination=self.inclination,
+            right_ascension_ascending_node=raan,
+        )
+
     def to_tle(self) -> TwoLineElements:
         """
         Create a two line element set representation of the orbit.
         """
         return KeplerianOrbit(
             altitude=self.altitude,
-            inclination=self.inclination,
-            right_ascension_ascending_node=self.right_ascension_ascending_node,
             true_anomaly=self.true_anomaly,
             epoch=self.epoch,
+            inclination=self.inclination,
+            right_ascension_ascending_node=self.right_ascension_ascending_node,
         ).to_tle()
 
 
@@ -339,6 +401,34 @@ class SunSynchronousOrbit(OrbitBase):
             ra._degrees + 360 * ect_day + 180 * self.equator_crossing_ascending
         ) % 360
 
+    def get_derived_orbit(self, delta_mean_anomaly, delta_raan):
+        """
+        Gets a derived orbit.
+
+        Args:
+            :param delta_mean_anomaly:  Delta mean anomaly (degrees).
+            :type delta_mean_anomaly: float
+            :param delta_raan:  Delta right ascension of ascending node (degrees).
+            :type delta_raan: float
+
+        Returns:
+            CircularOrbit
+        """
+        true_anomaly = utils.mean_anomaly_to_true_anomaly(
+            self.get_mean_anomaly() + delta_mean_anomaly
+        )
+        raan = self.get_right_ascension_ascending_node() + delta_raan
+        # TODO the resulting orbit *is* still sun-synchronous; however, with a
+        # different equator-crossing time. Need to do the math to determine.
+        # For now, simply return a circular orbit with the correct parameters.
+        return CircularOrbit(
+            altitude=self.altitude,
+            true_anomaly=true_anomaly,
+            epoch=self.epoch,
+            inclination=self.get_inclination(),
+            right_ascension_ascending_node=raan,
+        )
+
     def to_tle(self) -> TwoLineElements:
         """
         Create a two line element set representation of the orbit.
@@ -368,16 +458,34 @@ class KeplerianOrbit(CircularOrbit):
         """
         Gets the mean anomaly (decimal degrees).
         """
-        e = self.eccentricity
-        nu = np.radians(self.true_anomaly)
-        M = (
-            nu
-            - 2 * e * np.sin(nu)
-            + ((3 / 4) * e**2 + (1 / 8) * e**4) * np.sin(2 * nu)
-            - (1 / 3) * e**3 * np.sin(3 * nu)
-            + (5 / 32) * e**4 * np.sin(4 * nu)
+        return utils.true_anomaly_to_mean_anomaly(self.true_anomaly, self.eccentricity)
+
+    def get_derived_orbit(self, delta_mean_anomaly, delta_raan):
+        """
+        Gets a derived orbit.
+
+        Args:
+            :param delta_mean_anomaly:  Delta mean anomaly (degrees).
+            :type delta_mean_anomaly: float
+            :param delta_raan:  Delta right ascension of ascending node (degrees).
+            :type delta_raan: float
+
+        Returns:
+            KeplerianOrbit
+        """
+        true_anomaly = utils.mean_anomaly_to_true_anomaly(
+            self.get_mean_anomaly() + delta_mean_anomaly, eccentricity=self.eccentricity
         )
-        return np.degrees(M)
+        raan = self.right_ascension_ascending_node + delta_raan
+        return KeplerianOrbit(
+            altitude=self.altitude,
+            true_anomaly=true_anomaly,
+            epoch=self.epoch,
+            inclination=self.inclination,
+            right_ascension_ascending_node=raan,
+            eccentricity=self.eccentricity,
+            perigee_argument=self.perigee_argument,
+        )
 
     def to_tle(self) -> TwoLineElements:
         satrec = Satrec()
