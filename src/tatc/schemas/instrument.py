@@ -151,7 +151,9 @@ class Instrument(BaseModel):
             satellite_height = wgs84.geographic_position_of(
                 sat.at(timescale.utc(times[0]))
             ).elevation.m
-            orbit_period = timedelta(seconds=utils.compute_orbit_period(satellite_height))
+            orbit_period = timedelta(
+                seconds=utils.compute_orbit_period(satellite_height)
+            )
             ops_duration = orbit_period * self.duty_cycle
             no_ops_duration = orbit_period - ops_duration
 

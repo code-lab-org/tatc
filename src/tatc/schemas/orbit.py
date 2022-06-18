@@ -287,7 +287,7 @@ class OrbitBase(BaseModel):
         """
         Gets the mean motion (revolutions per day).
         """
-        return 1 / (self.get_orbit_period()/timedelta(days=1))
+        return 1 / (self.get_orbit_period() / timedelta(days=1))
 
     def get_orbit_period(self) -> timedelta:
         """

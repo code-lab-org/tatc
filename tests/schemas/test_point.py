@@ -1,7 +1,8 @@
 import unittest
 
-from tatc.schemas import Point
 from pydantic import ValidationError
+
+from tatc.schemas import Point
 
 
 class TestPoint(unittest.TestCase):

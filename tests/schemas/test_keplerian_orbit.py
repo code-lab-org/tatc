@@ -1,7 +1,8 @@
 import unittest
 
-from tatc.schemas import KeplerianOrbit
 from datetime import datetime, timezone
+
+from tatc.schemas import KeplerianOrbit
 
 
 class TestKeplerianOrbit(unittest.TestCase):

@@ -1,7 +1,8 @@
 import unittest
 
-from tatc.schemas import GroundStation
 from datetime import timedelta
+
+from tatc.schemas import GroundStation
 
 
 class TestGroundStation(unittest.TestCase):

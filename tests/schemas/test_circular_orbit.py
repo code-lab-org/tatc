@@ -1,7 +1,8 @@
 import unittest
 
-from tatc.schemas import CircularOrbit
 from datetime import datetime, timezone
+
+from tatc.schemas import CircularOrbit
 
 
 class TestCircularOrbit(unittest.TestCase):

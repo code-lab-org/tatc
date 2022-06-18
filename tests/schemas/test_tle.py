@@ -1,9 +1,9 @@
 import unittest
 
-from tatc.schemas import TwoLineElements
 from pydantic import ValidationError
 from datetime import datetime, timezone
-import numpy as np
+
+from tatc.schemas import TwoLineElements
 
 
 class TestTLE(unittest.TestCase):

@@ -1,11 +1,11 @@
 import unittest
 
-from tatc.schemas import Instrument, CircularOrbit
-from pydantic import ValidationError
 from datetime import datetime, timedelta, timezone
-from tatc.constants import timescale
-from skyfield.api import wgs84, EarthSatellite
 from sgp4.api import Satrec, WGS72
+from skyfield.api import wgs84, EarthSatellite
+
+from tatc.schemas import Instrument, CircularOrbit
+from tatc.constants import timescale
 
 
 class TestInstrument(unittest.TestCase):

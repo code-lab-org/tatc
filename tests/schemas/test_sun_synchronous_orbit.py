@@ -1,7 +1,8 @@
 import unittest
 
-from tatc.schemas import SunSynchronousOrbit
 from datetime import datetime, time, timezone
+
+from tatc.schemas import SunSynchronousOrbit
 
 
 class TestSunSynchronousOrbit(unittest.TestCase):
