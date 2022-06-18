@@ -10,10 +10,11 @@ from typing import Optional
 from pydantic import BaseModel, Field, confloat
 from datetime import timedelta
 import pandas as pd
-from skyfield.api import load, wgs84, EarthSatellite
+from skyfield.api import wgs84, EarthSatellite
 from shapely.geometry import Point
 
 from ..utils import compute_orbit_period
+from ..constants import de421, timescale
 
 
 class DutyCycleScheme(str, Enum):
@@ -74,11 +75,9 @@ class Instrument(BaseModel):
         description="Scheme for duty cycling instrument (default: fixed).",
     )
 
-    def is_valid_observation(self, eph, time, position):
+    def is_valid_observation(self, time, position):
         """Determines if an instrument can provide a valid observations.
 
-        :param eph: Planetary ephemerides (Skyfield).
-        :type eph: :obj:`SpiceKernel`
         :param time: Observation time (Skyfield).
         :type time: :obj:`Time`
         :param position: Instrument geocentric position (Skyfield).
@@ -86,26 +85,19 @@ class Instrument(BaseModel):
         :return: True if instrument can provide valid observations, otherwise False
         :rtype: bool
         """
+        is_valid = True
         if self.req_target_sunlit is not None:
-            subpoint = wgs84.subpoint(position)
-            solar_obs = (
-                (eph["earth"] + subpoint).at(time).observe(eph["sun"]).apparent()
-            )
-            solar_alt, solar_az, solar_dist = solar_obs.altaz()
-            if self.req_target_sunlit != (solar_alt.degrees > 0):
-                return False
+            subpoint = wgs84.subpoint_of(position).at(time)
+            if self.req_target_sunlit != subpoint.is_sunlit(de421):
+                is_valid = False
         if self.req_self_sunlit is not None:
-            if self.req_self_sunlit != position.is_sunlit(eph):
-                return False
-        return True
+            if self.req_self_sunlit != position.is_sunlit(de421):
+                is_valid = False
+        return is_valid
 
-    def generate_ops_intervals(self, eph, ts, sat, times, target_region=None):
+    def generate_ops_intervals(self, sat, times, target_region=None):
         """Generate intervals when this instrument is operational.
 
-        :param eph: Planetary ephemerides (Skyfield).
-        :type eph: :obj:`SpiceKernel`
-        :param ts: Timescale (Skyfield).
-        :type ts: :obj:`Timescale`
         :param sat: Satellite hosting this instrument (Skyfield).
         :type sat: :obj:`EarthSatellite`
         :param times: List of potential observation times.
@@ -121,7 +113,9 @@ class Instrument(BaseModel):
             )
         else:
             # determine operational/non-operational periods based on duty cycle
-            satellite_height = wgs84.subpoint(sat.at(ts.utc(times[0]))).elevation.m
+            satellite_height = wgs84.subpoint_of(
+                sat.at(timescale.utc(times[0]))
+            ).elevation.m
             orbit_period = timedelta(seconds=compute_orbit_period(satellite_height))
             ops_duration = orbit_period * self.duty_cycle
             no_ops_duration = orbit_period - ops_duration
@@ -137,13 +131,13 @@ class Instrument(BaseModel):
                 # construct list of intervals based on opportunistic observation
                 ops_intervals = pd.Series([], dtype="interval")
                 # pre-compute skyfield times, positions, and subpoints
-                ts_times = [ts.from_datetime(time) for time in times]
+                ts_times = [timescale.from_datetime(time) for time in times]
                 positions = [sat.at(time) for time in ts_times]
-                subpoints = [wgs84.subpoint(position) for position in positions]
+                subpoints = [wgs84.subpoint_of(position) for position in positions]
                 # loop over each supplied time
                 for i, time in enumerate(times):
                     if (
-                        self.is_valid_observation(eph, ts_times[i], positions[i])
+                        self.is_valid_observation(ts_times[i], positions[i])
                         and (
                             target_region is None
                             or target_region.contains(

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Apr 19 21:31:32 2021
+Methods to perform latency analysis.
 
-@author: Isaac
+@author: Isaac Feldman, Paul T. Grogan <pgrogan@stevens.edu>
 """
 # IMPORTED MODULES-------------------------------------------------------------
 import numpy as np
@@ -14,8 +14,6 @@ from numba import njit
 from datetime import datetime, timedelta
 from skyfield.api import load, wgs84, EarthSatellite
 
-# from tatc.visualization import plot_points_latency, plot_cells_latency
-# from tatc_core.generation.cells import generate_cubed_sphere_cells
 from ..schemas.point import Point, GroundStation
 from ..schemas.satellite import Satellite
 from ..schemas.instrument import Instrument
@@ -25,6 +23,7 @@ from ..utils import (
     swath_width_to_field_of_regard,
     compute_max_access_time,
 )
+from ..constants import de421, timescale
 
 # FUNCTIONS---------------------------------------------------------------------
 def collect_downlinks(
@@ -47,12 +46,9 @@ def collect_downlinks(
     """
     # build a topocentric point at the designated geodetic point (the ground station)
     topos = wgs84.latlon(station.latitude, station.longitude)
-    # load the timescale and define starting and ending points
-    ts = load.timescale()
-    t0 = ts.utc(start)
-    t1 = ts.utc(end)
-    # load the ephemerides
-    eph = load("de421.bsp")
+    # define starting and ending points
+    t0 = timescale.utc(start)
+    t1 = timescale.utc(end)
     # convert orbit to tle
     orbit = satellite.orbit.to_tle()
     # construct a satellite for propagation
@@ -219,8 +215,8 @@ def compute_latency(observation: gpd.GeoDataFrame, downlinks: pd.DataFrame):
                         "observing_instrument": observation.instrument,
                         "station_name": None,
                         "observed": obs_time,
-                        "downlinked": None,
-                        "latency": None,
+                        "downlinked": pd.NaT,
+                        "latency": pd.NaT,
                     },
                     index=[0],
                 ),
@@ -246,8 +242,8 @@ def compute_latency(observation: gpd.GeoDataFrame, downlinks: pd.DataFrame):
                         "observing_instrument": observation.instrument,
                         "station_name": None,
                         "observed": obs_time,
-                        "downlinked": None,
-                        "latency": None,
+                        "downlinked": pd.NaT,
+                        "latency": pd.NaT,
                     },
                     index=[0],
                 ),

@@ -23,6 +23,7 @@ from ..utils import (
     compute_max_access_time,
     compute_orbit_period,
 )
+from ..constants import de421, timescale
 
 
 def collect_observations(
@@ -60,12 +61,9 @@ def collect_observations(
 
     # build a topocentric point at the designated geodetic point
     topos = wgs84.latlon(point.latitude, point.longitude)
-    # load the timescale and define starting and ending points
-    ts = load.timescale()
-    t0 = ts.from_datetime(start)
-    t1 = ts.from_datetime(end)
-    # load the ephemerides
-    eph = load("de421.bsp")
+    # define starting and ending points
+    t0 = timescale.from_datetime(start)
+    t1 = timescale.from_datetime(end)
     # convert orbit to tle
     orbit = satellite.orbit.to_tle()
     # construct a satellite for propagation
@@ -204,14 +202,14 @@ def collect_observations(
             if not omit_solar or instrument.req_target_sunlit is not None:
                 # find the solar altitude, azimuth, and distance
                 solar_obs = (
-                    (eph["earth"] + topos).at(t[j]).observe(eph["sun"]).apparent()
+                    (de421["earth"] + topos).at(t[j]).observe(de421["sun"]).apparent()
                 )
                 solar_alt, solar_az, solar_dist = solar_obs.altaz()
                 # find the local solar time
                 solar_time = solar_obs.hadec()[0].hours + 12
             if not omit_solar or instrument.req_self_sunlit is not None:
                 # find whether the satellite is sunlit
-                sat_sunlit = sat.at(t[j]).is_sunlit(eph)
+                sat_sunlit = sat.at(t[j]).is_sunlit(de421)
         elif events[j] == 2:
             # record the set time
             t_set = t[j].utc_datetime()
@@ -223,7 +221,6 @@ def collect_observations(
                 if (
                     instrument.min_access_time <= t_set - t_rise <= max_access_time * 2
                     and instrument.is_valid_observation(
-                        eph,
                         ts.from_datetime(t_culminate),
                         sat.at(ts.from_datetime(t_culminate)),
                     )

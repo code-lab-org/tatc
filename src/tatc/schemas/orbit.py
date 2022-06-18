@@ -8,7 +8,6 @@ Object schemas for satellite orbits.
 from datetime import datetime, time, timedelta, timezone
 import numpy as np
 from pydantic import BaseModel, Field, validator
-from skyfield.api import load
 from sgp4.api import Satrec, WGS72
 from sgp4 import exporter
 from typing import List, Optional
@@ -159,7 +158,7 @@ class TwoLineElements(BaseModel):
         """
         mean_motion_rad_s = self.get_mean_motion() * 2 * np.pi / 86400
         return np.power(
-            constants.earth_mu / mean_motion_rad_s ** 2,
+            constants.earth_mu / mean_motion_rad_s**2,
             1 / 3,
         )
 
@@ -177,9 +176,9 @@ class TwoLineElements(BaseModel):
         e = self.get_eccentricity()
         nu = (
             M
-            + (2 * e - (1 / 4) * e ** 3) * np.sin(M)
-            + (5 / 4) * e ** 2 * np.sin(2 * M)
-            + (13 / 12) * e ** 3 * np.sin(3 * M)
+            + (2 * e - (1 / 4) * e**3) * np.sin(M)
+            + (5 / 4) * e**2 * np.sin(2 * M)
+            + (13 / 12) * e**3 * np.sin(3 * M)
         )
         return np.degrees(nu)
 
@@ -243,6 +242,19 @@ class OrbitBase(BaseModel):
         description="Timestamp (epoch) of the initial orbital state.",
     )
 
+    def get_semimajor_axis(self):
+        """
+        Gets the semimajor axis (meters).
+        """
+        return constants.earth_mean_radius + self.altitude
+
+    def get_mean_motion(self):
+        """
+        Gets the mean motion (revolutions per day).
+        """
+        mean_motion_rad_s = np.sqrt(constants.earth_mu / self.get_semimajor_axis() ** 3)
+        return mean_motion_rad_s * 86400 / (2 * np.pi)
+
 
 class CircularOrbit(OrbitBase):
     """
@@ -303,27 +315,17 @@ class SunSynchronousOrbit(OrbitBase):
             np.arccos(-np.power(self.get_semimajor_axis() / 12352000, 7 / 2))
         )
 
-    def get_semimajor_axis(self):
-        """
-        Gets the semimajor axis (meters).
-        """
-        return constants.earth_mean_radius + self.altitude
-
     def get_right_ascension_ascending_node(self):
         """
         Gets the right ascension of ascending node (decimal degrees).
         """
-        ect_day = (
-            timedelta(
-                hours=self.equator_crossing_time.hour,
-                minutes=self.equator_crossing_time.minute,
-                seconds=self.equator_crossing_time.second,
-                microseconds=self.equator_crossing_time.microsecond,
-            )
-            / timedelta(days=1)
-        )
-        ts = load.timescale()
-        t = ts.from_datetime(self.epoch)
+        ect_day = timedelta(
+            hours=self.equator_crossing_time.hour,
+            minutes=self.equator_crossing_time.minute,
+            seconds=self.equator_crossing_time.second,
+            microseconds=self.equator_crossing_time.microsecond,
+        ) / timedelta(days=1)
+        t = constants.timescale.from_datetime(self.epoch)
         sun = constants.de421["sun"]
         earth = constants.de421["earth"]
         ra, _, _ = earth.at(t).observe(sun).radec()
@@ -356,19 +358,6 @@ class KeplerianOrbit(CircularOrbit):
         0, description="Perigee argument (degrees).", ge=0, lt=360
     )
 
-    def get_semimajor_axis(self):
-        """
-        Gets the semimajor axis (meters).
-        """
-        return constants.earth_mean_radius + self.altitude
-
-    def get_mean_motion(self):
-        """
-        Gets the mean motion (revolutions per day).
-        """
-        mean_motion_rad_s = np.sqrt(constants.earth_mu / self.get_semimajor_axis() ** 3)
-        return mean_motion_rad_s * 86400 / (2 * np.pi)
-
     def get_mean_anomaly(self):
         """
         Gets the mean anomaly (decimal degrees).
@@ -378,9 +367,9 @@ class KeplerianOrbit(CircularOrbit):
         M = (
             nu
             - 2 * e * np.sin(nu)
-            + (3 / 4 * e ** 2 + 1 / 8 * e ** 4) * np.sin(2 * nu)
-            - 1 / 3 * e ** 3 * np.sin(3 * nu)
-            + 5 / 32 * e ** 4 * np.sin(4 * nu)
+            + ((3 / 4) * e**2 + (1 / 8) * e**4) * np.sin(2 * nu)
+            - (1 / 3) * e**3 * np.sin(3 * nu)
+            + (5 / 32) * e**4 * np.sin(4 * nu)
         )
         return np.degrees(M)
 

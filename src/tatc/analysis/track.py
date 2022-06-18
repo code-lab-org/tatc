@@ -21,6 +21,7 @@ from ..utils import (
     field_of_regard_to_swath_width,
     compute_orbit_period,
 )
+from ..constants import timescale
 
 
 def collect_ground_track(
@@ -47,16 +48,12 @@ def collect_ground_track(
     :rtype: :class:`geopandas.GeodataFrame`
     """
 
-    # load the timescale and define starting and ending points
-    ts = load.timescale()
     # convert orbit to tle
     orbit = satellite.orbit.to_tle()
     # construct a satellite for propagation
     sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
-    # load the ephemerides
-    eph = load("de421.bsp")
 
-    ts_times = [ts.from_datetime(time) for time in times]
+    ts_times = [timescale.from_datetime(time) for time in times]
     positions = [sat.at(time) for time in ts_times]
     subpoints = [wgs84.subpoint(position) for position in positions]
     points = [
@@ -66,10 +63,10 @@ def collect_ground_track(
         for subpoint in subpoints
     ]
     valid_obs = [
-        instrument.is_valid_observation(eph, ts_times[i], positions[i])
+        instrument.is_valid_observation(ts_times[i], positions[i])
         for i, time in enumerate(times)
     ]
-    ops_intervals = instrument.generate_ops_intervals(eph, ts, sat, times, target)
+    ops_intervals = instrument.generate_ops_intervals(sat, times, target)
 
     df = pd.DataFrame(
         [
