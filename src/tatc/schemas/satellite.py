@@ -128,7 +128,7 @@ class WalkerConstellation(Satellite):
     )
     relative_spacing: int = Field(
         0,
-        description="Relative spacing of satellites between plans for a Walker Delta constellation. Ranges from 0 for equal true anomaly to (number of planes) - 1.",
+        description="Relative spacing of satellites between plans for a Walker Delta constellation. Ranges from 0 for equal true anomaly to (number of planes) - 1. For example, `relative_spacing=1` means the true anomaly is shifted by `360/number_satellites` between adjacent planes.",
         ge=0,
     )
 
@@ -146,7 +146,7 @@ class WalkerConstellation(Satellite):
             raise ValueError("relative spacing exceeds number planes - 1")
         return values
 
-    def get_satellites_per_plane():
+    def get_satellites_per_plane(self):
         """
         Gets the (max) number of satellites per plane.
         """
@@ -162,13 +162,9 @@ class WalkerConstellation(Satellite):
     def get_delta_mean_anomaly_between_planes(self):
         """
         Gets the difference in mean anomaly (decimal degrees) for adjacent
-        member satellites between adjacenet planes.
+        member satellites between adjacent planes.
         """
-        return (
-            360
-            * self.relative_spacing
-            / (self.get_satellites_per_plane() * self.number_planes)
-        )
+        return 360 * self.relative_spacing / (self.number_satellites)
 
     def get_delta_raan_between_planes(self):
         """

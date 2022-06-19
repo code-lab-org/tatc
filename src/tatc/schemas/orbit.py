@@ -334,9 +334,9 @@ class CircularOrbit(OrbitBase):
             CircularOrbit
         """
         true_anomaly = utils.mean_anomaly_to_true_anomaly(
-            self.get_mean_anomaly() + delta_mean_anomaly
+            np.mod(self.get_mean_anomaly() + delta_mean_anomaly, 360)
         )
-        raan = self.right_ascension_ascending_node + delta_raan
+        raan = np.mod(self.right_ascension_ascending_node + delta_raan, 360)
         return CircularOrbit(
             altitude=self.altitude,
             true_anomaly=true_anomaly,
@@ -418,9 +418,9 @@ class SunSynchronousOrbit(OrbitBase):
             CircularOrbit
         """
         true_anomaly = utils.mean_anomaly_to_true_anomaly(
-            self.get_mean_anomaly() + delta_mean_anomaly
+            np.mod(self.get_mean_anomaly() + delta_mean_anomaly, 360)
         )
-        raan = self.get_right_ascension_ascending_node() + delta_raan
+        raan = np.mod(self.get_right_ascension_ascending_node() + delta_raan, 360)
         # TODO the resulting orbit *is* still sun-synchronous; however, with a
         # different equator-crossing time. Need to do the math to determine.
         # For now, simply return a circular orbit with the correct parameters.
@@ -477,9 +477,10 @@ class KeplerianOrbit(CircularOrbit):
             KeplerianOrbit
         """
         true_anomaly = utils.mean_anomaly_to_true_anomaly(
-            self.get_mean_anomaly() + delta_mean_anomaly, eccentricity=self.eccentricity
+            np.mod(self.get_mean_anomaly() + delta_mean_anomaly, 360),
+            eccentricity=self.eccentricity,
         )
-        raan = self.right_ascension_ascending_node + delta_raan
+        raan = np.mod(self.right_ascension_ascending_node + delta_raan, 360)
         return KeplerianOrbit(
             altitude=self.altitude,
             true_anomaly=true_anomaly,
