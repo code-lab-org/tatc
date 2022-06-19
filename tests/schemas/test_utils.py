@@ -1,5 +1,7 @@
 import unittest
 
+import numpy as np
+
 from tatc.utils import (
     mean_anomaly_to_true_anomaly,
     true_anomaly_to_mean_anomaly,
@@ -11,6 +13,8 @@ from tatc.utils import (
     compute_orbit_period,
     compute_max_access_time,
 )
+
+from tatc import constants
 
 
 class TestUtils(unittest.TestCase):
@@ -25,7 +29,12 @@ class TestUtils(unittest.TestCase):
         )
 
     def test_compute_number_samples(self):
-        self.assertEqual(compute_number_samples(1000000), 649)
+        # rough approximation based on flat sample areas
+        sample_distance = 10000
+        num_samples = int(
+            constants.earth_surface_area / (np.pi * (sample_distance / 2) ** 2)
+        )
+        self.assertEqual(compute_number_samples(sample_distance), num_samples)
 
     def test_swath_width_to_field_of_regard(self):
         self.assertAlmostEqual(

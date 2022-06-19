@@ -2,6 +2,7 @@ import unittest
 
 from datetime import timedelta
 import numpy as np
+from pydantic import ValidationError
 
 from tatc.schemas import WalkerConstellation, TwoLineElements, Instrument
 
@@ -56,6 +57,42 @@ class TestWalkerConstellation(unittest.TestCase):
 
     def normalize_angle(self, angle):
         return np.mod(360 + angle, 360)
+
+    def test_invalid_planes(self):
+        bad_data = {
+            "name": "Test Constellation",
+            "configuration": "delta",
+            "orbit": {
+                "altitude": "400000",
+                "inclination": 51.6,
+                "right_ascension_ascending_node": 180,
+                "true_anomaly": 180,
+            },
+            "instruments": [{"name": "Test Instrument", "field_of_regard": 25.0}],
+            "number_satellites": 5,
+            "number_planes": 6,
+            "relative_spacing": 1,
+        }
+        with self.assertRaises(ValidationError):
+            WalkerConstellation(**bad_data)
+
+    def test_invalid_relative_spacing(self):
+        bad_data = {
+            "name": "Test Constellation",
+            "configuration": "delta",
+            "orbit": {
+                "altitude": "400000",
+                "inclination": 51.6,
+                "right_ascension_ascending_node": 180,
+                "true_anomaly": 180,
+            },
+            "instruments": [{"name": "Test Instrument", "field_of_regard": 25.0}],
+            "number_satellites": 5,
+            "number_planes": 2,
+            "relative_spacing": 5,
+        }
+        with self.assertRaises(ValidationError):
+            WalkerConstellation(**bad_data)
 
     def test_constructor(self):
         self.assertEqual(self.d420_con.name, self.d420_data.get("name"))

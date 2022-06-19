@@ -33,7 +33,9 @@ def generate_fibonacci_lattice_points(
     :param distance: The typical surface distance (meters) between points.
     :type distance: float
     :param mask: An optional mask to constrain generated points.
-    :type mask: :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`, optional
+    :type mask: valid :class:`shapely.geometry.Polygon` or
+        :class:`shapely.geometry.MultiPolygon` using WGS84 (EPSG:4326) geodetic
+        coordinates, optional
     :return: An instance of :class:`geopandas.GeoDataFrame` specifying the points
     :rtype: :class:`geopandas.GeodataFrame`
     """
@@ -76,6 +78,8 @@ def generate_fibonacci_lattice_points(
     # determine the number of global samples to achieve average sample distance
     samples = compute_number_samples(distance)
     if isinstance(mask, Polygon) or isinstance(mask, MultiPolygon):
+        if not mask.is_valid:
+            raise ValueError("Mask is not a valid Polygon or MultiPolygon.")
         total_bounds = mask.bounds
     else:
         total_bounds = [-180, -90, 180, 90]
@@ -124,10 +128,7 @@ def generate_fibonacci_lattice_points(
     )
     # clip the geodataframe to the supplied mask, if required
     if mask is not None:
-        try:
-            gdf = gpd.clip(gdf, mask).reset_index(drop=True)
-        except TopologicalError:
-            pass
+        gdf = gpd.clip(gdf, mask).reset_index(drop=True)
     # return the final geodataframe
     return gdf
 
@@ -146,13 +147,45 @@ def generate_cubed_sphere_points(
     :param distance: The typical surface distance (meters) between points
     :type distance: float
     :param mask: An optional mask to constrain generated points
-    :type mask: :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`, optional
+    :type mask: valid :class:`shapely.geometry.Polygon` or
+        :class:`shapely.geometry.MultiPolygon` using WGS84 (EPSG:4326) geodetic
+        coordinates, optional
+    :return: An instance of :class:`geopandas.GeoDataFrame` specifying the points
+    :rtype: :class:`geopandas.GeodataFrame`
+    """
+    # compute the angular disance of each sample (assuming sphere)
+    theta_longitude = np.degrees(distance / earth_mean_radius)
+    theta_latitude = np.degrees(distance / earth_mean_radius)
+    return _generate_cubed_sphere_points(theta_longitude, theta_latitude, mask)
+
+
+def _generate_cubed_sphere_points(
+    theta_longitude: float,
+    theta_latitude,
+    mask: Optional[Union[Polygon, MultiPolygon]] = None,
+):
+    """
+    Generates geodetic points at the centroid of regular cubed-sphere grid
+    cells.
+
+    See: Putman and Lin (2007). "Finite-volume transport on various
+    cubed-sphere grids", Journal of Computational Physics, 227(1).
+    doi: 10.1016/j.jcp.2007.07.022
+
+    :param theta_longitude: The angular step in longitude (degrees)
+    :type theta_longitude: float
+    :param theta_latitude: The angular step in latitude (degrees)
+    :type theta_latitude: float
+    :param mask: An optional mask to constrain generated points
+    :type mask: valid :class:`shapely.geometry.Polygon` or
+        :class:`shapely.geometry.MultiPolygon` using WGS84 (EPSG:4326) geodetic
+        coordinates, optional
     :return: An instance of :class:`geopandas.GeoDataFrame` specifying the points
     :rtype: :class:`geopandas.GeodataFrame`
     """
 
     @njit
-    def _compute_id(i, j, theta):
+    def _compute_id(i, j, theta_i, theta_j):
         """
         Fast method to compute the flattened id for a cubed sphere grid point.
         Indices increment west-to-east followed by south-to-north with a first
@@ -162,15 +195,18 @@ def generate_cubed_sphere_points(
         :type i: int
         :param j: The zero-based latitude index
         :type j: int
+        :param theta_i: The angular step in longitude (degrees)
+        :type theta_i: float
+        :param theta_j: The angular step in latitude (degrees)
+        :type theta_j: float
         :return: The latitude (degrees) of this point
         :rtype: float
         """
-        return int(j * int(360 / theta) + np.mod(i, int(360 / theta)))
+        return int(j * int(360 / theta_j) + np.mod(i, int(360 / theta_i)))
 
-    # compute the angular disance of each sample (assuming sphere)
-    theta = np.degrees(distance / earth_mean_radius)
-    mask = normalize_geometry(mask)
     if isinstance(mask, Polygon) or isinstance(mask, MultiPolygon):
+        if not mask.is_valid:
+            raise ValueError("Mask is not a valid Polygon or MultiPolygon.")
         total_bounds = mask.bounds
     else:
         total_bounds = [-180, -90, 180, 90]
@@ -182,20 +218,24 @@ def generate_cubed_sphere_points(
     indices = [
         (i, j)
         for j in range(
-            int(np.round((min_latitude + 90) / theta)),
-            int(np.round((max_latitude + 90) / theta)),
+            int(np.round((min_latitude + 90) / theta_latitude)),
+            int(np.round((max_latitude + 90) / theta_latitude)),
         )
         for i in range(
-            int(np.round((min_longitude + 180) / theta)),
-            int(np.round((max_longitude + 180) / theta)),
+            int(np.round((min_longitude + 180) / theta_longitude)),
+            int(np.round((max_longitude + 180) / theta_longitude)),
         )
     ]
     # create a geodataframe in the WGS84 reference frame
     gdf = gpd.GeoDataFrame(
         {
-            "point_id": [_compute_id(i, j, theta) for (i, j) in indices],
+            "point_id": [
+                _compute_id(i, j, theta_longitude, theta_latitude) for (i, j) in indices
+            ],
             "geometry": [
-                Point(-180 + (i + 0.5) * theta, -90 + (j + 0.5) * theta)
+                Point(
+                    -180 + (i + 0.5) * theta_longitude, -90 + (j + 0.5) * theta_latitude
+                )
                 for (i, j) in indices
             ],
         },
@@ -203,9 +243,6 @@ def generate_cubed_sphere_points(
     )
     # clip the geodataframe to the supplied mask, if required
     if mask is not None:
-        try:
-            gdf = gpd.clip(gdf, mask).reset_index(drop=True)
-        except TopologicalError:
-            pass
+        gdf = gpd.clip(gdf, mask).reset_index(drop=True)
     # return the final geodataframe
     return gdf

@@ -52,13 +52,14 @@ def compute_number_samples(distance):
     Returns:
         int: The number of global samples.
     """
-    # compute the angular disance of each sample (assuming mean sphere)
+    # compute the angular distance of each sample (assuming mean sphere)
     theta = distance / constants.earth_mean_radius
     # compute the distance from the center of earth to conic plane (assuming sphere)
     r = constants.earth_mean_radius * np.cos(theta / 2)
     # compute the distance from the conic plane to the surface (assuming sphere)
     h = constants.earth_mean_radius - r
-    # compute the conic section area covered by the sample (assuming sphere)
+    # compute the sperical cap area covered by the sample (assuming sphere)
+    # https://en.wikipedia.org/wiki/Spherical_cap
     sample_area = 2 * np.pi * constants.earth_mean_radius * h
     # return the fraction of earth-to-sample area
     return int(constants.earth_surface_area / sample_area)

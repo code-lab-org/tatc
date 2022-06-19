@@ -164,7 +164,7 @@ class WalkerConstellation(Satellite):
         Gets the difference in mean anomaly (decimal degrees) for adjacent
         member satellites between adjacent planes.
         """
-        return 360 * self.relative_spacing / (self.number_satellites)
+        return 360 * self.relative_spacing / self.number_satellites
 
     def get_delta_raan_between_planes(self):
         """
