@@ -26,7 +26,7 @@ class TestCoverageAnalysis(unittest.TestCase):
         )
 
     def test_collect_observations_omit_solar(self):
-        collect_observations(
+        results = collect_observations(
             self.point,
             self.satellite,
             self.instrument,
@@ -84,3 +84,15 @@ class TestCoverageAnalysis(unittest.TestCase):
         )
         self.assertEqual(len(results), 1)
         self.assertEqual(results.iloc[0].end, end)
+
+    def test_collect_observations_null(self):
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        end = datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc)
+        results = collect_observations(
+            self.point,
+            self.satellite,
+            self.instrument,
+            start,
+            end,
+        )
+        self.assertEqual(len(results), 0)

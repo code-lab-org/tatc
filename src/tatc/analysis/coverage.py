@@ -25,13 +25,16 @@ from ..utils import (
 from ..constants import de421, timescale
 
 
-def _get_observation_periods(
+def _get_visible_interval_series(
     point: Point,
     satellite: Satellite,
     instrument: Instrument,
     start: datetime,
     end: datetime,
 ) -> pd.Series:
+    """
+    Get the series of observation intervals based on min altitude constraints.
+    """
     # build a topocentric point at the designated geodetic point
     topos = wgs84.latlon(point.latitude, point.longitude)
     # define starting and ending points
@@ -108,6 +111,123 @@ def _get_observation_periods(
     return pd.Series(obs_periods, dtype="interval")
 
 
+def _get_observation_record(
+    period: pd.Interval,
+    point: Point,
+    satellite: Satellite,
+    instrument: Instrument,
+    omit_solar: bool,
+) -> dict:
+    # build a topocentric point at the designated geodetic point
+    topos = wgs84.latlon(point.latitude, point.longitude)
+    # convert orbit to tle
+    orbit = satellite.orbit.to_tle()
+    # construct a satellite for propagation
+    sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
+    sat_alt, sat_az, sat_dist = (
+        (sat - topos).at(timescale.from_datetime(period.mid)).altaz()
+    )
+    record = {
+        "point_id": point.id,
+        "geometry": geo.Point(point.longitude, point.latitude),
+        "satellite": satellite.name,
+        "instrument": instrument.name,
+        "start": period.left,
+        "end": period.right,
+        "epoch": period.mid,
+        "sat_alt": sat_alt.degrees,
+        "sat_az": sat_az.degrees,
+    }
+    if not omit_solar:
+        # find the solar altitude, azimuth, and distance
+        solar_obs = (
+            (de421["earth"] + topos)
+            .at(timescale.from_datetime(period.mid))
+            .observe(de421["sun"])
+            .apparent()
+        )
+        solar_alt, solar_az, solar_dist = solar_obs.altaz()
+        record = {
+            **record,
+            **{
+                "sat_sunlit": sat.at(timescale.from_datetime(period.mid)).is_sunlit(
+                    de421
+                ),
+                "solar_alt": solar_alt.degrees,
+                "solar_az": solar_az.degrees,
+                "solar_time": solar_obs.hadec()[0].hours + 12,
+            },
+        }
+    return record
+
+
+def _get_satellite_alt_az_frame(
+    observations: gpd.GeoDataFrame, point: Point, satellite: Satellite
+) -> pd.DataFrame:
+    # build a topocentric point at the designated geodetic point
+    topos = wgs84.latlon(point.latitude, point.longitude)
+    # convert orbit to tle
+    orbit = satellite.orbit.to_tle()
+    # construct a satellite for propagation
+    sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
+    return observations.apply(
+        lambda r: pd.Series(
+            list(
+                map(
+                    lambda a: a.degrees,
+                    (sat - topos).at(timescale.from_datetime(r.epoch)).altaz()[0:2],
+                )
+            ),
+            index=["sat_alt", "sat_az"],
+        ),
+        axis=1,
+    )
+
+
+def _get_access_series(observations: gpd.GeoDataFrame) -> pd.Series:
+    """
+    Get a series with access times for each observation.
+    """
+    # compute the access time for the observation (end - start)
+    return observations["end"] - observations["start"]
+
+
+def _get_revisit_series(observations: gpd.GeoDataFrame) -> pd.Series:
+    """
+    Get a series with revisit times for each observation.
+    """
+    # compute the revisit time for each observation (previous end - start)
+    return observations["end"] - observations["start"].shift()
+
+
+def _get_empty_coverage(omit_solar: bool) -> gpd.GeoDataFrame:
+    """
+    Get an empty data frame.
+    """
+    columns = {
+        "point_id": pd.Series(dtype="int"),
+        "geometry": pd.Series(dtype="object"),
+        "satellite": pd.Series(dtype="str"),
+        "instrument": pd.Series(dtype="str"),
+        "start": pd.Series(dtype="datetime64[ns, utc]"),
+        "end": pd.Series(dtype="datetime64[ns, utc]"),
+        "epoch": pd.Series(dtype="datetime64[ns, utc]"),
+        "sat_alt": pd.Series(dtype="float"),
+        "sat_az": pd.Series(dtype="float"),
+    }
+    if not omit_solar:
+        columns = {
+            **columns,
+            **{
+                "sat_sunlit": pd.Series(dtype="float"),
+                "solar_alt": pd.Series(dtype="float"),
+                "solar_az": pd.Series(dtype="float"),
+                "solar_time": pd.Series(dtype="float"),
+            },
+        }
+    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
+
+
 def collect_observations(
     point: Point,
     satellite: Satellite,
@@ -136,96 +256,32 @@ def collect_observations(
         recorded reduce_observations
     :rtype::`geopandas.GeoDataFrame`
     """
-
-    # build a topocentric point at the designated geodetic point
-    topos = wgs84.latlon(point.latitude, point.longitude)
-    # define starting and ending points
-    t0 = timescale.from_datetime(start)
-    t1 = timescale.from_datetime(end)
     # convert orbit to tle
     orbit = satellite.orbit.to_tle()
     # construct a satellite for propagation
     sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
 
-    # TODO: consider instrument operational intervals
-    ops_intervals = pd.Series(
-        [pd.Interval(pd.Timestamp(start), pd.Timestamp(end), "both")]
-    )
-
-    # get the observation periods
-    obs_periods = _get_observation_periods(point, satellite, instrument, start, end)
-
-    columns = [
-        "point_id",
-        "geometry",
-        "satellite",
-        "instrument",
-        "start",
-        "end",
-        "epoch",
-        "sat_alt",
-        "sat_az",
-    ]
-    if not omit_solar:
-        # extended columns including solar angles
-        columns += [
-            "sat_sunlit",
-            "solar_alt",
-            "solar_az",
-            "solar_time",
-        ]
-
-    records = []
-    for period in obs_periods:
-        epoch = period.left + (period.right - period.left) / 2
-
-        # check for observation validity based on instrument attributes
+    records = [
+        _get_observation_record(period, point, satellite, instrument, omit_solar)
+        for period in _get_visible_interval_series(
+            point, satellite, instrument, start, end
+        )
         if (
             instrument.min_access_time <= period.right - period.left
-            and instrument.is_valid_observation(sat, timescale.from_datetime(epoch))
-            and (
-                instrument.duty_cycle >= 1
-                or any(ops_intervals.apply(lambda i: epoch in i))
+            and instrument.is_valid_observation(
+                sat, timescale.from_datetime(period.mid)
             )
-        ):
-            sat_alt, sat_az, sat_dist = (
-                (sat - topos).at(timescale.from_datetime(epoch)).altaz()
-            )
-            record = (
-                point.id,
-                geo.Point(point.longitude, point.latitude),
-                satellite.name,
-                instrument.name,
-                period.left,
-                period.right,
-                epoch,
-                sat_alt.degrees,
-                sat_az.degrees,
-            )
-            if not omit_solar:
-                # find the solar altitude, azimuth, and distance
-                solar_obs = (
-                    (de421["earth"] + topos)
-                    .at(timescale.from_datetime(epoch))
-                    .observe(de421["sun"])
-                    .apparent()
-                )
-                solar_alt, solar_az, solar_dist = solar_obs.altaz()
-                record += (
-                    sat.at(timescale.from_datetime(epoch)).is_sunlit(de421),
-                    solar_alt.degrees,
-                    solar_az.degrees,
-                    solar_obs.hadec()[0].hours + 12,
-                )
-        records += [record]
+        )
+    ]
 
     # build the dataframe
-    df = pd.DataFrame(records, columns=columns)
-    # compute the access time for the observation (end - start)
-    df["access"] = df["end"] - df["start"]
-    # compute the revisit time for each observation (previous end - start)
-    df["revisit"] = df["end"] - df["start"].shift()
-    return gpd.GeoDataFrame(df, geometry=df.geometry, crs="EPSG:4326")
+    if len(records) > 0:
+        gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
+    else:
+        gdf = _get_empty_coverage(omit_solar)
+    gdf["access"] = _get_access_series(gdf)
+    gdf["revisit"] = _get_revisit_series(gdf)
+    return gdf
 
 
 def collect_multi_observations(
