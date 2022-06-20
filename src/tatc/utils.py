@@ -218,14 +218,27 @@ def normalize_geometry(geometry):
         :obj:`GeoDataFrame`: The normalized geometry.
     """
     if isinstance(geometry, Polygon) or isinstance(geometry, MultiPolygon):
+        if not geometry.is_valid:
+            raise ValueError("Geometry is not a valid Polygon or MultiPolygon.")
         geometry = gpd.GeoDataFrame(geometry=gpd.GeoSeries([geometry]), crs="EPSG:4326")
     elif isinstance(geometry, gpd.GeoSeries):
         geometry = gpd.GeoDataFrame(geometry=geometry, crs="EPSG:4326")
     if isinstance(geometry, gpd.GeoDataFrame):
         geometry["geometry"] = geometry.apply(
-            lambda r: Polygon(wrap_coordinates_antimeridian(r.geometry.exterior.coords))
+            lambda r: Polygon(
+                wrap_coordinates_antimeridian(r.geometry.exterior.coords),
+                [wrap_coordinates_antimeridian(i.coords) for i in r.geometry.interiors],
+            )
             if isinstance(r.geometry, Polygon)
-            else r.geometry,
+            else MultiPolygon(
+                [
+                    [
+                        wrap_coordinates_antimeridian(p.exterior.coords),
+                        [wrap_coordinates_antimeridian(i.coords) for i in p.interiors],
+                    ]
+                    for p in r.geometry.geoms
+                ]
+            ),
             axis=1,
         )
     return geometry
