@@ -5,6 +5,8 @@ Object schemas for satellite orbits.
 @author: Paul T. Grogan <pgrogan@stevens.edu>
 """
 
+from __future__ import annotations
+
 from datetime import datetime, time, timedelta, timezone
 import numpy as np
 from pydantic import BaseModel, Field, validator
@@ -216,7 +218,9 @@ class TwoLineElements(BaseModel):
             raise ValueError("Invalid tle: line 2 checksum failed.")
         return v
 
-    def get_derived_orbit(self, delta_mean_anomaly, delta_raan):
+    def get_derived_orbit(
+        self, delta_mean_anomaly: float, delta_raan: float
+    ) -> TwoLineElements:
         """
         Gets a derived orbit.
 
@@ -320,7 +324,9 @@ class CircularOrbit(OrbitBase):
         0, description="Right ascension of ascending node (degrees).", ge=0, lt=360
     )
 
-    def get_derived_orbit(self, delta_mean_anomaly, delta_raan):
+    def get_derived_orbit(
+        self, delta_mean_anomaly: float, delta_raan: float
+    ) -> CircularOrbit:
         """
         Gets a derived orbit.
 
@@ -404,7 +410,9 @@ class SunSynchronousOrbit(OrbitBase):
             ra._degrees + 360 * ect_day + 180 * self.equator_crossing_ascending
         ) % 360
 
-    def get_derived_orbit(self, delta_mean_anomaly, delta_raan):
+    def get_derived_orbit(
+        self, delta_mean_anomaly: float, delta_raan: float
+    ) -> CircularOrbit:
         """
         Gets a derived orbit.
 
@@ -463,7 +471,9 @@ class KeplerianOrbit(CircularOrbit):
         """
         return utils.true_anomaly_to_mean_anomaly(self.true_anomaly, self.eccentricity)
 
-    def get_derived_orbit(self, delta_mean_anomaly, delta_raan):
+    def get_derived_orbit(
+        self, delta_mean_anomaly: float, delta_raan: float
+    ) -> KeplerianOrbit:
         """
         Gets a derived orbit.
 

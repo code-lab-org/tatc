@@ -25,6 +25,89 @@ from ..utils import (
 from ..constants import de421, timescale
 
 
+def _get_observation_periods(
+    point: Point,
+    satellite: Satellite,
+    instrument: Instrument,
+    start: datetime,
+    end: datetime,
+) -> pd.Series:
+    # build a topocentric point at the designated geodetic point
+    topos = wgs84.latlon(point.latitude, point.longitude)
+    # define starting and ending points
+    t0 = timescale.from_datetime(start)
+    t1 = timescale.from_datetime(end)
+    # convert orbit to tle
+    orbit = satellite.orbit.to_tle()
+    # construct a satellite for propagation
+    sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
+    # compute the initial satellite height (altitude)
+    satellite_height = wgs84.geographic_position_of(sat.at(t0)).elevation.m
+    # compute the minimum altitude angle required for observation
+    min_altitude = compute_min_altitude(
+        satellite_height,
+        instrument.field_of_regard,
+    )
+    # compute the maximum access time to filter bad data
+    max_access_time = timedelta(
+        seconds=compute_max_access_time(satellite_height, min_altitude)
+    )
+    # find the set of observation events
+    t, events = sat.find_events(topos, t0, t1, altitude_degrees=min_altitude)
+
+    # build the observation periods
+    obs_periods = []
+    if len(events) > 0 and np.all(events == 1):
+        # if all events are type 1 (culminate), create a period from start to end
+        obs_periods += [pd.Interval(left=pd.Timestamp(start), right=pd.Timestamp(end))]
+    elif len(events) > 0:
+        # otherwise, match rise/set events
+        rises = t[events == 0]
+        sets = t[events == 2]
+        if len(sets) > 0 and (
+            len(rises) == 0 or sets[0].utc_datetime() < rises[0].utc_datetime()
+        ):
+            # if first event is a set, create a period from the start
+            obs_periods += [
+                pd.Interval(
+                    left=pd.Timestamp(start), right=pd.Timestamp(sets[0].utc_datetime())
+                )
+            ]
+        # create an observation period to match with each rise event if
+        # there is a following set event within twice the maximum access time
+        obs_periods += [
+            pd.Interval(
+                left=pd.Timestamp(rise.utc_datetime()),
+                right=pd.Timestamp(
+                    sets[
+                        np.logical_and(
+                            rise.utc_datetime() < sets.utc_datetime(),
+                            sets.utc_datetime()
+                            < rise.utc_datetime() + 2 * max_access_time,
+                        )
+                    ][0].utc_datetime()
+                ),
+            )
+            for rise in rises
+            if np.any(
+                np.logical_and(
+                    rise.utc_datetime() < sets.utc_datetime(),
+                    sets.utc_datetime() < rise.utc_datetime() + 2 * max_access_time,
+                )
+            )
+        ]
+        if len(rises) > 0 and (
+            len(sets) == 0 or rises[-1].utc_datetime() > sets[-1].utc_datetime()
+        ):
+            # if last event is a rise, create a period to the end
+            obs_periods += [
+                pd.Interval(
+                    left=pd.Timestamp(rises[-1].utc_datetime()), right=pd.Timestamp(end)
+                )
+            ]
+    return pd.Series(obs_periods, dtype="interval")
+
+
 def collect_observations(
     point: Point,
     satellite: Satellite,
@@ -32,7 +115,6 @@ def collect_observations(
     start: datetime,
     end: datetime,
     omit_solar: bool = True,
-    sample_distance: Optional[float] = None,
 ) -> gpd.GeoDataFrame:
     """
     Collect single satellite observations of a geodetic point of interest.
@@ -50,9 +132,6 @@ def collect_observations(
     :param omit_solar: True, if solar angles should be omitted
         to improve computational efficiency, defaults to True
     :type omit_solar: bool, optional
-    :param sample_distance: Ground sample distance (m) to override
-        instrument field of regard, defaults to None
-    :type sample_distance: int, optional
     :return: An instance of :class:`geopandas.GeoDataFrame` containing all
         recorded reduce_observations
     :rtype::`geopandas.GeoDataFrame`
@@ -67,229 +146,82 @@ def collect_observations(
     orbit = satellite.orbit.to_tle()
     # construct a satellite for propagation
     sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
-    # compute the initial satellite height (altitude)
-    satellite_height = wgs84.subpoint(sat.at(t0)).elevation.m
-    # compute the minimum altitude angle required for observation
-    min_altitude = compute_min_altitude(
-        satellite_height,
-        instrument.field_of_regard
-        if sample_distance is None
-        else swath_width_to_field_of_regard(satellite_height, sample_distance),
-    )
-    # compute the maximum access time to filter bad data
-    max_access_time = timedelta(
-        seconds=compute_max_access_time(satellite_height, min_altitude)
-    )
+
     # TODO: consider instrument operational intervals
     ops_intervals = pd.Series(
         [pd.Interval(pd.Timestamp(start), pd.Timestamp(end), "both")]
     )
 
-    # find the set of observation events
-    t, events = sat.find_events(topos, t0, t1, altitude_degrees=min_altitude)
+    # get the observation periods
+    obs_periods = _get_observation_periods(point, satellite, instrument, start, end)
 
-    if omit_solar:
-        # basic dataframe without solar angles
-        df = pd.DataFrame(
-            {
-                "point_id": pd.Series([], dtype="int"),
-                "geometry": pd.Series([], dtype="object"),
-                "satellite": pd.Series([], dtype="str"),
-                "instrument": pd.Series([], dtype="str"),
-                "start": pd.Series([], dtype="datetime64[ns, utc]"),
-                "end": pd.Series([], dtype="datetime64[ns, utc]"),
-                "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
-                "sat_alt": pd.Series([], dtype="float64"),
-                "sat_az": pd.Series([], dtype="float64"),
-            }
-        )
-    else:
-        # extended dataframe including solar angles
-        df = pd.DataFrame(
-            {
-                "point_id": pd.Series([], dtype="int"),
-                "geometry": pd.Series([], dtype="object"),
-                "satellite": pd.Series([], dtype="str"),
-                "instrument": pd.Series([], dtype="str"),
-                "start": pd.Series([], dtype="datetime64[ns, utc]"),
-                "end": pd.Series([], dtype="datetime64[ns, utc]"),
-                "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
-                "sat_alt": pd.Series([], dtype="float64"),
-                "sat_az": pd.Series([], dtype="float64"),
-                "sat_sunlit": pd.Series([], dtype="bool"),
-                "solar_alt": pd.Series([], dtype="float64"),
-                "solar_az": pd.Series([], dtype="float64"),
-                "solar_time": pd.Series([], dtype="float64"),
-            }
-        )
-    # define variables for stepping through the events list
-    t_rise = None
-    t_culminate = None
-    sat_sunlit = None
-    solar_time = None
-    sat_alt = None
-    sat_az = None
-    solar_alt = None
-    solar_az = None
-    # check for geocentricity
-    if np.all(events == 1) and events:
-        # find the satellite altitude, azimuth, and distance at t0
-        sat_alt, sat_az, sat_dist = (sat - topos).at(t[0]).altaz()
-        # if ommiting solar angles
-        if omit_solar:
-            df = pd.concat(
-                [
-                    df,
-                    pd.DataFrame.from_records(
-                        {
-                            "point_id": point.id,
-                            "geometry": geo.Point(point.longitude, point.latitude),
-                            "satellite": satellite.name,
-                            "instrument": instrument.name,
-                            "start": start,
-                            "epoch": start + (end - start) / 2,
-                            "end": end,
-                            "sat_alt": sat_alt.degrees,
-                            "sat_az": sat_az.degrees,
-                        },
-                        index=[0],
-                    ),
-                ],
-                ignore_index=True,
-            )
-        # otherwise if solar angles are included
-        else:
-            df = pd.concat(
-                [
-                    df,
-                    pd.DataFrame.from_records(
-                        {
-                            "point_id": point.id,
-                            "geometry": geo.Point(point.longitude, point.latitude),
-                            "satellite": satellite.name,
-                            "instrument": instrument.name,
-                            "start": start,
-                            "epoch": start + (end - start) / 2,
-                            "end": end,
-                            "sat_alt": sat_alt.degrees,
-                            "sat_az": sat_az.degrees,
-                            "sat_sunlit": None,
-                            "solar_alt": None,
-                            "solar_az": None,
-                            "solar_time": None,
-                        },
-                        index=[0],
-                    ),
-                ],
-                ignore_index=True,
-            )
-        # compute the access time for the observation (end - start)
-        df["access"] = df["end"] - df["start"]
-        # compute the revisit time for each observation (previous end - start)
-        df["revisit"] = df["end"] - df["start"].shift()
-        return gpd.GeoDataFrame(df, geometry=df.geometry, crs="EPSG:4326")
+    columns = [
+        "point_id",
+        "geometry",
+        "satellite",
+        "instrument",
+        "start",
+        "end",
+        "epoch",
+        "sat_alt",
+        "sat_az",
+    ]
+    if not omit_solar:
+        # extended columns including solar angles
+        columns += [
+            "sat_sunlit",
+            "solar_alt",
+            "solar_az",
+            "solar_time",
+        ]
 
-    for j in range(len(events)):
-        if events[j] == 0:
-            # record the rise time
-            t_rise = t[j].utc_datetime()
-        elif events[j] == 1:
-            # record the culmination time
-            t_culminate = t[j].utc_datetime()
-            # find the satellite altitude, azimuth, and distance
-            sat_alt, sat_az, sat_dist = (sat - topos).at(t[j]).altaz()
-            if not omit_solar or instrument.req_target_sunlit is not None:
+    records = []
+    for period in obs_periods:
+        epoch = period.left + (period.right - period.left) / 2
+
+        # check for observation validity based on instrument attributes
+        if (
+            instrument.min_access_time <= period.right - period.left
+            and instrument.is_valid_observation(sat, timescale.from_datetime(epoch))
+            and (
+                instrument.duty_cycle >= 1
+                or any(ops_intervals.apply(lambda i: epoch in i))
+            )
+        ):
+            sat_alt, sat_az, sat_dist = (
+                (sat - topos).at(timescale.from_datetime(epoch)).altaz()
+            )
+            record = (
+                point.id,
+                geo.Point(point.longitude, point.latitude),
+                satellite.name,
+                instrument.name,
+                period.left,
+                period.right,
+                epoch,
+                sat_alt.degrees,
+                sat_az.degrees,
+            )
+            if not omit_solar:
                 # find the solar altitude, azimuth, and distance
                 solar_obs = (
-                    (de421["earth"] + topos).at(t[j]).observe(de421["sun"]).apparent()
+                    (de421["earth"] + topos)
+                    .at(timescale.from_datetime(epoch))
+                    .observe(de421["sun"])
+                    .apparent()
                 )
                 solar_alt, solar_az, solar_dist = solar_obs.altaz()
-                # find the local solar time
-                solar_time = solar_obs.hadec()[0].hours + 12
-            if not omit_solar or instrument.req_self_sunlit is not None:
-                # find whether the satellite is sunlit
-                sat_sunlit = sat.at(t[j]).is_sunlit(de421)
-        elif events[j] == 2:
-            # record the set time
-            t_set = t[j].utc_datetime()
-            # only record an observation if a previous rise and culminate
-            # events were recorded (sometimes they are out-of-order)
-            if t_rise is not None and t_culminate is not None:
-                # check if the observation meets minimum access duration,
-                # ground sunlit conditions, and satellite sunlit conditions
-                if (
-                    instrument.min_access_time <= t_set - t_rise <= max_access_time * 2
-                    and instrument.is_valid_observation(
-                        sat, timescale.from_datetime(t_culminate)
-                    )
-                    and (
-                        instrument.duty_cycle >= 1
-                        or any(ops_intervals.apply(lambda i: t_culminate in i))
-                    )
-                ):
-                    # if omitting solar angles
-                    if omit_solar:
-                        df = pd.concat(
-                            [
-                                df,
-                                pd.DataFrame.from_records(
-                                    {
-                                        "point_id": point.id,
-                                        "geometry": geo.Point(
-                                            point.longitude, point.latitude
-                                        ),
-                                        "satellite": satellite.name,
-                                        "instrument": instrument.name,
-                                        "start": pd.Timestamp(t_rise),
-                                        "epoch": pd.Timestamp(t_culminate),
-                                        "end": pd.Timestamp(t_set),
-                                        "sat_alt": sat_alt.degrees,
-                                        "sat_az": sat_az.degrees,
-                                    },
-                                    index=[0],
-                                ),
-                            ],
-                            ignore_index=True,
-                        )
-                    # otherwise if solar angles are included
-                    else:
-                        df = pd.concat(
-                            [
-                                df,
-                                pd.DataFrame.from_records(
-                                    {
-                                        "point_id": point.id,
-                                        "geometry": geo.Point(
-                                            point.longitude, point.latitude
-                                        ),
-                                        "satellite": satellite.name,
-                                        "instrument": instrument.name,
-                                        "start": pd.Timestamp(t_rise),
-                                        "epoch": pd.Timestamp(t_culminate),
-                                        "end": pd.Timestamp(t_set),
-                                        "sat_alt": sat_alt.degrees,
-                                        "sat_az": sat_az.degrees,
-                                        "sat_sunlit": sat_sunlit,
-                                        "solar_alt": solar_alt.degrees,
-                                        "solar_az": solar_az.degrees,
-                                        "solar_time": solar_time,
-                                    },
-                                    index=[0],
-                                ),
-                            ],
-                            ignore_index=True,
-                        )
-            # reset the variables for stepping through the event list
-            t_rise = None
-            t_culminate = None
-            sat_sunlit = None
-            solar_time = None
-            sat_alt = None
-            sat_az = None
-            solar_alt = None
-            solar_az = None
+                record += (
+                    sat.at(timescale.from_datetime(epoch)).is_sunlit(de421),
+                    solar_alt.degrees,
+                    solar_az.degrees,
+                    solar_obs.hadec()[0].hours + 12,
+                )
+        records += [record]
 
-    # compute the access time for each observation (end - start)
+    # build the dataframe
+    df = pd.DataFrame(records, columns=columns)
+    # compute the access time for the observation (end - start)
     df["access"] = df["end"] - df["start"]
     # compute the revisit time for each observation (previous end - start)
     df["revisit"] = df["end"] - df["start"].shift()
@@ -302,7 +234,6 @@ def collect_multi_observations(
     start: datetime,
     end: datetime,
     omit_solar: bool = True,
-    sample_distance: Optional[float] = None,
 ) -> gpd.GeoDataFrame:
     """
     Collect multiple satellite observations of a geodetic point of interest.
@@ -318,17 +249,12 @@ def collect_multi_observations(
     :param omit_solar: True, if solar angles should be omitted
         to improve computational efficiency, defaults to True
     :type omit_solar: bool, optional
-    :param sample_distance: Ground sample distance (m) to override
-        instrument field of regard, defaults to None
-    :type sample_distance: int, optional
     :return: an instance of :class:`geopandas.GeoDataFrame` containing all
         recorded observations
     :rtype: :class:`geopandas.GeoDataFrame`
     """
     gdfs = [
-        collect_observations(
-            point, satellite, instrument, start, end, omit_solar, sample_distance
-        )
+        collect_observations(point, satellite, instrument, start, end, omit_solar)
         for constellation in satellites
         for satellite in (constellation.generate_members())
         for instrument in satellite.instruments

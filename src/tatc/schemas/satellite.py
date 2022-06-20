@@ -4,6 +4,8 @@ Object schemas for satellites.
 
 @author: Paul T. Grogan <pgrogan@stevens.edu>
 """
+from __future__ import annotations
+
 import copy
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -46,7 +48,7 @@ class Satellite(SpaceSystem):
         [], description="List of assigned instruments."
     )
 
-    def generate_members(self) -> List[SpaceSystem]:
+    def generate_members(self) -> List[Satellite]:
         return [self]
 
 
@@ -71,14 +73,14 @@ class TrainConstellation(Satellite):
         description="True, if the train satellites should repeat the same ground track.",
     )
 
-    def get_delta_mean_anomaly(self):
+    def get_delta_mean_anomaly(self) -> float:
         """
         Gets the difference in mean anomaly (decimal degrees) for adjacent
         member satellites.
         """
         return 360 * self.orbit.get_mean_motion() * (self.interval / timedelta(days=1))
 
-    def get_delta_raan(self):
+    def get_delta_raan(self) -> float:
         """
         Gets the difference in right ascension of ascending node (decimal
         degrees) for adjacent member satellites.
@@ -146,27 +148,27 @@ class WalkerConstellation(Satellite):
             raise ValueError("relative spacing exceeds number planes - 1")
         return values
 
-    def get_satellites_per_plane(self):
+    def get_satellites_per_plane(self) -> int:
         """
         Gets the (max) number of satellites per plane.
         """
         return math.ceil(self.number_satellites / self.number_planes)
 
-    def get_delta_mean_anomaly_within_planes(self):
+    def get_delta_mean_anomaly_within_planes(self) -> float:
         """
         Gets the difference in mean anomaly (decimal degrees) for adjacent
         member satellites within a single plane.
         """
         return 360 / self.get_satellites_per_plane()
 
-    def get_delta_mean_anomaly_between_planes(self):
+    def get_delta_mean_anomaly_between_planes(self) -> float:
         """
         Gets the difference in mean anomaly (decimal degrees) for adjacent
         member satellites between adjacent planes.
         """
         return 360 * self.relative_spacing / self.number_satellites
 
-    def get_delta_raan_between_planes(self):
+    def get_delta_raan_between_planes(self) -> float:
         """
         Gets the difference in right ascension of ascending node (decimal
         degrees) for adjacent planes of member satellites.

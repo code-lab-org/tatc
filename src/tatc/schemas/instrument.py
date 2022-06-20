@@ -6,13 +6,14 @@ Object schemas for instruments.
 """
 
 from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 from pydantic import BaseModel, Field, confloat
 from datetime import timedelta
 import pandas as pd
 import numpy as np
 from skyfield.api import wgs84, EarthSatellite
-from shapely.geometry import Point
+from skyfield.timelib import Time
+from shapely.geometry import Point, Polygon, MultiPolygon
 
 from .. import constants, utils
 from ..constants import de421, timescale
@@ -76,7 +77,7 @@ class Instrument(BaseModel):
         description="Scheme for duty cycling instrument (default: fixed).",
     )
 
-    def get_swath_width(self, height):
+    def get_swath_width(self, height: float) -> float:
         """
         Gets the instrument swath width projected to the Earth's surface.
 
@@ -88,7 +89,7 @@ class Instrument(BaseModel):
         """
         return utils.field_of_regard_to_swath_width(height, self.field_of_regard)
 
-    def get_min_elevation_angle(self, height) -> float:
+    def get_min_elevation_angle(self, height: float) -> float:
         """
         Get the minimum elevation angle required to observe a point.
 
@@ -100,7 +101,7 @@ class Instrument(BaseModel):
         """
         return utils.compute_min_altitude(height, self.field_of_regard)
 
-    def is_valid_observation(self, sat, time) -> bool:
+    def is_valid_observation(self, sat: EarthSatellite, time: Time) -> bool:
         """Determines if an instrument can provide a valid observations.
 
         :param sat: Satellite hosting this instrument (Skyfield).
@@ -130,7 +131,12 @@ class Instrument(BaseModel):
                 )
         return is_valid
 
-    def generate_ops_intervals(self, sat, times, target_region=None):
+    def generate_ops_intervals(
+        self,
+        sat: EarthSatellite,
+        times: Time,
+        target_region: Union[Polygon, MultiPolygon] = None,
+    ) -> pd.Series:
         """Generate intervals when this instrument is operational.
 
         :param sat: Satellite hosting this instrument (Skyfield).
