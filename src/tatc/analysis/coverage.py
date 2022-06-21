@@ -288,9 +288,8 @@ def collect_observations(
             gdf["solar_time"] = _get_solar_time_series(gdf)
     else:
         gdf = _get_empty_coverage_frame(omit_solar)
-    # append access duration column
+    # compute access and revisit metrics
     gdf["access"] = _get_access_series(gdf)
-    # append revisit duration column
     gdf["revisit"] = _get_revisit_series(gdf)
     return gdf
 
@@ -368,6 +367,7 @@ def aggregate_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     gdf = gdf.sort_values("start")
     # assign the observation group number based on overlapping start/end times
     gdf["obs"] = (gdf["start"] > gdf["end"].shift().cummax()).cumsum()
+    # perform the aggregation to group overlapping observations
     gdf = gpd.GeoDataFrame(
         gdf.groupby("obs").agg(
             {
@@ -382,6 +382,7 @@ def aggregate_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         ),
         crs="EPSG:4326",
     )
+    # compute access and revisit metrics
     gdf["access"] = _get_access_series(gdf)
     gdf["revisit"] = _get_revisit_series(gdf)
     return gdf
@@ -414,9 +415,12 @@ def reduce_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     if gdf.empty:
         return _get_empty_reduce_frame()
 
+    # convert access and revisit to numeric values before aggregation
     gdf["access"] = gdf["access"] / timedelta(seconds=1)
     gdf["revisit"] = gdf["revisit"] / timedelta(seconds=1)
+    # assign each record to one observation
     gdf["num_obs"] = 1
+    # perform the aggregation operation
     gdf = gpd.GeoDataFrame(
         gdf.groupby("point_id").agg(
             {
@@ -429,6 +433,7 @@ def reduce_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         ),
         crs="EPSG:4326",
     )
+    # convert access and revisit from numeric values after aggregation
     gdf["access"] = gdf["access"].apply(lambda t: timedelta(seconds=t))
     gdf["revisit"] = gdf["revisit"].apply(
         lambda t: pd.NaT if pd.isna(t) else timedelta(seconds=t)
