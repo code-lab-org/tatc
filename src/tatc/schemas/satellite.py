@@ -33,6 +33,12 @@ class SpaceSystem(BaseModel):
         description="Name of this satellite.",
         example="International Space Station",
     )
+    orbit: Union[
+        TwoLineElements, CircularOrbit, SunSynchronousOrbit, KeplerianOrbit
+    ] = Field(..., description="Orbit specification.")
+    instruments: List[Instrument] = Field(
+        [], description="List of assigned instruments."
+    )
 
 
 class Satellite(SpaceSystem):
@@ -41,12 +47,6 @@ class Satellite(SpaceSystem):
     """
 
     type: Literal["satellite"] = Field("satellite")
-    orbit: Union[
-        TwoLineElements, CircularOrbit, SunSynchronousOrbit, KeplerianOrbit
-    ] = Field(..., description="Orbit specification.")
-    instruments: List[Instrument] = Field(
-        [], description="List of assigned instruments."
-    )
 
     def generate_members(self) -> List[Satellite]:
         return [self]

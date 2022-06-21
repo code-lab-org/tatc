@@ -8,7 +8,13 @@ from tatc.analysis import (
     aggregate_observations,
     reduce_observations,
 )
-from tatc.schemas import Point, Satellite, Instrument, TwoLineElements
+from tatc.schemas import (
+    Point,
+    Satellite,
+    Instrument,
+    TwoLineElements,
+    WalkerConstellation,
+)
 
 
 class TestCoverageAnalysis(unittest.TestCase):
@@ -24,8 +30,15 @@ class TestCoverageAnalysis(unittest.TestCase):
         self.satellite = Satellite(
             name="Test", orbit=self.orbit, instruments=[self.instrument]
         )
+        self.constellation = WalkerConstellation(
+            name="Test",
+            orbit=self.orbit,
+            instruments=[self.instrument],
+            number_satellites=4,
+            number_planes=2,
+        )
 
-    def test_collect_observations_omit_solar(self):
+    def test_collect_observations(self):
         results = collect_observations(
             self.point,
             self.satellite,
@@ -35,7 +48,7 @@ class TestCoverageAnalysis(unittest.TestCase):
             omit_solar=True,
         )
 
-    def test_collect_observations_no_omit_solar(self):
+    def test_collect_observations_with_solar(self):
         results = collect_observations(
             self.point,
             self.satellite,
@@ -95,4 +108,60 @@ class TestCoverageAnalysis(unittest.TestCase):
             start,
             end,
         )
-        self.assertEqual(len(results), 0)
+        self.assertTrue(results.empty)
+
+    def test_collect_observations_null_with_solar(self):
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        end = datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc)
+        results = collect_observations(
+            self.point, self.satellite, self.instrument, start, end, omit_solar=False
+        )
+        self.assertTrue(results.empty)
+
+    def test_collect_multi_observations(self):
+        results = collect_multi_observations(
+            self.point,
+            [self.constellation],
+            datetime(2022, 6, 1, tzinfo=timezone.utc),
+            datetime(2022, 6, 2, tzinfo=timezone.utc),
+        )
+
+    def test_aggregate_observations(self):
+        results = collect_multi_observations(
+            self.point,
+            [self.constellation],
+            datetime(2022, 6, 1, tzinfo=timezone.utc),
+            datetime(2022, 6, 2, tzinfo=timezone.utc),
+        )
+        results = aggregate_observations(results)
+
+    def test_aggregate_observations_null(self):
+        results = collect_multi_observations(
+            self.point,
+            [self.constellation],
+            datetime(2022, 6, 1, tzinfo=timezone.utc),
+            datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
+        )
+        results = aggregate_observations(results)
+        self.assertTrue(results.empty)
+
+    def test_reduce_observations(self):
+        results = collect_multi_observations(
+            self.point,
+            [self.constellation],
+            datetime(2022, 6, 1, tzinfo=timezone.utc),
+            datetime(2022, 6, 2, tzinfo=timezone.utc),
+        )
+        results = aggregate_observations(results)
+        results = reduce_observations(results)
+
+    def test_reduce_observations_null(self):
+        results = collect_multi_observations(
+            self.point,
+            [self.constellation],
+            datetime(2022, 6, 1, tzinfo=timezone.utc),
+            datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
+        )
+        results = aggregate_observations(results)
+        results = reduce_observations(results)
+        self.assertTrue(results.empty)

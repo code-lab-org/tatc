@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from skyfield.api import load, wgs84, EarthSatellite
 
 from ..schemas.point import Point
-from ..schemas.satellite import Satellite
+from ..schemas.satellite import Satellite, SpaceSystem
 from ..schemas.instrument import Instrument, DutyCycleScheme
 
 from ..utils import (
@@ -33,7 +33,7 @@ def _get_visible_interval_series(
     end: datetime,
 ) -> pd.Series:
     """
-    Get the series of observation intervals based on min altitude constraints.
+    Get the series of visible intervals based on observation angle constraints.
     """
     # build a topocentric point at the designated geodetic point
     topos = wgs84.latlon(point.latitude, point.longitude)
@@ -111,77 +111,64 @@ def _get_visible_interval_series(
     return pd.Series(obs_periods, dtype="interval")
 
 
-def _get_observation_record(
-    period: pd.Interval,
-    point: Point,
-    satellite: Satellite,
-    instrument: Instrument,
-    omit_solar: bool,
-) -> dict:
-    # build a topocentric point at the designated geodetic point
-    topos = wgs84.latlon(point.latitude, point.longitude)
-    # convert orbit to tle
-    orbit = satellite.orbit.to_tle()
-    # construct a satellite for propagation
-    sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
-    sat_alt, sat_az, sat_dist = (
-        (sat - topos).at(timescale.from_datetime(period.mid)).altaz()
-    )
-    record = {
-        "point_id": point.id,
-        "geometry": geo.Point(point.longitude, point.latitude),
-        "satellite": satellite.name,
-        "instrument": instrument.name,
-        "start": period.left,
-        "end": period.right,
-        "epoch": period.mid,
-        "sat_alt": sat_alt.degrees,
-        "sat_az": sat_az.degrees,
-    }
-    if not omit_solar:
-        # find the solar altitude, azimuth, and distance
-        solar_obs = (
-            (de421["earth"] + topos)
-            .at(timescale.from_datetime(period.mid))
-            .observe(de421["sun"])
-            .apparent()
-        )
-        solar_alt, solar_az, solar_dist = solar_obs.altaz()
-        record = {
-            **record,
-            **{
-                "sat_sunlit": sat.at(timescale.from_datetime(period.mid)).is_sunlit(
-                    de421
-                ),
-                "solar_alt": solar_alt.degrees,
-                "solar_az": solar_az.degrees,
-                "solar_time": solar_obs.hadec()[0].hours + 12,
-            },
-        }
-    return record
-
-
-def _get_satellite_alt_az_frame(
-    observations: gpd.GeoDataFrame, point: Point, satellite: Satellite
-) -> pd.DataFrame:
-    # build a topocentric point at the designated geodetic point
-    topos = wgs84.latlon(point.latitude, point.longitude)
-    # convert orbit to tle
-    orbit = satellite.orbit.to_tle()
-    # construct a satellite for propagation
-    sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
-    return observations.apply(
-        lambda r: pd.Series(
-            list(
-                map(
-                    lambda a: a.degrees,
-                    (sat - topos).at(timescale.from_datetime(r.epoch)).altaz()[0:2],
-                )
-            ),
-            index=["sat_alt", "sat_az"],
-        ),
+def _get_satellite_altaz_series(
+    observations: gpd.GeoDataFrame, sat: EarthSatellite
+) -> pd.Series:
+    """
+    Get a series with the satellite altitude/azimuth for each observation.
+    """
+    sat_altaz = observations.apply(
+        lambda r: (sat - wgs84.latlon(r.geometry.y, r.geometry.x))
+        .at(timescale.from_datetime(r.epoch))
+        .altaz(),
         axis=1,
     )
+    return pd.Series(sat_altaz, dtype="object")
+
+
+def _get_satellite_sunlit_series(
+    observations: gpd.GeoDataFrame, sat: EarthSatellite
+) -> pd.Series:
+    """
+    Get a series with the satellite sunlit condition for each observation.
+    """
+    sat_sunlit = observations.apply(
+        lambda r: sat.at(timescale.from_datetime(r.epoch)).is_sunlit(de421),
+        axis=1,
+    )
+    return pd.Series(sat_sunlit, dtype="bool")
+
+
+def _get_solar_altaz_series(observations: gpd.GeoDataFrame) -> pd.Series:
+    """
+    Get a series with the solar altitude/azimuth for each observation.
+    """
+    sun_altaz = observations.apply(
+        lambda r: (de421["earth"] + wgs84.latlon(r.geometry.y, r.geometry.x))
+        .at(timescale.from_datetime(r.epoch))
+        .observe(de421["sun"])
+        .apparent()
+        .altaz(),
+        axis=1,
+    )
+    return pd.Series(sun_altaz, dtype="object")
+
+
+def _get_solar_time_series(observations: gpd.GeoDataFrame) -> pd.Series:
+    """
+    Get a series with the local solar time for each observation.
+    """
+    solar_time = observations.apply(
+        lambda r: (de421["earth"] + wgs84.latlon(r.geometry.y, r.geometry.x))
+        .at(timescale.from_datetime(r.epoch))
+        .observe(de421["sun"])
+        .apparent()
+        .hadec()[0]
+        .hours
+        + 12,
+        axis=1,
+    )
+    return pd.Series(solar_time, dtype="float")
 
 
 def _get_access_series(observations: gpd.GeoDataFrame) -> pd.Series:
@@ -200,18 +187,18 @@ def _get_revisit_series(observations: gpd.GeoDataFrame) -> pd.Series:
     return observations["end"] - observations["start"].shift()
 
 
-def _get_empty_coverage(omit_solar: bool) -> gpd.GeoDataFrame:
+def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
     """
     Get an empty data frame.
     """
     columns = {
-        "point_id": pd.Series(dtype="int"),
-        "geometry": pd.Series(dtype="object"),
-        "satellite": pd.Series(dtype="str"),
-        "instrument": pd.Series(dtype="str"),
-        "start": pd.Series(dtype="datetime64[ns, utc]"),
-        "end": pd.Series(dtype="datetime64[ns, utc]"),
-        "epoch": pd.Series(dtype="datetime64[ns, utc]"),
+        "point_id": pd.Series([], dtype="int"),
+        "geometry": pd.Series([], dtype="object"),
+        "start": pd.Series([], dtype="datetime64[ns, utc]"),
+        "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
+        "end": pd.Series([], dtype="datetime64[ns, utc]"),
+        "satellite": pd.Series([], dtype="str"),
+        "instrument": pd.Series([], dtype="str"),
         "sat_alt": pd.Series(dtype="float"),
         "sat_az": pd.Series(dtype="float"),
     }
@@ -219,7 +206,7 @@ def _get_empty_coverage(omit_solar: bool) -> gpd.GeoDataFrame:
         columns = {
             **columns,
             **{
-                "sat_sunlit": pd.Series(dtype="float"),
+                "sat_sunlit": pd.Series(dtype="bool"),
                 "solar_alt": pd.Series(dtype="float"),
                 "solar_az": pd.Series(dtype="float"),
                 "solar_time": pd.Series(dtype="float"),
@@ -256,13 +243,22 @@ def collect_observations(
         recorded reduce_observations
     :rtype::`geopandas.GeoDataFrame`
     """
+    # build a topocentric point at the designated geodetic point
+    topos = wgs84.latlon(point.latitude, point.longitude)
     # convert orbit to tle
     orbit = satellite.orbit.to_tle()
     # construct a satellite for propagation
     sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
-
     records = [
-        _get_observation_record(period, point, satellite, instrument, omit_solar)
+        {
+            "point_id": point.id,
+            "geometry": geo.Point(point.longitude, point.latitude),
+            "satellite": satellite.name,
+            "instrument": instrument.name,
+            "start": period.left,
+            "end": period.right,
+            "epoch": period.mid,
+        }
         for period in _get_visible_interval_series(
             point, satellite, instrument, start, end
         )
@@ -277,16 +273,31 @@ def collect_observations(
     # build the dataframe
     if len(records) > 0:
         gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
+        # append satellite altitude/azimuth columns
+        sat_altaz = _get_satellite_altaz_series(gdf, sat)
+        gdf["sat_alt"] = sat_altaz.apply(lambda r: r[0].degrees)
+        gdf["sat_az"] = sat_altaz.apply(lambda r: r[1].degrees)
+        if not omit_solar:
+            # append satellite sunlit column
+            gdf["sat_sunlit"] = _get_satellite_sunlit_series(gdf, sat)
+            # append solar altitude/azimuth columns
+            sun_altaz = _get_solar_altaz_series(gdf)
+            gdf["sun_alt"] = sun_altaz.apply(lambda r: r[0].degrees)
+            gdf["sun_az"] = sun_altaz.apply(lambda r: r[1].degrees)
+            # append local solar time column
+            gdf["solar_time"] = _get_solar_time_series(gdf)
     else:
-        gdf = _get_empty_coverage(omit_solar)
+        gdf = _get_empty_coverage_frame(omit_solar)
+    # append access duration column
     gdf["access"] = _get_access_series(gdf)
+    # append revisit duration column
     gdf["revisit"] = _get_revisit_series(gdf)
     return gdf
 
 
 def collect_multi_observations(
     point: Point,
-    satellites: List[Satellite],
+    satellites: List[SpaceSystem],
     start: datetime,
     end: datetime,
     omit_solar: bool = True,
@@ -322,6 +333,24 @@ def collect_multi_observations(
     return gpd.GeoDataFrame(df, geometry=df.geometry, crs="EPSG:4326")
 
 
+def _get_empty_aggregate_frame() -> gpd.GeoDataFrame:
+    """
+    Get an empty aggregate data frame.
+    """
+    columns = {
+        "point_id": pd.Series([], dtype="int"),
+        "geometry": pd.Series([], dtype="object"),
+        "start": pd.Series([], dtype="datetime64[ns, utc]"),
+        "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
+        "end": pd.Series([], dtype="datetime64[ns, utc]"),
+        "satellite": pd.Series([], dtype="str"),
+        "instrument": pd.Series([], dtype="str"),
+        "access": pd.Series([], dtype="timedelta64[ns]"),
+        "revisit": pd.Series([], dtype="timedelta64[ns]"),
+    }
+    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
+
+
 def aggregate_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     Aggregate constellation observations for a geodetic point of interest.
@@ -332,45 +361,15 @@ def aggregate_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         with aggregated observations.
     :rtype: :class:`geopandas.GeoDataFrame`
     """
-    if len(gdf.index) == 0:
-        empty_df = pd.DataFrame(
-            {
-                "point_id": pd.Series([], dtype="int"),
-                "geometry": pd.Series([], dtype="object"),
-                "start": pd.Series([], dtype="datetime64[ns, utc]"),
-                "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
-                "end": pd.Series([], dtype="datetime64[ns, utc]"),
-                "satellite": pd.Series([], dtype="str"),
-                "instrument": pd.Series([], dtype="str"),
-                "access": pd.Series([], dtype="timedelta64[ns]"),
-                "revisit": pd.Series([], dtype="timedelta64[ns]"),
-            }
-        )
-        return gpd.GeoDataFrame(empty_df, geometry=empty_df.geometry, crs="EPSG:4326")
+    if gdf.empty:
+        return _get_empty_aggregate_frame()
 
     # sort the values by start datetime
-    df = gdf.sort_values("start")
+    gdf = gdf.sort_values("start")
     # assign the observation group number based on overlapping start/end times
-    df["obs"] = (df["start"] > df["end"].shift().cummax()).cumsum()
-    if all(key in gdf.columns for key in ["solar_alt", "solar_az", "solar_time"]):
-        # reduce solar angles
-        df = df.groupby("obs").agg(
-            {
-                "point_id": "first",
-                "geometry": "first",
-                "start": "min",
-                "epoch": "first",
-                "end": "max",
-                "solar_alt": "mean",
-                "solar_az": "mean",
-                "solar_time": "mean",
-                "satellite": ", ".join,
-                "instrument": ", ".join,
-            }
-        )
-    else:
-        # reduce only core attributes
-        df = df.groupby("obs").agg(
+    gdf["obs"] = (gdf["start"] > gdf["end"].shift().cummax()).cumsum()
+    gdf = gpd.GeoDataFrame(
+        gdf.groupby("obs").agg(
             {
                 "point_id": "first",
                 "geometry": "first",
@@ -380,12 +379,26 @@ def aggregate_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
                 "satellite": ", ".join,
                 "instrument": ", ".join,
             }
-        )
-    # compute the access time for each observation (end - start)
-    df["access"] = df["end"] - df["start"]
-    # compute the revisit time for each observation (previous end - start)
-    df["revisit"] = df["end"] - df["start"].shift()
-    return gpd.GeoDataFrame(df, geometry=df.geometry, crs="EPSG:4326")
+        ),
+        crs="EPSG:4326",
+    )
+    gdf["access"] = _get_access_series(gdf)
+    gdf["revisit"] = _get_revisit_series(gdf)
+    return gdf
+
+
+def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
+    """
+    Get an empty reduce data frame.
+    """
+    columns = {
+        "point_id": pd.Series([], dtype="int"),
+        "geometry": pd.Series([], dtype="object"),
+        "access": pd.Series([], dtype="timedelta64[ns]"),
+        "revisit": pd.Series([], dtype="timedelta64[ns]"),
+        "num_obs": pd.Series([], dtype="int"),
+    }
+    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
 def reduce_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
@@ -398,31 +411,26 @@ def reduce_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         with reduced observations.
     :rtype: :class:`geopanadas.GeodataFrame`
     """
-    if len(gdf.index) == 0:
-        empty_df = pd.DataFrame(
-            {
-                "point_id": pd.Series([], dtype="int"),
-                "geometry": pd.Series([], dtype="object"),
-                "access": pd.Series([], dtype="timedelta64[ns]"),
-                "revisit": pd.Series([], dtype="timedetla64[ns]"),
-                "num_obs": pd.Series([], dtype="int"),
-            }
-        )
-        return gpd.GeoDataFrame(empty_df, geometry=empty_df.geometry, crs="EPSG:4326")
+    if gdf.empty:
+        return _get_empty_reduce_frame()
+
     gdf["access"] = gdf["access"] / timedelta(seconds=1)
     gdf["revisit"] = gdf["revisit"] / timedelta(seconds=1)
     gdf["num_obs"] = 1
-    df = gdf.groupby("point_id").agg(
-        {
-            "point_id": "first",
-            "geometry": "first",
-            "access": "mean",
-            "revisit": "mean",
-            "num_obs": "sum",
-        }
+    gdf = gpd.GeoDataFrame(
+        gdf.groupby("point_id").agg(
+            {
+                "point_id": "first",
+                "geometry": "first",
+                "access": "mean",
+                "revisit": "mean",
+                "num_obs": "sum",
+            }
+        ),
+        crs="EPSG:4326",
     )
-    df["access"] = df["access"].apply(lambda t: timedelta(seconds=t))
-    df["revisit"] = df["revisit"].apply(
+    gdf["access"] = gdf["access"].apply(lambda t: timedelta(seconds=t))
+    gdf["revisit"] = gdf["revisit"].apply(
         lambda t: pd.NaT if pd.isna(t) else timedelta(seconds=t)
     )
-    return gpd.GeoDataFrame(df, geometry=df.geometry, crs="EPSG:4326")
+    return gdf
