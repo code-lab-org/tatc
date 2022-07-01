@@ -22,13 +22,13 @@ earth_polar_radius = 6356752.314245179
 earth_mu = 3.986004418e14
 
 # derived properties based on wgs84 oblate spheroid
-earth_eccentricity = np.sqrt(2 * earth_flattening - earth_flattening**2)
+earth_eccentricity = np.sqrt(2 * earth_flattening - earth_flattening ** 2)
 earth_equatorial_circumference = 2 * np.pi * earth_equatorial_radius
 earth_polar_circumference = 2 * np.pi * earth_polar_radius
 earth_surface_area = (
-    2 * np.pi * earth_equatorial_radius**2
+    2 * np.pi * earth_equatorial_radius ** 2
     + np.pi
-    * earth_polar_radius**2
+    * earth_polar_radius ** 2
     / earth_eccentricity
     * np.log((1 + earth_eccentricity) / (1 - earth_eccentricity))
 )

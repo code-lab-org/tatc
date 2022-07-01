@@ -19,9 +19,9 @@ def mean_anomaly_to_true_anomaly(mean_anomaly, eccentricity=0):
     e = eccentricity
     nu = (
         M
-        + (2 * e - (1 / 4) * e**3) * np.sin(M)
-        + (5 / 4) * e**2 * np.sin(2 * M)
-        + (13 / 12) * e**3 * np.sin(3 * M)
+        + (2 * e - (1 / 4) * e ** 3) * np.sin(M)
+        + (5 / 4) * e ** 2 * np.sin(2 * M)
+        + (13 / 12) * e ** 3 * np.sin(3 * M)
     )
     return np.degrees(nu)
 
@@ -33,9 +33,9 @@ def true_anomaly_to_mean_anomaly(true_anomaly, eccentricity=0):
     M = (
         nu
         - 2 * e * np.sin(nu)
-        + ((3 / 4) * e**2 + (1 / 8) * e**4) * np.sin(2 * nu)
-        - (1 / 3) * e**3 * np.sin(3 * nu)
-        + (5 / 32) * e**4 * np.sin(4 * nu)
+        + ((3 / 4) * e ** 2 + (1 / 8) * e ** 4) * np.sin(2 * nu)
+        - (1 / 3) * e ** 3 * np.sin(3 * nu)
+        + (5 / 32) * e ** 4 * np.sin(4 * nu)
     )
     return np.degrees(M)
 
@@ -165,7 +165,7 @@ def compute_orbit_period(height):
         float: The orbital period (seconds).
     """
     semimajor_axis = constants.earth_mean_radius + height
-    mean_motion_rad_s = np.sqrt(constants.earth_mu / semimajor_axis**3)
+    mean_motion_rad_s = np.sqrt(constants.earth_mu / semimajor_axis ** 3)
     return 2 * np.pi / mean_motion_rad_s
 
 

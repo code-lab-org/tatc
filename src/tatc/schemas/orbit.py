@@ -167,7 +167,7 @@ class TwoLineElements(BaseModel):
         """
         mean_motion_rad_s = self.get_mean_motion() * 2 * np.pi / 86400
         return np.power(
-            constants.earth_mu / mean_motion_rad_s**2,
+            constants.earth_mu / mean_motion_rad_s ** 2,
             1 / 3,
         )
 
@@ -396,12 +396,15 @@ class SunSynchronousOrbit(OrbitBase):
         """
         Gets the right ascension of ascending node (decimal degrees).
         """
-        ect_day = timedelta(
-            hours=self.equator_crossing_time.hour,
-            minutes=self.equator_crossing_time.minute,
-            seconds=self.equator_crossing_time.second,
-            microseconds=self.equator_crossing_time.microsecond,
-        ) / timedelta(days=1)
+        ect_day = (
+            timedelta(
+                hours=self.equator_crossing_time.hour,
+                minutes=self.equator_crossing_time.minute,
+                seconds=self.equator_crossing_time.second,
+                microseconds=self.equator_crossing_time.microsecond,
+            )
+            / timedelta(days=1)
+        )
         t = constants.timescale.from_datetime(self.epoch)
         sun = constants.de421["sun"]
         earth = constants.de421["earth"]
