@@ -75,7 +75,7 @@ def collect_downlinks(
         }
     )
     # check for geocentricity
-    if numpy.all(events == 1):
+    if len(events) > 0 and np.all(events == 1):
         df = pd.concat(
             [
                 df,
