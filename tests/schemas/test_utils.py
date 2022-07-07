@@ -11,7 +11,7 @@ from tatc.utils import (
     swath_width_to_field_of_regard,
     field_of_regard_to_swath_width,
     compute_field_of_regard,
-    compute_min_altitude,
+    compute_min_elevation_angle,
     compute_orbit_period,
     compute_max_access_time,
     wrap_coordinates_antimeridian,
@@ -55,13 +55,13 @@ class TestUtils(unittest.TestCase):
             compute_field_of_regard(705000, 81.66446), 15.0, delta=0.001
         )
 
-    def test_compute_min_altitude(self):
+    def test_compute_min_elevation_angle(self):
         self.assertAlmostEqual(
-            compute_min_altitude(705000, 15.0), 81.66446, delta=0.001
+            compute_min_elevation_angle(705000, 15.0), 81.66446, delta=0.001
         )
 
-    def test_compute_min_altitude_saturated(self):
-        self.assertEqual(compute_min_altitude(30000000, 180.0), 0.0)
+    def test_compute_min_elevation_angle_saturated(self):
+        self.assertEqual(compute_min_elevation_angle(30000000, 180.0), 0.0)
 
     def test_compute_max_access_time(self):
         self.assertAlmostEqual(

@@ -12,13 +12,14 @@ from typing import List, Optional
 from shapely import geometry as geo
 from datetime import datetime, timedelta
 from skyfield.api import load, wgs84, EarthSatellite
+from skyfield.toposlib import GeographicPosition
 
 from ..schemas.point import Point
 from ..schemas.satellite import Satellite, SpaceSystem
 from ..schemas.instrument import Instrument, DutyCycleScheme
 
 from ..utils import (
-    compute_min_altitude,
+    compute_min_elevation_angle,
     swath_width_to_field_of_regard,
     compute_max_access_time,
 )
@@ -26,37 +27,28 @@ from ..constants import de421, timescale
 
 
 def _get_visible_interval_series(
-    point: Point,
-    satellite: Satellite,
-    instrument: Instrument,
+    point: GeographicPosition,
+    satellite: EarthSatellite,
+    min_elevation_angle: float,
     start: datetime,
     end: datetime,
 ) -> pd.Series:
     """
-    Get the series of visible intervals based on observation angle constraints.
+    Get the series of visible intervals based on altitude angle constraints.
     """
-    # build a topocentric point at the designated geodetic point
-    topos = wgs84.latlon(point.latitude, point.longitude)
     # define starting and ending points
     t0 = timescale.from_datetime(start)
     t1 = timescale.from_datetime(end)
-    # convert orbit to tle
-    orbit = satellite.orbit.to_tle()
-    # construct a satellite for propagation
-    sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
     # compute the initial satellite height (altitude)
-    satellite_height = wgs84.geographic_position_of(sat.at(t0)).elevation.m
-    # compute the minimum altitude angle required for observation
-    min_altitude = compute_min_altitude(
-        satellite_height,
-        instrument.field_of_regard,
-    )
+    satellite_height = wgs84.geographic_position_of(satellite.at(t0)).elevation.m
     # compute the maximum access time to filter bad data
     max_access_time = timedelta(
-        seconds=compute_max_access_time(satellite_height, min_altitude)
+        seconds=compute_max_access_time(satellite_height, min_elevation_angle)
     )
     # find the set of observation events
-    t, events = sat.find_events(topos, t0, t1, altitude_degrees=min_altitude)
+    t, events = satellite.find_events(
+        point, t0, t1, altitude_degrees=min_elevation_angle
+    )
 
     # build the observation periods
     obs_periods = []
@@ -194,11 +186,11 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
     columns = {
         "point_id": pd.Series([], dtype="int"),
         "geometry": pd.Series([], dtype="object"),
+        "satellite": pd.Series([], dtype="str"),
+        "instrument": pd.Series([], dtype="str"),
         "start": pd.Series([], dtype="datetime64[ns, utc]"),
         "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
         "end": pd.Series([], dtype="datetime64[ns, utc]"),
-        "satellite": pd.Series([], dtype="str"),
-        "instrument": pd.Series([], dtype="str"),
         "sat_alt": pd.Series(dtype="float"),
         "sat_az": pd.Series(dtype="float"),
     }
@@ -227,11 +219,11 @@ def collect_observations(
     Collect single satellite observations of a geodetic point of interest.
 
     :param point: The ground point of interest
-    :type point: :class:`tatc.schemas.point.Point`
+    :type point: :class:`tatc.schemas.Point`
     :param satellite: The observing satellite
-    :type satellite: :class:`tatc.schemas.satellite.Satellite`
+    :type satellite: :class:`tatc.schemas.Satellite`
     :param instrument: The instrument used to make observations
-    :type instrument::`tatc.schemas.instrument.instrument`
+    :type instrument::`tatc.schemas.instrument`
     :param start: The start of the mission window
     :type start::`datetime.datetime`
     :param end: The end of the mission window
@@ -249,6 +241,15 @@ def collect_observations(
     orbit = satellite.orbit.to_tle()
     # construct a satellite for propagation
     sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
+    # compute the initial satellite height (altitude)
+    satellite_height = wgs84.geographic_position_of(
+        sat.at(timescale.from_datetime(start))
+    ).elevation.m
+    # compute the minimum altitude angle required for observation
+    min_elevation_angle = compute_min_elevation_angle(
+        satellite_height,
+        instrument.field_of_regard,
+    )
     records = [
         {
             "point_id": point.id,
@@ -260,7 +261,7 @@ def collect_observations(
             "epoch": period.mid,
         }
         for period in _get_visible_interval_series(
-            point, satellite, instrument, start, end
+            topos, sat, min_elevation_angle, start, end
         )
         if (
             instrument.min_access_time <= period.right - period.left
@@ -288,9 +289,6 @@ def collect_observations(
             gdf["solar_time"] = _get_solar_time_series(gdf)
     else:
         gdf = _get_empty_coverage_frame(omit_solar)
-    # compute access and revisit metrics
-    gdf["access"] = _get_access_series(gdf)
-    gdf["revisit"] = _get_revisit_series(gdf)
     return gdf
 
 
@@ -305,9 +303,9 @@ def collect_multi_observations(
     Collect multiple satellite observations of a geodetic point of interest.
 
     :param point: The ground point of interest
-    :type point: :class:`tatc.schemas.point.Point`
+    :type point: :class:`tatc.schemas.Point`
     :param satellites: The observing satellites
-    :type satellites: list of :class:`tatc.schemas.satellite.Satellite`
+    :type satellites: list of :class:`tatc.schemas.SpaceSystem`
     :param start: The start of the mission window
     :type start: :`datetime.datetime`
     :param end: The end of the mission window
@@ -328,7 +326,7 @@ def collect_multi_observations(
     # merge the observations into one data frame
     df = pd.concat(gdfs, ignore_index=True)
     # sort the values by start datetime
-    df = df.sort_values("start")
+    df = df.sort_values("start").reset_index(drop=True)
     return gpd.GeoDataFrame(df, geometry=df.geometry, crs="EPSG:4326")
 
 
@@ -339,13 +337,11 @@ def _get_empty_aggregate_frame() -> gpd.GeoDataFrame:
     columns = {
         "point_id": pd.Series([], dtype="int"),
         "geometry": pd.Series([], dtype="object"),
+        "satellite": pd.Series([], dtype="str"),
+        "instrument": pd.Series([], dtype="str"),
         "start": pd.Series([], dtype="datetime64[ns, utc]"),
         "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
         "end": pd.Series([], dtype="datetime64[ns, utc]"),
-        "satellite": pd.Series([], dtype="str"),
-        "instrument": pd.Series([], dtype="str"),
-        "access": pd.Series([], dtype="timedelta64[ns]"),
-        "revisit": pd.Series([], dtype="timedelta64[ns]"),
     }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
@@ -373,11 +369,11 @@ def aggregate_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
             {
                 "point_id": "first",
                 "geometry": "first",
-                "start": "min",
-                "epoch": "first",
-                "end": "max",
                 "satellite": ", ".join,
                 "instrument": ", ".join,
+                "start": "min",
+                "epoch": "mean",
+                "end": "max",
             }
         ),
         crs="EPSG:4326",
@@ -397,7 +393,7 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
         "geometry": pd.Series([], dtype="object"),
         "access": pd.Series([], dtype="timedelta64[ns]"),
         "revisit": pd.Series([], dtype="timedelta64[ns]"),
-        "num_obs": pd.Series([], dtype="int"),
+        "samples": pd.Series([], dtype="int"),
     }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
@@ -419,7 +415,7 @@ def reduce_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     gdf["access"] = gdf["access"] / timedelta(seconds=1)
     gdf["revisit"] = gdf["revisit"] / timedelta(seconds=1)
     # assign each record to one observation
-    gdf["num_obs"] = 1
+    gdf["samples"] = 1
     # perform the aggregation operation
     gdf = gpd.GeoDataFrame(
         gdf.groupby("point_id").agg(
@@ -428,7 +424,7 @@ def reduce_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
                 "geometry": "first",
                 "access": "mean",
                 "revisit": "mean",
-                "num_obs": "sum",
+                "samples": "sum",
             }
         ),
         crs="EPSG:4326",

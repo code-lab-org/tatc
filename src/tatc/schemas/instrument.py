@@ -99,7 +99,7 @@ class Instrument(BaseModel):
         Returns:
             float: The minimum elevation angle (degrees) for observation.
         """
-        return utils.compute_min_altitude(height, self.field_of_regard)
+        return utils.compute_min_elevation_angle(height, self.field_of_regard)
 
     def is_valid_observation(self, sat: EarthSatellite, time: Time) -> bool:
         """Determines if an instrument can provide a valid observations.
