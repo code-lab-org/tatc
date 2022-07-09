@@ -23,7 +23,22 @@ from ..utils import (
 from ..constants import timescale
 
 
-def collect_ground_track(
+def _get_empty_orbit_track() -> gpd.GeoDataFrame:
+    """
+    Get an empty ground track data frame.
+    """
+    columns = {
+        "time": pd.Series([], dtype="datetime64[ns, utc]"),
+        "satellite": pd.Series([], dtype="str"),
+        "instrument": pd.Series([], dtype="str"),
+        "swath_width": pd.Series([], dtype="float"),
+        "valid_obs": pd.Series([], dtype="bool"),
+        "geometry": pd.Series([], dtype="object"),
+    }
+    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
+
+
+def collect_orbit_track(
     satellite: Satellite,
     instrument: Instrument,
     times: List[datetime],
@@ -31,7 +46,7 @@ def collect_ground_track(
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
 ) -> gpd.GeoDataFrame:
     """
-    Collect ground track points for a satellite of interest.
+    Collect orbit track points for a satellite of interest.
 
     :param satellite: The observing satellite
     :type satellite: :class:`tatc.schemas.satellite.Satellite`
@@ -46,15 +61,19 @@ def collect_ground_track(
     :return: An instance of :class:`geopandas.GeoDataFrame` with all recorded points.
     :rtype: :class:`geopandas.GeodataFrame`
     """
-
+    if len(times) == 0:
+        return _get_empty_orbit_track()
     # convert orbit to tle
     orbit = satellite.orbit.to_tle()
     # construct a satellite for propagation
     sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
-
-    ts_times = timescale.from_datetime(times)
+    # create skyfield time series
+    ts_times = timescale.from_datetimes(times)
+    # compute satellite positions
     positions = sat.at(ts_times)
-    subpoints = wgs84.geographic_position_of(positions)
+    # project to geographic positions
+    subpoints = [wgs84.geographic_position_of(position) for position in positions]
+    # create shapely points
     points = [
         Point(
             subpoint.longitude.degrees, subpoint.latitude.degrees, subpoint.elevation.m
@@ -64,41 +83,31 @@ def collect_ground_track(
     valid_obs = instrument.is_valid_observation(sat, ts_times)
     ops_intervals = instrument.generate_ops_intervals(sat, times, target)
 
-    df = pd.DataFrame(
-        [
-            {
-                "time": time,
-                "satellite": satellite.name,
-                "instrument": instrument.name,
-                "swath_width": field_of_regard_to_swath_width(
-                    subpoints[i].elevation.m,
-                    instrument.field_of_regard,
-                ),
-                "valid_obs": valid_obs[i]
-                and (
-                    instrument.duty_cycle >= 1
-                    or any(ops_intervals.apply(lambda j: time in j))
-                ),
-                "geometry": points[i],
-            }
-            for i, time in enumerate(times)
-        ],
-        columns=[
-            "time",
-            "satellite",
-            "instrument",
-            "swath_width",
-            "valid_obs",
-            "geometry",
-        ],
-    )
-    gdf = gpd.GeoDataFrame(df, geometry=df.geometry, crs="EPSG:4326")
+    records = [
+        {
+            "time": time,
+            "satellite": satellite.name,
+            "instrument": instrument.name,
+            "swath_width": field_of_regard_to_swath_width(
+                subpoints[i].elevation.m,
+                instrument.field_of_regard,
+            ),
+            "valid_obs": valid_obs[i]
+            and (
+                instrument.duty_cycle >= 1
+                or any(ops_intervals.apply(lambda j: time in j))
+            ),
+            "geometry": points[i],
+        }
+        for i, time in enumerate(times)
+    ]
+    gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
     if mask is None:
         return gdf
     return gpd.clip(gdf, mask).reset_index(drop=True)
 
 
-def collect_ground_track_swath(
+def collect_ground_track(
     satellite: Satellite,
     instrument: Instrument,
     times: List[datetime],
@@ -131,11 +140,11 @@ def collect_ground_track_swath(
     :return: An instance of :class:`geopandas.GeoDataFrame` with all recorded polygons.
     :rtype: :class:`geopandas.GeoDataFrame`
     """
-    # first, compute the ground track of the satellite
-    gdf = collect_ground_track(satellite, instrument, times, target, mask)
-    if len(gdf.index) == 0:
+    # first, compute the orbit track of the satellite
+    gdf = collect_orbit_track(satellite, instrument, times, target, mask)
+    if gdf.empty:
         return gdf
-    # project points to ground
+    # project points to zero elevation
     gdf["geometry"] = gdf["geometry"].apply(lambda p: Point(p.x, p.y))
     # at each point, draw a buffer equivalent to the swath radius
     if fast:
@@ -152,14 +161,14 @@ def collect_ground_track_swath(
         # previously used EPSG:3857 (Pseudo-Mercator) which has poor accuracy near the poles
     else:
         # note: uses UTM zones but is 10x slower
-        def get_utm_epsg_code(p):
+        def _get_utm_epsg_code(p):
             results = query_utm_crs_info(
                 datum_name="WGS 84", area_of_interest=AreaOfInterest(p.x, p.y, p.x, p.y)
             )
             # return the first code if exists; otherwise return a default value
             return results[0].code if len(results) > 0 else "4087"
 
-        epsg = gdf.geometry.apply(get_utm_epsg_code)
+        epsg = gdf.geometry.apply(_get_utm_epsg_code)
         for code in epsg.unique():
             gdf.loc[epsg == code, "geometry"] = gpd.GeoSeries(
                 gdf[epsg == code]
