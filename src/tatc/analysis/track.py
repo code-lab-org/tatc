@@ -115,6 +115,7 @@ def collect_ground_track(
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     fast: bool = True,
     resolution: int = 4,
+    normalize_geometry: bool = True
 ) -> gpd.GeoDataFrame:
     """
     Model the ground track swath for a satellite of interest.
@@ -135,8 +136,12 @@ def collect_ground_track(
             to project distances, accurate finds the appropriate Unified
             Transverse Mercator (UTM) zone for each point.
     :type fast: bool, option
-    :param resolution: Resolution of the projected swath
+    :param resolution: Shapely buffer resolution of the projected swath
     :type resolution: int, optional
+    :param fix_polygon_longitudes: True, if polygon longitudes crossing the
+            anti-meridian (180 deg longitude) should be transformed from
+            the [-180, 180] to the [0,360] longitude domain to aid plotting.
+    :type fix_polygon_longitudes: bool, optional
     :return: An instance of :class:`geopandas.GeoDataFrame` with all recorded polygons.
     :rtype: :class:`geopandas.GeoDataFrame`
     """
@@ -181,8 +186,9 @@ def collect_ground_track(
                 ),
                 crs="EPSG:" + code,
             ).to_crs("EPSG:4326")
-    # hack to get plotting to work
-    gdf = normalize_geometry(gdf)
+
+    if fix_polygon_longitudes:
+        gdf = normalize_geometry(gdf)
 
     if mask is None:
         return gdf
