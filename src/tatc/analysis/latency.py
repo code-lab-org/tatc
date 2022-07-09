@@ -18,7 +18,7 @@ from ..schemas.point import Point, GroundStation
 from ..schemas.satellite import Satellite
 from ..schemas.instrument import Instrument
 
-from .coverage import _get_visible_interval_series, collect_observations
+from .coverage import _get_visible_interval_series
 from ..utils import (
     compute_min_elevation_angle,
     swath_width_to_field_of_regard,
@@ -66,6 +66,7 @@ def collect_downlinks(
     orbit = satellite.orbit.to_tle()
     # construct a satellite for propagation
     sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
+    # collect the records of ground station overpasses
     records = [
         {
             "station": station.name,
@@ -80,7 +81,6 @@ def collect_downlinks(
         )
         if (station.min_access_time <= period.right - period.left)
     ]
-
     # build the dataframe
     if len(records) > 0:
         gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
@@ -110,6 +110,7 @@ def collect_multi_downlinks(
         recorded downlinks opportunities
     :rtype: :class:`geopandas.GeoDataFrame`
     """
+    # collect downlinks for each ground station
     gdfs = [collect_downlinks(station, satellite, start, end) for station in stations]
     # merge the observations into one data frame
     df = pd.concat(gdfs, ignore_index=True)
@@ -135,14 +136,8 @@ def _get_empty_latency_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
-def collect_latencies(
-    point: Point,
-    satellite: Satellite,
-    instrument: Instrument,
-    start: datetime,
-    end_observations: datetime,
-    station: Union[GroundStation, List[GroundStation]],
-    end_downlinks: datetime,
+def compute_latencies(
+    observations: gpd.GeoDataFrame, downlinks: gpd.GeoDataFrame
 ) -> gpd.GeoDataFrame:
     """
     Collect data latencies between an observation and the first downlink opportunity.
@@ -155,32 +150,30 @@ def collect_latencies(
     :return: An instance of  :class:`geopandas.GeoDataFrame` with data latency information.
     :rtype: :class:`geopandas.GeoDataFrame`
     """
-    observations = collect_observations(
-        point, satellite, instrument, start, end_observations
-    )
-    if type(station) is list:
-        downlinks = collect_multi_downlinks(station, satellite, start, end_downlinks)
-    else:
-        downlinks = collect_downlinks(station, satellite, start, end_downlinks)
+    if observations.empty or downlinks.empty:
+        return _get_empty_latency_frame()
 
     def _align_downlinks(r):
+        # filter downlinks after observation occurs
         dls = downlinks[
             np.logical_and(r.satellite == downlinks.satellite, r.end < downlinks.start)
         ]
-        if len(dls) > 0:
-            r["station"] = dls.iloc[0].station
-            r["downlinked"] = dls.iloc[0].epoch
-        else:
+        # append latency-specific columns
+        if dls.empty:
             r["station"] = pd.NA
             r["downlinked"] = pd.NA
+            r["latency"] = pd.NA
+        else:
+            r["station"] = dls.iloc[0].station
+            r["downlinked"] = dls.iloc[0].epoch
+            r["latency"] = dls.iloc[0].epoch - r.epoch
         return r
-
+    # append the latency-specific columns
     observations = observations.apply(_align_downlinks, axis=1)
+    # add observed column
     observations["observed"] = observations["epoch"]
+    # drop start, epoch, and end columns
     observations = observations.drop(["start", "epoch", "end"], axis=1)
-    observations["latency"] = observations.apply(
-        lambda r: r.downlinked - r.observed if pd.notna(r.downlinked) else pd.NA, axis=1
-    )
     return observations
 
 
@@ -209,7 +202,6 @@ def reduce_latencies(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     if gdf.empty:
         return _get_empty_reduce_frame()
-
     # convert latency to a numeric value before aggregation
     gdf["latency"] = gdf["latency"] / timedelta(seconds=1)
     # assign each record to one observation

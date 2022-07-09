@@ -2,7 +2,13 @@ import unittest
 
 from datetime import datetime, timezone
 
-from tatc.analysis import collect_downlinks, collect_multi_downlinks, collect_latencies
+from tatc.analysis import (
+    collect_observations,
+    collect_downlinks,
+    collect_multi_downlinks,
+    compute_latencies,
+    reduce_latencies,
+)
 from tatc.schemas import (
     Point,
     GroundStation,
@@ -57,6 +63,15 @@ class TestLatencyAnalysis(unittest.TestCase):
             datetime(2022, 6, 10, tzinfo=timezone.utc),
         )
 
+    def test_collect_downlinks_empty(self):
+        results = collect_downlinks(
+            self.station,
+            self.satellite,
+            datetime(2022, 6, 1, tzinfo=timezone.utc),
+            datetime(2022, 6, 1, 1, tzinfo=timezone.utc),
+        )
+        self.assertTrue(results.empty)
+
     def test_collect_multi_downlinks(self):
         results = collect_multi_downlinks(
             self.stations,
@@ -65,24 +80,120 @@ class TestLatencyAnalysis(unittest.TestCase):
             datetime(2022, 6, 10, tzinfo=timezone.utc),
         )
 
-    def test_compute_latency(self):
-        results = collect_latencies(
-            self.point,
+    def test_collect_multi_downlinks_empty(self):
+        results = collect_multi_downlinks(
+            self.stations,
             self.satellite,
-            self.instrument,
             datetime(2022, 6, 1, tzinfo=timezone.utc),
-            datetime(2022, 6, 10, tzinfo=timezone.utc),
-            self.station,
-            datetime(2022, 6, 10, tzinfo=timezone.utc),
+            datetime(2022, 6, 1, 1, tzinfo=timezone.utc),
+        )
+        self.assertTrue(results.empty)
+
+    def test_compute_latency(self):
+        results = compute_latencies(
+            collect_observations(
+                self.point,
+                self.satellite,
+                self.instrument,
+                datetime(2022, 6, 1, tzinfo=timezone.utc),
+                datetime(2022, 6, 10, tzinfo=timezone.utc),
+            ),
+            collect_downlinks(
+                self.station,
+                self.satellite,
+                datetime(2022, 6, 1, tzinfo=timezone.utc),
+                datetime(2022, 6, 10, tzinfo=timezone.utc),
+            ),
         )
 
-    def test_compute_latency_multi_station(self):
-        results = collect_latencies(
-            self.point,
-            self.satellite,
-            self.instrument,
-            datetime(2022, 6, 1, tzinfo=timezone.utc),
-            datetime(2022, 6, 10, tzinfo=timezone.utc),
-            self.stations,
-            datetime(2022, 6, 10, tzinfo=timezone.utc),
+    def test_compute_latency_empty(self):
+        results = compute_latencies(
+            collect_observations(
+                self.point,
+                self.satellite,
+                self.instrument,
+                datetime(2022, 6, 1, tzinfo=timezone.utc),
+                datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
+            ),
+            collect_downlinks(
+                self.station,
+                self.satellite,
+                datetime(2022, 6, 1, tzinfo=timezone.utc),
+                datetime(2022, 6, 10, tzinfo=timezone.utc),
+            ),
         )
+        self.assertTrue(results.empty)
+
+    def test_compute_latency_no_downlinks(self):
+        results = compute_latencies(
+            collect_observations(
+                self.point,
+                self.satellite,
+                self.instrument,
+                datetime(2022, 6, 1, tzinfo=timezone.utc),
+                datetime(2022, 6, 10, tzinfo=timezone.utc),
+            ),
+            collect_downlinks(
+                self.station,
+                self.satellite,
+                datetime(2022, 6, 1, tzinfo=timezone.utc),
+                datetime(2022, 6, 1, 1, tzinfo=timezone.utc),
+            ),
+        )
+        self.assertTrue(results.dropna().empty)
+
+    def test_compute_latency_multi_station(self):
+        results = compute_latencies(
+            collect_observations(
+                self.point,
+                self.satellite,
+                self.instrument,
+                datetime(2022, 6, 1, tzinfo=timezone.utc),
+                datetime(2022, 6, 10, tzinfo=timezone.utc),
+            ),
+            collect_multi_downlinks(
+                self.stations,
+                self.satellite,
+                datetime(2022, 6, 1, tzinfo=timezone.utc),
+                datetime(2022, 6, 10, tzinfo=timezone.utc),
+            ),
+        )
+
+    def test_reduce_latency(self):
+        results = reduce_latencies(
+            compute_latencies(
+                collect_observations(
+                    self.point,
+                    self.satellite,
+                    self.instrument,
+                    datetime(2022, 6, 1, tzinfo=timezone.utc),
+                    datetime(2022, 6, 10, tzinfo=timezone.utc),
+                ),
+                collect_multi_downlinks(
+                    self.stations,
+                    self.satellite,
+                    datetime(2022, 6, 1, tzinfo=timezone.utc),
+                    datetime(2022, 6, 10, tzinfo=timezone.utc),
+                ),
+            )
+        )
+
+    def test_reduce_latency_empty(self):
+        results = reduce_latencies(
+            compute_latencies(
+                collect_observations(
+                    self.point,
+                    self.satellite,
+                    self.instrument,
+                    datetime(2022, 6, 1, tzinfo=timezone.utc),
+                    datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
+                ),
+                collect_multi_downlinks(
+                    self.stations,
+                    self.satellite,
+                    datetime(2022, 6, 1, tzinfo=timezone.utc),
+                    datetime(2022, 6, 10, tzinfo=timezone.utc),
+                ),
+            )
+        )
+        self.assertTrue(results.empty)
