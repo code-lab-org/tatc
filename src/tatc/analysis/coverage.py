@@ -8,7 +8,7 @@ Methods to perform coverage analysis.
 import pandas as pd
 import numpy as np
 import geopandas as gpd
-from typing import List, Optional
+from typing import List, Optional, Union
 from shapely import geometry as geo
 from datetime import datetime, timedelta
 from skyfield.api import load, wgs84, EarthSatellite
@@ -294,7 +294,7 @@ def collect_observations(
 
 def collect_multi_observations(
     point: Point,
-    satellites: List[SpaceSystem],
+    satellites: Union[SpaceSystem, List[SpaceSystem]],
     start: datetime,
     end: datetime,
     omit_solar: bool = True,
@@ -319,7 +319,7 @@ def collect_multi_observations(
     """
     gdfs = [
         collect_observations(point, satellite, instrument, start, end, omit_solar)
-        for constellation in satellites
+        for constellation in (satellites if type(satellites) == list else [satellites])
         for satellite in (constellation.generate_members())
         for instrument in satellite.instruments
     ]
