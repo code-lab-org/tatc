@@ -115,7 +115,7 @@ def collect_ground_track(
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     fast: bool = True,
     resolution: int = 4,
-    normalize_geometry: bool = True
+    fix_polygon_longitudes: bool = True,
 ) -> gpd.GeoDataFrame:
     """
     Model the ground track swath for a satellite of interest.
