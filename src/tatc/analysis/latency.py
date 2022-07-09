@@ -43,13 +43,16 @@ def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
 
 
 def collect_downlinks(
-    station: GroundStation, satellite: Satellite, start: datetime, end: datetime
+    stations: Union[GroundStation, List[GroundStation]],
+    satellite: Satellite,
+    start: datetime,
+    end: datetime,
 ) -> gpd.GeoDataFrame:
     """
     Collect satellite downlink opportunities to a ground station of interest.
 
-    :param station: The ground station of interest.
-    :type station: :class:`tatc.schemas.GroundStation`
+    :param stations: The ground station(s) of interest.
+    :type stations: :class:`tatc.schemas.GroundStation`
     :param satellite: The satellite performing the downlink
     :type satellite: :class:`tatc.schemas.Satellite`
     :param start: The start of the mission window
@@ -60,8 +63,6 @@ def collect_downlinks(
         with all recorded downlink opportunities.
     :rtype: :class:`geopandas.GeoDataFrame`
     """
-    # build a topocentric point at the designated ground station
-    topos = wgs84.latlon(station.latitude, station.longitude)
     # convert orbit to tle
     orbit = satellite.orbit.to_tle()
     # construct a satellite for propagation
@@ -76,47 +77,26 @@ def collect_downlinks(
             "end": period.right,
             "epoch": period.mid,
         }
+        for station in (stations if type(stations) == list else [stations])
         for period in _get_visible_interval_series(
-            topos, sat, station.min_elevation_angle, start, end
+            wgs84.latlon(station.latitude, station.longitude),
+            sat,
+            station.min_elevation_angle,
+            start,
+            end,
         )
         if (station.min_access_time <= period.right - period.left)
     ]
     # build the dataframe
     if len(records) > 0:
-        gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
+        gdf = (
+            gpd.GeoDataFrame(records, crs="EPSG:4326")
+            .sort_values("start")
+            .reset_index(drop=True)
+        )
     else:
         gdf = _get_empty_downlinks_frame()
     return gdf
-
-
-def collect_multi_downlinks(
-    stations: List[GroundStation],
-    satellite: Satellite,
-    start: datetime,
-    end: datetime,
-) -> gpd.GeoDataFrame:
-    """
-    Collect downlink opportunities to multiple ground stations.
-
-    :param stations: The ground stations of interest
-    :type stations: :class:`tatc.schemas.GroundStation`
-    :param satellites: The observing satellites
-    :type satellites: list of :class:`tatc.schemas.SpaceSystem`
-    :param start: The start of the mission window
-    :type start: :`datetime.datetime`
-    :param end: The end of the mission window
-    :type end: :class:`datetime.datetime`
-    :return: an instance of :class:`geopandas.GeoDataFrame` containing all
-        recorded downlinks opportunities
-    :rtype: :class:`geopandas.GeoDataFrame`
-    """
-    # collect downlinks for each ground station
-    gdfs = [collect_downlinks(station, satellite, start, end) for station in stations]
-    # merge the observations into one data frame
-    df = pd.concat(gdfs, ignore_index=True)
-    # sort the values by start datetime
-    df = df.sort_values("start").reset_index(drop=True)
-    return gpd.GeoDataFrame(df, geometry=df.geometry, crs="EPSG:4326")
 
 
 def _get_empty_latency_frame() -> gpd.GeoDataFrame:
@@ -168,6 +148,7 @@ def compute_latencies(
             r["downlinked"] = dls.iloc[0].epoch
             r["latency"] = dls.iloc[0].epoch - r.epoch
         return r
+
     # append the latency-specific columns
     observations = observations.apply(_align_downlinks, axis=1)
     # add observed column

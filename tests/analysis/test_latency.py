@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from tatc.analysis import (
     collect_observations,
     collect_downlinks,
-    collect_multi_downlinks,
     compute_latencies,
     reduce_latencies,
 )
@@ -73,7 +72,7 @@ class TestLatencyAnalysis(unittest.TestCase):
         self.assertTrue(results.empty)
 
     def test_collect_multi_downlinks(self):
-        results = collect_multi_downlinks(
+        results = collect_downlinks(
             self.stations,
             self.satellite,
             datetime(2022, 6, 1, tzinfo=timezone.utc),
@@ -81,7 +80,7 @@ class TestLatencyAnalysis(unittest.TestCase):
         )
 
     def test_collect_multi_downlinks_empty(self):
-        results = collect_multi_downlinks(
+        results = collect_downlinks(
             self.stations,
             self.satellite,
             datetime(2022, 6, 1, tzinfo=timezone.utc),
@@ -151,7 +150,7 @@ class TestLatencyAnalysis(unittest.TestCase):
                 datetime(2022, 6, 1, tzinfo=timezone.utc),
                 datetime(2022, 6, 10, tzinfo=timezone.utc),
             ),
-            collect_multi_downlinks(
+            collect_downlinks(
                 self.stations,
                 self.satellite,
                 datetime(2022, 6, 1, tzinfo=timezone.utc),
@@ -169,7 +168,7 @@ class TestLatencyAnalysis(unittest.TestCase):
                     datetime(2022, 6, 1, tzinfo=timezone.utc),
                     datetime(2022, 6, 10, tzinfo=timezone.utc),
                 ),
-                collect_multi_downlinks(
+                collect_downlinks(
                     self.stations,
                     self.satellite,
                     datetime(2022, 6, 1, tzinfo=timezone.utc),
@@ -188,7 +187,7 @@ class TestLatencyAnalysis(unittest.TestCase):
                     datetime(2022, 6, 1, tzinfo=timezone.utc),
                     datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
                 ),
-                collect_multi_downlinks(
+                collect_downlinks(
                     self.stations,
                     self.satellite,
                     datetime(2022, 6, 1, tzinfo=timezone.utc),
