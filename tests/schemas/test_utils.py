@@ -90,7 +90,7 @@ class TestUtils(unittest.TestCase):
         result = normalize_geometry(Polygon(geometry))
         self.assertIsInstance(result, gpd.GeoDataFrame)
         self.assertEqual(result.crs, "EPSG:4326")
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result.index), 1)
         self.assertEqual(
             result.geometry[0], Polygon(wrap_coordinates_antimeridian(geometry))
         )
@@ -110,7 +110,7 @@ class TestUtils(unittest.TestCase):
         )
         self.assertIsInstance(result, gpd.GeoDataFrame)
         self.assertEqual(result.crs, "EPSG:4326")
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result.index), 1)
         self.assertEqual(
             result.geometry[0],
             MultiPolygon(
@@ -127,7 +127,7 @@ class TestUtils(unittest.TestCase):
         result = normalize_geometry(gs)
         self.assertIsInstance(result, gpd.GeoDataFrame)
         self.assertEqual(result.crs, "EPSG:4326")
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result.index), 1)
         self.assertEqual(
             result.geometry[0], Polygon(wrap_coordinates_antimeridian(geometry))
         )
@@ -138,7 +138,7 @@ class TestUtils(unittest.TestCase):
         result = normalize_geometry(df)
         self.assertIsInstance(result, gpd.GeoDataFrame)
         self.assertEqual(result.crs, "EPSG:4326")
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result.index), 1)
         self.assertEqual(
             result.geometry[0], Polygon(wrap_coordinates_antimeridian(geometry))
         )
