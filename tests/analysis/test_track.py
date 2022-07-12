@@ -59,3 +59,10 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 for i in range(10)
             ],
         )
+
+    def test_collect_orbit_track_no_times(self):
+        results = collect_orbit_track(
+            self.satellite,
+            self.instrument,
+            [],
+        )
