@@ -15,7 +15,7 @@ from pyproj.database import query_utm_crs_info
 from pyproj.aoi import AreaOfInterest
 
 from ..schemas.satellite import Satellite
-from ..schemas.instrument import Instrument, DutyCycleScheme
+from ..schemas.instrument import Instrument
 from ..utils import (
     normalize_geometry,
     field_of_regard_to_swath_width,
@@ -81,7 +81,6 @@ def collect_orbit_track(
         for subpoint in subpoints
     ]
     valid_obs = instrument.is_valid_observation(sat, ts_times)
-    ops_intervals = instrument.generate_ops_intervals(sat, times, target)
 
     records = [
         {
@@ -92,11 +91,7 @@ def collect_orbit_track(
                 subpoints[i].elevation.m,
                 instrument.field_of_regard,
             ),
-            "valid_obs": valid_obs[i]
-            and (
-                instrument.duty_cycle >= 1
-                or any(ops_intervals.apply(lambda j: time in j))
-            ),
+            "valid_obs": valid_obs[i],
             "geometry": points[i],
         }
         for i, time in enumerate(times)

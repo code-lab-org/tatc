@@ -16,7 +16,7 @@ from skyfield.toposlib import GeographicPosition
 
 from ..schemas.point import Point
 from ..schemas.satellite import Satellite, SpaceSystem
-from ..schemas.instrument import Instrument, DutyCycleScheme
+from ..schemas.instrument import Instrument
 
 from ..utils import (
     compute_min_elevation_angle,

@@ -64,8 +64,6 @@ class TestInstrument(unittest.TestCase):
             "min_access_time": timedelta(seconds=10),
             "req_self_sunlit": None,
             "req_target_sunlit": None,
-            "duty_cycle": 1.0,
-            "duty_cycle_scheme": "fixed",
         }
         o = Instrument(**good_data)
         self.assertEqual(o.name, good_data.get("name"))
@@ -73,8 +71,6 @@ class TestInstrument(unittest.TestCase):
         self.assertEqual(o.min_access_time, good_data.get("min_access_time"))
         self.assertEqual(o.req_self_sunlit, good_data.get("req_self_sunlit"))
         self.assertEqual(o.req_target_sunlit, good_data.get("req_target_sunlit"))
-        self.assertEqual(o.duty_cycle, good_data.get("duty_cycle"))
-        self.assertEqual(o.duty_cycle_scheme, good_data.get("duty_cycle_scheme"))
 
     def test_get_swath_width(self):
         o = Instrument(
