@@ -42,7 +42,6 @@ def collect_orbit_track(
     satellite: Satellite,
     instrument: Instrument,
     times: List[datetime],
-    target: Optional[Union[Polygon, MultiPolygon]] = None,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
 ) -> gpd.GeoDataFrame:
     """
@@ -54,8 +53,6 @@ def collect_orbit_track(
     :type instrument: :class:`tatc.schemas.instrument.Instrument`
     :param times: The list of times to sample.
     :type times: list
-    :param target: A target region to prioritize operations.
-    :type target: :class:`shapely.Polygon` or :class:`shapely.MultyPolygon`, optional
     :param mask: A mask to constrain ground track.
     :type mask: :class:`shapely.Polygon` or :class:`shapely.MultiPolygon`, optional
     :return: An instance of :class:`geopandas.GeoDataFrame` with all recorded points.
@@ -106,7 +103,6 @@ def collect_ground_track(
     satellite: Satellite,
     instrument: Instrument,
     times: List[datetime],
-    target: Optional[Union[Polygon, MultiPolygon]] = None,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     fast: bool = True,
     resolution: int = 4,
@@ -121,11 +117,8 @@ def collect_ground_track(
     :type instrument: :class:`tatc.schemas.instrument.Instrument`
     :param times: The list of times to sample
     :type times: list
-    :param target: A target region to prioritize operations.
-    :type target: :class:`shapely.Polygon` or :class:`shapely.MultyPolygon`, optional
     :param mask: A mask to constrain ground track.
     :type mask: :class:`shapely.Polygon` or :class:`shapely.MultiPolygon`, optional
-    :param target: An optionatarget region to prioritize operations.
     :param fast: Whether to use a fast (True) or accurate (False)
             projection. Fast uses EPSG:4087 (World Equidistant Cylindrical)
             to project distances, accurate finds the appropriate Unified
@@ -141,7 +134,7 @@ def collect_ground_track(
     :rtype: :class:`geopandas.GeoDataFrame`
     """
     # first, compute the orbit track of the satellite
-    gdf = collect_orbit_track(satellite, instrument, times, target, mask)
+    gdf = collect_orbit_track(satellite, instrument, times, mask)
     if gdf.empty:
         return gdf
     # project points to zero elevation
