@@ -1,6 +1,7 @@
 import unittest
 
 from datetime import datetime, timezone, timedelta
+from shapely.geometry import Polygon
 
 from tatc.analysis import (
     collect_orbit_track,
@@ -50,6 +51,25 @@ class TestGroundTrackAnalysis(unittest.TestCase):
             ],
         )
 
+    def test_collect_orbit_track_empty(self):
+        results = collect_orbit_track(
+            self.satellite,
+            self.instrument,
+            [],
+        )
+
+    def test_collect_orbit_track_with_mask(self):
+        mask = Polygon([[-90, 45], [-90, 45], [90, 45], [90, -45], [-90, -45]])
+        results = collect_orbit_track(
+            self.satellite,
+            self.instrument,
+            [
+                datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
+                for i in range(10)
+            ],
+            mask=mask,
+        )
+
     def test_collect_ground_track(self):
         results = collect_ground_track(
             self.satellite,
@@ -60,9 +80,32 @@ class TestGroundTrackAnalysis(unittest.TestCase):
             ],
         )
 
-    def test_collect_orbit_track_no_times(self):
-        results = collect_orbit_track(
+    def test_collect_ground_track_empty(self):
+        results = collect_ground_track(
             self.satellite,
             self.instrument,
             [],
+        )
+
+    def test_collect_ground_track_utm(self):
+        results = collect_ground_track(
+            self.satellite,
+            self.instrument,
+            [
+                datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
+                for i in range(10)
+            ],
+            fast=False,
+        )
+
+    def test_collect_ground_track_with_mask(self):
+        mask = Polygon([[-90, 45], [-90, 45], [90, 45], [90, -45], [-90, -45]])
+        results = collect_ground_track(
+            self.satellite,
+            self.instrument,
+            [
+                datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
+                for i in range(10)
+            ],
+            mask=mask,
         )
