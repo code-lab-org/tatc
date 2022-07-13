@@ -1,6 +1,6 @@
 import unittest
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from tatc.analysis import (
     collect_observations,
@@ -140,7 +140,7 @@ class TestCoverageAnalysis(unittest.TestCase):
             )
         for i in range(1, len(results.index)):
             self.assertEqual(
-                results.iloc[i].start - results.iloc[i-1].end, results.iloc[i].revisit
+                results.iloc[i].start - results.iloc[i - 1].end, results.iloc[i].revisit
             )
 
     def test_aggregate_observations_null(self):
@@ -160,8 +160,24 @@ class TestCoverageAnalysis(unittest.TestCase):
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 2, tzinfo=timezone.utc),
         )
-        results = aggregate_observations(results)
-        results = reduce_observations(results)
+        aggregated_results = aggregate_observations(results)
+        reduced_results = reduce_observations(aggregated_results)
+        for i in range(len(reduced_results.index)):
+            self.assertAlmostEqual(
+                reduced_results.iloc[i].access / timedelta(seconds=1),
+                aggregated_results[
+                    aggregated_results.point_id == reduced_results.iloc[i].point_id
+                ].access.mean(),
+                delta=0.01,
+            )
+        for i in range(1, len(reduced_results.index)):
+            self.assertAlmostEqual(
+                reduced_results.iloc[i].revisit / timedelta(seconds=1),
+                aggregated_results[
+                    aggregated_results.point_id == reduced_results.iloc[i].point_id
+                ].revisit.mean(),
+                delta=0.01,
+            )
 
     def test_reduce_observations_null(self):
         results = collect_multi_observations(
@@ -170,6 +186,6 @@ class TestCoverageAnalysis(unittest.TestCase):
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
         )
-        results = aggregate_observations(results)
-        results = reduce_observations(results)
+        aggregated_results = aggregate_observations(results)
+        reduced_results = reduce_observations(aggregated_results)
         self.assertTrue(results.empty)
