@@ -180,8 +180,8 @@ def collect_observations(
             ], ignore_index=True)
         # compute the access time for the observation (end - start)
         df["access"] = df["end"] - df["start"]
-        # compute the revisit time for each observation (previous end - start)
-        df["revisit"] = df["end"] - df["start"].shift()
+        # compute the revisit time for each observation (start - previous end)
+        df["revisit"] = df["start"] - df["end"].shift()
         return gpd.GeoDataFrame(df, geometry=df.geometry, crs="EPSG:4326")
 
     for j in range(len(events)):
@@ -276,8 +276,8 @@ def collect_observations(
 
     # compute the access time for each observation (end - start)
     df["access"] = df["end"] - df["start"]
-    # compute the revisit time for each observation (previous end - start)
-    df["revisit"] = df["end"] - df["start"].shift()
+    # compute the revisit time for each observation (start - previous end)
+    df["revisit"] = df["start"] - df["end"].shift()
     return gpd.GeoDataFrame(df, geometry=df.geometry, crs="EPSG:4326")
 
 
