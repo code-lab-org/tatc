@@ -43,12 +43,48 @@ conda install mamba -c conda-forge
 ```
 and replace `conda` with `mamba` in the installation instructions above.
 
-## Unit Tests
+## Additional Dependencies
 
-Run unit tests:
+Some examples use additional dependencies: `geoplot`, `contextily`
+
+## Development Tools
+
+### Unit Tests
+
+Dependencies: `coverage` (optional)
+
+Run unit tests with:
 ```shell
 python -m unittest
 ```
+
+Optionally, run a test coverage report:
+```shell
+coverage run -m unittest
+```
+including html output:
+```shell
+coverage html
+```
+
+### Documentation
+
+Dependencies: `sphinx` and `sphinx-rtd-theme`
+
+Generate documentation from the `docs` directory using the :
+```shell
+make html
+```
+
+### Code Style
+
+Dependencies: `black` and `black[]`
+
+This project uses the black code style, applied from the project root:
+```shell
+black .
+```
+
 ## Contact
 
 Paul T. Grogan <pgrogan@stevens.edu>
