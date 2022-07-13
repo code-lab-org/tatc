@@ -176,7 +176,7 @@ def _get_revisit_series(observations: gpd.GeoDataFrame) -> pd.Series:
     Get a series with revisit times for each observation.
     """
     # compute the revisit time for each observation (previous end - start)
-    return observations["end"] - observations["start"].shift()
+    return observations["start"] - observations["end"].shift()
 
 
 def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:

@@ -134,6 +134,14 @@ class TestCoverageAnalysis(unittest.TestCase):
             datetime(2022, 6, 2, tzinfo=timezone.utc),
         )
         results = aggregate_observations(results)
+        for i in range(len(results.index)):
+            self.assertEqual(
+                results.iloc[i].end - results.iloc[i].start, results.iloc[i].access
+            )
+        for i in range(1, len(results.index)):
+            self.assertEqual(
+                results.iloc[i].start - results.iloc[i-1].end, results.iloc[i].revisit
+            )
 
     def test_aggregate_observations_null(self):
         results = collect_multi_observations(
