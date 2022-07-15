@@ -420,17 +420,17 @@ def reduce_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     # assign each record to one observation
     gdf["samples"] = 1
     # perform the aggregation operation
-    gdf = gpd.GeoDataFrame(
-        gdf.groupby("point_id").agg(
+    gdf = (
+        gdf.groupby("point_id")
+        .agg(
             {
-                "point_id": "first",
                 "geometry": "first",
                 "access": "mean",
                 "revisit": "mean",
                 "samples": "sum",
             }
-        ),
-        crs="EPSG:4326",
+        )
+        .reset_index()
     )
     # convert access and revisit from numeric values after aggregation
     gdf["access"] = gdf["access"].apply(lambda t: timedelta(seconds=t))
