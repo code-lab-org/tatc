@@ -188,16 +188,12 @@ def reduce_latencies(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     # assign each record to one observation
     gdf["samples"] = 1
     # perform the aggregation operation
-    gdf = gpd.GeoDataFrame(
-        gdf.groupby("point_id").agg(
-            {
-                "point_id": "first",
-                "geometry": "first",
-                "latency": "mean",
-                "samples": "sum",
-            }
-        ),
-        crs="EPSG:4326",
+    gdf = gdf.dissolve(
+        "point_id",
+        aggfunc={
+            "latency": "mean",
+            "samples": "sum",
+        },
     )
     # convert latency from numeric values after aggregation
     gdf["latency"] = gdf["latency"].apply(
