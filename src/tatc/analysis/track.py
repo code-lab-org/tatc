@@ -17,7 +17,7 @@ from pyproj.aoi import AreaOfInterest
 from ..schemas.satellite import Satellite
 from ..schemas.instrument import Instrument
 from ..utils import (
-    normalize_geometry,
+    split_polygon,
     field_of_regard_to_swath_width,
 )
 from ..constants import timescale
@@ -106,7 +106,7 @@ def collect_ground_track(
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     fast: bool = True,
     resolution: int = 4,
-    fix_polygon_longitudes: bool = True,
+    split_polygons: bool = True,
 ) -> gpd.GeoDataFrame:
     """
     Model the ground track swath for a satellite of interest.
@@ -126,10 +126,9 @@ def collect_ground_track(
     :type fast: bool, option
     :param resolution: Shapely buffer resolution of the projected swath
     :type resolution: int, optional
-    :param fix_polygon_longitudes: True, if polygon longitudes crossing the
-            anti-meridian (180 deg longitude) should be transformed from
-            the [-180, 180] to the [0,360] longitude domain to aid plotting.
-    :type fix_polygon_longitudes: bool, optional
+    :param split_polygons: True, if Polygons should be split into MultiPolygons
+            when crossing the anti-meridian or exceeding polar boundaries.
+    :type split_polygons: bool, optional
     :return: An instance of :class:`geopandas.GeoDataFrame` with all recorded polygons.
     :rtype: :class:`geopandas.GeoDataFrame`
     """
@@ -175,8 +174,8 @@ def collect_ground_track(
                 crs="EPSG:" + code,
             ).to_crs("EPSG:4326")
 
-    if fix_polygon_longitudes:
-        gdf = normalize_geometry(gdf)
+    if split_polygons:
+        gdf["geometry"] = gdf.apply(lambda r: split_polygon(r.geometry), axis=1)
 
     if mask is None:
         return gdf

@@ -14,7 +14,7 @@ from tatc.utils import (
     compute_min_elevation_angle,
     compute_orbit_period,
     compute_max_access_time,
-    wrap_coordinates_antimeridian,
+    split_polygon,
     normalize_geometry,
 )
 
@@ -68,77 +68,64 @@ class TestUtils(unittest.TestCase):
             compute_max_access_time(705000, 81.66446), 27.33097, delta=0.001
         )
 
-    def test_wrap_coordinates_antimeridian_nominal(self):
-        test_data = [(-150, 0), (-50, 0), (0, 0), (50, 0), (150, 0)]
-        test_result = [(210, 0), (310, 0), (0, 0), (50, 0), (150, 0)]
-        self.assertEqual(wrap_coordinates_antimeridian(test_data), test_result)
-
-    def test_wrap_coordinates_antimeridian_no_op_all_non_negative(self):
-        test_data = [(0, 0), (50, 0), (150, 0)]
-        self.assertEqual(wrap_coordinates_antimeridian(test_data), test_data)
-
-    def test_wrap_coordinates_antimeridian_no_op_all_non_positive(self):
-        test_data = [(-150, 0), (-50, 0), (0, 0)]
-        self.assertEqual(wrap_coordinates_antimeridian(test_data), test_data)
-
-    def test_wrap_coordinates_antimeridian_no_op_small_range(self):
-        test_data = [(-50, 0), (0, 0), (50, 0)]
-        self.assertEqual(wrap_coordinates_antimeridian(test_data), test_data)
+    def test_split_polygon_nominal(self):
+        polygon = Polygon([(170, 10), (-170, 10), (-170, -10), (170, -10), (170, 10)])
+        result = MultiPolygon(
+            [
+                Polygon([(180, -10), (170, -10), (170, 10), (180, 10), (180, -10)]),
+                Polygon([(-180, 10), (-170, 10), (-170, -10), (-180, -10), (-180, 10)]),
+            ]
+        )
+        self.assertEqual(split_polygon(polygon), result)
 
     def test_normalize_geometry_polygon(self):
-        geometry = [(-150, 10), (150, 10), (150, -10), (-150, -10), (-150, 10)]
-        result = normalize_geometry(Polygon(geometry))
+        polygon = Polygon([(-150, 10), (150, 10), (150, -10), (-150, -10), (-150, 10)])
+        result = normalize_geometry(polygon)
         self.assertIsInstance(result, gpd.GeoDataFrame)
         self.assertEqual(result.crs, "EPSG:4326")
         self.assertEqual(len(result.index), 1)
-        self.assertEqual(
-            result.geometry[0], Polygon(wrap_coordinates_antimeridian(geometry))
-        )
+        self.assertEqual(result.iloc[0].geometry, split_polygon(polygon))
 
     def test_normalize_geometry_polygon_invalid(self):
-        geometry = [(-150, 0), (-50, 0), (0, 0), (50, 0), (150, 0)]
+        polygon = Polygon([(-150, 0), (-50, 0), (0, 0), (50, 0), (150, 0)])
         with self.assertRaises(ValueError):
-            normalize_geometry(Polygon(geometry))
+            normalize_geometry(polygon)
 
     def test_normalize_geometry_multipolygon(self):
         geometries = [
             [(-150, 10), (150, 10), (150, -10), (-150, -10), (-150, 10)],
             [(-150, 30), (150, 30), (150, 20), (-150, 20), (-150, 30)],
         ]
-        result = normalize_geometry(
-            MultiPolygon([[geometry, []] for geometry in geometries])
-        )
+        multipolygon = MultiPolygon([[geometry, []] for geometry in geometries])
+        result = normalize_geometry(multipolygon)
         self.assertIsInstance(result, gpd.GeoDataFrame)
         self.assertEqual(result.crs, "EPSG:4326")
         self.assertEqual(len(result.index), 1)
         self.assertEqual(
-            result.geometry[0],
-            MultiPolygon(
-                [
-                    [wrap_coordinates_antimeridian(geometry), []]
-                    for geometry in geometries
-                ]
-            ),
+            result.iloc[0].geometry,
+            split_polygon(multipolygon),
         )
 
     def test_normalize_geometry_geoseries(self):
-        geometry = [(-150, 10), (150, 10), (150, -10), (-150, -10), (-150, 10)]
-        gs = gpd.GeoSeries(Polygon(geometry), crs="EPSG:4326")
+        polygon = Polygon([(-150, 10), (150, 10), (150, -10), (-150, -10), (-150, 10)])
+        gs = gpd.GeoSeries(polygon, crs="EPSG:4326")
         result = normalize_geometry(gs)
         self.assertIsInstance(result, gpd.GeoDataFrame)
         self.assertEqual(result.crs, "EPSG:4326")
         self.assertEqual(len(result.index), 1)
         self.assertEqual(
-            result.geometry[0], Polygon(wrap_coordinates_antimeridian(geometry))
+            result.iloc[0].geometry,
+            split_polygon(polygon),
         )
 
     def test_normalize_geometry_geodataframe(self):
-        geometry = [(-150, 10), (150, 10), (150, -10), (-150, -10), (-150, 10)]
-        df = gpd.GeoDataFrame(geometry=[Polygon(geometry)], index=[0], crs="EPSG:4326")
+        polygon = Polygon([(-150, 10), (150, 10), (150, -10), (-150, -10), (-150, 10)])
+        df = gpd.GeoDataFrame(geometry=[polygon], index=[0], crs="EPSG:4326")
         result = normalize_geometry(df)
         self.assertIsInstance(result, gpd.GeoDataFrame)
         self.assertEqual(result.crs, "EPSG:4326")
         self.assertEqual(len(result.index), 1)
         self.assertEqual(
-            result.geometry[0], Polygon(wrap_coordinates_antimeridian(geometry))
+            result.iloc[0].geometry,
+            split_polygon(polygon),
         )

@@ -8,6 +8,7 @@ Utility functions.
 import numpy as np
 from numba import njit
 import geopandas as gpd
+from typing import Union
 from shapely.geometry import Polygon, MultiPolygon
 
 from . import constants
@@ -188,25 +189,216 @@ def compute_max_access_time(height, min_elevation_angle):
     return orbital_distance / orbital_velocity
 
 
-def wrap_coordinates_antimeridian(coords):
+def _split_polygon_north_pole(polygon: Union[Polygon, MultiPolygon]):
     """
-    Wraps negative longitudes around the antimeridian to positive values.
+    Splits a Polygon into a MultiPolygon if it crosses north pole.
 
     Args:
-        coords (list(tuple(float))): the raw coordinates (longitude, latitude).
+        polygon (:obj:`Polygon` or :obj:`MultiPolygon`)
 
-    Returns:
-        list(tuple(float)): The updated coordinates (longitude, latitude).
+    Returns
+        :obj:`Polygon` or :obj:`MultiPolygon`
     """
-    lon = np.array([c[0] for c in coords])
-    lat = np.array([c[1] for c in coords])
-    # wrap negative coords crossing antimeridian to positive values
-    if np.any(lon < 0) and np.any(lon > 0) and 180 < np.ptp(lon) < 360:
-        lon[lon < 0] += 360
-    return list(zip(lon, lat))
+    if isinstance(polygon, Polygon):
+        lat = np.array([c[1] for c in polygon.exterior.coords])
+        lon = np.array([c[0] for c in polygon.exterior.coords])
+        if np.any(lat > 90):
+            # find the "bottom" portion of the polygon via intersection
+            bottom = Polygon(
+                [(-180, 90), (180, 90), (180, -90), (-180, -90), (-180, 90)]
+            ).intersection(polygon)
+            # find the "top" portion of the polygon via intersection
+            top = Polygon(
+                [(-180, 180), (180, 180), (180, 90), (-180, 90), (-180, 180)]
+            ).intersection(polygon)
+            # map top latitudes from [90, 180) to [90, -90)
+            top = Polygon(
+                [
+                    [
+                        (c[0] + 180 if c[0] <= 0 else c[0] - 180)
+                        if c[1] >= 90
+                        else c[0],
+                        180 - c[1] if c[1] >= 90 else c[1],
+                    ]
+                    for c in top.exterior.coords
+                ],
+                [
+                    [
+                        [
+                            (c[0] + 180 if c[0] <= 0 else c[0] - 180)
+                            if c[1] >= 90
+                            else c[0],
+                            180 - c[1] if c[1] >= 90 else c[1],
+                        ]
+                        for c in i.coords
+                    ]
+                    for i in top.interiors
+                ],
+            )
+            return MultiPolygon([bottom, top])
+        else:
+            return polygon
+    elif isinstance(polygon, MultiPolygon):
+        polygons = [_split_polygon_north_pole(p) for p in polygon.geoms]
+        return MultiPolygon(
+            [
+                g
+                for p in polygons
+                for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
+            ]
+        )
+    else:
+        raise ValueError("unknown type: " + type(polygon))
 
 
-def normalize_geometry(geometry):
+def _split_polygon_south_pole(polygon: Union[Polygon, MultiPolygon]):
+    """
+    Splits a Polygon into a MultiPolygon if it crosses south pole.
+
+    Args:
+        polygon (:obj:`Polygon` or :obj:`MultiPolygon`)
+
+    Returns
+        :obj:`Polygon` or :obj:`MultiPolygon`
+    """
+    if isinstance(polygon, Polygon):
+        lat = np.array([c[1] for c in polygon.exterior.coords])
+        lon = np.array([c[0] for c in polygon.exterior.coords])
+        if np.any(lat < -90):
+            # find the "top" portion of the polygon via intersection
+            top = Polygon(
+                [(-180, 90), (180, 90), (180, -90), (-180, -90), (-180, 90)]
+            ).intersection(polygon)
+            # find the "bottom" portion of the polygon via intersection
+            bottom = Polygon(
+                [(-180, -180), (180, -180), (180, -90), (-180, -90), (-180, -180)]
+            ).intersection(polygon)
+            # map bottom latitudes from [-90, -180) to [-90, 90)
+            bottom = Polygon(
+                [
+                    [
+                        (c[0] + 180 if c[0] <= 0 else c[0] - 180)
+                        if c[1] <= -90
+                        else c[0],
+                        -180 - c[1] if c[1] <= -90 else c[1],
+                    ]
+                    for c in bottom.exterior.coords
+                ],
+                [
+                    [
+                        [
+                            (c[0] + 180 if c[0] <= 0 else c[0] - 180)
+                            if c[1] <= -90
+                            else c[0],
+                            -180 - c[1] if c[1] <= -90 else c[1],
+                        ]
+                        for c in i.coords
+                    ]
+                    for i in bottom.interiors
+                ],
+            )
+            return MultiPolygon([top, bottom])
+        else:
+            return polygon
+    elif isinstance(polygon, MultiPolygon):
+        polygons = [_split_polygon_south_pole(p) for p in polygon.geoms]
+        return MultiPolygon(
+            [
+                g
+                for p in polygons
+                for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
+            ]
+        )
+    else:
+        raise ValueError("unknown type: " + type(polygon))
+
+
+def _split_polygon_antimeridian(polygon: Union[Polygon, MultiPolygon]):
+    """
+    Splits a Polygon into a MultiPolygon if it crosses the anti-meridian after
+    wrapping its coordinates using `wrap_coordinates_antimeridian`.
+
+    Args:
+        polygon (:obj:`Polygon` or :obj:`MultiPolygon`)
+
+    Returns
+        :obj:`Polygon` or :obj:`MultiPolygon`
+    """
+    if isinstance(polygon, Polygon):
+        lat = np.array([c[1] for c in polygon.exterior.coords])
+        lon = np.array([c[0] for c in polygon.exterior.coords])
+        # check if any longitudes cross the anti-meridian
+        if np.any(lon < 0) and np.any(lon > 0) and 180 < np.ptp(lon) < 360:
+            # map longitudes from [-180, 0) to [180, 360)
+            polygon = Polygon(
+                [
+                    (c[0] + 360 if c[0] < 0 else c[0], c[1])
+                    for c in polygon.exterior.coords
+                ],
+                [
+                    [(c[0] + 360 if c[0] < 0 else c[0], c[1]) for c in i.coords]
+                    for i in polygon.interiors
+                ],
+            )
+            # attempt to fix invalid polygon using a zero buffer
+            if not polygon.is_valid:
+                polygon = polygon.buffer(0)
+            # find the "left" portion of the polygon via intersection
+            left = Polygon(
+                [(-180, 90), (180, 90), (180, -90), (-180, -90), (-180, 90)]
+            ).intersection(polygon)
+            # find the "right" portion of the polygon via intersection
+            right = Polygon(
+                [(180, 90), (360, 90), (360, -90), (180, -90), (180, 90)]
+            ).intersection(polygon)
+            # map right longitudes from [180, 360) to [-180, 0)
+            right = Polygon(
+                [
+                    [c[0] - 360 if c[0] >= 180 else c[0], c[1]]
+                    for c in right.exterior.coords
+                ],
+                [
+                    [[c[0] - 360 if c[0] >= 180 else c[0], c[1]] for c in i.coords]
+                    for i in right.interiors
+                ],
+            )
+            return MultiPolygon([left, right])
+        else:
+            return polygon
+    elif isinstance(polygon, MultiPolygon):
+        polygons = [_split_polygon_antimeridian(p) for p in polygon.geoms]
+        return MultiPolygon(
+            [
+                g
+                for p in polygons
+                for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
+            ]
+        )
+    else:
+        raise ValueError("unknown type: " + type(polygon))
+
+
+def split_polygon(polygon: Union[Polygon, MultiPolygon]):
+    """
+    Splits a Polygon into a MultiPolygon if it:
+     * crosses the anti-meridian (180 degrees longitude)
+     * exceeds the north pole (90 degrees latitude)
+     * exceeds the south pole (-90 degrees latitude)
+
+    Args:
+        polygon (:obj:`Polygon` or :obj:`MultiPolygon`)
+
+    Returns
+        :obj:`Polygon` or :obj:`MultiPolygon`
+    """
+    return _split_polygon_north_pole(
+        _split_polygon_south_pole(_split_polygon_antimeridian(polygon))
+    )
+
+
+def normalize_geometry(
+    geometry: Union[Polygon, MultiPolygon, gpd.GeoDataFrame]
+) -> gpd.GeoDataFrame:
     """
     Normalize geometry to a GeoDataFrame with antimeridian wrapping.
 
@@ -225,20 +417,7 @@ def normalize_geometry(geometry):
         geometry = gpd.GeoDataFrame(geometry=geometry, crs="EPSG:4326")
     if isinstance(geometry, gpd.GeoDataFrame):
         geometry["geometry"] = geometry.apply(
-            lambda r: Polygon(
-                wrap_coordinates_antimeridian(r.geometry.exterior.coords),
-                [wrap_coordinates_antimeridian(i.coords) for i in r.geometry.interiors],
-            )
-            if isinstance(r.geometry, Polygon)
-            else MultiPolygon(
-                [
-                    [
-                        wrap_coordinates_antimeridian(p.exterior.coords),
-                        [wrap_coordinates_antimeridian(i.coords) for i in p.interiors],
-                    ]
-                    for p in r.geometry.geoms
-                ]
-            ),
+            lambda r: split_polygon(r.geometry),
             axis=1,
         )
     return geometry
