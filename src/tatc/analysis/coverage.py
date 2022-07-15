@@ -430,6 +430,7 @@ def reduce_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
                 "samples": "sum",
             }
         )
+        .set_crs(gdf.crs)
         .reset_index()
     )
     # convert access and revisit from numeric values after aggregation
