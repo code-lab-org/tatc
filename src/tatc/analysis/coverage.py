@@ -363,19 +363,16 @@ def aggregate_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         # assign the observation group number based on overlapping start/end times
         gdf["obs"] = (gdf["start"] > gdf["end"].shift().cummax()).cumsum()
         # perform the aggregation to group overlapping observations
-        gdf = gpd.GeoDataFrame(
-            gdf.groupby("obs").agg(
-                {
-                    "point_id": "first",
-                    "geometry": "first",
-                    "satellite": ", ".join,
-                    "instrument": ", ".join,
-                    "start": "min",
-                    "epoch": "mean",
-                    "end": "max",
-                }
-            ),
-            crs="EPSG:4326",
+        gdf = gdf.dissolve(
+            "obs",
+            aggfunc={
+                "point_id": "first",
+                "satellite": ", ".join,
+                "instrument": ", ".join,
+                "start": "min",
+                "epoch": "mean",
+                "end": "max",
+            },
         )
         # compute access and revisit metrics
         gdf["access"] = _get_access_series(gdf)
@@ -420,19 +417,14 @@ def reduce_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     # assign each record to one observation
     gdf["samples"] = 1
     # perform the aggregation operation
-    gdf = (
-        gdf.groupby("point_id")
-        .agg(
-            {
-                "geometry": "first",
-                "access": "mean",
-                "revisit": "mean",
-                "samples": "sum",
-            }
-        )
-        .set_crs(gdf.crs)
-        .reset_index()
-    )
+    gdf = gdf.dissolve(
+        "point_id",
+        aggfunc={
+            "access": "mean",
+            "revisit": "mean",
+            "samples": "sum",
+        },
+    ).reset_index()
     # convert access and revisit from numeric values after aggregation
     gdf["access"] = gdf["access"].apply(lambda t: timedelta(seconds=t))
     gdf["revisit"] = gdf["revisit"].apply(
