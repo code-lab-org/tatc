@@ -164,19 +164,19 @@ class TestCoverageAnalysis(unittest.TestCase):
         reduced_results = reduce_observations(aggregated_results)
         for i in range(len(reduced_results.index)):
             self.assertAlmostEqual(
-                reduced_results.iloc[i].access / timedelta(seconds=1),
+                reduced_results.iloc[i].access,
                 aggregated_results[
                     aggregated_results.point_id == reduced_results.iloc[i].point_id
                 ].access.mean(),
-                delta=0.01,
+                delta=timedelta(seconds=0.01),
             )
         for i in range(1, len(reduced_results.index)):
             self.assertAlmostEqual(
-                reduced_results.iloc[i].revisit / timedelta(seconds=1),
+                reduced_results.iloc[i].revisit,
                 aggregated_results[
                     aggregated_results.point_id == reduced_results.iloc[i].point_id
                 ].revisit.mean(),
-                delta=0.01,
+                delta=timedelta(seconds=0.01),
             )
 
     def test_reduce_observations_null(self):

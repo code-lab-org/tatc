@@ -323,11 +323,8 @@ def collect_multi_observations(
         for satellite in (constellation.generate_members())
         for instrument in satellite.instruments
     ]
-    # merge the observations into one data frame
-    df = pd.concat(gdfs, ignore_index=True)
-    # sort the values by start datetime
-    df = df.sort_values("start").reset_index(drop=True)
-    return gpd.GeoDataFrame(df, geometry=df.geometry, crs="EPSG:4326")
+    # concatenate into one data frame, sort by start time, and re-index
+    return pd.concat(gdfs).sort_values("start").reset_index(drop=True)
 
 
 def _get_empty_aggregate_frame() -> gpd.GeoDataFrame:
@@ -358,30 +355,35 @@ def aggregate_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     if gdf.empty:
         return _get_empty_aggregate_frame()
-
-    # sort the values by start datetime
-    gdf = gdf.sort_values("start")
-    # assign the observation group number based on overlapping start/end times
-    gdf["obs"] = (gdf["start"] > gdf["end"].shift().cummax()).cumsum()
-    # perform the aggregation to group overlapping observations
-    gdf = gpd.GeoDataFrame(
-        gdf.groupby("obs").agg(
-            {
-                "point_id": "first",
-                "geometry": "first",
-                "satellite": ", ".join,
-                "instrument": ", ".join,
-                "start": "min",
-                "epoch": "mean",
-                "end": "max",
-            }
-        ),
-        crs="EPSG:4326",
-    )
-    # compute access and revisit metrics
-    gdf["access"] = _get_access_series(gdf)
-    gdf["revisit"] = _get_revisit_series(gdf)
-    return gdf
+    gdfs = []
+    # split into constituent data frames based on point_id
+    for _, gdf in gdf.groupby("point_id"):
+        # sort the values by start datetime
+        gdf = gdf.sort_values("start")
+        # assign the observation group number based on overlapping start/end times
+        gdf["obs"] = (gdf["start"] > gdf["end"].shift().cummax()).cumsum()
+        # perform the aggregation to group overlapping observations
+        gdf = gpd.GeoDataFrame(
+            gdf.groupby("obs").agg(
+                {
+                    "point_id": "first",
+                    "geometry": "first",
+                    "satellite": ", ".join,
+                    "instrument": ", ".join,
+                    "start": "min",
+                    "epoch": "mean",
+                    "end": "max",
+                }
+            ),
+            crs="EPSG:4326",
+        )
+        # compute access and revisit metrics
+        gdf["access"] = _get_access_series(gdf)
+        gdf["revisit"] = _get_revisit_series(gdf)
+        # append to the list of data frames
+        gdfs.append(gdf)
+    # return a concatenated data frame and re-index
+    return pd.concat(gdfs).reset_index(drop=True)
 
 
 def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
@@ -410,7 +412,8 @@ def reduce_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     if gdf.empty:
         return _get_empty_reduce_frame()
-
+    # operate on a copy of the dataframe
+    gdf = gdf.copy()
     # convert access and revisit to numeric values before aggregation
     gdf["access"] = gdf["access"] / timedelta(seconds=1)
     gdf["revisit"] = gdf["revisit"] / timedelta(seconds=1)
