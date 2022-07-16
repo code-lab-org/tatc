@@ -91,22 +91,50 @@ class Instrument(BaseModel):
         :return: True if instrument can provide valid observations, otherwise False
         :rtype: bool
         """
-        is_scalar = isinstance(time.tt, float)
-        is_valid = True if is_scalar else np.ones(len(time), dtype=bool)
-        if self.req_self_sunlit is not None:
-            p = sat.at(time)
-            if is_scalar:
-                is_valid = is_valid and (self.req_self_sunlit == p.is_sunlit(de421))
-            else:
-                is_valid = np.logical_and(
-                    is_valid, self.req_self_sunlit == p.is_sunlit(de421)
+        if isinstance(time.tt, float):
+            # scalar
+            is_valid = True
+            if self.req_self_sunlit is not None:
+                # compare requirement to satellite sunlit condition
+                is_valid = is_valid and (
+                    self.req_self_sunlit == sat.at(time).is_sunlit(de421)
                 )
-        if self.req_target_sunlit is not None:
-            p = wgs84.subpoint_of(sat.at(time)).at(time)
-            if is_scalar:
-                is_valid = is_valid and (self.req_target_sunlit == p.is_sunlit(de421))
-            else:
-                is_valid = np.logical_and(
-                    is_valid, self.req_target_sunlit == p.is_sunlit(de421)
+            if self.req_target_sunlit is not None:
+                # compute solar altitude angle at sub-satellite point
+                solar_alt = (
+                    (de421["earth"] + wgs84.subpoint_of(sat.at(time)))
+                    .at(time)
+                    .observe(de421["sun"])
+                    .apparent()
+                    .altaz()[0]
+                    .degrees
                 )
-        return is_valid
+                # compare requirement to sub-satellite point sunlit condition
+                is_valid = is_valid and (self.req_target_sunlit == (solar_alt > 0))
+            return is_valid
+        else:
+            # vector
+            is_valid = np.ones(len(time), dtype=bool)
+            if self.req_self_sunlit is not None:
+                # compare requirement to satellite sunlit condition
+                is_valid = np.logical_and(
+                    is_valid, self.req_self_sunlit == sat.at(time).is_sunlit(de421)
+                )
+            if self.req_target_sunlit is not None:
+                # compute solar altitude angle at sub-satellite points
+                solar_alt = np.array(
+                    [
+                        (de421["earth"] + wgs84.subpoint_of(sat.at(t)))
+                        .at(t)
+                        .observe(de421["sun"])
+                        .apparent()
+                        .altaz()[0]
+                        .degrees
+                        for t in time
+                    ]
+                )
+                # compare requirement to sub-satellite point sunlit conditions
+                is_valid = np.logical_and(
+                    is_valid, self.req_target_sunlit == (solar_alt > 0)
+                )
+            return is_valid

@@ -56,6 +56,17 @@ class TestInstrument(unittest.TestCase):
             Satrec.twoline2rv(test_orbit_4.tle[0], test_orbit_4.tle[1], WGS72),
             timescale,
         )
+        test_orbit_5 = CircularOrbit(
+            altitude=400000,
+            true_anomaly=0,
+            epoch=noon_utc,
+            inclination=45.0,
+            right_ascension_ascending_node=140.0,
+        ).to_tle()
+        self.test_sat_5 = EarthSatellite.from_satrec(
+            Satrec.twoline2rv(test_orbit_5.tle[0], test_orbit_5.tle[1], WGS72),
+            timescale,
+        )
 
     def test_good_data(self):
         good_data = {
@@ -174,6 +185,24 @@ class TestInstrument(unittest.TestCase):
         o = Instrument(name="Test Instrument", req_target_sunlit=True)
         times = timescale.utc(2020, 3, 20, [11, 12, 13])
         results = o.is_valid_observation(self.test_sat_1, times)
+        self.assertEqual(len(results), 3)
+        self.assertFalse(results[0])
+        self.assertTrue(results[1])
+        self.assertFalse(results[2])
+
+    def test_valid_observation_self_sunlit_vector_inclined(self):
+        o = Instrument(name="Test Instrument", req_self_sunlit=True)
+        times = timescale.utc(2020, 3, 20, [11, 12, 13])
+        results = o.is_valid_observation(self.test_sat_5, times)
+        self.assertEqual(len(results), 3)
+        self.assertFalse(results[0])
+        self.assertTrue(results[1])
+        self.assertFalse(results[2])
+
+    def test_valid_observation_target_sunlit_vector_inclined(self):
+        o = Instrument(name="Test Instrument", req_target_sunlit=True)
+        times = timescale.utc(2020, 3, 20, [11, 12, 13])
+        results = o.is_valid_observation(self.test_sat_5, times)
         self.assertEqual(len(results), 3)
         self.assertFalse(results[0])
         self.assertTrue(results[1])
