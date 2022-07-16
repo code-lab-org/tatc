@@ -9,7 +9,7 @@ import numpy as np
 from numba import njit
 import geopandas as gpd
 from typing import Union
-from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import Polygon, MultiPolygon, GeometryCollection
 from shapely.ops import clip_by_rect
 
 from . import constants
@@ -190,7 +190,20 @@ def compute_max_access_time(height, min_elevation_angle):
     return orbital_distance / orbital_velocity
 
 
-def _translate_polygon_over_north_pole(polygon: Polygon) -> Polygon:
+def _wrap_polygon_over_north_pole(polygon: Polygon) -> Polygon:
+    """
+    Wraps polygon coordinates over the North pole. Due to buffering and projection,
+    sometimes latitudes exceed 90 degrees. This method wraps them to the correct
+    latitude <= 90 degrees and adjusts the longitude by 180 degrees.
+
+    Note: this method only changes coordinates: it does not create a MultiPolygon.
+
+    Args:
+        polygon (:obj:`Polygon`): polygon to wrap.
+
+    Returns:
+        :obj:`Polygon`: Wrapped polygon.
+    """
     # map latitudes from [90, 180) to [90, -90), adjusting longitude by 180 degrees
     polygon = Polygon(
         [
@@ -232,22 +245,39 @@ def _split_polygon_north_pole(
     if isinstance(polygon, Polygon):
         lat = np.array([c[1] for c in polygon.exterior.coords])
         if np.any(lat > 90):
-            # find the "bottom" portion of the polygon via intersection
+            # find the "bottom" portion of the polygon
             bottom = clip_by_rect(polygon, -180, -180, 180, 90)
-            # find the "top" portion of the polygon via intersection
+            # check for dirty clip and fix if necessary
+            if isinstance(bottom, GeometryCollection):
+                bottom = _convert_collection_to_polygon(top)
+            # find the "top" portion of the polygon
             top = clip_by_rect(polygon, -180, 90, 180, 180)
-            tops = None
+            # check for dirty clip and fix if necessary
+            if isinstance(top, GeometryCollection):
+                top = _convert_collection_to_polygon(top)
+            # wrap polygon over the north pole
             if isinstance(top, Polygon):
-                top = _translate_polygon_over_north_pole(top)
+                top = _wrap_polygon_over_north_pole(top)
             elif isinstance(top, MultiPolygon):
-                tops = [_translate_polygon_over_north_pole(p) for p in top.geoms]
+                top = MultiPolygon(
+                    [_wrap_polygon_over_north_pole(p) for p in top.geoms]
+                )
             else:
                 raise ValueError("Geometry not implemented: " + str(type(top)))
             # return the composite multi polygon
-            return MultiPolygon([bottom, top] if tops is None else [bottom] + tops)
+            return MultiPolygon(
+                [bottom, top]
+                if (isinstance(bottom, Polygon) and isinstance(top, Polygon))
+                else [bottom] + list(top.geoms)
+                if isinstance(bottom, Polygon)
+                else list(bottom.geoms) + [top]
+                if isinstance(top, Polygon)
+                else list(bottom.geoms) + list(top.geoms)
+            )
         else:
             return polygon
     elif isinstance(polygon, MultiPolygon):
+        # recursive call for each polygon
         polygons = [_split_polygon_north_pole(p) for p in polygon.geoms]
         return MultiPolygon(
             [
@@ -260,7 +290,20 @@ def _split_polygon_north_pole(
         raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
-def _translate_polygon_over_south_pole(polygon: Polygon) -> Polygon:
+def _wrap_polygon_over_south_pole(polygon: Polygon) -> Polygon:
+    """
+    Wraps polygon coordinates over the South pole. Due to buffering and projection,
+    sometimes latitudes exceed -90 degrees. This method wraps them to the correct
+    latitude >= -90 degrees and adjusts the longitude by 180 degrees.
+
+    Note: this method only changes coordinates: it does not create a MultiPolygon.
+
+    Args:
+        polygon (:obj:`Polygon`): polygon to wrap.
+
+    Returns:
+        :obj:`Polygon`: Wrapped polygon.
+    """
     # map latitudes from [-90, -180) to [-90, 90), adjusting longitude by 180 degrees
     polygon = Polygon(
         [
@@ -302,22 +345,39 @@ def _split_polygon_south_pole(
     if isinstance(polygon, Polygon):
         lat = np.array([c[1] for c in polygon.exterior.coords])
         if np.any(lat < -90):
-            # find the "top" portion of the polygon via intersection
+            # find the "top" portion of the polygon
             top = clip_by_rect(polygon, -180, -90, 180, 180)
-            # find the "bottom" portion of the polygon via intersection
+            # check for dirty clip and fix if necessary
+            if isinstance(top, GeometryCollection):
+                top = _convert_collection_to_polygon(top)
+            # find the "bottom" portion of the polygon
             bottom = clip_by_rect(polygon, -180, -180, 180, -90)
-            bottoms = None
+            # check for dirty clip and fix if necessary
+            if isinstance(bottom, GeometryCollection):
+                bottom = _convert_collection_to_polygon(bottom)
+            # wrap polygon over the south pole
             if isinstance(bottom, Polygon):
-                bottom = _translate_polygon_over_south_pole(bottom)
+                bottom = _wrap_polygon_over_south_pole(bottom)
             elif isinstance(bottom, MultiPolygon):
-                bottoms = [_translate_polygon_over_south_pole(p) for p in bottom.geoms]
+                bottom = MultiPolygon(
+                    [_wrap_polygon_over_south_pole(p) for p in bottom.geoms]
+                )
             else:
                 raise ValueError("Geometry not implemented: " + str(type(bottom)))
             # return the composite multi polygon
-            return MultiPolygon([top, bottom] if bottoms is None else [top] + bottoms)
+            return MultiPolygon(
+                [top, bottom]
+                if (isinstance(top, Polygon) and isinstance(bottom, Polygon))
+                else [top] + list(bottom.geoms)
+                if isinstance(top, Polygon)
+                else list(top.geoms) + [bottom]
+                if isinstance(bottom, Polygon)
+                else list(top.geoms) + list(bottom.geoms)
+            )
         else:
             return polygon
     elif isinstance(polygon, MultiPolygon):
+        # recursive call for each polygon
         polygons = [_split_polygon_south_pole(p) for p in polygon.geoms]
         return MultiPolygon(
             [
@@ -330,7 +390,20 @@ def _split_polygon_south_pole(
         raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
-def _translate_polygon_over_antimeridian(polygon: Polygon) -> Polygon:
+def _wrap_polygon_over_antimeridian(polygon: Polygon) -> Polygon:
+    """
+    Wraps polygon coordinates over the antimeridian. Due to buffering and projection,
+    sometimes longitudes exceed 180 degrees. This method wraps them to
+    the correct longitude <= 180 degrees.
+
+    Note: this method only changes coordinates: it does not create a MultiPolygon.
+
+    Args:
+        polygon (:obj:`Polygon`): polygon to wrap.
+
+    Returns:
+        :obj:`Polygon`: Wrapped polygon.
+    """
     # map longitudes from [180, 360) to [-180, 0)
     polygon = Polygon(
         [[c[0] - 360 if c[0] >= 180 else c[0], c[1]] for c in polygon.exterior.coords],
@@ -343,6 +416,33 @@ def _translate_polygon_over_antimeridian(polygon: Polygon) -> Polygon:
     if not polygon.is_valid:
         polygon = polygon.buffer(0)
     return polygon
+
+
+def _convert_collection_to_polygon(
+    collection: GeometryCollection,
+) -> Union[Polygon, MultiPolygon]:
+    """
+    Converts a GeometryCollection to a Polygon or MultiPolygon. Quick clipping
+    can create dirty results with points or lines on boundaries. This method
+    drops and lines or points from a GeometryCollection to return only the
+    Polygon or MultiPolygon geometry.
+
+    Args:
+        collection (:obj:`GeometryCollection`): collection to convert.
+
+    Returns:
+        :obj:`Polygon` or :obj:`MultiPolygon`: converted polygon.
+    """
+    pgons = [p for p in collection.geoms if isinstance(p, Polygon)] + [
+        p.geoms
+        for g in collection.geoms
+        for p in g.geoms
+        if isinstance(p, MultiPolygon)
+    ]
+    if len(pgons) == 1:
+        return pgons[0]
+    else:
+        return MultiPolygon(pgons)
 
 
 def _split_polygon_antimeridian(
@@ -376,22 +476,39 @@ def _split_polygon_antimeridian(
             # attempt to fix invalid polygon using a zero buffer
             if not polygon.is_valid:
                 polygon = polygon.buffer(0)
-            # find the "left" portion of the polygon via intersection
+            # find the "left" portion of the polygon
             left = clip_by_rect(polygon, -180, -180, 180, 180)
-            # find the "right" portion of the polygon via intersection
+            # check for dirty clip and fix if necessary
+            if isinstance(left, GeometryCollection):
+                left = _convert_collection_to_polygon(left)
+            # find the "right" portion of the polygon
             right = clip_by_rect(polygon, 180, -180, 360, 180)
-            rights = None
+            # check for dirty clip and fix if necessary
+            if isinstance(right, GeometryCollection):
+                right = _convert_collection_to_polygon(right)
+            # wrap polygon over the anti-meridian
             if isinstance(right, Polygon):
-                right = _translate_polygon_over_antimeridian(right)
+                right = _wrap_polygon_over_antimeridian(right)
             elif isinstance(right, MultiPolygon):
-                rights = [_translate_polygon_over_antimeridian(p) for p in right.geoms]
+                right = MultiPolygon(
+                    [_wrap_polygon_over_antimeridian(p) for p in right.geoms]
+                )
             else:
                 raise ValueError("Geometry not implemented: " + str(type(right)))
             # return the composite multi polygon
-            return MultiPolygon([left, right] if rights is None else [left] + rights)
+            return MultiPolygon(
+                [left, right]
+                if (isinstance(left, Polygon) and isinstance(right, Polygon))
+                else [left] + list(right.geoms)
+                if isinstance(left, Polygon)
+                else list(left.geoms) + [right]
+                if isinstance(right, Polygon)
+                else list(left.geoms) + list(right.geoms)
+            )
         else:
             return polygon
     elif isinstance(polygon, MultiPolygon):
+        # recursive call for each polygon
         polygons = [_split_polygon_antimeridian(p) for p in polygon.geoms]
         return MultiPolygon(
             [

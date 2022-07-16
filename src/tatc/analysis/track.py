@@ -189,7 +189,6 @@ def collect_ground_track(
             ),
             axis=1,
         )
-
     # split polygons to wrap over the anti-meridian and poles
     gdf.geometry = gdf.apply(lambda r: split_polygon(r.geometry), axis=1)
 
