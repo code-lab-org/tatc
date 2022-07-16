@@ -189,7 +189,9 @@ def compute_max_access_time(height, min_elevation_angle):
     return orbital_distance / orbital_velocity
 
 
-def _split_polygon_north_pole(polygon: Union[Polygon, MultiPolygon]):
+def _split_polygon_north_pole(
+    polygon: Union[Polygon, MultiPolygon]
+) -> Union[Polygon, MultiPolygon]:
     """
     Splits a Polygon into a MultiPolygon if it crosses north pole.
 
@@ -201,7 +203,6 @@ def _split_polygon_north_pole(polygon: Union[Polygon, MultiPolygon]):
     """
     if isinstance(polygon, Polygon):
         lat = np.array([c[1] for c in polygon.exterior.coords])
-        lon = np.array([c[0] for c in polygon.exterior.coords])
         if np.any(lat > 90):
             # find the "bottom" portion of the polygon via intersection
             bottom = Polygon(
@@ -211,18 +212,10 @@ def _split_polygon_north_pole(polygon: Union[Polygon, MultiPolygon]):
             top = Polygon(
                 [(-180, 180), (180, 180), (180, 90), (-180, 90), (-180, 180)]
             ).intersection(polygon)
-            # map top latitudes from [90, 180) to [90, -90)
-            top = Polygon(
-                [
-                    [
-                        (c[0] + 180 if c[0] <= 0 else c[0] - 180)
-                        if c[1] >= 90
-                        else c[0],
-                        180 - c[1] if c[1] >= 90 else c[1],
-                    ]
-                    for c in top.exterior.coords
-                ],
-                [
+            # map top latitudes from [90, 180) to [90, -90), adjusting longitude by 180 degrees
+            tops = None
+            if isinstance(top, Polygon):
+                top = Polygon(
                     [
                         [
                             (c[0] + 180 if c[0] <= 0 else c[0] - 180)
@@ -230,12 +223,52 @@ def _split_polygon_north_pole(polygon: Union[Polygon, MultiPolygon]):
                             else c[0],
                             180 - c[1] if c[1] >= 90 else c[1],
                         ]
-                        for c in i.coords
-                    ]
-                    for i in top.interiors
-                ],
-            )
-            return MultiPolygon([bottom, top])
+                        for c in top.exterior.coords
+                    ],
+                    [
+                        [
+                            [
+                                (c[0] + 180 if c[0] <= 0 else c[0] - 180)
+                                if c[1] >= 90
+                                else c[0],
+                                180 - c[1] if c[1] >= 90 else c[1],
+                            ]
+                            for c in i.coords
+                        ]
+                        for i in top.interiors
+                    ],
+                )
+            elif isinstance(top, MultiPolygon):
+                tops = [
+                    Polygon(
+                        [
+                            [
+                                (c[0] + 180 if c[0] <= 0 else c[0] - 180)
+                                if c[1] >= 90
+                                else c[0],
+                                180 - c[1] if c[1] >= 90 else c[1],
+                            ]
+                            for c in p.exterior.coords
+                        ],
+                        [
+                            [
+                                [
+                                    (c[0] + 180 if c[0] <= 0 else c[0] - 180)
+                                    if c[1] >= 90
+                                    else c[0],
+                                    180 - c[1] if c[1] >= 90 else c[1],
+                                ]
+                                for c in i.coords
+                            ]
+                            for i in p.interiors
+                        ],
+                    )
+                    for p in top.geoms
+                ]
+            else:
+                raise ValueError("Geometry not implemented: " + str(type(top)))
+            # return the composite multi polygon
+            return MultiPolygon([bottom, top] if tops is None else [bottom] + tops)
         else:
             return polygon
     elif isinstance(polygon, MultiPolygon):
@@ -248,10 +281,12 @@ def _split_polygon_north_pole(polygon: Union[Polygon, MultiPolygon]):
             ]
         )
     else:
-        raise ValueError("unknown type: " + type(polygon))
+        raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
-def _split_polygon_south_pole(polygon: Union[Polygon, MultiPolygon]):
+def _split_polygon_south_pole(
+    polygon: Union[Polygon, MultiPolygon]
+) -> Union[Polygon, MultiPolygon]:
     """
     Splits a Polygon into a MultiPolygon if it crosses south pole.
 
@@ -263,7 +298,6 @@ def _split_polygon_south_pole(polygon: Union[Polygon, MultiPolygon]):
     """
     if isinstance(polygon, Polygon):
         lat = np.array([c[1] for c in polygon.exterior.coords])
-        lon = np.array([c[0] for c in polygon.exterior.coords])
         if np.any(lat < -90):
             # find the "top" portion of the polygon via intersection
             top = Polygon(
@@ -273,18 +307,10 @@ def _split_polygon_south_pole(polygon: Union[Polygon, MultiPolygon]):
             bottom = Polygon(
                 [(-180, -180), (180, -180), (180, -90), (-180, -90), (-180, -180)]
             ).intersection(polygon)
-            # map bottom latitudes from [-90, -180) to [-90, 90)
-            bottom = Polygon(
-                [
-                    [
-                        (c[0] + 180 if c[0] <= 0 else c[0] - 180)
-                        if c[1] <= -90
-                        else c[0],
-                        -180 - c[1] if c[1] <= -90 else c[1],
-                    ]
-                    for c in bottom.exterior.coords
-                ],
-                [
+            # map bottom latitudes from [-90, -180) to [-90, 90), adjusting longitude by 180 degrees
+            bottoms = None
+            if isinstance(bottom, Polygon):
+                bottom = Polygon(
                     [
                         [
                             (c[0] + 180 if c[0] <= 0 else c[0] - 180)
@@ -292,12 +318,52 @@ def _split_polygon_south_pole(polygon: Union[Polygon, MultiPolygon]):
                             else c[0],
                             -180 - c[1] if c[1] <= -90 else c[1],
                         ]
-                        for c in i.coords
-                    ]
-                    for i in bottom.interiors
-                ],
-            )
-            return MultiPolygon([top, bottom])
+                        for c in bottom.exterior.coords
+                    ],
+                    [
+                        [
+                            [
+                                (c[0] + 180 if c[0] <= 0 else c[0] - 180)
+                                if c[1] <= -90
+                                else c[0],
+                                -180 - c[1] if c[1] <= -90 else c[1],
+                            ]
+                            for c in i.coords
+                        ]
+                        for i in bottom.interiors
+                    ],
+                )
+            elif isinstance(bottom, MultiPolygon):
+                bottoms = [
+                    Polygon(
+                        [
+                            [
+                                (c[0] + 180 if c[0] <= 0 else c[0] - 180)
+                                if c[1] <= -90
+                                else c[0],
+                                -180 - c[1] if c[1] <= -90 else c[1],
+                            ]
+                            for c in p.exterior.coords
+                        ],
+                        [
+                            [
+                                [
+                                    (c[0] + 180 if c[0] <= 0 else c[0] - 180)
+                                    if c[1] <= -90
+                                    else c[0],
+                                    -180 - c[1] if c[1] <= -90 else c[1],
+                                ]
+                                for c in i.coords
+                            ]
+                            for i in p.interiors
+                        ],
+                    )
+                    for p in bottom.geoms
+                ]
+            else:
+                raise ValueError("Geometry not implemented: " + str(type(bottom)))
+            # return the composite multi polygon
+            return MultiPolygon([top, bottom] if bottoms is None else [top] + bottoms)
         else:
             return polygon
     elif isinstance(polygon, MultiPolygon):
@@ -310,10 +376,12 @@ def _split_polygon_south_pole(polygon: Union[Polygon, MultiPolygon]):
             ]
         )
     else:
-        raise ValueError("unknown type: " + type(polygon))
+        raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
-def _split_polygon_antimeridian(polygon: Union[Polygon, MultiPolygon]):
+def _split_polygon_antimeridian(
+    polygon: Union[Polygon, MultiPolygon]
+) -> Union[Polygon, MultiPolygon]:
     """
     Splits a Polygon into a MultiPolygon if it crosses the anti-meridian after
     wrapping its coordinates using `wrap_coordinates_antimeridian`.
@@ -325,7 +393,6 @@ def _split_polygon_antimeridian(polygon: Union[Polygon, MultiPolygon]):
         :obj:`Polygon` or :obj:`MultiPolygon`
     """
     if isinstance(polygon, Polygon):
-        lat = np.array([c[1] for c in polygon.exterior.coords])
         lon = np.array([c[0] for c in polygon.exterior.coords])
         # check if any longitudes cross the anti-meridian
         if np.any(lon < 0) and np.any(lon > 0) and 180 < np.ptp(lon) < 360:
@@ -352,17 +419,39 @@ def _split_polygon_antimeridian(polygon: Union[Polygon, MultiPolygon]):
                 [(180, 90), (360, 90), (360, -90), (180, -90), (180, 90)]
             ).intersection(polygon)
             # map right longitudes from [180, 360) to [-180, 0)
-            right = Polygon(
-                [
-                    [c[0] - 360 if c[0] >= 180 else c[0], c[1]]
-                    for c in right.exterior.coords
-                ],
-                [
-                    [[c[0] - 360 if c[0] >= 180 else c[0], c[1]] for c in i.coords]
-                    for i in right.interiors
-                ],
-            )
-            return MultiPolygon([left, right])
+            rights = None
+            if isinstance(right, Polygon):
+                right = Polygon(
+                    [
+                        [c[0] - 360 if c[0] >= 180 else c[0], c[1]]
+                        for c in right.exterior.coords
+                    ],
+                    [
+                        [[c[0] - 360 if c[0] >= 180 else c[0], c[1]] for c in i.coords]
+                        for i in right.interiors
+                    ],
+                )
+            elif isinstance(right, MultiPolygon):
+                rights = [
+                    Polygon(
+                        [
+                            [c[0] - 360 if c[0] >= 180 else c[0], c[1]]
+                            for c in p.exterior.coords
+                        ],
+                        [
+                            [
+                                [c[0] - 360 if c[0] >= 180 else c[0], c[1]]
+                                for c in i.coords
+                            ]
+                            for i in p.interiors
+                        ],
+                    )
+                    for p in right.geoms
+                ]
+            else:
+                raise ValueError("Geometry not implemented: " + str(type(right)))
+            # return the composite multi polygon
+            return MultiPolygon([left, right] if rights is None else [left] + rights)
         else:
             return polygon
     elif isinstance(polygon, MultiPolygon):
@@ -375,10 +464,12 @@ def _split_polygon_antimeridian(polygon: Union[Polygon, MultiPolygon]):
             ]
         )
     else:
-        raise ValueError("unknown type: " + type(polygon))
+        raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
-def split_polygon(polygon: Union[Polygon, MultiPolygon]):
+def split_polygon(
+    polygon: Union[Polygon, MultiPolygon]
+) -> Union[Polygon, MultiPolygon]:
     """
     Splits a Polygon into a MultiPolygon if it:
      * crosses the anti-meridian (180 degrees longitude)

@@ -4,7 +4,7 @@ from .coverage import (
     aggregate_observations,
     reduce_observations,
 )
-from .track import collect_orbit_track, collect_ground_track
+from .track import collect_orbit_track, collect_ground_track, compute_ground_track
 from .latency import (
     collect_downlinks,
     compute_latencies,

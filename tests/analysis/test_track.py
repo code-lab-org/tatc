@@ -95,7 +95,7 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
             ],
-            fast=False,
+            crs="utm",
         )
 
     def test_collect_ground_track_with_mask(self):
