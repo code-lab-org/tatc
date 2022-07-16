@@ -10,6 +10,7 @@ from numba import njit
 import geopandas as gpd
 from typing import Union
 from shapely.geometry import Polygon, MultiPolygon
+from shapely.ops import clip_by_rect
 
 from . import constants
 
@@ -189,6 +190,33 @@ def compute_max_access_time(height, min_elevation_angle):
     return orbital_distance / orbital_velocity
 
 
+def _translate_polygon_over_north_pole(polygon: Polygon) -> Polygon:
+    # map latitudes from [90, 180) to [90, -90), adjusting longitude by 180 degrees
+    polygon = Polygon(
+        [
+            [
+                (c[0] + 180 if c[0] <= 0 else c[0] - 180) if c[1] >= 90 else c[0],
+                180 - c[1] if c[1] >= 90 else c[1],
+            ]
+            for c in polygon.exterior.coords
+        ],
+        [
+            [
+                [
+                    (c[0] + 180 if c[0] <= 0 else c[0] - 180) if c[1] >= 90 else c[0],
+                    180 - c[1] if c[1] >= 90 else c[1],
+                ]
+                for c in i.coords
+            ]
+            for i in polygon.interiors
+        ],
+    )
+    # attempt to fix invalid polygon using a zero buffer
+    if not polygon.is_valid:
+        polygon = polygon.buffer(0)
+    return polygon
+
+
 def _split_polygon_north_pole(
     polygon: Union[Polygon, MultiPolygon]
 ) -> Union[Polygon, MultiPolygon]:
@@ -205,66 +233,14 @@ def _split_polygon_north_pole(
         lat = np.array([c[1] for c in polygon.exterior.coords])
         if np.any(lat > 90):
             # find the "bottom" portion of the polygon via intersection
-            bottom = Polygon(
-                [(-180, 90), (180, 90), (180, -90), (-180, -90), (-180, 90)]
-            ).intersection(polygon)
+            bottom = clip_by_rect(polygon, -180, -180, 180, 90)
             # find the "top" portion of the polygon via intersection
-            top = Polygon(
-                [(-180, 180), (180, 180), (180, 90), (-180, 90), (-180, 180)]
-            ).intersection(polygon)
-            # map top latitudes from [90, 180) to [90, -90), adjusting longitude by 180 degrees
+            top = clip_by_rect(polygon, -180, 90, 180, 180)
             tops = None
             if isinstance(top, Polygon):
-                top = Polygon(
-                    [
-                        [
-                            (c[0] + 180 if c[0] <= 0 else c[0] - 180)
-                            if c[1] >= 90
-                            else c[0],
-                            180 - c[1] if c[1] >= 90 else c[1],
-                        ]
-                        for c in top.exterior.coords
-                    ],
-                    [
-                        [
-                            [
-                                (c[0] + 180 if c[0] <= 0 else c[0] - 180)
-                                if c[1] >= 90
-                                else c[0],
-                                180 - c[1] if c[1] >= 90 else c[1],
-                            ]
-                            for c in i.coords
-                        ]
-                        for i in top.interiors
-                    ],
-                )
+                top = _translate_polygon_over_north_pole(top)
             elif isinstance(top, MultiPolygon):
-                tops = [
-                    Polygon(
-                        [
-                            [
-                                (c[0] + 180 if c[0] <= 0 else c[0] - 180)
-                                if c[1] >= 90
-                                else c[0],
-                                180 - c[1] if c[1] >= 90 else c[1],
-                            ]
-                            for c in p.exterior.coords
-                        ],
-                        [
-                            [
-                                [
-                                    (c[0] + 180 if c[0] <= 0 else c[0] - 180)
-                                    if c[1] >= 90
-                                    else c[0],
-                                    180 - c[1] if c[1] >= 90 else c[1],
-                                ]
-                                for c in i.coords
-                            ]
-                            for i in p.interiors
-                        ],
-                    )
-                    for p in top.geoms
-                ]
+                tops = [_translate_polygon_over_north_pole(p) for p in top.geoms]
             else:
                 raise ValueError("Geometry not implemented: " + str(type(top)))
             # return the composite multi polygon
@@ -284,6 +260,33 @@ def _split_polygon_north_pole(
         raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
+def _translate_polygon_over_south_pole(polygon: Polygon) -> Polygon:
+    # map latitudes from [-90, -180) to [-90, 90), adjusting longitude by 180 degrees
+    polygon = Polygon(
+        [
+            [
+                (c[0] + 180 if c[0] <= 0 else c[0] - 180) if c[1] <= -90 else c[0],
+                -180 - c[1] if c[1] <= -90 else c[1],
+            ]
+            for c in polygon.exterior.coords
+        ],
+        [
+            [
+                [
+                    (c[0] + 180 if c[0] <= 0 else c[0] - 180) if c[1] <= -90 else c[0],
+                    -180 - c[1] if c[1] <= -90 else c[1],
+                ]
+                for c in i.coords
+            ]
+            for i in polygon.interiors
+        ],
+    )
+    # attempt to fix invalid polygon using a zero buffer
+    if not polygon.is_valid:
+        polygon = polygon.buffer(0)
+    return polygon
+
+
 def _split_polygon_south_pole(
     polygon: Union[Polygon, MultiPolygon]
 ) -> Union[Polygon, MultiPolygon]:
@@ -300,66 +303,14 @@ def _split_polygon_south_pole(
         lat = np.array([c[1] for c in polygon.exterior.coords])
         if np.any(lat < -90):
             # find the "top" portion of the polygon via intersection
-            top = Polygon(
-                [(-180, 90), (180, 90), (180, -90), (-180, -90), (-180, 90)]
-            ).intersection(polygon)
+            top = clip_by_rect(polygon, -180, -90, 180, 180)
             # find the "bottom" portion of the polygon via intersection
-            bottom = Polygon(
-                [(-180, -180), (180, -180), (180, -90), (-180, -90), (-180, -180)]
-            ).intersection(polygon)
-            # map bottom latitudes from [-90, -180) to [-90, 90), adjusting longitude by 180 degrees
+            bottom = clip_by_rect(polygon, -180, -180, 180, -90)
             bottoms = None
             if isinstance(bottom, Polygon):
-                bottom = Polygon(
-                    [
-                        [
-                            (c[0] + 180 if c[0] <= 0 else c[0] - 180)
-                            if c[1] <= -90
-                            else c[0],
-                            -180 - c[1] if c[1] <= -90 else c[1],
-                        ]
-                        for c in bottom.exterior.coords
-                    ],
-                    [
-                        [
-                            [
-                                (c[0] + 180 if c[0] <= 0 else c[0] - 180)
-                                if c[1] <= -90
-                                else c[0],
-                                -180 - c[1] if c[1] <= -90 else c[1],
-                            ]
-                            for c in i.coords
-                        ]
-                        for i in bottom.interiors
-                    ],
-                )
+                bottom = _translate_polygon_over_south_pole(bottom)
             elif isinstance(bottom, MultiPolygon):
-                bottoms = [
-                    Polygon(
-                        [
-                            [
-                                (c[0] + 180 if c[0] <= 0 else c[0] - 180)
-                                if c[1] <= -90
-                                else c[0],
-                                -180 - c[1] if c[1] <= -90 else c[1],
-                            ]
-                            for c in p.exterior.coords
-                        ],
-                        [
-                            [
-                                [
-                                    (c[0] + 180 if c[0] <= 0 else c[0] - 180)
-                                    if c[1] <= -90
-                                    else c[0],
-                                    -180 - c[1] if c[1] <= -90 else c[1],
-                                ]
-                                for c in i.coords
-                            ]
-                            for i in p.interiors
-                        ],
-                    )
-                    for p in bottom.geoms
-                ]
+                bottoms = [_translate_polygon_over_south_pole(p) for p in bottom.geoms]
             else:
                 raise ValueError("Geometry not implemented: " + str(type(bottom)))
             # return the composite multi polygon
@@ -377,6 +328,21 @@ def _split_polygon_south_pole(
         )
     else:
         raise ValueError("Unknown geometry: " + str(type(polygon)))
+
+
+def _translate_polygon_over_antimeridian(polygon: Polygon) -> Polygon:
+    # map longitudes from [180, 360) to [-180, 0)
+    polygon = Polygon(
+        [[c[0] - 360 if c[0] >= 180 else c[0], c[1]] for c in polygon.exterior.coords],
+        [
+            [[c[0] - 360 if c[0] >= 180 else c[0], c[1]] for c in i.coords]
+            for i in polygon.interiors
+        ],
+    )
+    # attempt to fix invalid polygon using a zero buffer
+    if not polygon.is_valid:
+        polygon = polygon.buffer(0)
+    return polygon
 
 
 def _split_polygon_antimeridian(
@@ -411,43 +377,14 @@ def _split_polygon_antimeridian(
             if not polygon.is_valid:
                 polygon = polygon.buffer(0)
             # find the "left" portion of the polygon via intersection
-            left = Polygon(
-                [(-180, 90), (180, 90), (180, -90), (-180, -90), (-180, 90)]
-            ).intersection(polygon)
+            left = clip_by_rect(polygon, -180, -180, 180, 180)
             # find the "right" portion of the polygon via intersection
-            right = Polygon(
-                [(180, 90), (360, 90), (360, -90), (180, -90), (180, 90)]
-            ).intersection(polygon)
-            # map right longitudes from [180, 360) to [-180, 0)
+            right = clip_by_rect(polygon, 180, -180, 360, 180)
             rights = None
             if isinstance(right, Polygon):
-                right = Polygon(
-                    [
-                        [c[0] - 360 if c[0] >= 180 else c[0], c[1]]
-                        for c in right.exterior.coords
-                    ],
-                    [
-                        [[c[0] - 360 if c[0] >= 180 else c[0], c[1]] for c in i.coords]
-                        for i in right.interiors
-                    ],
-                )
+                right = _translate_polygon_over_antimeridian(right)
             elif isinstance(right, MultiPolygon):
-                rights = [
-                    Polygon(
-                        [
-                            [c[0] - 360 if c[0] >= 180 else c[0], c[1]]
-                            for c in p.exterior.coords
-                        ],
-                        [
-                            [
-                                [c[0] - 360 if c[0] >= 180 else c[0], c[1]]
-                                for c in i.coords
-                            ]
-                            for i in p.interiors
-                        ],
-                    )
-                    for p in right.geoms
-                ]
+                rights = [_translate_polygon_over_antimeridian(p) for p in right.geoms]
             else:
                 raise ValueError("Geometry not implemented: " + str(type(right)))
             # return the composite multi polygon

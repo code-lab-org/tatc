@@ -113,8 +113,6 @@ def collect_ground_track(
     times: List[datetime],
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     crs: str = "EPSG:4087",
-    resolution: int = 4,
-    split_polygons: bool = True,
 ) -> gpd.GeoDataFrame:
     """
     Model the ground track swath for a satellite of interest.
@@ -132,11 +130,6 @@ def collect_ground_track(
             use the corresponding Unified Transverse Mercator (UTM) zone which
             is accurate but slow.
     :type crs: str, optional
-    :param resolution: Shapely buffer resolution of the projected swath
-    :type resolution: int, optional
-    :param split_polygons: True, if Polygons should be split into MultiPolygons
-            when crossing the anti-meridian or exceeding polar boundaries.
-    :type split_polygons: bool, optional
     :return: An instance of :class:`geopandas.GeoDataFrame` with all recorded polygons.
     :rtype: :class:`geopandas.GeoDataFrame`
     """
@@ -155,7 +148,16 @@ def collect_ground_track(
                 area_of_interest=pyproj.aoi.AreaOfInterest(p.x, p.y, p.x, p.y),
             )
             # return the first code if exists; otherwise return a default value
-            return results[0].code if len(results) > 0 else "4087"
+            # 32661 is the EPS North CRS; 32761 is the EPS South CRS; 4087 is the default
+            return (
+                results[0].code
+                if len(results) > 0
+                else "32661"
+                if p.y > 84
+                else "32761"
+                if p.y < -80
+                else "4087"
+            )
 
         utm_crs = gdf.geometry.apply(_get_utm_epsg_code)
         for code in utm_crs.unique():
@@ -168,9 +170,7 @@ def collect_ground_track(
             gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
                 lambda r: transform(
                     from_crs,
-                    transform(to_crs, r.geometry).buffer(
-                        r.swath_width / 2, resolution=resolution
-                    ),
+                    transform(to_crs, r.geometry).buffer(r.swath_width / 2),
                 ),
                 axis=1,
             )
@@ -185,15 +185,13 @@ def collect_ground_track(
         gdf.geometry = gdf.apply(
             lambda r: transform(
                 from_crs,
-                transform(to_crs, r.geometry).buffer(
-                    r.swath_width / 2, resolution=resolution
-                ),
+                transform(to_crs, r.geometry).buffer(r.swath_width / 2),
             ),
             axis=1,
         )
 
-    if split_polygons:
-        gdf.geometry = gdf.apply(lambda r: split_polygon(r.geometry), axis=1)
+    # split polygons to wrap over the anti-meridian and poles
+    gdf.geometry = gdf.apply(lambda r: split_polygon(r.geometry), axis=1)
 
     if mask is None:
         return gdf
@@ -209,7 +207,6 @@ def compute_ground_track(
     resolution: int = 4,
     split_polygons: bool = True,
     method: str = "point",
-    valid_obs: Optional[bool] = None,
 ) -> gpd.GeoDataFrame:
     """
     Compute the ground track swath for a satellite of interest.
@@ -227,33 +224,20 @@ def compute_ground_track(
             use the corresponding Unified Transverse Mercator (UTM) zone which
             is accurate but slow.
     :type crs: str, optional
-    :param resolution: Shapely buffer resolution of the projected swath
-    :type resolution: int, optional
-    :param split_polygons: True, if Polygons should be split into MultiPolygons
-            when crossing the anti-meridian or exceeding polar boundaries.
-    :type split_polygons: bool, optional
     :param method: Method for computing the ground track: "point" buffers
             individual points while "line" buffers a line string.
     :type method: str (default: point)
-    :param valid_obs: True (False), if ground track is restricted to valid (invalid) observations.
-    :type valid_obs: bool, optional
     :return: An instance of :class:`geopandas.GeoDataFrame` with all recorded polygons.
     :rtype: :class:`geopandas.GeoDataFrame`
     """
     if method == "point":
-        track = collect_ground_track(
-            satellite, instrument, times, mask, crs, resolution, split_polygon
-        )
-        # filter ground track samples, if necessary
-        if valid_obs is not None:
-            return track[track.valid_obs == valid_obs].dissolve()
-        else:
-            return track.dissolve()
+        track = collect_ground_track(satellite, instrument, times, mask, crs)
+        # filter to valid observations and dissolve
+        return track[track.valid_obs].dissolve()
     elif method == "line":
         track = collect_orbit_track(satellite, instrument, times, mask)
-        # filter ground track samples, if necessary
-        if valid_obs is not None:
-            track = track[track.valid_obs == valid_obs]
+        # filter to valid observations
+        track = track[track.valid_obs].reset_index(drop=True)
         # project points to zero elevation
         points = MultiPoint(track.geometry.apply(lambda p: Point(p.x, p.y)))
         # extract longitudes
@@ -279,9 +263,7 @@ def compute_ground_track(
         polygons = [
             transform(
                 from_crs,
-                transform(to_crs, line).buffer(
-                    track.swath_width.mean() / 2, resolution=resolution
-                ),
+                transform(to_crs, line).buffer(track.swath_width.mean() / 2),
             )
             for line in lines
         ]
@@ -310,9 +292,10 @@ def compute_ground_track(
                         for i in polygon.interiors
                     ],
                 )
-            # clip the resulting polygon to the fixed domain
-            polygons[p] = clip_by_rect(polygons[p], -180, -90, 180, 90)
+            # clip the resulting polygon to the longitude domain (-180, 180) and
+            polygons[p] = split_polygon(polygons[p])
+        # dissolve the original track
         track = track.dissolve()
-        # replace the geometry
+        # and replace the geometry with the union of computed polygons
         track.geometry = [unary_union(polygons)]
         return track
