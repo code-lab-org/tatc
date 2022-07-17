@@ -1,11 +1,12 @@
 import unittest
 
 from datetime import datetime, timezone, timedelta
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, MultiPolygon
 
 from tatc.analysis import (
     collect_orbit_track,
     collect_ground_track,
+    compute_ground_track,
 )
 from tatc.schemas import (
     Point,
@@ -109,3 +110,55 @@ class TestGroundTrackAnalysis(unittest.TestCase):
             ],
             mask=mask,
         )
+
+    def test_compute_ground_track_point(self):
+        results = compute_ground_track(
+            self.satellite,
+            self.instrument,
+            [
+                datetime(2022, 6, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
+                for i in range(10)
+            ],
+            method="point",
+        )
+        self.assertEqual(len(results.index), 1)
+        self.assertEqual(type(results.iloc[0].geometry), Polygon)
+
+    def test_compute_ground_track_point_multipolygon(self):
+        results = compute_ground_track(
+            self.satellite,
+            self.instrument,
+            [
+                datetime(2022, 6, 1, 1, 40, tzinfo=timezone.utc) + timedelta(minutes=i)
+                for i in range(10)
+            ],
+            method="point",
+        )
+        self.assertEqual(len(results.index), 1)
+        self.assertEqual(type(results.iloc[0].geometry), MultiPolygon)
+
+    def test_compute_ground_track_line(self):
+        results = compute_ground_track(
+            self.satellite,
+            self.instrument,
+            [
+                datetime(2022, 6, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
+                for i in range(10)
+            ],
+            method="line",
+        )
+        self.assertEqual(len(results.index), 1)
+        self.assertEqual(type(results.iloc[0].geometry), Polygon)
+
+    def test_compute_ground_track_line_multipolygon(self):
+        results = compute_ground_track(
+            self.satellite,
+            self.instrument,
+            [
+                datetime(2022, 6, 1, 1, 40, tzinfo=timezone.utc) + timedelta(minutes=i)
+                for i in range(10)
+            ],
+            method="line",
+        )
+        self.assertEqual(len(results.index), 1)
+        self.assertEqual(type(results.iloc[0].geometry), MultiPolygon)

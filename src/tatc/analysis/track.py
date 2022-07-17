@@ -238,20 +238,21 @@ def compute_ground_track(
         # filter to valid observations
         track = track[track.valid_obs].reset_index(drop=True)
         # project points to zero elevation
-        points = MultiPoint(track.geometry.apply(lambda p: Point(p.x, p.y)))
+        points = track.geometry.apply(lambda p: Point(p.x, p.y))
         # extract longitudes
-        lons = np.array([points.geoms[i].x for i in range(len(points.geoms))])
-        # split lines when crossing meridian or anti-meridian
-        lines = [
-            LineString(points)
-            for points in np.split(
+        lons = track.geometry.apply(lambda p: p.x)
+        if np.any(np.diff(np.sign(lons))):
+            # split lines when crossing meridian or anti-meridian
+            points_list = np.split(
                 points,
-                1
-                + np.where(
-                    np.logical_or(np.diff(np.sign(lons)), np.diff(np.sign(lons)))
-                )[0],
+                1 + np.where(np.diff(np.sign(lons)))[0],
             )
-        ]
+            segments = [
+                LineString(pts.tolist()) if len(pts.index) > 1 else pts[0]
+                for pts in points_list
+            ]
+        else:
+            segments = [LineString(points)]
         to_crs = pyproj.Transformer.from_crs(
             track.crs, pyproj.CRS(crs), always_xy=True
         ).transform
@@ -262,9 +263,9 @@ def compute_ground_track(
         polygons = [
             transform(
                 from_crs,
-                transform(to_crs, line).buffer(track.swath_width.mean() / 2),
+                transform(to_crs, segment).buffer(track.swath_width.mean() / 2),
             )
-            for line in lines
+            for segment in segments
         ]
         # split polygons if necessary
         polygons = list(map(split_polygon, polygons))
