@@ -158,26 +158,25 @@ class TestCoverageAnalysis(unittest.TestCase):
             self.point,
             [self.constellation],
             datetime(2022, 6, 1, tzinfo=timezone.utc),
-            datetime(2022, 6, 2, tzinfo=timezone.utc),
+            datetime(2022, 6, 10, tzinfo=timezone.utc),
         )
         aggregated_results = aggregate_observations(results)
         reduced_results = reduce_observations(aggregated_results)
-        for i in range(len(reduced_results.index)):
-            self.assertAlmostEqual(
-                reduced_results.iloc[i].access,
-                aggregated_results[
-                    aggregated_results.point_id == reduced_results.iloc[i].point_id
-                ].access.mean(),
-                delta=timedelta(seconds=0.01),
-            )
-        for i in range(1, len(reduced_results.index)):
-            self.assertAlmostEqual(
-                reduced_results.iloc[i].revisit,
-                aggregated_results[
-                    aggregated_results.point_id == reduced_results.iloc[i].point_id
-                ].revisit.mean(),
-                delta=timedelta(seconds=0.01),
-            )
+        self.assertEqual(len(reduced_results.index), 1)
+        self.assertAlmostEqual(
+            reduced_results.iloc[0].access,
+            aggregated_results[
+                aggregated_results.point_id == reduced_results.iloc[0].point_id
+            ].access.mean(),
+            delta=timedelta(seconds=0.01),
+        )
+        self.assertAlmostEqual(
+            reduced_results.iloc[0].revisit,
+            aggregated_results[
+                aggregated_results.point_id == reduced_results.iloc[0].point_id
+            ].revisit.mean(),
+            delta=timedelta(seconds=0.01),
+        )
 
     def test_reduce_observations_null(self):
         results = collect_multi_observations(
