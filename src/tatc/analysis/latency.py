@@ -181,10 +181,12 @@ def reduce_latencies(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         with reduced latencies.
     :rtype: :class:`geopanadas.GeodataFrame`
     """
-    if gdf.empty:
+    if gdf.notna().empty:
         return _get_empty_reduce_frame()
     # convert latency to a numeric value before aggregation
-    gdf["latency"] = gdf["latency"] / timedelta(seconds=1)
+    gdf.loc[gdf.latency.notna(), "latency"] = gdf.loc[
+        gdf.latency.notna(), "latency"
+    ] / timedelta(seconds=1)
     # assign each record to one observation
     gdf["samples"] = 1
     # perform the aggregation operation
