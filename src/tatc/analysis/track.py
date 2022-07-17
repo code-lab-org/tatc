@@ -266,33 +266,8 @@ def compute_ground_track(
             )
             for line in lines
         ]
-        for p, polygon in enumerate(polygons):
-            if np.median([e[0] for e in polygon.exterior.coords]) > 0:
-                # fix longitudes that have been wrapped to the negative domain
-                polygons[p] = Polygon(
-                    [
-                        [c[0] + 360 if c[0] < -90 else c[0], c[1]]
-                        for c in polygon.exterior.coords
-                    ],
-                    [
-                        [[c[0] + 360 if c[0] < -90 else c[0], c[1]] for c in i.coords]
-                        for i in polygon.interiors
-                    ],
-                )
-            else:
-                # fix longitudes that have been wrapped to the positive domain
-                polygons[p] = Polygon(
-                    [
-                        [c[0] - 360 if c[0] > 90 else c[0], c[1]]
-                        for c in polygon.exterior.coords
-                    ],
-                    [
-                        [[c[0] - 360 if c[0] > 90 else c[0], c[1]] for c in i.coords]
-                        for i in polygon.interiors
-                    ],
-                )
-            # clip the resulting polygon to the longitude domain (-180, 180) and
-            polygons[p] = split_polygon(polygons[p])
+        # split polygons if necessary
+        polygons = list(map(split_polygon, polygons))
         # dissolve the original track
         track = track.dissolve()
         # and replace the geometry with the union of computed polygons

@@ -194,7 +194,7 @@ def _wrap_polygon_over_north_pole(polygon: Polygon) -> Polygon:
     """
     Wraps polygon coordinates over the North pole. Due to buffering and projection,
     sometimes latitudes exceed 90 degrees. This method wraps them to the correct
-    latitude <= 90 degrees and adjusts the longitude by 180 degrees.
+    latitude between -90 and 90 degrees and adjusts the longitude by 180 degrees.
 
     Note: this method only changes coordinates: it does not create a MultiPolygon.
 
@@ -294,7 +294,7 @@ def _wrap_polygon_over_south_pole(polygon: Polygon) -> Polygon:
     """
     Wraps polygon coordinates over the South pole. Due to buffering and projection,
     sometimes latitudes exceed -90 degrees. This method wraps them to the correct
-    latitude >= -90 degrees and adjusts the longitude by 180 degrees.
+    latitude between -90 and 90 degrees and adjusts the longitude by 180 degrees.
 
     Note: this method only changes coordinates: it does not create a MultiPolygon.
 
@@ -394,7 +394,7 @@ def _wrap_polygon_over_antimeridian(polygon: Polygon) -> Polygon:
     """
     Wraps polygon coordinates over the antimeridian. Due to buffering and projection,
     sometimes longitudes exceed 180 degrees. This method wraps them to
-    the correct longitude <= 180 degrees.
+    the correct longitude between -180 and 180 degrees.
 
     Note: this method only changes coordinates: it does not create a MultiPolygon.
 
@@ -461,15 +461,15 @@ def _split_polygon_antimeridian(
     if isinstance(polygon, Polygon):
         lon = np.array([c[0] for c in polygon.exterior.coords])
         # check if any longitudes cross the anti-meridian
-        if np.any(lon < 0) and np.any(lon > 0) and 180 < np.ptp(lon) < 360:
-            # map longitudes from [-180, 0) to [180, 360)
+        if np.any(np.abs(np.diff(lon)) > 100):
+            # map longitudes from [-180, 45) to [225, 405)
             polygon = Polygon(
                 [
-                    (c[0] + 360 if c[0] < 0 else c[0], c[1])
+                    (c[0] + 360 if c[0] < 45 else c[0], c[1])
                     for c in polygon.exterior.coords
                 ],
                 [
-                    [(c[0] + 360 if c[0] < 0 else c[0], c[1]) for c in i.coords]
+                    [(c[0] + 360 if c[0] < 45 else c[0], c[1]) for c in i.coords]
                     for i in polygon.interiors
                 ],
             )
@@ -482,7 +482,7 @@ def _split_polygon_antimeridian(
             if isinstance(left, GeometryCollection):
                 left = _convert_collection_to_polygon(left)
             # find the "right" portion of the polygon
-            right = clip_by_rect(polygon, 180, -180, 360, 180)
+            right = clip_by_rect(polygon, 180, -180, 405, 180)
             # check for dirty clip and fix if necessary
             if isinstance(right, GeometryCollection):
                 right = _convert_collection_to_polygon(right)
@@ -536,9 +536,13 @@ def split_polygon(
     Returns
         :obj:`Polygon` or :obj:`MultiPolygon`
     """
-    return _split_polygon_north_pole(
+    polygon = _split_polygon_north_pole(
         _split_polygon_south_pole(_split_polygon_antimeridian(polygon))
     )
+    # attempt to fix invalid polygon using a zero buffer
+    if not polygon.is_valid:
+        polygon = polygon.buffer(0)
+    return polygon
 
 
 def normalize_geometry(
