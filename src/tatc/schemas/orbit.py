@@ -23,14 +23,9 @@ from .. import constants, utils
 class TwoLineElements(BaseModel):
     """
     Orbit defined with standard two line elements.
-
-    :param type: The type of orbit
-    :type type: literal["tle"], restricted: literal["tle"]
-    :param tle: The two line elements.
-    :type tle: list[str]
     """
 
-    type: Literal["tle"] = Field("tle")
+    type: Literal["tle"] = Field("tle", description="Orbit type discriminator.")
     tle: List[str] = Field(
         ...,
         description="Two line elements.",
@@ -45,18 +40,27 @@ class TwoLineElements(BaseModel):
     def get_catalog_number(self) -> int:
         """
         Gets the TLE catalog number.
+
+        Returns:
+            int: the catalog number
         """
         return int(self.tle[0][2:7])
 
     def get_classification(self) -> str:
         """
         Gets the TLE classification type (U: unclassified; C: classified).
+
+        Returns:
+            str: the classification type
         """
         return self.tle[0][7]
 
     def get_international_designator(self) -> str:
         """
         Gets the TLE international designator.
+
+        Returns:
+            str: the international designator
         """
         year = self.tle[0][9:11]
         launch = self.tle[0][11:14]
@@ -72,6 +76,9 @@ class TwoLineElements(BaseModel):
     def get_epoch(self) -> datetime:
         """
         Gets the TLE epoch time.
+
+        Returns:
+            datetime: the epoch datetime
         """
         year = int(self.tle[0][18:20])
         days = float(self.tle[0][20:32])
@@ -82,12 +89,18 @@ class TwoLineElements(BaseModel):
     def get_first_derivative_mean_motion(self) -> float:
         """
         Gets the first derivative of mean motion (ballistic coefficient).
+
+        Returns:
+            float: the first derivative of mean motion
         """
         return float(self.tle[0][33:43])
 
     def get_second_derivative_mean_motion(self) -> float:
         """
         Gets the second derivative of mean motion.
+
+        Returns:
+            float: the second derivative of mean motion
         """
         return float("0." + self.tle[0][44:50].strip()) * 10 ** (
             int(self.tle[0][50:52])
@@ -96,6 +109,9 @@ class TwoLineElements(BaseModel):
     def get_b_star(self) -> float:
         """
         Gets the b-star term (drag or radiation pressure coefficient).
+
+        Returns:
+            float: the b-star term
         """
         return float("0." + self.tle[0][53:59].strip()) * 10 ** (
             int(self.tle[0][59:61])
@@ -104,66 +120,99 @@ class TwoLineElements(BaseModel):
     def get_ephemeris_type(self) -> int:
         """
         Gets the TLE ephemeris type.
+
+        Returns:
+            int: the ephemeris type
         """
         return int(self.tle[0][62])
 
     def get_element_set_number(self) -> int:
         """
         Gets the TLE element set number.
+
+        Returns:
+            int: the element set number
         """
         return int(self.tle[0][64:68])
 
     def get_inclination(self) -> float:
         """
         Gets the orbit inclination (decimal degrees).
+
+        Returns:
+            float: the inclination
         """
         return float(self.tle[1][8:16])
 
     def get_right_ascension_ascending_node(self) -> float:
         """
         Gets the right ascension of ascending node (decimal degrees).
+
+        Returns:
+            float: the right ascension of ascending node
         """
         return float(self.tle[1][17:25])
 
     def get_eccentricity(self) -> float:
         """
         Gets the eccentricity.
+
+        Returns:
+            float: the eccentricity
         """
         return float("0." + self.tle[1][26:33].strip())
 
     def get_perigee_argument(self) -> float:
         """
         Gets the argument of perigee (decimal degrees).
+
+        Returns:
+            float: the argument of perigee
         """
         return float(self.tle[1][34:42])
 
     def get_mean_anomaly(self) -> float:
         """
         Gets the mean anomaly (decimal degrees).
+
+        Returns:
+            float: the mean anomaly
         """
         return float(self.tle[1][43:51])
 
     def get_mean_motion(self) -> float:
         """
         Gets the mean motion (revolutions per day).
+
+        Returns:
+            float: the mean motion
         """
         return float(self.tle[1][52:63])
 
     def get_orbit_period(self) -> timedelta:
         """
         Gets the approximate orbit period.
+
+        Returns:
+            timedelta: the orbit period
         """
         return timedelta(days=1 / self.get_mean_motion())
 
     def get_revolution_number_at_epoch(self) -> int:
         """
         Gets the revolution number at epoch.
+
+        Returns:
+            timedelta: the revolution number
         """
         return int(self.tle[1][63:68])
 
     def get_semimajor_axis(self) -> float:
         """
         Gets the semimajor axis (meters).
+
+        Returns:
+            float: the semimajor axis
         """
         mean_motion_rad_s = self.get_mean_motion() * 2 * np.pi / 86400
         return np.power(
@@ -174,12 +223,18 @@ class TwoLineElements(BaseModel):
     def get_altitude(self) -> float:
         """
         Gets the altitude (meters).
+
+        Returns:
+            float: the altitude
         """
         return self.get_semimajor_axis() - constants.earth_mean_radius
 
     def get_true_anomaly(self) -> float:
         """
         Gets the true anomaly (decimal degrees).
+
+        Returns:
+            float: the true anomaly
         """
         return utils.mean_anomaly_to_true_anomaly(
             self.get_mean_anomaly(), self.get_eccentricity()
@@ -188,7 +243,7 @@ class TwoLineElements(BaseModel):
     @validator("tle")
     def valid_tle(cls, v):
         """
-        Validate the two line element set
+        Validate the two line element set.
         """
         # based on orekit's TLE.isFormatOK function
         if len(v[0]) != 69:
@@ -222,16 +277,15 @@ class TwoLineElements(BaseModel):
         self, delta_mean_anomaly: float, delta_raan: float
     ) -> TwoLineElements:
         """
-        Gets a derived orbit.
+        Gets a derived orbit with perturbations to the mean anomaly and right
+        ascension of ascending node.
 
         Args:
-            :param delta_mean_anomaly:  Delta mean anomaly (degrees).
-            :type delta_mean_anomaly: float
-            :param delta_raan:  Delta right ascension of ascending node (degrees).
-            :type delta_raan: float
+            delta_mean_anomaly (float):  Delta mean anomaly (degrees).
+            delta_raan (float):  Delta right ascension of ascending node (degrees).
 
         Returns:
-            TwoLineElements
+            TwoLineElements: the derived orbit
         """
         lead_tle = Satrec.twoline2rv(self.tle[0], self.tle[1])
         epoch = sat_epoch_datetime(lead_tle)
@@ -254,24 +308,19 @@ class TwoLineElements(BaseModel):
         tle1, tle2 = exporter.export_tle(satrec)
         return TwoLineElements(tle=[tle1.replace("\x00", "U"), tle2])
 
-    def to_tle(self):
+    def to_tle(self) -> TwoLineElements:
         """
-        Return the two line element set for this orbit.
-        """
+        Converts this orbit to a two line elements representation.
 
+        Returns:
+            TwoLineElements: the two line elements orbit
+        """
         return self
 
 
 class OrbitBase(BaseModel):
     """
-    Base class for orbit definition"
-
-    :param altitude:  Mean altitude (meters).
-    :type altitude: float
-    :param true_anomaly: True anomaly (degrees).
-    :type true_anomaly: float, default: 0
-    :param epoch: Timestamp (epoch) of the  initial orbital state.
-    :type epoch: :class:`datetime.datetime`, optional, default: None
+    Base class for orbits.
     """
 
     altitude: float = Field(..., description="Mean altitude (meters).")
@@ -284,24 +333,36 @@ class OrbitBase(BaseModel):
     def get_mean_anomaly(self) -> float:
         """
         Gets the mean anomaly (decimal degrees).
+
+        Returns:
+            float: the mean anomaly
         """
         return utils.true_anomaly_to_mean_anomaly(self.true_anomaly)
 
     def get_semimajor_axis(self) -> float:
         """
         Gets the semimajor axis (meters).
+
+        Returns:
+            float: the semimajor axis
         """
         return constants.earth_mean_radius + self.altitude
 
     def get_mean_motion(self) -> float:
         """
         Gets the mean motion (revolutions per day).
+
+        Returns:
+            float: the mean motion
         """
         return 1 / (self.get_orbit_period() / timedelta(days=1))
 
     def get_orbit_period(self) -> timedelta:
         """
         Gets the approximate orbit period.
+
+        Returns:
+            timedelta: the orbit period
         """
         return timedelta(seconds=utils.compute_orbit_period(self.altitude))
 
@@ -309,16 +370,9 @@ class OrbitBase(BaseModel):
 class CircularOrbit(OrbitBase):
     """
     Orbit specification using Keplerian elements for elliptical motion -- circular motion case.
-
-    :param type: The type of orbit.
-    :type type: literal["circular"], restricted: literal["circular"]
-    :param inclination: Orbit inclination (degrees).
-    :type inclination: float
-    :param right_ascension_ascending_node: Right ascension of ascending node (degrees).
-    :type right_ascension_ascending_node: float (0 to 360), default: 0
     """
 
-    type: Literal["circular"] = Field("circular")
+    type: Literal["circular"] = Field("circular", description="Orbit type discriminator.")
     inclination: float = Field(0, description="Inclination (degrees).", ge=0, lt=180)
     right_ascension_ascending_node: float = Field(
         0, description="Right ascension of ascending node (degrees).", ge=0, lt=360
@@ -328,16 +382,15 @@ class CircularOrbit(OrbitBase):
         self, delta_mean_anomaly: float, delta_raan: float
     ) -> CircularOrbit:
         """
-        Gets a derived orbit.
+        Gets a derived orbit with perturbations to the mean anomaly and right
+        ascension of ascending node.
 
         Args:
-            :param delta_mean_anomaly:  Delta mean anomaly (degrees).
-            :type delta_mean_anomaly: float
-            :param delta_raan:  Delta right ascension of ascending node (degrees).
-            :type delta_raan: float
+            delta_mean_anomaly (float):  Delta mean anomaly (degrees).
+            delta_raan (float):  Delta right ascension of ascending node (degrees).
 
         Returns:
-            CircularOrbit
+            CircularOrbit: the derived orbit
         """
         true_anomaly = utils.mean_anomaly_to_true_anomaly(
             np.mod(self.get_mean_anomaly() + delta_mean_anomaly, 360)
@@ -353,7 +406,10 @@ class CircularOrbit(OrbitBase):
 
     def to_tle(self) -> TwoLineElements:
         """
-        Create a two line element set representation of the orbit.
+        Converts this orbit to a two line elements representation.
+
+        Returns:
+            TwoLineElements: the two line elements orbit
         """
         return KeplerianOrbit(
             altitude=self.altitude,
@@ -369,7 +425,7 @@ class SunSynchronousOrbit(OrbitBase):
     Orbit defined by sun synchronous parameters.
     """
 
-    type: Literal["sso"] = Field("sso")
+    type: Literal["sso"] = Field("sso", description="Orbit type discriminator.")
     altitude: float = Field(
         ...,
         description="Mean altitude (meters).",
@@ -387,6 +443,9 @@ class SunSynchronousOrbit(OrbitBase):
     def get_inclination(self) -> float:
         """
         Gets the inclination (decimal degrees).
+
+        Returns:
+            float: the inclination
         """
         return np.degrees(
             np.arccos(-np.power(self.get_semimajor_axis() / 12352000, 7 / 2))
@@ -395,6 +454,9 @@ class SunSynchronousOrbit(OrbitBase):
     def get_right_ascension_ascending_node(self) -> float:
         """
         Gets the right ascension of ascending node (decimal degrees).
+
+        Returns:
+            float: the right ascension of ascending node
         """
         ect_day = timedelta(
             hours=self.equator_crossing_time.hour,
@@ -414,16 +476,15 @@ class SunSynchronousOrbit(OrbitBase):
         self, delta_mean_anomaly: float, delta_raan: float
     ) -> CircularOrbit:
         """
-        Gets a derived orbit.
+        Gets a derived orbit with perturbations to the mean anomaly and right
+        ascension of ascending node.
 
         Args:
-            :param delta_mean_anomaly:  Delta mean anomaly (degrees).
-            :type delta_mean_anomaly: float
-            :param delta_raan:  Delta right ascension of ascending node (degrees).
-            :type delta_raan: float
+            delta_mean_anomaly (float):  Delta mean anomaly (degrees).
+            delta_raan (float):  Delta right ascension of ascending node (degrees).
 
         Returns:
-            CircularOrbit
+            CircularOrbit: the derived orbit
         """
         true_anomaly = utils.mean_anomaly_to_true_anomaly(
             np.mod(self.get_mean_anomaly() + delta_mean_anomaly, 360)
@@ -442,7 +503,10 @@ class SunSynchronousOrbit(OrbitBase):
 
     def to_tle(self) -> TwoLineElements:
         """
-        Create a two line element set representation of the orbit.
+        Converts this orbit to a two line elements representation.
+
+        Returns:
+            TwoLineElements: the two line elements orbit
         """
         semimajor_axis = constants.earth_mean_radius + self.altitude
         return KeplerianOrbit(
@@ -459,7 +523,7 @@ class KeplerianOrbit(CircularOrbit):
     Orbit specification using Keplerian elements for elliptical motion.
     """
 
-    type: Literal["keplerian"] = Field("keplerian")
+    type: Literal["keplerian"] = Field("keplerian", description="Orbit type discriminator.")
     eccentricity: float = Field(0, description="Eccentricity.", ge=0)
     perigee_argument: float = Field(
         0, description="Perigee argument (degrees).", ge=0, lt=360
@@ -468,6 +532,9 @@ class KeplerianOrbit(CircularOrbit):
     def get_mean_anomaly(self) -> float:
         """
         Gets the mean anomaly (decimal degrees).
+
+        Returns:
+            float: the mean anomaly
         """
         return utils.true_anomaly_to_mean_anomaly(self.true_anomaly, self.eccentricity)
 
@@ -475,16 +542,15 @@ class KeplerianOrbit(CircularOrbit):
         self, delta_mean_anomaly: float, delta_raan: float
     ) -> KeplerianOrbit:
         """
-        Gets a derived orbit.
+        Gets a derived orbit with perturbations to the mean anomaly and right
+        ascension of ascending node.
 
         Args:
-            :param delta_mean_anomaly:  Delta mean anomaly (degrees).
-            :type delta_mean_anomaly: float
-            :param delta_raan:  Delta right ascension of ascending node (degrees).
-            :type delta_raan: float
+            delta_mean_anomaly (float):  Delta mean anomaly (degrees).
+            delta_raan (float):  Delta right ascension of ascending node (degrees).
 
         Returns:
-            KeplerianOrbit
+            KeplerianOrbit: the derived orbit
         """
         true_anomaly = utils.mean_anomaly_to_true_anomaly(
             np.mod(self.get_mean_anomaly() + delta_mean_anomaly, 360),
@@ -502,6 +568,12 @@ class KeplerianOrbit(CircularOrbit):
         )
 
     def to_tle(self) -> TwoLineElements:
+        """
+        Converts this orbit to a two line elements representation.
+
+        Returns:
+            TwoLineElements: the two line elements orbit
+        """
         satrec = Satrec()
         satrec.sgp4init(
             WGS72,

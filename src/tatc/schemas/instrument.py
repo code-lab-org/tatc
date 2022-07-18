@@ -21,21 +21,10 @@ from ..constants import de421, timescale
 
 class Instrument(BaseModel):
     """
-    Representation of a remote sensing instrument.
-
-    :param name: Name of this instrument
-    :type  name: str
-    :param field_of_regard: Angular field (degrees) of possible observations (with pointing).
-    :type field_of_regard: float (0 to 360), default: 180
-    :param min_access_time: Minimum access (integration) time to record an observation.
-    :type min_access_time: :class:`datetime.timedelta`, default: 0
-    :param req_self_sunlit: Option to set the required instrument sunlit state for observation.
-    :type req_self_sunlit: bool, optional, default: None
-    :param req_target_sunlit: Option to set the required target sunlit state for observation.
-    :type req_target_sunlit: bool, optional, default: None
+    Remote sensing instrument.
     """
 
-    name: str = Field(..., description="Name of this instrument.")
+    name: str = Field(..., description="Instrument name.")
     field_of_regard: float = Field(
         180,
         description="Angular field (degrees) of possible observations (with pointing).",
@@ -50,11 +39,11 @@ class Instrument(BaseModel):
     )
     req_self_sunlit: Optional[bool] = Field(
         None,
-        description="Option to set the required instrument sunlit state for observation.",
+        description="Required instrument sunlit state for valid observation (`True`: sunlit, `False`: eclipse, `None`: no requirement).",
     )
     req_target_sunlit: Optional[bool] = Field(
         None,
-        description="Option to set the required target sunlit state for observation.",
+        description="Required target sunlit state for valid observation (`True`: sunlit, `False`: eclipse, `None`: no requirement).",
     )
 
     def get_swath_width(self, height: float) -> float:
@@ -84,12 +73,12 @@ class Instrument(BaseModel):
     def is_valid_observation(self, sat: EarthSatellite, time: Time) -> bool:
         """Determines if an instrument can provide a valid observations.
 
-        :param sat: Satellite hosting this instrument (Skyfield).
-        :type sat: :obj:`EarthSatellite`
-        :param time: Observation time(s) (Skyfield).
-        :type time: :obj:`Time`
-        :return: True if instrument can provide valid observations, otherwise False
-        :rtype: bool
+        Args:
+            sat (EarthSatellite): Satellite hosting this instrument.
+            time (Time): Observation time(s).
+
+        Returns:
+            bool: `True` if instrument provides a valid observation, otherwise `False`.
         """
         if isinstance(time.tt, float):
             # scalar

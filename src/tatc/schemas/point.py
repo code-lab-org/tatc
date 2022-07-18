@@ -11,10 +11,10 @@ from datetime import timedelta
 
 class Point(BaseModel):
     """
-    Representation of a geodetic point.
+    Representation of a geodetic point in the WGS 84 coordinate system.
     """
 
-    id: NonNegativeInt = Field(..., description="Unique identifier for a point.")
+    id: NonNegativeInt = Field(..., description="Unique point identifier.")
     latitude: float = Field(
         ..., description="Latitude (decimal degrees).", ge=-90, le=90, example=40.74259
     )
@@ -29,11 +29,11 @@ class Point(BaseModel):
 
 class GroundStation(BaseModel):
     """
-    Representation of a groun station in the geodetic frame.
+    Representation of a ground station in the WGS 84 coordinate system.
     """
 
     name: str = Field(
-        ..., description="The name of the ground station", example="station 1"
+        ..., description="Ground station name", example="station 1"
     )
     latitude: float = Field(
         ..., description="Latitude (decimal degrees).", ge=-90, le=90, example=40.74259
@@ -47,12 +47,12 @@ class GroundStation(BaseModel):
     )
     min_elevation_angle: float = Field(
         0,
-        description="The minimum elevation angle (decimal degrees) required to downlink with the ground station",
+        description="The minimum elevation angle (decimal degrees) required for satellite communication.",
         ge=0,
         le=90,
     )
     min_access_time: timedelta = Field(
         timedelta(0),
-        description="Minimum access (integration) time to achieve a downlink.",
+        description="Minimum access (integration) time required for satellite communication.",
         example=timedelta(seconds=10),
     )

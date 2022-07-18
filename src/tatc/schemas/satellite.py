@@ -24,13 +24,12 @@ from .orbit import TwoLineElements, CircularOrbit, SunSynchronousOrbit, Kepleria
 
 class SpaceSystem(BaseModel):
     """
-    Representation of a space system.
+    Base class for space systems.
     """
 
-    type: str
     name: str = Field(
         ...,
-        description="Name of this satellite.",
+        description="Space system name.",
         example="International Space Station",
     )
     orbit: Union[
@@ -43,10 +42,10 @@ class SpaceSystem(BaseModel):
 
 class Satellite(SpaceSystem):
     """
-    Representation of a satellite in orbit.
+    Single satellite.
     """
 
-    type: Literal["satellite"] = Field("satellite")
+    type: Literal["satellite"] = Field("satellite", description="Space system type discriminator.")
 
     def generate_members(self) -> List[Satellite]:
         return [self]
@@ -54,10 +53,10 @@ class Satellite(SpaceSystem):
 
 class TrainConstellation(Satellite):
     """
-    A constellation that arranges member satellites sequentially in one orbit plane.
+    A constellation that arranges member satellites in sequence.
     """
 
-    type: Literal["train"] = Field("train")
+    type: Literal["train"] = Field("train", description="Space system type discriminator.")
     orbit: Union[
         TwoLineElements, SunSynchronousOrbit, CircularOrbit, KeplerianOrbit
     ] = Field(..., description="Lead orbit for this constellation.")
@@ -77,6 +76,9 @@ class TrainConstellation(Satellite):
         """
         Gets the difference in mean anomaly (decimal degrees) for adjacent
         member satellites.
+
+        Returns:
+            float: the difference in mean anomaly
         """
         return 360 * self.orbit.get_mean_motion() * (self.interval / timedelta(days=1))
 
@@ -84,6 +86,9 @@ class TrainConstellation(Satellite):
         """
         Gets the difference in right ascension of ascending node (decimal
         degrees) for adjacent member satellites.
+
+        Returns:
+            float: the difference in right ascension of ascending node
         """
         if self.repeat_ground_track:
             return -1 * 360 * (self.interval / timedelta(days=1))
@@ -91,6 +96,12 @@ class TrainConstellation(Satellite):
             return 0
 
     def generate_members(self) -> List[Satellite]:
+        """
+        Generate members of this constellation.
+
+        Returns:
+            List[Satellite]: the member satellites
+        """
         return [
             Satellite(
                 name=f"{self.name} #{i+1:02d}",
@@ -110,18 +121,18 @@ class WalkerConfiguration(str, Enum):
 
 class WalkerConstellation(Satellite):
     """
-    A constellation that arranges member satellites following the Walker Delta pattern.
+    A constellation that arranges member satellites following the Walker pattern.
     """
 
-    type: Literal["walker"] = Field("walker")
+    type: Literal["walker"] = Field("walker", description="Space system type discriminator.")
     configuration: WalkerConfiguration = Field(
-        WalkerConfiguration.delta, description="Walker constellation configuration."
+        WalkerConfiguration.delta, description="Walker configuration."
     )
     orbit: Union[
         TwoLineElements, SunSynchronousOrbit, CircularOrbit, KeplerianOrbit
     ] = Field(..., description="Lead orbit for this constellation.")
     number_satellites: int = Field(
-        1, description="The count of the number of satellites.", ge=1
+        1, description="Number of satellites in the constellation.", ge=1
     )
     number_planes: int = Field(
         1,
@@ -136,6 +147,9 @@ class WalkerConstellation(Satellite):
 
     @root_validator
     def number_planes_le_number_satellites(cls, values):
+        """
+        Validates the number of planes given the number of satellites.
+        """
         p, t = values.get("number_planes"), values.get("number_satellites")
         if p is not None and t is not None and p > t:
             raise ValueError("number planes exceeds number satellites")
@@ -143,6 +157,9 @@ class WalkerConstellation(Satellite):
 
     @root_validator
     def relative_spacing_lt_number_planes(cls, values):
+        """
+        Validates the relative spacing given the number of planes.
+        """
         p, f = values.get("number_planes"), values.get("relative_spacing")
         if p is not None and f is not None and f >= p:
             raise ValueError("relative spacing exceeds number planes - 1")
@@ -151,6 +168,9 @@ class WalkerConstellation(Satellite):
     def get_satellites_per_plane(self) -> int:
         """
         Gets the (max) number of satellites per plane.
+
+        Returns:
+            int: number of satellites per plane
         """
         return math.ceil(self.number_satellites / self.number_planes)
 
@@ -158,6 +178,9 @@ class WalkerConstellation(Satellite):
         """
         Gets the difference in mean anomaly (decimal degrees) for adjacent
         member satellites within a single plane.
+
+        Returns:
+            float: difference in mean anomaly
         """
         return 360 / self.get_satellites_per_plane()
 
@@ -165,6 +188,9 @@ class WalkerConstellation(Satellite):
         """
         Gets the difference in mean anomaly (decimal degrees) for adjacent
         member satellites between adjacent planes.
+
+        Returns:
+            float: difference in mean anomaly
         """
         return 360 * self.relative_spacing / self.number_satellites
 
@@ -172,6 +198,9 @@ class WalkerConstellation(Satellite):
         """
         Gets the difference in right ascension of ascending node (decimal
         degrees) for adjacent planes of member satellites.
+
+        Returns:
+            float: difference in right ascension of ascending node
         """
         if self.configuration == WalkerConfiguration.delta:
             return 360 / self.number_planes
@@ -179,6 +208,12 @@ class WalkerConstellation(Satellite):
             return 180 / self.number_planes
 
     def generate_members(self) -> List[Satellite]:
+        """
+        Generate members of this constellation.
+
+        Returns:
+            List[Satellite]: the member satellites
+        """
         return [
             Satellite(
                 name=f"{self.name} #{i+1}",

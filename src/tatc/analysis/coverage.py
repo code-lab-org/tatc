@@ -228,11 +228,9 @@ def collect_observations(
     :type start::`datetime.datetime`
     :param end: The end of the mission window
     :type end::`datetime.datetime`
-    :param omit_solar: True, if solar angles should be omitted
-        to improve computational efficiency, defaults to True
+    :param omit_solar: True, if solar angles should be omitted to improve computational efficiency, defaults to True
     :type omit_solar: bool, optional
-    :return: An instance of :class:`geopandas.GeoDataFrame` containing all
-        recorded reduce_observations
+    :return: An instance of :class:`geopandas.GeoDataFrame` containing all recorded reduce_observations
     :rtype::`geopandas.GeoDataFrame`
     """
     # build a topocentric point at the designated geodetic point
