@@ -38,8 +38,6 @@ Additional Dependencies
 Included examples in the `docs/examples/` directory require additional Python libraries to work.
 Install required dependencies with :console:`conda install -c conda-forge geoplot contextily`.
 
-Recommended development dependencies can be installed with conda via :console:`conda install -c conda-forge coverage sphinx nbsphinx black` and with pip via :console:`pip install sphinx-rtd-theme`.
-
 Unit Tests
 ----------
 

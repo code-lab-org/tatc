@@ -51,8 +51,6 @@ Some examples use additional dependencies: `geoplot`, `contextily`
 
 ### Unit Tests
 
-Dependencies: `coverage` (optional)
-
 Run unit tests with:
 ```shell
 python -m unittest
@@ -69,16 +67,12 @@ coverage html
 
 ### Documentation
 
-Dependencies: `sphinx`, `sphinx-rtd-theme`, and `nbsphinx`.
-
-Generate documentation from the `docs` directory using the :
+Generate documentation from the `docs` directory using the command:
 ```shell
 make html
 ```
 
 ### Code Style
-
-Dependencies: `black` and `black[jupyter]`
 
 This project uses the black code style, applied from the project root:
 ```shell
