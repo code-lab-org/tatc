@@ -148,13 +148,13 @@ def collect_ground_track(
                 area_of_interest=pyproj.aoi.AreaOfInterest(p.x, p.y, p.x, p.y),
             )
             # return the first code if exists; otherwise return a default value
-            # 32661 is the EPS North CRS; 32761 is the EPS South CRS; 4087 is the default
+            # 5041 is UPS North; 5042 is UPS South; 4087 is the default
             return (
                 results[0].code
                 if len(results) > 0
-                else "32661"
+                else "5041"
                 if p.y > 84
-                else "32761"
+                else "5042"
                 if p.y < -80
                 else "4087"
             )
