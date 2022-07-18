@@ -59,10 +59,10 @@ napoleon_use_rtype = True
 autodoc_pydantic_model_show_json = True
 autodoc_pydantic_model_show_config = False
 intersphinx_mapping = {
-    'python': ('https://docs.python.org/3', None),
-    'shapely': ('https://shapely.readthedocs.io/en/stable/', None),
-    'geopandas': ('https://geopandas.org/en/stable/', None),
-    'pandas': ('https://pandas.pydata.org/docs/', None)
+    "python": ("https://docs.python.org/3", None),
+    "shapely": ("https://shapely.readthedocs.io/en/stable/", None),
+    "geopandas": ("https://geopandas.org/en/stable/", None),
+    "pandas": ("https://pandas.pydata.org/docs/", None),
 }
 
 # Add any paths that contain templates here, relative to this directory.
