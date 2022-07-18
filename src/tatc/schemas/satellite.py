@@ -45,7 +45,9 @@ class Satellite(SpaceSystem):
     Single satellite.
     """
 
-    type: Literal["satellite"] = Field("satellite", description="Space system type discriminator.")
+    type: Literal["satellite"] = Field(
+        "satellite", description="Space system type discriminator."
+    )
 
     def generate_members(self) -> List[Satellite]:
         return [self]
@@ -56,7 +58,9 @@ class TrainConstellation(Satellite):
     A constellation that arranges member satellites in sequence.
     """
 
-    type: Literal["train"] = Field("train", description="Space system type discriminator.")
+    type: Literal["train"] = Field(
+        "train", description="Space system type discriminator."
+    )
     orbit: Union[
         TwoLineElements, SunSynchronousOrbit, CircularOrbit, KeplerianOrbit
     ] = Field(..., description="Lead orbit for this constellation.")
@@ -124,7 +128,9 @@ class WalkerConstellation(Satellite):
     A constellation that arranges member satellites following the Walker pattern.
     """
 
-    type: Literal["walker"] = Field("walker", description="Space system type discriminator.")
+    type: Literal["walker"] = Field(
+        "walker", description="Space system type discriminator."
+    )
     configuration: WalkerConfiguration = Field(
         WalkerConfiguration.delta, description="Walker configuration."
     )

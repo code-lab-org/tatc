@@ -372,7 +372,9 @@ class CircularOrbit(OrbitBase):
     Orbit specification using Keplerian elements for elliptical motion -- circular motion case.
     """
 
-    type: Literal["circular"] = Field("circular", description="Orbit type discriminator.")
+    type: Literal["circular"] = Field(
+        "circular", description="Orbit type discriminator."
+    )
     inclination: float = Field(0, description="Inclination (degrees).", ge=0, lt=180)
     right_ascension_ascending_node: float = Field(
         0, description="Right ascension of ascending node (degrees).", ge=0, lt=360
@@ -523,7 +525,9 @@ class KeplerianOrbit(CircularOrbit):
     Orbit specification using Keplerian elements for elliptical motion.
     """
 
-    type: Literal["keplerian"] = Field("keplerian", description="Orbit type discriminator.")
+    type: Literal["keplerian"] = Field(
+        "keplerian", description="Orbit type discriminator."
+    )
     eccentricity: float = Field(0, description="Eccentricity.", ge=0)
     perigee_argument: float = Field(
         0, description="Perigee argument (degrees).", ge=0, lt=360

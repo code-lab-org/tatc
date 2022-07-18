@@ -8,6 +8,6 @@ The following provide documentation on the Python API to TAT-C.
   :maxdepth: 1
 
   schemas/index
-  tatc.generation
-  tatc.analysis
-  tatc.utils
+  generation/index
+  analysis/index
+  utils/index

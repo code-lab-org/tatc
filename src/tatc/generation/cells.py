@@ -19,7 +19,7 @@ def generate_cubed_sphere_cells(
     distance: float,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     strips: str = None,
-):
+) -> gpd.GeoDataFrame:
     """
     Generates geodetic polygons over a regular cubed-sphere grid.
 
@@ -27,17 +27,15 @@ def generate_cubed_sphere_cells(
     cubed-sphere grids", Journal of Computational Physics, 227(1).
     doi: 10.1016/j.jcp.2007.07.022
 
-    :param distance: The typical surface distance (meters) between points.
-    :type distance: float
-    :param strips: An optional mask to constrain generated cells, defaults to None
-    :type mask: valid :class:`shapely.geometry.Polygon` or
-        :class:`shapely.geometry.MultiPolygon` using WGS84 (EPSG:4326) geodetic
-        coordinates, optional
-    :param strips: An optional argument to generate strips of
-        constant latitude (`lat`) or strips of constant longitude (`lon`), defaults to None
-    :type strips: str, optional
-    :return: An instance of :class:`geopandas.GeoDataFrame` specifying the cells.
-    :rtype: :class:`geopandas.GeoDataFrame`
+    Args:
+        distance (float):  The typical surface distance (meters) between points.
+        mask (Polygon or MultiPolygon):  An optional mask to constrain cells
+                using WGS84 (EPSG:4326) geodetic coordinates in a
+                :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`.
+        strips (str): Option to generate strip-cells along latitude (`"lat"`), longitude (`"lon"`), or none (`None`).
+
+    Returns:
+        GeoDataFrame: the data frame of generated cells
     """
     # compute the angular disance of each sample (assuming sphere)
     theta_longitude = np.degrees(distance / earth_mean_radius)
@@ -50,7 +48,7 @@ def _generate_cubed_sphere_cells(
     theta_latitude: float,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     strips: str = None,
-):
+) -> gpd.GeoDataFrame:
     """
     Generates geodetic polygons over a regular cubed-sphere grid.
 
@@ -58,36 +56,33 @@ def _generate_cubed_sphere_cells(
     cubed-sphere grids", Journal of Computational Physics, 227(1).
     doi: 10.1016/j.jcp.2007.07.022
 
-    :param distance: The typical surface distance (meters) between points.
-    :type distance: float
-    :param strips: An optional mask to constrain generated cells, defaults to None
-    :type mask: valid :class:`shapely.geometry.Polygon` or
-        :class:`shapely.geometry.MultiPolygon` using WGS84 (EPSG:4326) geodetic
-        coordinates, optional
-    :param strips: An optional argument to generate strips of
-        constant latitude (`lat`) or strips of constant longitude (`lon`), defaults to None
-    :type strips: str, optional
-    :return: An instance of :class:`geopandas.GeoDataFrame` specifying the cells.
-    :rtype: :class:`geopandas.GeoDataFrame`
+    Args:
+        theta_longitude (float): The angular difference in longitude (degrees) between cell centroids.
+        theta_latitude (float): The angular difference in latitude (degrees) between cell centroids.
+        mask (Polygon or MultiPolygon):  An optional mask to constrain cells
+                using WGS84 (EPSG:4326) geodetic coordinates in a
+                :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`.
+        strips (str): Option to generate strip-cells along latitude (`"lat"`), longitude (`"lon"`), or none (`None`).
+
+    Returns:
+        GeoDataFrame: the data frame of generated cells
     """
 
     @njit
     def _compute_id(i, j, theta_i, theta_j):
         """
-        Fast method to compute the flattened id for a cubed sphere grid point.
+        Fast method to compute the flattened id for a cubed sphere grid cell.
         Indices increment west-to-east followed by south-to-north with a first
         point at -180 degrees latitude and close to -90 degrees latitude.
 
-        :param i: The zero-based longitude index
-        :type i: int
-        :param j: The zero-based latitude index
-        :type j: int
-        :param theta_i: The longitude angular step (degrees)
-        :type theta_i: float
-        :param theta_j: The latitude angular step (degrees)
-        :type theta_j: float
-        :return: The latitude (degrees) of this point.
-        :rtype: float
+        Args:
+            i (int): The zero-based longitude index.
+            j (int): The zero-based latitude index.
+            theta_i (float): The angular step in longitude (degrees).
+            theta_j (float): The angular step in latitude (degrees).
+
+        Returns:
+            int: The id of this cell.
         """
         return int(j * int(360 / theta_j) + np.mod(i, int(360 / theta_i)))
 

@@ -18,7 +18,7 @@ from ..utils import compute_number_samples, normalize_geometry
 
 def generate_fibonacci_lattice_points(
     distance: float, mask: Optional[Union[Polygon, MultiPolygon]] = None
-):
+) -> gpd.GeoDataFrame:
     """
     Generates geodetic points following a fibonacci lattice.
 
@@ -30,27 +30,27 @@ def generate_fibonacci_lattice_points(
     requires an odd number of points. This implementation allows any number
     of points. In agreement with Gonzalez, no points are placed at poles.
 
-    :param distance: The typical surface distance (meters) between points.
-    :type distance: float
-    :param mask: An optional mask to constrain generated points.
-    :type mask: valid :class:`shapely.geometry.Polygon` or
-        :class:`shapely.geometry.MultiPolygon` using WGS84 (EPSG:4326) geodetic
-        coordinates, optional
-    :return: An instance of :class:`geopandas.GeoDataFrame` specifying the points
-    :rtype: :class:`geopandas.GeodataFrame`
+    Args:
+        distance (float): The typical surface distance (meters) between points.
+        mask (Polygon or MultiPolygon):  An optional mask to constrain points
+                using WGS84 (EPSG:4326) geodetic coordinates in a
+                :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`.
+
+    Returns:
+        GeoDataFrame: the data frame of generated points
     """
 
     @njit
-    def _compute_latitude(i, n):
+    def _compute_latitude(i: int, n: int) -> float:
         """
         Fast method to compute the latitude for a Fibonacci lattice point.
 
-        :param i: The zero-based point index
-        :type i: int
-        :param n: The number of global samples
-        :type n: int
-        :return: The latitude (degrees) pf this point
-        :rtype: float
+        Args:
+            i (int): The zero-based point index.
+            n (int): The number of global samples.
+
+        Returns:
+            float: The latitude (degrees) of this point.
         """
         # compute latitude, starting from the southern hemisphere and placing
         # neither first nor last points at poles
@@ -59,14 +59,14 @@ def generate_fibonacci_lattice_points(
     @njit
     def _compute_longitude(i, n):
         """
-        Fast method to compute the longitude for a Fibonacci lattice point.
+        Fast method to compute the latitude for a Fibonacci lattice point.
 
-        :param i: The zero-based point index
-        :type i: int
-        :param n: The number of global samples
-        :type n: int
-        :return: The longitude (degrees) of this point
-        :rtype: float
+        Args:
+            i (int): The zero-based point index.
+            n (int): The number of global samples.
+
+        Returns:
+            float: The longitude (degrees) of this point.
         """
         phi = (1 + np.sqrt(5)) / 2  # golden ratio
         # compute longitude and return value on interval [-180, 180]
@@ -135,7 +135,7 @@ def generate_fibonacci_lattice_points(
 
 def generate_cubed_sphere_points(
     distance: float, mask: Optional[Union[Polygon, MultiPolygon]] = None
-):
+) -> gpd.GeoDataFrame:
     """
     Generates geodetic points at the centroid of regular cubed-sphere grid
     cells.
@@ -144,14 +144,14 @@ def generate_cubed_sphere_points(
     cubed-sphere grids", Journal of Computational Physics, 227(1).
     doi: 10.1016/j.jcp.2007.07.022
 
-    :param distance: The typical surface distance (meters) between points
-    :type distance: float
-    :param mask: An optional mask to constrain generated points
-    :type mask: valid :class:`shapely.geometry.Polygon` or
-        :class:`shapely.geometry.MultiPolygon` using WGS84 (EPSG:4326) geodetic
-        coordinates, optional
-    :return: An instance of :class:`geopandas.GeoDataFrame` specifying the points
-    :rtype: :class:`geopandas.GeodataFrame`
+    Args:
+        distance (float):  The typical surface distance (meters) between points.
+        mask (Polygon or MultiPolygon):  An optional mask to constrain points
+                using WGS84 (EPSG:4326) geodetic coordinates in a
+                :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`.
+
+    Returns:
+        GeoDataFrame: the data frame of generated points
     """
     # compute the angular disance of each sample (assuming sphere)
     theta_longitude = np.degrees(distance / earth_mean_radius)
@@ -161,46 +161,42 @@ def generate_cubed_sphere_points(
 
 def _generate_cubed_sphere_points(
     theta_longitude: float,
-    theta_latitude,
+    theta_latitude: float,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
-):
+) -> gpd.GeoDataFrame:
     """
-    Generates geodetic points at the centroid of regular cubed-sphere grid
-    cells.
+    Generates geodetic cells following regular cubed-sphere grid.
 
     See: Putman and Lin (2007). "Finite-volume transport on various
     cubed-sphere grids", Journal of Computational Physics, 227(1).
     doi: 10.1016/j.jcp.2007.07.022
 
-    :param theta_longitude: The angular step in longitude (degrees)
-    :type theta_longitude: float
-    :param theta_latitude: The angular step in latitude (degrees)
-    :type theta_latitude: float
-    :param mask: An optional mask to constrain generated points
-    :type mask: valid :class:`shapely.geometry.Polygon` or
-        :class:`shapely.geometry.MultiPolygon` using WGS84 (EPSG:4326) geodetic
-        coordinates, optional
-    :return: An instance of :class:`geopandas.GeoDataFrame` specifying the points
-    :rtype: :class:`geopandas.GeodataFrame`
+    Args:
+        theta_longitude (float): The angular difference in longitude (degrees) between points.
+        theta_latitude (float): The angular difference in latitude (degrees) between points.
+        mask (Polygon or MultiPolygon):  An optional mask to constrain points
+                using WGS84 (EPSG:4326) geodetic coordinates in a
+                :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`.
+
+    Returns:
+        GeoDataFrame: the data frame of generated points
     """
 
     @njit
-    def _compute_id(i, j, theta_i, theta_j):
+    def _compute_id(i: int, j: int, theta_i: float, theta_j: float) -> int:
         """
         Fast method to compute the flattened id for a cubed sphere grid point.
         Indices increment west-to-east followed by south-to-north with a first
         point at -180 degrees latitude and close to -90 degrees latitude.
 
-        :param i: The zero-based longitude index
-        :type i: int
-        :param j: The zero-based latitude index
-        :type j: int
-        :param theta_i: The angular step in longitude (degrees)
-        :type theta_i: float
-        :param theta_j: The angular step in latitude (degrees)
-        :type theta_j: float
-        :return: The latitude (degrees) of this point
-        :rtype: float
+        Args:
+            i (int): The zero-based longitude index.
+            j (int): The zero-based latitude index.
+            theta_i (float): The angular step in longitude (degrees).
+            theta_j (float): The angular step in latitude (degrees).
+
+        Returns:
+            int: The id of this point.
         """
         return int(j * int(360 / theta_j) + np.mod(i, int(360 / theta_i)))
 
