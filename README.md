@@ -69,7 +69,7 @@ coverage html
 
 ### Documentation
 
-Dependencies: `sphinx` and `sphinx-rtd-theme`
+Dependencies: `sphinx`, `sphinx-rtd-theme`, and `nbsphinx`.
 
 Generate documentation from the `docs` directory using the :
 ```shell
@@ -78,7 +78,7 @@ make html
 
 ### Code Style
 
-Dependencies: `black` and `black[]`
+Dependencies: `black` and `black[jupyter]`
 
 This project uses the black code style, applied from the project root:
 ```shell

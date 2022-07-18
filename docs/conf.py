@@ -22,7 +22,7 @@ copyright = "2022, Stevens Institute of Technology"
 author = "Stevens Institute of Technology"
 
 # The full version, including alpha/beta/rc tags
-release = "3.0"
+release = "3.1"
 
 
 # -- General configuration ---------------------------------------------------
@@ -41,6 +41,8 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.githubpages",
     "sphinx.ext.napoleon",
+    "nbsphinx",
+    "sphinxcontrib.autodoc_pydantic"
 ]
 
 napoleon_google_docstring = True
@@ -54,6 +56,8 @@ napoleon_use_admonition_for_references = False
 napoleon_use_ivar = False
 napoleon_use_param = True
 napoleon_use_rtype = True
+autodoc_pydantic_model_show_json = True
+autodoc_pydantic_model_show_config = False
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
