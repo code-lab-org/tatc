@@ -1,0 +1,14 @@
+name: tatc_env
+channels:
+  - conda-forge
+dependencies:
+  - python
+  - geopandas
+  - numba
+  - numpy
+  - pandas
+  - pydantic
+  - pyproj
+  - shapely
+  - skyfield
+  - sgp4
