@@ -28,9 +28,9 @@ This project was supported in part by the National Aeronautics and Space Adminis
  * \I. Josue Tapia-Tamayo <itapiata@stevens.edu>
 
 **Project alumni:**
- * Isaac Feldman (2020-2022; M.Eng. Space Systems Engineering)
- * Hayden Daly (2019-2021, B.S. Software Engineering)
- * Evan Abel (2019, B.S. Software Engineering)
- * Lindsay Portelli (2018, M.S. Computer Science)
- * Matthew Sabatini (2017-2018, B.Eng. Computer Engineering)
- * Sigfried Hache (2016-2017, M.Eng. Space Systems Engineering)
+ * Isaac Feldman (2020-2022)
+ * Hayden Daly (2019-2021)
+ * Evan Abel (2019)
+ * Lindsay Portelli (2018)
+ * Matthew Sabatini (2017-2018)
+ * Sigfried Hache (2016-2017)

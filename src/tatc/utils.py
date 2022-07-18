@@ -15,8 +15,19 @@ from shapely.ops import clip_by_rect
 from . import constants
 
 
+@staticmethod
 @njit
 def mean_anomaly_to_true_anomaly(mean_anomaly, eccentricity=0):
+    """
+    Converts mean anomaly to true anomaly.
+
+    Args:
+        mean_anomaly (float): The mean anomaly (degrees).
+        true_anomaly (float): The orbit eccentricity.
+
+    Returns:
+        float: The true anomaly (degrees).
+    """
     M = np.radians(mean_anomaly)
     e = eccentricity
     nu = (
@@ -28,8 +39,19 @@ def mean_anomaly_to_true_anomaly(mean_anomaly, eccentricity=0):
     return np.degrees(nu)
 
 
+@staticmethod
 @njit
 def true_anomaly_to_mean_anomaly(true_anomaly, eccentricity=0):
+    """
+    Converts true anomaly to mean anomaly.
+
+    Args:
+        true_anomaly (float): The true anomaly (degrees).
+        eccentricity (float): The orbit eccentricity.
+
+    Returns:
+        float: The mean anomaly (degrees).
+    """
     e = eccentricity
     nu = np.radians(true_anomaly)
     M = (
@@ -42,6 +64,7 @@ def true_anomaly_to_mean_anomaly(true_anomaly, eccentricity=0):
     return np.degrees(M)
 
 
+@staticmethod
 @njit
 def compute_number_samples(distance):
     """
@@ -67,6 +90,7 @@ def compute_number_samples(distance):
     return int(constants.earth_surface_area / sample_area)
 
 
+@staticmethod
 @njit
 def swath_width_to_field_of_regard(height, swath_width):
     """
@@ -88,6 +112,7 @@ def swath_width_to_field_of_regard(height, swath_width):
     return np.degrees(2 * np.arctan(tan_eta))
 
 
+@staticmethod
 @njit
 def field_of_regard_to_swath_width(height, field_of_regard):
     """
@@ -111,6 +136,7 @@ def field_of_regard_to_swath_width(height, field_of_regard):
     return 2 * constants.earth_mean_radius * _lambda
 
 
+@staticmethod
 @njit
 def compute_field_of_regard(height, min_elevation_angle):
     """
@@ -132,6 +158,7 @@ def compute_field_of_regard(height, min_elevation_angle):
     return np.degrees(np.arcsin(sin_eta) * 2)
 
 
+@staticmethod
 @njit
 def compute_min_elevation_angle(height, field_of_regard):
     """
@@ -155,6 +182,7 @@ def compute_min_elevation_angle(height, field_of_regard):
     return np.degrees(np.arccos(cos_epsilon))
 
 
+@staticmethod
 @njit
 def compute_orbit_period(height):
     """
@@ -171,6 +199,7 @@ def compute_orbit_period(height):
     return 2 * np.pi / mean_motion_rad_s
 
 
+@staticmethod
 @njit
 def compute_max_access_time(height, min_elevation_angle):
     """
@@ -190,6 +219,7 @@ def compute_max_access_time(height, min_elevation_angle):
     return orbital_distance / orbital_velocity
 
 
+@staticmethod
 def _wrap_polygon_over_north_pole(polygon: Polygon) -> Polygon:
     """
     Wraps polygon coordinates over the North pole. Due to buffering and projection,
@@ -199,10 +229,10 @@ def _wrap_polygon_over_north_pole(polygon: Polygon) -> Polygon:
     Note: this method only changes coordinates: it does not create a MultiPolygon.
 
     Args:
-        polygon (:obj:`Polygon`): polygon to wrap.
+       polygon (Polygon): The polygon to wrap.
 
     Returns:
-        :obj:`Polygon`: Wrapped polygon.
+       Polygon: The wrapped polygon.
     """
     # map latitudes from [90, 180) to [90, -90), adjusting longitude by 180 degrees
     polygon = Polygon(
@@ -230,6 +260,7 @@ def _wrap_polygon_over_north_pole(polygon: Polygon) -> Polygon:
     return polygon
 
 
+@staticmethod
 def _split_polygon_north_pole(
     polygon: Union[Polygon, MultiPolygon]
 ) -> Union[Polygon, MultiPolygon]:
@@ -237,10 +268,10 @@ def _split_polygon_north_pole(
     Splits a Polygon into a MultiPolygon if it crosses north pole.
 
     Args:
-        polygon (:obj:`Polygon` or :obj:`MultiPolygon`)
+       polygon (Polygon or MultiPolygon): The polygon to split.
 
-    Returns
-        :obj:`Polygon` or :obj:`MultiPolygon`
+    Returns:
+       Polygon, or MultiPolygon: The split polygon.
     """
     if isinstance(polygon, Polygon):
         lat = np.array([c[1] for c in polygon.exterior.coords])
@@ -290,6 +321,7 @@ def _split_polygon_north_pole(
         raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
+@staticmethod
 def _wrap_polygon_over_south_pole(polygon: Polygon) -> Polygon:
     """
     Wraps polygon coordinates over the South pole. Due to buffering and projection,
@@ -299,10 +331,10 @@ def _wrap_polygon_over_south_pole(polygon: Polygon) -> Polygon:
     Note: this method only changes coordinates: it does not create a MultiPolygon.
 
     Args:
-        polygon (:obj:`Polygon`): polygon to wrap.
+       polygon (Polygon): The polygon to wrap.
 
     Returns:
-        :obj:`Polygon`: Wrapped polygon.
+       Polygon: The wrapped polygon.
     """
     # map latitudes from [-90, -180) to [-90, 90), adjusting longitude by 180 degrees
     polygon = Polygon(
@@ -330,6 +362,7 @@ def _wrap_polygon_over_south_pole(polygon: Polygon) -> Polygon:
     return polygon
 
 
+@staticmethod
 def _split_polygon_south_pole(
     polygon: Union[Polygon, MultiPolygon]
 ) -> Union[Polygon, MultiPolygon]:
@@ -337,10 +370,10 @@ def _split_polygon_south_pole(
     Splits a Polygon into a MultiPolygon if it crosses south pole.
 
     Args:
-        polygon (:obj:`Polygon` or :obj:`MultiPolygon`)
+       polygon (Polygon or MultiPolygon): The polygon to split.
 
-    Returns
-        :obj:`Polygon` or :obj:`MultiPolygon`
+    Returns:
+       Polygon, or MultiPolygon: The split polygon.
     """
     if isinstance(polygon, Polygon):
         lat = np.array([c[1] for c in polygon.exterior.coords])
@@ -390,6 +423,7 @@ def _split_polygon_south_pole(
         raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
+@staticmethod
 def _wrap_polygon_over_antimeridian(polygon: Polygon) -> Polygon:
     """
     Wraps polygon coordinates over the antimeridian. Due to buffering and projection,
@@ -399,10 +433,10 @@ def _wrap_polygon_over_antimeridian(polygon: Polygon) -> Polygon:
     Note: this method only changes coordinates: it does not create a MultiPolygon.
 
     Args:
-        polygon (:obj:`Polygon`): polygon to wrap.
+       polygon (Polygon): The polygon to wrap.
 
     Returns:
-        :obj:`Polygon`: Wrapped polygon.
+       Polygon: The wrapped polygon.
     """
     # map longitudes from [180, 360) to [-180, 0)
     polygon = Polygon(
@@ -418,6 +452,7 @@ def _wrap_polygon_over_antimeridian(polygon: Polygon) -> Polygon:
     return polygon
 
 
+@staticmethod
 def _convert_collection_to_polygon(
     collection: GeometryCollection,
 ) -> Union[Polygon, MultiPolygon]:
@@ -428,10 +463,10 @@ def _convert_collection_to_polygon(
     Polygon or MultiPolygon geometry.
 
     Args:
-        collection (:obj:`GeometryCollection`): collection to convert.
+       polygon (Polygon or MultiPolygon): The polygon to convert.
 
     Returns:
-        :obj:`Polygon` or :obj:`MultiPolygon`: converted polygon.
+       Polygon, or MultiPolygon: The converted polygon.
     """
     pgons = [p for p in collection.geoms if isinstance(p, Polygon)] + [
         p.geoms
@@ -445,6 +480,7 @@ def _convert_collection_to_polygon(
         return MultiPolygon(pgons)
 
 
+@staticmethod
 def _split_polygon_antimeridian(
     polygon: Union[Polygon, MultiPolygon]
 ) -> Union[Polygon, MultiPolygon]:
@@ -453,10 +489,10 @@ def _split_polygon_antimeridian(
     wrapping its coordinates using `wrap_coordinates_antimeridian`.
 
     Args:
-        polygon (:obj:`Polygon` or :obj:`MultiPolygon`)
+       polygon (Polygon or MultiPolygon): The polygon to split.
 
-    Returns
-        :obj:`Polygon` or :obj:`MultiPolygon`
+    Returns:
+       Polygon, or MultiPolygon: The split polygon.
     """
     if isinstance(polygon, Polygon):
         lon = np.array([c[0] for c in polygon.exterior.coords])
@@ -521,20 +557,20 @@ def _split_polygon_antimeridian(
         raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
+@staticmethod
 def split_polygon(
     polygon: Union[Polygon, MultiPolygon]
 ) -> Union[Polygon, MultiPolygon]:
     """
-    Splits a Polygon into a MultiPolygon if it:
-     * crosses the anti-meridian (180 degrees longitude)
-     * exceeds the north pole (90 degrees latitude)
-     * exceeds the south pole (-90 degrees latitude)
+    Splits a Polygon into a MultiPolygon if it crosses the anti-meridian
+    (180 degrees longitude), exceeds the north pole (90 degrees latitude), or
+    exceeds the south pole (-90 degrees latitude).
 
     Args:
-        polygon (:obj:`Polygon` or :obj:`MultiPolygon`)
+        polygon (Polygon or MultiPolygon): The polygon to split.
 
-    Returns
-        :obj:`Polygon` or :obj:`MultiPolygon`
+    Returns:
+        Polygon, or MultiPolygon: The split polygon.
     """
     polygon = _split_polygon_north_pole(
         _split_polygon_south_pole(_split_polygon_antimeridian(polygon))
@@ -545,6 +581,7 @@ def split_polygon(
     return polygon
 
 
+@staticmethod
 def normalize_geometry(
     geometry: Union[Polygon, MultiPolygon, gpd.GeoDataFrame]
 ) -> gpd.GeoDataFrame:
@@ -552,11 +589,10 @@ def normalize_geometry(
     Normalize geometry to a GeoDataFrame with antimeridian wrapping.
 
     Args:
-        geometry (:obj:`GeoDataFrame`, :obj:`GeoSeries`, :obj:`Polygon`,
-              or :obj:`MultiPolygon`, optional): The geometry to normalize.
+        geometry (geopandas.GeoDataFrame, geopandas.GeoSeries, Polygon, or MultiPolygon): The geometry to normalize.
 
     Returns:
-        :obj:`GeoDataFrame`: The normalized geometry.
+        geopandas.GeoDataFrame: The normalized geometry.
     """
     if isinstance(geometry, Polygon) or isinstance(geometry, MultiPolygon):
         if not geometry.is_valid:

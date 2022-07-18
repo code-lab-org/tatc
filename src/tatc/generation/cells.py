@@ -15,6 +15,7 @@ from typing import Optional, Union
 from ..constants import earth_mean_radius
 
 
+@staticmethod
 def generate_cubed_sphere_cells(
     distance: float,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
@@ -30,12 +31,11 @@ def generate_cubed_sphere_cells(
     Args:
         distance (float):  The typical surface distance (meters) between points.
         mask (Polygon or MultiPolygon):  An optional mask to constrain cells
-                using WGS84 (EPSG:4326) geodetic coordinates in a
-                :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`.
+                using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
         strips (str): Option to generate strip-cells along latitude (`"lat"`), longitude (`"lon"`), or none (`None`).
 
     Returns:
-        GeoDataFrame: the data frame of generated cells
+        geopandas.GeoDataFrame: the data frame of generated cells
     """
     # compute the angular disance of each sample (assuming sphere)
     theta_longitude = np.degrees(distance / earth_mean_radius)
@@ -43,6 +43,7 @@ def generate_cubed_sphere_cells(
     return _generate_cubed_sphere_cells(theta_longitude, theta_latitude, mask, strips)
 
 
+@staticmethod
 def _generate_cubed_sphere_cells(
     theta_longitude: float,
     theta_latitude: float,
@@ -60,12 +61,11 @@ def _generate_cubed_sphere_cells(
         theta_longitude (float): The angular difference in longitude (degrees) between cell centroids.
         theta_latitude (float): The angular difference in latitude (degrees) between cell centroids.
         mask (Polygon or MultiPolygon):  An optional mask to constrain cells
-                using WGS84 (EPSG:4326) geodetic coordinates in a
-                :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`.
+                using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
         strips (str): Option to generate strip-cells along latitude (`"lat"`), longitude (`"lon"`), or none (`None`).
 
     Returns:
-        GeoDataFrame: the data frame of generated cells
+        geopandas.GeoDataFrame: the data frame of generated cells
     """
 
     @njit

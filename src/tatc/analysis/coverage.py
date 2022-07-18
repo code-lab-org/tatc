@@ -26,6 +26,7 @@ from ..utils import (
 from ..constants import de421, timescale
 
 
+@staticmethod
 def _get_visible_interval_series(
     point: GeographicPosition,
     satellite: EarthSatellite,
@@ -35,6 +36,16 @@ def _get_visible_interval_series(
 ) -> pd.Series:
     """
     Get the series of visible intervals based on altitude angle constraints.
+
+    Args:
+        point (akyfield.toposlib.GeographicPosition): Point to observe.
+        satellite (skyfield.api.EarthSatellite): Satellite doing the observation.
+        min_elevation_angle (float): Minimum elevation angle (degrees) for valid observation.
+        start (datetime.datetime): Start of analysis period.
+        end (datetime.datetime): End of analysis period.
+
+    Returns:
+        pandas.Series: Series of observation intervals.
     """
     # define starting and ending points
     t0 = timescale.from_datetime(start)
@@ -103,14 +114,22 @@ def _get_visible_interval_series(
     return pd.Series(obs_periods, dtype="interval")
 
 
+@staticmethod
 def _get_satellite_altaz_series(
-    observations: gpd.GeoDataFrame, sat: EarthSatellite
+    observations: gpd.GeoDataFrame, satellite: EarthSatellite
 ) -> pd.Series:
     """
     Get a series with the satellite altitude/azimuth for each observation.
+
+    Args:
+        observations (geopandas.GeoDataFrame): Data frame of observation records.
+        satellite (skyfield.api.EarthSatellite): Satellite doing the observation.
+
+    Returns:
+        pandas.Series: Series of altitude-azimuth objects associated with observations.
     """
     sat_altaz = observations.apply(
-        lambda r: (sat - wgs84.latlon(r.geometry.y, r.geometry.x))
+        lambda r: (satellite - wgs84.latlon(r.geometry.y, r.geometry.x))
         .at(timescale.from_datetime(r.epoch))
         .altaz(),
         axis=1,
@@ -118,22 +137,37 @@ def _get_satellite_altaz_series(
     return pd.Series(sat_altaz, dtype="object")
 
 
+@staticmethod
 def _get_satellite_sunlit_series(
-    observations: gpd.GeoDataFrame, sat: EarthSatellite
+    observations: gpd.GeoDataFrame, satellite: EarthSatellite
 ) -> pd.Series:
     """
     Get a series with the satellite sunlit condition for each observation.
+
+    Args:
+        observations (geopandas.GeoDataFrame): Data frame of observation records.
+        satellite (EarthSatellite): Satellite doing the observation.
+
+    Returns:
+        pandas.Series: Series of booleans associated with observations.
     """
     sat_sunlit = observations.apply(
-        lambda r: sat.at(timescale.from_datetime(r.epoch)).is_sunlit(de421),
+        lambda r: satellite.at(timescale.from_datetime(r.epoch)).is_sunlit(de421),
         axis=1,
     )
     return pd.Series(sat_sunlit, dtype="bool")
 
 
+@staticmethod
 def _get_solar_altaz_series(observations: gpd.GeoDataFrame) -> pd.Series:
     """
     Get a series with the solar altitude/azimuth for each observation.
+
+    Args:
+        observations (geopandas.GeoDataFrame): Data frame of observation records.
+
+    Returns:
+        pandas.Series: Series of altitude-azimuth objects associated with observations.
     """
     sun_altaz = observations.apply(
         lambda r: (de421["earth"] + wgs84.latlon(r.geometry.y, r.geometry.x))
@@ -146,9 +180,16 @@ def _get_solar_altaz_series(observations: gpd.GeoDataFrame) -> pd.Series:
     return pd.Series(sun_altaz, dtype="object")
 
 
+@staticmethod
 def _get_solar_time_series(observations: gpd.GeoDataFrame) -> pd.Series:
     """
     Get a series with the local solar time for each observation.
+
+    Args:
+        observations (geopandas.GeoDataFrame): Data frame of observation records.
+
+    Returns:
+        pandas.Series: Series of floats (local solar time in hours) associated with observations.
     """
     solar_time = observations.apply(
         lambda r: (de421["earth"] + wgs84.latlon(r.geometry.y, r.geometry.x))
@@ -163,25 +204,43 @@ def _get_solar_time_series(observations: gpd.GeoDataFrame) -> pd.Series:
     return pd.Series(solar_time, dtype="float")
 
 
+@staticmethod
 def _get_access_series(observations: gpd.GeoDataFrame) -> pd.Series:
     """
-    Get a series with access times for each observation.
+    Get a series with the access time for each observation.
+
+    Args:
+        observations (geopandas.GeoDataFrame): Data frame of observation records.
+
+    Returns:
+        pandas.Series: Series of timedeltas measuring access duration of each observation.
     """
     # compute the access time for the observation (end - start)
     return observations["end"] - observations["start"]
 
 
+@staticmethod
 def _get_revisit_series(observations: gpd.GeoDataFrame) -> pd.Series:
     """
-    Get a series with revisit times for each observation.
+    Get a series with the revisit times for each observation.
+
+    Args:
+        observations (geopandas.GeoDataFrame): Data frame of observation records.
+
+    Returns:
+        pandas.Series: Series of timedeltas measuring revisit duration for each observation.
     """
     # compute the revisit time for each observation (previous end - start)
     return observations["start"] - observations["end"].shift()
 
 
+@staticmethod
 def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
     """
-    Get an empty data frame.
+    Gets an empty data frame for coverage analysis results.
+
+    Returns:
+        geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
         "point_id": pd.Series([], dtype="int"),
@@ -207,6 +266,7 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
+@staticmethod
 def collect_observations(
     point: Point,
     satellite: Satellite,
@@ -221,13 +281,13 @@ def collect_observations(
     Args:
         point (Point): The ground point of interest.
         satellite (Satellite): The observing satellite.
-        instrument (Instrument): The instrument used to make observations.
-        start (datetime): The start of the mission window.
-        end (datetime): The end of the mission window.
-        omit_solar (bool): `True`, if solar angles should be omitted to improve computational efficiency.
+        instrument (Instrument): The observing instrument.
+        start (datetime.datetime): Start of analysis period.
+        end (datetime.datetime): End of analysis period.
+        omit_solar (bool): `True`, to omit solar angles to improve computational efficiency; otherwise `False`.
 
     Returns:
-        gpd.GeoDataFrame: All recorded observations.
+        geopandas.GeoDataFrame: The data frame with recorded observations.
     """
     # build a topocentric point at the designated geodetic point
     topos = wgs84.latlon(point.latitude, point.longitude)
@@ -286,9 +346,10 @@ def collect_observations(
     return gdf
 
 
+@staticmethod
 def collect_multi_observations(
     point: Point,
-    satellites: Union[SpaceSystem, List[SpaceSystem]],
+    satellites: Union[Satellite, List[Satellite]],
     start: datetime,
     end: datetime,
     omit_solar: bool = True,
@@ -298,13 +359,13 @@ def collect_multi_observations(
 
     Args:
         point (Point): The ground point of interest.
-        satellites (SpaceSystem or List[SpaceSystem]): The observing satellite(s).
-        start (datetime): The start of the mission window.
-        end (datetime): The end of the mission window.
-        omit_solar (bool): `True`, if solar angles should be omitted to improve computational efficiency.
+        satellites (Satellite or List[Satellite]): The observing satellite(s).
+        start (datetime.datetime): Start of analysis period.
+        end (datetime.datetime): End of analysis period.
+        omit_solar (bool): `True`, to omit solar angles to improve computational efficiency; otherwise `False`.
 
     Returns:
-        gpd.GeoDataFrame: All recorded observations.
+        geopandas.GeoDataFrame: The data frame with all recorded observations.
     """
     gdfs = [
         collect_observations(point, satellite, instrument, start, end, omit_solar)
@@ -318,7 +379,10 @@ def collect_multi_observations(
 
 def _get_empty_aggregate_frame() -> gpd.GeoDataFrame:
     """
-    Get an empty aggregate data frame.
+    Gets an empty data frame for aggregated coverage analysis results.
+
+    Returns:
+        geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
         "point_id": pd.Series([], dtype="int"),
@@ -332,23 +396,24 @@ def _get_empty_aggregate_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
-def aggregate_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+@staticmethod
+def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     Aggregate constellation observations. Interleaves observations by multiple
     satellites to compute aggregate performance metrics including access
     (observation duration) and revisit (duration between observations).
 
     Args:
-        gdf (GeoDataFrame): The collected observations.
+        observations (geopandas.GeoDataFrame): The collected observations.
 
     Returns:
-        GeoDataFrame: The data frame with aggregated observations.
+        geopandas.GeoDataFrame: The data frame with aggregated observations.
     """
-    if gdf.empty:
+    if observations.empty:
         return _get_empty_aggregate_frame()
     gdfs = []
     # split into constituent data frames based on point_id
-    for _, gdf in gdf.groupby("point_id"):
+    for _, gdf in observations.groupby("point_id"):
         # sort the values by start datetime
         gdf = gdf.sort_values("start")
         # assign the observation group number based on overlapping start/end times
@@ -374,9 +439,13 @@ def aggregate_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return pd.concat(gdfs).reset_index(drop=True)
 
 
+@staticmethod
 def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
     """
-    Get an empty reduce data frame.
+    Gets an empty data frame for reduced coverage analysis results.
+
+    Returns:
+        geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
         "point_id": pd.Series([], dtype="int"),
@@ -388,21 +457,22 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
-def reduce_observations(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+@staticmethod
+def reduce_observations(aggregated_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     Reduce constellation observations. Computes descriptive statistics for each
     geodetic point of interest contained in aggregated observations.
 
     Args:
-        gdf (GeoDataFrame): The aggregated observations.
+        aggregated_observations (geopandas.GeoDataFrame): The aggregated observations.
 
     Returns:
-        GeoDataFrame: The data frame with reduced observations.
+        geopandas.GeoDataFrame: The data frame with reduced observations.
     """
-    if gdf.empty:
+    if aggregated_observations.empty:
         return _get_empty_reduce_frame()
     # operate on a copy of the dataframe
-    gdf = gdf.copy()
+    gdf = aggregated_observations.copy()
     # convert access and revisit to numeric values before aggregation
     gdf["access"] = gdf["access"] / timedelta(seconds=1)
     gdf["revisit"] = gdf["revisit"] / timedelta(seconds=1)

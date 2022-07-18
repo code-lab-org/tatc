@@ -31,9 +31,13 @@ from ..utils import (
 from ..constants import timescale
 
 
+@staticmethod
 def _get_empty_orbit_track() -> gpd.GeoDataFrame:
     """
-    Get an empty ground track data frame.
+    Gets an empty data frame for orbit track results.
+
+    Returns:
+        geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
         "time": pd.Series([], dtype="datetime64[ns, utc]"),
@@ -46,6 +50,7 @@ def _get_empty_orbit_track() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
+@staticmethod
 def collect_orbit_track(
     satellite: Satellite,
     instrument: Instrument,
@@ -55,16 +60,14 @@ def collect_orbit_track(
     """
     Collect orbit track points for a satellite of interest.
 
-    :param satellite: The observing satellite
-    :type satellite: :class:`tatc.schemas.satellite.Satellite`
-    :param instrument: The instrument used to make observations
-    :type instrument: :class:`tatc.schemas.instrument.Instrument`
-    :param times: The list of times to sample.
-    :type times: list
-    :param mask: A mask to constrain ground track.
-    :type mask: :class:`shapely.Polygon` or :class:`shapely.MultiPolygon`, optional
-    :return: An instance of :class:`geopandas.GeoDataFrame` with all recorded points.
-    :rtype: :class:`geopandas.GeodataFrame`
+    Args:
+        satellite (Satellite): The observing satellite.
+        instrument (Instrument): The observing instrument.
+        times (typing.List[datetime.datetime]): The list of times to sample.
+        mask (Polygon or MultiPolygon): An optional mask to constrain results.
+
+    Returns:
+        geopandas.GeoDataFrame: The data frame of collected orbit track results.
     """
     if len(times) == 0:
         return _get_empty_orbit_track()
@@ -107,6 +110,7 @@ def collect_orbit_track(
     return gpd.clip(gdf, mask).reset_index(drop=True)
 
 
+@staticmethod
 def collect_ground_track(
     satellite: Satellite,
     instrument: Instrument,
@@ -115,23 +119,21 @@ def collect_ground_track(
     crs: str = "EPSG:4087",
 ) -> gpd.GeoDataFrame:
     """
-    Model the ground track swath for a satellite of interest.
+    Collect ground track polygons for a satellite of interest.
 
-    :param satellite: The observing satellite
-    :type satellite: :class:`tatc.schemas.satellite.Satellite`
-    :param instrument: The observing instrument
-    :type instrument: :class:`tatc.schemas.instrument.Instrument`
-    :param times: The list of times to sample
-    :type times: list
-    :param mask: A mask to constrain ground track.
-    :type mask: :class:`shapely.Polygon` or :class:`shapely.MultiPolygon`, optional
-    :param crs: Coordinate reference system for projecting swath distance from
-            sub-satellite points (default: "EPSG:4087"). Note that "utm" will
-            use the corresponding Unified Transverse Mercator (UTM) zone which
-            is accurate but slow.
-    :type crs: str, optional
-    :return: An instance of :class:`geopandas.GeoDataFrame` with all recorded polygons.
-    :rtype: :class:`geopandas.GeoDataFrame`
+    Args:
+        satellite (Satellite): The observing satellite.
+        instrument (Instrument): The observing instrument.
+        times (typing.List[datetime.datetime]): The list of datetimes to sample.
+        mask (Polygon or MultiPolygon): An optional mask to constrain results.
+        crs (str): The coordinate reference system (CRS) in which to compute
+                distance (default: World Equidistant Cylindrical `"EPSG:4087"`).
+                Selecting `crs="utm"` uses Universal Transverse Mercator (UTM)
+                zones for non-polar regions, and Universal Polar Stereographic
+                (UPS) systems for polar regions.
+
+    Returns:
+        geopandas.GeoDataFrame: The data frame of collected ground track results.
     """
     # first, compute the orbit track of the satellite
     gdf = collect_orbit_track(satellite, instrument, times, mask)
@@ -197,37 +199,33 @@ def collect_ground_track(
     return gpd.clip(gdf, mask).reset_index(drop=True)
 
 
+@staticmethod
 def compute_ground_track(
     satellite: Satellite,
     instrument: Instrument,
     times: List[datetime],
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     crs: str = "EPSG:4087",
-    resolution: int = 4,
-    split_polygons: bool = True,
     method: str = "point",
 ) -> gpd.GeoDataFrame:
     """
-    Compute the ground track swath for a satellite of interest.
+    Compute the aggregated ground track for a satellite of interest.
 
-    :param satellite: The observing satellite
-    :type satellite: :class:`tatc.schemas.satellite.Satellite`
-    :param instrument: The observing instrument
-    :type instrument: :class:`tatc.schemas.instrument.Instrument`
-    :param times: The list of times to sample
-    :type times: list
-    :param mask: A mask to constrain ground track.
-    :type mask: :class:`shapely.Polygon` or :class:`shapely.MultiPolygon`, optional
-    :param crs: Coordinate reference system for projecting swath distance from
-            sub-satellite points (default: "EPSG:4087"). Note that "utm" will
-            use the corresponding Unified Transverse Mercator (UTM) zone which
-            is accurate but slow.
-    :type crs: str, optional
-    :param method: Method for computing the ground track: "point" buffers
-            individual points while "line" buffers a line string.
-    :type method: str (default: point)
-    :return: An instance of :class:`geopandas.GeoDataFrame` with all recorded polygons.
-    :rtype: :class:`geopandas.GeoDataFrame`
+    Args:
+        satellite (Satellite): The observing satellite.
+        instrument (Instrument): The observing instrument.
+        times (typing.List[datetime.datetime]): The list of datetimes to sample.
+        mask (Polygon or MultiPolygon): An optional mask to constrain results.
+        crs (str): The coordinate reference system (CRS) in which to compute
+                distance (default: World Equidistant Cylindrical `"EPSG:4087"`).
+                Selecting `crs="utm"` uses Universal Transverse Mercator (UTM)
+                zones for non-polar regions, and Universal Polar Stereographic
+                (UPS) systems for polar regions.
+        method (str): The method for computing ground track: `"point"` buffers
+                individual points while `"line"` buffers a line of points.
+
+    Returns:
+        GeoDataFrame: The data frame of aggregated ground track results.
     """
     if method == "point":
         track = collect_ground_track(satellite, instrument, times, mask, crs)

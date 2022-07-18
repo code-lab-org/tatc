@@ -16,11 +16,12 @@ from ..constants import earth_mean_radius
 from ..utils import compute_number_samples, normalize_geometry
 
 
+@staticmethod
 def generate_fibonacci_lattice_points(
     distance: float, mask: Optional[Union[Polygon, MultiPolygon]] = None
 ) -> gpd.GeoDataFrame:
     """
-    Generates geodetic points following a fibonacci lattice.
+    Generates geodetic points following a Fibonacci lattice.
 
     See: Gonzalez (2010). "Measurement of areas on a sphere using Fibonacci
     and latitude-longitude lattices", Mathematical Geosciences 42(49).
@@ -33,11 +34,10 @@ def generate_fibonacci_lattice_points(
     Args:
         distance (float): The typical surface distance (meters) between points.
         mask (Polygon or MultiPolygon):  An optional mask to constrain points
-                using WGS84 (EPSG:4326) geodetic coordinates in a
-                :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`.
+                using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
-        GeoDataFrame: the data frame of generated points
+        geopandas.GeoDataFrame: the data frame of generated points
     """
 
     @njit
@@ -133,6 +133,7 @@ def generate_fibonacci_lattice_points(
     return gdf
 
 
+@staticmethod
 def generate_cubed_sphere_points(
     distance: float, mask: Optional[Union[Polygon, MultiPolygon]] = None
 ) -> gpd.GeoDataFrame:
@@ -147,11 +148,10 @@ def generate_cubed_sphere_points(
     Args:
         distance (float):  The typical surface distance (meters) between points.
         mask (Polygon or MultiPolygon):  An optional mask to constrain points
-                using WGS84 (EPSG:4326) geodetic coordinates in a
-                :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`.
+                using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
-        GeoDataFrame: the data frame of generated points
+        geopandas.GeoDataFrame: the data frame of generated points
     """
     # compute the angular disance of each sample (assuming sphere)
     theta_longitude = np.degrees(distance / earth_mean_radius)
@@ -159,6 +159,7 @@ def generate_cubed_sphere_points(
     return _generate_cubed_sphere_points(theta_longitude, theta_latitude, mask)
 
 
+@staticmethod
 def _generate_cubed_sphere_points(
     theta_longitude: float,
     theta_latitude: float,
@@ -175,11 +176,10 @@ def _generate_cubed_sphere_points(
         theta_longitude (float): The angular difference in longitude (degrees) between points.
         theta_latitude (float): The angular difference in latitude (degrees) between points.
         mask (Polygon or MultiPolygon):  An optional mask to constrain points
-                using WGS84 (EPSG:4326) geodetic coordinates in a
-                :class:`shapely.geometry.Polygon` or :class:`shapely.geometry.MultiPolygon`.
+                using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
-        GeoDataFrame: the data frame of generated points
+        geopandas.GeoDataFrame: the data frame of generated points
     """
 
     @njit

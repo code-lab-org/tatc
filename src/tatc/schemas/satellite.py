@@ -50,6 +50,12 @@ class Satellite(SpaceSystem):
     )
 
     def generate_members(self) -> List[Satellite]:
+        """
+        Generate space system member satellites (returns a list containing this satellite).
+
+        Returns:
+            List[Satellite]: the member satellites
+        """
         return [self]
 
 
@@ -101,7 +107,7 @@ class TrainConstellation(Satellite):
 
     def generate_members(self) -> List[Satellite]:
         """
-        Generate members of this constellation.
+        Generate space system member satellites.
 
         Returns:
             List[Satellite]: the member satellites
@@ -215,7 +221,7 @@ class WalkerConstellation(Satellite):
 
     def generate_members(self) -> List[Satellite]:
         """
-        Generate members of this constellation.
+        Generate space system member satellites.
 
         Returns:
             List[Satellite]: the member satellites

@@ -21,7 +21,7 @@ Source Installation
 -------------------
 Alternatively, TAT-C can be installed from a local editable source, (e.g., for modifying TAT-C functionality).
 
-Clone the project repository and create a new conda environment with the required dependencies :console:`conda env create -f environment.yml`.
+Clone the project repository and, from the project root directory, create a new conda environment with the required dependencies :console:`conda env create -f environment.yml`.
 
 Then, activate the tatc_env environment :console:`conda activate tatc_env`.
 
@@ -35,11 +35,17 @@ For faster installation, consider installing the mamba package :console:`conda i
 Additional Dependencies
 -----------------------
 
-Included examples (`docs/examples`) require additional dependencies which can be installed via :console:`conda install -c conda-forge geoplot contextily`.
+Included examples in the `docs/examples/` directory require additional Python libraries to work.
+Install required dependencies with :console:`conda install -c conda-forge geoplot contextily`.
 
 Recommended development dependencies can be installed with conda via :console:`conda install -c conda-forge coverage sphinx nbsphinx black` and with pip via :console:`pip install sphinx-rtd-theme`.
 
 Unit Tests
 ----------
 
-Run unit tests with :console:`python -m unittest` or :console:`coverage run -m unittest`.
+Run unit tests from the project root directory with :console:`python -m unittest` or :console:`coverage run -m unittest`.
+
+Documentation
+-------------
+
+Build the documentation from the `docs/` directory with :console:`make html`.

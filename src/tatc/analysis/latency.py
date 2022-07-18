@@ -27,9 +27,13 @@ from ..utils import (
 from ..constants import de421, timescale
 
 
+@staticmethod
 def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
     """
-    Get an empty downlinks data frame.
+    Gets an empty data frame for downlink results.
+
+    Returns:
+        geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
         "station": pd.Series([], dtype="str"),
@@ -42,6 +46,7 @@ def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
+@staticmethod
 def collect_downlinks(
     stations: Union[GroundStation, List[GroundStation]],
     satellite: Satellite,
@@ -49,19 +54,16 @@ def collect_downlinks(
     end: datetime,
 ) -> gpd.GeoDataFrame:
     """
-    Collect satellite downlink opportunities to a ground station of interest.
+    Collect satellite downlink opportunities to ground station(s) of interest.
 
-    :param stations: The ground station(s) of interest.
-    :type stations: :class:`tatc.schemas.GroundStation`
-    :param satellite: The satellite performing the downlink
-    :type satellite: :class:`tatc.schemas.Satellite`
-    :param start: The start of the mission window
-    :type start: :class:`datetime.datetime`
-    :param end: The end of the mission window
-    :type end: :class:`datetime.datetime`
-    :return: An instance of  :class:`geopandas.GeoDataFrame`
-        with all recorded downlink opportunities.
-    :rtype: :class:`geopandas.GeoDataFrame`
+    Args:
+        stations (GroundStation or typing.List[GroundStation]): The ground stations.
+        satellite (Satellite): The observing satellite.
+        start (datetime.datetime): Start of analysis period.
+        end (datetime.datetime): End of analysis period.
+
+    Returns:
+        geopandas.GeoDataFrame: The data frame of collected downlink results.
     """
     # convert orbit to tle
     orbit = satellite.orbit.to_tle()
@@ -99,9 +101,13 @@ def collect_downlinks(
     return gdf
 
 
+@staticmethod
 def _get_empty_latency_frame() -> gpd.GeoDataFrame:
     """
-    Get an empty latency data frame.
+    Gets an empty data frame for downlink results.
+
+    Returns:
+        geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
         "point_id": pd.Series([], dtype="int"),
@@ -116,19 +122,19 @@ def _get_empty_latency_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
+@staticmethod
 def compute_latencies(
     observations: gpd.GeoDataFrame, downlinks: gpd.GeoDataFrame
 ) -> gpd.GeoDataFrame:
     """
-    Collect data latencies between an observation and the first downlink opportunity.
+    Collect latencies between an observation and the first downlink opportunity.
 
-    :param observation: An instance of  :class:`geopandas.GeoDataFrame` containing
-        a single observation
-    :type observation: :class:`geopandas.GeoDataFrame`
-    :param downlinks: The full collection of downlink opportunities
-    :type downlinks: :class:`geopandas.GeoDataFrame`
-    :return: An instance of  :class:`geopandas.GeoDataFrame` with data latency information.
-    :rtype: :class:`geopandas.GeoDataFrame`
+    Args:
+        observations (geopandas.GeoDataFrame): The data frame of observations to downlink.
+        downlinks (geopandas.GeoDataFrame): The data frame of downlink opportunities.
+
+    Returns:
+        geopandas.GeoDataFrame: The data frame of collected latency results.
     """
     if observations.empty or downlinks.empty:
         return _get_empty_latency_frame()
@@ -158,9 +164,13 @@ def compute_latencies(
     return observations
 
 
+@staticmethod
 def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
     """
-    Get an empty reduce data frame.
+    Gets an empty data frame for reduced latency results.
+
+    Returns:
+        geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
         "point_id": pd.Series([], dtype="int"),
@@ -171,18 +181,22 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
-def reduce_latencies(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+@staticmethod
+def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
-    Reduce observation latencies between observations and first downlink opportunities.
+    Reduce observation latencies. Computes descriptive statistics for each
+    pair of observation and first downlink opportunities.
 
-    :param gdf: The aggregated latencies
-    :type gdf: :class:`geopandas.GeodataFrame`
-    :return: An instance of :class:`geopandas.GeoDataFrame`: The data frame
-        with reduced latencies.
-    :rtype: :class:`geopanadas.GeodataFrame`
+    Args:
+        latency_observations (geopandas.GeoDataFrame): The latency observations.
+
+    Returns:
+        geopandas.GeoDataFrame: The data frame with reduced latencies.
     """
-    if gdf.notna().empty:
+    if latency_observations.notna().empty:
         return _get_empty_reduce_frame()
+    # operate on a copy of the dataframe
+    gdf = latency_observations.copy()
     # convert latency to a numeric value before aggregation
     gdf.loc[gdf.latency.notna(), "latency"] = gdf.loc[
         gdf.latency.notna(), "latency"
