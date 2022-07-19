@@ -31,7 +31,6 @@ from ..utils import (
 from ..constants import timescale
 
 
-@staticmethod
 def _get_empty_orbit_track() -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for orbit track results.
@@ -50,7 +49,6 @@ def _get_empty_orbit_track() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
-@staticmethod
 def collect_orbit_track(
     satellite: Satellite,
     instrument: Instrument,
@@ -110,7 +108,6 @@ def collect_orbit_track(
     return gpd.clip(gdf, mask).reset_index(drop=True)
 
 
-@staticmethod
 def collect_ground_track(
     satellite: Satellite,
     instrument: Instrument,
@@ -199,7 +196,6 @@ def collect_ground_track(
     return gpd.clip(gdf, mask).reset_index(drop=True)
 
 
-@staticmethod
 def compute_ground_track(
     satellite: Satellite,
     instrument: Instrument,

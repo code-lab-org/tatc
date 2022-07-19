@@ -16,7 +16,6 @@ from ..constants import earth_mean_radius
 from ..utils import compute_number_samples, normalize_geometry
 
 
-@staticmethod
 def generate_fibonacci_lattice_points(
     distance: float, mask: Optional[Union[Polygon, MultiPolygon]] = None
 ) -> gpd.GeoDataFrame:
@@ -133,7 +132,6 @@ def generate_fibonacci_lattice_points(
     return gdf
 
 
-@staticmethod
 def generate_cubed_sphere_points(
     distance: float, mask: Optional[Union[Polygon, MultiPolygon]] = None
 ) -> gpd.GeoDataFrame:
@@ -159,7 +157,6 @@ def generate_cubed_sphere_points(
     return _generate_cubed_sphere_points(theta_longitude, theta_latitude, mask)
 
 
-@staticmethod
 def _generate_cubed_sphere_points(
     theta_longitude: float,
     theta_latitude: float,
