@@ -149,13 +149,13 @@ def collect_ground_track(
             # return the first code if exists; otherwise return a default value
             # 5041 is UPS North; 5042 is UPS South; 4087 is the default
             return (
-                results[0].code
+                "EPSG:" + results[0].code
                 if len(results) > 0
-                else "5041"
+                else "EPSG:5041"
                 if p.y > 84
-                else "5042"
+                else "EPSG:5042"
                 if p.y < -80
-                else "4087"
+                else "EPSG:4087"
             )
 
         utm_crs = gdf.geometry.apply(_get_utm_epsg_code)
