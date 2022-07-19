@@ -22,7 +22,10 @@ copyright = "2022, Stevens Institute of Technology"
 author = "Stevens Institute of Technology"
 
 # The full version, including alpha/beta/rc tags
-release = "3.1"
+
+import tatc
+
+release = tatc.__version__
 
 
 # -- General configuration ---------------------------------------------------
