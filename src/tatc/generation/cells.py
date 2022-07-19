@@ -15,7 +15,6 @@ from typing import Optional, Union
 from ..constants import earth_mean_radius
 
 
-@staticmethod
 def generate_cubed_sphere_cells(
     distance: float,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
@@ -43,7 +42,6 @@ def generate_cubed_sphere_cells(
     return _generate_cubed_sphere_cells(theta_longitude, theta_latitude, mask, strips)
 
 
-@staticmethod
 def _generate_cubed_sphere_cells(
     theta_longitude: float,
     theta_latitude: float,

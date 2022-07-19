@@ -27,7 +27,6 @@ from ..utils import (
 from ..constants import de421, timescale
 
 
-@staticmethod
 def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for downlink results.
@@ -46,7 +45,6 @@ def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
-@staticmethod
 def collect_downlinks(
     stations: Union[GroundStation, List[GroundStation]],
     satellite: Satellite,
@@ -101,7 +99,6 @@ def collect_downlinks(
     return gdf
 
 
-@staticmethod
 def _get_empty_latency_frame() -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for downlink results.
@@ -122,7 +119,6 @@ def _get_empty_latency_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
-@staticmethod
 def compute_latencies(
     observations: gpd.GeoDataFrame, downlinks: gpd.GeoDataFrame
 ) -> gpd.GeoDataFrame:
@@ -164,7 +160,6 @@ def compute_latencies(
     return observations
 
 
-@staticmethod
 def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for reduced latency results.
@@ -181,7 +176,6 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
-@staticmethod
 def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     Reduce observation latencies. Computes descriptive statistics for each

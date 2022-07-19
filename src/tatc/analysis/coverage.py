@@ -26,7 +26,6 @@ from ..utils import (
 from ..constants import de421, timescale
 
 
-@staticmethod
 def _get_visible_interval_series(
     point: GeographicPosition,
     satellite: EarthSatellite,
@@ -114,7 +113,6 @@ def _get_visible_interval_series(
     return pd.Series(obs_periods, dtype="interval")
 
 
-@staticmethod
 def _get_satellite_altaz_series(
     observations: gpd.GeoDataFrame, satellite: EarthSatellite
 ) -> pd.Series:
@@ -137,7 +135,6 @@ def _get_satellite_altaz_series(
     return pd.Series(sat_altaz, dtype="object")
 
 
-@staticmethod
 def _get_satellite_sunlit_series(
     observations: gpd.GeoDataFrame, satellite: EarthSatellite
 ) -> pd.Series:
@@ -158,7 +155,6 @@ def _get_satellite_sunlit_series(
     return pd.Series(sat_sunlit, dtype="bool")
 
 
-@staticmethod
 def _get_solar_altaz_series(observations: gpd.GeoDataFrame) -> pd.Series:
     """
     Get a series with the solar altitude/azimuth for each observation.
@@ -180,7 +176,6 @@ def _get_solar_altaz_series(observations: gpd.GeoDataFrame) -> pd.Series:
     return pd.Series(sun_altaz, dtype="object")
 
 
-@staticmethod
 def _get_solar_time_series(observations: gpd.GeoDataFrame) -> pd.Series:
     """
     Get a series with the local solar time for each observation.
@@ -204,7 +199,6 @@ def _get_solar_time_series(observations: gpd.GeoDataFrame) -> pd.Series:
     return pd.Series(solar_time, dtype="float")
 
 
-@staticmethod
 def _get_access_series(observations: gpd.GeoDataFrame) -> pd.Series:
     """
     Get a series with the access time for each observation.
@@ -219,7 +213,6 @@ def _get_access_series(observations: gpd.GeoDataFrame) -> pd.Series:
     return observations["end"] - observations["start"]
 
 
-@staticmethod
 def _get_revisit_series(observations: gpd.GeoDataFrame) -> pd.Series:
     """
     Get a series with the revisit times for each observation.
@@ -234,7 +227,6 @@ def _get_revisit_series(observations: gpd.GeoDataFrame) -> pd.Series:
     return observations["start"] - observations["end"].shift()
 
 
-@staticmethod
 def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for coverage analysis results.
@@ -266,7 +258,6 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
-@staticmethod
 def collect_observations(
     point: Point,
     satellite: Satellite,
@@ -346,7 +337,6 @@ def collect_observations(
     return gdf
 
 
-@staticmethod
 def collect_multi_observations(
     point: Point,
     satellites: Union[Satellite, List[Satellite]],
@@ -396,7 +386,6 @@ def _get_empty_aggregate_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
-@staticmethod
 def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     Aggregate constellation observations. Interleaves observations by multiple
@@ -439,7 +428,6 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return pd.concat(gdfs).reset_index(drop=True)
 
 
-@staticmethod
 def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for reduced coverage analysis results.
@@ -457,7 +445,6 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
-@staticmethod
 def reduce_observations(aggregated_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     Reduce constellation observations. Computes descriptive statistics for each
