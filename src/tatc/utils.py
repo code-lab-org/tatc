@@ -16,7 +16,7 @@ from . import constants
 
 
 @njit
-def mean_anomaly_to_true_anomaly(mean_anomaly, eccentricity=0):
+def mean_anomaly_to_true_anomaly(mean_anomaly: float, eccentricity: float = 0) -> float:
     """
     Converts mean anomaly to true anomaly.
 
@@ -39,7 +39,7 @@ def mean_anomaly_to_true_anomaly(mean_anomaly, eccentricity=0):
 
 
 @njit
-def true_anomaly_to_mean_anomaly(true_anomaly, eccentricity=0):
+def true_anomaly_to_mean_anomaly(true_anomaly: float, eccentricity: float = 0) -> float:
     """
     Converts true anomaly to mean anomaly.
 
@@ -63,7 +63,7 @@ def true_anomaly_to_mean_anomaly(true_anomaly, eccentricity=0):
 
 
 @njit
-def compute_number_samples(distance):
+def compute_number_samples(distance: float) -> float:
     """
     Compute the number of global samples required to achieve a typical
     sample distance (meters) assuming equal spacing.
@@ -88,63 +88,78 @@ def compute_number_samples(distance):
 
 
 @njit
-def swath_width_to_field_of_regard(height, swath_width):
+def swath_width_to_field_of_regard(
+    altitude: float, swath_width: float, elevation: float = 0
+) -> float:
     """
     Fast conversion from swath width to field of regard.
 
     Args:
-        height (float): Height (meters) above surface of the observation.
-        swath_width (float): Observation diameter (meters).
+        altitude (float): Altitude (meters) above WGS 84 datum for the observing instrument.
+        swath_width (float): Observation diameter (meters) at specified elevation.
+        elevation (float): Elevation (meters) above WGS 84 datum to observe.
 
     Returns:
         float: The field of regard (degrees).
     """
     # rho is the angular radius of the earth viewed by the satellite
-    sin_rho = constants.earth_mean_radius / (constants.earth_mean_radius + height)
+    sin_rho = (constants.earth_mean_radius + elevation) / (
+        constants.earth_mean_radius + altitude
+    )
     # lambda is the Earth central angle
-    sin_lambda = np.sin((swath_width / 2) / constants.earth_mean_radius)
+    sin_lambda = np.sin((swath_width / 2) / (constants.earth_mean_radius + elevation))
     # eta is the angular radius of the region viewable by the satellite
     tan_eta = sin_rho * sin_lambda / (1 - sin_rho * np.cos(np.arcsin(sin_lambda)))
     return np.degrees(2 * np.arctan(tan_eta))
 
 
 @njit
-def field_of_regard_to_swath_width(height, field_of_regard):
+def field_of_regard_to_swath_width(
+    altitude: float, field_of_regard: float, elevation: float = 0
+) -> float:
     """
     Fast conversion from field of regard to swath width.
 
     Args:
-        height (float): Height (meters) above surface of the observation.
+        altitude (float): Altitude (meters) above WGS 84 datum for the observing instrument.
         field_of_regard (float): Angular width (degrees) of observation.
+        elevation (float): Elevation (meters) above WGS 84 datum to observe.
 
     Returns:
-        float: The observation diameter (meters).
+        float: The observation diameter (meters) at the specified elevation.
     """
     # rho is the angular radius of the earth viewed by the satellite
-    sin_rho = constants.earth_mean_radius / (constants.earth_mean_radius + height)
+    sin_rho = (constants.earth_mean_radius + elevation) / (
+        constants.earth_mean_radius + altitude
+    )
     # eta is the angular radius of the region viewable by the satellite
     sin_eta = min(sin_rho, np.sin(np.radians(field_of_regard) / 2))
     # epsilon is the min satellite elevation for obs (grazing angle)
     cos_epsilon = sin_eta / sin_rho
     # lambda is the Earth central angle
     _lambda = np.pi / 2 - np.arcsin(sin_eta) - np.arccos(cos_epsilon)
-    return 2 * constants.earth_mean_radius * _lambda
+    return 2 * (constants.earth_mean_radius + elevation) * _lambda
 
 
 @njit
-def compute_field_of_regard(height, min_elevation_angle):
+def compute_field_of_regard(
+    altitude: float, min_elevation_angle: float, elevation: float = 0
+) -> float:
     """
     Fast computation of field of regard for observation with a minimum altitude angle.
 
     Args:
-        height (float): Height (meters) above surface of the observation.
+        altitude (float): Altitude (meters) above WGS 84 datum for the observing instrument.
         min_elevation_angle (float): The minimum elevation angle (degrees) for observation.
+        elevation (float): Elevation (meters) above WGS 84 datum to observe.
 
     Returns:
         float: Angular width (degrees) of observation.
     """
     # rho is the angular radius of the earth viewed by the satellite
-    sin_rho = constants.earth_mean_radius / (constants.earth_mean_radius + height)
+    sin_rho = (constants.earth_mean_radius + elevation) / (
+        constants.earth_mean_radius + altitude
+    )
     # epsilon is the min satellite elevation for obs (grazing angle)
     cos_epsilon = np.cos(np.radians(min_elevation_angle))
     # eta is the angular radius of the region viewable by the satellite
@@ -153,13 +168,16 @@ def compute_field_of_regard(height, min_elevation_angle):
 
 
 @njit
-def compute_min_elevation_angle(height, field_of_regard):
+def compute_min_elevation_angle(
+    altitude: float, field_of_regard: float, elevation: float = 0
+) -> float:
     """
     Fast computation of minimum elevation angle required to observe a point.
 
     Args:
-        height (float): Height (meters) above surface of the observation.
+        altitude (float): Altitude (meters) above WGS 84 datum for the observing instrument.
         field_of_regard (float): Angular width (degrees) of observation.
+        elevation (float): Elevation (meters) above WGS 84 datum to observe.
 
     Returns:
         float: The minimum elevation angle (degrees) for observation.
@@ -167,7 +185,9 @@ def compute_min_elevation_angle(height, field_of_regard):
     # eta is the angular radius of the region viewable by the satellite
     sin_eta = np.sin(np.radians(field_of_regard) / 2)
     # rho is the angular radius of the earth viewed by the satellite
-    sin_rho = constants.earth_mean_radius / (constants.earth_mean_radius + height)
+    sin_rho = (constants.earth_mean_radius + elevation) / (
+        constants.earth_mean_radius + altitude
+    )
     # epsilon is the min satellite elevation for obs (grazing angle)
     cos_epsilon = sin_eta / sin_rho
     if cos_epsilon > 1:
@@ -176,36 +196,36 @@ def compute_min_elevation_angle(height, field_of_regard):
 
 
 @njit
-def compute_orbit_period(height):
+def compute_orbit_period(altitude: float) -> float:
     """
     Fast computation of approximate orbital period.
 
     Args:
-        height (float): Height (meters) above surface of the observation.
+        altitude (float): Altitude (meters) above WGS 84 datum for the observing instrument.
 
     Returns:
         float: The orbital period (seconds).
     """
-    semimajor_axis = constants.earth_mean_radius + height
+    semimajor_axis = constants.earth_mean_radius + altitude
     mean_motion_rad_s = np.sqrt(constants.earth_mu / semimajor_axis**3)
     return 2 * np.pi / mean_motion_rad_s
 
 
 @njit
-def compute_max_access_time(height, min_elevation_angle):
+def compute_max_access_time(altitude: float, min_elevation_angle: float) -> float:
     """
     Fast computation of maximum access time to observe a point.
 
     Args:
-        height (float): Height (meters) above surface of the observation.
+        altitude (float): Altitude (meters) above WGS 84 datum for the observing instrument.
         min_elevation_angle (float): Minimum elevation angle (degrees) for observation.
 
     Returns:
         float: The maximum access time (seconds) for observation.
     """
-    orbital_distance = height * (np.pi - 2 * np.radians(min_elevation_angle))
+    orbital_distance = altitude * (np.pi - 2 * np.radians(min_elevation_angle))
     orbital_velocity = np.sqrt(
-        constants.earth_mu / (constants.earth_mean_radius + height)
+        constants.earth_mu / (constants.earth_mean_radius + altitude)
     )
     return orbital_distance / orbital_velocity
 

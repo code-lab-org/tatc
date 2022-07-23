@@ -46,7 +46,7 @@ class TestPointGenerators(unittest.TestCase):
     def test_generate_fibonacci_lattice_points_mask_count(self):
         distance = 2000000
         mask = Polygon([[-100, 25], [-50, 25], [-50, -25], [-100, -25], [-100, 25]])
-        points = generate_fibonacci_lattice_points(distance, mask)
+        points = generate_fibonacci_lattice_points(distance, mask=mask)
         num_samples = utils.compute_number_samples(distance)
         transformer = pyproj.Transformer.from_crs(
             pyproj.CRS("EPSG:4326"), pyproj.CRS("EPSG:32663"), always_xy=True
@@ -61,13 +61,13 @@ class TestPointGenerators(unittest.TestCase):
     def test_generate_fibonacci_lattice_points_mask_contains(self):
         distance = 2000000
         mask = Polygon([[-100, 25], [-50, 25], [-50, -25], [-100, -25], [-100, 25]])
-        points = generate_fibonacci_lattice_points(distance, mask)
+        points = generate_fibonacci_lattice_points(distance, mask=mask)
         points.apply(lambda r: self.assertTrue(mask.contains(r.geometry)), axis=1)
 
     def test_generate_fibonacci_lattice_points_mask_distance(self):
         distance = 2000000
         mask = Polygon([[-100, 25], [-50, 25], [-50, -25], [-100, -25], [-100, 25]])
-        points = generate_fibonacci_lattice_points(distance, mask)
+        points = generate_fibonacci_lattice_points(distance, mask=mask)
         transformer = pyproj.Transformer.from_crs(
             pyproj.CRS("EPSG:4326"), pyproj.CRS("EPSG:32663"), always_xy=True
         ).transform
@@ -107,13 +107,13 @@ class TestPointGenerators(unittest.TestCase):
     def test_generate_cubed_sphere_points_mask_contains(self):
         distance = 2000000
         mask = Polygon([[-100, 25], [-50, 25], [-50, -25], [-100, -25], [-100, 25]])
-        points = generate_cubed_sphere_points(distance, mask)
+        points = generate_cubed_sphere_points(distance, mask=mask)
         points.apply(lambda r: self.assertTrue(mask.contains(r.geometry)), axis=1)
 
     def test_generate_cubed_sphere_points_mask_distance(self):
         distance = 2000000
         mask = Polygon([[-100, 25], [-50, 25], [-50, -25], [-100, -25], [-100, 25]])
-        points = generate_cubed_sphere_points(distance, mask)
+        points = generate_cubed_sphere_points(distance, mask=mask)
         transformer = pyproj.Transformer.from_crs(
             pyproj.CRS("EPSG:4326"), pyproj.CRS("EPSG:32663"), always_xy=True
         ).transform
@@ -135,23 +135,23 @@ class TestPointGenerators(unittest.TestCase):
     def test_generate_fibonacci_lattice_points_mask_small(self):
         distance = 2000000
         mask = Polygon([[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]])
-        points = generate_fibonacci_lattice_points(distance, mask)
+        points = generate_fibonacci_lattice_points(distance, mask=mask)
         self.assertEqual(len(points), 0)
 
     def test_generate_cubed_sphere_points_mask_small(self):
         distance = 2000000
         mask = Polygon([[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]])
-        points = generate_cubed_sphere_points(distance, mask)
+        points = generate_cubed_sphere_points(distance, mask=mask)
         self.assertEqual(len(points), 0)
 
     def test_generate_fibonacci_lattice_points_mask_invalid(self):
         distance = 2000000
         mask = Polygon([[-100, 25], [-50, 25], [-100, -25], [-50, -25], [-100, 25]])
         with self.assertRaises(ValueError):
-            generate_fibonacci_lattice_points(distance, mask)
+            generate_fibonacci_lattice_points(distance, mask=mask)
 
     def test_generate_cubed_sphere_points_mask_invalid(self):
         distance = 2000000
         mask = Polygon([[-100, 25], [-50, 25], [-100, -25], [-50, -25], [-100, 25]])
         with self.assertRaises(ValueError):
-            generate_cubed_sphere_points(distance, mask)
+            generate_cubed_sphere_points(distance, mask=mask)

@@ -11,37 +11,53 @@ from datetime import timedelta
 
 class Point(BaseModel):
     """
-    Representation of a geodetic point in the WGS 84 coordinate system.
+    Geodetic point in the WGS 84 coordinate system.
     """
 
     id: NonNegativeInt = Field(..., description="Unique point identifier.")
     latitude: float = Field(
-        ..., description="Latitude (decimal degrees).", ge=-90, le=90, example=40.74259
+        ...,
+        description="Latitude (decimal degrees) in the WGS 84 coordinate system.",
+        ge=-90,
+        le=90,
+        example=40.74259,
     )
     longitude: float = Field(
         ...,
-        description="Longitude (decimal degrees).",
+        description="Longitude (decimal degrees) in the WGS 84 coordinate system.",
         ge=-180,
         le=180,
         example=-74.02686,
+    )
+    elevation: float = Field(
+        0,
+        description="Elevation (meters) above datum in the WGS 84 coordinate system.",
     )
 
 
 class GroundStation(BaseModel):
     """
-    Representation of a ground station in the WGS 84 coordinate system.
+    Ground station in the WGS 84 coordinate system.
     """
 
     name: str = Field(..., description="Ground station name", example="station 1")
     latitude: float = Field(
-        ..., description="Latitude (decimal degrees).", ge=-90, le=90, example=40.74259
+        ...,
+        description="Latitude (decimal degrees) in the WGS 84 coordinate system.",
+        ge=-90,
+        le=90,
+        example=40.74259,
     )
     longitude: float = Field(
         ...,
-        description="Longitude (decimal degrees).",
+        description="Longitude (decimal degrees) in the WGS 84 coordinate system.",
         ge=-180,
         le=180,
         example=-74.02686,
+    )
+    elevation: float = Field(
+        0,
+        description="Elevation (meters) above datum in the WGS 84 coordinate system.",
     )
     min_elevation_angle: float = Field(
         0,

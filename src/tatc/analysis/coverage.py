@@ -127,7 +127,7 @@ def _get_satellite_altaz_series(
         pandas.Series: Series of altitude-azimuth objects associated with observations.
     """
     sat_altaz = observations.apply(
-        lambda r: (satellite - wgs84.latlon(r.geometry.y, r.geometry.x))
+        lambda r: (satellite - wgs84.latlon(r.geometry.y, r.geometry.x, r.geometry.z))
         .at(timescale.from_datetime(r.epoch))
         .altaz(),
         axis=1,
@@ -166,7 +166,9 @@ def _get_solar_altaz_series(observations: gpd.GeoDataFrame) -> pd.Series:
         pandas.Series: Series of altitude-azimuth objects associated with observations.
     """
     sun_altaz = observations.apply(
-        lambda r: (de421["earth"] + wgs84.latlon(r.geometry.y, r.geometry.x))
+        lambda r: (
+            de421["earth"] + wgs84.latlon(r.geometry.y, r.geometry.x, r.geometry.z)
+        )
         .at(timescale.from_datetime(r.epoch))
         .observe(de421["sun"])
         .apparent()
@@ -187,7 +189,9 @@ def _get_solar_time_series(observations: gpd.GeoDataFrame) -> pd.Series:
         pandas.Series: Series of floats (local solar time in hours) associated with observations.
     """
     solar_time = observations.apply(
-        lambda r: (de421["earth"] + wgs84.latlon(r.geometry.y, r.geometry.x))
+        lambda r: (
+            de421["earth"] + wgs84.latlon(r.geometry.y, r.geometry.x, r.geometry.z)
+        )
         .at(timescale.from_datetime(r.epoch))
         .observe(de421["sun"])
         .apparent()
@@ -281,7 +285,7 @@ def collect_observations(
         geopandas.GeoDataFrame: The data frame with recorded observations.
     """
     # build a topocentric point at the designated geodetic point
-    topos = wgs84.latlon(point.latitude, point.longitude)
+    topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
     # convert orbit to tle
     orbit = satellite.orbit.to_tle()
     # construct a satellite for propagation
@@ -298,7 +302,7 @@ def collect_observations(
     records = [
         {
             "point_id": point.id,
-            "geometry": geo.Point(point.longitude, point.latitude),
+            "geometry": geo.Point(point.longitude, point.latitude, point.elevation),
             "satellite": satellite.name,
             "instrument": instrument.name,
             "start": period.left,
