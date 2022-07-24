@@ -71,7 +71,9 @@ def collect_downlinks(
     records = [
         {
             "station": station.name,
-            "geometry": geo.Point(station.longitude, station.latitude),
+            "geometry": geo.Point(
+                station.longitude, station.latitude, station.elevation
+            ),
             "satellite": satellite.name,
             "start": period.left,
             "end": period.right,
@@ -79,7 +81,7 @@ def collect_downlinks(
         }
         for station in (stations if type(stations) == list else [stations])
         for period in _get_visible_interval_series(
-            wgs84.latlon(station.latitude, station.longitude),
+            wgs84.latlon(station.latitude, station.longitude, station.elevation),
             sat,
             station.min_elevation_angle,
             start,
