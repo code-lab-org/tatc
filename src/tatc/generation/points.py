@@ -91,7 +91,7 @@ def generate_fibonacci_lattice_points(
     # enumerate the indices within the bounding box region
     if mask is None:
         # if no mask, enumerate the indices for global coverage
-        indices = np.arange(samples)
+        indices = range(samples)
     else:
         indices = [
             i
