@@ -53,6 +53,7 @@ def collect_orbit_track(
     satellite: Satellite,
     instrument: Instrument,
     times: List[datetime],
+    elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
 ) -> gpd.GeoDataFrame:
     """
@@ -62,6 +63,8 @@ def collect_orbit_track(
         satellite (Satellite): The observing satellite.
         instrument (Instrument): The observing instrument.
         times (typing.List[datetime.datetime]): The list of times to sample.
+        elevation (float): The elevation (meters) above the datum in the
+                WGS 84 coordinate system for which to calculate swath width.
         mask (Polygon or MultiPolygon): An optional mask to constrain results.
 
     Returns:
@@ -96,6 +99,7 @@ def collect_orbit_track(
             "swath_width": field_of_regard_to_swath_width(
                 subpoints[i].elevation.m,
                 instrument.field_of_regard,
+                elevation,
             ),
             "valid_obs": valid_obs[i],
             "geometry": points[i],
@@ -112,6 +116,7 @@ def collect_ground_track(
     satellite: Satellite,
     instrument: Instrument,
     times: List[datetime],
+    elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     crs: str = "EPSG:4087",
 ) -> gpd.GeoDataFrame:
@@ -122,6 +127,8 @@ def collect_ground_track(
         satellite (Satellite): The observing satellite.
         instrument (Instrument): The observing instrument.
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
+        elevation (float): The elevation (meters) above the datum in the
+                WGS 84 coordinate system for which to calculate ground track.
         mask (Polygon or MultiPolygon): An optional mask to constrain results.
         crs (str): The coordinate reference system (CRS) in which to compute
                 distance (default: World Equidistant Cylindrical `"EPSG:4087"`).
@@ -133,11 +140,11 @@ def collect_ground_track(
         geopandas.GeoDataFrame: The data frame of collected ground track results.
     """
     # first, compute the orbit track of the satellite
-    gdf = collect_orbit_track(satellite, instrument, times, mask)
+    gdf = collect_orbit_track(satellite, instrument, times, elevation, mask)
     if gdf.empty:
         return gdf
-    # project points to zero elevation
-    gdf.geometry = gdf.geometry.apply(lambda p: Point(p.x, p.y))
+    # project points to specified elevation
+    gdf.geometry = gdf.geometry.apply(lambda p: Point(p.x, p.y, elevation))
     # at each point, draw a buffer equivalent to the swath radius
     if crs == "utm":
         # do the swath projection in the matching utm zone
@@ -188,6 +195,13 @@ def collect_ground_track(
             ),
             axis=1,
         )
+    # add elevation to all polygon coordinates (otherwise lost during buffering)
+    gdf.geometry = gdf.geometry.apply(
+        lambda g: Polygon(
+            [(p[0], p[1], elevation) for p in g.exterior.coords],
+            [(p[0], p[1], elevation) for i in g.interiors for p in i.coords],
+        )
+    )
     # split polygons to wrap over the anti-meridian and poles
     gdf.geometry = gdf.apply(lambda r: split_polygon(r.geometry), axis=1)
 
@@ -200,6 +214,7 @@ def compute_ground_track(
     satellite: Satellite,
     instrument: Instrument,
     times: List[datetime],
+    elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     crs: str = "EPSG:4087",
     method: str = "point",
@@ -211,6 +226,8 @@ def compute_ground_track(
         satellite (Satellite): The observing satellite.
         instrument (Instrument): The observing instrument.
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
+        elevation (float): The elevation (meters) above the datum in the
+                WGS 84 coordinate system for which to calculate ground track.
         mask (Polygon or MultiPolygon): An optional mask to constrain results.
         crs (str): The coordinate reference system (CRS) in which to compute
                 distance (default: World Equidistant Cylindrical `"EPSG:4087"`).
@@ -224,15 +241,15 @@ def compute_ground_track(
         GeoDataFrame: The data frame of aggregated ground track results.
     """
     if method == "point":
-        track = collect_ground_track(satellite, instrument, times, mask, crs)
+        track = collect_ground_track(satellite, instrument, times, elevation, mask, crs)
         # filter to valid observations and dissolve
         return track[track.valid_obs].dissolve()
     elif method == "line":
-        track = collect_orbit_track(satellite, instrument, times, mask)
+        track = collect_orbit_track(satellite, instrument, times, elevation, mask)
         # filter to valid observations
         track = track[track.valid_obs].reset_index(drop=True)
-        # project points to zero elevation
-        points = track.geometry.apply(lambda p: Point(p.x, p.y))
+        # project points to specified elevation
+        points = track.geometry.apply(lambda p: Point(p.x, p.y, elevation))
         # extract longitudes
         lons = track.geometry.apply(lambda p: p.x)
         if np.any(np.diff(np.sign(lons))):
@@ -260,6 +277,14 @@ def compute_ground_track(
                 transform(to_crs, segment).buffer(track.swath_width.mean() / 2),
             )
             for segment in segments
+        ]
+        # add elevation to all polygon coordinates (otherwise lost during buffering)
+        polygons = [
+            Polygon(
+                [(p[0], p[1], elevation) for p in g.exterior.coords],
+                [(p[0], p[1], elevation) for i in g.interiors for p in i.coords],
+            )
+            for g in polygons
         ]
         # split polygons if necessary
         polygons = list(map(split_polygon, polygons))

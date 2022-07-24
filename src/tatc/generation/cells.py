@@ -8,7 +8,7 @@ Methods to generate geospatial cells to aggregate data.
 import numpy as np
 import geopandas as gpd
 from numba import njit
-from shapely.geometry import box, Polygon, MultiPolygon
+from shapely.geometry import Polygon, MultiPolygon
 from shapely.errors import TopologicalError
 from typing import Optional, Union
 
@@ -17,6 +17,7 @@ from ..constants import earth_mean_radius
 
 def generate_cubed_sphere_cells(
     distance: float,
+    elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     strips: str = None,
 ) -> gpd.GeoDataFrame:
@@ -29,6 +30,7 @@ def generate_cubed_sphere_cells(
 
     Args:
         distance (float):  The typical surface distance (meters) between points.
+        elevation (float): The elevation (meters) above the datum in the WGS 84 coordinate system.
         mask (Polygon or MultiPolygon):  An optional mask to constrain cells
                 using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
         strips (str): Option to generate strip-cells along latitude (`"lat"`), longitude (`"lon"`), or none (`None`).
@@ -39,12 +41,15 @@ def generate_cubed_sphere_cells(
     # compute the angular disance of each sample (assuming sphere)
     theta_longitude = np.degrees(distance / earth_mean_radius)
     theta_latitude = np.degrees(distance / earth_mean_radius)
-    return _generate_cubed_sphere_cells(theta_longitude, theta_latitude, mask, strips)
+    return _generate_cubed_sphere_cells(
+        theta_longitude, theta_latitude, elevation, mask, strips
+    )
 
 
 def _generate_cubed_sphere_cells(
     theta_longitude: float,
     theta_latitude: float,
+    elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     strips: str = None,
 ) -> gpd.GeoDataFrame:
@@ -58,6 +63,7 @@ def _generate_cubed_sphere_cells(
     Args:
         theta_longitude (float): The angular difference in longitude (degrees) between cell centroids.
         theta_latitude (float): The angular difference in latitude (degrees) between cell centroids.
+        elevation (float): The elevation (meters) above the datum in the WGS 84 coordinate system.
         mask (Polygon or MultiPolygon):  An optional mask to constrain cells
                 using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
         strips (str): Option to generate strip-cells along latitude (`"lat"`), longitude (`"lon"`), or none (`None`).
@@ -133,13 +139,54 @@ def _generate_cubed_sphere_cells(
                 _compute_id(i, j, theta_longitude, theta_latitude) for (i, j) in indices
             ],
             "geometry": [
-                box(
-                    min_longitude if strips == "lat" else -180 + i * theta_longitude,
-                    min_latitude if strips == "lon" else -90 + j * theta_latitude,
-                    max_longitude
-                    if strips == "lat"
-                    else -180 + (i + 1) * theta_longitude,
-                    max_latitude if strips == "lon" else -90 + (j + 1) * theta_latitude,
+                Polygon(
+                    [
+                        (
+                            max_longitude
+                            if strips == "lat"
+                            else -180 + (i + 1) * theta_longitude,
+                            min_latitude
+                            if strips == "lon"
+                            else -90 + j * theta_latitude,
+                            elevation,
+                        ),
+                        (
+                            max_longitude
+                            if strips == "lat"
+                            else -180 + (i + 1) * theta_longitude,
+                            max_latitude
+                            if strips == "lon"
+                            else -90 + (j + 1) * theta_latitude,
+                            elevation,
+                        ),
+                        (
+                            min_longitude
+                            if strips == "lat"
+                            else -180 + i * theta_longitude,
+                            max_latitude
+                            if strips == "lon"
+                            else -90 + (j + 1) * theta_latitude,
+                            elevation,
+                        ),
+                        (
+                            min_longitude
+                            if strips == "lat"
+                            else -180 + i * theta_longitude,
+                            min_latitude
+                            if strips == "lon"
+                            else -90 + j * theta_latitude,
+                            elevation,
+                        ),
+                        (
+                            max_longitude
+                            if strips == "lat"
+                            else -180 + (i + 1) * theta_longitude,
+                            min_latitude
+                            if strips == "lon"
+                            else -90 + j * theta_latitude,
+                            elevation,
+                        ),
+                    ]
                 )
                 for (i, j) in indices
             ],

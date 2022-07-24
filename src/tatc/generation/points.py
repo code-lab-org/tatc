@@ -17,7 +17,9 @@ from ..utils import compute_number_samples, normalize_geometry
 
 
 def generate_fibonacci_lattice_points(
-    distance: float, mask: Optional[Union[Polygon, MultiPolygon]] = None
+    distance: float,
+    elevation: float = 0,
+    mask: Optional[Union[Polygon, MultiPolygon]] = None,
 ) -> gpd.GeoDataFrame:
     """
     Generates geodetic points following a Fibonacci lattice.
@@ -32,6 +34,7 @@ def generate_fibonacci_lattice_points(
 
     Args:
         distance (float): The typical surface distance (meters) between points.
+        elevation (float): The elevation (meters) above the datum in the WGS 84 coordinate system.
         mask (Polygon or MultiPolygon):  An optional mask to constrain points
                 using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
@@ -119,6 +122,7 @@ def generate_fibonacci_lattice_points(
                     and _compute_longitude(i, samples) < 0
                     else _compute_longitude(i, samples),
                     _compute_latitude(i, samples),
+                    elevation,
                 )
                 for i in indices
             ],
@@ -133,7 +137,9 @@ def generate_fibonacci_lattice_points(
 
 
 def generate_cubed_sphere_points(
-    distance: float, mask: Optional[Union[Polygon, MultiPolygon]] = None
+    distance: float,
+    elevation: float = 0,
+    mask: Optional[Union[Polygon, MultiPolygon]] = None,
 ) -> gpd.GeoDataFrame:
     """
     Generates geodetic points at the centroid of regular cubed-sphere grid
@@ -145,6 +151,7 @@ def generate_cubed_sphere_points(
 
     Args:
         distance (float):  The typical surface distance (meters) between points.
+        elevation (float): The elevation (meters) above the datum in the WGS 84 coordinate system.
         mask (Polygon or MultiPolygon):  An optional mask to constrain points
                 using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
@@ -154,12 +161,15 @@ def generate_cubed_sphere_points(
     # compute the angular disance of each sample (assuming sphere)
     theta_longitude = np.degrees(distance / earth_mean_radius)
     theta_latitude = np.degrees(distance / earth_mean_radius)
-    return _generate_cubed_sphere_points(theta_longitude, theta_latitude, mask)
+    return _generate_cubed_sphere_points(
+        theta_longitude, theta_latitude, elevation, mask
+    )
 
 
 def _generate_cubed_sphere_points(
     theta_longitude: float,
     theta_latitude: float,
+    elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
 ) -> gpd.GeoDataFrame:
     """
@@ -172,6 +182,7 @@ def _generate_cubed_sphere_points(
     Args:
         theta_longitude (float): The angular difference in longitude (degrees) between points.
         theta_latitude (float): The angular difference in latitude (degrees) between points.
+        elevation (float): The elevation (meters) above the datum in the WGS 84 coordinate system.
         mask (Polygon or MultiPolygon):  An optional mask to constrain points
                 using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
@@ -227,7 +238,9 @@ def _generate_cubed_sphere_points(
             ],
             "geometry": [
                 Point(
-                    -180 + (i + 0.5) * theta_longitude, -90 + (j + 0.5) * theta_latitude
+                    -180 + (i + 0.5) * theta_longitude,
+                    -90 + (j + 0.5) * theta_latitude,
+                    elevation,
                 )
                 for (i, j) in indices
             ],
