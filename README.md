@@ -17,7 +17,7 @@ conda install tatc -c conda-forge
 ```
 Then, TAT-C is available for use in any Python script my importing:
 ```python
-import python
+import tatc
 ```
 
 Alternatively, to run TAT-C from a local editable source, (e.g., for modifying
