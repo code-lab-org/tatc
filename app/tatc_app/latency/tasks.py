@@ -44,7 +44,7 @@ def collect_downlinks_task(stations: list, satellite: str, start: str, end: str)
 
 @app.task
 def run_latency_analysis_task(
-    downlinks: str, point: str, satellites: str, start: str, end: str
+    downlinks: str, point: str, satellites: list, start: str, end: str
 ) -> str:
     """
     Task to run latency analysis.
