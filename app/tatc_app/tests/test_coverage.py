@@ -64,12 +64,8 @@ class CoverageAnalysisTestCase(TatcTestCase):
             json.loads(json.dumps(response.json().get("points"))), crs="EPSG:4326"
         )
         gdf_points = gdf_points.reindex(columns=sorted(gdf_points.columns))
-        gdf_points["revisit"] = gdf_points["revisit"].apply(
-            lambda t: timedelta(seconds=t) if pd.notna(t) else pd.NaT
-        )
-        gdf_points["access"] = gdf_points["access"].apply(
-            lambda t: timedelta(seconds=t)
-        )
+        gdf_points["revisit"] = gdf_points["revisit"].astype("timedelta64[ns]")
+        gdf_points["access"] = gdf_points["access"].astype("timedelta64[ns]")
         tatc_results_points = reduce_observations(
             pd.concat(
                 [
@@ -96,10 +92,8 @@ class CoverageAnalysisTestCase(TatcTestCase):
             json.loads(json.dumps(response.json().get("cells"))), crs="EPSG:4326"
         )
         gdf_cells = gdf_cells.reindex(columns=sorted(gdf_cells.columns))
-        gdf_cells["revisit"] = gdf_cells["revisit"].apply(
-            lambda t: timedelta(seconds=t) if pd.notna(t) else pd.NaT
-        )
-        gdf_cells["access"] = gdf_cells["access"].apply(lambda t: timedelta(seconds=t))
+        gdf_cells["revisit"] = gdf_cells["revisit"].astype("timedelta64[ns]")
+        gdf_cells["access"] = gdf_cells["access"].astype("timedelta64[ns]")
         tatc_results_cells = grid_observations(
             tatc_results_points, generate_cubed_sphere_cells(5000e3)
         )

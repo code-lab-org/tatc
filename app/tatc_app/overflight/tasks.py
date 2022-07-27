@@ -59,15 +59,15 @@ def aggregate_observations_task(observations_results):
         json.loads(observations_results), crs="EPSG:4326"
     )
     # de-serialize constituent data
-    gdf["start"] = gdf["start"].apply(lambda t: datetime.fromisoformat(t))
-    gdf["epoch"] = gdf["epoch"].apply(lambda t: datetime.fromisoformat(t))
-    gdf["end"] = gdf["end"].apply(lambda t: datetime.fromisoformat(t))
+    gdf["start"] = gdf["start"].astype("datetime64[ns, utc]")
+    gdf["epoch"] = gdf["epoch"].astype("datetime64[ns, utc]")
+    gdf["end"] = gdf["end"].astype("datetime64[ns, utc]")
     # call analysis function
     results = aggregate_observations(gdf)
     # re-serialize constituent data
     results["start"] = results["start"].apply(lambda t: t.isoformat())
     results["epoch"] = results["epoch"].apply(lambda t: t.isoformat())
     results["end"] = results["end"].apply(lambda t: t.isoformat())
-    results["access"] = results["access"].apply(lambda t: t / timedelta(seconds=1))
-    results["revisit"] = results["revisit"].apply(lambda t: t / timedelta(seconds=1))
+    results["access"] = results["access"].apply(lambda t: t.value)
+    results["revisit"] = results["revisit"].apply(lambda t: t.value)
     return results.to_json(show_bbox=False, drop_id=True)

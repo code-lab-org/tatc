@@ -47,12 +47,8 @@ class OverflightAnalysisTestCase(TatcTestCase):
         gdf["start"] = gdf["start"].astype("datetime64[ns, utc]")
         gdf["epoch"] = gdf["epoch"].astype("datetime64[ns, utc]")
         gdf["end"] = gdf["end"].astype("datetime64[ns, utc]")
-        gdf["revisit"] = gdf["revisit"].apply(
-            lambda t: timedelta(seconds=t) if pd.notna(t) else pd.NaT
-        )
-        gdf["access"] = gdf["access"].apply(
-            lambda t: timedelta(seconds=t) if pd.notna(t) else pd.NaT
-        )
+        gdf["revisit"] = gdf["revisit"].astype("timedelta64[ns]")
+        gdf["access"] = gdf["access"].astype("timedelta64[ns]")
         tatc_results = aggregate_observations(
             collect_observations(point, satellite, instrument, start, end)
         )

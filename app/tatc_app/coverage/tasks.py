@@ -46,10 +46,8 @@ def run_coverage_analysis_task(
         )
     )
     # re-serialize constituent data
-    results["access"] = results["access"].apply(lambda t: t / timedelta(seconds=1))
-    results["revisit"] = results["revisit"].apply(
-        lambda t: None if pd.isna(t) else t / timedelta(seconds=1)
-    )
+    results["access"] = results["access"].apply(lambda t: t.value)
+    results["revisit"] = results["revisit"].apply(lambda t: t.value)
     return results.to_json(show_bbox=False, drop_id=True)
 
 
@@ -68,19 +66,15 @@ def grid_coverage_analysis_task(coverage_results: str, cells: str) -> str:
     # deserialize the coverage statistics
     gdf = gpd.GeoDataFrame.from_features(json.loads(coverage_results), crs="EPSG:4326")
     # de-serialize constituent data
-    gdf["access"] = gdf["access"].apply(lambda t: timedelta(seconds=t))
-    gdf["revisit"] = gdf["revisit"].apply(
-        lambda t: timedelta(seconds=t) if pd.notna(t) else pd.NaT
-    )
+    gdf["access"] = gdf["access"].astype("timedelta64[ns]")
+    gdf["revisit"] = gdf["revisit"].astype("timedelta64[ns]")
     # deserialize the cells
     grid_cells = gpd.GeoDataFrame.from_features(json.loads(cells), crs="EPSG:4326")
     # grid the results
     grid_data = grid_observations(gdf, grid_cells)
     # re-serialize constituent data
-    grid_data["access"] = grid_data["access"].apply(lambda t: t / timedelta(seconds=1))
-    grid_data["revisit"] = grid_data["revisit"].apply(
-        lambda t: t / timedelta(seconds=1) if pd.notna(t) else None
-    )
+    grid_data["access"] = grid_data["access"].apply(lambda t: t.value)
+    grid_data["revisit"] = grid_data["revisit"].apply(lambda t: t.value)
     # return the results object in json format
     return CoverageAnalysisResult(
         points=json.loads(coverage_results),

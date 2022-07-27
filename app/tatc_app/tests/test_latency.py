@@ -75,9 +75,7 @@ class LatencyAnalysisTestCase(TatcTestCase):
             json.loads(json.dumps(response.json().get("points"))), crs="EPSG:4326"
         )
         gdf_points = gdf_points.reindex(columns=sorted(gdf_points.columns))
-        gdf_points["latency"] = gdf_points["latency"].apply(
-            lambda t: timedelta(seconds=t) if pd.notna(t) else pd.NaT
-        )
+        gdf_points["latency"] = gdf_points["latency"].astype("timedelta64[ns]")
         tatc_results_downlinks = pd.concat(
             [
                 collect_downlinks([station], sat, start, end)
@@ -111,9 +109,7 @@ class LatencyAnalysisTestCase(TatcTestCase):
             json.loads(json.dumps(response.json().get("cells"))), crs="EPSG:4326"
         )
         gdf_cells = gdf_cells.reindex(columns=sorted(gdf_cells.columns))
-        gdf_cells["latency"] = gdf_cells["latency"].apply(
-            lambda t: timedelta(seconds=t) if pd.notna(t) else pd.NaT
-        )
+        gdf_cells["latency"] = gdf_cells["latency"].astype("timedelta64[ns]")
         tatc_results_cells = grid_latencies(
             tatc_results_points, generate_cubed_sphere_cells(5000e3)
         )

@@ -75,7 +75,7 @@ def run_latency_analysis_task(
     # compute latencies
     results = reduce_latencies(compute_latencies(observations, downlinks))
     # re-serialize constituent data
-    results["latency"] = results["latency"].apply(lambda t: t / timedelta(seconds=1))
+    results["latency"] = results["latency"].apply(lambda t: t.value)
     return results.to_json(show_bbox=False, drop_id=True)
 
 
@@ -94,17 +94,13 @@ def grid_latency_analysis_task(latency_results: str, cells: str) -> str:
     # deserialize the coverage statistics
     gdf = gpd.GeoDataFrame.from_features(json.loads(latency_results), crs="EPSG:4326")
     # de-serialize constituent data
-    gdf["latency"] = gdf["latency"].apply(
-        lambda t: timedelta(seconds=t) if pd.notna(t) else pd.NaT
-    )
+    gdf["latency"] = gdf["latency"].astype("timedelta64[ns]")
     # deserialize the cells
     grid_cells = gpd.GeoDataFrame.from_features(json.loads(cells), crs="EPSG:4326")
     # grid the results
     grid_data = grid_latencies(gdf, grid_cells)
     # re-serialize the constituent data
-    grid_data["latency"] = grid_data["latency"].apply(
-        lambda t: t / timedelta(seconds=1) if pd.notna(t) else None
-    )
+    grid_data["latency"] = grid_data["latency"].apply(lambda t: t.value)
     # return the results object in json format
     return LatencyAnalysisResult(
         points=json.loads(latency_results),
