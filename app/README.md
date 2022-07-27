@@ -21,8 +21,8 @@ The `.env` file is read by TAT-C to customize to your account information.
 Unless installing via the "Docker Compose" method below, identify the protocol, credentials (if required), URL, and port number for the broker and backend components in the `.env` file.
 The default values (below) assume the broker and backend run locally.
 ```
-TATC_BROKER: amqp://guest:guest@broker:5672//
-TATC_BACKEND: redis://backend:6379/
+TATC_BROKER = amqp://guest:guest@broker:5672//
+TATC_BACKEND = redis://backend:6379/
 ```
 
 ### Environment Variables
