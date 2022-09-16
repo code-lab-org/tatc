@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from uuid import UUID
+from celery.result import GroupResult
 
 from .schemas import CeleryResultStatus, CeleryResultProgress
 from ..worker import app as celery_app
