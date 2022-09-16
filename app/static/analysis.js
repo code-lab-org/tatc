@@ -113,7 +113,7 @@ $(document).ready(function() {
             return !isNaN(feature.properties.revisit);
           }),
           function(feature) {
-            return feature.properties.revisit;
+            return feature.properties.revisit/1e9;
           }
         )
       );
@@ -123,7 +123,7 @@ $(document).ready(function() {
             return !isNaN(feature.properties.revisit);
           }),
           function(feature) {
-            return feature.properties.revisit;
+            return feature.properties.revisit/1e9;
           }
         )
       );
@@ -170,7 +170,7 @@ $(document).ready(function() {
     var cells = $("#coverage-analyze").data("cells");
     var getColor = scaleColorbar(points);
     _.forEach(points, function(feature) {
-      var color = getColor(feature.properties.revisit);
+      var color = getColor(feature.properties.revisit/1e9);
       coveragePoints.add({
         position: Cesium.Cartesian3.fromDegrees(
           feature.geometry.coordinates[0],
@@ -182,7 +182,7 @@ $(document).ready(function() {
       });
     });
     _.forEach(cells, function(feature) {
-      var color = getColor(feature.properties.revisit);
+      var color = getColor(feature.properties.revisit/1e9);
       const vertices = _.map(
         feature.geometry.coordinates[0],
         function(coordinate){
@@ -230,8 +230,8 @@ $(document).ready(function() {
           pointId: feature.properties.point_id,
           latitude: feature.geometry.coordinates[1],
           longitude: feature.geometry.coordinates[0],
-          revisitMean: feature.properties.revisit/60/60,
-          accessMean: feature.properties.access,
+          revisitMean: feature.properties.revisit/1e9,
+          accessMean: feature.properties.access/1e9,
           samples: feature.properties.samples
         });
     });
@@ -245,7 +245,7 @@ $(document).ready(function() {
           feature.pointId,
           feature.latitude,
           feature.longitude,
-          feature.revisitMean,
+          feature.revisitMean/60/60,
           feature.accessMean,
           feature.samples
         ];
@@ -283,7 +283,7 @@ $(document).ready(function() {
               pointId: feature.point_id,
               latitude_deg: feature.latitude,
               longitude_deg: feature.longitude,
-              revisitMean_hr: feature.revisitMean,
+              revisitMean_hr: feature.revisitMean/60/60,
               accessMean_s: feature.accessMean,
               obsCount: feature.obsCount
             }
@@ -311,7 +311,7 @@ $(document).ready(function() {
               feature.pointId,
               feature.latitude,
               feature.longitude,
-              feature.revisitMean,
+              feature.revisitMean/60/60,
               feature.accessMean,
               feature.obsCount
             ].join();
