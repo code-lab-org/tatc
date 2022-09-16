@@ -3,7 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - python
-  - geopandas
+  - geopandas>=0.10
   - numba
   - numpy
   - pandas
