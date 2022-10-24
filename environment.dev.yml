@@ -7,8 +7,18 @@ dependencies:
   - numba
   - numpy
   - pandas
+  - pandoc
   - pydantic
   - pyproj
   - shapely
   - skyfield
   - sgp4
+  - pip>=20.1
+  - pip:
+    - autodoc_pydantic
+    - black[jupyter]
+    - coverage
+    - myst-parser
+    - nbsphinx
+    - sphinx
+    - sphinx-rtd-theme
