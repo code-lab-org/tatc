@@ -8,5 +8,5 @@ python:
   - method: pip
     path: .
 conda:
-  environment: environment.yml
+  environment: environment.dev.yml
 formats: []

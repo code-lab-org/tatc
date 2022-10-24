@@ -144,9 +144,9 @@ def compute_latencies(
         ]
         # append latency-specific columns
         if dls.empty:
-            r["station"] = pd.NA
-            r["downlinked"] = pd.NA
-            r["latency"] = pd.NA
+            r["station"] = None
+            r["downlinked"] = None
+            r["latency"] = None
         else:
             r["station"] = dls.iloc[0].station
             r["downlinked"] = dls.iloc[0].epoch
@@ -194,9 +194,7 @@ def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame
     # operate on a copy of the dataframe
     gdf = latency_observations.copy()
     # convert latency to a numeric value before aggregation
-    gdf.loc[gdf.latency.notna(), "latency"] = gdf.loc[
-        gdf.latency.notna(), "latency"
-    ] / timedelta(seconds=1)
+    gdf["latency"] = gdf["latency"] / timedelta(seconds=1)
     # assign each record to one observation
     gdf["samples"] = 1
     # perform the aggregation operation
@@ -206,6 +204,46 @@ def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame
             "latency": "mean",
             "samples": "sum",
         },
+    )
+    # convert latency from numeric values after aggregation
+    gdf["latency"] = gdf["latency"].apply(
+        lambda t: pd.NaT if pd.isna(t) else timedelta(seconds=t)
+    )
+    return gdf
+
+
+def grid_latencies(
+    reduced_latencies: gpd.GeoDataFrame, cells: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    """
+    Grid reduced latencies to cells.
+
+    Args:
+        reduced_latencies (geopandas.GeoDataFrame): The reduced latencies.
+        cells (geopandas.GeoDataFrame): The cell specification.
+
+    Returns:
+        geopandas.GeoDataFrame: The data frame with gridded latencies.
+    """
+    if reduced_latencies.empty:
+        gdf = cells.copy()
+        gdf["samples"] = 0
+        gdf["latency"] = None
+        return gdf
+    # operate on a copy of the data frame
+    gdf = reduced_latencies.copy()
+    # convert latency to numeric values before aggregation
+    gdf["latency"] = gdf["latency"] / timedelta(seconds=1)
+    gdf = (
+        cells.sjoin(gdf, how="inner", predicate="contains")
+        .dissolve(
+            by="cell_id",
+            aggfunc={
+                "samples": "sum",
+                "latency": lambda r: np.average(r, weights=gdf.loc[r.index, "samples"]),
+            },
+        )
+        .reset_index()
     )
     # convert latency from numeric values after aggregation
     gdf["latency"] = gdf["latency"].apply(

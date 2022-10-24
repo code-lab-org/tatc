@@ -49,11 +49,11 @@ def _get_visible_interval_series(
     # define starting and ending points
     t0 = timescale.from_datetime(start)
     t1 = timescale.from_datetime(end)
-    # compute the initial satellite height (altitude)
-    satellite_height = wgs84.geographic_position_of(satellite.at(t0)).elevation.m
+    # compute the initial satellite altitude
+    satellite_altitude = wgs84.geographic_position_of(satellite.at(t0)).elevation.m
     # compute the maximum access time to filter bad data
     max_access_time = timedelta(
-        seconds=compute_max_access_time(satellite_height, min_elevation_angle)
+        seconds=compute_max_access_time(satellite_altitude, min_elevation_angle)
     )
     # find the set of observation events
     t, events = satellite.find_events(
@@ -290,13 +290,13 @@ def collect_observations(
     orbit = satellite.orbit.to_tle()
     # construct a satellite for propagation
     sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
-    # compute the initial satellite height (altitude)
-    satellite_height = wgs84.geographic_position_of(
+    # compute the initial satellite altitude
+    satellite_altitude = wgs84.geographic_position_of(
         sat.at(timescale.from_datetime(start))
     ).elevation.m
     # compute the minimum altitude angle required for observation
     min_elevation_angle = compute_min_elevation_angle(
-        satellite_height,
+        satellite_altitude,
         instrument.field_of_regard,
     )
     records = [
@@ -462,7 +462,7 @@ def reduce_observations(aggregated_observations: gpd.GeoDataFrame) -> gpd.GeoDat
     """
     if aggregated_observations.empty:
         return _get_empty_reduce_frame()
-    # operate on a copy of the dataframe
+    # operate on a copy of the data frame
     gdf = aggregated_observations.copy()
     # convert access and revisit to numeric values before aggregation
     gdf["access"] = gdf["access"] / timedelta(seconds=1)
@@ -478,6 +478,50 @@ def reduce_observations(aggregated_observations: gpd.GeoDataFrame) -> gpd.GeoDat
             "samples": "sum",
         },
     ).reset_index()
+    # convert access and revisit from numeric values after aggregation
+    gdf["access"] = gdf["access"].apply(lambda t: timedelta(seconds=t))
+    gdf["revisit"] = gdf["revisit"].apply(
+        lambda t: pd.NaT if pd.isna(t) else timedelta(seconds=t)
+    )
+    return gdf
+
+
+def grid_observations(
+    reduced_observations: gpd.GeoDataFrame, cells: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    """
+    Grid reduced observations to cells.
+
+    Args:
+        reduced_observations (geopandas.GeoDataFrame): The reduced observations.
+        cells (geopandas.GeoDataFrame): The cell specification.
+
+    Returns:
+        geopandas.GeoDataFrame: The data frame with gridded observations.
+    """
+    if reduced_observations.empty:
+        gdf = cells.copy()
+        gdf["samples"] = 0
+        gdf["access"] = None
+        gdf["revisit"] = None
+        return gdf
+    # operate on a copy of the data frame
+    gdf = reduced_observations.copy()
+    # convert access and revisit to numeric values before aggregation
+    gdf["access"] = gdf["access"] / timedelta(seconds=1)
+    gdf["revisit"] = gdf["revisit"] / timedelta(seconds=1)
+    gdf = (
+        cells.sjoin(gdf, how="inner", predicate="contains")
+        .dissolve(
+            by="cell_id",
+            aggfunc={
+                "samples": "sum",
+                "access": lambda r: np.average(r, weights=gdf.loc[r.index, "samples"]),
+                "revisit": lambda r: np.average(r, weights=gdf.loc[r.index, "samples"]),
+            },
+        )
+        .reset_index()
+    )
     # convert access and revisit from numeric values after aggregation
     gdf["access"] = gdf["access"].apply(lambda t: timedelta(seconds=t))
     gdf["revisit"] = gdf["revisit"].apply(

@@ -16,3 +16,7 @@ Aggregate Observations
 Reduce Observations
 -------------------
 .. autofunction:: tatc.analysis.reduce_observations
+
+Grid Observations
+-------------------
+.. autofunction:: tatc.analysis.grid_observations

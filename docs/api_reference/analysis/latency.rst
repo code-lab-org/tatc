@@ -12,3 +12,7 @@ Compute Latencies
 Reduce Latencies
 ----------------
 .. autofunction:: tatc.analysis.reduce_latencies
+
+Grid Latencies
+--------------
+.. autofunction:: tatc.analysis.grid_latencies
