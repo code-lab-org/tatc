@@ -13,7 +13,7 @@ Conda Installation
 
 TAT-C uses conda and the conda-forge channel for distribution because some of the underlying libraries are platform dependent.
 
-The simplest way to install TAT-C is via the terminal/shell command :console:`conda install -c conda-forge tatc`.
+The simplest way to install TAT-C is via the terminal/shell command :console:`conda install tatc -c conda-forge`.
 
 Then, TAT-C is available for use in any Python script by importing :python:`import tatc`.
 
@@ -25,7 +25,7 @@ Clone the project repository and, from the project root directory, create a new 
 
 Then, activate the tatc_env environment :console:`conda activate tatc_env`.
 
-Finally, install the tatc library in "editable" mode :console:`pip install -e .`
+Finally, install the tatc library within the environment in "editable" mode :console:`pip install -e .`
 
 Faster Package Resolution
 -------------------------
@@ -36,7 +36,7 @@ Additional Dependencies
 -----------------------
 
 Included examples in the `docs/examples/` directory require additional Python libraries to work.
-Install required dependencies with :console:`conda install -c conda-forge geoplot contextily`.
+Install required dependencies with :console:`conda install geoplot contextily -c conda-forge`.
 
 Unit Tests
 ----------
