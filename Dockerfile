@@ -18,7 +18,7 @@ COPY --from=tatc_build /venv /venv
 ENV PATH="/venv/bin:$PATH"
 
 WORKDIR /var/tatc
-COPY pyproject.toml setup.cfg setup.py .
+COPY pyproject.toml setup.cfg setup.py ./
 COPY src src
 RUN python -m pip install . --no-cache-dir
 
