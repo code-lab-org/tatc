@@ -12,7 +12,7 @@ from shapely.geometry import Polygon, MultiPolygon
 from shapely.errors import TopologicalError
 from typing import Optional, Union
 
-from ..constants import earth_mean_radius
+from ..constants import EARTH_MEAN_RADIUS
 
 
 def generate_cubed_sphere_cells(
@@ -39,8 +39,8 @@ def generate_cubed_sphere_cells(
         geopandas.GeoDataFrame: the data frame of generated cells
     """
     # compute the angular disance of each sample (assuming sphere)
-    theta_longitude = np.degrees(distance / earth_mean_radius)
-    theta_latitude = np.degrees(distance / earth_mean_radius)
+    theta_longitude = np.degrees(distance / EARTH_MEAN_RADIUS)
+    theta_latitude = np.degrees(distance / EARTH_MEAN_RADIUS)
     return _generate_cubed_sphere_cells(
         theta_longitude, theta_latitude, elevation, mask, strips
     )

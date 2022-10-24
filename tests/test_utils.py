@@ -36,7 +36,7 @@ class TestUtils(unittest.TestCase):
         # rough approximation based on flat sample areas
         sample_distance = 10000
         num_samples = int(
-            constants.earth_surface_area / (np.pi * (sample_distance / 2) ** 2)
+            constants.EARTH_SURFACE_AREA / (np.pi * (sample_distance / 2) ** 2)
         )
         self.assertEqual(compute_number_samples(sample_distance), num_samples)
 

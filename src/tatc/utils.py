@@ -75,16 +75,16 @@ def compute_number_samples(distance: float) -> float:
         int: The number of global samples.
     """
     # compute the angular distance of each sample (assuming mean sphere)
-    theta = distance / constants.earth_mean_radius
+    theta = distance / constants.EARTH_MEAN_RADIUS
     # compute the distance from the center of earth to conic plane (assuming sphere)
-    r = constants.earth_mean_radius * np.cos(theta / 2)
+    r = constants.EARTH_MEAN_RADIUS * np.cos(theta / 2)
     # compute the distance from the conic plane to the surface (assuming sphere)
-    h = constants.earth_mean_radius - r
+    h = constants.EARTH_MEAN_RADIUS - r
     # compute the sperical cap area covered by the sample (assuming sphere)
     # https://en.wikipedia.org/wiki/Spherical_cap
-    sample_area = 2 * np.pi * constants.earth_mean_radius * h
+    sample_area = 2 * np.pi * constants.EARTH_MEAN_RADIUS * h
     # return the fraction of earth-to-sample area
-    return int(constants.earth_surface_area / sample_area)
+    return int(constants.EARTH_SURFACE_AREA / sample_area)
 
 
 @njit
@@ -103,11 +103,11 @@ def swath_width_to_field_of_regard(
         float: The field of regard (degrees).
     """
     # rho is the angular radius of the earth viewed by the satellite
-    sin_rho = (constants.earth_mean_radius + elevation) / (
-        constants.earth_mean_radius + altitude
+    sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
+        constants.EARTH_MEAN_RADIUS + altitude
     )
     # lambda is the Earth central angle
-    sin_lambda = np.sin((swath_width / 2) / (constants.earth_mean_radius + elevation))
+    sin_lambda = np.sin((swath_width / 2) / (constants.EARTH_MEAN_RADIUS + elevation))
     # eta is the angular radius of the region viewable by the satellite
     tan_eta = sin_rho * sin_lambda / (1 - sin_rho * np.cos(np.arcsin(sin_lambda)))
     return np.degrees(2 * np.arctan(tan_eta))
@@ -129,8 +129,8 @@ def field_of_regard_to_swath_width(
         float: The observation diameter (meters) at the specified elevation.
     """
     # rho is the angular radius of the earth viewed by the satellite
-    sin_rho = (constants.earth_mean_radius + elevation) / (
-        constants.earth_mean_radius + altitude
+    sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
+        constants.EARTH_MEAN_RADIUS + altitude
     )
     # eta is the angular radius of the region viewable by the satellite
     sin_eta = min(sin_rho, np.sin(np.radians(field_of_regard) / 2))
@@ -138,7 +138,7 @@ def field_of_regard_to_swath_width(
     cos_epsilon = sin_eta / sin_rho
     # lambda is the Earth central angle
     _lambda = np.pi / 2 - np.arcsin(sin_eta) - np.arccos(cos_epsilon)
-    return 2 * (constants.earth_mean_radius + elevation) * _lambda
+    return 2 * (constants.EARTH_MEAN_RADIUS + elevation) * _lambda
 
 
 @njit
@@ -157,8 +157,8 @@ def compute_field_of_regard(
         float: Angular width (degrees) of observation.
     """
     # rho is the angular radius of the earth viewed by the satellite
-    sin_rho = (constants.earth_mean_radius + elevation) / (
-        constants.earth_mean_radius + altitude
+    sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
+        constants.EARTH_MEAN_RADIUS + altitude
     )
     # epsilon is the min satellite elevation for obs (grazing angle)
     cos_epsilon = np.cos(np.radians(min_elevation_angle))
@@ -185,8 +185,8 @@ def compute_min_elevation_angle(
     # eta is the angular radius of the region viewable by the satellite
     sin_eta = np.sin(np.radians(field_of_regard) / 2)
     # rho is the angular radius of the earth viewed by the satellite
-    sin_rho = (constants.earth_mean_radius + elevation) / (
-        constants.earth_mean_radius + altitude
+    sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
+        constants.EARTH_MEAN_RADIUS + altitude
     )
     # epsilon is the min satellite elevation for obs (grazing angle)
     cos_epsilon = sin_eta / sin_rho
@@ -206,8 +206,8 @@ def compute_orbit_period(altitude: float) -> float:
     Returns:
         float: The orbital period (seconds).
     """
-    semimajor_axis = constants.earth_mean_radius + altitude
-    mean_motion_rad_s = np.sqrt(constants.earth_mu / semimajor_axis**3)
+    semimajor_axis = constants.EARTH_MEAN_RADIUS + altitude
+    mean_motion_rad_s = np.sqrt(constants.EARTH_MU / semimajor_axis**3)
     return 2 * np.pi / mean_motion_rad_s
 
 
@@ -225,7 +225,7 @@ def compute_max_access_time(altitude: float, min_elevation_angle: float) -> floa
     """
     orbital_distance = altitude * (np.pi - 2 * np.radians(min_elevation_angle))
     orbital_velocity = np.sqrt(
-        constants.earth_mu / (constants.earth_mean_radius + altitude)
+        constants.EARTH_MU / (constants.EARTH_MEAN_RADIUS + altitude)
     )
     return orbital_distance / orbital_velocity
 

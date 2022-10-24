@@ -16,20 +16,20 @@ de421 = load("de421.bsp")
 timescale = load.timescale()
 
 # wgs84 oblate spheroid parameters
-earth_flattening = 1 / 298.257223563
-earth_equatorial_radius = 6378137.0
-earth_polar_radius = 6356752.314245179
-earth_mu = 3.986004418e14
+EARTH_FLATTENING = 1 / 298.257223563
+EARTH_EQUATORIAL_RADIUS = 6378137.0
+EARTH_POLAR_RADIUS = 6356752.314245179
+EARTH_MU = 3.986004418e14
 
 # derived properties based on wgs84 oblate spheroid
-earth_eccentricity = np.sqrt(2 * earth_flattening - earth_flattening**2)
-earth_equatorial_circumference = 2 * np.pi * earth_equatorial_radius
-earth_polar_circumference = 2 * np.pi * earth_polar_radius
-earth_surface_area = (
-    2 * np.pi * earth_equatorial_radius**2
+EARTH_ECCENTRICITY = np.sqrt(2 * EARTH_FLATTENING - EARTH_FLATTENING**2)
+EARTH_EQUATORIAL_CIRCUMFERENCE = 2 * np.pi * EARTH_EQUATORIAL_RADIUS
+EARTH_POLAR_CIRCUMFERENCE = 2 * np.pi * EARTH_POLAR_RADIUS
+EARTH_SURFACE_AREA = (
+    2 * np.pi * EARTH_EQUATORIAL_RADIUS**2
     + np.pi
-    * earth_polar_radius**2
-    / earth_eccentricity
-    * np.log((1 + earth_eccentricity) / (1 - earth_eccentricity))
+    * EARTH_POLAR_RADIUS**2
+    / EARTH_ECCENTRICITY
+    * np.log((1 + EARTH_ECCENTRICITY) / (1 - EARTH_ECCENTRICITY))
 )
-earth_mean_radius = (2 * earth_equatorial_radius + earth_polar_radius) / 3
+EARTH_MEAN_RADIUS = (2 * EARTH_EQUATORIAL_RADIUS + EARTH_POLAR_RADIUS) / 3

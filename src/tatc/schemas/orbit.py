@@ -216,7 +216,7 @@ class TwoLineElements(BaseModel):
         """
         mean_motion_rad_s = self.get_mean_motion() * 2 * np.pi / 86400
         return np.power(
-            constants.earth_mu / mean_motion_rad_s**2,
+            constants.EARTH_MU / mean_motion_rad_s**2,
             1 / 3,
         )
 
@@ -227,7 +227,7 @@ class TwoLineElements(BaseModel):
         Returns:
             float: the altitude
         """
-        return self.get_semimajor_axis() - constants.earth_mean_radius
+        return self.get_semimajor_axis() - constants.EARTH_MEAN_RADIUS
 
     def get_true_anomaly(self) -> float:
         """
@@ -346,7 +346,7 @@ class OrbitBase(BaseModel):
         Returns:
             float: the semimajor axis
         """
-        return constants.earth_mean_radius + self.altitude
+        return constants.EARTH_MEAN_RADIUS + self.altitude
 
     def get_mean_motion(self) -> float:
         """
@@ -432,7 +432,7 @@ class SunSynchronousOrbit(OrbitBase):
         ...,
         description="Mean altitude (meters).",
         ge=0,
-        lt=12352000 - constants.earth_mean_radius,
+        lt=12352000 - constants.EARTH_MEAN_RADIUS,
     )
     equator_crossing_time: time = Field(
         ..., description="Equator crossing time (local solar time)."
@@ -510,7 +510,7 @@ class SunSynchronousOrbit(OrbitBase):
         Returns:
             TwoLineElements: the two line elements orbit
         """
-        semimajor_axis = constants.earth_mean_radius + self.altitude
+        semimajor_axis = constants.EARTH_MEAN_RADIUS + self.altitude
         return KeplerianOrbit(
             altitude=self.altitude,
             inclination=self.get_inclination(),
