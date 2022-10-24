@@ -4,11 +4,11 @@ Utility functions.
 
 @author: Paul T. Grogan <pgrogan@stevens.edu>
 """
+from typing import Union
 
 import numpy as np
 from numba import njit
 import geopandas as gpd
-from typing import Union
 from shapely.geometry import Polygon, MultiPolygon, GeometryCollection
 from shapely.ops import clip_by_rect
 
@@ -27,15 +27,14 @@ def mean_anomaly_to_true_anomaly(mean_anomaly: float, eccentricity: float = 0) -
     Returns:
         float: The true anomaly (degrees).
     """
-    M = np.radians(mean_anomaly)
-    e = eccentricity
-    nu = (
-        M
-        + (2 * e - (1 / 4) * e**3) * np.sin(M)
-        + (5 / 4) * e**2 * np.sin(2 * M)
-        + (13 / 12) * e**3 * np.sin(3 * M)
+    mean_anomaly_rad = np.radians(mean_anomaly)
+    true_anomaly_rad = (
+        mean_anomaly_rad
+        + (2 * eccentricity - (1 / 4) * eccentricity**3) * np.sin(mean_anomaly_rad)
+        + (5 / 4) * eccentricity**2 * np.sin(2 * mean_anomaly_rad)
+        + (13 / 12) * eccentricity**3 * np.sin(3 * mean_anomaly_rad)
     )
-    return np.degrees(nu)
+    return np.degrees(true_anomaly_rad)
 
 
 @njit
@@ -50,16 +49,16 @@ def true_anomaly_to_mean_anomaly(true_anomaly: float, eccentricity: float = 0) -
     Returns:
         float: The mean anomaly (degrees).
     """
-    e = eccentricity
-    nu = np.radians(true_anomaly)
-    M = (
-        nu
-        - 2 * e * np.sin(nu)
-        + ((3 / 4) * e**2 + (1 / 8) * e**4) * np.sin(2 * nu)
-        - (1 / 3) * e**3 * np.sin(3 * nu)
-        + (5 / 32) * e**4 * np.sin(4 * nu)
+    true_anomaly_rad = np.radians(true_anomaly)
+    mean_anomaly_rad = (
+        true_anomaly_rad
+        - 2 * eccentricity * np.sin(true_anomaly_rad)
+        + ((3 / 4) * eccentricity**2 + (1 / 8) * eccentricity**4)
+        * np.sin(2 * true_anomaly_rad)
+        - (1 / 3) * eccentricity**3 * np.sin(3 * true_anomaly_rad)
+        + (5 / 32) * eccentricity**4 * np.sin(4 * true_anomaly_rad)
     )
-    return np.degrees(M)
+    return np.degrees(mean_anomaly_rad)
 
 
 @njit
@@ -77,12 +76,12 @@ def compute_number_samples(distance: float) -> float:
     # compute the angular distance of each sample (assuming mean sphere)
     theta = distance / constants.EARTH_MEAN_RADIUS
     # compute the distance from the center of earth to conic plane (assuming sphere)
-    r = constants.EARTH_MEAN_RADIUS * np.cos(theta / 2)
+    radius = constants.EARTH_MEAN_RADIUS * np.cos(theta / 2)
     # compute the distance from the conic plane to the surface (assuming sphere)
-    h = constants.EARTH_MEAN_RADIUS - r
+    height = constants.EARTH_MEAN_RADIUS - radius
     # compute the sperical cap area covered by the sample (assuming sphere)
     # https://en.wikipedia.org/wiki/Spherical_cap
-    sample_area = 2 * np.pi * constants.EARTH_MEAN_RADIUS * h
+    sample_area = 2 * np.pi * constants.EARTH_MEAN_RADIUS * height
     # return the fraction of earth-to-sample area
     return int(constants.EARTH_SURFACE_AREA / sample_area)
 
@@ -314,9 +313,8 @@ def _split_polygon_north_pole(
                 if isinstance(top, Polygon)
                 else list(bottom.geoms) + list(top.geoms)
             )
-        else:
-            return polygon
-    elif isinstance(polygon, MultiPolygon):
+        return polygon
+    if isinstance(polygon, MultiPolygon):
         # recursive call for each polygon
         polygons = [_split_polygon_north_pole(p) for p in polygon.geoms]
         return MultiPolygon(
@@ -326,8 +324,7 @@ def _split_polygon_north_pole(
                 for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
             ]
         )
-    else:
-        raise ValueError("Unknown geometry: " + str(type(polygon)))
+    raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
 def _wrap_polygon_over_south_pole(polygon: Polygon) -> Polygon:
@@ -414,9 +411,8 @@ def _split_polygon_south_pole(
                 if isinstance(bottom, Polygon)
                 else list(top.geoms) + list(bottom.geoms)
             )
-        else:
-            return polygon
-    elif isinstance(polygon, MultiPolygon):
+        return polygon
+    if isinstance(polygon, MultiPolygon):
         # recursive call for each polygon
         polygons = [_split_polygon_south_pole(p) for p in polygon.geoms]
         return MultiPolygon(
@@ -426,8 +422,7 @@ def _split_polygon_south_pole(
                 for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
             ]
         )
-    else:
-        raise ValueError("Unknown geometry: " + str(type(polygon)))
+    raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
 def _wrap_polygon_over_antimeridian(polygon: Polygon) -> Polygon:
@@ -481,8 +476,7 @@ def _convert_collection_to_polygon(
     ]
     if len(pgons) == 1:
         return pgons[0]
-    else:
-        return MultiPolygon(pgons)
+    return MultiPolygon(pgons)
 
 
 def _split_polygon_antimeridian(
@@ -545,9 +539,8 @@ def _split_polygon_antimeridian(
                 if isinstance(right, Polygon)
                 else list(left.geoms) + list(right.geoms)
             )
-        else:
-            return polygon
-    elif isinstance(polygon, MultiPolygon):
+        return polygon
+    if isinstance(polygon, MultiPolygon):
         # recursive call for each polygon
         polygons = [_split_polygon_antimeridian(p) for p in polygon.geoms]
         return MultiPolygon(
@@ -557,8 +550,7 @@ def _split_polygon_antimeridian(
                 for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
             ]
         )
-    else:
-        raise ValueError("Unknown geometry: " + str(type(polygon)))
+    raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
 def split_polygon(
@@ -591,12 +583,13 @@ def normalize_geometry(
     Normalize geometry to a GeoDataFrame with antimeridian wrapping.
 
     Args:
-        geometry (geopandas.GeoDataFrame, geopandas.GeoSeries, Polygon, or MultiPolygon): The geometry to normalize.
+        geometry (geopandas.GeoDataFrame, geopandas.GeoSeries, Polygon,
+            or MultiPolygon): The geometry to normalize.
 
     Returns:
         geopandas.GeoDataFrame: The normalized geometry.
     """
-    if isinstance(geometry, Polygon) or isinstance(geometry, MultiPolygon):
+    if isinstance(geometry, (Polygon, MultiPolygon)):
         if not geometry.is_valid:
             raise ValueError("Geometry is not a valid Polygon or MultiPolygon.")
         geometry = gpd.GeoDataFrame(geometry=gpd.GeoSeries([geometry]), crs="EPSG:4326")

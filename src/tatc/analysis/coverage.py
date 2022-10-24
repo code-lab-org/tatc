@@ -47,17 +47,17 @@ def _get_visible_interval_series(
         pandas.Series: Series of observation intervals.
     """
     # define starting and ending points
-    t0 = timescale.from_datetime(start)
-    t1 = timescale.from_datetime(end)
+    t_0 = timescale.from_datetime(start)
+    t_1 = timescale.from_datetime(end)
     # compute the initial satellite altitude
-    satellite_altitude = wgs84.geographic_position_of(satellite.at(t0)).elevation.m
+    satellite_altitude = wgs84.geographic_position_of(satellite.at(t_0)).elevation.m
     # compute the maximum access time to filter bad data
     max_access_time = timedelta(
         seconds=compute_max_access_time(satellite_altitude, min_elevation_angle)
     )
     # find the set of observation events
     t, events = satellite.find_events(
-        point, t0, t1, altitude_degrees=min_elevation_angle
+        point, t_0, t_1, altitude_degrees=min_elevation_angle
     )
 
     # build the observation periods
@@ -279,7 +279,8 @@ def collect_observations(
         instrument (Instrument): The observing instrument.
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
-        omit_solar (bool): `True`, to omit solar angles to improve computational efficiency; otherwise `False`.
+        omit_solar (bool): `True`, to omit solar angles to improve
+            computational efficiency; otherwise `False`.
 
     Returns:
         geopandas.GeoDataFrame: The data frame with recorded observations.
@@ -356,7 +357,8 @@ def collect_multi_observations(
         satellites (Satellite or List[Satellite]): The observing satellite(s).
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
-        omit_solar (bool): `True`, to omit solar angles to improve computational efficiency; otherwise `False`.
+        omit_solar (bool): `True`, to omit solar angles to improve
+            computational efficiency; otherwise `False`.
 
     Returns:
         geopandas.GeoDataFrame: The data frame with all recorded observations.
