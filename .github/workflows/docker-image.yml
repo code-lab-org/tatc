@@ -1,0 +1,20 @@
+name: Docker Image CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build the server Docker image
+      run: docker build . --file Dockerfile --target tatc_server --tag tatc_server:$(date +%s)
+    - name: Build the worker Docker image
+      run: docker build . --file Dockerfile --target tatc_worker --tag tatc_worker:$(date +%s)
