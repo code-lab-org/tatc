@@ -5,15 +5,15 @@ Methods to generate geospatial points to sample data.
 @author: Paul T. Grogan <pgrogan@stevens.edu>
 """
 
+from typing import Optional, Union
+
 import numpy as np
 import geopandas as gpd
 from numba import njit
 from shapely.geometry import Point, Polygon, MultiPolygon
-from shapely.errors import TopologicalError
-from typing import Optional, Union
 
 from ..constants import EARTH_MEAN_RADIUS
-from ..utils import compute_number_samples, normalize_geometry
+from ..utils import compute_number_samples
 
 
 def generate_fibonacci_lattice_points(
@@ -34,52 +34,52 @@ def generate_fibonacci_lattice_points(
 
     Args:
         distance (float): The typical surface distance (meters) between points.
-        elevation (float): The elevation (meters) above the datum in the WGS 84 coordinate system.
+        elevation (float): The elevation (meters) above the datum in the WGS 84
+            coordinate system.
         mask (Polygon or MultiPolygon):  An optional mask to constrain points
-                using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
+            using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
         geopandas.GeoDataFrame: the data frame of generated points
     """
 
     @njit
-    def _compute_latitude(i: int, n: int) -> float:
+    def _compute_latitude(index: int, count: int) -> float:
         """
         Fast method to compute the latitude for a Fibonacci lattice point.
 
         Args:
-            i (int): The zero-based point index.
-            n (int): The number of global samples.
+            index (int): The zero-based point index.
+            count (int): The number of global samples.
 
         Returns:
             float: The latitude (degrees) of this point.
         """
         # compute latitude, starting from the southern hemisphere and placing
         # neither first nor last points at poles
-        return np.degrees(np.arcsin(2 * (i + 1) / (n + 2) - 1))
+        return np.degrees(np.arcsin(2 * (index + 1) / (count + 2) - 1))
 
     @njit
-    def _compute_longitude(i, n):
+    def _compute_longitude(index):
         """
         Fast method to compute the latitude for a Fibonacci lattice point.
 
         Args:
-            i (int): The zero-based point index.
-            n (int): The number of global samples.
+            index (int): The zero-based point index.
 
         Returns:
             float: The longitude (degrees) of this point.
         """
         phi = (1 + np.sqrt(5)) / 2  # golden ratio
         # compute longitude and return value on interval [-180, 180]
-        longitude = np.mod(360 * i / phi, 360)
+        longitude = np.mod(360 * index / phi, 360)
         if longitude > 180:
             longitude -= 360
         return longitude
 
     # determine the number of global samples to achieve average sample distance
     samples = compute_number_samples(distance)
-    if isinstance(mask, Polygon) or isinstance(mask, MultiPolygon):
+    if isinstance(mask, (Polygon, MultiPolygon)):
         if not mask.is_valid:
             raise ValueError("Mask is not a valid Polygon or MultiPolygon.")
         total_bounds = mask.bounds
@@ -103,9 +103,9 @@ def generate_fibonacci_lattice_points(
             and (
                 min_longitude
                 <= (
-                    _compute_longitude(i, samples) + 360
-                    if max_longitude > 180 and _compute_longitude(i, samples) < 0
-                    else _compute_longitude(i, samples)
+                    _compute_longitude(i) + 360
+                    if max_longitude > 180 and _compute_longitude(i) < 0
+                    else _compute_longitude(i)
                 )
                 <= max_longitude
             )
@@ -116,11 +116,11 @@ def generate_fibonacci_lattice_points(
             "point_id": indices,
             "geometry": [
                 Point(
-                    _compute_longitude(i, samples) + 360
+                    _compute_longitude(i) + 360
                     if mask is not None
                     and max_longitude > 180
-                    and _compute_longitude(i, samples) < 0
-                    else _compute_longitude(i, samples),
+                    and _compute_longitude(i) < 0
+                    else _compute_longitude(i),
                     _compute_latitude(i, samples),
                     elevation,
                 )
@@ -151,9 +151,10 @@ def generate_cubed_sphere_points(
 
     Args:
         distance (float):  The typical surface distance (meters) between points.
-        elevation (float): The elevation (meters) above the datum in the WGS 84 coordinate system.
+        elevation (float): The elevation (meters) above the datum in the WGS 84
+            coordinate system.
         mask (Polygon or MultiPolygon):  An optional mask to constrain points
-                using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
+            using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
         geopandas.GeoDataFrame: the data frame of generated points
@@ -180,11 +181,14 @@ def _generate_cubed_sphere_points(
     doi: 10.1016/j.jcp.2007.07.022
 
     Args:
-        theta_longitude (float): The angular difference in longitude (degrees) between points.
-        theta_latitude (float): The angular difference in latitude (degrees) between points.
-        elevation (float): The elevation (meters) above the datum in the WGS 84 coordinate system.
+        theta_longitude (float): The angular difference in longitude (degrees)
+            between points.
+        theta_latitude (float): The angular difference in latitude (degrees)
+            between points.
+        elevation (float): The elevation (meters) above the datum in the WGS 84
+            coordinate system.
         mask (Polygon or MultiPolygon):  An optional mask to constrain points
-                using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
+            using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
         geopandas.GeoDataFrame: the data frame of generated points
@@ -208,7 +212,7 @@ def _generate_cubed_sphere_points(
         """
         return int(j * int(360 / theta_j) + np.mod(i, int(360 / theta_i)))
 
-    if isinstance(mask, Polygon) or isinstance(mask, MultiPolygon):
+    if isinstance(mask, (Polygon, MultiPolygon)):
         if not mask.is_valid:
             raise ValueError("Mask is not a valid Polygon or MultiPolygon.")
         total_bounds = mask.bounds

@@ -6,20 +6,19 @@ Methods to generate coverage statistics.
 """
 
 from typing import List, Union, Optional
+from datetime import datetime
+
 import pandas as pd
 import numpy as np
 import geopandas as gpd
-from datetime import datetime, timedelta
-from skyfield.api import load, wgs84, EarthSatellite
+from skyfield.api import wgs84, EarthSatellite
 from shapely.geometry import (
     Polygon,
     MultiPolygon,
-    MultiPoint,
     Point,
-    MultiLineString,
     LineString,
 )
-from shapely.ops import transform, clip_by_rect, unary_union
+from shapely.ops import transform, unary_union
 import pyproj
 
 from ..schemas.satellite import Satellite
@@ -148,10 +147,12 @@ def collect_ground_track(
     # at each point, draw a buffer equivalent to the swath radius
     if crs == "utm":
         # do the swath projection in the matching utm zone
-        def _get_utm_epsg_code(p):
+        def _get_utm_epsg_code(point):
             results = pyproj.database.query_utm_crs_info(
                 datum_name="WGS 84",
-                area_of_interest=pyproj.aoi.AreaOfInterest(p.x, p.y, p.x, p.y),
+                area_of_interest=pyproj.aoi.AreaOfInterest(
+                    point.x, point.y, point.x, point.y
+                ),
             )
             # return the first code if exists; otherwise return a default value
             # 5041 is UPS North; 5042 is UPS South; 4087 is the default
@@ -159,9 +160,9 @@ def collect_ground_track(
                 "EPSG:" + results[0].code
                 if len(results) > 0
                 else "EPSG:5041"
-                if p.y > 84
+                if point.y > 84
                 else "EPSG:5042"
-                if p.y < -80
+                if point.y < -80
                 else "EPSG:4087"
             )
 
@@ -244,7 +245,7 @@ def compute_ground_track(
         track = collect_ground_track(satellite, instrument, times, elevation, mask, crs)
         # filter to valid observations and dissolve
         return track[track.valid_obs].dissolve()
-    elif method == "line":
+    if method == "line":
         track = collect_orbit_track(satellite, instrument, times, elevation, mask)
         # filter to valid observations
         track = track[track.valid_obs].reset_index(drop=True)
@@ -293,3 +294,4 @@ def compute_ground_track(
         # and replace the geometry with the union of computed polygons
         track.geometry = [unary_union(polygons)]
         return track
+    raise ValueError("Invalid method: " + str(method))

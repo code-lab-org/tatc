@@ -5,12 +5,12 @@ Methods to generate geospatial cells to aggregate data.
 @author: Paul T. Grogan <pgrogan@stevens.edu>
 """
 
+from typing import Optional, Union
+
 import numpy as np
 import geopandas as gpd
 from numba import njit
 from shapely.geometry import Polygon, MultiPolygon
-from shapely.errors import TopologicalError
-from typing import Optional, Union
 
 from ..constants import EARTH_MEAN_RADIUS
 
@@ -30,10 +30,12 @@ def generate_cubed_sphere_cells(
 
     Args:
         distance (float):  The typical surface distance (meters) between points.
-        elevation (float): The elevation (meters) above the datum in the WGS 84 coordinate system.
+        elevation (float): The elevation (meters) above the datum in the WGS 84
+            coordinate system.
         mask (Polygon or MultiPolygon):  An optional mask to constrain cells
-                using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
-        strips (str): Option to generate strip-cells along latitude (`"lat"`), longitude (`"lon"`), or none (`None`).
+            using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
+        strips (str): Option to generate strip-cells along latitude (`"lat"`),
+            longitude (`"lon"`), or none (`None`).
 
     Returns:
         geopandas.GeoDataFrame: the data frame of generated cells
@@ -61,12 +63,16 @@ def _generate_cubed_sphere_cells(
     doi: 10.1016/j.jcp.2007.07.022
 
     Args:
-        theta_longitude (float): The angular difference in longitude (degrees) between cell centroids.
-        theta_latitude (float): The angular difference in latitude (degrees) between cell centroids.
-        elevation (float): The elevation (meters) above the datum in the WGS 84 coordinate system.
+        theta_longitude (float): The angular difference in longitude (degrees)
+            between cell centroids.
+        theta_latitude (float): The angular difference in latitude (degrees)
+            between cell centroids.
+        elevation (float): The elevation (meters) above the datum in the WGS 84
+            coordinate system.
         mask (Polygon or MultiPolygon):  An optional mask to constrain cells
-                using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
-        strips (str): Option to generate strip-cells along latitude (`"lat"`), longitude (`"lon"`), or none (`None`).
+            using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
+        strips (str): Option to generate strip-cells along latitude (`"lat"`),
+            longitude (`"lon"`), or none (`None`).
 
     Returns:
         geopandas.GeoDataFrame: the data frame of generated cells
@@ -90,7 +96,7 @@ def _generate_cubed_sphere_cells(
         """
         return int(j * int(360 / theta_j) + np.mod(i, int(360 / theta_i)))
 
-    if isinstance(mask, Polygon) or isinstance(mask, MultiPolygon):
+    if isinstance(mask, (Polygon, MultiPolygon)):
         if not mask.is_valid:
             raise ValueError("Mask is not a valid Polygon or MultiPolygon.")
         total_bounds = mask.bounds

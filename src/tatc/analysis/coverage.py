@@ -5,22 +5,22 @@ Methods to perform coverage analysis.
 @author: Paul T. Grogan <pgrogan@stevens.edu>
 """
 
+from typing import List, Union
+from datetime import datetime, timedelta
+
 import pandas as pd
 import numpy as np
 import geopandas as gpd
-from typing import List, Optional, Union
 from shapely import geometry as geo
-from datetime import datetime, timedelta
-from skyfield.api import load, wgs84, EarthSatellite
+from skyfield.api import wgs84, EarthSatellite
 from skyfield.toposlib import GeographicPosition
 
 from ..schemas.point import Point
-from ..schemas.satellite import Satellite, SpaceSystem
+from ..schemas.satellite import Satellite
 from ..schemas.instrument import Instrument
 
 from ..utils import (
     compute_min_elevation_angle,
-    swath_width_to_field_of_regard,
     compute_max_access_time,
 )
 from ..constants import de421, timescale
@@ -56,7 +56,7 @@ def _get_visible_interval_series(
         seconds=compute_max_access_time(satellite_altitude, min_elevation_angle)
     )
     # find the set of observation events
-    t, events = satellite.find_events(
+    times, events = satellite.find_events(
         point, t_0, t_1, altitude_degrees=min_elevation_angle
     )
 
@@ -67,8 +67,8 @@ def _get_visible_interval_series(
         obs_periods += [pd.Interval(left=pd.Timestamp(start), right=pd.Timestamp(end))]
     elif len(events) > 0:
         # otherwise, match rise/set events
-        rises = t[events == 0]
-        sets = t[events == 2]
+        rises = times[events == 0]
+        sets = times[events == 2]
         if len(sets) > 0 and (
             len(rises) == 0 or sets[0].utc_datetime() < rises[0].utc_datetime()
         ):
@@ -365,7 +365,9 @@ def collect_multi_observations(
     """
     gdfs = [
         collect_observations(point, satellite, instrument, start, end, omit_solar)
-        for constellation in (satellites if type(satellites) == list else [satellites])
+        for constellation in (
+            satellites if isinstance(satellites, list) else [satellites]
+        )
         for satellite in (constellation.generate_members())
         for instrument in satellite.instruments
     ]

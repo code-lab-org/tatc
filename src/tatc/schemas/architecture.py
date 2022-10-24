@@ -5,9 +5,9 @@ Object schemas for architectures.
 @author: Paul T. Grogan <pgrogan@stevens.edu>
 """
 
-from typing import Optional, List, Union
+from typing import List, Union
+
 from pydantic import BaseModel, Field
-from datetime import timedelta
 
 from .satellite import Satellite, TrainConstellation, WalkerConstellation
 from .point import GroundStation
