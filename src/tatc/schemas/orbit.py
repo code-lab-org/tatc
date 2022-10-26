@@ -252,10 +252,19 @@ class TwoLineElements(BaseModel):
         if len(values[1]) != 69:
             raise ValueError("Invalid tle: line 2 incorrect length.")
 
-        line_1_pattern = r"1 [ 0-9A-HJ-NP-Z][ 0-9]{4}[A-Z] [ 0-9]{5}[ A-Z]{3} [ 0-9]{5}[.][ 0-9]{8} (?:(?:[ 0+-][.][ 0-9]{8})|(?: [ +-][.][ 0-9]{7})) [ +-][ 0-9]{5}[+-][ 0-9] [ +-][ 0-9]{5}[+-][ 0-9] [ 0-9] [ 0-9]{4}[ 0-9]"
+        line_1_pattern = (
+            r"1 [ 0-9A-HJ-NP-Z][ 0-9]{4}[A-Z] [ 0-9]{5}[ A-Z]{3} "
+            + r"[ 0-9]{5}[.][ 0-9]{8} (?:(?:[ 0+-][.][ 0-9]{8})|(?: "
+            + r"[ +-][.][ 0-9]{7})) [ +-][ 0-9]{5}[+-][ 0-9] "
+            + r"[ +-][ 0-9]{5}[+-][ 0-9] [ 0-9] [ 0-9]{4}[ 0-9]"
+        )
         if re.match(line_1_pattern, values[0]) is None:
             raise ValueError("Invalid tle: line 1 does not match pattern.")
-        line_2_pattern = r"2 [ 0-9A-HJ-NP-Z][ 0-9]{4} [ 0-9]{3}[.][ 0-9]{4} [ 0-9]{3}[.][ 0-9]{4} [ 0-9]{7} [ 0-9]{3}[.][ 0-9]{4} [ 0-9]{3}[.][ 0-9]{4} [ 0-9]{2}[.][ 0-9]{13}[ 0-9]"
+        line_2_pattern = (
+            r"2 [ 0-9A-HJ-NP-Z][ 0-9]{4} [ 0-9]{3}[.][ 0-9]{4} "
+            + r"[ 0-9]{3}[.][ 0-9]{4} [ 0-9]{7} [ 0-9]{3}[.][ 0-9]{4} "
+            + r"[ 0-9]{3}[.][ 0-9]{4} [ 0-9]{2}[.][ 0-9]{13}[ 0-9]"
+        )
         if re.match(line_2_pattern, values[1]) is None:
             raise ValueError("Invalid tle: line 2 does not match pattern.")
 
@@ -467,10 +476,10 @@ class SunSynchronousOrbit(OrbitBase):
             seconds=self.equator_crossing_time.second,
             microseconds=self.equator_crossing_time.microsecond,
         ) / timedelta(days=1)
-        time = constants.timescale.from_datetime(self.epoch)
+        epoch_time = constants.timescale.from_datetime(self.epoch)
         sun = constants.de421["sun"]
         earth = constants.de421["earth"]
-        right_ascension, _, _ = earth.at(time).observe(sun).radec()
+        right_ascension, _, _ = earth.at(epoch_time).observe(sun).radec()
         return (
             right_ascension._degrees
             + 360 * ect_day

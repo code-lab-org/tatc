@@ -20,5 +20,6 @@ dependencies:
     - coverage
     - myst-parser
     - nbsphinx
+    - pylint-pydantic
     - sphinx
     - sphinx-rtd-theme

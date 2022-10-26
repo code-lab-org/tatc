@@ -111,6 +111,33 @@ def collect_orbit_track(
     return gpd.clip(gdf, mask).reset_index(drop=True)
 
 
+def _get_utm_epsg_code(point: Point) -> str:
+    """
+    Get the Universal Transverse Mercator (UTM) EPSG code for a geodetic point.
+
+    Args:
+        point (Point): the geodetic point
+
+    Returns:
+        str: the UTM EPSG code
+    """
+    results = pyproj.database.query_utm_crs_info(
+        datum_name="WGS 84",
+        area_of_interest=pyproj.aoi.AreaOfInterest(point.x, point.y, point.x, point.y),
+    )
+    # return the first code if exists; otherwise return a default value
+    # 5041 is UPS North; 5042 is UPS South; 4087 is the default
+    return (
+        "EPSG:" + results[0].code
+        if len(results) > 0
+        else "EPSG:5041"
+        if point.y > 84
+        else "EPSG:5042"
+        if point.y < -80
+        else "EPSG:4087"
+    )
+
+
 def collect_ground_track(
     satellite: Satellite,
     instrument: Instrument,
@@ -147,25 +174,6 @@ def collect_ground_track(
     # at each point, draw a buffer equivalent to the swath radius
     if crs == "utm":
         # do the swath projection in the matching utm zone
-        def _get_utm_epsg_code(point):
-            results = pyproj.database.query_utm_crs_info(
-                datum_name="WGS 84",
-                area_of_interest=pyproj.aoi.AreaOfInterest(
-                    point.x, point.y, point.x, point.y
-                ),
-            )
-            # return the first code if exists; otherwise return a default value
-            # 5041 is UPS North; 5042 is UPS South; 4087 is the default
-            return (
-                "EPSG:" + results[0].code
-                if len(results) > 0
-                else "EPSG:5041"
-                if point.y > 84
-                else "EPSG:5042"
-                if point.y < -80
-                else "EPSG:4087"
-            )
-
         utm_crs = gdf.geometry.apply(_get_utm_epsg_code)
         for code in utm_crs.unique():
             to_crs = pyproj.Transformer.from_crs(
