@@ -8,14 +8,15 @@ Object schemas for satellite orbits.
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
+from typing import List, Optional
+import re
+
 import numpy as np
 from pydantic import BaseModel, Field, validator
 from sgp4.api import Satrec, WGS72
 from sgp4 import exporter
 from sgp4.conveniences import sat_epoch_datetime
-from typing import List, Optional
 from typing_extensions import Literal
-import re
 
 from .. import constants, utils
 
@@ -216,7 +217,7 @@ class TwoLineElements(BaseModel):
         """
         mean_motion_rad_s = self.get_mean_motion() * 2 * np.pi / 86400
         return np.power(
-            constants.earth_mu / mean_motion_rad_s**2,
+            constants.EARTH_MU / mean_motion_rad_s**2,
             1 / 3,
         )
 
@@ -227,7 +228,7 @@ class TwoLineElements(BaseModel):
         Returns:
             float: the altitude
         """
-        return self.get_semimajor_axis() - constants.earth_mean_radius
+        return self.get_semimajor_axis() - constants.EARTH_MEAN_RADIUS
 
     def get_true_anomaly(self) -> float:
         """
@@ -241,37 +242,46 @@ class TwoLineElements(BaseModel):
         )
 
     @validator("tle")
-    def valid_tle(cls, v):
+    def valid_tle(cls, values):
         """
         Validate the two line element set.
         """
         # based on orekit's TLE.isFormatOK function
-        if len(v[0]) != 69:
+        if len(values[0]) != 69:
             raise ValueError("Invalid tle: line 1 incorrect length.")
-        if len(v[1]) != 69:
+        if len(values[1]) != 69:
             raise ValueError("Invalid tle: line 2 incorrect length.")
 
-        line_1_pattern = r"1 [ 0-9A-HJ-NP-Z][ 0-9]{4}[A-Z] [ 0-9]{5}[ A-Z]{3} [ 0-9]{5}[.][ 0-9]{8} (?:(?:[ 0+-][.][ 0-9]{8})|(?: [ +-][.][ 0-9]{7})) [ +-][ 0-9]{5}[+-][ 0-9] [ +-][ 0-9]{5}[+-][ 0-9] [ 0-9] [ 0-9]{4}[ 0-9]"
-        if re.match(line_1_pattern, v[0]) is None:
+        line_1_pattern = (
+            r"1 [ 0-9A-HJ-NP-Z][ 0-9]{4}[A-Z] [ 0-9]{5}[ A-Z]{3} "
+            + r"[ 0-9]{5}[.][ 0-9]{8} (?:(?:[ 0+-][.][ 0-9]{8})|(?: "
+            + r"[ +-][.][ 0-9]{7})) [ +-][ 0-9]{5}[+-][ 0-9] "
+            + r"[ +-][ 0-9]{5}[+-][ 0-9] [ 0-9] [ 0-9]{4}[ 0-9]"
+        )
+        if re.match(line_1_pattern, values[0]) is None:
             raise ValueError("Invalid tle: line 1 does not match pattern.")
-        line_2_pattern = r"2 [ 0-9A-HJ-NP-Z][ 0-9]{4} [ 0-9]{3}[.][ 0-9]{4} [ 0-9]{3}[.][ 0-9]{4} [ 0-9]{7} [ 0-9]{3}[.][ 0-9]{4} [ 0-9]{3}[.][ 0-9]{4} [ 0-9]{2}[.][ 0-9]{13}[ 0-9]"
-        if re.match(line_2_pattern, v[1]) is None:
+        line_2_pattern = (
+            r"2 [ 0-9A-HJ-NP-Z][ 0-9]{4} [ 0-9]{3}[.][ 0-9]{4} "
+            + r"[ 0-9]{3}[.][ 0-9]{4} [ 0-9]{7} [ 0-9]{3}[.][ 0-9]{4} "
+            + r"[ 0-9]{3}[.][ 0-9]{4} [ 0-9]{2}[.][ 0-9]{13}[ 0-9]"
+        )
+        if re.match(line_2_pattern, values[1]) is None:
             raise ValueError("Invalid tle: line 2 does not match pattern.")
 
         def checksum(line):
-            sum = 0
+            the_sum = 0
             for i in range(68):
                 if line[i].isdigit():
-                    sum += int(line[i])
+                    the_sum += int(line[i])
                 elif line[i] == "-":
-                    sum += 1
-            return sum % 10
+                    the_sum += 1
+            return the_sum % 10
 
-        if int(v[0][68]) != checksum(v[0]):
+        if int(values[0][68]) != checksum(values[0]):
             raise ValueError("Invalid tle: line 1 checksum failed.")
-        if int(v[1][68]) != checksum(v[1]):
+        if int(values[1][68]) != checksum(values[1]):
             raise ValueError("Invalid tle: line 2 checksum failed.")
-        return v
+        return values
 
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float
@@ -346,7 +356,7 @@ class OrbitBase(BaseModel):
         Returns:
             float: the semimajor axis
         """
-        return constants.earth_mean_radius + self.altitude
+        return constants.EARTH_MEAN_RADIUS + self.altitude
 
     def get_mean_motion(self) -> float:
         """
@@ -432,7 +442,7 @@ class SunSynchronousOrbit(OrbitBase):
         ...,
         description="Mean altitude (meters).",
         ge=0,
-        lt=12352000 - constants.earth_mean_radius,
+        lt=12352000 - constants.EARTH_MEAN_RADIUS,
     )
     equator_crossing_time: time = Field(
         ..., description="Equator crossing time (local solar time)."
@@ -466,12 +476,14 @@ class SunSynchronousOrbit(OrbitBase):
             seconds=self.equator_crossing_time.second,
             microseconds=self.equator_crossing_time.microsecond,
         ) / timedelta(days=1)
-        t = constants.timescale.from_datetime(self.epoch)
+        epoch_time = constants.timescale.from_datetime(self.epoch)
         sun = constants.de421["sun"]
         earth = constants.de421["earth"]
-        ra, _, _ = earth.at(t).observe(sun).radec()
+        right_ascension, _, _ = earth.at(epoch_time).observe(sun).radec()
         return (
-            ra._degrees + 360 * ect_day + 180 * self.equator_crossing_ascending
+            right_ascension._degrees
+            + 360 * ect_day
+            + 180 * self.equator_crossing_ascending
         ) % 360
 
     def get_derived_orbit(
@@ -510,7 +522,6 @@ class SunSynchronousOrbit(OrbitBase):
         Returns:
             TwoLineElements: the two line elements orbit
         """
-        semimajor_axis = constants.earth_mean_radius + self.altitude
         return KeplerianOrbit(
             altitude=self.altitude,
             inclination=self.get_inclination(),

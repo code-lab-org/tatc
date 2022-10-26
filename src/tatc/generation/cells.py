@@ -5,14 +5,19 @@ Methods to generate geospatial cells to aggregate data.
 @author: Paul T. Grogan <pgrogan@stevens.edu>
 """
 
-import numpy as np
-import geopandas as gpd
-from numba import njit
-from shapely.geometry import Polygon, MultiPolygon
-from shapely.errors import TopologicalError
 from typing import Optional, Union
 
-from ..constants import earth_mean_radius
+import numpy as np
+import geopandas as gpd
+from shapely.geometry import Polygon, MultiPolygon
+
+from .points import (
+    _compute_cubed_sphere_point_id,
+    _generate_cubed_sphere_indices,
+    _get_bounds,
+)
+
+from ..constants import EARTH_MEAN_RADIUS
 
 
 def generate_cubed_sphere_cells(
@@ -30,17 +35,19 @@ def generate_cubed_sphere_cells(
 
     Args:
         distance (float):  The typical surface distance (meters) between points.
-        elevation (float): The elevation (meters) above the datum in the WGS 84 coordinate system.
+        elevation (float): The elevation (meters) above the datum in the WGS 84
+            coordinate system.
         mask (Polygon or MultiPolygon):  An optional mask to constrain cells
-                using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
-        strips (str): Option to generate strip-cells along latitude (`"lat"`), longitude (`"lon"`), or none (`None`).
+            using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
+        strips (str): Option to generate strip-cells along latitude (`"lat"`),
+            longitude (`"lon"`), or none (`None`).
 
     Returns:
         geopandas.GeoDataFrame: the data frame of generated cells
     """
     # compute the angular disance of each sample (assuming sphere)
-    theta_longitude = np.degrees(distance / earth_mean_radius)
-    theta_latitude = np.degrees(distance / earth_mean_radius)
+    theta_longitude = np.degrees(distance / EARTH_MEAN_RADIUS)
+    theta_latitude = np.degrees(distance / EARTH_MEAN_RADIUS)
     return _generate_cubed_sphere_cells(
         theta_longitude, theta_latitude, elevation, mask, strips
     )
@@ -61,82 +68,36 @@ def _generate_cubed_sphere_cells(
     doi: 10.1016/j.jcp.2007.07.022
 
     Args:
-        theta_longitude (float): The angular difference in longitude (degrees) between cell centroids.
-        theta_latitude (float): The angular difference in latitude (degrees) between cell centroids.
-        elevation (float): The elevation (meters) above the datum in the WGS 84 coordinate system.
+        theta_longitude (float): The angular difference in longitude (degrees)
+            between cell centroids.
+        theta_latitude (float): The angular difference in latitude (degrees)
+            between cell centroids.
+        elevation (float): The elevation (meters) above the datum in the WGS 84
+            coordinate system.
         mask (Polygon or MultiPolygon):  An optional mask to constrain cells
-                using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
-        strips (str): Option to generate strip-cells along latitude (`"lat"`), longitude (`"lon"`), or none (`None`).
+            using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
+        strips (str): Option to generate strip-cells along latitude (`"lat"`),
+            longitude (`"lon"`), or none (`None`).
 
     Returns:
         geopandas.GeoDataFrame: the data frame of generated cells
     """
 
-    @njit
-    def _compute_id(i, j, theta_i, theta_j):
-        """
-        Fast method to compute the flattened id for a cubed sphere grid cell.
-        Indices increment west-to-east followed by south-to-north with a first
-        point at -180 degrees latitude and close to -90 degrees latitude.
-
-        Args:
-            i (int): The zero-based longitude index.
-            j (int): The zero-based latitude index.
-            theta_i (float): The angular step in longitude (degrees).
-            theta_j (float): The angular step in latitude (degrees).
-
-        Returns:
-            int: The id of this cell.
-        """
-        return int(j * int(360 / theta_j) + np.mod(i, int(360 / theta_i)))
-
-    if isinstance(mask, Polygon) or isinstance(mask, MultiPolygon):
-        if not mask.is_valid:
-            raise ValueError("Mask is not a valid Polygon or MultiPolygon.")
-        total_bounds = mask.bounds
-    else:
-        total_bounds = [-180, -90, 180, 90]
-    min_longitude = total_bounds[0]
-    min_latitude = total_bounds[1]
-    max_longitude = 180 if total_bounds[2] == -180 else total_bounds[2]
-    max_latitude = total_bounds[3]
-
-    if strips == "lat":
-        # if latitude strips, only generate grid cells for variable latitude
-        indices = [
-            (0, j)
-            for j in range(
-                int(np.round((min_latitude + 90) / theta_latitude)),
-                int(np.round((max_latitude + 90) / theta_latitude)),
-            )
-        ]
-    elif strips == "lon":
-        # if longitude strips, only generate grid cells for variable longitude
-        indices = [
-            (i, 0)
-            for i in range(
-                int(np.round((min_longitude + 180) / theta_longitude)),
-                int(np.round((max_longitude + 180) / theta_longitude)),
-            )
-        ]
-    else:
-        # generate grid cells over the filtered latitude/longitude range
-        indices = [
-            (i, j)
-            for j in range(
-                int(np.round((min_latitude + 90) / theta_latitude)),
-                int(np.round((max_latitude + 90) / theta_latitude)),
-            )
-            for i in range(
-                int(np.round((min_longitude + 180) / theta_longitude)),
-                int(np.round((max_longitude + 180) / theta_longitude)),
-            )
-        ]
+    # generate indices of grid cells over the filtered region
+    indices = _generate_cubed_sphere_indices(
+        theta_longitude,
+        theta_latitude,
+        mask,
+        strips,
+    )
+    # get the bounds of the mask
+    min_longitude, min_latitude, max_longitude, max_latitude = _get_bounds(mask)
     # create a geodataframe in the WGS84 reference frame
     gdf = gpd.GeoDataFrame(
         {
             "cell_id": [
-                _compute_id(i, j, theta_longitude, theta_latitude) for (i, j) in indices
+                _compute_cubed_sphere_point_id(i, j, theta_longitude, theta_latitude)
+                for (i, j) in indices
             ],
             "geometry": [
                 Polygon(

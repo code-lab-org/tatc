@@ -5,26 +5,19 @@ Methods to perform latency analysis.
 @author: Isaac Feldman, Paul T. Grogan <pgrogan@stevens.edu>
 """
 
+from typing import List, Union
+from datetime import datetime, timedelta
+
 import numpy as np
 import pandas as pd
 import geopandas as gpd
-from typing import List, Union
 from shapely import geometry as geo
-from numba import njit
-from datetime import datetime, timedelta
-from skyfield.api import load, wgs84, EarthSatellite
+from skyfield.api import wgs84, EarthSatellite
 
-from ..schemas.point import Point, GroundStation
+from ..schemas.point import GroundStation
 from ..schemas.satellite import Satellite
-from ..schemas.instrument import Instrument
 
 from .coverage import _get_visible_interval_series
-from ..utils import (
-    compute_min_elevation_angle,
-    swath_width_to_field_of_regard,
-    compute_max_access_time,
-)
-from ..constants import de421, timescale
 
 
 def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
@@ -79,7 +72,7 @@ def collect_downlinks(
             "end": period.right,
             "epoch": period.mid,
         }
-        for station in (stations if type(stations) == list else [stations])
+        for station in (stations if isinstance(stations, list) else [stations])
         for period in _get_visible_interval_series(
             wgs84.latlon(station.latitude, station.longitude, station.elevation),
             sat,
@@ -137,21 +130,23 @@ def compute_latencies(
     if observations.empty or downlinks.empty:
         return _get_empty_latency_frame()
 
-    def _align_downlinks(r):
+    def _align_downlinks(row):
         # filter downlinks after observation occurs
         dls = downlinks[
-            np.logical_and(r.satellite == downlinks.satellite, r.end < downlinks.start)
+            np.logical_and(
+                row.satellite == downlinks.satellite, row.end < downlinks.start
+            )
         ]
         # append latency-specific columns
         if dls.empty:
-            r["station"] = None
-            r["downlinked"] = None
-            r["latency"] = None
+            row["station"] = None
+            row["downlinked"] = None
+            row["latency"] = None
         else:
-            r["station"] = dls.iloc[0].station
-            r["downlinked"] = dls.iloc[0].epoch
-            r["latency"] = dls.iloc[0].epoch - r.epoch
-        return r
+            row["station"] = dls.iloc[0].station
+            row["downlinked"] = dls.iloc[0].epoch
+            row["latency"] = dls.iloc[0].epoch - row.epoch
+        return row
 
     # append the latency-specific columns
     observations = observations.apply(_align_downlinks, axis=1)

@@ -46,7 +46,7 @@ extensions = [
     "sphinx.ext.napoleon",
     "nbsphinx",
     "sphinxcontrib.autodoc_pydantic",
-    "myst_parser"
+    "myst_parser",
 ]
 
 napoleon_google_docstring = True

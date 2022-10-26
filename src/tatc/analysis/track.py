@@ -6,20 +6,19 @@ Methods to generate coverage statistics.
 """
 
 from typing import List, Union, Optional
+from datetime import datetime
+
 import pandas as pd
 import numpy as np
 import geopandas as gpd
-from datetime import datetime, timedelta
-from skyfield.api import load, wgs84, EarthSatellite
+from skyfield.api import wgs84, EarthSatellite
 from shapely.geometry import (
     Polygon,
     MultiPolygon,
-    MultiPoint,
     Point,
-    MultiLineString,
     LineString,
 )
-from shapely.ops import transform, clip_by_rect, unary_union
+from shapely.ops import transform, unary_union
 import pyproj
 
 from ..schemas.satellite import Satellite
@@ -112,6 +111,33 @@ def collect_orbit_track(
     return gpd.clip(gdf, mask).reset_index(drop=True)
 
 
+def _get_utm_epsg_code(point: Point) -> str:
+    """
+    Get the Universal Transverse Mercator (UTM) EPSG code for a geodetic point.
+
+    Args:
+        point (Point): the geodetic point
+
+    Returns:
+        str: the UTM EPSG code
+    """
+    results = pyproj.database.query_utm_crs_info(
+        datum_name="WGS 84",
+        area_of_interest=pyproj.aoi.AreaOfInterest(point.x, point.y, point.x, point.y),
+    )
+    # return the first code if exists; otherwise return a default value
+    # 5041 is UPS North; 5042 is UPS South; 4087 is the default
+    return (
+        "EPSG:" + results[0].code
+        if len(results) > 0
+        else "EPSG:5041"
+        if point.y > 84
+        else "EPSG:5042"
+        if point.y < -80
+        else "EPSG:4087"
+    )
+
+
 def collect_ground_track(
     satellite: Satellite,
     instrument: Instrument,
@@ -148,23 +174,6 @@ def collect_ground_track(
     # at each point, draw a buffer equivalent to the swath radius
     if crs == "utm":
         # do the swath projection in the matching utm zone
-        def _get_utm_epsg_code(p):
-            results = pyproj.database.query_utm_crs_info(
-                datum_name="WGS 84",
-                area_of_interest=pyproj.aoi.AreaOfInterest(p.x, p.y, p.x, p.y),
-            )
-            # return the first code if exists; otherwise return a default value
-            # 5041 is UPS North; 5042 is UPS South; 4087 is the default
-            return (
-                "EPSG:" + results[0].code
-                if len(results) > 0
-                else "EPSG:5041"
-                if p.y > 84
-                else "EPSG:5042"
-                if p.y < -80
-                else "EPSG:4087"
-            )
-
         utm_crs = gdf.geometry.apply(_get_utm_epsg_code)
         for code in utm_crs.unique():
             to_crs = pyproj.Transformer.from_crs(
@@ -244,7 +253,7 @@ def compute_ground_track(
         track = collect_ground_track(satellite, instrument, times, elevation, mask, crs)
         # filter to valid observations and dissolve
         return track[track.valid_obs].dissolve()
-    elif method == "line":
+    if method == "line":
         track = collect_orbit_track(satellite, instrument, times, elevation, mask)
         # filter to valid observations
         track = track[track.valid_obs].reset_index(drop=True)
@@ -293,3 +302,4 @@ def compute_ground_track(
         # and replace the geometry with the union of computed polygons
         track.geometry = [unary_union(polygons)]
         return track
+    raise ValueError("Invalid method: " + str(method))

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 
 from tatc.schemas import CircularOrbit
-from tatc.constants import earth_mean_radius, earth_mu
+from tatc.constants import EARTH_MEAN_RADIUS, EARTH_MU
 
 
 class TestOrbitBase(unittest.TestCase):
@@ -19,7 +19,7 @@ class TestOrbitBase(unittest.TestCase):
     def test_get_semimajor_axis(self):
         self.assertEqual(
             self.test_orbit.get_semimajor_axis(),
-            self.test_data.get("altitude") + earth_mean_radius,
+            self.test_data.get("altitude") + EARTH_MEAN_RADIUS,
         )
 
     def test_get_mean_anomaly(self):
@@ -32,7 +32,7 @@ class TestOrbitBase(unittest.TestCase):
             2
             * np.pi
             * np.sqrt(
-                np.power(earth_mean_radius + self.test_orbit.altitude, 3) / earth_mu
+                np.power(EARTH_MEAN_RADIUS + self.test_orbit.altitude, 3) / EARTH_MU
             )
         )
         self.assertAlmostEqual(
@@ -44,7 +44,7 @@ class TestOrbitBase(unittest.TestCase):
             2
             * np.pi
             * np.sqrt(
-                np.power(earth_mean_radius + self.test_orbit.altitude, 3) / earth_mu
+                np.power(EARTH_MEAN_RADIUS + self.test_orbit.altitude, 3) / EARTH_MU
             )
         )
         self.assertAlmostEqual(

@@ -54,7 +54,7 @@ class TestPointGenerators(unittest.TestCase):
         mask_m = transform(transformer, mask)
         self.assertAlmostEqual(
             len(points),
-            int(num_samples * mask_m.area / constants.earth_surface_area),
+            int(num_samples * mask_m.area / constants.EARTH_SURFACE_AREA),
             delta=1,
         )
 

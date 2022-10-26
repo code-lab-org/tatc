@@ -1,3 +1,7 @@
+"""
+Defines analysis functions.
+"""
+
 from .coverage import (
     collect_observations,
     collect_multi_observations,

@@ -5,18 +5,16 @@ Object schemas for instruments.
 @author: Paul T. Grogan <pgrogan@stevens.edu>
 """
 
-from enum import Enum
-from typing import Optional, Union
-from pydantic import BaseModel, Field, confloat
+from typing import Optional
 from datetime import timedelta
-import pandas as pd
+
+from pydantic import BaseModel, Field
 import numpy as np
 from skyfield.api import wgs84, EarthSatellite
 from skyfield.timelib import Time
-from shapely.geometry import Point, Polygon, MultiPolygon
 
-from .. import constants, utils
-from ..constants import de421, timescale
+from ..constants import de421
+from ..utils import compute_min_elevation_angle, field_of_regard_to_swath_width
 
 
 class Instrument(BaseModel):
@@ -39,11 +37,13 @@ class Instrument(BaseModel):
     )
     req_self_sunlit: Optional[bool] = Field(
         None,
-        description="Required instrument sunlit state for valid observation (`True`: sunlit, `False`: eclipse, `None`: no requirement).",
+        description="Required instrument sunlit state for valid observation "
+        + "(`True`: sunlit, `False`: eclipse, `None`: no requirement).",
     )
     req_target_sunlit: Optional[bool] = Field(
         None,
-        description="Required target sunlit state for valid observation (`True`: sunlit, `False`: eclipse, `None`: no requirement).",
+        description="Required target sunlit state for valid observation "
+        + "(`True`: sunlit, `False`: eclipse, `None`: no requirement).",
     )
 
     def get_swath_width(self, height: float) -> float:
@@ -56,7 +56,7 @@ class Instrument(BaseModel):
         Returns:
             float: The observation diameter (meters).
         """
-        return utils.field_of_regard_to_swath_width(height, self.field_of_regard)
+        return field_of_regard_to_swath_width(height, self.field_of_regard)
 
     def get_min_elevation_angle(self, height: float) -> float:
         """
@@ -68,7 +68,7 @@ class Instrument(BaseModel):
         Returns:
             float: The minimum elevation angle (degrees) for observation.
         """
-        return utils.compute_min_elevation_angle(height, self.field_of_regard)
+        return compute_min_elevation_angle(height, self.field_of_regard)
 
     def is_valid_observation(self, sat: EarthSatellite, time: Time) -> bool:
         """Determines if an instrument can provide a valid observations.
@@ -101,29 +101,28 @@ class Instrument(BaseModel):
                 # compare requirement to sub-satellite point sunlit condition
                 is_valid = is_valid and (self.req_target_sunlit == (solar_alt > 0))
             return is_valid
-        else:
-            # vector
-            is_valid = np.ones(len(time), dtype=bool)
-            if self.req_self_sunlit is not None:
-                # compare requirement to satellite sunlit condition
-                is_valid = np.logical_and(
-                    is_valid, self.req_self_sunlit == sat.at(time).is_sunlit(de421)
-                )
-            if self.req_target_sunlit is not None:
-                # compute solar altitude angle at sub-satellite points
-                solar_alt = np.array(
-                    [
-                        (de421["earth"] + wgs84.subpoint_of(sat.at(t)))
-                        .at(t)
-                        .observe(de421["sun"])
-                        .apparent()
-                        .altaz()[0]
-                        .degrees
-                        for t in time
-                    ]
-                )
-                # compare requirement to sub-satellite point sunlit conditions
-                is_valid = np.logical_and(
-                    is_valid, self.req_target_sunlit == (solar_alt > 0)
-                )
-            return is_valid
+        # vector
+        is_valid = np.ones(len(time), dtype=bool)
+        if self.req_self_sunlit is not None:
+            # compare requirement to satellite sunlit condition
+            is_valid = np.logical_and(
+                is_valid, self.req_self_sunlit == sat.at(time).is_sunlit(de421)
+            )
+        if self.req_target_sunlit is not None:
+            # compute solar altitude angle at sub-satellite points
+            solar_alt = np.array(
+                [
+                    (de421["earth"] + wgs84.subpoint_of(sat.at(t)))
+                    .at(t)
+                    .observe(de421["sun"])
+                    .apparent()
+                    .altaz()[0]
+                    .degrees
+                    for t in time
+                ]
+            )
+            # compare requirement to sub-satellite point sunlit conditions
+            is_valid = np.logical_and(
+                is_valid, self.req_target_sunlit == (solar_alt > 0)
+            )
+        return is_valid

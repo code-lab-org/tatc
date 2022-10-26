@@ -7,15 +7,13 @@ Object schemas for satellites.
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from enum import Enum
 import math
+from typing import List, Union
+
 import numpy as np
 from pydantic import BaseModel, Field, root_validator
-from sgp4.api import Satrec, WGS72
-from sgp4.conveniences import sat_epoch_datetime
-from sgp4 import exporter
-from typing import Optional, List, Union
 from typing_extensions import Literal
 
 from .instrument import Instrument
@@ -102,8 +100,7 @@ class TrainConstellation(Satellite):
         """
         if self.repeat_ground_track:
             return -1 * 360 * (self.interval / timedelta(days=1))
-        else:
-            return 0
+        return 0
 
     def generate_members(self) -> List[Satellite]:
         """
@@ -125,8 +122,12 @@ class TrainConstellation(Satellite):
 
 
 class WalkerConfiguration(str, Enum):
-    delta = "delta"
-    star = "star"
+    """
+    Enumeration of different Walker constellation configurations.
+    """
+
+    DELTA = "delta"
+    STAR = "star"
 
 
 class WalkerConstellation(Satellite):
@@ -138,7 +139,7 @@ class WalkerConstellation(Satellite):
         "walker", description="Space system type discriminator."
     )
     configuration: WalkerConfiguration = Field(
-        WalkerConfiguration.delta, description="Walker configuration."
+        WalkerConfiguration.DELTA, description="Walker configuration."
     )
     orbit: Union[
         TwoLineElements, SunSynchronousOrbit, CircularOrbit, KeplerianOrbit
@@ -148,12 +149,17 @@ class WalkerConstellation(Satellite):
     )
     number_planes: int = Field(
         1,
-        description="The number of equally-spaced planes in a Walker Delta constellation. Ranges from 1 to (number of satellites).",
+        description="The number of equally-spaced planes in a Walker Delta "
+        + "constellation. Ranges from 1 to (number of satellites).",
         ge=1,
     )
     relative_spacing: int = Field(
         0,
-        description="Relative spacing of satellites between plans for a Walker Delta constellation. Ranges from 0 for equal true anomaly to (number of planes) - 1. For example, `relative_spacing=1` means the true anomaly is shifted by `360/number_satellites` between adjacent planes.",
+        description="Relative spacing of satellites between plans for a Walker Delta "
+        + "constellation. Ranges from 0 for equal true anomaly to "
+        + "(number of planes) - 1. For example, `relative_spacing=1` "
+        + "means the true anomaly is shifted by `360/number_satellites` "
+        + "between adjacent planes.",
         ge=0,
     )
 
@@ -162,8 +168,9 @@ class WalkerConstellation(Satellite):
         """
         Validates the number of planes given the number of satellites.
         """
-        p, t = values.get("number_planes"), values.get("number_satellites")
-        if p is not None and t is not None and p > t:
+        planes = values.get("number_planes")
+        count = values.get("number_satellites")
+        if planes is not None and count is not None and planes > count:
             raise ValueError("number planes exceeds number satellites")
         return values
 
@@ -172,8 +179,9 @@ class WalkerConstellation(Satellite):
         """
         Validates the relative spacing given the number of planes.
         """
-        p, f = values.get("number_planes"), values.get("relative_spacing")
-        if p is not None and f is not None and f >= p:
+        planes = values.get("number_planes")
+        spacing = values.get("relative_spacing")
+        if planes is not None and spacing is not None and spacing >= planes:
             raise ValueError("relative spacing exceeds number planes - 1")
         return values
 
@@ -214,10 +222,9 @@ class WalkerConstellation(Satellite):
         Returns:
             float: difference in right ascension of ascending node
         """
-        if self.configuration == WalkerConfiguration.delta:
+        if self.configuration == WalkerConfiguration.DELTA:
             return 360 / self.number_planes
-        else:
-            return 180 / self.number_planes
+        return 180 / self.number_planes
 
     def generate_members(self) -> List[Satellite]:
         """

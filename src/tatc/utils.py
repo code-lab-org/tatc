@@ -4,11 +4,11 @@ Utility functions.
 
 @author: Paul T. Grogan <pgrogan@stevens.edu>
 """
+from typing import Union
 
 import numpy as np
 from numba import njit
 import geopandas as gpd
-from typing import Union
 from shapely.geometry import Polygon, MultiPolygon, GeometryCollection
 from shapely.ops import clip_by_rect
 
@@ -27,15 +27,14 @@ def mean_anomaly_to_true_anomaly(mean_anomaly: float, eccentricity: float = 0) -
     Returns:
         float: The true anomaly (degrees).
     """
-    M = np.radians(mean_anomaly)
-    e = eccentricity
-    nu = (
-        M
-        + (2 * e - (1 / 4) * e**3) * np.sin(M)
-        + (5 / 4) * e**2 * np.sin(2 * M)
-        + (13 / 12) * e**3 * np.sin(3 * M)
+    mean_anomaly_rad = np.radians(mean_anomaly)
+    true_anomaly_rad = (
+        mean_anomaly_rad
+        + (2 * eccentricity - (1 / 4) * eccentricity**3) * np.sin(mean_anomaly_rad)
+        + (5 / 4) * eccentricity**2 * np.sin(2 * mean_anomaly_rad)
+        + (13 / 12) * eccentricity**3 * np.sin(3 * mean_anomaly_rad)
     )
-    return np.degrees(nu)
+    return np.degrees(true_anomaly_rad)
 
 
 @njit
@@ -50,16 +49,16 @@ def true_anomaly_to_mean_anomaly(true_anomaly: float, eccentricity: float = 0) -
     Returns:
         float: The mean anomaly (degrees).
     """
-    e = eccentricity
-    nu = np.radians(true_anomaly)
-    M = (
-        nu
-        - 2 * e * np.sin(nu)
-        + ((3 / 4) * e**2 + (1 / 8) * e**4) * np.sin(2 * nu)
-        - (1 / 3) * e**3 * np.sin(3 * nu)
-        + (5 / 32) * e**4 * np.sin(4 * nu)
+    true_anomaly_rad = np.radians(true_anomaly)
+    mean_anomaly_rad = (
+        true_anomaly_rad
+        - 2 * eccentricity * np.sin(true_anomaly_rad)
+        + ((3 / 4) * eccentricity**2 + (1 / 8) * eccentricity**4)
+        * np.sin(2 * true_anomaly_rad)
+        - (1 / 3) * eccentricity**3 * np.sin(3 * true_anomaly_rad)
+        + (5 / 32) * eccentricity**4 * np.sin(4 * true_anomaly_rad)
     )
-    return np.degrees(M)
+    return np.degrees(mean_anomaly_rad)
 
 
 @njit
@@ -75,16 +74,16 @@ def compute_number_samples(distance: float) -> float:
         int: The number of global samples.
     """
     # compute the angular distance of each sample (assuming mean sphere)
-    theta = distance / constants.earth_mean_radius
+    theta = distance / constants.EARTH_MEAN_RADIUS
     # compute the distance from the center of earth to conic plane (assuming sphere)
-    r = constants.earth_mean_radius * np.cos(theta / 2)
+    radius = constants.EARTH_MEAN_RADIUS * np.cos(theta / 2)
     # compute the distance from the conic plane to the surface (assuming sphere)
-    h = constants.earth_mean_radius - r
+    height = constants.EARTH_MEAN_RADIUS - radius
     # compute the sperical cap area covered by the sample (assuming sphere)
     # https://en.wikipedia.org/wiki/Spherical_cap
-    sample_area = 2 * np.pi * constants.earth_mean_radius * h
+    sample_area = 2 * np.pi * constants.EARTH_MEAN_RADIUS * height
     # return the fraction of earth-to-sample area
-    return int(constants.earth_surface_area / sample_area)
+    return int(constants.EARTH_SURFACE_AREA / sample_area)
 
 
 @njit
@@ -103,11 +102,11 @@ def swath_width_to_field_of_regard(
         float: The field of regard (degrees).
     """
     # rho is the angular radius of the earth viewed by the satellite
-    sin_rho = (constants.earth_mean_radius + elevation) / (
-        constants.earth_mean_radius + altitude
+    sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
+        constants.EARTH_MEAN_RADIUS + altitude
     )
     # lambda is the Earth central angle
-    sin_lambda = np.sin((swath_width / 2) / (constants.earth_mean_radius + elevation))
+    sin_lambda = np.sin((swath_width / 2) / (constants.EARTH_MEAN_RADIUS + elevation))
     # eta is the angular radius of the region viewable by the satellite
     tan_eta = sin_rho * sin_lambda / (1 - sin_rho * np.cos(np.arcsin(sin_lambda)))
     return np.degrees(2 * np.arctan(tan_eta))
@@ -129,8 +128,8 @@ def field_of_regard_to_swath_width(
         float: The observation diameter (meters) at the specified elevation.
     """
     # rho is the angular radius of the earth viewed by the satellite
-    sin_rho = (constants.earth_mean_radius + elevation) / (
-        constants.earth_mean_radius + altitude
+    sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
+        constants.EARTH_MEAN_RADIUS + altitude
     )
     # eta is the angular radius of the region viewable by the satellite
     sin_eta = min(sin_rho, np.sin(np.radians(field_of_regard) / 2))
@@ -138,7 +137,7 @@ def field_of_regard_to_swath_width(
     cos_epsilon = sin_eta / sin_rho
     # lambda is the Earth central angle
     _lambda = np.pi / 2 - np.arcsin(sin_eta) - np.arccos(cos_epsilon)
-    return 2 * (constants.earth_mean_radius + elevation) * _lambda
+    return 2 * (constants.EARTH_MEAN_RADIUS + elevation) * _lambda
 
 
 @njit
@@ -157,8 +156,8 @@ def compute_field_of_regard(
         float: Angular width (degrees) of observation.
     """
     # rho is the angular radius of the earth viewed by the satellite
-    sin_rho = (constants.earth_mean_radius + elevation) / (
-        constants.earth_mean_radius + altitude
+    sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
+        constants.EARTH_MEAN_RADIUS + altitude
     )
     # epsilon is the min satellite elevation for obs (grazing angle)
     cos_epsilon = np.cos(np.radians(min_elevation_angle))
@@ -185,8 +184,8 @@ def compute_min_elevation_angle(
     # eta is the angular radius of the region viewable by the satellite
     sin_eta = np.sin(np.radians(field_of_regard) / 2)
     # rho is the angular radius of the earth viewed by the satellite
-    sin_rho = (constants.earth_mean_radius + elevation) / (
-        constants.earth_mean_radius + altitude
+    sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
+        constants.EARTH_MEAN_RADIUS + altitude
     )
     # epsilon is the min satellite elevation for obs (grazing angle)
     cos_epsilon = sin_eta / sin_rho
@@ -206,8 +205,8 @@ def compute_orbit_period(altitude: float) -> float:
     Returns:
         float: The orbital period (seconds).
     """
-    semimajor_axis = constants.earth_mean_radius + altitude
-    mean_motion_rad_s = np.sqrt(constants.earth_mu / semimajor_axis**3)
+    semimajor_axis = constants.EARTH_MEAN_RADIUS + altitude
+    mean_motion_rad_s = np.sqrt(constants.EARTH_MU / semimajor_axis**3)
     return 2 * np.pi / mean_motion_rad_s
 
 
@@ -225,7 +224,7 @@ def compute_max_access_time(altitude: float, min_elevation_angle: float) -> floa
     """
     orbital_distance = altitude * (np.pi - 2 * np.radians(min_elevation_angle))
     orbital_velocity = np.sqrt(
-        constants.earth_mu / (constants.earth_mean_radius + altitude)
+        constants.EARTH_MU / (constants.EARTH_MEAN_RADIUS + altitude)
     )
     return orbital_distance / orbital_velocity
 
@@ -314,9 +313,8 @@ def _split_polygon_north_pole(
                 if isinstance(top, Polygon)
                 else list(bottom.geoms) + list(top.geoms)
             )
-        else:
-            return polygon
-    elif isinstance(polygon, MultiPolygon):
+        return polygon
+    if isinstance(polygon, MultiPolygon):
         # recursive call for each polygon
         polygons = [_split_polygon_north_pole(p) for p in polygon.geoms]
         return MultiPolygon(
@@ -326,8 +324,7 @@ def _split_polygon_north_pole(
                 for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
             ]
         )
-    else:
-        raise ValueError("Unknown geometry: " + str(type(polygon)))
+    raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
 def _wrap_polygon_over_south_pole(polygon: Polygon) -> Polygon:
@@ -414,9 +411,8 @@ def _split_polygon_south_pole(
                 if isinstance(bottom, Polygon)
                 else list(top.geoms) + list(bottom.geoms)
             )
-        else:
-            return polygon
-    elif isinstance(polygon, MultiPolygon):
+        return polygon
+    if isinstance(polygon, MultiPolygon):
         # recursive call for each polygon
         polygons = [_split_polygon_south_pole(p) for p in polygon.geoms]
         return MultiPolygon(
@@ -426,8 +422,7 @@ def _split_polygon_south_pole(
                 for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
             ]
         )
-    else:
-        raise ValueError("Unknown geometry: " + str(type(polygon)))
+    raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
 def _wrap_polygon_over_antimeridian(polygon: Polygon) -> Polygon:
@@ -481,8 +476,7 @@ def _convert_collection_to_polygon(
     ]
     if len(pgons) == 1:
         return pgons[0]
-    else:
-        return MultiPolygon(pgons)
+    return MultiPolygon(pgons)
 
 
 def _split_polygon_antimeridian(
@@ -545,9 +539,8 @@ def _split_polygon_antimeridian(
                 if isinstance(right, Polygon)
                 else list(left.geoms) + list(right.geoms)
             )
-        else:
-            return polygon
-    elif isinstance(polygon, MultiPolygon):
+        return polygon
+    if isinstance(polygon, MultiPolygon):
         # recursive call for each polygon
         polygons = [_split_polygon_antimeridian(p) for p in polygon.geoms]
         return MultiPolygon(
@@ -557,8 +550,7 @@ def _split_polygon_antimeridian(
                 for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
             ]
         )
-    else:
-        raise ValueError("Unknown geometry: " + str(type(polygon)))
+    raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
 def split_polygon(
@@ -591,12 +583,13 @@ def normalize_geometry(
     Normalize geometry to a GeoDataFrame with antimeridian wrapping.
 
     Args:
-        geometry (geopandas.GeoDataFrame, geopandas.GeoSeries, Polygon, or MultiPolygon): The geometry to normalize.
+        geometry (geopandas.GeoDataFrame, geopandas.GeoSeries, Polygon,
+            or MultiPolygon): The geometry to normalize.
 
     Returns:
         geopandas.GeoDataFrame: The normalized geometry.
     """
-    if isinstance(geometry, Polygon) or isinstance(geometry, MultiPolygon):
+    if isinstance(geometry, (Polygon, MultiPolygon)):
         if not geometry.is_valid:
             raise ValueError("Geometry is not a valid Polygon or MultiPolygon.")
         geometry = gpd.GeoDataFrame(geometry=gpd.GeoSeries([geometry]), crs="EPSG:4326")

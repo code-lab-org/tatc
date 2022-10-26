@@ -1,3 +1,7 @@
+"""
+Tradespace Analysis Toolkit for Constellations (TAT-C)
+"""
+
 from . import analysis
 from . import generation
 from . import schemas

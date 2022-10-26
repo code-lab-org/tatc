@@ -5,8 +5,9 @@ Object schemas for sampling points.
 @author: Paul T. Grogan <pgrogan@stevens.edu>
 """
 
-from pydantic import BaseModel, Field, NonNegativeInt
 from datetime import timedelta
+
+from pydantic import BaseModel, Field, NonNegativeInt
 
 
 class Point(BaseModel):
@@ -61,7 +62,8 @@ class GroundStation(BaseModel):
     )
     min_elevation_angle: float = Field(
         0,
-        description="The minimum elevation angle (decimal degrees) required for satellite communication.",
+        description="The minimum elevation angle (decimal degrees) required "
+        + "for satellite communication.",
         ge=0,
         le=90,
     )
