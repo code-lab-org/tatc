@@ -15,7 +15,7 @@ The simplest way to use TAT-C is to install it with the command:
 ```shell
 conda install tatc -c conda-forge
 ```
-Then, TAT-C is available for use in any Python script my importing:
+Then, TAT-C is available for use in any Python script by importing:
 ```python
 import tatc
 ```
