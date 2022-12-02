@@ -23,7 +23,7 @@ jobs:
         password: ${{ secrets.DOCKERHUB_TOKEN }}
     
     - name: Extract metadata (tags, labels) for Docker
-      id: meta
+      id: meta-server
       uses: docker/metadata-action@v4
       with:
         images: codelaborg/tatc-server
@@ -33,11 +33,11 @@ jobs:
       with:
         push: true
         target: tatc_server
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
+        tags: ${{ steps.meta-server.outputs.tags }}
+        labels: ${{ steps.meta-server.outputs.labels }}
     
     - name: Extract metadata (tags, labels) for Docker
-      id: meta
+      id: meta-worker
       uses: docker/metadata-action@v4
       with:
         images: codelaborg/tatc-worker
@@ -47,5 +47,5 @@ jobs:
       with:
         push: true
         target: tatc_worker
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
+        tags: ${{ steps.meta-worker.outputs.tags }}
+        labels: ${{ steps.meta-worker.outputs.labels }}
