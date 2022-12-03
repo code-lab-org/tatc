@@ -12,10 +12,10 @@ broker_string = os.getenv("TATC_BROKER", "amqp://localhost:5672//")
 if "amqps://" in broker_string:
     broker_ssl_option = os.getenv("TATC_BROKER_SSL_CERT_REQS", "NONE")
     broker_ssl_config = {
-        'ssl_keyfile': os.getenv("TATC_BROKER_SSL_KEYFILE", None),
-        'ssl_certfile': os.getenv("TATC_BROKER_SSL_CERTFILE", None),
-        'ssl_ca_certs': os.getenv("TATC_BROKER_SSL_CA_CERTS", None),
-        'ssl_cert_reqs': (
+        'keyfile': os.getenv("TATC_BROKER_SSL_KEYFILE", None),
+        'certfile': os.getenv("TATC_BROKER_SSL_CERTFILE", None),
+        'ca_certs': os.getenv("TATC_BROKER_SSL_CA_CERTS", None),
+        'cert_reqs': (
             ssl.CERT_REQUIRED if broker_ssl_option == "REQUIRED"
             else ssl.CERT_OPTIONAL if broker_ssl_option == "OPTIONAL"
             else ssl.CERT_NONE
