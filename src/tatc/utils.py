@@ -222,7 +222,9 @@ def compute_max_access_time(altitude: float, min_elevation_angle: float) -> floa
     Returns:
         float: The maximum access time (seconds) for observation.
     """
-    orbital_distance = altitude * (np.pi - 2 * np.radians(min_elevation_angle))
+    orbital_distance = (constants.EARTH_MEAN_RADIUS + altitude) * (
+        np.pi - 2 * np.radians(min_elevation_angle)
+    )
     orbital_velocity = np.sqrt(
         constants.EARTH_MU / (constants.EARTH_MEAN_RADIUS + altitude)
     )

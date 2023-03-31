@@ -65,7 +65,7 @@ class TestUtils(unittest.TestCase):
 
     def test_compute_max_access_time(self):
         self.assertAlmostEqual(
-            compute_max_access_time(705000, 81.66446), 27.33097, delta=0.001
+            compute_max_access_time(705000, 81.66446), 274.31828, delta=0.001
         )
 
     def test_split_polygon_nominal(self):

@@ -84,7 +84,7 @@ class TestLatencyAnalysis(unittest.TestCase):
             self.stations,
             self.satellite,
             datetime(2022, 6, 1, tzinfo=timezone.utc),
-            datetime(2022, 6, 1, 1, tzinfo=timezone.utc),
+            datetime(2022, 6, 1, 0, 10, tzinfo=timezone.utc),
         )
         self.assertTrue(results.empty)
 
