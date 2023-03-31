@@ -88,7 +88,7 @@ class TrainConstellation(Satellite):
         Returns:
             float: the difference in mean anomaly
         """
-        return 360 * self.orbit.get_mean_motion() * (self.interval / timedelta(days=1))
+        return -360 * self.orbit.get_mean_motion() * (self.interval / timedelta(days=1))
 
     def get_delta_raan(self) -> float:
         """
@@ -99,7 +99,7 @@ class TrainConstellation(Satellite):
             float: the difference in right ascension of ascending node
         """
         if self.repeat_ground_track:
-            return -1 * 360 * (self.interval / timedelta(days=1))
+            return 360 * (self.interval / timedelta(days=1))
         return 0
 
     def generate_members(self) -> List[Satellite]:

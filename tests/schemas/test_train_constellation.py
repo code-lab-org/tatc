@@ -72,34 +72,34 @@ class TestTrainConstellation(unittest.TestCase):
     def test_get_delta_mean_anomaly_repeat_ground_track_tle(self):
         self.assertAlmostEqual(
             self.test_con_1.get_delta_mean_anomaly(),
-            360 * self.test_con_1.interval / self.test_con_1.orbit.get_orbit_period(),
+            -360 * self.test_con_1.interval / self.test_con_1.orbit.get_orbit_period(),
             delta=0.001,
         )
 
     def test_get_delta_mean_anomaly_no_repeat_ground_track_tle(self):
         self.assertAlmostEqual(
             self.test_con_2.get_delta_mean_anomaly(),
-            360 * self.test_con_2.interval / self.test_con_2.orbit.get_orbit_period(),
+            -360 * self.test_con_2.interval / self.test_con_2.orbit.get_orbit_period(),
             delta=0.001,
         )
 
     def test_get_delta_mean_anomaly_circular(self):
         self.assertAlmostEqual(
             self.test_con_3.get_delta_mean_anomaly(),
-            360 * self.test_con_3.interval / self.test_con_3.orbit.get_orbit_period(),
+            -360 * self.test_con_3.interval / self.test_con_3.orbit.get_orbit_period(),
             delta=0.001,
         )
 
     def test_get_delta_raan_repeat_ground_track_tle(self):
         self.assertEqual(
             self.test_con_1.get_delta_raan(),
-            -1 * 360 * self.test_con_1.interval / timedelta(days=1),
+            360 * self.test_con_1.interval / timedelta(days=1),
         )
 
     def test_get_delta_raan_repeat_ground_track_circular(self):
         self.assertEqual(
             self.test_con_3.get_delta_raan(),
-            -1 * 360 * self.test_con_1.interval / timedelta(days=1),
+            360 * self.test_con_1.interval / timedelta(days=1),
         )
 
     def test_get_delta_raan_no_repeat_ground_track_tle(self):
@@ -110,18 +110,27 @@ class TestTrainConstellation(unittest.TestCase):
         self.assertEqual(len(members), constellation.number_satellites)
         for i in range(len(members) - 1):
             self.assertAlmostEqual(
-                members[i + 1].orbit.get_mean_anomaly()
-                - members[i].orbit.get_mean_anomaly(),
-                constellation.get_delta_mean_anomaly(),
+                (
+                    members[i + 1].orbit.get_mean_anomaly()
+                    - members[i].orbit.get_mean_anomaly()
+                )
+                % 360,
+                constellation.get_delta_mean_anomaly() % 360,
                 delta=0.001,
             )
             self.assertAlmostEqual(
-                members[i + 1].orbit.get_right_ascension_ascending_node()
-                - members[i].orbit.get_right_ascension_ascending_node()
+                (
+                    members[i + 1].orbit.get_right_ascension_ascending_node()
+                    - members[i].orbit.get_right_ascension_ascending_node()
+                )
+                % 360
                 if constellation.orbit.type == "tle"
-                else members[i + 1].orbit.right_ascension_ascending_node
-                - members[i].orbit.right_ascension_ascending_node,
-                constellation.get_delta_raan(),
+                else (
+                    members[i + 1].orbit.right_ascension_ascending_node
+                    - members[i].orbit.right_ascension_ascending_node
+                )
+                % 360,
+                constellation.get_delta_raan() % 360,
                 delta=0.001,
             )
 
