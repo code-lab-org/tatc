@@ -2,7 +2,7 @@ import unittest
 
 from datetime import datetime, timedelta, timezone
 from sgp4.api import Satrec, WGS72
-from skyfield.api import wgs84, EarthSatellite
+from skyfield.api import EarthSatellite
 
 from tatc.schemas import Instrument, CircularOrbit
 from tatc.constants import timescale
@@ -17,7 +17,7 @@ class TestInstrument(unittest.TestCase):
             true_anomaly=0,
             epoch=noon_utc,
             inclination=0.0,
-            right_ascension_ascending_node=140.0,
+            right_ascension_ascending_node=0.0,
         ).to_tle()
         self.test_sat_1 = EarthSatellite.from_satrec(
             Satrec.twoline2rv(test_orbit_1.tle[0], test_orbit_1.tle[1], WGS72),
@@ -28,7 +28,7 @@ class TestInstrument(unittest.TestCase):
             true_anomaly=0,
             epoch=noon_utc,
             inclination=0.0,
-            right_ascension_ascending_node=225.0,
+            right_ascension_ascending_node=80.0,
         ).to_tle()
         self.test_sat_2 = EarthSatellite.from_satrec(
             Satrec.twoline2rv(test_orbit_2.tle[0], test_orbit_2.tle[1], WGS72),
@@ -39,7 +39,7 @@ class TestInstrument(unittest.TestCase):
             true_anomaly=0,
             epoch=noon_utc,
             inclination=0.0,
-            right_ascension_ascending_node=235.0,
+            right_ascension_ascending_node=100.0,
         ).to_tle()
         self.test_sat_3 = EarthSatellite.from_satrec(
             Satrec.twoline2rv(test_orbit_3.tle[0], test_orbit_3.tle[1], WGS72),
@@ -50,7 +50,7 @@ class TestInstrument(unittest.TestCase):
             true_anomaly=0,
             epoch=noon_utc,
             inclination=0.0,
-            right_ascension_ascending_node=320.0,
+            right_ascension_ascending_node=180.0,
         ).to_tle()
         self.test_sat_4 = EarthSatellite.from_satrec(
             Satrec.twoline2rv(test_orbit_4.tle[0], test_orbit_4.tle[1], WGS72),
@@ -61,7 +61,7 @@ class TestInstrument(unittest.TestCase):
             true_anomaly=0,
             epoch=noon_utc,
             inclination=45.0,
-            right_ascension_ascending_node=140.0,
+            right_ascension_ascending_node=0.0,
         ).to_tle()
         self.test_sat_5 = EarthSatellite.from_satrec(
             Satrec.twoline2rv(test_orbit_5.tle[0], test_orbit_5.tle[1], WGS72),
