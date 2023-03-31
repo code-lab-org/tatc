@@ -1,13 +1,13 @@
-aiofiles
-aiohttp
-aiosqlite
-celery[librabbitmq,redis]
-fastapi
-fastapi-users[sqlalchemy]
-fastapi-utils
-geojson-pydantic
-msgpack-asgi
-python-dotenv
-redis
-tzlocal
-uvicorn[standard]
+aiofiles == 22.1.0
+aiohttp == 3.8.3
+aiosqlite == 0.17.0
+celery[librabbitmq,redis] == 5.2.7
+fastapi == 0.88.0
+fastapi-users[sqlalchemy] == 10.2.1
+fastapi-utils == 0.2.1
+geojson-pydantic == 0.4.3
+msgpack-asgi == 1.1.0
+python-dotenv == 0.21.0
+redis == 4.3.5
+tzlocal == 4.2
+uvicorn[standard] == 0.20.0
