@@ -81,11 +81,7 @@ class TwoLineElements(BaseModel):
         Returns:
             datetime: the epoch datetime
         """
-        year = int(self.tle[0][18:20])
-        days = float(self.tle[0][20:32])
-        return datetime(
-            year + (2000 if year < 57 else 1900), 1, 1, tzinfo=timezone.utc
-        ) + timedelta(days=days)
+        return sat_epoch_datetime(Satrec.twoline2rv(self.tle[0], self.tle[1]))
 
     def get_first_derivative_mean_motion(self) -> float:
         """
@@ -304,7 +300,7 @@ class TwoLineElements(BaseModel):
             WGS72,
             "i",
             0,
-            (epoch - datetime(1950, 1, 1, tzinfo=timezone.utc)) / timedelta(days=1),
+            (epoch - datetime(1949, 12, 31, tzinfo=timezone.utc)) / timedelta(days=1),
             lead_tle.bstar,
             lead_tle.ndot,
             lead_tle.nddot,
@@ -594,7 +590,7 @@ class KeplerianOrbit(CircularOrbit):
             WGS72,
             "i",
             0,
-            (self.epoch - datetime(1950, 1, 1, tzinfo=timezone.utc))
+            (self.epoch - datetime(1949, 12, 31, tzinfo=timezone.utc))
             / timedelta(days=1),
             0,
             0.0,

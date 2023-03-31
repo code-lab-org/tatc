@@ -98,7 +98,7 @@ class TestTLE(unittest.TestCase):
     def test_get_epoch(self):
         self.assertEqual(
             self.test_tle.get_epoch(),
-            datetime(2021, 6, 6, 7, 19, 36, 128928, tzinfo=timezone.utc),
+            datetime(2021, 6, 5, 7, 19, 36, 128928, tzinfo=timezone.utc),
         )
 
     def test_get_first_derivative_mean_motion(self):
