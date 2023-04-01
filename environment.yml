@@ -10,3 +10,4 @@ dependencies:
   - shapely == 2.0.1
   - skyfield == 1.45
   - sgp4 == 2.21
+  - pip == 23.0.1
