@@ -5,7 +5,6 @@ dependencies:
   - contextily = 1.1.0
   - geopandas == 0.12.2
   - geoplot == 0.5.0
-  - geos == 3.11.2
   - numba == 0.56.4
   - numpy == 1.23.5
   - pandas == 1.5.3
