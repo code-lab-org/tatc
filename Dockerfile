@@ -18,12 +18,9 @@ COPY --from=tatc_build /venv /venv
 ENV PATH="/venv/bin:$PATH"
 
 WORKDIR /var/tatc
-COPY pyproject.toml setup.cfg setup.py ./
+COPY pyproject.toml ./
 COPY src src
-RUN python -m pip install . --no-cache-dir
-
-COPY app/requirements.txt .
-RUN python -m pip install -r requirements.txt --no-cache-dir
+RUN python -m pip install .[app] --no-cache-dir
 
 # This block defines the TAT-C server container. Using the TAT-C runtime
 # container, it installs and starts the server application.
