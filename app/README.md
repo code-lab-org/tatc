@@ -122,10 +122,10 @@ Specify the connection strings for both in the `.env` file as described above.
 Follow the TAT-C installation instructions to create and activate a conda
 environment `tatc_env` with the TAT-C library installed.
 
-Next, install the additional web application dependencies by navigating to
-the `app/` directory and running:
+Next, install the additional web application dependencies by installing tatc
+with the optional `app` dependency flag:
 ```shell
-pip install -r requirements.txt
+pip install -e .[app]
 ```
 
 To start the TAT-C server application, run the command:

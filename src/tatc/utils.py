@@ -585,8 +585,7 @@ def normalize_geometry(
     Normalize geometry to a GeoDataFrame with antimeridian wrapping.
 
     Args:
-        geometry (geopandas.GeoDataFrame, geopandas.GeoSeries, Polygon,
-            or MultiPolygon): The geometry to normalize.
+        geometry (geopandas.GeoDataFrame, geopandas.GeoSeries, Polygon, or MultiPolygon): The geometry to normalize.
 
     Returns:
         geopandas.GeoDataFrame: The normalized geometry.

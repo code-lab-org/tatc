@@ -25,6 +25,8 @@ TAT-C functionality), clone this repository and create a new conda environment:
 ```shell
 conda env create -f environment.yml
 ```
+(Note that if you need the `dev` or `examples` options below, use `conda env create -f environment-dev.yml` instead).
+
 Then, activate the tatc_env environment:
 ```shell
 conda activate tatc_env
@@ -34,6 +36,13 @@ And finally install the tatc library in "editable" mode:
 pip install -e .
 ```
 
+Note: the following optional dependencies are available with bracket notation: 
+ * `pip install -e .[dev]`: for development (unit testing, coverage, and linting)
+ * `pip install -e .[docs]`: for generating documentation
+ * `pip install -e .[examples]`: for running optional examples
+ * `pip install -e .[app]`: for running the web application
+Multiple optional dependencies can be installed with a comma-separated list (e.g., `pip install -e .[dev,examples]`)
+
 ### Faster Installation
 
 For faster dependency solving during installation, consider installing the
@@ -42,10 +51,6 @@ mamba package:
 conda install mamba -c conda-forge
 ```
 and replace `conda` with `mamba` in the installation instructions above.
-
-## Additional Dependencies
-
-Some examples use additional dependencies: `geoplot`, `contextily`
 
 ## Development Tools
 

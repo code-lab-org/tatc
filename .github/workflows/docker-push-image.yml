@@ -1,9 +1,7 @@
-name: Docker Image CI
+name: Docker Image Build and Push CI
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
     branches: [ "main" ]
 
 jobs:
