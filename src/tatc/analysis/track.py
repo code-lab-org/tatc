@@ -126,7 +126,7 @@ def _get_utm_epsg_code(point: Point) -> str:
         area_of_interest=pyproj.aoi.AreaOfInterest(point.x, point.y, point.x, point.y),
     )
     # return the first code if exists; otherwise return a default value
-    # 5041 is UPS North; 5042 is UPS South; 4087 is the default
+    # 5041 is UPS North; 5042 is UPS South; 8857 is the default
     return (
         "EPSG:" + results[0].code
         if len(results) > 0
@@ -134,7 +134,7 @@ def _get_utm_epsg_code(point: Point) -> str:
         if point.y > 84
         else "EPSG:5042"
         if point.y < -80
-        else "EPSG:4087"
+        else "EPSG:8857"
     )
 
 
@@ -144,7 +144,7 @@ def collect_ground_track(
     times: List[datetime],
     elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
-    crs: str = "EPSG:4087",
+    crs: str = "EPSG:8857",
 ) -> gpd.GeoDataFrame:
     """
     Collect ground track polygons for a satellite of interest.
@@ -157,7 +157,7 @@ def collect_ground_track(
                 WGS 84 coordinate system for which to calculate ground track.
         mask (Polygon or MultiPolygon): An optional mask to constrain results.
         crs (str): The coordinate reference system (CRS) in which to compute
-                distance (default: World Equidistant Cylindrical `"EPSG:4087"`).
+                distance (default: Equal Earth Greenwich `"EPSG:8857"`).
                 Selecting `crs="utm"` uses Universal Transverse Mercator (UTM)
                 zones for non-polar regions, and Universal Polar Stereographic
                 (UPS) systems for polar regions.
@@ -225,7 +225,7 @@ def compute_ground_track(
     times: List[datetime],
     elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
-    crs: str = "EPSG:4087",
+    crs: str = "EPSG:8857",
     method: str = "point",
 ) -> gpd.GeoDataFrame:
     """
@@ -239,7 +239,7 @@ def compute_ground_track(
                 WGS 84 coordinate system for which to calculate ground track.
         mask (Polygon or MultiPolygon): An optional mask to constrain results.
         crs (str): The coordinate reference system (CRS) in which to compute
-                distance (default: World Equidistant Cylindrical `"EPSG:4087"`).
+                distance (default: Equal Earth Greenwich `"EPSG:8857"`).
                 Selecting `crs="utm"` uses Universal Transverse Mercator (UTM)
                 zones for non-polar regions, and Universal Polar Stereographic
                 (UPS) systems for polar regions.
