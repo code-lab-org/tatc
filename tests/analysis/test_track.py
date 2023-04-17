@@ -137,7 +137,7 @@ class TestGroundTrackAnalysis(unittest.TestCase):
         self.assertEqual(len(results.index), 1)
         self.assertEqual(type(results.iloc[0].geometry), MultiPolygon)
 
-    def test_compute_ground_track_line(self):
+    def test_compute_ground_track_line_short(self):
         results = compute_ground_track(
             self.satellite,
             self.instrument,
@@ -149,6 +149,19 @@ class TestGroundTrackAnalysis(unittest.TestCase):
         )
         self.assertEqual(len(results.index), 1)
         self.assertEqual(type(results.iloc[0].geometry), Polygon)
+
+    def test_compute_ground_track_line_long(self):
+        results = compute_ground_track(
+            self.satellite,
+            self.instrument,
+            [
+                datetime(2022, 6, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
+                for i in range(12)
+            ],
+            method="line",
+        )
+        self.assertEqual(len(results.index), 1)
+        self.assertEqual(type(results.iloc[0].geometry), MultiPolygon)
 
     def test_compute_ground_track_line_multipolygon(self):
         results = compute_ground_track(
