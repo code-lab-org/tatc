@@ -12,7 +12,6 @@ from tatc.utils import (
     field_of_regard_to_swath_width,
     compute_field_of_regard,
     compute_min_elevation_angle,
-    compute_orbit_period,
     compute_max_access_time,
     split_polygon,
     normalize_geometry,
@@ -68,20 +67,16 @@ class TestUtils(unittest.TestCase):
             compute_max_access_time(705000, 81.66446), 274.31828, delta=0.001
         )
 
-    def test_split_polygon_nominal(self):
-        polygon = Polygon([(170, 10), (-170, 10), (-170, -10), (170, -10), (170, 10)])
-        result = MultiPolygon(
-            [
-                Polygon([(170, -10), (170, 10), (180, 10), (180, -10), (170, -10)]),
-                Polygon(
-                    [(-180, -10), (-180, 10), (-170, 10), (-170, -10), (-180, -10)]
-                ),
-            ]
-        )
-        self.assertEqual(split_polygon(polygon), result)
+    def test_split_polygon_nominal_small(self):
+        polygon = Polygon([(-10, 10), (10, 10), (10, -10), (-10, -10), (-10, 10)])
+        self.assertEqual(split_polygon(polygon), polygon)
+
+    def test_split_polygon_nominal_large(self):
+        polygon = Polygon([(-90, 10), (90, 10), (90, -10), (-90, -10), (-90, 10)])
+        self.assertEqual(split_polygon(polygon), polygon)
 
     def test_normalize_geometry_polygon(self):
-        polygon = Polygon([(-150, 10), (150, 10), (150, -10), (-150, -10), (-150, 10)])
+        polygon = Polygon([(-50, 10), (50, 10), (50, -10), (-50, -10), (-50, 10)])
         result = normalize_geometry(polygon)
         self.assertIsInstance(result, gpd.GeoDataFrame)
         self.assertEqual(result.crs, "EPSG:4326")
@@ -95,8 +90,8 @@ class TestUtils(unittest.TestCase):
 
     def test_normalize_geometry_multipolygon(self):
         geometries = [
-            [(-150, 10), (150, 10), (150, -10), (-150, -10), (-150, 10)],
-            [(-150, 30), (150, 30), (150, 20), (-150, 20), (-150, 30)],
+            [(-50, 10), (50, 10), (50, -10), (-50, -10), (-50, 10)],
+            [(-50, 30), (50, 30), (50, 20), (-50, 20), (-50, 30)],
         ]
         multipolygon = MultiPolygon([[geometry, []] for geometry in geometries])
         result = normalize_geometry(multipolygon)
@@ -109,7 +104,7 @@ class TestUtils(unittest.TestCase):
         )
 
     def test_normalize_geometry_geoseries(self):
-        polygon = Polygon([(-150, 10), (150, 10), (150, -10), (-150, -10), (-150, 10)])
+        polygon = Polygon([(-50, 10), (50, 10), (50, -10), (-50, -10), (-50, 10)])
         gs = gpd.GeoSeries(polygon, crs="EPSG:4326")
         result = normalize_geometry(gs)
         self.assertIsInstance(result, gpd.GeoDataFrame)
@@ -121,7 +116,7 @@ class TestUtils(unittest.TestCase):
         )
 
     def test_normalize_geometry_geodataframe(self):
-        polygon = Polygon([(-150, 10), (150, 10), (150, -10), (-150, -10), (-150, 10)])
+        polygon = Polygon([(-50, 10), (50, 10), (50, -10), (-50, -10), (-50, 10)])
         df = gpd.GeoDataFrame(geometry=[polygon], index=[0], crs="EPSG:4326")
         result = normalize_geometry(df)
         self.assertIsInstance(result, gpd.GeoDataFrame)
@@ -133,14 +128,14 @@ class TestUtils(unittest.TestCase):
         )
 
     def test_split_polygon_north_pole(self):
-        polygon = Polygon([(-150, 95), (-120, 95), (-120, 85), (-150, 85), (-150, 95)])
+        polygon = Polygon([(-50, 95), (-20, 95), (-20, 85), (-50, 85), (-50, 95)])
         result = MultiPolygon(
             [
-                Polygon([(-150, 85), (-150, 90), (-120, 90), (-120, 85), (-150, 85)]),
-                Polygon([(30, 90), (30, 85), (60, 85), (60, 90), (30, 90)]),
+                Polygon([(130, 85), (160, 85), (160, 90), (130, 90), (130, 85)]),
+                Polygon([(-20, 90), (-20, 85), (-50, 85), (-50, 90), (-20, 90)]),
             ]
         )
-        self.assertEqual(split_polygon(polygon), result)
+        self.assertTrue(split_polygon(polygon).equals(result))
 
     def test_split_polygon_south_pole(self):
         polygon = Polygon(
@@ -154,9 +149,9 @@ class TestUtils(unittest.TestCase):
                 Polygon([(30, -85), (30, -90), (60, -90), (60, -85), (30, -85)]),
             ]
         )
-        self.assertEqual(split_polygon(polygon), result)
+        self.assertTrue(split_polygon(polygon).equals(result))
 
-    def test_split_polygon_antimeridian(self):
+    def test_split_polygon_antimeridian_short_cw(self):
         polygon = Polygon([(170, 10), (-170, 10), (-170, -10), (170, -10), (170, 10)])
         result = MultiPolygon(
             [
@@ -166,7 +161,51 @@ class TestUtils(unittest.TestCase):
                 ),
             ]
         )
-        self.assertEqual(split_polygon(polygon), result)
+        self.assertTrue(split_polygon(polygon).equals(result))
+
+    def test_split_polygon_antimeridian_short_ccw(self):
+        polygon = Polygon([(-170, 10), (170, 10), (170, -10), (-170, -10), (-170, 10)])
+        result = MultiPolygon(
+            [
+                Polygon([(-180, 10), (-170, 10), (-170, -10), (-180, -10), (-180, 10)]),
+                Polygon([(180, -10), (170, -10), (170, 10), (180, 10), (180, -10)]),
+            ]
+        )
+        self.assertTrue(split_polygon(polygon).equals(result))
+
+    def test_split_polygon_antimeridian_long(self):
+        polygon = Polygon(
+            [
+                (170, 10),
+                (-170, 10),
+                (-70, 10),
+                (30, 10),
+                (30, -10),
+                (-70, -10),
+                (-170, -10),
+                (170, -10),
+                (170, 10),
+            ]
+        )
+        result = MultiPolygon(
+            [
+                Polygon([(170, 10), (180, 10), (180, -10), (170, -10), (170, 10)]),
+                Polygon(
+                    [
+                        (-180, 10),
+                        (-170, 10),
+                        (-70, 10),
+                        (30, 10),
+                        (30, -10),
+                        (-70, -10),
+                        (-170, -10),
+                        (-180, -10),
+                        (-180, 10),
+                    ]
+                ),
+            ]
+        )
+        self.assertTrue(split_polygon(polygon).equals(result))
 
     def test_split_polygon_north_pole_multipolygon(self):
         polygon = MultiPolygon(
@@ -183,7 +222,7 @@ class TestUtils(unittest.TestCase):
                 Polygon([(-60, 90), (-60, 85), (-30, 85), (-30, 90), (-60, 90)]),
             ]
         )
-        self.assertEqual(split_polygon(polygon), result)
+        self.assertTrue(split_polygon(polygon).equals(result))
 
     def test_split_polygon_south_pole_multipolygon(self):
         polygon = MultiPolygon(
@@ -204,7 +243,7 @@ class TestUtils(unittest.TestCase):
                 Polygon([(-60, -85), (-60, -90), (-30, -90), (-30, -85), (-60, -85)]),
             ]
         )
-        self.assertEqual(split_polygon(polygon), result)
+        self.assertTrue(split_polygon(polygon).equals(result))
 
     def test_split_polygon_antimeridian_multipolygon(self):
         polygon = MultiPolygon(
@@ -223,7 +262,7 @@ class TestUtils(unittest.TestCase):
                 Polygon([(-180, 30), (-180, 50), (-170, 50), (-170, 30), (-180, 30)]),
             ]
         )
-        self.assertEqual(split_polygon(polygon), result)
+        self.assertTrue(split_polygon(polygon).equals(result))
 
     def test_split_polygon_north_pole_top_multipolygon(self):
         polygon = Polygon(
@@ -247,7 +286,7 @@ class TestUtils(unittest.TestCase):
                 Polygon([(-130, 85), (-130, 90), (-120, 90), (-120, 85), (-130, 85)]),
             ]
         )
-        self.assertEqual(split_polygon(polygon), result)
+        self.assertTrue(split_polygon(polygon).equals(result))
 
     def test_split_polygon_south_pole_bottom_multipolygon(self):
         polygon = Polygon(
@@ -275,7 +314,7 @@ class TestUtils(unittest.TestCase):
                 ),
             ]
         )
-        self.assertEqual(split_polygon(polygon), result)
+        self.assertTrue(split_polygon(polygon).equals(result))
 
     def test_split_polygon_antimeridian_right_multipolygon(self):
         polygon = Polygon(
@@ -301,4 +340,4 @@ class TestUtils(unittest.TestCase):
                 Polygon([(-180, 5), (-180, 10), (-170, 10), (-170, 5), (-180, 5)]),
             ]
         )
-        self.assertEqual(split_polygon(polygon), result)
+        self.assertTrue(split_polygon(polygon).equals(result))

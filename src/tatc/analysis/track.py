@@ -18,7 +18,7 @@ from shapely.geometry import (
     Point,
     LineString,
 )
-from shapely.ops import transform, unary_union
+from shapely.ops import split, transform, unary_union
 import pyproj
 
 from ..schemas.satellite import Satellite
@@ -244,7 +244,9 @@ def compute_ground_track(
                 zones for non-polar regions, and Universal Polar Stereographic
                 (UPS) systems for polar regions.
         method (str): The method for computing ground track: `"point"` buffers
-                individual points while `"line"` buffers a line of points.
+                individual points while `"line"` buffers a line of points. Note
+                that the `"line"` method assumes continuous observations and only
+                supports ground tracks that span LESS than 360 degrees longitude.
 
     Returns:
         GeoDataFrame: The data frame of aggregated ground track results.
@@ -260,19 +262,33 @@ def compute_ground_track(
         # project points to specified elevation
         points = track.geometry.apply(lambda p: Point(p.x, p.y, elevation))
         # extract longitudes
-        lons = track.geometry.apply(lambda p: p.x)
-        if np.any(np.diff(np.sign(lons))):
-            # split lines when crossing meridian or anti-meridian
-            points_list = np.split(
-                points,
-                1 + np.where(np.diff(np.sign(lons)))[0],
-            )
-            segments = [
-                LineString(pts.tolist()) if len(pts.index) > 1 else pts[0]
-                for pts in points_list
-            ]
-        else:
+        lon = track.geometry.apply(lambda p: p.x)
+        if np.all(np.abs(np.diff(lon)) < 180):
             segments = [LineString(points)]
+        else:
+            # find anti-meridian crossings and calculate shift direction
+            # coords from W -> E (shift < 0) will add 360 degrees to E component
+            # coords from E -> W (shift > 0) will subtract 360 degrees from W component
+            shift = np.insert(np.cumsum(np.around(np.diff(lon) / 360)), 0, 0)
+            points = [
+                Point(p.x - 360 * shift[i], p.y, p.z) for i, p in enumerate(points)
+            ]
+            # split along the anti-meridian (-180 for shift > 0; 180 for shift < 0)
+            shift_dir = -180 if shift.max() >= 1 else 180
+            collection = split(
+                LineString(points), LineString([(shift_dir, -180), (shift_dir, 180)])
+            )
+            # map longitudes from (-540, -180] to (-180, 180] and from [180, 540) to [-180, 180)
+            segments = [
+                (
+                    LineString([(c[0] + 360, c[1], c[2]) for c in line.coords])
+                    if np.all([c[0] <= -180 for c in line.coords])
+                    else LineString([(c[0] - 360, c[1], c[2]) for c in line.coords])
+                    if np.all([c[0] >= 180 for c in line.coords])
+                    else LineString([(c[0], c[1], c[2]) for c in line.coords])
+                )
+                for line in collection.geoms
+            ]
         to_crs = pyproj.Transformer.from_crs(
             track.crs, pyproj.CRS(crs), always_xy=True
         ).transform
@@ -291,7 +307,7 @@ def compute_ground_track(
         polygons = [
             Polygon(
                 [(p[0], p[1], elevation) for p in g.exterior.coords],
-                [(p[0], p[1], elevation) for i in g.interiors for p in i.coords],
+                [[(p[0], p[1], elevation) for p in i.coords] for i in g.interiors],
             )
             for g in polygons
         ]
