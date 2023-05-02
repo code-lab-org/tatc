@@ -2,12 +2,12 @@ name: tatc_env
 channels:
   - conda-forge
 dependencies:
-  - geopandas == 0.12.2
-  - numba == 0.56.4
-  - numpy == 1.23.5
-  - pandas == 1.5.3
-  - pydantic == 1.10.7
-  - shapely == 2.0.1
-  - skyfield == 1.45
-  - sgp4 == 2.21
-  - pip == 23.0.1
+  - geopandas = 0.12
+  - numba
+  - numpy
+  - pandas
+  - pydantic = 1.10
+  - shapely = 2.0
+  - skyfield >= 1.41
+  - sgp4
+  - pip = 23

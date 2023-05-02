@@ -111,6 +111,8 @@ app.include_router(
 )
 # Mount a static directory to the root (/) route for any other requests
 app.mount("/", StaticFiles(directory="static", html=True), name="frontend")
+
+
 # connect to the database and try to create admin user on startup
 @app.on_event("startup")
 async def startup():

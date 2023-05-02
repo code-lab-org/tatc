@@ -22,6 +22,7 @@ from .schemas import UserCreate
 SECRET = os.getenv("TATC_SECRET", "change me")
 LOGIN_LIFETIME = int(os.getenv("TATC_LOGIN_LIFETIME_SECONDS", 7200))
 
+
 # define the user manager
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     """
@@ -49,6 +50,7 @@ async def get_user_manager(user_db: SQLAlchemyUserDatabase = Depends(get_user_db
 # define the bearer and cookie transports for login
 bearer_transport = BearerTransport(tokenUrl="auth/login")
 cookie_transport = CookieTransport(cookie_max_age=LOGIN_LIFETIME)
+
 
 # define a callback to retrieve the JWT strategy
 def get_jwt_strategy() -> JWTStrategy:
@@ -82,6 +84,7 @@ fastapi_users = FastAPIUsers[User, uuid.UUID](
 get_async_session_context = contextlib.asynccontextmanager(get_async_session)
 get_user_db_context = contextlib.asynccontextmanager(get_user_db)
 get_user_manager_context = contextlib.asynccontextmanager(get_user_manager)
+
 
 # backend function to create a new user
 async def create_user(email: str, password: str, is_superuser: bool = False) -> None:
