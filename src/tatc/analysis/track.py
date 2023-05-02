@@ -182,13 +182,27 @@ def collect_ground_track(
             from_crs = pyproj.Transformer.from_crs(
                 pyproj.CRS(code), gdf.crs, always_xy=True
             ).transform
-            gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
-                lambda r: transform(
-                    from_crs,
-                    transform(to_crs, r.geometry).buffer(r.swath_width / 2),
-                ),
-                axis=1,
-            )
+            if code in ("EPSG:5041", "EPSG:5042"):
+                # keep polygons 500km away from UPS poles and apply zero buffer
+                # to mitigate invalid polygons near poles in EPSG:4087
+                gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
+                    lambda r: transform(
+                        from_crs,
+                        transform(to_crs, r.geometry)
+                        .buffer(r.swath_width / 2)
+                        .difference(Point(2e6, 2e6, 0).buffer(5e5)),
+                    ).buffer(0),
+                    axis=1,
+                )
+            else:
+                # apply zero buffer to mitigate invalid polygons in EPSG:4087
+                gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
+                    lambda r: transform(
+                        from_crs,
+                        transform(to_crs, r.geometry).buffer(r.swath_width / 2),
+                    ).buffer(0),
+                    axis=1,
+                )
     else:
         # do the swath projection in the specified coordinate reference system
         to_crs = pyproj.Transformer.from_crs(
@@ -208,7 +222,17 @@ def collect_ground_track(
     gdf.geometry = gdf.geometry.apply(
         lambda g: Polygon(
             [(p[0], p[1], elevation) for p in g.exterior.coords],
-            [(p[0], p[1], elevation) for i in g.interiors for p in i.coords],
+            [[(p[0], p[1], elevation) for p in i.coords] for i in g.interiors],
+        )
+        if isinstance(g, Polygon)
+        else MultiPolygon(
+            [
+                Polygon(
+                    [(p[0], p[1], elevation) for p in n.exterior.coords],
+                    [[(p[0], p[1], elevation) for p in i.coords] for i in n.interiors],
+                )
+                for n in g.geoms
+            ]
         )
     )
     # split polygons to wrap over the anti-meridian and poles
@@ -257,38 +281,56 @@ def compute_ground_track(
         return track[track.valid_obs].dissolve()
     if method == "line":
         track = collect_orbit_track(satellite, instrument, times, elevation, mask)
+        # assign track identifiers to group contiguous observation periods
+        track["track_id"] = (
+            (track.valid_obs != track.valid_obs.shift()).astype("int").cumsum()
+        )
         # filter to valid observations
         track = track[track.valid_obs].reset_index(drop=True)
-        # project points to specified elevation
-        points = track.geometry.apply(lambda p: Point(p.x, p.y, elevation))
-        # extract longitudes
-        lon = track.geometry.apply(lambda p: p.x)
-        if np.all(np.abs(np.diff(lon)) < 180):
-            segments = [LineString(points)]
-        else:
-            # find anti-meridian crossings and calculate shift direction
-            # coords from W -> E (shift < 0) will add 360 degrees to E component
-            # coords from E -> W (shift > 0) will subtract 360 degrees from W component
-            shift = np.insert(np.cumsum(np.around(np.diff(lon) / 360)), 0, 0)
-            points = [
-                Point(p.x - 360 * shift[i], p.y, p.z) for i, p in enumerate(points)
-            ]
-            # split along the anti-meridian (-180 for shift > 0; 180 for shift < 0)
-            shift_dir = -180 if shift.max() >= 1 else 180
-            collection = split(
-                LineString(points), LineString([(shift_dir, -180), (shift_dir, 180)])
+        segments = []
+        swath_widths = []
+        for track_id in track.track_id.unique():
+            # project points to specified elevation
+            points = track[track.track_id == track_id].geometry.apply(
+                lambda p: Point(p.x, p.y, elevation)
             )
-            # map longitudes from (-540, -180] to (-180, 180] and from [180, 540) to [-180, 180)
-            segments = [
-                (
-                    LineString([(c[0] + 360, c[1], c[2]) for c in line.coords])
-                    if np.all([c[0] <= -180 for c in line.coords])
-                    else LineString([(c[0] - 360, c[1], c[2]) for c in line.coords])
-                    if np.all([c[0] >= 180 for c in line.coords])
-                    else LineString([(c[0], c[1], c[2]) for c in line.coords])
+            # extract longitudes and latitudes
+            lon = track[track.track_id == track_id].geometry.apply(lambda p: p.x)
+            # extract average swath width
+            swath_widths.append(track[track.track_id == track_id].swath_width.mean())
+            # no anti-meridian crossings if all absolute longitude differences
+            # are less than 180 deg for non-polar points (mean absolute latitude < 80 deg)
+            if np.all(np.abs(np.diff(lon)) < 180):
+                segments.append(LineString(points))
+            else:
+                # find anti-meridian crossings and calculate shift direction
+                # coords from W -> E (shift < 0) will add 360 degrees to E component
+                # coords from E -> W (shift > 0) will subtract 360 degrees from W component
+                shift = np.insert(np.cumsum(np.around(np.diff(lon) / 360)), 0, 0)
+                points = [
+                    Point(p.x - 360 * shift[i], p.y, p.z) for i, p in enumerate(points)
+                ]
+                # split along the anti-meridian (-180 for shift > 0; 180 for shift < 0)
+                shift_dir = -180 if shift.max() >= 1 else 180
+                collection = split(
+                    LineString(points),
+                    LineString([(shift_dir, -180), (shift_dir, 180)]),
                 )
-                for line in collection.geoms
-            ]
+                # map longitudes from (-540, -180] to (-180, 180] and from [180, 540) to [-180, 180)
+                segments.extend(
+                    [
+                        (
+                            LineString([(c[0] + 360, c[1], c[2]) for c in line.coords])
+                            if np.all([c[0] <= -180 for c in line.coords])
+                            else LineString(
+                                [(c[0] - 360, c[1], c[2]) for c in line.coords]
+                            )
+                            if np.all([c[0] >= 180 for c in line.coords])
+                            else LineString([(c[0], c[1], c[2]) for c in line.coords])
+                        )
+                        for line in collection.geoms
+                    ]
+                )
         to_crs = pyproj.Transformer.from_crs(
             track.crs, pyproj.CRS(crs), always_xy=True
         ).transform
@@ -299,9 +341,9 @@ def compute_ground_track(
         polygons = [
             transform(
                 from_crs,
-                transform(to_crs, segment).buffer(track.swath_width.mean() / 2),
+                transform(to_crs, segment).buffer(swath_width / 2),
             )
-            for segment in segments
+            for segment, swath_width in zip(segments, swath_widths)
         ]
         # add elevation to all polygon coordinates (otherwise lost during buffering)
         polygons = [
