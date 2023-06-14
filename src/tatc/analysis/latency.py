@@ -199,7 +199,7 @@ def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame
             "latency": "mean",
             "samples": "sum",
         },
-    )
+    ).reset_index()
     # convert latency from numeric values after aggregation
     gdf["latency"] = gdf["latency"].apply(
         lambda t: pd.NaT if pd.isna(t) else timedelta(seconds=t)
