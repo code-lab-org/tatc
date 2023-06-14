@@ -13,7 +13,7 @@ RUN /venv/bin/conda-unpack
 
 # This block defines the TAT-C runtime container.
 
-FROM python:3 AS tatc_runtime
+FROM python:3.10 AS tatc_runtime
 COPY --from=tatc_build /venv /venv
 ENV PATH="/venv/bin:$PATH"
 
