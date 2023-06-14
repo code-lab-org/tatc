@@ -2,6 +2,7 @@ name: tatc_env
 channels:
   - conda-forge
 dependencies:
+  - python >=3.8,<3.11
   - contextily = 1.2
   - geopandas = 0.12
   - ipykernel = 6.22
