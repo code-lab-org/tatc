@@ -397,17 +397,17 @@ def compute_dop(t_vec,gs, wc, minEl, m)-> gpd.GeoDataFrame:
     
     #Generate empty arrays
     dop = np.zeros((len(t_vec),1))
-    az = np.empty((24,len(t_vec)))
+    az = np.empty((len(sats),len(t_vec)))
     az[:] = np.nan
-    el = np.empty((24,len(t_vec)))
+    el = np.empty((len(sats),len(t_vec)))
     el[:] = np.nan
-    r = np.empty((24,len(t_vec)))
+    r = np.empty((len(sats),len(t_vec)))
     r[:] = np.nan
-    x = np.empty((24,len(t_vec)))
+    x = np.empty((len(sats),len(t_vec)))
     x[:] = np.nan
-    y = np.empty((24,len(t_vec)))
+    y = np.empty((len(sats),len(t_vec)))
     y[:] = np.nan
-    z = np.empty((24,len(t_vec)))
+    z = np.empty((len(sats),len(t_vec)))
     z[:] = np.nan
 
     #Propagate to find the az, el, r from the satellite to the user location at times ts_times
