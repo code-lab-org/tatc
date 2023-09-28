@@ -144,17 +144,18 @@ def compute_latencies(
             row["latency"] = dls.iloc[0].epoch - row.epoch
         return row
 
-    # append latency-specific columns
-    observations["station"] = None
-    observations["downlinked"] = None
-    observations["latency"] = None
+    # copy and append latency-specific columns
+    obs = observations.copy()
+    obs["station"] = None
+    obs["downlinked"] = None
+    obs["latency"] = None
     # write the latency-specific columns
-    observations = observations.apply(_align_downlinks, axis=1)
+    obs = obs.apply(_align_downlinks, axis=1)
     # add observed column
-    observations["observed"] = observations["epoch"]
+    obs["observed"] = obs["epoch"]
     # drop start, epoch, and end columns
-    observations = observations.drop(["start", "epoch", "end"], axis=1)
-    return observations
+    obs = obs.drop(["start", "epoch", "end"], axis=1)
+    return obs
 
 
 def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
