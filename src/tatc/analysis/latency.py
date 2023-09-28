@@ -138,17 +138,17 @@ def compute_latencies(
             )
         ]
         # append latency-specific columns
-        if dls.empty:
-            row["station"] = None
-            row["downlinked"] = None
-            row["latency"] = None
-        else:
+        if not dls.empty:
             row["station"] = dls.iloc[0].station
             row["downlinked"] = dls.iloc[0].epoch
             row["latency"] = dls.iloc[0].epoch - row.epoch
         return row
 
-    # append the latency-specific columns
+    # append latency-specific columns
+    observations["station"] = None
+    observations["downlinked"] = None
+    observations["latency"] = None
+    # write the latency-specific columns
     observations = observations.apply(_align_downlinks, axis=1)
     # add observed column
     observations["observed"] = observations["epoch"]
