@@ -134,14 +134,15 @@ def compute_latencies(
         # filter downlinks after observation occurs
         dls = downlinks[
             np.logical_and(
-                row.satellite == downlinks.satellite, row.end < downlinks.start
+                row[2] == downlinks.satellite, 
+                row[5] < downlinks.start
             )
         ]
         # append latency-specific columns
         if not dls.empty:
-            row["station"] = dls.iloc[0].station
-            row["downlinked"] = dls.iloc[0].epoch
-            row["latency"] = dls.iloc[0].epoch - row.epoch
+            row[9] = dls.iloc[0].station
+            row[10] = dls.iloc[0].epoch
+            row[11] = dls.iloc[0].epoch - row[6]
         return row
 
     # copy and append latency-specific columns
@@ -150,7 +151,7 @@ def compute_latencies(
     obs["downlinked"] = None
     obs["latency"] = None
     # write the latency-specific columns
-    obs = obs.apply(_align_downlinks, axis=1)
+    obs = obs.apply(_align_downlinks, axis=1, raw=True)
     # add observed column
     obs["observed"] = obs["epoch"]
     # drop start, epoch, and end columns
