@@ -130,19 +130,17 @@ def compute_latencies(
     if observations.empty or downlinks.empty:
         return _get_empty_latency_frame()
 
-    def _align_downlinks(row):
+    def _align_downlinks(row, downlinks):
         # filter downlinks after observation occurs
         dls = downlinks[
-            np.logical_and(
-                row[2] == downlinks.satellite, 
-                row[5] < downlinks.start
-            )
+            (downlinks.satellite == row.satellite) & 
+            (downlinks.start > row.end)
         ]
         # append latency-specific columns
         if not dls.empty:
-            row[9] = dls.iloc[0].station
-            row[10] = dls.iloc[0].epoch
-            row[11] = dls.iloc[0].epoch - row[6]
+            row.station = dls.iloc[0].station
+            row.downlinked = dls.iloc[0].epoch
+            row.latency = dls.iloc[0].epoch - row.epoch
         return row
 
     # copy and append latency-specific columns
@@ -151,7 +149,12 @@ def compute_latencies(
     obs["downlinked"] = None
     obs["latency"] = None
     # write the latency-specific columns
-    obs = obs.apply(_align_downlinks, axis=1, raw=True)
+    try:
+        from pandarallel import pandarallel
+        pandarallel.initialize(verbose=0)
+        obs = obs.parallel_apply(_align_downlinks, args=(downlinks,), axis=1)
+    except ImportError as e:
+        obs = obs.apply(_align_downlinks, args=(downlinks,), axis=1)
     # add observed column
     obs["observed"] = obs["epoch"]
     # drop start, epoch, and end columns
