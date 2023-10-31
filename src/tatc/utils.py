@@ -62,7 +62,7 @@ def true_anomaly_to_mean_anomaly(true_anomaly: float, eccentricity: float = 0) -
 
 
 @njit
-def compute_number_samples(distance: float) -> float:
+def compute_number_samples(distance: float) -> int:
     """
     Compute the number of global samples required to achieve a typical
     sample distance (meters) assuming equal spacing.
