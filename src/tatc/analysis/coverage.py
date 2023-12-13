@@ -71,7 +71,7 @@ def _get_visible_interval_series(
         sets = times[events == 2]
         if len(sets) > 0 and (
             len(rises) == 0 or sets[0].utc_datetime() < rises[0].utc_datetime()
-        ):
+        ) and start < sets[0].utc_datetime():
             # if first event is a set, create a period from the start
             obs_periods += [
                 pd.Interval(
@@ -103,7 +103,7 @@ def _get_visible_interval_series(
         ]
         if len(rises) > 0 and (
             len(sets) == 0 or rises[-1].utc_datetime() > sets[-1].utc_datetime()
-        ):
+        ) and rises[-1].utc_datetime() < end:
             # if last event is a rise, create a period to the end
             obs_periods += [
                 pd.Interval(
