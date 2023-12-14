@@ -306,8 +306,8 @@ def collect_observations(
             "geometry": geo.Point(point.longitude, point.latitude, point.elevation),
             "satellite": satellite.name,
             "instrument": instrument.name,
-            "start": period.left,
-            "end": period.right,
+            "start": period.left if not instrument.access_time_fixed else period.mid - instrument.min_access_time/2,
+            "end": period.right if not instrument.access_time_fixed else period.mid + instrument.min_access_time/2,
             "epoch": period.mid,
         }
         for period in _get_visible_interval_series(

@@ -15,6 +15,10 @@ de421 = load("de421.bsp")
 # load timescale
 timescale = load.timescale()
 
+# time properties
+EARTH_SOLAR_DAY_S = 86400
+EARTH_SIDEREAL_DAY_S = 86164.0905
+
 # wgs84 oblate spheroid parameters
 EARTH_FLATTENING = 1 / 298.257223563
 EARTH_EQUATORIAL_RADIUS = 6378137.0
