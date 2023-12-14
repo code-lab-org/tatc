@@ -135,7 +135,7 @@ def compute_latencies(
         dls = downlinks[
             (downlinks.satellite == row.satellite) & 
             (downlinks.start > row.end)
-        ]
+        ].sort_values(by="start")
         # append latency-specific columns
         if not dls.empty:
             row.station = dls.iloc[0].station
