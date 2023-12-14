@@ -45,6 +45,10 @@ class Instrument(BaseModel):
         description="Required target sunlit state for valid observation "
         + "(`True`: sunlit, `False`: eclipse, `None`: no requirement).",
     )
+    access_time_fixed: bool = Field(
+        False,
+        description="`True`, if access time is fixed to minimum value."
+    )
 
     def get_swath_width(self, height: float) -> float:
         """
