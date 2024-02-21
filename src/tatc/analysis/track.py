@@ -84,6 +84,8 @@ def collect_orbit_track(
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate swath width.
         mask (Polygon or MultiPolygon): An optional mask to constrain results.
+        coordinates (OrbitCoordinate): The coordinate system of orbit track points.
+        output (OrbitOutput): The ouptput option.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected orbit track results.
