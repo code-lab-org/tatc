@@ -248,3 +248,110 @@ class WalkerConstellation(Satellite):
             )
             for i in range(self.number_satellites)
         ]
+
+class MOGConstellation(Satellite):
+    """
+    A constellation that arranges member satellites following the mutual orbiting group pattern.
+    """
+
+    type: Literal["mog"] = Field(
+        "mog", description="Space system type discriminator."
+    )
+    orbit: Union[
+        TwoLineElements, SunSynchronousOrbit, CircularOrbit, KeplerianOrbit
+    ] = Field(..., description="Lead orbit for this constellation.")
+    number_satellites: int = Field(
+        2, description="The count of the number of satellites.", ge=2, le=2
+    )
+    inclination: float = Field(
+        float(np.radians(52.6)), description="The inclination of the reference mutual orbiter", ge=0
+    )
+    delta: float = Field(
+        float(np.radians(5)), description="The separation of the angular momentum vectors of the reference orbiter and the mutually orbiting satellite", ge=0
+    )
+    theta: float = Field(
+        float(np.radians(5)), description="", ge=0
+    )
+    delta_anomaly: int = Field(
+        50, description="delta mean anomaly in degrees for the satellites with respect to the reference orbiter", le=360, ge=0
+    )
+
+
+    x_vector = [1, 0, 0]
+    y_vector = [0, 1, 0]
+    z_vector = [0, 0, 1]
+
+    def get_angular_momentum_direction_of_orbiter(self) -> List[float]:
+        """
+        Gets the angular momentum direction of the reference circular orbiter
+        
+        Returns:
+            float: the angular momentum direction of orbiter
+        """
+        cos_inclination = float(np.cos(self.inclination))
+        sin_inclination = float(np.sin(self.inclination))
+        return [(cos_inclination * z) - (sin_inclination * y) for z, y in zip(self.z_vector, self.y_vector)]
+
+    def get_angular_momentum_direction_of_satellite(self) -> List[float]:
+        """
+        Gets the angular momentum direction of the mutual orbiting satellite
+        
+        Returns:
+            float: the angular momentum direction of the mutual orbiting satellite
+        """
+        cos_delta = float(np.cos(self.delta))
+        sin_delta = float(np.cos(self.delta))
+        cos_theta = float(np.cos(self.theta))
+        sin_theta = float(np.cos(self.theta))
+
+        p1 = [cos_delta * l for l in self.get_angular_momentum_direction_of_orbiter()]
+        p2 = [(sin_delta * cos_theta) * m for m in (np.cross(self.get_angular_momentum_direction_of_orbiter(), self.x_vector))]
+        p3 = [(sin_delta * sin_theta) * x for x in self.x_vector]
+
+        return ([p1[i] + p2[i] + p3[i] for i in range(3)])
+
+    def get_satellite_inclination(self) -> float:
+        """
+        Gets the inclination of the mutual orbiting satellite
+        
+        Returns:
+            float: the inclination of the mutual orbiting satellite
+        """
+        return np.arccos(np.dot(self.get_angular_momentum_direction_of_satellite(), self.z_vector))
+
+    def get_delta_raan(self) -> float:
+        """
+        Gets the longitude of the right ascending node of the mutual orbiter
+        Returns:
+            float: longitude of the mutual orbiter's right ascension of the ascending node
+        """
+        raan_mo = np.arctan2(np.dot(self.get_angular_momentum_direction_of_satellite(), self.x_vector), 
+                             np.dot([-1 * x for x in self.get_angular_momentum_direction_of_satellite()], self.y_vector)
+                            )
+        return raan_mo
+
+    def get_delta_mean_anomaly(self) -> float:
+        return np.radians(self.delta_anomaly)
+
+    def generate_members(self) -> List[Satellite]:
+        """
+        Generate space system member satellites.
+        Returns:
+            List[Satellite]: the member satellites
+        """
+        return [
+            Satellite(
+                name=f"{self.name} #{0+1:02d}",
+                orbit=self.orbit.get_derived_orbit(
+                    -0.5 * (self.get_delta_mean_anomaly()), -1 * self.get_delta_raan()
+                ),
+                instruments=copy.deepcopy(self.instruments),
+            ),
+            Satellite(
+                name=f"{self.name} #{1+1:02d}",
+                orbit=self.orbit.get_derived_orbit(
+                    (0.5 * self.get_delta_mean_anomaly()), 1 * self.get_delta_raan()
+                ),
+                instruments=copy.deepcopy(self.instruments),
+            )
+        ]
