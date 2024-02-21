@@ -9,7 +9,7 @@ from typing import List, Union
 
 from pydantic import BaseModel, Field
 
-from .satellite import Satellite, TrainConstellation, WalkerConstellation
+from .satellite import Satellite, TrainConstellation, WalkerConstellation, MOGConstellation
 from .point import GroundStation
 
 

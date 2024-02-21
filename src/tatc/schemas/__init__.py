@@ -11,4 +11,5 @@ from .satellite import (
     TrainConstellation,
     WalkerConfiguration,
     WalkerConstellation,
+    MOGConstellation,
 )
