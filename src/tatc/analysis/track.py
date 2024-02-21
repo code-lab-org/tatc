@@ -7,6 +7,7 @@ Methods to generate coverage statistics.
 
 from typing import List, Union, Optional
 from datetime import datetime
+from enum import Enum
 
 import pandas as pd
 import numpy as np
@@ -47,6 +48,22 @@ def _get_empty_orbit_track() -> gpd.GeoDataFrame:
     }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
+class OrbitCoordinate(str, Enum):
+    """
+    Enumeration of different orbit track coordinate systems.
+    """
+
+    WGS84 = "wgs84"
+    ECEF = "ecef"
+    ECI = "eci"
+
+class OrbitOutput(str, Enum):
+    """
+    Enumeration of different orbit output options.
+    """
+
+    POSITION = "position"
+    POSITION_VELOCITY = "velocity"
 
 def collect_orbit_track(
     satellite: Satellite,
@@ -54,6 +71,8 @@ def collect_orbit_track(
     times: List[datetime],
     elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
+    coordinates: OrbitCoordinate = OrbitCoordinate.WGS84,
+    output: OrbitOutput = OrbitOutput.POSITION,
 ) -> gpd.GeoDataFrame:
     """
     Collect orbit track points for a satellite of interest.
