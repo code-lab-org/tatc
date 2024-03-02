@@ -12,7 +12,10 @@ from enum import Enum
 import pandas as pd
 import numpy as np
 import geopandas as gpd
-from skyfield.api import wgs84, EarthSatellite
+from skyfield.api import wgs84, EarthSatellite, load, Topos, Distance
+from skyfield.toposlib import GeographicPosition
+from skyfield.framelib import itrs
+
 from shapely.geometry import (
     Polygon,
     MultiPolygon,
@@ -101,23 +104,39 @@ def collect_orbit_track(
     # compute satellite positions
     positions = sat.at(ts_times)
     # project to geographic positions
-    subpoints = [wgs84.geographic_position_of(position) for position in positions]
+    wgs84_subpoints = [wgs84.geographic_position_of(position) for position in positions]
+    ecef_subpoints = [subpoint.itrs_xyz.m for subpoint in wgs84_subpoints]
+    eci_subpoints = [position.xyz.m for position in positions]
     # create shapely points
-    points = [
-        Point(
-            subpoint.longitude.degrees, subpoint.latitude.degrees, subpoint.elevation.m
-        )
-        for subpoint in subpoints
-    ]
+    if coordinates == OrbitCoordinate.WGS84:
+        points = [
+            Point(
+                subpoint.longitude.degrees, subpoint.latitude.degrees, subpoint.elevation.m
+            )
+            for subpoint in wgs84_subpoints
+        ]
+    elif coordinates == OrbitCoordinate.ECEF:
+        points = [
+            Point(
+                subpoint[0], subpoint[1], subpoint[2]
+            )
+            for subpoint in ecef_subpoints
+        ]
+    else:
+        points = [
+            Point(
+                subpoint[0], subpoint[1], subpoint[2]
+            )
+            for subpoint in eci_subpoints
+        ]
     valid_obs = instrument.is_valid_observation(sat, ts_times)
-
     records = [
         {
             "time": time,
             "satellite": satellite.name,
             "instrument": instrument.name,
             "swath_width": field_of_regard_to_swath_width(
-                subpoints[i].elevation.m,
+                wgs84_subpoints[i].elevation.m,
                 instrument.field_of_regard,
                 elevation,
             ),
@@ -126,10 +145,12 @@ def collect_orbit_track(
         }
         for i, time in enumerate(times)
     ]
+
     gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
     if mask is None:
         return gdf
     return gpd.clip(gdf, mask).reset_index(drop=True)
+
 
 
 def _get_utm_epsg_code(point: Point) -> str:
