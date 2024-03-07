@@ -155,14 +155,14 @@ def collect_orbit_track(
         if coordinates == OrbitCoordinate.ECI:
             velocities = [
             Point(
-                round(eci_velocity[0][i], 5), round(eci_velocity[1][i], 5), round(eci_velocity[2][i], 5)
+                eci_velocity[0][i], eci_velocity[1][i], eci_velocity[2][i]
             )
             for i in range(len(eci_velocity[0]))
         ]
         else:
             velocities = [
                 Point(
-                    round(velocity[0][i], 5), round(velocity[1][i], 5), round(velocity[2][i], 5)
+                    velocity[0][i], velocity[1][i], velocity[2][i]
                 )
                 for i in range(len(velocity[0]))
             ]
