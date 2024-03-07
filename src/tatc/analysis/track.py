@@ -14,7 +14,7 @@ import numpy as np
 import geopandas as gpd
 from skyfield.api import wgs84, EarthSatellite, load, Topos, Distance
 from skyfield.toposlib import GeographicPosition
-from skyfield.framelib import itrs
+from skyfield.framelib import itrs, ecliptic_frame, ICRS
 
 from shapely.geometry import (
     Polygon,
@@ -104,12 +104,13 @@ def collect_orbit_track(
     # compute satellite positions
     positions = sat.at(ts_times)
     # compute satellite velocity
-    velocity = positions.velocity.m_per_s
+    velocity = positions.frame_xyz_and_velocity(itrs)[1].m_per_s
+    eci_velocity = positions.velocity.m_per_s
     # project to geographic positions
     wgs84_subpoints = [wgs84.geographic_position_of(position) for position in positions]
     ecef_subpoints = [subpoint.itrs_xyz.m for subpoint in wgs84_subpoints]
     eci_subpoints = [position.xyz.m for position in positions]
-    # create shapely points
+    # create shapely points in proper coordinate system
     if coordinates == OrbitCoordinate.WGS84:
             points = [
                 Point(
@@ -132,7 +133,7 @@ def collect_orbit_track(
             for subpoint in eci_subpoints
         ]
     valid_obs = instrument.is_valid_observation(sat, ts_times)
-
+    #create velocity points if needed
     if orbit_output == OrbitOutput.POSITION:
         records = [
             {
@@ -150,12 +151,21 @@ def collect_orbit_track(
             for i, time in enumerate(times)
         ]
     else:
-        velocities = [
+
+        if coordinates == OrbitCoordinate.ECI:
+            velocities = [
             Point(
-                velocity[0][i], velocity[1][i], velocity[2][i]
+                round(eci_velocity[0][i], 5), round(eci_velocity[1][i], 5), round(eci_velocity[2][i], 5)
             )
-            for i in range(len(velocity[0]))
+            for i in range(len(eci_velocity[0]))
         ]
+        else:
+            velocities = [
+                Point(
+                    round(velocity[0][i], 5), round(velocity[1][i], 5), round(velocity[2][i], 5)
+                )
+                for i in range(len(velocity[0]))
+            ]
 
         records = [
             {
