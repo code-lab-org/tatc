@@ -7,11 +7,15 @@ Methods to generate coverage statistics.
 
 from typing import List, Union, Optional
 from datetime import datetime
+from enum import Enum
 
 import pandas as pd
 import numpy as np
 import geopandas as gpd
-from skyfield.api import wgs84, EarthSatellite
+from skyfield.api import wgs84, EarthSatellite, load, Topos, Distance
+from skyfield.toposlib import GeographicPosition
+from skyfield.framelib import itrs, ecliptic_frame, ICRS
+
 from shapely.geometry import (
     Polygon,
     MultiPolygon,
@@ -47,6 +51,22 @@ def _get_empty_orbit_track() -> gpd.GeoDataFrame:
     }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
+class OrbitCoordinate(str, Enum):
+    """
+    Enumeration of different orbit track coordinate systems.
+    """
+
+    WGS84 = "wgs84"
+    ECEF = "ecef"
+    ECI = "eci"
+
+class OrbitOutput(str, Enum):
+    """
+    Enumeration of different orbit output options.
+    """
+
+    POSITION = "position"
+    POSITION_VELOCITY = "velocity"
 
 def collect_orbit_track(
     satellite: Satellite,
@@ -54,6 +74,8 @@ def collect_orbit_track(
     times: List[datetime],
     elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
+    coordinates: OrbitCoordinate = OrbitCoordinate.WGS84,
+    orbit_output: OrbitOutput = OrbitOutput.POSITION,
 ) -> gpd.GeoDataFrame:
     """
     Collect orbit track points for a satellite of interest.
@@ -65,6 +87,8 @@ def collect_orbit_track(
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate swath width.
         mask (Polygon or MultiPolygon): An optional mask to constrain results.
+        coordinates (OrbitCoordinate): The coordinate system of orbit track points.
+        orbit_output (OrbitOutput): The output option.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected orbit track results.
@@ -79,36 +103,92 @@ def collect_orbit_track(
     ts_times = timescale.from_datetimes(times)
     # compute satellite positions
     positions = sat.at(ts_times)
+    # compute satellite velocity
+    velocity = positions.frame_xyz_and_velocity(itrs)[1].m_per_s
+    eci_velocity = positions.velocity.m_per_s
     # project to geographic positions
-    subpoints = [wgs84.geographic_position_of(position) for position in positions]
-    # create shapely points
-    points = [
-        Point(
-            subpoint.longitude.degrees, subpoint.latitude.degrees, subpoint.elevation.m
-        )
-        for subpoint in subpoints
-    ]
+    wgs84_subpoints = [wgs84.geographic_position_of(position) for position in positions]
+    ecef_subpoints = [subpoint.itrs_xyz.m for subpoint in wgs84_subpoints]
+    eci_subpoints = [position.xyz.m for position in positions]
+    # create shapely points in proper coordinate system
+    if coordinates == OrbitCoordinate.WGS84:
+            points = [
+                Point(
+                    subpoint.longitude.degrees, subpoint.latitude.degrees, subpoint.elevation.m
+                )
+                for subpoint in wgs84_subpoints
+            ]            
+    elif coordinates == OrbitCoordinate.ECEF:
+        points = [
+            Point(
+                subpoint[0], subpoint[1], subpoint[2]
+            )
+            for subpoint in ecef_subpoints
+        ]
+    else:
+        points = [
+            Point(
+                subpoint[0], subpoint[1], subpoint[2]
+            )
+            for subpoint in eci_subpoints
+        ]
     valid_obs = instrument.is_valid_observation(sat, ts_times)
+    #create velocity points if needed
+    if orbit_output == OrbitOutput.POSITION:
+        records = [
+            {
+                "time": time,
+                "satellite": satellite.name,
+                "instrument": instrument.name,
+                "swath_width": field_of_regard_to_swath_width(
+                    wgs84_subpoints[i].elevation.m,
+                    instrument.field_of_regard,
+                    elevation,
+                ),
+                "valid_obs": valid_obs[i],
+                "geometry": points[i],
+            }
+            for i, time in enumerate(times)
+        ]
+    else:
 
-    records = [
-        {
-            "time": time,
-            "satellite": satellite.name,
-            "instrument": instrument.name,
-            "swath_width": field_of_regard_to_swath_width(
-                subpoints[i].elevation.m,
-                instrument.field_of_regard,
-                elevation,
-            ),
-            "valid_obs": valid_obs[i],
-            "geometry": points[i],
-        }
-        for i, time in enumerate(times)
-    ]
+        if coordinates == OrbitCoordinate.ECI:
+            velocities = [
+            Point(
+                eci_velocity[0][i], eci_velocity[1][i], eci_velocity[2][i]
+            )
+            for i in range(len(eci_velocity[0]))
+        ]
+        else:
+            velocities = [
+                Point(
+                    velocity[0][i], velocity[1][i], velocity[2][i]
+                )
+                for i in range(len(velocity[0]))
+            ]
+
+        records = [
+            {
+                "time": time,
+                "satellite": satellite.name,
+                "instrument": instrument.name,
+                "swath_width": field_of_regard_to_swath_width(
+                    wgs84_subpoints[i].elevation.m,
+                    instrument.field_of_regard,
+                    elevation,
+                ),
+                "valid_obs": valid_obs[i],
+                "geometry": points[i],
+                "velocity": velocities[i]
+            }
+            for i, time in enumerate(times)
+        ]
+
     gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
     if mask is None:
         return gdf
     return gpd.clip(gdf, mask).reset_index(drop=True)
+
 
 
 def _get_utm_epsg_code(point: Point) -> str:
