@@ -9,11 +9,7 @@ version: 2
 build:
   os: ubuntu-22.04
   tools:
-    python: "mambaforge-4.10"
-
-# Conda environment specification
-conda:
-  environment: environment.yml
+    python: "3.10"
 
 # Build documentation in the docs/ directory with Sphinx
 sphinx:
