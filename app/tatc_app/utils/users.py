@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Configuration for FastAPI Users authentication/authorization system.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 import os
 import uuid
 from typing import Optional

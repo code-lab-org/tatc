@@ -1,5 +1,12 @@
 from celery import Celery
 from skyfield.api import load
+# -*- coding: utf-8 -*-
+"""
+TAT-C worker configuration.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 import os
 import ssl
 from dotenv import load_dotenv

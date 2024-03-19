@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Schema specifications for tracking analysis endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 from datetime import datetime, timedelta
 from fastapi_utils.api_model import APIModel
 from geojson_pydantic import Polygon

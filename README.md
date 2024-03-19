@@ -86,7 +86,7 @@ black .
 
 ## Contact
 
-Paul T. Grogan <pgrogan@stevens.edu>
+Paul T. Grogan <paul.grogan@asu.edu>
 
 ## Acknowledgements
 
@@ -96,8 +96,8 @@ Office (ESTO) Advanced Information Systems Technology (AIST) program under
 grant numbers: NNX17AE06G, 80NSSC17K0586, 80NSSC20K1118, and 80NSSC21K1515.
 
 Current Project Team
- * PI: Paul T. Grogan <pgrogan@stevens.edu>
- * I. Josue Tapia-Tamayo <itapiata@stevens.edu>
+ * PI: Paul T. Grogan <paul.grogan@asu.edu>
+ * I. Josue Tapia-Tamayo <josue.tapia@asu.edu>
 
 Project Alumni
  * Isaac Feldman

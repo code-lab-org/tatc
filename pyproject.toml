@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 name = "tatc"
 description = "Tradespace Analysis Toolkit for Constellations (TAT-C)"
 authors = [
-    {"name" = "Paul T. Grogan", "email" = "pgrogan@stevens.edu"}
+    {"name" = "Paul T. Grogan", "email" = "paul.grogan@asu.edu"}
 ]
 readme = "README.md"
 requires-python = ">=3.8, <3.11"

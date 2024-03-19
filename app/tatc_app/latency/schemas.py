@@ -1,5 +1,12 @@
 from datetime import datetime, timedelta
 from fastapi_utils.api_model import APIModel
+# -*- coding: utf-8 -*-
+"""
+Schema specifications for latency analysis endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 from geojson_pydantic import FeatureCollection
 from typing import List, Optional, Union
 from pydantic import Field, conlist, validator

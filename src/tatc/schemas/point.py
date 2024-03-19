@@ -2,7 +2,7 @@
 """
 Object schemas for sampling points.
 
-@author: Paul T. Grogan <pgrogan@stevens.edu>
+@author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from datetime import timedelta

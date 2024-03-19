@@ -2,7 +2,7 @@
 """
 Methods to perform coverage analysis.
 
-@author: Paul T. Grogan <pgrogan@stevens.edu>
+@author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from typing import List, Union

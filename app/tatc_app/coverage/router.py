@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Router specifications for coverage analysis endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 from celery import group, chain
 from celery.result import GroupResult
 from fastapi import APIRouter, HTTPException

@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Database objects for FastAPI Users authentication/authorization.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 import os
 from typing import AsyncGenerator
 

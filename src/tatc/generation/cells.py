@@ -2,7 +2,7 @@
 """
 Methods to generate geospatial cells to aggregate data.
 
-@author: Paul T. Grogan <pgrogan@stevens.edu>
+@author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from typing import Optional, Union

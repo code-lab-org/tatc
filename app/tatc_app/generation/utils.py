@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Utility functions for generation endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 import json
 import geopandas as gpd
 from typing import Union, List

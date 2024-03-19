@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+TAT-C application configuration.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends
 from fastapi.middleware.gzip import GZipMiddleware

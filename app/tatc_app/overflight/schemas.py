@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Schema specifications for overflight analysis endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 from datetime import datetime
 from fastapi_utils.api_model import APIModel
 from pydantic import Field, conlist, validator

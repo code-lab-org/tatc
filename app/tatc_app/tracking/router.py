@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Router specifications for tracking analysis endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 from celery import chain, group
 from celery.result import GroupResult
 from datetime import timezone

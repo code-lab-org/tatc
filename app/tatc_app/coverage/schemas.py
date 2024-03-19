@@ -2,6 +2,13 @@ from fastapi_utils.api_model import APIModel
 from geojson_pydantic import FeatureCollection
 from typing import List, Optional, Union
 from pydantic import Field
+# -*- coding: utf-8 -*-
+"""
+Schema specifications for coverage analysis endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 from datetime import datetime
 from tatc.schemas.satellite import Satellite, TrainConstellation, WalkerConstellation
 

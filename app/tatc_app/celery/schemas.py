@@ -1,5 +1,12 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List
+# -*- coding: utf-8 -*-
+"""
+Schema specifications for celery endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 from uuid import UUID
 
 

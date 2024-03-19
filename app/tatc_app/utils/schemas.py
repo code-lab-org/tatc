@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Schema specifications for general utilities.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 import uuid
 
 from fastapi_users import schemas

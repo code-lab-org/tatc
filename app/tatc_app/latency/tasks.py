@@ -1,5 +1,12 @@
 from datetime import datetime, timedelta
 import geopandas as gpd
+# -*- coding: utf-8 -*-
+"""
+Task specifications for latency analysis endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 import json
 import pandas as pd
 

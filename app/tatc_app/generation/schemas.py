@@ -1,5 +1,12 @@
 from fastapi_utils.api_model import APIModel
 from geojson_pydantic import Polygon
+# -*- coding: utf-8 -*-
+"""
+Schema specifications for generation endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 from enum import Enum
 from tatc.schemas import Point as TatcPoint
 from tatc.schemas import GroundStation as TatcGroundStation

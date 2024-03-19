@@ -1,5 +1,12 @@
 from geojson_pydantic import FeatureCollection
 import json
+# -*- coding: utf-8 -*-
+"""
+Task specifications for general utilities.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 from itertools import chain
 
 from ..worker import app

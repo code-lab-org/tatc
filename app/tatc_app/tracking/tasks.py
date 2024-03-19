@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Task specifications for tracking analysis endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 from datetime import datetime
 from shapely.geometry import shape
 import time

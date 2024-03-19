@@ -1,6 +1,13 @@
 from datetime import datetime, timedelta
 import geopandas as gpd
 from geojson_pydantic import FeatureCollection
+# -*- coding: utf-8 -*-
+"""
+Task specifications for coverage analysis endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 import json
 from itertools import chain
 import pandas as pd

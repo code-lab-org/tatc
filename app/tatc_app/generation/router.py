@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Router specifications for generation endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 from fastapi import APIRouter
 from geojson_pydantic import FeatureCollection
 import json

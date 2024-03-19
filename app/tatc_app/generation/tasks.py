@@ -1,4 +1,11 @@
 import json
+# -*- coding: utf-8 -*-
+"""
+Task specifications for generation endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 import geopandas as gpd
 from pkg_resources import resource_stream
 from shapely.geometry import shape

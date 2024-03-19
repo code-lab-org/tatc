@@ -2,7 +2,7 @@
 """
 Numerical constants.
 
-@author: Paul T. Grogan <pgrogan@stevens.edu>
+@author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 import numpy as np
