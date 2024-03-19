@@ -26,7 +26,7 @@ class OverflightAnalysisTestCase(TatcTestCase):
         end = datetime(2022, 6, 2, tzinfo=timezone.utc)
         response = self.client.post(
             "/analyze/overflight",
-            json=OverflightAnalysisRequest(
+            content=OverflightAnalysisRequest(
                 points=[point],
                 satellite=satellite,
                 instrument=instrument,

@@ -27,7 +27,7 @@ class AnalyzeOrbitTrackTestCase(TatcTestCase):
         ]
         response = self.client.post(
             "/analyze/orbit-track",
-            json=OrbitTrackAnalysisRequest(
+            content=OrbitTrackAnalysisRequest(
                 satellite=satellite,
                 instrument=instrument,
                 times=times,

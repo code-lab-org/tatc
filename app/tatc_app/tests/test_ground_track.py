@@ -27,7 +27,7 @@ class AnalyzeGroundTrackTestCase(TatcTestCase):
         ]
         response = self.client.post(
             "/analyze/ground-track",
-            json=GroundTrackAnalysisRequest(
+            content=GroundTrackAnalysisRequest(
                 satellite=satellite,
                 instrument=instrument,
                 times=times,

@@ -47,7 +47,7 @@ class CoverageAnalysisTestCase(TatcTestCase):
         end = datetime(2022, 6, 2, tzinfo=timezone.utc)
         response = self.client.post(
             "/analyze/coverage",
-            json=CoverageAnalysisRequest(
+            content=CoverageAnalysisRequest(
                 satellites=[satellite],
                 start=start,
                 end=end,

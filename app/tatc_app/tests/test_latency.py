@@ -55,9 +55,17 @@ class LatencyAnalysisTestCase(TatcTestCase):
         )
         start = datetime(2022, 6, 1, tzinfo=timezone.utc)
         end = datetime(2022, 6, 2, tzinfo=timezone.utc)
+        LatencyAnalysisRequest(
+            satellites=[satellite],
+            stations=[station],
+            start=start,
+            end=end,
+            points=points,
+            cells=cells,
+        )
         response = self.client.post(
             "/analyze/latency",
-            json=LatencyAnalysisRequest(
+            content=LatencyAnalysisRequest(
                 satellites=[satellite],
                 stations=[station],
                 start=start,
