@@ -9,9 +9,9 @@ import json
 from typing import Union, List
 
 import geopandas as gpd
+from tatc.schemas import Point
 
 from .schemas import (
-    Point,
     PointGenerator,
     PointGeneratorMethod,
     Cell,

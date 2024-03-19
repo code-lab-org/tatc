@@ -15,9 +15,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator, StringConstr
 from pydantic.alias_generators import to_camel
 from shapely.geometry import box, mapping
 
-from tatc.schemas import Point as TatcPoint
-from tatc.schemas import GroundStation as TatcGroundStation
-
 
 class PointGeneratorMethod(str, Enum):
     """
@@ -65,18 +62,6 @@ class PointGenerator(BaseModel):
         description="Mask to limit the extent of generated points. Allows ISO 3166-1 alpha-3 country codes.",
         examples=[Polygon(**mapping(box(-180, -90, 180, 90)))],
     )
-
-
-class Point(TatcPoint):
-    """
-    Point.
-    """
-
-
-class GroundStation(TatcGroundStation):
-    """
-    Ground station.
-    """
 
 
 class Cell(Polygon):

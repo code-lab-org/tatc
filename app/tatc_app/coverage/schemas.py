@@ -11,9 +11,9 @@ from typing import List, Union
 from geojson_pydantic import FeatureCollection
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
-from tatc.schemas.satellite import Satellite, TrainConstellation, WalkerConstellation
+from tatc.schemas import Point, Satellite, TrainConstellation, WalkerConstellation
 
-from ..generation.schemas import Point, PointGenerator, Cell, CellGenerator
+from ..generation.schemas import PointGenerator, Cell, CellGenerator
 
 
 class CoverageAnalysisRequest(BaseModel):
