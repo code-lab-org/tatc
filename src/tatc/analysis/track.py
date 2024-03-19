@@ -2,6 +2,7 @@
 """
 Methods to generate coverage statistics.
 
+@author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from typing import List, Union, Optional
@@ -129,11 +130,11 @@ def _get_utm_epsg_code(point: Point) -> str:
     return (
         "EPSG:" + results[0].code
         if len(results) > 0
-        else "EPSG:5041"
-        if point.y > 84
-        else "EPSG:5042"
-        if point.y < -80
-        else "EPSG:4087"
+        else (
+            "EPSG:5041"
+            if point.y > 84
+            else "EPSG:5042" if point.y < -80 else "EPSG:4087"
+        )
     )
 
 
@@ -219,19 +220,24 @@ def collect_ground_track(
         )
     # add elevation to all polygon coordinates (otherwise lost during buffering)
     gdf.geometry = gdf.geometry.apply(
-        lambda g: Polygon(
-            [(p[0], p[1], elevation) for p in g.exterior.coords],
-            [[(p[0], p[1], elevation) for p in i.coords] for i in g.interiors],
-        )
-        if isinstance(g, Polygon)
-        else MultiPolygon(
-            [
-                Polygon(
-                    [(p[0], p[1], elevation) for p in n.exterior.coords],
-                    [[(p[0], p[1], elevation) for p in i.coords] for i in n.interiors],
-                )
-                for n in g.geoms
-            ]
+        lambda g: (
+            Polygon(
+                [(p[0], p[1], elevation) for p in g.exterior.coords],
+                [[(p[0], p[1], elevation) for p in i.coords] for i in g.interiors],
+            )
+            if isinstance(g, Polygon)
+            else MultiPolygon(
+                [
+                    Polygon(
+                        [(p[0], p[1], elevation) for p in n.exterior.coords],
+                        [
+                            [(p[0], p[1], elevation) for p in i.coords]
+                            for i in n.interiors
+                        ],
+                    )
+                    for n in g.geoms
+                ]
+            )
         )
     )
     # split polygons to wrap over the anti-meridian and poles
@@ -321,11 +327,15 @@ def compute_ground_track(
                         (
                             LineString([(c[0] + 360, c[1], c[2]) for c in line.coords])
                             if np.all([c[0] <= -180 for c in line.coords])
-                            else LineString(
-                                [(c[0] - 360, c[1], c[2]) for c in line.coords]
+                            else (
+                                LineString(
+                                    [(c[0] - 360, c[1], c[2]) for c in line.coords]
+                                )
+                                if np.all([c[0] >= 180 for c in line.coords])
+                                else LineString(
+                                    [(c[0], c[1], c[2]) for c in line.coords]
+                                )
                             )
-                            if np.all([c[0] >= 180 for c in line.coords])
-                            else LineString([(c[0], c[1], c[2]) for c in line.coords])
                         )
                         for line in collection.geoms
                     ]

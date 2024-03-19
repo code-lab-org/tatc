@@ -1,5 +1,3 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List
 # -*- coding: utf-8 -*-
 """
 Schema specifications for celery endpoints.
@@ -7,7 +5,10 @@ Schema specifications for celery endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+from typing import Optional
 from uuid import UUID
+
+from pydantic import BaseModel, Field
 
 
 class CeleryTask(BaseModel):

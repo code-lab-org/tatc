@@ -69,9 +69,11 @@ def _get_visible_interval_series(
         # otherwise, match rise/set events
         rises = times[events == 0]
         sets = times[events == 2]
-        if len(sets) > 0 and (
-            len(rises) == 0 or sets[0].utc_datetime() < rises[0].utc_datetime()
-        ) and start < sets[0].utc_datetime():
+        if (
+            len(sets) > 0
+            and (len(rises) == 0 or sets[0].utc_datetime() < rises[0].utc_datetime())
+            and start < sets[0].utc_datetime()
+        ):
             # if first event is a set, create a period from the start
             obs_periods += [
                 pd.Interval(
@@ -101,9 +103,11 @@ def _get_visible_interval_series(
                 )
             )
         ]
-        if len(rises) > 0 and (
-            len(sets) == 0 or rises[-1].utc_datetime() > sets[-1].utc_datetime()
-        ) and rises[-1].utc_datetime() < end:
+        if (
+            len(rises) > 0
+            and (len(sets) == 0 or rises[-1].utc_datetime() > sets[-1].utc_datetime())
+            and rises[-1].utc_datetime() < end
+        ):
             # if last event is a rise, create a period to the end
             obs_periods += [
                 pd.Interval(
@@ -306,8 +310,16 @@ def collect_observations(
             "geometry": geo.Point(point.longitude, point.latitude, point.elevation),
             "satellite": satellite.name,
             "instrument": instrument.name,
-            "start": period.left if not instrument.access_time_fixed else period.mid - instrument.min_access_time/2,
-            "end": period.right if not instrument.access_time_fixed else period.mid + instrument.min_access_time/2,
+            "start": (
+                period.left
+                if not instrument.access_time_fixed
+                else period.mid - instrument.min_access_time / 2
+            ),
+            "end": (
+                period.right
+                if not instrument.access_time_fixed
+                else period.mid + instrument.min_access_time / 2
+            ),
             "epoch": period.mid,
         }
         for period in _get_visible_interval_series(

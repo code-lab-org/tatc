@@ -1,4 +1,3 @@
-from fastapi import APIRouter, HTTPException
 # -*- coding: utf-8 -*-
 """
 Router specification for celery endpoints.
@@ -7,6 +6,8 @@ Router specification for celery endpoints.
 """
 
 from uuid import UUID
+
+from fastapi import APIRouter, HTTPException
 from celery.result import GroupResult
 
 from .schemas import CeleryResultStatus, CeleryResultProgress

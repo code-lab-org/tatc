@@ -133,8 +133,7 @@ def compute_latencies(
     def _align_downlinks(row, downlinks):
         # filter downlinks after observation occurs
         dls = downlinks[
-            (downlinks.satellite == row.satellite) & 
-            (downlinks.start > row.end)
+            (downlinks.satellite == row.satellite) & (downlinks.start > row.end)
         ].sort_values(by="start")
         # append latency-specific columns
         if not dls.empty:
@@ -151,9 +150,10 @@ def compute_latencies(
     # write the latency-specific columns
     try:
         from pandarallel import pandarallel
+
         pandarallel.initialize(verbose=0)
         obs = obs.parallel_apply(_align_downlinks, args=(downlinks,), axis=1)
-    except ImportError as e:
+    except ImportError:
         obs = obs.apply(_align_downlinks, args=(downlinks,), axis=1)
     # add observed column
     obs["observed"] = obs["epoch"]

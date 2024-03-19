@@ -41,7 +41,7 @@ class GroundStation(BaseModel):
     Ground station in the WGS 84 coordinate system.
     """
 
-    name: str = Field(..., description="Ground station name", example="station 1")
+    name: str = Field(..., description="Ground station name", examples=["station 1"])
     latitude: float = Field(
         ...,
         description="Latitude (decimal degrees) in the WGS 84 coordinate system.",

@@ -88,6 +88,7 @@ class TrainConstellation(Satellite):
         Returns:
             float: the difference in mean anomaly
         """
+        # pylint: disable=E1101
         return -360 * self.orbit.get_mean_motion() * (self.interval / timedelta(days=1))
 
     def get_delta_raan(self) -> float:
@@ -109,6 +110,7 @@ class TrainConstellation(Satellite):
         Returns:
             List[Satellite]: the member satellites
         """
+        # pylint: disable=E1101
         return [
             Satellite(
                 name=f"{self.name} #{i+1:02d}",
@@ -237,6 +239,7 @@ class WalkerConstellation(Satellite):
         Returns:
             List[Satellite]: the member satellites
         """
+        # pylint: disable=E1101
         return [
             Satellite(
                 name=f"{self.name} #{i+1}",

@@ -2,7 +2,7 @@
 """
 Object schemas for satellite orbits.
 
-@author: Paul T. Grogan <pgrogan@stevens.edu>
+@author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from __future__ import annotations
@@ -47,6 +47,7 @@ class TwoLineElements(BaseModel):
         Returns:
             int: the catalog number
         """
+        # pylint: disable=E1136
         return int(self.tle[0][2:7])
 
     def get_classification(self) -> str:
@@ -56,6 +57,7 @@ class TwoLineElements(BaseModel):
         Returns:
             str: the classification type
         """
+        # pylint: disable=E1136
         return self.tle[0][7]
 
     def get_international_designator(self) -> str:
@@ -65,6 +67,7 @@ class TwoLineElements(BaseModel):
         Returns:
             str: the international designator
         """
+        # pylint: disable=E1136
         year = self.tle[0][9:11]
         launch = self.tle[0][11:14]
         piece = self.tle[0][14:17]
@@ -83,6 +86,7 @@ class TwoLineElements(BaseModel):
         Returns:
             datetime: the epoch datetime
         """
+        # pylint: disable=E1136
         return sat_epoch_datetime(Satrec.twoline2rv(self.tle[0], self.tle[1]))
 
     def get_first_derivative_mean_motion(self) -> float:
@@ -92,6 +96,7 @@ class TwoLineElements(BaseModel):
         Returns:
             float: the first derivative of mean motion
         """
+        # pylint: disable=E1136
         return float(self.tle[0][33:43])
 
     def get_second_derivative_mean_motion(self) -> float:
@@ -101,6 +106,7 @@ class TwoLineElements(BaseModel):
         Returns:
             float: the second derivative of mean motion
         """
+        # pylint: disable=E1136
         return float("0." + self.tle[0][44:50].strip()) * 10 ** (
             int(self.tle[0][50:52])
         )
@@ -112,6 +118,7 @@ class TwoLineElements(BaseModel):
         Returns:
             float: the b-star term
         """
+        # pylint: disable=E1136
         return float("0." + self.tle[0][53:59].strip()) * 10 ** (
             int(self.tle[0][59:61])
         )
@@ -123,6 +130,7 @@ class TwoLineElements(BaseModel):
         Returns:
             int: the ephemeris type
         """
+        # pylint: disable=E1136
         return int(self.tle[0][62])
 
     def get_element_set_number(self) -> int:
@@ -132,6 +140,7 @@ class TwoLineElements(BaseModel):
         Returns:
             int: the element set number
         """
+        # pylint: disable=E1136
         return int(self.tle[0][64:68])
 
     def get_inclination(self) -> float:
@@ -141,6 +150,7 @@ class TwoLineElements(BaseModel):
         Returns:
             float: the inclination
         """
+        # pylint: disable=E1136
         return float(self.tle[1][8:16])
 
     def get_right_ascension_ascending_node(self) -> float:
@@ -150,6 +160,7 @@ class TwoLineElements(BaseModel):
         Returns:
             float: the right ascension of ascending node
         """
+        # pylint: disable=E1136
         return float(self.tle[1][17:25])
 
     def get_eccentricity(self) -> float:
@@ -159,6 +170,7 @@ class TwoLineElements(BaseModel):
         Returns:
             float: the eccentricity
         """
+        # pylint: disable=E1136
         return float("0." + self.tle[1][26:33].strip())
 
     def get_perigee_argument(self) -> float:
@@ -168,6 +180,7 @@ class TwoLineElements(BaseModel):
         Returns:
             float: the argument of perigee
         """
+        # pylint: disable=E1136
         return float(self.tle[1][34:42])
 
     def get_mean_anomaly(self) -> float:
@@ -177,6 +190,7 @@ class TwoLineElements(BaseModel):
         Returns:
             float: the mean anomaly
         """
+        # pylint: disable=E1136
         return float(self.tle[1][43:51])
 
     def get_mean_motion(self) -> float:
@@ -186,6 +200,7 @@ class TwoLineElements(BaseModel):
         Returns:
             float: the mean motion
         """
+        # pylint: disable=E1136
         return float(self.tle[1][52:63])
 
     def get_orbit_period(self) -> timedelta:
@@ -204,6 +219,7 @@ class TwoLineElements(BaseModel):
         Returns:
             timedelta: the revolution number
         """
+        # pylint: disable=E1136
         return int(self.tle[1][63:68])
 
     def get_semimajor_axis(self) -> float:
@@ -296,6 +312,7 @@ class TwoLineElements(BaseModel):
         Returns:
             TwoLineElements: the derived orbit
         """
+        # pylint: disable=E1136
         lead_tle = Satrec.twoline2rv(self.tle[0], self.tle[1])
         epoch = sat_epoch_datetime(lead_tle)
         satrec = Satrec()
@@ -469,6 +486,7 @@ class SunSynchronousOrbit(OrbitBase):
         Returns:
             float: the right ascension of ascending node
         """
+        # pylint: disable=E1101
         ect_day = timedelta(
             hours=self.equator_crossing_time.hour,
             minutes=self.equator_crossing_time.minute,
@@ -479,6 +497,7 @@ class SunSynchronousOrbit(OrbitBase):
         sun = constants.de421["sun"]
         earth = constants.de421["earth"]
         right_ascension, _, _ = earth.at(epoch_time).observe(sun).radec()
+        # pylint: disable=W0212
         return (
             right_ascension._degrees
             + 360 * ect_day
