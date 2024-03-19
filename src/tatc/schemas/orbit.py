@@ -12,7 +12,7 @@ from typing import List, Optional
 import re
 
 import numpy as np
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from sgp4.api import Satrec, WGS72
 from sgp4 import exporter
 from sgp4.conveniences import sat_epoch_datetime
@@ -30,8 +30,8 @@ class TwoLineElements(BaseModel):
     tle: List[str] = Field(
         ...,
         description="Two line elements.",
-        min_items=2,
-        max_items=2,
+        min_length=2,
+        max_length=2,
         examples=[
             [
                 "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
@@ -239,15 +239,16 @@ class TwoLineElements(BaseModel):
             self.get_mean_anomaly(), self.get_eccentricity()
         )
 
-    @validator("tle")
-    def valid_tle(cls, values):
+    @field_validator("tle")
+    @classmethod
+    def valid_tle(cls, v):
         """
         Validate the two line element set.
         """
         # based on orekit's TLE.isFormatOK function
-        if len(values[0]) != 69:
+        if len(v[0]) != 69:
             raise ValueError("Invalid tle: line 1 incorrect length.")
-        if len(values[1]) != 69:
+        if len(v[1]) != 69:
             raise ValueError("Invalid tle: line 2 incorrect length.")
 
         line_1_pattern = (
@@ -256,14 +257,14 @@ class TwoLineElements(BaseModel):
             + r"[ +-][.][ 0-9]{7})) [ +-][ 0-9]{5}[+-][ 0-9] "
             + r"[ +-][ 0-9]{5}[+-][ 0-9] [ 0-9] [ 0-9]{4}[ 0-9]"
         )
-        if re.match(line_1_pattern, values[0]) is None:
+        if re.match(line_1_pattern, v[0]) is None:
             raise ValueError("Invalid tle: line 1 does not match pattern.")
         line_2_pattern = (
             r"2 [ 0-9A-HJ-NP-Z][ 0-9]{4} [ 0-9]{3}[.][ 0-9]{4} "
             + r"[ 0-9]{3}[.][ 0-9]{4} [ 0-9]{7} [ 0-9]{3}[.][ 0-9]{4} "
             + r"[ 0-9]{3}[.][ 0-9]{4} [ 0-9]{2}[.][ 0-9]{13}[ 0-9]"
         )
-        if re.match(line_2_pattern, values[1]) is None:
+        if re.match(line_2_pattern, v[1]) is None:
             raise ValueError("Invalid tle: line 2 does not match pattern.")
 
         def checksum(line):
@@ -275,11 +276,11 @@ class TwoLineElements(BaseModel):
                     the_sum += 1
             return the_sum % 10
 
-        if int(values[0][68]) != checksum(values[0]):
+        if int(v[0][68]) != checksum(v[0]):
             raise ValueError("Invalid tle: line 1 checksum failed.")
-        if int(values[1][68]) != checksum(values[1]):
+        if int(v[1][68]) != checksum(v[1]):
             raise ValueError("Invalid tle: line 2 checksum failed.")
-        return values
+        return v
 
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float
