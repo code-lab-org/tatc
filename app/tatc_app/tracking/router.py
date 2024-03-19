@@ -5,16 +5,15 @@ Router specifications for tracking analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+from datetime import timezone
+from uuid import UUID
+
 from celery import chain, group
 from celery.result import GroupResult
-from datetime import timezone
 from fastapi import APIRouter, HTTPException
 from geojson_pydantic import FeatureCollection
-import json
 import numpy as np
 import pandas as pd
-from uuid import UUID
-from tatc.schemas.satellite import Satellite
 
 from .schemas import OrbitTrackAnalysisRequest, GroundTrackAnalysisRequest
 from .tasks import collect_orbit_track_task, collect_ground_track_task
@@ -46,16 +45,19 @@ async def enqueue_orbit_track_analysis(request: OrbitTrackAnalysisRequest):
     task = chain(
         group(
             collect_orbit_track_task.s(
-                satellite.json(),
-                satellite.instruments[request.instrument].json()
-                if isinstance(request.instrument, int)
-                and len(satellite.instruments) > request.instrument
-                else request.instrument.json()
-                if request.instrument is not None
-                else None,
+                satellite.model_dump_json(),
+                (
+                    satellite.instruments[request.instrument].model_dump_json()
+                    if isinstance(request.instrument, int)
+                    else (
+                        request.instrument.model_dump_json()
+                        if request.instrument is not None
+                        else None
+                    )
+                ),
                 [time.isoformat() for time in times],
                 request.elevation,
-                request.dict().get("mask", None),
+                request.model_dump().get("mask", None),
             )
             for times in np.array_split(times, max(1, len(times) // 100))
             for satellite in request.satellite.generate_members()
@@ -91,7 +93,7 @@ async def retrieve_orbit_track_analysis(task_id: UUID):
     if not task.ready():
         raise HTTPException(status_code=409, detail="Results not ready.")
     results = task.get()
-    return FeatureCollection(features=json.loads(results).get("features"))
+    return FeatureCollection.model_validate_json(results)
 
 
 @router.post("/ground-track", response_model=CeleryTask)
@@ -114,16 +116,19 @@ async def enqueue_ground_track_analysis(request: GroundTrackAnalysisRequest):
     task = chain(
         group(
             collect_ground_track_task.s(
-                satellite.json(),
-                satellite.instruments[request.instrument].json()
-                if isinstance(request.instrument, int)
-                and len(satellite.instruments) > request.instrument
-                else request.instrument.json()
-                if request.instrument is not None
-                else None,
+                satellite.model_dump_json(),
+                (
+                    satellite.instruments[request.instrument].model_dump_json()
+                    if isinstance(request.instrument, int)
+                    else (
+                        request.instrument.model_dump_json()
+                        if request.instrument is not None
+                        else None
+                    )
+                ),
                 [time.isoformat() for time in times],
                 request.elevation,
-                request.dict().get("mask", None),
+                request.model_dump().get("mask", None),
                 request.crs,
             )
             for times in np.array_split(
@@ -162,4 +167,4 @@ async def retrieve_ground_track_progress(task_id: UUID):
     if not task.ready():
         raise HTTPException(status_code=409, detail="Results not ready.")
     results = task.get()
-    return FeatureCollection(features=json.loads(results).get("features"))
+    return FeatureCollection.model_validate_json(results)

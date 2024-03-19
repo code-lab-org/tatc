@@ -5,12 +5,10 @@ Task specifications for tracking analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from datetime import datetime
-from shapely.geometry import shape
-import time
-import json
-from geojson_pydantic import FeatureCollection
 
+from datetime import datetime
+
+from shapely.geometry import shape
 from tatc.analysis.track import collect_orbit_track, collect_ground_track
 from tatc import schemas
 
@@ -35,8 +33,8 @@ def collect_orbit_track_task(
         str: GeoJSON serialized orbit track.
     """
     results = collect_orbit_track(
-        schemas.satellite.Satellite.parse_raw(satellite),
-        schemas.instrument.Instrument.parse_raw(instrument),
+        schemas.satellite.Satellite.model_validate_json(satellite),
+        schemas.instrument.Instrument.model_validate_json(instrument),
         [datetime.fromisoformat(time) for time in times],
         elevation,
         shape(mask) if mask is not None else None,
@@ -65,7 +63,7 @@ def collect_ground_track_task(
         str: GeoJSON serialized ground track.
     """
     results = collect_ground_track(
-        schemas.satellite.Satellite.parse_raw(satellite),
+        schemas.satellite.Satellite.model_validate_json(satellite),
         schemas.instrument.Instrument.parse_raw(instrument),
         [datetime.fromisoformat(time) for time in times],
         elevation,

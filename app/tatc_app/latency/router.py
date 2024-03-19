@@ -5,12 +5,11 @@ Router specifications for latency analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+from uuid import UUID
+
 from celery import chain, group
 from celery.result import GroupResult
 from fastapi import APIRouter, HTTPException
-from geojson_pydantic import FeatureCollection
-import json
-from uuid import UUID
 
 from ..worker import app as celery_app
 from .tasks import (
@@ -40,8 +39,8 @@ async def enqueue_latency_analysis(request: LatencyAnalysisRequest):
     task = chain(
         group(
             collect_downlinks_task.s(
-                [station.json() for station in request.stations],
-                satellite.json(),
+                [station.model_dump_json() for station in request.stations],
+                satellite.model_dump_json(),
                 request.start.isoformat(),
                 request.end.isoformat(),
             )
@@ -51,9 +50,9 @@ async def enqueue_latency_analysis(request: LatencyAnalysisRequest):
         merge_feature_collections_task.s(),
         group(
             run_latency_analysis_task.s(
-                point.json(),
+                point.model_dump_json(),
                 [
-                    satellite.json()
+                    satellite.model_dump_json()
                     for constellation in request.satellites
                     for satellite in constellation.generate_members()
                 ],
@@ -99,4 +98,4 @@ async def retrieve_latency_analysis(task_id: UUID):
         raise HTTPException(status_code=404, detail="Task not found.")
     if not task.ready():
         raise HTTPException(status_code=409, detail="Results not ready.")
-    return LatencyAnalysisResult.parse_raw(task.get())
+    return LatencyAnalysisResult.model_validate_json(task.get())

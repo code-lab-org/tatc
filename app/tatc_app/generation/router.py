@@ -5,9 +5,10 @@ Router specifications for generation endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import json
+
 from fastapi import APIRouter
 from geojson_pydantic import FeatureCollection
-import json
 
 from .schemas import (
     PointGenerator,
@@ -20,7 +21,6 @@ from .tasks import (
     generate_fibonacci_lattice_points_task,
     generate_cubed_sphere_cells_task,
 )
-from ..worker import app as celery_app
 
 router = APIRouter()
 
@@ -43,11 +43,15 @@ async def generate_points(generator: PointGenerator):
     """
     if generator.method == PointGeneratorMethod.cubed_square:
         task = generate_cubed_sphere_points_task.delay(
-            generator.distance, generator.elevation, generator.dict().get("mask", None)
+            generator.distance,
+            generator.elevation,
+            generator.model_dump().get("mask", None),
         )
     elif generator.method == PointGeneratorMethod.fibonacci_lattice:
         task = generate_fibonacci_lattice_points_task.delay(
-            generator.distance, generator.elevation, generator.dict().get("mask", None)
+            generator.distance,
+            generator.elevation,
+            generator.model_dump().get("mask", None),
         )
     return json.loads(task.get())
 
@@ -72,7 +76,7 @@ async def generate_cells(generator: CellGenerator):
         task = generate_cubed_sphere_cells_task.delay(
             generator.distance,
             generator.elevation,
-            generator.dict().get("mask", None),
+            generator.model_dump().get("mask", None),
             generator.strips,
         )
     return json.loads(task.get())

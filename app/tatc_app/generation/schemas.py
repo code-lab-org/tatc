@@ -1,5 +1,3 @@
-from fastapi_utils.api_model import APIModel
-from geojson_pydantic import Polygon
 # -*- coding: utf-8 -*-
 """
 Schema specifications for generation endpoints.
@@ -7,13 +5,18 @@ Schema specifications for generation endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+
+from datetime import datetime, timedelta
 from enum import Enum
+from typing import Annotated, Optional, Union
+
+from geojson_pydantic import Polygon
+from pydantic import BaseModel, ConfigDict, Field, model_validator, StringConstraints
+from pydantic.alias_generators import to_camel
+from shapely.geometry import box, mapping
+
 from tatc.schemas import Point as TatcPoint
 from tatc.schemas import GroundStation as TatcGroundStation
-from typing import Optional, Union
-from pydantic import Field, validator, constr
-from shapely.geometry import box, mapping
-from datetime import datetime, timedelta
 
 
 class PointGeneratorMethod(str, Enum):
@@ -33,11 +36,14 @@ class KnownShape(str, Enum):
     conus = "conus"
 
 
-class PointGenerator(APIModel):
+class PointGenerator(BaseModel):
     """
     Specification to generate points.
     """
 
+    model_config = ConfigDict(
+        from_attributes=True, populate_by_name=True, alias_generator=to_camel
+    )
     method: PointGeneratorMethod = Field(
         PointGeneratorMethod.cubed_square, description="Point generation method."
     )
@@ -49,11 +55,15 @@ class PointGenerator(APIModel):
         description="Elevation (meters) above datum in the WGS 84 coordinate system.",
     )
     mask: Optional[
-        Union[Polygon, KnownShape, constr(min_length=3, max_length=3)]
+        Union[
+            Polygon,
+            KnownShape,
+            Annotated[str, StringConstraints(min_length=3, max_length=3)],
+        ]
     ] = Field(
         None,
         description="Mask to limit the extent of generated points. Allows ISO 3166-1 alpha-3 country codes.",
-        example=Polygon.parse_obj(mapping(box(-180, -90, 180, 90))),
+        examples=[Polygon(**mapping(box(-180, -90, 180, 90)))],
     )
 
 
@@ -62,23 +72,17 @@ class Point(TatcPoint):
     Point.
     """
 
-    pass
-
 
 class GroundStation(TatcGroundStation):
     """
     Ground station.
     """
 
-    pass
-
 
 class Cell(Polygon):
     """
     Cell represented as a polygon.
     """
-
-    pass
 
 
 class CellGeneratorMethod(str, Enum):
@@ -98,11 +102,14 @@ class CellStrips(str, Enum):
     longitude = "lon"
 
 
-class CellGenerator(APIModel):
+class CellGenerator(BaseModel):
     """
     Specification to generate cells.
     """
 
+    model_config = ConfigDict(
+        from_attributes=True, populate_by_name=True, alias_generator=to_camel
+    )
     method: CellGeneratorMethod = Field(
         CellGeneratorMethod.cubed_square, description="Cell generation method."
     )
@@ -114,48 +121,62 @@ class CellGenerator(APIModel):
         description="Elevation (meters) above datum in the WGS 84 coordinate system.",
     )
     mask: Optional[
-        Union[Polygon, KnownShape, constr(min_length=3, max_length=3)]
+        Union[
+            Polygon,
+            KnownShape,
+            Annotated[str, StringConstraints(min_length=3, max_length=3)],
+        ]
     ] = Field(
         None,
         description="Mask to limit the extent of generated cells. Allows ISO 3166-1 alpha-3 country codes.",
-        example=Polygon.parse_obj(mapping(box(-180, -90, 180, 90))),
+        examples=[Polygon(**mapping(box(-180, -90, 180, 90)))],
     )
     strips: Optional[CellStrips] = Field(
         None, description="Option for latitude or longitude strips for cells."
     )
 
 
-class TimeGenerator(APIModel):
+class TimeGenerator(BaseModel):
     """
     Specification to generate time series.
     """
 
+    model_config = ConfigDict(
+        from_attributes=True, populate_by_name=True, alias_generator=to_camel
+    )
     start: datetime = Field(
         ...,
         description="Start date time of the observation period.",
-        example=datetime.fromisoformat("2021-01-01T00:00:00+00:00"),
+        examples=[datetime.fromisoformat("2021-01-01T00:00:00+00:00")],
     )
     end: datetime = Field(
         ...,
         description="End date time of the observation period.",
-        example=datetime.fromisoformat("2021-01-01T01:00:00+00:00"),
+        examples=[datetime.fromisoformat("2021-01-01T01:00:00+00:00")],
     )
     delta: timedelta = Field(
-        ..., description="Time step duration.", example=timedelta(seconds=30)
+        ..., description="Time step duration.", examples=[timedelta(seconds=30)]
     )
 
-    @validator("end")
-    def validate_start_end(cls, v, values, **kwargs):
-        if "start" in values and v < values["start"]:
-            raise ValueError("Invalid end: must precede start.")
-        return v
+    @model_validator(mode="after")
+    def validate_start_end(self) -> "TimeGenerator":
+        """
+        Validates the end time precedes the start time.
+        """
+        if self.start is not None and self.end is not None and self.end < self.start:
+            raise ValueError("Invalid end: start must precede end.")
+        return self
 
-    @validator("delta")
-    def validate_delta(cls, v, values, **kwargs):
+    @model_validator(mode="after")
+    def validate_delta(self) -> "TimeGenerator":
+        """
+        Validates the delta is not smaller than end - start.
+        """
         if (
-            "start" in values
-            and "end" in values
-            and v > values["end"] - values["start"]
+            self.start is not None
+            and self.end is not None
+            and self.delta is not None
+            and self.delta > self.end - self.start
         ):
             raise ValueError("Invalid delta: must be smaller than (end-start).")
-        return v
+        return self

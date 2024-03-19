@@ -1,5 +1,3 @@
-from datetime import datetime, timedelta
-import geopandas as gpd
 # -*- coding: utf-8 -*-
 """
 Task specifications for overflight analysis endpoints.
@@ -7,8 +5,11 @@ Task specifications for overflight analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+
+from datetime import datetime
 import json
-import pandas as pd
+
+import geopandas as gpd
 from tatc.schemas.instrument import Instrument
 from tatc.schemas.point import Point
 from tatc.schemas.satellite import Satellite
@@ -37,9 +38,9 @@ def collect_observations_task(
     """
     # call analysis function
     results = collect_observations(
-        Point.parse_raw(point),
-        Satellite.parse_raw(satellite),
-        Instrument.parse_raw(instrument),
+        Point.model_validate_json(point),
+        Satellite.model_validate_json(satellite),
+        Instrument.model_validate_json(instrument),
         datetime.fromisoformat(start),
         datetime.fromisoformat(end),
         omit_solar,
@@ -52,7 +53,7 @@ def collect_observations_task(
 
 
 @app.task
-def aggregate_observations_task(observations_results):
+def aggregate_observations_task(observations_results: str):
     """
     Task to aggregate observations.
 

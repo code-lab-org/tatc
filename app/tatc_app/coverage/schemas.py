@@ -1,7 +1,3 @@
-from fastapi_utils.api_model import APIModel
-from geojson_pydantic import FeatureCollection
-from typing import List, Optional, Union
-from pydantic import Field
 # -*- coding: utf-8 -*-
 """
 Schema specifications for coverage analysis endpoints.
@@ -10,28 +6,36 @@ Schema specifications for coverage analysis endpoints.
 """
 
 from datetime import datetime
+from typing import List, Union
+
+from geojson_pydantic import FeatureCollection
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 from tatc.schemas.satellite import Satellite, TrainConstellation, WalkerConstellation
 
 from ..generation.schemas import Point, PointGenerator, Cell, CellGenerator
 
 
-class CoverageAnalysisRequest(APIModel):
+class CoverageAnalysisRequest(BaseModel):
     """
     User request to perform coverage analysis.
     """
 
+    model_config = ConfigDict(
+        from_attributes=True, populate_by_name=True, alias_generator=to_camel
+    )
     satellites: List[Union[Satellite, TrainConstellation, WalkerConstellation]] = Field(
         ..., description="Satellites from which to observe."
     )
     start: datetime = Field(
         ...,
         description="Start date time of the observation period.",
-        example=datetime.fromisoformat("2021-01-01T00:00:00+00:00"),
+        examples=[datetime.fromisoformat("2021-01-01T00:00:00+00:00")],
     )
     end: datetime = Field(
         ...,
         description="End date time of the observation period.",
-        example=datetime.fromisoformat("2021-01-02T00:00:00+00:00"),
+        examples=[datetime.fromisoformat("2021-01-02T00:00:00+00:00")],
     )
     points: Union[List[Point], PointGenerator] = Field(
         ..., description="Points from which to collect observations."
@@ -41,11 +45,14 @@ class CoverageAnalysisRequest(APIModel):
     )
 
 
-class CoverageAnalysisResult(APIModel):
+class CoverageAnalysisResult(BaseModel):
     """
     Response to provide coverage analysis results.
     """
 
+    model_config = ConfigDict(
+        from_attributes=True, populate_by_name=True, alias_generator=to_camel
+    )
     points: FeatureCollection = Field(
         ..., description="Point-level coverage statistics."
     )

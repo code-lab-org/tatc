@@ -10,7 +10,6 @@ import uuid
 from typing import Optional
 import contextlib
 
-
 from fastapi import Depends, Request
 from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin
 from fastapi_users.authentication import (
