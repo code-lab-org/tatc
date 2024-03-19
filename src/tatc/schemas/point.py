@@ -21,14 +21,14 @@ class Point(BaseModel):
         description="Latitude (decimal degrees) in the WGS 84 coordinate system.",
         ge=-90,
         le=90,
-        example=40.74259,
+        examples=[40.74259],
     )
     longitude: float = Field(
         ...,
         description="Longitude (decimal degrees) in the WGS 84 coordinate system.",
         ge=-180,
         le=180,
-        example=-74.02686,
+        examples=[-74.02686],
     )
     elevation: float = Field(
         0,
@@ -47,14 +47,14 @@ class GroundStation(BaseModel):
         description="Latitude (decimal degrees) in the WGS 84 coordinate system.",
         ge=-90,
         le=90,
-        example=40.74259,
+        examples=[40.74259],
     )
     longitude: float = Field(
         ...,
         description="Longitude (decimal degrees) in the WGS 84 coordinate system.",
         ge=-180,
         le=180,
-        example=-74.02686,
+        examples=[-74.02686],
     )
     elevation: float = Field(
         0,
@@ -70,5 +70,5 @@ class GroundStation(BaseModel):
     min_access_time: timedelta = Field(
         timedelta(0),
         description="Minimum access (integration) time required for satellite communication.",
-        example=timedelta(seconds=10),
+        examples=[timedelta(seconds=10)],
     )

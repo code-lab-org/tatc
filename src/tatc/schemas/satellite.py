@@ -28,7 +28,7 @@ class SpaceSystem(BaseModel):
     name: str = Field(
         ...,
         description="Space system name.",
-        example="International Space Station",
+        examples=["International Space Station"],
     )
     orbit: Union[
         TwoLineElements, CircularOrbit, SunSynchronousOrbit, KeplerianOrbit
