@@ -10,21 +10,22 @@ from typing import AsyncGenerator
 
 from fastapi import Depends
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID, SQLAlchemyUserDatabase
-from sqlalchemy import Column, String
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.ext.declarative import DeclarativeMeta, declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase
 
 DATABASE_URL = os.getenv("TATC_DATABASE_URL", "sqlite+aiosqlite:///data.db")
-Base: DeclarativeMeta = declarative_base()
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 class User(SQLAlchemyBaseUserTableUUID, Base):
-    name = Column(String)
+    pass
 
 
 engine = create_async_engine(DATABASE_URL)
-async_session_maker = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
 
 async def create_db_and_tables():
