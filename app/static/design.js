@@ -258,7 +258,7 @@ $(document).ready(function() {
             start: $('#display-start').datetimepicker('viewDate').toISOString(),
             end: $('#display-start').datetimepicker('viewDate').clone().add(
               $("#display-duration").val(), "minutes").toISOString(),
-            delta: $("#display-step").val()
+            delta: parseInt($("#display-step").val())
           }
         }),
         success: function(response) {
