@@ -1,9 +1,9 @@
+from datetime import datetime, timezone
 import json
 import time
-from geojson_pydantic import FeatureCollection
+
 import geopandas as gpd
 import pandas as pd
-from datetime import datetime, timedelta, timezone
 
 from tatc.analysis import (
     collect_observations,
@@ -57,14 +57,14 @@ class LatencyAnalysisTestCase(TatcTestCase):
         end = datetime(2022, 6, 2, tzinfo=timezone.utc)
         response = self.client.post(
             "/analyze/latency",
-            LatencyAnalysisRequest(
+            json=LatencyAnalysisRequest(
                 satellites=[satellite],
                 stations=[station],
                 start=start,
                 end=end,
                 points=points,
                 cells=cells,
-            ).json(),
+            ).model_dump_json(),
         )
         self.assertEqual(response.status_code, 200)
         task_id = response.json().get("task_id")
