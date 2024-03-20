@@ -5,7 +5,7 @@ Methods to analyze dilusion of precision.
 @author: Michael P. Jones <mpj@mit.edu>
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
-
+import warnings
 from datetime import datetime
 from enum import Enum
 from typing import List, Union
@@ -115,7 +115,12 @@ def compute_dop(
             )
         )
         # calculate the pseudoinverse of H
-        H_inv = np.linalg.solve(H.T @ H, np.eye(4))
+        try:
+            H_inv = np.linalg.solve(H.T @ H, np.eye(4))
+        except np.linalg.LinAlgError:
+            # If the H matrix nearly singular, linalg will not be able to solve, return NaN and a warning
+            warnings.warn("H matrix could not be inverted, NaN DOP value returned.")
+            return np.nan
         # compute and return the dop value
         if dop_method == DopMethod.GDOP:
             return np.sqrt(np.trace(H_inv))
@@ -127,7 +132,8 @@ def compute_dop(
             return np.sqrt(H_inv[2, 2])
         if dop_method == DopMethod.TDOP:
             return np.sqrt(H_inv[3, 3])
-        raise ValueError("Invalid DOP method")
+        else:
+            raise ValueError("Invalid DOP method")
 
     dop = np.array([_dop(i) for i in range(len(times))])
 
