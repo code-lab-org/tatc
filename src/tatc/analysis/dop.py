@@ -132,8 +132,7 @@ def compute_dop(
             return np.sqrt(H_inv[2, 2])
         if dop_method == DopMethod.TDOP:
             return np.sqrt(H_inv[3, 3])
-        else:
-            raise ValueError("Invalid DOP method")
+        raise ValueError("Invalid DOP method")
 
     dop = np.array([_dop(i) for i in range(len(times))])
 
