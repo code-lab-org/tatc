@@ -36,8 +36,8 @@ def compute_dop(
     point: Point,
     satellites: List[Satellite],
     min_elevation: float,
-    min_count_visible: int,
     dop_method: DopMethod,
+    min_count_visible: int = 3,
 ) -> gpd.GeoDataFrame:
     """
     Calculate the specified dilusion of precision value based on inputs.
@@ -47,8 +47,8 @@ def compute_dop(
         point: a ground point intended to view satellites
         satellites: the list of satellites to be viewed by the ground point
         min_elevation: the minimum elevation angle (deg) to consider a satellite visible
-        min_count_visible: minimum number of visible satellites for a valid measurement
         dop_method: dilusion of precision calculation method
+        min_count_visible: minimum number of visible satellites for a valid measurement
 
     Outputs:
     - geopandas.GeoDataFrame: the dop for the given user location and satellite.
