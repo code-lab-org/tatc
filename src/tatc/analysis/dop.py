@@ -8,7 +8,7 @@ Methods to analyze dilusion of precision.
 import warnings
 from datetime import datetime
 from enum import Enum
-from typing import List, Union
+from typing import List
 
 import pandas as pd
 import numpy as np
@@ -16,19 +16,19 @@ import geopandas as gpd
 from skyfield.api import wgs84, EarthSatellite
 
 from ..constants import timescale
-from ..schemas import Point, Satellite, WalkerConstellation, TrainConstellation
+from ..schemas import Point, Satellite
 
 
 class DopMethod(str, Enum):
     """
     Enumeration of Dilusion of Precision (DOP) calculation methods.
     """
-
-    GDOP = "gdop"
-    PDOP = "pdop"
-    HDOP = "hdop"
-    VDOP = "vdop"
-    TDOP = "tdop"
+    
+    GDOP = "gdop" # Geometric Dilusion of Precision
+    PDOP = "pdop" # Position (3D) Dilusion of Precision
+    HDOP = "hdop" # Horizontal Dilusion of Precision
+    VDOP = "vdop" # Vertical Dilusion of Precision
+    TDOP = "tdop" # Time Dilusion of Precision
 
 
 def _get_empty_dop_frame() -> gpd.GeoDataFrame:
@@ -48,7 +48,7 @@ def _get_empty_dop_frame() -> gpd.GeoDataFrame:
 def compute_dop(
     times: List[datetime],
     point: Point,
-    constellation: Union[Satellite, WalkerConstellation, TrainConstellation],
+    satellites: List[Satellite],
     min_elevation: float,
     min_count_visible: int,
     dop_method: DopMethod,
@@ -57,25 +57,25 @@ def compute_dop(
     Calculate the specified dilusion of precision value based on inputs.
 
     Args:
-        times: a vector of datetimes
-        point: a ground point
-        constellation: a constellation object
+        times: a vector of datetimes at which to measure dilusion of precision
+        point: a ground point intended to view satellites
+        satellites: the list of satellites to be viewed by the ground point
         min_elevation: the minimum elevation angle (deg) to consider a satellite visible
-        min_count_visible: minimum number of visible satellites
+        min_count_visible: minimum number of visible satellites for a valid measurement
         dop_method: dilusion of precision calculation method
 
     Outputs:
     - geopandas.GeoDataFrame: the dop for the given user location and satellite.
 
     """
-    # construct skyfield satellites for each constellation member
+    # construct skyfield satellites for each satellite
     sk_sats = [
         EarthSatellite(
             satellite.orbit.to_tle().tle[0],
             satellite.orbit.to_tle().tle[1],
             satellite.name,
         )
-        for satellite in constellation.generate_members()
+        for satellite in satellites
     ]
 
     # construct skyfield times for each datetime
