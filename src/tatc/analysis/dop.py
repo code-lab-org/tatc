@@ -31,20 +31,6 @@ class DopMethod(str, Enum):
     TDOP = "tdop" # Time Dilusion of Precision
 
 
-def _get_empty_dop_frame() -> gpd.GeoDataFrame:
-    """
-    Gets an empty data frame for dilusion of precision results.
-
-    Returns:
-        geopandas.GeoDataFrame: Empty data frame.
-    """
-    columns = {
-        "dop": pd.Series([], dtype="float"),
-        "geometry": pd.Series([], dtype="object"),
-    }
-    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
-
-
 def compute_dop(
     times: List[datetime],
     point: Point,
@@ -135,9 +121,6 @@ def compute_dop(
         raise ValueError("Invalid DOP method")
 
     dop = np.array([_dop(i) for i in range(len(times))])
-
-    if np.isnan(dop).all():
-        return _get_empty_dop_frame()
 
     columns = {
         "dop": pd.Series(dop, dtype="float", index=times),
