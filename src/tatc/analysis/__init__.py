@@ -15,4 +15,5 @@ from .latency import (
     compute_latencies,
     reduce_latencies,
     grid_latencies,
+    compute_latencies_optimized
 )
