@@ -16,3 +16,4 @@ from .latency import (
     reduce_latencies,
     grid_latencies,
 )
+from .dop import compute_dop, DopMethod
