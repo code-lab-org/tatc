@@ -263,9 +263,6 @@ class MOGConstellation(Satellite):
     number_satellites: int = Field(
         2, description="The count of the number of satellites.", ge=2, le=2
     )
-    inclination: float = Field(
-        float(np.radians(52.6)), description="The inclination of the reference mutual orbiter", ge=0
-    )
     delta: float = Field(
         float(np.radians(5)), description="The separation of the angular momentum vectors of the reference orbiter and the mutually orbiting satellite", ge=0
     )
@@ -288,8 +285,13 @@ class MOGConstellation(Satellite):
         Returns:
             float: the angular momentum direction of orbiter
         """
-        cos_inclination = float(np.cos(self.inclination))
-        sin_inclination = float(np.sin(self.inclination))
+        inclination = (
+            self.orbit.inclination 
+            if isinstance(self.orbit, CircularOrbit) 
+            else self.orbit.get_inclination()
+        )
+        cos_inclination = float(np.cos(inclination))
+        sin_inclination = float(np.sin(inclination))
         return [(cos_inclination * z) - (sin_inclination * y) for z, y in zip(self.z_vector, self.y_vector)]
 
     def get_angular_momentum_direction_of_satellite(self) -> List[float]:
