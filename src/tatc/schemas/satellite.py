@@ -290,8 +290,8 @@ class MOGConstellation(Satellite):
             if isinstance(self.orbit, CircularOrbit) 
             else self.orbit.get_inclination()
         )
-        cos_inclination = float(np.cos(inclination))
-        sin_inclination = float(np.sin(inclination))
+        cos_inclination = float(np.cos(np.radians(inclination)))
+        sin_inclination = float(np.sin(np.radians(inclination)))
         return [(cos_inclination * z) - (sin_inclination * y) for z, y in zip(self.z_vector, self.y_vector)]
 
     def get_angular_momentum_direction_of_satellite(self) -> List[float]:
