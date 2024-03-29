@@ -19,7 +19,7 @@ class Architecture(BaseModel):
     """
 
     name: str = Field(..., description="Name of this mission.")
-    satellites: List[Union[Satellite, TrainConstellation, WalkerConstellation]] = Field(
+    satellites: List[Union[Satellite, TrainConstellation, WalkerConstellation, MOGConstellation]] = Field(
         [], description="List of member space systems."
     )
     stations: List[GroundStation] = Field(
