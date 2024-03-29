@@ -273,11 +273,6 @@ class MOGConstellation(Satellite):
         50, description="delta mean anomaly in degrees for the satellites with respect to the reference orbiter", le=360, ge=0
     )
 
-
-    x_vector = [1, 0, 0]
-    y_vector = [0, 1, 0]
-    z_vector = [0, 0, 1]
-
     def get_angular_momentum_direction_of_orbiter(self) -> List[float]:
         """
         Gets the angular momentum direction of the reference circular orbiter
@@ -292,7 +287,7 @@ class MOGConstellation(Satellite):
         )
         cos_inclination = float(np.cos(np.radians(inclination)))
         sin_inclination = float(np.sin(np.radians(inclination)))
-        return [(cos_inclination * z) - (sin_inclination * y) for z, y in zip(self.z_vector, self.y_vector)]
+        return [(cos_inclination * z) - (sin_inclination * y) for z, y in zip(np.array([0,0,1]), np.array([0,1,0]))]
 
     def get_angular_momentum_direction_of_satellite(self) -> List[float]:
         """
@@ -307,8 +302,8 @@ class MOGConstellation(Satellite):
         sin_theta = float(np.cos(self.theta))
 
         p1 = [cos_delta * l for l in self.get_angular_momentum_direction_of_orbiter()]
-        p2 = [(sin_delta * cos_theta) * m for m in (np.cross(self.get_angular_momentum_direction_of_orbiter(), self.x_vector))]
-        p3 = [(sin_delta * sin_theta) * x for x in self.x_vector]
+        p2 = [(sin_delta * cos_theta) * m for m in (np.cross(self.get_angular_momentum_direction_of_orbiter(), np.array([1,0,0])))]
+        p3 = [(sin_delta * sin_theta) * x for x in np.array([1,0,0])]
 
         return ([p1[i] + p2[i] + p3[i] for i in range(3)])
 
@@ -319,7 +314,7 @@ class MOGConstellation(Satellite):
         Returns:
             float: the inclination of the mutual orbiting satellite
         """
-        return np.arccos(np.dot(self.get_angular_momentum_direction_of_satellite(), self.z_vector))
+        return np.arccos(np.dot(self.get_angular_momentum_direction_of_satellite(), np.array([0,0,1])))
 
     def get_delta_raan(self) -> float:
         """
@@ -327,8 +322,8 @@ class MOGConstellation(Satellite):
         Returns:
             float: longitude of the mutual orbiter's right ascension of the ascending node
         """
-        raan_mo = np.arctan2(np.dot(self.get_angular_momentum_direction_of_satellite(), self.x_vector), 
-                             np.dot([-1 * x for x in self.get_angular_momentum_direction_of_satellite()], self.y_vector)
+        raan_mo = np.arctan2(np.dot(self.get_angular_momentum_direction_of_satellite(), np.array([1,0,0])), 
+                             np.dot([-1 * x for x in self.get_angular_momentum_direction_of_satellite()], np.array([0,1,0]))
                             )
         return raan_mo
 
