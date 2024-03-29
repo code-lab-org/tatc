@@ -12,9 +12,8 @@ from enum import Enum
 import pandas as pd
 import numpy as np
 import geopandas as gpd
-from skyfield.api import wgs84, EarthSatellite, load, Topos, Distance
-from skyfield.toposlib import GeographicPosition
-from skyfield.framelib import itrs, ecliptic_frame, ICRS
+from skyfield.api import wgs84, EarthSatellite
+from skyfield.framelib import itrs
 
 from shapely.geometry import (
     Polygon,
@@ -51,6 +50,7 @@ def _get_empty_orbit_track() -> gpd.GeoDataFrame:
     }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
+
 class OrbitCoordinate(str, Enum):
     """
     Enumeration of different orbit track coordinate systems.
@@ -60,6 +60,7 @@ class OrbitCoordinate(str, Enum):
     ECEF = "ecef"
     ECI = "eci"
 
+
 class OrbitOutput(str, Enum):
     """
     Enumeration of different orbit output options.
@@ -67,6 +68,7 @@ class OrbitOutput(str, Enum):
 
     POSITION = "position"
     POSITION_VELOCITY = "velocity"
+
 
 def collect_orbit_track(
     satellite: Satellite,
@@ -103,37 +105,32 @@ def collect_orbit_track(
     ts_times = timescale.from_datetimes(times)
     # compute satellite positions
     positions = sat.at(ts_times)
-    # compute satellite velocity
-    velocity = positions.frame_xyz_and_velocity(itrs)[1].m_per_s
-    eci_velocity = positions.velocity.m_per_s
-    # project to geographic positions
-    wgs84_subpoints = [wgs84.geographic_position_of(position) for position in positions]
-    ecef_subpoints = [subpoint.itrs_xyz.m for subpoint in wgs84_subpoints]
-    eci_subpoints = [position.xyz.m for position in positions]
+    geo_positions = [wgs84.geographic_position_of(position) for position in positions]
     # create shapely points in proper coordinate system
     if coordinates == OrbitCoordinate.WGS84:
-            points = [
-                Point(
-                    subpoint.longitude.degrees, subpoint.latitude.degrees, subpoint.elevation.m
-                )
-                for subpoint in wgs84_subpoints
-            ]            
+        points = [
+            Point(
+                position.longitude.degrees,
+                position.latitude.degrees,
+                position.elevation.m,
+            )
+            for position in geo_positions
+        ]
     elif coordinates == OrbitCoordinate.ECEF:
         points = [
             Point(
-                subpoint[0], subpoint[1], subpoint[2]
+                position.itrs_xyz.m[0], position.itrs_xyz.m[1], position.itrs_xyz.m[2]
             )
-            for subpoint in ecef_subpoints
+            for position in geo_positions
         ]
     else:
         points = [
-            Point(
-                subpoint[0], subpoint[1], subpoint[2]
-            )
-            for subpoint in eci_subpoints
+            Point(position.xyz.m[0], position.xyz.m[1], position.xyz.m[2])
+            for position in positions
         ]
+    # determine observation validity
     valid_obs = instrument.is_valid_observation(sat, ts_times)
-    #create velocity points if needed
+    # create velocity points if needed
     if orbit_output == OrbitOutput.POSITION:
         records = [
             {
@@ -141,7 +138,7 @@ def collect_orbit_track(
                 "satellite": satellite.name,
                 "instrument": instrument.name,
                 "swath_width": field_of_regard_to_swath_width(
-                    wgs84_subpoints[i].elevation.m,
+                    geo_positions[i].elevation.m,
                     instrument.field_of_regard,
                     elevation,
                 ),
@@ -151,19 +148,17 @@ def collect_orbit_track(
             for i, time in enumerate(times)
         ]
     else:
-
+        # compute satellite velocity
         if coordinates == OrbitCoordinate.ECI:
+            eci_velocity = positions.velocity.m_per_s
             velocities = [
-            Point(
-                eci_velocity[0][i], eci_velocity[1][i], eci_velocity[2][i]
-            )
-            for i in range(len(eci_velocity[0]))
-        ]
+                Point(eci_velocity[0][i], eci_velocity[1][i], eci_velocity[2][i])
+                for i in range(len(eci_velocity[0]))
+            ]
         else:
+            velocity = positions.frame_xyz_and_velocity(itrs)[1].m_per_s
             velocities = [
-                Point(
-                    velocity[0][i], velocity[1][i], velocity[2][i]
-                )
+                Point(velocity[0][i], velocity[1][i], velocity[2][i])
                 for i in range(len(velocity[0]))
             ]
 
@@ -173,13 +168,13 @@ def collect_orbit_track(
                 "satellite": satellite.name,
                 "instrument": instrument.name,
                 "swath_width": field_of_regard_to_swath_width(
-                    wgs84_subpoints[i].elevation.m,
+                    geo_positions[i].elevation.m,
                     instrument.field_of_regard,
                     elevation,
                 ),
                 "valid_obs": valid_obs[i],
                 "geometry": points[i],
-                "velocity": velocities[i]
+                "velocity": velocities[i],
             }
             for i, time in enumerate(times)
         ]
@@ -188,7 +183,6 @@ def collect_orbit_track(
     if mask is None:
         return gdf
     return gpd.clip(gdf, mask).reset_index(drop=True)
-
 
 
 def _get_utm_epsg_code(point: Point) -> str:
@@ -210,11 +204,13 @@ def _get_utm_epsg_code(point: Point) -> str:
     return (
         "EPSG:" + results[0].code
         if len(results) > 0
-        else "EPSG:5041"
-        if point.y > 84
-        else "EPSG:5042"
-        if point.y < -80
-        else "EPSG:4087"
+        else (
+            "EPSG:5041"
+            if point.y > 84
+            else "EPSG:5042"
+            if point.y < -80
+            else "EPSG:4087"
+        )
     )
 
 
@@ -300,19 +296,24 @@ def collect_ground_track(
         )
     # add elevation to all polygon coordinates (otherwise lost during buffering)
     gdf.geometry = gdf.geometry.apply(
-        lambda g: Polygon(
-            [(p[0], p[1], elevation) for p in g.exterior.coords],
-            [[(p[0], p[1], elevation) for p in i.coords] for i in g.interiors],
-        )
-        if isinstance(g, Polygon)
-        else MultiPolygon(
-            [
-                Polygon(
-                    [(p[0], p[1], elevation) for p in n.exterior.coords],
-                    [[(p[0], p[1], elevation) for p in i.coords] for i in n.interiors],
-                )
-                for n in g.geoms
-            ]
+        lambda g: (
+            Polygon(
+                [(p[0], p[1], elevation) for p in g.exterior.coords],
+                [[(p[0], p[1], elevation) for p in i.coords] for i in g.interiors],
+            )
+            if isinstance(g, Polygon)
+            else MultiPolygon(
+                [
+                    Polygon(
+                        [(p[0], p[1], elevation) for p in n.exterior.coords],
+                        [
+                            [(p[0], p[1], elevation) for p in i.coords]
+                            for i in n.interiors
+                        ],
+                    )
+                    for n in g.geoms
+                ]
+            )
         )
     )
     # split polygons to wrap over the anti-meridian and poles
@@ -402,11 +403,15 @@ def compute_ground_track(
                         (
                             LineString([(c[0] + 360, c[1], c[2]) for c in line.coords])
                             if np.all([c[0] <= -180 for c in line.coords])
-                            else LineString(
-                                [(c[0] - 360, c[1], c[2]) for c in line.coords]
+                            else (
+                                LineString(
+                                    [(c[0] - 360, c[1], c[2]) for c in line.coords]
+                                )
+                                if np.all([c[0] >= 180 for c in line.coords])
+                                else LineString(
+                                    [(c[0], c[1], c[2]) for c in line.coords]
+                                )
                             )
-                            if np.all([c[0] >= 180 for c in line.coords])
-                            else LineString([(c[0], c[1], c[2]) for c in line.coords])
                         )
                         for line in collection.geoms
                     ]
