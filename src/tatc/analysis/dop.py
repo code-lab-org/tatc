@@ -23,12 +23,12 @@ class DopMethod(str, Enum):
     """
     Enumeration of Dilusion of Precision (DOP) calculation methods.
     """
-    
-    GDOP = "gdop" # Geometric Dilusion of Precision
-    PDOP = "pdop" # Position (3D) Dilusion of Precision
-    HDOP = "hdop" # Horizontal Dilusion of Precision
-    VDOP = "vdop" # Vertical Dilusion of Precision
-    TDOP = "tdop" # Time Dilusion of Precision
+
+    GDOP = "gdop"  # Geometric Dilusion of Precision
+    PDOP = "pdop"  # Position (3D) Dilusion of Precision
+    HDOP = "hdop"  # Horizontal Dilusion of Precision
+    VDOP = "vdop"  # Vertical Dilusion of Precision
+    TDOP = "tdop"  # Time Dilusion of Precision
 
 
 def compute_dop(
