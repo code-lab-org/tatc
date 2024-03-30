@@ -16,6 +16,7 @@ import numpy as np
 from pydantic import BaseModel, Field, root_validator
 from typing_extensions import Literal
 
+from ..constants import EARTH_MEAN_RADIUS
 from .instrument import Instrument
 from .orbit import TwoLineElements, CircularOrbit, SunSynchronousOrbit, KeplerianOrbit
 
@@ -249,86 +250,35 @@ class WalkerConstellation(Satellite):
             for i in range(self.number_satellites)
         ]
 
+
 class MOGConstellation(Satellite):
     """
     A constellation that arranges member satellites following the mutual orbiting group pattern.
+
+    Based on Stephen Leroy, Riley Fitzgerald, Kerri Cahoy, James Abel, and James Clark (2020).
+    "Orbital Maintenance of a Constellation of CubeSats for Internal Gravity Wave Tomography,"
+    IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing, vol. 13,
+    pp. 307-317. doi: 10.1109/JSTARS.2019.2961084
     """
 
-    type: Literal["mog"] = Field(
-        "mog", description="Space system type discriminator."
+    type: Literal["mog"] = Field("mog", description="Space system type discriminator.")
+    orbit: CircularOrbit = Field(
+        ..., description="Reference circular orbit for this constellation."
     )
-    orbit: Union[
-        TwoLineElements, SunSynchronousOrbit, CircularOrbit, KeplerianOrbit
-    ] = Field(..., description="Lead orbit for this constellation.")
+    parallel_axis: float = Field(
+        ...,
+        description="Mutual orbit axis length (m) parallel to velocity vector.",
+        gt=0,
+    )
+    transverse_axis: float = Field(
+        ...,
+        description="Mutual orbit axis length (m) transverse to velocity vector.",
+        gt=0,
+    )
+    clockwise: bool = Field(True, description="True, if the mutual orbit is clockwise.")
     number_satellites: int = Field(
-        2, description="The count of the number of satellites.", ge=2, le=2
+        2, description="Number of equally-spaced mutually orbiting satellites.", gt=0
     )
-    delta: float = Field(
-        float(np.radians(5)), description="The separation of the angular momentum vectors of the reference orbiter and the mutually orbiting satellite", ge=0
-    )
-    theta: float = Field(
-        float(np.radians(5)), description="", ge=0
-    )
-    delta_anomaly: int = Field(
-        50, description="delta mean anomaly in degrees for the satellites with respect to the reference orbiter", le=360, ge=0
-    )
-
-    def get_angular_momentum_direction_of_orbiter(self) -> np.array:
-        """
-        Gets the angular momentum direction of the reference circular orbiter
-        
-        Returns:
-            numpy.array: the angular momentum direction of orbiter
-        """
-        inclination = (
-            self.orbit.inclination 
-            if isinstance(self.orbit, CircularOrbit) 
-            else self.orbit.get_inclination()
-        )
-        cos_inclination = np.cos(np.radians(inclination))
-        sin_inclination = np.sin(np.radians(inclination))
-        return cos_inclination * np.array([0,0,1]) - sin_inclination * np.array([0,1,0])
-
-    def get_angular_momentum_direction_of_satellite(self) -> np.array:
-        """
-        Gets the angular momentum direction of the mutual orbiting satellite
-        
-        Returns:
-            numpy.array: the angular momentum direction of the mutual orbiting satellite
-        """
-        cos_delta = np.cos(self.delta)
-        sin_delta = np.cos(self.delta)
-        cos_theta = np.cos(self.theta)
-        sin_theta = np.cos(self.theta)
-
-        p1 = cos_delta * self.get_angular_momentum_direction_of_orbiter()
-        p2 = (sin_delta * cos_theta) * np.cross(self.get_angular_momentum_direction_of_orbiter(), np.array([1,0,0]))
-        p3 = (sin_delta * sin_theta) * np.array([1,0,0])
-
-        return p1 + p2 + p3
-
-    def get_satellite_inclination(self) -> float:
-        """
-        Gets the inclination of the mutual orbiting satellite
-        
-        Returns:
-            float: the inclination of the mutual orbiting satellite
-        """
-        return np.arccos(np.dot(self.get_angular_momentum_direction_of_satellite(), np.array([0,0,1])))
-
-    def get_delta_raan(self) -> float:
-        """
-        Gets the longitude of the right ascending node of the mutual orbiter
-        Returns:
-            float: longitude of the mutual orbiter's right ascension of the ascending node
-        """
-        return np.arctan2(
-            np.dot(self.get_angular_momentum_direction_of_satellite(), np.array([1,0,0])), 
-            np.dot([-self.get_angular_momentum_direction_of_satellite()], np.array([0,1,0]))
-        )
-
-    def get_delta_mean_anomaly(self) -> float:
-        return np.radians(self.delta_anomaly)
 
     def generate_members(self) -> List[Satellite]:
         """
@@ -336,19 +286,96 @@ class MOGConstellation(Satellite):
         Returns:
             List[Satellite]: the member satellites
         """
+
+        orbits = []
+
+        # semimajor axis (m)
+        a = self.orbit.altitude + EARTH_MEAN_RADIUS
+
+        # angle of separation (radians) of angular momentum vectors for reference and mutual orbiter
+        delta = self.transverse_axis / (2 * a)
+
+        # eccentricity of the mutual orbit
+        e = self.parallel_axis / (4 * a)
+
+        # direction of the mutual orbit (1: clockwise, -1: counter-clockwise)
+        s = 1 if self.clockwise else -1
+
+        # inclination (radians) of reference orbit
+        i_0 = np.radians(self.orbit.inclination)
+
+        # right ascension of ascending node (radians) of reference orbit
+        omega_0 = np.radians(self.orbit.right_ascension_ascending_node)
+
+        # direction of angular momentum for reference orbit [Eq. (21) in Leroy et al. (2020)]
+        l_0 = np.cos(i_0) * np.array([0, 0, 1]) - np.sin(i_0) * np.array([0, 1, 0])
+
+        # angle describing position of the mutual orbiter w.r.t. reference orbiter at ascending node
+        for theta in np.linspace(0, 2 * np.pi, self.number_satellites, endpoint=False):
+
+            # direction of angular momentum of mutual orbit [Eq. (22) in Leroy et al. (2020)]
+            l = (
+                np.cos(delta) * l_0
+                + np.sin(delta) * np.cos(theta) * np.cross(l_0, np.array([1, 0, 0]))
+                + np.sin(delta) * np.sin(theta) * np.array([1, 0, 0])
+            )
+
+            # inclination (radians) of mutual orbiting satellite [Eq. (23) in Leroy et al. (2020)]
+            i = np.arccos(np.dot(l, np.array([0, 0, 1])))
+
+            # raan (radians) of mutual orbiting satellite [Eq. (24) in Leroy et al. (2020)]
+            omega = omega_0 + np.arctan2(
+                np.dot(l, np.array([1, 0, 0])), np.dot(-l, np.array([0, 1, 0]))
+            )
+
+            # direction of mutual orbit ascending node w.r.t. Earth's center of mass [Eq. (25) in Leroy et al. (2020)]
+            p_node = np.cos(omega - omega_0) * np.array([1, 0, 0]) + np.sin(
+                omega - omega_0
+            ) * np.array([0, 1, 0])
+
+            # direction of mutual and reference orbit intersection ([Eq. (26) in Leroy et al. (2020)])
+            t = np.cross(l, l_0) / np.sin(delta)
+
+            # perigee direction [Eq. (27) in Leroy et al. (2020)]
+            p_peri = s * np.cross(t, l)
+
+            # argument of perigee [Eq. (28) in Leroy et al. (2020)]
+            w = np.arctan2(np.dot(p_peri, np.cross(l, p_node)), np.dot(p_peri, p_node))
+
+            # time from mutual orbiter passing through its perigee to time when circular orbiter
+            # passes through its ascending node [Eq. (31) in Leroy et al. (2020)]
+            n = np.arctan2(
+                s * np.dot(t, np.array([1, 0, 0])),
+                s * np.dot(t, np.cross(l_0, np.array([1, 0, 0]))),
+            )
+
+            # eccentric anomaly (radians) implicit equation [Eq. (32) in Leroy et al. (2020)]
+            psi_ = 0
+            psi = 0.1  # initial guess
+            while np.abs(psi - psi_) > 1e-6:  # convergence criterion
+                psi_ = psi
+                psi = n + e * np.sin(psi_)
+
+            # true anomaly (radians) [Eq. (33a) in Leroy et al. (2020)]
+            nu = np.arctan2(np.sin(psi) * np.sqrt(1 - e**2), np.cos(psi) - e)
+
+            orbits.append(
+                KeplerianOrbit(
+                    altitude=self.orbit.altitude,
+                    inclination=(360 + np.degrees(i)) % 360,
+                    eccentricity=e,
+                    right_ascension_ascending_node=(360 + np.degrees(omega)) % 360,
+                    perigee_argument=(360 + np.degrees(w)) % 360,
+                    true_anomaly=(360 + np.degrees(nu)) % 360,
+                    epoch=self.orbit.epoch,
+                )
+            )
+
         return [
             Satellite(
-                name=f"{self.name} #{0+1:02d}",
-                orbit=self.orbit.get_derived_orbit(
-                    -0.5 * (self.get_delta_mean_anomaly()), -1 * self.get_delta_raan()
-                ),
-                instruments=copy.deepcopy(self.instruments),
-            ),
-            Satellite(
-                name=f"{self.name} #{1+1:02d}",
-                orbit=self.orbit.get_derived_orbit(
-                    (0.5 * self.get_delta_mean_anomaly()), 1 * self.get_delta_raan()
-                ),
+                name=f"{self.name} #{i:02d}",
+                orbit=orbit,
                 instruments=copy.deepcopy(self.instruments),
             )
+            for i, orbit in enumerate(orbits)
         ]
