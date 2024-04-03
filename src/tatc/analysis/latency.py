@@ -130,58 +130,11 @@ def compute_latencies(
     if observations.empty or downlinks.empty:
         return _get_empty_latency_frame()
 
-    def _align_downlinks(row, downlinks):
-        # filter downlinks after observation occurs
-        dls = downlinks[
-            (downlinks.satellite == row.satellite) & 
-            (downlinks.start > row.end)
-        ].sort_values(by="start")
-        # append latency-specific columns
-        if not dls.empty:
-            row.station = dls.iloc[0].station
-            row.downlinked = dls.iloc[0].epoch
-            row.latency = dls.iloc[0].epoch - row.epoch
-        return row
-
-    # copy and append latency-specific columns
-    obs = observations.copy()
-    obs["station"] = None
-    obs["downlinked"] = None
-    obs["latency"] = None
-    # write the latency-specific columns
-    try:
-        from pandarallel import pandarallel
-        pandarallel.initialize(verbose=0)
-        obs = obs.parallel_apply(_align_downlinks, args=(downlinks,), axis=1)
-    except ImportError as e:
-        obs = obs.apply(_align_downlinks, args=(downlinks,), axis=1)
-    # add observed column
-    obs["observed"] = obs["epoch"]
-    # drop start, epoch, and end columns
-    obs = obs.drop(["start", "epoch", "end"], axis=1)
-    return obs
-
-def compute_latencies_optimized(
-    observations: gpd.GeoDataFrame, downlinks: gpd.GeoDataFrame
-) -> gpd.GeoDataFrame:
-    """
-    Collect latencies between an observation and the first downlink opportunity.
-
-    Args:
-        observations (geopandas.GeoDataFrame): The data frame of observations to downlink.
-        downlinks (geopandas.GeoDataFrame): The data frame of downlink opportunities.
-
-    Returns:
-        geopandas.GeoDataFrame: The data frame of collected latency results.
-    """
-    if observations.empty or downlinks.empty:
-        return _get_empty_latency_frame()
-
-    # Ensure downlinks are sorted once, improving efficiency
+    # sort downlinks
     downlinks_sorted = downlinks.sort_values(by="start")
 
-    # Merge observations with downlinks to find matching satellite downlinks
-    merged_df = pd.merge_asof(
+    # merge observations with downlinks to find matching satellite downlinks
+    obs = pd.merge_asof(
         observations.sort_values('end'),
         downlinks_sorted,
         by='satellite',
@@ -190,11 +143,11 @@ def compute_latencies_optimized(
         direction='forward'
     )
 
-    # Calculate latency
-    merged_df['latency'] = merged_df['epoch_y'] - merged_df['epoch_x']
+    # compute latency
+    obs['latency'] = obs['epoch_y'] - obs['epoch_x']
 
-    # Rename and select relevant columns, including sat_alt and sat_az from observations
-    merged_df.rename(columns={
+    # rename and select relevant columns
+    obs.rename(columns={
         'station_y': 'station',
         'epoch_y': 'downlinked',
         'epoch_x': 'observed',
@@ -203,25 +156,32 @@ def compute_latencies_optimized(
         'sat_az_x': 'sat_az',
     }, inplace=True)
 
-    # Select and reorder columns to match the specified order
-    result_df = merged_df[['point_id', 'geometry', 'satellite', 'instrument', 'sat_alt', 'sat_az', 'station', 'downlinked', 'latency', 'observed']].copy()
+    # reorder columns
+    obs = obs[['point_id', 'geometry', 'satellite', 'instrument', 'sat_alt', 'sat_az', 'station', 'downlinked', 'latency', 'observed']].copy()
 
-    # Handle rows without matching downlinks (if any)
-    no_downlink_rows = result_df['downlinked'].isna()
+    # handle rows without matching downlinks (if any)
+    no_downlink_rows = obs['downlinked'].isna()
     if no_downlink_rows.any():
-        result_df.loc[no_downlink_rows, ['station', 'downlinked', 'latency']] = [None, pd.NaT, pd.NaT]
+        obs.loc[no_downlink_rows, ['station', 'downlinked', 'latency']] = [None, pd.NaT, pd.NaT]
 
-    # Ensure result_df is a GeoDataFrame with geometry set
-    result_gdf = gpd.GeoDataFrame(result_df, geometry='geometry')
+    # ensure result_df is a GeoDataFrame with geometry set
+    obs = gpd.GeoDataFrame(obs, geometry='geometry')
 
-    # Set CRS if observations is a GeoDataFrame and has a defined CRS
+    # set CRS if observations is a GeoDataFrame and has a defined CRS
     if isinstance(observations, gpd.GeoDataFrame) and observations.crs:
-        result_gdf.crs = observations.crs
+        obs.crs = observations.crs
 
-    # Sort the DataFrame by point_id and then by satellite
-    result_gdf.sort_values(by=['point_id', 'satellite'], inplace=True)
-    result_gdf.reset_index(drop=True, inplace=True)
-    return result_gdf
+    # extract the int from the 'satellite' column for sorting
+    obs['satellite'] = obs['satellite'].str.extract(r'#(\d+)').astype(int)
+
+    # sort by 'point_id' first, then by the extracted int
+    obs.sort_values(by=['point_id', 'satellite'], inplace=True)
+
+    obs['satellite'] = obs['satellite'].apply(lambda x: f"Test #{x}")
+
+    obs.reset_index(drop=True, inplace=True)
+    return obs
+
 
 def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
     """
