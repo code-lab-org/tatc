@@ -135,49 +135,69 @@ def compute_latencies(
 
     # merge observations with downlinks to find matching satellite downlinks
     obs = pd.merge_asof(
-        observations.sort_values('end'),
+        observations.sort_values("end"),
         downlinks_sorted,
-        by='satellite',
-        left_on='end',
-        right_on='start',
-        direction='forward'
+        by="satellite",
+        left_on="end",
+        right_on="start",
+        direction="forward",
     )
 
     # compute latency
-    obs['latency'] = obs['epoch_y'] - obs['epoch_x']
+    obs["latency"] = obs["epoch_y"] - obs["epoch_x"]
 
     # rename and select relevant columns
-    obs.rename(columns={
-        'station_y': 'station',
-        'epoch_y': 'downlinked',
-        'epoch_x': 'observed',
-        'geometry_x': 'geometry',
-        'sat_alt_x': 'sat_alt',
-        'sat_az_x': 'sat_az',
-    }, inplace=True)
+    obs.rename(
+        columns={
+            "station_y": "station",
+            "epoch_y": "downlinked",
+            "epoch_x": "observed",
+            "geometry_x": "geometry",
+            "sat_alt_x": "sat_alt",
+            "sat_az_x": "sat_az",
+        },
+        inplace=True,
+    )
 
     # reorder columns
-    obs = obs[['point_id', 'geometry', 'satellite', 'instrument', 'sat_alt', 'sat_az', 'station', 'downlinked', 'latency', 'observed']].copy()
+    obs = obs[
+        [
+            "point_id",
+            "geometry",
+            "satellite",
+            "instrument",
+            "sat_alt",
+            "sat_az",
+            "station",
+            "downlinked",
+            "latency",
+            "observed",
+        ]
+    ].copy()
 
     # handle rows without matching downlinks (if any)
-    no_downlink_rows = obs['downlinked'].isna()
+    no_downlink_rows = obs["downlinked"].isna()
     if no_downlink_rows.any():
-        obs.loc[no_downlink_rows, ['station', 'downlinked', 'latency']] = [None, pd.NaT, pd.NaT]
+        obs.loc[no_downlink_rows, ["station", "downlinked", "latency"]] = [
+            None,
+            pd.NaT,
+            pd.NaT,
+        ]
 
     # ensure result_df is a GeoDataFrame with geometry set
-    obs = gpd.GeoDataFrame(obs, geometry='geometry')
+    obs = gpd.GeoDataFrame(obs, geometry="geometry")
 
     # set CRS if observations is a GeoDataFrame and has a defined CRS
     if isinstance(observations, gpd.GeoDataFrame) and observations.crs:
         obs.crs = observations.crs
 
     # extract the int from the 'satellite' column for sorting
-    obs['satellite'] = obs['satellite'].str.extract(r'#(\d+)').astype(int)
+    obs["satellite"] = obs["satellite"].str.extract(r"#(\d+)").astype(int)
 
     # sort by 'point_id' first, then by the extracted int
-    obs.sort_values(by=['point_id', 'satellite'], inplace=True)
+    obs.sort_values(by=["point_id", "satellite"], inplace=True)
 
-    obs['satellite'] = obs['satellite'].apply(lambda x: f"Test #{x}")
+    obs["satellite"] = obs["satellite"].apply(lambda x: f"Test #{x}")
 
     obs.reset_index(drop=True, inplace=True)
     return obs
