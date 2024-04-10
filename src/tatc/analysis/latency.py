@@ -125,7 +125,20 @@ def compute_latencies(
         downlinks (geopandas.GeoDataFrame): The data frame of downlink opportunities.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame of collected latency results.
+        geopandas.GeoDataFrame: The data frame of collected latency results, sorted by 'point_id'
+        and 'satellite' columns in ascending order. It includes
+        the following columns:
+            - 'point_id' (int64): Identifier for the observation point.
+            - 'geometry' (geometry): Geometry representing the observation point.
+            - 'satellite' (object): Name or identifier of the satellite.
+            - 'instrument' (object): Name or identifier of the instrument.
+            - 'sat_alt' (float64): Altitude of the satellite at the time of observation.
+            - 'sat_az' (float64): Azimuth of the satellite at the time of observation.
+            - 'station' (object): Name or identifier of the ground station for downlink.
+            - 'downlinked' (datetime64[ns, UTC]): Timestamp when the observation data was downlinked.
+            - 'latency' (timedelta64[ns]): Latency between observation and downlink.
+            - 'observed' (datetime64[ns, UTC]): Timestamp when the observation was made.
+
     """
     if observations.empty or downlinks.empty:
         return _get_empty_latency_frame()
