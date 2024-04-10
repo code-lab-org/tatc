@@ -197,7 +197,9 @@ def compute_latencies(
     # sort by 'point_id' first, then by the extracted int
     obs.sort_values(by=["point_id", "satellite"], inplace=True)
 
-    obs["satellite"] = obs["satellite"].apply(lambda x: f"Test #{x}")
+    instrument_name = observations["instrument"][0]
+
+    obs["satellite"] = obs["satellite"].apply(lambda x: f"{instrument_name} #{x}")
 
     obs.reset_index(drop=True, inplace=True)
     return obs
