@@ -283,7 +283,19 @@ def collect_observations(
             computational efficiency; otherwise `False`.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame with recorded observations.
+        geopandas.GeoDataFrame: The data frame with recorded observations, sorted by 'point_id'
+        and 'satellite' columns in ascending order. It includes
+        the following columns:
+            - 'point_id' (int64): Identifier for the observation point.
+            - 'geometry' (geometry): Geometry representing the observation point.
+            - 'satellite' (object): Name or identifier of the satellite.
+            - 'instrument' (object): Name or identifier of the instrument.
+            - 'start' (datetime64[ns, UTC]): The start timestamp of the observation period
+            - 'end' (datetime64[ns, UTC]): The end timestamp of the observation period
+            - 'epoch (datetime64[ns, UTC]): The midpoint timestamp of the observation period
+            - 'sat_alt' (float64): Altitude of the satellite at the time of observation.
+            - 'sat_az' (float64): Azimuth of the satellite at the time of observation.
+
     """
     # build a topocentric point at the designated geodetic point
     topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
@@ -339,6 +351,22 @@ def collect_observations(
             gdf["solar_time"] = _get_solar_time_series(gdf)
     else:
         gdf = _get_empty_coverage_frame(omit_solar)
+
+    # rearrange columns to the specified order
+    gdf = gdf[["point_id", "geometry", "satellite", "instrument", "start", "end", "epoch", "sat_alt", "sat_az"]]
+    
+    # extract the int from the 'satellite' column for sorting
+    gdf["satellite"] = gdf["satellite"].str.extract(r"#(\d+)").astype(int)
+
+    # sort by 'point_id' first, then by the extracted int
+    gdf.sort_values(by=["point_id", "satellite"], inplace=True)
+
+    instrument_name = instrument.name
+
+    gdf["satellite"] = gdf["satellite"].apply(lambda x: f"{instrument_name} #{x}")
+
+    gdf.reset_index(drop=True, inplace=True)
+
     return gdf
 
 
