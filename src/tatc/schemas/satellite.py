@@ -380,6 +380,7 @@ class MOGConstellation(Satellite):
             for i, orbit in enumerate(orbits)
         ]
 
+
 def zero_pad(max_number, number):
     max_length = len(str(max_number))
     return str(number).zfill(max_length)
