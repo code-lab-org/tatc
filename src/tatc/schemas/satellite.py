@@ -16,11 +16,10 @@ import numpy as np
 from pydantic import BaseModel, Field, root_validator
 from typing_extensions import Literal
 
+from tatc.utils import zero_pad
 from ..constants import EARTH_MEAN_RADIUS
 from .instrument import Instrument
 from .orbit import TwoLineElements, CircularOrbit, SunSynchronousOrbit, KeplerianOrbit
-from tatc.utils import zero_pad
-
 
 class SpaceSystem(BaseModel):
     """
