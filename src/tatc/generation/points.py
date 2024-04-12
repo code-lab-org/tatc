@@ -123,11 +123,13 @@ def generate_fibonacci_lattice_points(
             "point_id": indices,
             "geometry": [
                 Point(
-                    _compute_fibonacci_lattice_point_longitude(i) + 360
-                    if mask is not None
-                    and max_longitude > 180
-                    and _compute_fibonacci_lattice_point_longitude(i) < 0
-                    else _compute_fibonacci_lattice_point_longitude(i),
+                    (
+                        _compute_fibonacci_lattice_point_longitude(i) + 360
+                        if mask is not None
+                        and max_longitude > 180
+                        and _compute_fibonacci_lattice_point_longitude(i) < 0
+                        else _compute_fibonacci_lattice_point_longitude(i)
+                    ),
                     _compute_fibonacci_lattice_point_latitude(i, samples),
                     elevation,
                 )

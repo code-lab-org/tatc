@@ -113,7 +113,7 @@ class TrainConstellation(Satellite):
         """
         return [
             Satellite(
-                name=zero_pad(self.name, self.number_satellites, i+1),
+                name=zero_pad(self.name, self.number_satellites, i + 1),
                 orbit=self.orbit.get_derived_orbit(
                     i * self.get_delta_mean_anomaly(), i * self.get_delta_raan()
                 ),
@@ -237,7 +237,7 @@ class WalkerConstellation(Satellite):
         """
         return [
             Satellite(
-                name=zero_pad(self.name, self.number_satellites, i+1),
+                name=zero_pad(self.name, self.number_satellites, i + 1),
                 orbit=self.orbit.get_derived_orbit(
                     np.mod(i, self.get_satellites_per_plane())
                     * self.get_delta_mean_anomaly_within_planes()
@@ -380,4 +380,3 @@ class MOGConstellation(Satellite):
             )
             for i, orbit in enumerate(orbits)
         ]
-

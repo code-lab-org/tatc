@@ -103,48 +103,68 @@ def _generate_cubed_sphere_cells(
                 Polygon(
                     [
                         (
-                            max_longitude
-                            if strips == "lat"
-                            else -180 + (i + 1) * theta_longitude,
-                            min_latitude
-                            if strips == "lon"
-                            else -90 + j * theta_latitude,
+                            (
+                                max_longitude
+                                if strips == "lat"
+                                else -180 + (i + 1) * theta_longitude
+                            ),
+                            (
+                                min_latitude
+                                if strips == "lon"
+                                else -90 + j * theta_latitude
+                            ),
                             elevation,
                         ),
                         (
-                            max_longitude
-                            if strips == "lat"
-                            else -180 + (i + 1) * theta_longitude,
-                            max_latitude
-                            if strips == "lon"
-                            else -90 + (j + 1) * theta_latitude,
+                            (
+                                max_longitude
+                                if strips == "lat"
+                                else -180 + (i + 1) * theta_longitude
+                            ),
+                            (
+                                max_latitude
+                                if strips == "lon"
+                                else -90 + (j + 1) * theta_latitude
+                            ),
                             elevation,
                         ),
                         (
-                            min_longitude
-                            if strips == "lat"
-                            else -180 + i * theta_longitude,
-                            max_latitude
-                            if strips == "lon"
-                            else -90 + (j + 1) * theta_latitude,
+                            (
+                                min_longitude
+                                if strips == "lat"
+                                else -180 + i * theta_longitude
+                            ),
+                            (
+                                max_latitude
+                                if strips == "lon"
+                                else -90 + (j + 1) * theta_latitude
+                            ),
                             elevation,
                         ),
                         (
-                            min_longitude
-                            if strips == "lat"
-                            else -180 + i * theta_longitude,
-                            min_latitude
-                            if strips == "lon"
-                            else -90 + j * theta_latitude,
+                            (
+                                min_longitude
+                                if strips == "lat"
+                                else -180 + i * theta_longitude
+                            ),
+                            (
+                                min_latitude
+                                if strips == "lon"
+                                else -90 + j * theta_latitude
+                            ),
                             elevation,
                         ),
                         (
-                            max_longitude
-                            if strips == "lat"
-                            else -180 + (i + 1) * theta_longitude,
-                            min_latitude
-                            if strips == "lon"
-                            else -90 + j * theta_latitude,
+                            (
+                                max_longitude
+                                if strips == "lat"
+                                else -180 + (i + 1) * theta_longitude
+                            ),
+                            (
+                                min_latitude
+                                if strips == "lon"
+                                else -90 + j * theta_latitude
+                            ),
                             elevation,
                         ),
                     ]

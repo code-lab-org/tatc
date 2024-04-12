@@ -207,9 +207,7 @@ def _get_utm_epsg_code(point: Point) -> str:
         else (
             "EPSG:5041"
             if point.y > 84
-            else "EPSG:5042"
-            if point.y < -80
-            else "EPSG:4087"
+            else "EPSG:5042" if point.y < -80 else "EPSG:4087"
         )
     )
 
