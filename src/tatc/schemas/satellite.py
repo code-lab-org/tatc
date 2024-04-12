@@ -374,8 +374,7 @@ class MOGConstellation(Satellite):
 
         return [
             Satellite(
-                # name=f"{self.name} #{i:02d}"zero_,
-                name=zero_pad(self.name, self.number_satellites, i),
+                name=zero_pad(self.name, self.number_satellites, i + 1),
                 orbit=orbit,
                 instruments=copy.deepcopy(self.instruments),
             )

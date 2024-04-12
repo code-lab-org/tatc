@@ -689,4 +689,4 @@ def zero_pad(object_name, max_number, current_number) -> str:
         str: The object name with zero padded number appended.
     """
     max_length = len(str(max_number))
-    return object_name + str(current_number).zfill(max_length)
+    return object_name + " " + str(current_number).zfill(max_length)
