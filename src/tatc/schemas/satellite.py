@@ -19,6 +19,7 @@ from typing_extensions import Literal
 from ..constants import EARTH_MEAN_RADIUS
 from .instrument import Instrument
 from .orbit import TwoLineElements, CircularOrbit, SunSynchronousOrbit, KeplerianOrbit
+from tatc.utils import zero_pad
 
 
 class SpaceSystem(BaseModel):
@@ -112,7 +113,7 @@ class TrainConstellation(Satellite):
         """
         return [
             Satellite(
-                name=f"{self.name} #{zero_pad(self.number_satellites, i+1)}",
+                name=zero_pad(self.name, self.number_satellites, i+1),
                 orbit=self.orbit.get_derived_orbit(
                     i * self.get_delta_mean_anomaly(), i * self.get_delta_raan()
                 ),
@@ -236,7 +237,7 @@ class WalkerConstellation(Satellite):
         """
         return [
             Satellite(
-                name=f"{self.name} #{zero_pad(self.number_satellites, i+1)}",
+                name=zero_pad(self.name, self.number_satellites, i+1),
                 orbit=self.orbit.get_derived_orbit(
                     np.mod(i, self.get_satellites_per_plane())
                     * self.get_delta_mean_anomaly_within_planes()
@@ -373,14 +374,11 @@ class MOGConstellation(Satellite):
 
         return [
             Satellite(
-                name=f"{self.name} #{i:02d}",
+                # name=f"{self.name} #{i:02d}"zero_,
+                name=zero_pad(self.name, self.number_satellites, i),
                 orbit=orbit,
                 instruments=copy.deepcopy(self.instruments),
             )
             for i, orbit in enumerate(orbits)
         ]
 
-
-def zero_pad(max_number, number):
-    max_length = len(str(max_number))
-    return str(number).zfill(max_length)
