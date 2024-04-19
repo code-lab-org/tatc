@@ -1,13 +1,21 @@
+# -*- coding: utf-8 -*-
+"""
+Router specifications for overflight analysis endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
+
+from uuid import UUID
+
 from celery import chain, group
 from celery.result import GroupResult
 from fastapi import APIRouter, HTTPException
 from geojson_pydantic import FeatureCollection
-import json
-from uuid import UUID
 
 from .schemas import OverflightAnalysisRequest
 from .tasks import collect_observations_task, aggregate_observations_task
-from ..generation.utils import generate_points, generate_cells
+from ..generation.utils import generate_points
 from ..celery.schemas import CeleryTask
 from ..utils.tasks import merge_feature_collections_task
 from ..worker import app as celery_app
@@ -29,11 +37,13 @@ async def enqueue_overflight_analysis(request: OverflightAnalysisRequest):
     task = chain(
         group(
             collect_observations_task.s(
-                point.json(),
-                satellite.json(),
-                satellite.instruments[request.instrument].json()
-                if isinstance(request.instrument, int)
-                else request.instrument.json(),
+                point.model_dump_json(),
+                satellite.model_dump_json(),
+                (
+                    satellite.instruments[request.instrument].model_dump_json()
+                    if isinstance(request.instrument, int)
+                    else request.instrument.model_dump_json()
+                ),
                 request.start.isoformat(),
                 request.end.isoformat(),
                 request.omit_solar,
@@ -75,4 +85,4 @@ async def retrieve_overflight_anlaysis(task_id: UUID):
     if not task.ready():
         raise HTTPException(status_code=409, detail="Results not ready.")
     results = task.get()
-    return FeatureCollection(features=json.loads(results).get("features"))
+    return FeatureCollection.model_validate_json(results)

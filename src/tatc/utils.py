@@ -2,7 +2,7 @@
 """
 Utility functions.
 
-@author: Paul T. Grogan <pgrogan@stevens.edu>
+@author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 from typing import Union
 
@@ -230,6 +230,7 @@ def compute_max_access_time(altitude: float, min_elevation_angle: float) -> floa
     )
     return orbital_distance / orbital_velocity
 
+
 @njit
 def compute_ground_velocity(altitude: float, inclination: float) -> float:
     """
@@ -238,17 +239,17 @@ def compute_ground_velocity(altitude: float, inclination: float) -> float:
     Args:
         altitude (float): Altitude (meters) above WGS 84 datum for the observing instrument.
         inclination (float): Inclination (degrees) of the observing instrument orbit.
-    
+
     Returns:
         float: The access time (seconds) for observation.
     """
     semimajor_axis = constants.EARTH_MEAN_RADIUS + altitude
     mean_motion_rad_s = np.sqrt(constants.EARTH_MU / semimajor_axis**3)
     return constants.EARTH_MEAN_RADIUS * (
-        mean_motion_rad_s - (
-            2 * np.pi * np.cos(np.degrees(inclination)) / constants.EARTH_SIDEREAL_DAY_S
-        )
+        mean_motion_rad_s
+        - (2 * np.pi * np.cos(np.degrees(inclination)) / constants.EARTH_SIDEREAL_DAY_S)
     )
+
 
 @njit
 def along_track_distance_to_access_time(
@@ -261,16 +262,15 @@ def along_track_distance_to_access_time(
         altitude (float): Altitude (meters) above WGS 84 datum for the observing instrument.
         inclination (float): Inclination (degrees) of the observing instrument orbit.
         along_track (float): Along track distance (meters) observed during access.
-    
+
     Returns:
         float: The access time (seconds) for observation.
     """
     semimajor_axis = constants.EARTH_MEAN_RADIUS + altitude
     mean_motion_rad_s = np.sqrt(constants.EARTH_MU / semimajor_axis**3)
     ground_velocity = constants.EARTH_MEAN_RADIUS * (
-        mean_motion_rad_s - (
-            2 * np.pi * np.cos(np.degrees(inclination)) / constants.EARTH_SIDEREAL_DAY_S
-        )
+        mean_motion_rad_s
+        - (2 * np.pi * np.cos(np.degrees(inclination)) / constants.EARTH_SIDEREAL_DAY_S)
     )
     return along_track / ground_velocity
 
@@ -286,16 +286,15 @@ def access_time_to_along_track_distance(
         altitude (float): Altitude (meters) above WGS 84 datum for the observing instrument.
         inclination (float): Inclination (degrees) of the observing instrument orbit.
         access_time (float): Access time (seconds) during observation.
-    
+
     Returns:
         float: The observation along track distance (meters).
     """
     semimajor_axis = constants.EARTH_MEAN_RADIUS + altitude
     mean_motion_rad_s = np.sqrt(constants.EARTH_MU / semimajor_axis**3)
     ground_velocity = constants.EARTH_MEAN_RADIUS * (
-        mean_motion_rad_s - (
-            2 * np.pi * np.cos(np.degrees(inclination)) / constants.EARTH_SIDEREAL_DAY_S
-        )
+        mean_motion_rad_s
+        - (2 * np.pi * np.cos(np.degrees(inclination)) / constants.EARTH_SIDEREAL_DAY_S)
     )
     return ground_velocity * access_time
 
@@ -332,9 +331,11 @@ def _wrap_polygon_over_north_pole(
             [
                 [
                     [
-                        (c[0] + 180 if c[0] <= 0 else c[0] - 180)
-                        if c[1] >= 90
-                        else c[0],
+                        (
+                            (c[0] + 180 if c[0] <= 0 else c[0] - 180)
+                            if c[1] >= 90
+                            else c[0]
+                        ),
                         180 - c[1] if c[1] >= 90 else c[1],
                     ]
                     for c in i.coords
@@ -427,9 +428,11 @@ def _wrap_polygon_over_south_pole(
             [
                 [
                     [
-                        (c[0] + 180 if c[0] <= 0 else c[0] - 180)
-                        if c[1] <= -90
-                        else c[0],
+                        (
+                            (c[0] + 180 if c[0] <= 0 else c[0] - 180)
+                            if c[1] <= -90
+                            else c[0]
+                        ),
                         -180 - c[1] if c[1] <= -90 else c[1],
                     ]
                     for c in i.coords

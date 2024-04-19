@@ -2,7 +2,7 @@
 """
 Methods to generate coverage statistics.
 
-@author: Paul T. Grogan <pgrogan@stevens.edu>
+@author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from typing import List, Union, Optional
@@ -207,9 +207,7 @@ def _get_utm_epsg_code(point: Point) -> str:
         else (
             "EPSG:5041"
             if point.y > 84
-            else "EPSG:5042"
-            if point.y < -80
-            else "EPSG:4087"
+            else "EPSG:5042" if point.y < -80 else "EPSG:4087"
         )
     )
 

@@ -2,7 +2,7 @@
 """
 Object schemas for satellites.
 
-@author: Paul T. Grogan <pgrogan@stevens.edu>
+@author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import math
 from typing import List, Union
 
 import numpy as np
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Literal
 
 from ..constants import EARTH_MEAN_RADIUS
@@ -29,7 +29,7 @@ class SpaceSystem(BaseModel):
     name: str = Field(
         ...,
         description="Space system name.",
-        example="International Space Station",
+        examples=["International Space Station"],
     )
     orbit: Union[
         TwoLineElements, CircularOrbit, SunSynchronousOrbit, KeplerianOrbit
@@ -89,6 +89,7 @@ class TrainConstellation(Satellite):
         Returns:
             float: the difference in mean anomaly
         """
+        # pylint: disable=E1101
         return -360 * self.orbit.get_mean_motion() * (self.interval / timedelta(days=1))
 
     def get_delta_raan(self) -> float:
@@ -110,6 +111,7 @@ class TrainConstellation(Satellite):
         Returns:
             List[Satellite]: the member satellites
         """
+        # pylint: disable=E1101
         return [
             Satellite(
                 name=f"{self.name} #{i+1:02d}",
@@ -164,27 +166,31 @@ class WalkerConstellation(Satellite):
         ge=0,
     )
 
-    @root_validator
-    def number_planes_le_number_satellites(cls, values):
+    @model_validator(mode="after")
+    def number_planes_le_number_satellites(self) -> "WalkerConstellation":
         """
         Validates the number of planes given the number of satellites.
         """
-        planes = values.get("number_planes")
-        count = values.get("number_satellites")
-        if planes is not None and count is not None and planes > count:
+        if (
+            self.number_planes is not None
+            and self.number_satellites is not None
+            and self.number_planes > self.number_satellites
+        ):
             raise ValueError("number planes exceeds number satellites")
-        return values
+        return self
 
-    @root_validator
-    def relative_spacing_lt_number_planes(cls, values):
+    @model_validator(mode="after")
+    def relative_spacing_lt_number_planes(self) -> "WalkerConstellation":
         """
         Validates the relative spacing given the number of planes.
         """
-        planes = values.get("number_planes")
-        spacing = values.get("relative_spacing")
-        if planes is not None and spacing is not None and spacing >= planes:
+        if (
+            self.relative_spacing is not None
+            and self.number_planes is not None
+            and self.relative_spacing >= self.number_planes
+        ):
             raise ValueError("relative spacing exceeds number planes - 1")
-        return values
+        return self
 
     def get_satellites_per_plane(self) -> int:
         """
@@ -234,6 +240,7 @@ class WalkerConstellation(Satellite):
         Returns:
             List[Satellite]: the member satellites
         """
+        # pylint: disable=E1101
         return [
             Satellite(
                 name=f"{self.name} #{i+1}",
