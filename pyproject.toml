@@ -55,6 +55,14 @@ examples = [
     "joblib",
     "matplotlib"
 ]
+osse = [
+    "netcdf4",
+    "pydap",
+    "rioxarray",
+    "scipy",
+    "scikit-learn",
+    "seaborn"
+]
 app = [
     "aiofiles",
     "aiohttp",
