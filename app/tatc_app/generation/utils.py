@@ -1,9 +1,17 @@
+# -*- coding: utf-8 -*-
+"""
+Utility functions for generation endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 import json
-import geopandas as gpd
 from typing import Union, List
 
+import geopandas as gpd
+from tatc.schemas import Point
+
 from .schemas import (
-    Point,
     PointGenerator,
     PointGeneratorMethod,
     Cell,
@@ -34,7 +42,7 @@ def generate_points(points: Union[List[Point], PointGenerator]) -> List[Point]:
                     generate_cubed_sphere_points_task.delay(
                         points.distance,
                         points.elevation,
-                        points.dict().get("mask", None),
+                        points.model_dump().get("mask", None),
                     ).get()
                 )
             ).apply(
@@ -49,7 +57,7 @@ def generate_points(points: Union[List[Point], PointGenerator]) -> List[Point]:
                     generate_fibonacci_lattice_points_task.delay(
                         points.distance,
                         points.elevation,
-                        points.dict().get("mask", None),
+                        points.model_dump().get("mask", None),
                     ).get()
                 )
             ).apply(
@@ -78,8 +86,8 @@ def generate_cells(cells: Union[CellGenerator, List[Cell]]) -> List[Cell]:
                     generate_cubed_sphere_cells_task.delay(
                         cells.distance,
                         cells.elevation,
-                        cells.dict().get("mask", None),
-                        cells.dict().get("strips", None),
+                        cells.model_dump().get("mask", None),
+                        cells.model_dump().get("strips", None),
                     ).get()
                 )
             )

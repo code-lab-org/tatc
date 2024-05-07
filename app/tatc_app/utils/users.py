@@ -1,8 +1,14 @@
+# -*- coding: utf-8 -*-
+"""
+Configuration for FastAPI Users authentication/authorization system.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 import os
 import uuid
 from typing import Optional
 import contextlib
-
 
 from fastapi import Depends, Request
 from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin

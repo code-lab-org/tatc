@@ -258,7 +258,7 @@ $(document).ready(function() {
             start: $('#display-start').datetimepicker('viewDate').toISOString(),
             end: $('#display-start').datetimepicker('viewDate').clone().add(
               $("#display-duration").val(), "minutes").toISOString(),
-            delta: $("#display-step").val()
+            delta: parseInt($("#display-step").val())
           }
         }),
         success: function(response) {
@@ -447,7 +447,7 @@ $(document).ready(function() {
   });
   $("#satellite-copy").click(function() {
     const selected = $("#satellites option:selected");
-    const satellite = $.extend({}, selected.data("satellite"));
+    const satellite = $.extend(true, {}, selected.data("satellite"));
     satellite.name += " (Copy)"
     $("#satellites").append(
       $("<option></option>")

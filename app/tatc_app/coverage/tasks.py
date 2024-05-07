@@ -1,10 +1,15 @@
-from datetime import datetime, timedelta
-import geopandas as gpd
-from geojson_pydantic import FeatureCollection
+# -*- coding: utf-8 -*-
+"""
+Task specifications for coverage analysis endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
+from datetime import datetime
 import json
-from itertools import chain
-import pandas as pd
-from tatc.schemas.instrument import Instrument
+
+import geopandas as gpd
+
 from tatc.schemas.point import Point
 from tatc.schemas.satellite import Satellite
 from tatc.analysis.coverage import (
@@ -38,8 +43,8 @@ def run_coverage_analysis_task(
     results = reduce_observations(
         aggregate_observations(
             collect_multi_observations(
-                Point.parse_raw(point),
-                [Satellite.parse_raw(satellite) for satellite in satellites],
+                Point.model_validate_json(point),
+                [Satellite.model_validate_json(satellite) for satellite in satellites],
                 datetime.fromisoformat(start),
                 datetime.fromisoformat(end),
             )
@@ -79,4 +84,4 @@ def grid_coverage_analysis_task(coverage_results: str, cells: str) -> str:
     return CoverageAnalysisResult(
         points=json.loads(coverage_results),
         cells=json.loads(grid_data.to_json(show_bbox=False, drop_id=True)),
-    ).json()
+    ).model_dump_json()

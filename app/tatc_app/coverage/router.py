@@ -1,9 +1,15 @@
+# -*- coding: utf-8 -*-
+"""
+Router specifications for coverage analysis endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
+from uuid import UUID
+
 from celery import group, chain
 from celery.result import GroupResult
 from fastapi import APIRouter, HTTPException
-from geojson_pydantic import FeatureCollection
-import json
-from uuid import UUID
 
 from .schemas import CoverageAnalysisRequest, CoverageAnalysisResult
 from .tasks import run_coverage_analysis_task, grid_coverage_analysis_task
@@ -29,9 +35,9 @@ async def enqueue_coverage_analysis(request: CoverageAnalysisRequest):
     task = chain(
         group(
             run_coverage_analysis_task.s(
-                point.json(),
+                point.model_dump_json(),
                 [
-                    satellite.json()
+                    satellite.model_dump_json()
                     for constellation in request.satellites
                     for satellite in constellation.generate_members()
                 ],
@@ -77,4 +83,4 @@ async def retrieve_coverage_analysis(task_id: UUID):
         raise HTTPException(status_code=404, detail="Task not found.")
     if not task.ready():
         raise HTTPException(status_code=409, detail="Results not ready.")
-    return CoverageAnalysisResult.parse_raw(task.get())
+    return CoverageAnalysisResult.model_validate_json(task.get())

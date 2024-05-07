@@ -1,5 +1,5 @@
 import json
-from geojson_pydantic import FeatureCollection
+
 import geopandas as gpd
 
 from tatc.generation import generate_cubed_sphere_cells
@@ -11,7 +11,7 @@ class GenerateCellsTestCase(TatcTestCase):
     def test_generate_cells_cubed_sphere(self):
         response = self.client.post(
             "/generate/cells",
-            json.dumps({"method": "cubed_square", "distance": 5000e3}),
+            json={"method": "cubed_square", "distance": 5000e3},
         )
         self.assertEqual(response.status_code, 200)
         gdf = gpd.GeoDataFrame.from_features(

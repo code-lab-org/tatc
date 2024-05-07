@@ -2,7 +2,7 @@
 """
 Methods to perform latency analysis.
 
-@author: Isaac Feldman, Paul T. Grogan <pgrogan@stevens.edu>
+@author: Isaac Feldman, Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from typing import List, Union

@@ -1,6 +1,11 @@
-import json
+# -*- coding: utf-8 -*-
+"""
+Task specifications for generation endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 import geopandas as gpd
-from pkg_resources import resource_stream
 from shapely.geometry import shape
 from tatc.generation.points import (
     generate_cubed_sphere_points,
@@ -37,9 +42,7 @@ def load_known_shape(shape: KnownShape):
         Union[Polygon, MultiPolygon]: the known shape's geometry
     """
     if shape == KnownShape.conus:
-        usa = gpd.read_file(
-            resource_stream(__name__, "../../resources/cb_2020_us_state_20m.zip").name
-        )
+        usa = gpd.read_file("resources/cb_2020_us_state_20m.zip")
         return (
             usa[(usa.STUSPS != "AK") & (usa.STUSPS != "HI") & (usa.STUSPS != "PR")]
             .dissolve()
@@ -66,13 +69,15 @@ def generate_cubed_sphere_points_task(
     return generate_cubed_sphere_points(
         distance,
         elevation,
-        load_country_mask(mask)
-        if isinstance(mask, str) and len(mask) == 3
-        else load_known_shape(mask)
-        if isinstance(mask, str) and mask in KnownShape.__members__
-        else shape(mask)
-        if mask is not None
-        else None,
+        (
+            load_country_mask(mask)
+            if isinstance(mask, str) and len(mask) == 3
+            else (
+                load_known_shape(mask)
+                if isinstance(mask, str) and mask in KnownShape.__members__
+                else shape(mask) if mask is not None else None
+            )
+        ),
     ).to_json(show_bbox=False, drop_id=True)
 
 
@@ -94,13 +99,15 @@ def generate_fibonacci_lattice_points_task(
     return generate_fibonacci_lattice_points(
         distance,
         elevation,
-        load_country_mask(mask)
-        if isinstance(mask, str) and len(mask) == 3
-        else load_known_shape(mask)
-        if isinstance(mask, str) and mask in KnownShape.__members__
-        else shape(mask)
-        if mask is not None
-        else None,
+        (
+            load_country_mask(mask)
+            if isinstance(mask, str) and len(mask) == 3
+            else (
+                load_known_shape(mask)
+                if isinstance(mask, str) and mask in KnownShape.__members__
+                else shape(mask) if mask is not None else None
+            )
+        ),
     ).to_json(show_bbox=False, drop_id=True)
 
 
@@ -123,12 +130,14 @@ def generate_cubed_sphere_cells_task(
     return generate_cubed_sphere_cells(
         distance,
         elevation,
-        load_country_mask(mask)
-        if isinstance(mask, str) and len(mask) == 3
-        else load_known_shape(mask)
-        if isinstance(mask, str) and mask in KnownShape.__members__
-        else shape(mask)
-        if mask is not None
-        else None,
+        (
+            load_country_mask(mask)
+            if isinstance(mask, str) and len(mask) == 3
+            else (
+                load_known_shape(mask)
+                if isinstance(mask, str) and mask in KnownShape.__members__
+                else shape(mask) if mask is not None else None
+            )
+        ),
         strips,
     ).to_json(show_bbox=False, drop_id=True)

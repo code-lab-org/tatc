@@ -1,10 +1,11 @@
 import unittest
-
 from uuid import UUID
+
+from fastapi.testclient import TestClient
+
 from ..main import app
 from ..utils.users import current_active_user
 from ..utils.schemas import UserRead
-from fastapi.testclient import TestClient
 
 
 class TatcTestCase(unittest.TestCase):

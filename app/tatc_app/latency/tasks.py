@@ -1,7 +1,14 @@
-from datetime import datetime, timedelta
-import geopandas as gpd
+# -*- coding: utf-8 -*-
+"""
+Task specifications for latency analysis endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
+from datetime import datetime
 import json
-import pandas as pd
+
+import geopandas as gpd
 
 from tatc.schemas.point import Point, GroundStation
 from tatc.schemas.satellite import Satellite
@@ -30,8 +37,8 @@ def collect_downlinks_task(stations: list, satellite: str, start: str, end: str)
     """
     # call analysis function, parsing the serialized arguments
     results = collect_downlinks(
-        [GroundStation.parse_raw(station) for station in stations],
-        Satellite.parse_raw(satellite),
+        [GroundStation.model_validate_json(station) for station in stations],
+        Satellite.model_validate_json(satellite),
         datetime.fromisoformat(start),
         datetime.fromisoformat(end),
     )
@@ -67,8 +74,8 @@ def run_latency_analysis_task(
     downlinks["end"] = downlinks["end"].astype("datetime64[ns, utc]")
     # call analysis function, parsing the serialized arguments
     observations = collect_multi_observations(
-        Point.parse_raw(point),
-        [Satellite.parse_raw(satellite) for satellite in satellites],
+        Point.model_validate_json(point),
+        [Satellite.model_validate_json(satellite) for satellite in satellites],
         datetime.fromisoformat(start),
         datetime.fromisoformat(end),
     )
@@ -105,4 +112,4 @@ def grid_latency_analysis_task(latency_results: str, cells: str) -> str:
     return LatencyAnalysisResult(
         points=json.loads(latency_results),
         cells=json.loads(grid_data.to_json(show_bbox=False, drop_id=True)),
-    ).json()
+    ).model_dump_json()

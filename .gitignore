@@ -160,3 +160,4 @@ cython_debug/
 #.idea/
 de421.bsp
 app/data.db
+.DS_Store
