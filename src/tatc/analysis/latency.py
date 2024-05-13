@@ -125,8 +125,8 @@ def compute_latencies(
         downlinks (geopandas.GeoDataFrame): The data frame of downlink opportunities.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame of collected latency results, sorted by 'point_id'
-        and 'satellite' columns in ascending order. It includes
+        geopandas.GeoDataFrame: The data frame of collected latency results, sorted by the 'observed'
+        column in ascending order. It includes
         the following columns:
             - 'point_id' (int64): Identifier for the observation point.
             - 'geometry' (geometry): Geometry representing the observation point.
