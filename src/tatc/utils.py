@@ -680,7 +680,7 @@ def normalize_geometry(
     return geometry
 
 
-def zero_pad(object_name, max_number, current_number) -> str:
+def zero_pad(object_name: str, max_number: int, current_number: int) -> str:
     """
     Uses length of max_number to zero pad allowing for alphanumeric sorting.
 
