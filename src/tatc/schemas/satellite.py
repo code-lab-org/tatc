@@ -16,10 +16,10 @@ import numpy as np
 from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Literal
 
+from tatc.utils import zero_pad
 from ..constants import EARTH_MEAN_RADIUS
 from .instrument import Instrument
 from .orbit import TwoLineElements, CircularOrbit, SunSynchronousOrbit, KeplerianOrbit
-
 
 class SpaceSystem(BaseModel):
     """
@@ -114,7 +114,7 @@ class TrainConstellation(Satellite):
         # pylint: disable=E1101
         return [
             Satellite(
-                name=f"{self.name} #{i+1:02d}",
+                name=zero_pad(self.name, self.number_satellites, i + 1),
                 orbit=self.orbit.get_derived_orbit(
                     i * self.get_delta_mean_anomaly(), i * self.get_delta_raan()
                 ),
@@ -243,7 +243,7 @@ class WalkerConstellation(Satellite):
         # pylint: disable=E1101
         return [
             Satellite(
-                name=f"{self.name} #{i+1}",
+                name=zero_pad(self.name, self.number_satellites, i + 1),
                 orbit=self.orbit.get_derived_orbit(
                     np.mod(i, self.get_satellites_per_plane())
                     * self.get_delta_mean_anomaly_within_planes()
@@ -380,7 +380,7 @@ class MOGConstellation(Satellite):
 
         return [
             Satellite(
-                name=f"{self.name} #{i:02d}",
+                name=zero_pad(self.name, self.number_satellites, i + 1),
                 orbit=orbit,
                 instruments=copy.deepcopy(self.instruments),
             )
