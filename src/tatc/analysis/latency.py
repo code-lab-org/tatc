@@ -204,15 +204,8 @@ def compute_latencies(
     if isinstance(observations, gpd.GeoDataFrame) and observations.crs:
         obs.crs = observations.crs
 
-    # extract the int from the 'satellite' column for sorting
-    obs["satellite"] = obs["satellite"].str.extract(r"#(\d+)").astype(int)
-
-    # sort by 'point_id' first, then by the extracted int
-    obs.sort_values(by=["point_id", "satellite"], inplace=True)
-
-    instrument_name = observations["instrument"][0]
-
-    obs["satellite"] = obs["satellite"].apply(lambda x: f"{instrument_name} #{x}")
+    # sort observations by observed time
+    obs.sort_values(by="observed", inplace=True)
 
     obs.reset_index(drop=True, inplace=True)
     return obs
