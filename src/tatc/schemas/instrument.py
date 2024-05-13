@@ -2,7 +2,7 @@
 """
 Object schemas for instruments.
 
-@author: Paul T. Grogan <pgrogan@stevens.edu>
+@author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from typing import Optional
@@ -28,12 +28,12 @@ class Instrument(BaseModel):
         description="Angular field (degrees) of possible observations (with pointing).",
         gt=0,
         le=360,
-        example=50,
+        examples=[50],
     )
     min_access_time: timedelta = Field(
         timedelta(0),
         description="Minimum access (integration) time to record an observation.",
-        example=timedelta(seconds=10),
+        examples=[timedelta(seconds=10)],
     )
     req_self_sunlit: Optional[bool] = Field(
         None,

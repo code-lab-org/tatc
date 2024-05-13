@@ -1,5 +1,5 @@
 import json
-from geojson_pydantic import FeatureCollection
+
 import geopandas as gpd
 
 from tatc.generation import (
@@ -14,7 +14,7 @@ class GeneratePointsTestCase(TatcTestCase):
     def test_generate_points_cubed_sphere(self):
         response = self.client.post(
             "/generate/points",
-            json.dumps({"method": "cubed_square", "distance": 5000e3}),
+            json={"method": "cubed_square", "distance": 5000e3},
         )
         self.assertEqual(response.status_code, 200)
         gdf = gpd.GeoDataFrame.from_features(
@@ -29,7 +29,7 @@ class GeneratePointsTestCase(TatcTestCase):
     def test_generate_points_fibonacci_lattice(self):
         response = self.client.post(
             "/generate/points",
-            json.dumps({"method": "fibonacci_lattice", "distance": 5000e3}),
+            json={"method": "fibonacci_lattice", "distance": 5000e3},
         )
         self.assertEqual(response.status_code, 200)
         gdf = gpd.GeoDataFrame.from_features(

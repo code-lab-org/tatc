@@ -120,16 +120,18 @@ class TestTrainConstellation(unittest.TestCase):
             )
             self.assertAlmostEqual(
                 (
-                    members[i + 1].orbit.get_right_ascension_ascending_node()
-                    - members[i].orbit.get_right_ascension_ascending_node()
-                )
-                % 360
-                if constellation.orbit.type == "tle"
-                else (
-                    members[i + 1].orbit.right_ascension_ascending_node
-                    - members[i].orbit.right_ascension_ascending_node
-                )
-                % 360,
+                    (
+                        members[i + 1].orbit.get_right_ascension_ascending_node()
+                        - members[i].orbit.get_right_ascension_ascending_node()
+                    )
+                    % 360
+                    if constellation.orbit.type == "tle"
+                    else (
+                        members[i + 1].orbit.right_ascension_ascending_node
+                        - members[i].orbit.right_ascension_ascending_node
+                    )
+                    % 360
+                ),
                 constellation.get_delta_raan() % 360,
                 delta=0.001,
             )

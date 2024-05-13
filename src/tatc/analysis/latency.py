@@ -2,7 +2,7 @@
 """
 Methods to perform latency analysis.
 
-@author: Isaac Feldman, Paul T. Grogan <pgrogan@stevens.edu>
+@author: Isaac Feldman, Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from typing import List, Union
@@ -153,7 +153,7 @@ def compute_latencies(
 
         pandarallel.initialize(verbose=0)
         obs = obs.parallel_apply(_align_downlinks, args=(downlinks,), axis=1)
-    except ImportError as e:
+    except ImportError:
         obs = obs.apply(_align_downlinks, args=(downlinks,), axis=1)
     # add observed column
     obs["observed"] = obs["epoch"]

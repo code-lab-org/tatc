@@ -1,7 +1,15 @@
-from celery import Celery
-from skyfield.api import load
+# -*- coding: utf-8 -*-
+"""
+TAT-C worker configuration.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 import os
 import ssl
+
+from celery import Celery
+from skyfield.api import load
 from dotenv import load_dotenv
 
 # Load environment variables from the .env file
@@ -18,9 +26,7 @@ if "amqps://" in broker_string:
         "cert_reqs": (
             ssl.CERT_REQUIRED
             if broker_ssl_option == "REQUIRED"
-            else ssl.CERT_OPTIONAL
-            if broker_ssl_option == "OPTIONAL"
-            else ssl.CERT_NONE
+            else ssl.CERT_OPTIONAL if broker_ssl_option == "OPTIONAL" else ssl.CERT_NONE
         ),
     }
 else:
@@ -37,9 +43,9 @@ if "rediss://" in backend_string:
         "ssl_cert_reqs": (
             ssl.CERT_REQUIRED
             if backend_ssl_option == "REQUIRED"
-            else ssl.CERT_OPTIONAL
-            if backend_ssl_option == "OPTIONAL"
-            else ssl.CERT_NONE
+            else (
+                ssl.CERT_OPTIONAL if backend_ssl_option == "OPTIONAL" else ssl.CERT_NONE
+            )
         ),
     }
 else:

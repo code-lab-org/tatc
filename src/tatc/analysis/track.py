@@ -2,7 +2,7 @@
 """
 Methods to generate coverage statistics.
 
-@author: Paul T. Grogan <pgrogan@stevens.edu>
+@author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from typing import List, Union, Optional
