@@ -12,7 +12,7 @@ authors = [
     {"name" = "Paul T. Grogan", "email" = "paul.grogan@asu.edu"}
 ]
 readme = "README.md"
-requires-python = ">=3.8, <3.11"
+requires-python = ">=3.9, <3.11"
 license = {text = "BSD License"}
 classifiers = [
     "Programming Language :: Python :: 3",
