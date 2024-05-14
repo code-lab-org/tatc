@@ -21,5 +21,36 @@ jobs:
       - name: Install Black
         run: pip install black
 
-      - name: Run Black Check
-        run: black --check . --exclude "\.ipynb$"
+      - name: Run Black 
+        run: |
+          black . || exit 1
+
+      - name: Check if Black modified any files
+        id: check_black_changes
+        run: |
+          if [[ $(git status --porcelain) ]]; then
+            echo "true" > black_changed.txt
+          else
+            echo "false" > black_changed.txt
+          fi
+
+      - name: Setup environment file
+        run: echo "BLACK_CHANGED=$(cat black_changed.txt)" >> $GITHUB_ENV
+
+      - name: setup git config
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "<>"
+
+      - name: Fetch all branches
+        run: git fetch --all
+
+      - name: Checkout PR branch
+        run: git checkout "${{ github.head_ref }}"
+
+      - name: Commit changes if modified by Black
+        if: env.BLACK_CHANGED == 'true'
+        run: |
+          git add .
+          git commit -m "files reformatted with black"
+          git push origin "${{ github.head_ref }}" --quiet --follow-tags
