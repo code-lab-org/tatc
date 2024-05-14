@@ -23,7 +23,7 @@ jobs:
 
       - name: Run Black 
         run: |
-          black . || exit 1
+          black . --exclude "\.ipynb$" || exit 1
 
       - name: Check if Black modified any files
         id: check_black_changes
