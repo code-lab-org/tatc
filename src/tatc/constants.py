@@ -10,7 +10,7 @@ from skyfield.api import load
 
 
 # load ephemeris file
-de421 =            load("de421.bsp")
+de421 = load("de421.bsp")
 
 # load timescale
 timescale = load.timescale()
