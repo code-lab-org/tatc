@@ -11,7 +11,13 @@ from typing import List, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
-from tatc.schemas import Instrument, Point, Satellite, TrainConstellation, WalkerConstellation
+from tatc.schemas import (
+    Instrument,
+    Point,
+    Satellite,
+    TrainConstellation,
+    WalkerConstellation,
+)
 
 from ..generation.schemas import PointGenerator
 

@@ -53,7 +53,7 @@ class CoverageAnalysisTestCase(TatcTestCase):
                 end=end,
                 points=points,
                 cells=cells,
-            ).model_dump_json()
+            ).model_dump_json(),
         )
         self.assertEqual(response.status_code, 200)
         task_id = response.json().get("task_id")

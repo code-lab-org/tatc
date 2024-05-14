@@ -12,7 +12,13 @@ from geojson_pydantic import FeatureCollection
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-from tatc.schemas import GroundStation, Point, Satellite, TrainConstellation, WalkerConstellation
+from tatc.schemas import (
+    GroundStation,
+    Point,
+    Satellite,
+    TrainConstellation,
+    WalkerConstellation,
+)
 from ..generation.schemas import (
     PointGenerator,
     Cell,
