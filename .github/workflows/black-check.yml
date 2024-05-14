@@ -1,0 +1,25 @@
+name: Black Check
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  black-format:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.x'
+
+      - name: Install Black
+        run: pip install black
+
+      - name: Run Black Check
+        run: black --check . --exclude "\.ipynb$"
