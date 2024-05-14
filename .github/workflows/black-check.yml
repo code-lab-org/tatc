@@ -51,11 +51,7 @@ jobs:
       - name: Commit changes if modified by Black
         if: env.BLACK_CHANGED == 'true'
         run: |
+          rm black_changed.txt
           git add .
           git commit -m "files reformatted with black"
           git push origin "${{ github.head_ref }}" --quiet --follow-tags
-
-      - name: Delete black_changed.txt
-        if: always()
-        run: |
-          rm black_changed.txt
