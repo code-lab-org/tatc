@@ -54,7 +54,6 @@ class TestDopAnalysis(unittest.TestCase):
         self.assertEqual(len(results), len(self.times))
         self.assertNotIn(np.nan, results.dop.values)
 
-
     def test_compute_hdop(self):
         results = compute_dop(
             self.times,
@@ -65,7 +64,6 @@ class TestDopAnalysis(unittest.TestCase):
         )
         self.assertEqual(len(results), len(self.times))
         self.assertNotIn(np.nan, results.dop.values)
-
 
     def test_compute_vdop(self):
         results = compute_dop(
@@ -78,7 +76,6 @@ class TestDopAnalysis(unittest.TestCase):
         self.assertEqual(len(results), len(self.times))
         self.assertNotIn(np.nan, results.dop.values)
 
-
     def test_compute_tdop(self):
         results = compute_dop(
             self.times,
@@ -89,7 +86,6 @@ class TestDopAnalysis(unittest.TestCase):
         )
         self.assertEqual(len(results), len(self.times))
         self.assertNotIn(np.nan, results.dop.values)
-
 
     def test_compute_gdop_nan(self):
         results = compute_dop(
@@ -102,4 +98,3 @@ class TestDopAnalysis(unittest.TestCase):
         self.assertEqual(len(results), len(self.times))
         # minimum elevation angle of 80 is too high to yield enough visible satellites
         self.assertTrue(np.all(np.isnan(results.dop.values)))
-

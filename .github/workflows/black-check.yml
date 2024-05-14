@@ -1,0 +1,57 @@
+name: Black Check
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  black-format:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.x'
+
+      - name: Install Black
+        run: pip install black
+
+      - name: Run Black 
+        run: |
+          black . --exclude "\.ipynb$" || exit 1
+
+      - name: Check if Black modified any files
+        id: check_black_changes
+        run: |
+          if [[ $(git status --porcelain) ]]; then
+            echo "true" > black_changed.txt
+          else
+            echo "false" > black_changed.txt
+          fi
+
+      - name: Setup environment file
+        run: echo "BLACK_CHANGED=$(cat black_changed.txt)" >> $GITHUB_ENV
+
+      - name: setup git config
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "<>"
+
+      - name: Fetch all branches
+        run: git fetch --all
+
+      - name: Checkout PR branch
+        run: git checkout "${{ github.head_ref }}"
+
+      - name: Commit changes if modified by Black
+        if: env.BLACK_CHANGED == 'true'
+        run: |
+          rm black_changed.txt
+          git add .
+          git commit -m "files reformatted with black"
+          git push origin "${{ github.head_ref }}" --quiet --follow-tags

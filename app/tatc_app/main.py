@@ -41,6 +41,7 @@ ADMIN_EMAIL = os.getenv("TATC_ADMIN_EMAIL", "admin@example.com")
 ADMIN_PASSWORD = os.getenv("TATC_ADMIN_PASSWORD", "admin")
 CESIUM_TOKEN = os.getenv("TATC_CESIUM_TOKEN", "")
 
+
 # connect to the database and try to create admin user on startup
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -48,12 +49,13 @@ async def lifespan(app: FastAPI):
     await create_user(ADMIN_EMAIL, ADMIN_PASSWORD, True)
     yield
 
+
 # Create the FastAPI app
 app = FastAPI(
     title="Tradespace Analysis Tool for Constellations (TAT-C)",
     description="Modeling tool for pre-Phase A architecture analysis for Earth science space missions.",
     version=tatc.__version__,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 # Add MessagePack middleware to allow application/msgpack responses
 app.add_middleware(MessagePackMiddleware)
