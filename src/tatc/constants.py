@@ -6,11 +6,14 @@ Numerical constants.
 """
 
 import numpy as np
-from skyfield.api import load
+import os
+from skyfield.api import load, Loader
 
 
 # load ephemeris file
-de421 = load("de421.bsp")
+resources_dir = os.path.join(os.path.dirname(__file__), 'resources')
+de421_loader = Loader(resources_dir)
+de421 = de421_loader('de421.bsp')
 
 # load timescale
 timescale = load.timescale()
