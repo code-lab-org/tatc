@@ -2,9 +2,11 @@
 
 The Tradespace Analysis Toolkit for Constellations (TAT-C) provides low-level
 data structures and functions for systems engineering analysis and design of
-Earth-observing space missions.
+Earth-observing space missions suitable for pre-Phase A concept studies.
 
 Documentation: https://tatc.readthedocs.io
+
+Repository: https://github.com/code-lab-org/tatc
 
 ## Installation
 
@@ -17,10 +19,15 @@ Note: the following optional dependencies are available with bracket notation:
  * `pip install -e .[dev]`: for development (unit testing, coverage, and linting)
  * `pip install -e .[docs]`: for generating documentation
  * `pip install -e .[examples]`: for running optional examples
+ * `pip install -e .[osse]`: for running optional observing system simulation experiment (OSSE) examples
  * `pip install -e .[app]`: for running the web application
+ * `pip install -e .[appdev]`: for development (unit testing) of the web application
+
 Multiple optional dependencies can be installed with a comma-separated list (e.g., `pip install -e .[dev,examples]`)
 
 ## Development Tools
+
+Development tools are applicable when working with the source code.
 
 ### Docker and Docker-Compose
 
@@ -70,11 +77,14 @@ Paul T. Grogan <paul.grogan@asu.edu>
 This project was supported in part by the National Aeronautics and Space
 Administration (NASA) Earth Science Division (ESD) Earth Science Technology
 Office (ESTO) Advanced Information Systems Technology (AIST) program under
-grant numbers: NNX17AE06G, 80NSSC17K0586, 80NSSC20K1118, and 80NSSC21K1515.
+grant numbers: NNX17AE06G, 80NSSC17K0586, 80NSSC20K1118, 80NSSC21K1515, 
+80NSSC22K1705 and 80NSSC24K0575 and NASA Jet Propulsion Laboratory 
+contracts: 1074657, 1689594, 1686623, 1705655.
 
 Current Project Team
  * PI: Paul T. Grogan <paul.grogan@asu.edu>
  * I. Josue Tapia-Tamayo <josue.tapia@asu.edu>
+ * Suvan Kumar <skuma208@asu.edu>
 
 Project Alumni
  * Isaac Feldman
