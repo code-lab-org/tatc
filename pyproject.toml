@@ -36,7 +36,7 @@ dynamic = ["version"]
 author = "Paul T. Grogan"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "tests"]
 
 [tool.setuptools.package-data]
 "tatc" = ["resources/*.bsp"]
