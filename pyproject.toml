@@ -38,7 +38,7 @@ Documentation = "https://tatc.readthedocs.io"
 Issues = "https://github.com/code-lab-org/tatc/issues"
 
 [tool.setuptools.packages.find]
-where = ["src", "tests"]
+where = ["src"]
 
 [tool.setuptools.package-data]
 "tatc" = ["resources/*.bsp"]
