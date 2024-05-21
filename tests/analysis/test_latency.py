@@ -139,7 +139,7 @@ class TestLatencyAnalysis(unittest.TestCase):
                 datetime(2022, 6, 1, 1, tzinfo=timezone.utc),
             ),
         )
-        self.assertTrue(results.dropna().empty)
+        self.assertTrue(results.empty)
 
     def test_compute_latency_multi_station(self):
         results = compute_latencies(

@@ -1,18 +1,35 @@
+# -*- coding: utf-8 -*-
+"""
+Schema specifications for overflight analysis endpoints.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
+
 from datetime import datetime
-from fastapi_utils.api_model import APIModel
-from pydantic import Field, conlist, validator
-from tatc.schemas.satellite import Satellite, TrainConstellation, WalkerConstellation
-from tatc.schemas.instrument import Instrument
-from typing import List, Optional, Union
+from typing import List, Union
 
-from ..generation.schemas import Point, PointGenerator, CellGenerator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic.alias_generators import to_camel
+from tatc.schemas import (
+    Instrument,
+    Point,
+    Satellite,
+    TrainConstellation,
+    WalkerConstellation,
+)
+
+from ..generation.schemas import PointGenerator
 
 
-class OverflightAnalysisRequest(APIModel):
+class OverflightAnalysisRequest(BaseModel):
     """
     User request to collect overflights.
     """
 
+    model_config = ConfigDict(
+        from_attributes=True, populate_by_name=True, alias_generator=to_camel
+    )
     points: Union[List[Point], PointGenerator] = Field(
         ..., description="Points from which to collect observations."
     )
@@ -25,24 +42,29 @@ class OverflightAnalysisRequest(APIModel):
     start: datetime = Field(
         ...,
         description="Start date time of the observation period.",
-        example=datetime.fromisoformat("2021-01-01T00:00:00+00:00"),
+        examples=[datetime.fromisoformat("2021-01-01T00:00:00+00:00")],
     )
     end: datetime = Field(
         ...,
         description="End date time of the observation period.",
-        example=datetime.fromisoformat("2021-01-02T00:00:00+00:00"),
+        examples=[datetime.fromisoformat("2021-01-02T00:00:00+00:00")],
     )
     omit_solar: bool = Field(
         True,
         description="`True`, if solar angles can be omitted to improve computation speed.",
     )
 
-    @validator("instrument")
-    def valid_instrument_index(cls, v, values):
+    @model_validator(mode="after")
+    def valid_instrument_index(self) -> "OverflightAnalysisRequest":
+        """
+        Validates the instrument index is in bounds.
+        """
+        # pylint: disable=E1101
         if (
-            isinstance(v, int)
-            and "satellite" in values
-            and v >= len(values["satellite"].instruments)
+            self.satellite is not None
+            and self.instrument is not None
+            and isinstance(self.instrument, int)
+            and self.instrument >= len(self.satellite.instruments)
         ):
             raise ValueError("Instrument index out of bounds.")
-        return v
+        return self

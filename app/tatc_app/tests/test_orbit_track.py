@@ -1,12 +1,11 @@
+from datetime import datetime, timedelta, timezone
 import json
 import time
-from geojson_pydantic import FeatureCollection
+
 import geopandas as gpd
-import pandas as pd
-from datetime import datetime, timedelta, timezone
 
 from tatc.analysis import collect_orbit_track
-from tatc.schemas import Point, Satellite, TwoLineElements, Instrument
+from tatc.schemas import Satellite, TwoLineElements, Instrument
 
 from .base import TatcTestCase
 from ..tracking.schemas import OrbitTrackAnalysisRequest
@@ -14,7 +13,6 @@ from ..tracking.schemas import OrbitTrackAnalysisRequest
 
 class AnalyzeOrbitTrackTestCase(TatcTestCase):
     def test_analyze_orbit_track(self):
-        point = Point(id=0, latitude=0, longitude=0)
         instrument = Instrument(name="Test", field_of_regard=180.0)
         orbit = TwoLineElements(
             tle=[
@@ -29,11 +27,11 @@ class AnalyzeOrbitTrackTestCase(TatcTestCase):
         ]
         response = self.client.post(
             "/analyze/orbit-track",
-            OrbitTrackAnalysisRequest(
+            content=OrbitTrackAnalysisRequest(
                 satellite=satellite,
                 instrument=instrument,
                 times=times,
-            ).json(),
+            ).model_dump_json(),
         )
         self.assertEqual(response.status_code, 200)
         task_id = response.json().get("task_id")

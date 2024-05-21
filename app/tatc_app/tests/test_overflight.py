@@ -1,9 +1,8 @@
+from datetime import datetime, timezone
 import json
 import time
-from geojson_pydantic import FeatureCollection
+
 import geopandas as gpd
-import pandas as pd
-from datetime import datetime, timedelta, timezone
 
 from tatc.analysis import collect_observations, aggregate_observations
 from tatc.schemas import Point, Satellite, TwoLineElements, Instrument
@@ -27,13 +26,13 @@ class OverflightAnalysisTestCase(TatcTestCase):
         end = datetime(2022, 6, 2, tzinfo=timezone.utc)
         response = self.client.post(
             "/analyze/overflight",
-            OverflightAnalysisRequest(
+            content=OverflightAnalysisRequest(
                 points=[point],
                 satellite=satellite,
                 instrument=instrument,
                 start=start,
                 end=end,
-            ).json(),
+            ).model_dump_json(),
         )
         self.assertEqual(response.status_code, 200)
         task_id = response.json().get("task_id")

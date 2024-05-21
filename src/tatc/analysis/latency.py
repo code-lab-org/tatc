@@ -2,7 +2,7 @@
 """
 Methods to perform latency analysis.
 
-@author: Isaac Feldman, Paul T. Grogan <pgrogan@stevens.edu>
+@author: Isaac Feldman, Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from typing import List, Union
@@ -125,8 +125,8 @@ def compute_latencies(
         downlinks (geopandas.GeoDataFrame): The data frame of downlink opportunities.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame of collected latency results, sorted by 'point_id'
-        and 'satellite' columns in ascending order. It includes
+        geopandas.GeoDataFrame: The data frame of collected latency results, sorted by the 'observed'
+        column in ascending order. It includes
         the following columns:
             - 'point_id' (int64): Identifier for the observation point.
             - 'geometry' (geometry): Geometry representing the observation point.
@@ -204,15 +204,8 @@ def compute_latencies(
     if isinstance(observations, gpd.GeoDataFrame) and observations.crs:
         obs.crs = observations.crs
 
-    # extract the int from the 'satellite' column for sorting
-    obs["satellite"] = obs["satellite"].str.extract(r"#(\d+)").astype(int)
-
-    # sort by 'point_id' first, then by the extracted int
-    obs.sort_values(by=["point_id", "satellite"], inplace=True)
-
-    instrument_name = observations["instrument"][0]
-
-    obs["satellite"] = obs["satellite"].apply(lambda x: f"{instrument_name} #{x}")
+    # sort observations by observed time
+    obs.sort_values(by="observed", inplace=True)
 
     obs.reset_index(drop=True, inplace=True)
     return obs

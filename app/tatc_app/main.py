@@ -1,9 +1,19 @@
+# -*- coding: utf-8 -*-
+"""
+TAT-C application configuration.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
+
+import os
+
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from msgpack_asgi import MessagePackMiddleware
-import os
 import tatc
 
 from .utils.db import create_db_and_tables
@@ -31,11 +41,21 @@ ADMIN_EMAIL = os.getenv("TATC_ADMIN_EMAIL", "admin@example.com")
 ADMIN_PASSWORD = os.getenv("TATC_ADMIN_PASSWORD", "admin")
 CESIUM_TOKEN = os.getenv("TATC_CESIUM_TOKEN", "")
 
+
+# connect to the database and try to create admin user on startup
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await create_db_and_tables()
+    await create_user(ADMIN_EMAIL, ADMIN_PASSWORD, True)
+    yield
+
+
 # Create the FastAPI app
 app = FastAPI(
     title="Tradespace Analysis Tool for Constellations (TAT-C)",
     description="Modeling tool for pre-Phase A architecture analysis for Earth science space missions.",
     version=tatc.__version__,
+    lifespan=lifespan,
 )
 # Add MessagePack middleware to allow application/msgpack responses
 app.add_middleware(MessagePackMiddleware)
@@ -111,10 +131,3 @@ app.include_router(
 )
 # Mount a static directory to the root (/) route for any other requests
 app.mount("/", StaticFiles(directory="static", html=True), name="frontend")
-
-
-# connect to the database and try to create admin user on startup
-@app.on_event("startup")
-async def startup():
-    await create_db_and_tables()
-    await create_user(ADMIN_EMAIL, ADMIN_PASSWORD, True)
