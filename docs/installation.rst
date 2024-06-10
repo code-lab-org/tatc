@@ -8,12 +8,21 @@
 Installation
 ============
 
+PyPI Installation
+------------------
+
+TAT-C uses pip and the PyPI software repository to install the main package along with underlying dependencies and libraries.
+
+TAT-C can be installed from PyPI via the terminal/shell command :console:`pip install tatc`.
+
+Then, TAT-C is available for use in any Python script by importing :python:`import tatc`.
+
 Conda Installation
 ------------------
 
 TAT-C uses conda and the conda-forge channel for distribution because some of the underlying libraries are platform dependent.
 
-The simplest way to install TAT-C is via the terminal/shell command :console:`conda install tatc -c conda-forge`.
+The simplest way to install TAT-C is via the terminal/shell command :console:`conda install conda-forge::tatc`.
 
 Then, TAT-C is available for use in any Python script by importing :python:`import tatc`.
 
@@ -22,12 +31,9 @@ Source Installation
 Alternatively, TAT-C can be installed from a local editable source, (e.g., for modifying TAT-C functionality). 
 This method is required to access run the web-based application.
 
-Clone the project repository and, from the project root directory, create a new conda environment with the required dependencies :console:`conda env create -f environment.yml`. 
-(Note: if needing the :console:`dev`, :console:`docs`, or :console:`examples` options below, use :console:`conda env create -f environment-dev.yml` instead).
+Clone the project repository using :console:`git clone https://github.com/code-lab-org/tatc.git`.
 
-Then, activate the tatc_env environment :console:`conda activate tatc_env`.
-
-Finally, install the tatc library within the environment in "editable" mode :console:`pip install -e .`
+Install the tatc library in "editable" mode :console:`pip install -e .`
 
 Note: the following optional dependencies are available with bracket notation: 
  * :console:`pip install -e .[dev]`: for development functions (unit testing, coverage, and linting)
