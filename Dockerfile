@@ -6,7 +6,11 @@ FROM python:3.10 AS tatc_runtime
 WORKDIR /var/tatc
 COPY pyproject.toml ./
 COPY src src
+RUN echo "Contents of pyproject.toml:" && cat pyproject.toml
+RUN apt-get update
+RUN apt-get install -y gdal-bin libgdal-dev g++
 RUN python -m pip install . --no-cache-dir
+RUN echo "Contents of pyproject.toml:" && cat pyproject.toml
 
 # This block defines the TAT-C server container. Using the TAT-C runtime
 # container, it installs and starts the server application.

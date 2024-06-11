@@ -20,7 +20,6 @@ classifiers = [
     "Development Status :: 4 - Beta"
 ]
 dependencies = [
-    "geopandas >= 0.14",
     "numba",
     "numpy",
     "pandas",

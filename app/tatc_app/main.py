@@ -37,9 +37,12 @@ from .latency.router import router as latency_router
 
 # Load environment variables from the .env file
 load_dotenv()
-ADMIN_EMAIL = os.getenv("TATC_ADMIN_EMAIL", "admin@example.com")
-ADMIN_PASSWORD = os.getenv("TATC_ADMIN_PASSWORD", "admin")
-CESIUM_TOKEN = os.getenv("TATC_CESIUM_TOKEN", "")
+# ADMIN_EMAIL = os.getenv("TATC_ADMIN_EMAIL", "admin@example.com")
+# ADMIN_PASSWORD = os.getenv("TATC_ADMIN_PASSWORD", "admin")
+# CESIUM_TOKEN = os.getenv("TATC_CESIUM_TOKEN", "")
+ADMIN_EMAIL = "admin@example.com"
+ADMIN_PASSWORD = "admin"
+CESIUM_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI4Y2VhY2ViMS1lN2FmLTRiYzMtOGJhYi1kZjA3YTJiMTRiNjIiLCJpZCI6MjIxMzAwLCJpYXQiOjE3MTgxMzI0NzR9.fEs8MfiI4sKOU8aGnwpZlNwaHvCXMfNVEr5FDtqh2rE"
 
 
 # connect to the database and try to create admin user on startup
