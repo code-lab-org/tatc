@@ -17,7 +17,7 @@ from skyfield.positionlib import ICRF
 
 from ..schemas.satellite import Satellite
 
-from ..constants import de421, timescale
+from ..constants import timescale
 
 def _collect_ro_series(tx, ts, rx_pv, rx_n_u, max_azimuth, range_elevation):
     # transmitter position (x_tx), velocity (v_tx)
@@ -76,7 +76,7 @@ def _collect_ro_series(tx, ts, rx_pv, rx_n_u, max_azimuth, range_elevation):
         )
     )
     # intersecting (-1) or parallel (+1) view of tangent point
-    tp_sign = np.sign(np.einsum("ij,ij->j", tx_pv.position.m - tp_p, rx_pv.position.m - tp_p))
+    tp_sign = np.sign(np.einsum("ij,ij->j", tp_p - tx_pv.position.m, tp_p - rx_pv.position.m))
     # relative transmitter position from receiver in receiver orbit plane
     rx_tx_p_rx_plane = rx_tx_pv.position.m - np.einsum("ij,j->ij", rx_n_u,  np.einsum("ij,ij->j", rx_n_u, rx_tx_pv.position.m))
     # transmitter azimuth angle in receiver body-fixed frame
@@ -111,7 +111,7 @@ def _collect_ro_series(tx, ts, rx_pv, rx_n_u, max_azimuth, range_elevation):
         # tangent point geodetic position
         tpp_geo = wgs84.geographic_position_of(tpp_icrf)
         # check if the tangent point height is within elevation range
-        if tpp_geo.elevation.km > range_elevation[0] and tpp_geo.elevation.km < range_elevation[1]:
+        if tpp_geo.elevation.m > range_elevation[0] and tpp_geo.elevation.m < range_elevation[1]:
             if occ_arc is None:
                 # start of new RO observation
                 occ_arc = {
@@ -179,14 +179,14 @@ def collect_ro_observations(
     ).T
     rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
 
-    tx_tles = [
-        t.orbit.to_tle() 
-        for t in (transmitters if isinstance(transmitters, list) else [transmitters])
+    txs = [
+        EarthSatellite(tx_tle.tle[0], tx_tle.tle[1], tx.name)
+        for tx in (transmitters if isinstance(transmitters, list) else [transmitters])
+        for tx_tle in [tx.orbit.to_tle()]
     ]
-    txs = [EarthSatellite(t.tle[0], t.tle[1], transmitters.name) for t in tx_tles]
 
     obs = list(chain.from_iterable([
-        _collect_ro_series(tx, ts, rx_pv, rx_n_u, sample_elevation, max_azimuth, range_elevation)
+        _collect_ro_series(tx, ts, rx_pv, rx_n_u, max_azimuth, range_elevation)
         for tx in txs
     ]))
 
@@ -206,15 +206,21 @@ def collect_ro_observations(
                 ]
             ),
             "position": Point(
-                o["points"][min(o["points"], key=lambda x: abs(x.tangent_point.elevation.m - sample_elevation))]["tangent_point"].longitude.degrees,
-                o["points"][min(o["points"], key=lambda x: abs(x.tangent_point.elevation.m - sample_elevation))]["tangent_point"].latitude.degrees,
-                o["points"][min(o["points"], key=lambda x: abs(x.tangent_point.elevation.m - sample_elevation))]["tangent_point"].elevation.m
+                o["points"][sample_index]["tangent_point"].longitude.degrees,
+                o["points"][sample_index]["tangent_point"].latitude.degrees,
+                o["points"][sample_index]["tangent_point"].elevation.m
             ),
-            "rx_tx_azimuth": o["points"][min(o["points"], key=lambda x: abs(x.tangent_point.elevation.m - sample_elevation))]["rx_tx_azimuth"],
-            "tp_tx_azimuth": o["points"][min(o["points"], key=lambda x: abs(x.tangent_point.elevation.m - sample_elevation))]["tp_tx_azimuth"],
+            "rx_tx_azimuth": o["points"][sample_index]["rx_tx_azimuth"],
+            "tp_tx_azimuth": o["points"][sample_index]["tp_tx_azimuth"],
             "start": o["points"][0]["time"],
             "end": o["points"][-1]["time"],
-            "time": o["points"][min(o["points"], key=lambda x: abs(x.tangent_point.elevation.m - sample_elevation))]["time"],
+            "time": o["points"][sample_index]["time"],
         }
         for o in obs
-    ])
+        for sample_index in [
+            min(
+                range(len(o["points"])), 
+                key=lambda i: abs(o["points"][i]["tangent_point"].elevation.m - sample_elevation)
+            )
+        ]
+    ]).sort_values("time", ignore_index=True)
