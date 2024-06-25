@@ -22,7 +22,7 @@ class PointGeneratorMethod(str, Enum):
     """
 
     fibonacci_lattice = "fibonacci_lattice"
-    cubed_square = "cubed_square"
+    equally_spaced = "equally_spaced"
 
 
 class KnownShape(str, Enum):
@@ -42,7 +42,7 @@ class PointGenerator(BaseModel):
         from_attributes=True, populate_by_name=True, alias_generator=to_camel
     )
     method: PointGeneratorMethod = Field(
-        PointGeneratorMethod.cubed_square, description="Point generation method."
+        PointGeneratorMethod.equally_spaced, description="Point generation method."
     )
     distance: float = Field(
         1e6, description="Characteristic distance (meters) between points."
@@ -75,7 +75,7 @@ class CellGeneratorMethod(str, Enum):
     Method for cell generation.
     """
 
-    cubed_square = "cubed_square"
+    equally_spaced = "equally_spaced"
 
 
 class CellStrips(str, Enum):
@@ -96,7 +96,7 @@ class CellGenerator(BaseModel):
         from_attributes=True, populate_by_name=True, alias_generator=to_camel
     )
     method: CellGeneratorMethod = Field(
-        CellGeneratorMethod.cubed_square, description="Cell generation method."
+        CellGeneratorMethod.equally_spaced, description="Cell generation method."
     )
     distance: float = Field(
         1e6, description="Characteristic distance (meters) between cell centroids."

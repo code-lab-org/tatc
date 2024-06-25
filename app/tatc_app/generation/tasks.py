@@ -8,10 +8,10 @@ Task specifications for generation endpoints.
 import geopandas as gpd
 from shapely.geometry import shape
 from tatc.generation.points import (
-    generate_cubed_sphere_points,
+    generate_equally_spaced_points,
     generate_fibonacci_lattice_points,
 )
-from tatc.generation.cells import generate_cubed_sphere_cells
+from tatc.generation.cells import generate_equally_spaced_cells
 
 from .schemas import KnownShape
 from ..worker import app
@@ -52,11 +52,11 @@ def load_known_shape(shape: KnownShape):
 
 
 @app.task
-def generate_cubed_sphere_points_task(
+def generate_equally_spaced_points_task(
     distance: float, elevation: float, mask: str = None
 ) -> str:
     """
-    Task to generate cubed sphere points.
+    Task to generate equally spaced points.
 
     Args:
         distance (float): The characteristic distance between points.
@@ -66,7 +66,7 @@ def generate_cubed_sphere_points_task(
     Returns:
         str: GeoJSON serialized points.
     """
-    return generate_cubed_sphere_points(
+    return generate_equally_spaced_points(
         distance,
         elevation,
         (
@@ -112,11 +112,11 @@ def generate_fibonacci_lattice_points_task(
 
 
 @app.task
-def generate_cubed_sphere_cells_task(
+def generate_equally_spaced_cells_task(
     distance: float, elevation: float, mask: str = None, strips: str = None
 ) -> str:
     """
-    Task to generate cubed sphere cells.
+    Task to generate equally spaced cells.
 
     Args:
         distance (float): The characteristic distance between points.
@@ -127,7 +127,7 @@ def generate_cubed_sphere_cells_task(
     Returns:
         str: GeoJSON serialized cells.
     """
-    return generate_cubed_sphere_cells(
+    return generate_equally_spaced_cells(
         distance,
         elevation,
         (

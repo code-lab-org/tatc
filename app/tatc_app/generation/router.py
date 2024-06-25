@@ -17,9 +17,9 @@ from .schemas import (
     CellGeneratorMethod,
 )
 from .tasks import (
-    generate_cubed_sphere_points_task,
+    generate_equally_spaced_points_task,
     generate_fibonacci_lattice_points_task,
-    generate_cubed_sphere_cells_task,
+    generate_equally_spaced_cells_task,
 )
 
 router = APIRouter()
@@ -41,8 +41,8 @@ async def generate_points(generator: PointGenerator):
     Returns:
         FeatureCollection: generated points
     """
-    if generator.method == PointGeneratorMethod.cubed_square:
-        task = generate_cubed_sphere_points_task.delay(
+    if generator.method == PointGeneratorMethod.equally_spaced:
+        task = generate_equally_spaced_points_task.delay(
             generator.distance,
             generator.elevation,
             generator.model_dump().get("mask", None),
@@ -72,8 +72,8 @@ async def generate_cells(generator: CellGenerator):
     Returns:
         FeatureCollection: generated cells
     """
-    if generator.method == CellGeneratorMethod.cubed_square:
-        task = generate_cubed_sphere_cells_task.delay(
+    if generator.method == CellGeneratorMethod.equally_spaced:
+        task = generate_equally_spaced_cells_task.delay(
             generator.distance,
             generator.elevation,
             generator.model_dump().get("mask", None),

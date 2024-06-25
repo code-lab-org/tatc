@@ -12,7 +12,7 @@ from tatc.analysis import (
     reduce_latencies,
     grid_latencies,
 )
-from tatc.generation import generate_cubed_sphere_points, generate_cubed_sphere_cells
+from tatc.generation import generate_equally_spaced_points, generate_equally_spaced_cells
 from tatc.schemas import (
     Point,
     GroundStation,
@@ -29,11 +29,11 @@ from ..generation.schemas import PointGenerator, CellGenerator
 class LatencyAnalysisTestCase(TatcTestCase):
     def test_analyze_latency(self):
         points = PointGenerator(
-            method="cubed_square",
+            method="equally_spaced",
             distance=5000e3,
         )
         cells = CellGenerator(
-            method="cubed_square",
+            method="equally_spaced",
             distance=5000e3,
         )
         instrument = Instrument(name="Test", field_of_regard=180.0)
@@ -94,7 +94,7 @@ class LatencyAnalysisTestCase(TatcTestCase):
         tatc_results_observations = pd.concat(
             [
                 collect_observations(point, sat, instrument, start, end)
-                for point in generate_cubed_sphere_points(5000e3).apply(
+                for point in generate_equally_spaced_points(5000e3).apply(
                     lambda r: Point(
                         id=r.point_id,
                         latitude=r.geometry.y,
@@ -119,7 +119,7 @@ class LatencyAnalysisTestCase(TatcTestCase):
         gdf_cells = gdf_cells.reindex(columns=sorted(gdf_cells.columns))
         gdf_cells["latency"] = gdf_cells["latency"].astype("timedelta64[ns]")
         tatc_results_cells = grid_latencies(
-            tatc_results_points, generate_cubed_sphere_cells(5000e3)
+            tatc_results_points, generate_equally_spaced_cells(5000e3)
         )
         tatc_results_cells = tatc_results_cells.reindex(
             columns=sorted(tatc_results_cells.columns)

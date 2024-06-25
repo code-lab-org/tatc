@@ -12,22 +12,22 @@ import geopandas as gpd
 from shapely.geometry import Polygon, MultiPolygon
 
 from .points import (
-    _compute_cubed_sphere_point_id,
-    _generate_cubed_sphere_indices,
+    _compute_equally_spaced_point_id,
+    _generate_equally_spaced_indices,
     _get_bounds,
 )
 
 from ..constants import EARTH_MEAN_RADIUS
 
 
-def generate_cubed_sphere_cells(
+def generate_equally_spaced_cells(
     distance: float,
     elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     strips: str = None,
 ) -> gpd.GeoDataFrame:
     """
-    Generates geodetic polygons over a regular cubed-sphere grid.
+    Generates geodetic polygons over a regular equally spaced grid.
 
     See: Putman and Lin (2007). "Finite-volume transport on various
     cubed-sphere grids", Journal of Computational Physics, 227(1).
@@ -48,12 +48,12 @@ def generate_cubed_sphere_cells(
     # compute the angular disance of each sample (assuming sphere)
     theta_longitude = np.degrees(distance / EARTH_MEAN_RADIUS)
     theta_latitude = np.degrees(distance / EARTH_MEAN_RADIUS)
-    return _generate_cubed_sphere_cells(
+    return _generate_equally_spaced_cells(
         theta_longitude, theta_latitude, elevation, mask, strips
     )
 
 
-def _generate_cubed_sphere_cells(
+def _generate_equally_spaced_cells(
     theta_longitude: float,
     theta_latitude: float,
     elevation: float = 0,
@@ -61,7 +61,7 @@ def _generate_cubed_sphere_cells(
     strips: str = None,
 ) -> gpd.GeoDataFrame:
     """
-    Generates geodetic polygons over a regular cubed-sphere grid.
+    Generates geodetic polygons over a regular equally spaced grid.
 
     See: Putman and Lin (2007). "Finite-volume transport on various
     cubed-sphere grids", Journal of Computational Physics, 227(1).
@@ -84,7 +84,7 @@ def _generate_cubed_sphere_cells(
     """
 
     # generate indices of grid cells over the filtered region
-    indices = _generate_cubed_sphere_indices(
+    indices = _generate_equally_spaced_indices(
         theta_longitude,
         theta_latitude,
         mask,
@@ -96,7 +96,7 @@ def _generate_cubed_sphere_cells(
     gdf = gpd.GeoDataFrame(
         {
             "cell_id": [
-                _compute_cubed_sphere_point_id(i, j, theta_longitude, theta_latitude)
+                _compute_equally_spaced_point_id(i, j, theta_longitude, theta_latitude)
                 for (i, j) in indices
             ],
             "geometry": [

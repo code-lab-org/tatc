@@ -19,9 +19,9 @@ from .schemas import (
     CellGeneratorMethod,
 )
 from .tasks import (
-    generate_cubed_sphere_points_task,
+    generate_equally_spaced_points_task,
     generate_fibonacci_lattice_points_task,
-    generate_cubed_sphere_cells_task,
+    generate_equally_spaced_cells_task,
 )
 
 
@@ -36,10 +36,10 @@ def generate_points(points: Union[List[Point], PointGenerator]) -> List[Point]:
         List[Point]: generated points
     """
     if isinstance(points, PointGenerator):
-        if points.method == PointGeneratorMethod.cubed_square:
+        if points.method == PointGeneratorMethod.equally_spaced:
             return gpd.GeoDataFrame.from_features(
                 json.loads(
-                    generate_cubed_sphere_points_task.delay(
+                    generate_equally_spaced_points_task.delay(
                         points.distance,
                         points.elevation,
                         points.model_dump().get("mask", None),
@@ -80,10 +80,10 @@ def generate_cells(cells: Union[CellGenerator, List[Cell]]) -> List[Cell]:
         List[Cell]: generated cells
     """
     if isinstance(cells, CellGenerator):
-        if cells.method == CellGeneratorMethod.cubed_square:
+        if cells.method == CellGeneratorMethod.equally_spaced:
             return gpd.GeoDataFrame.from_features(
                 json.loads(
-                    generate_cubed_sphere_cells_task.delay(
+                    generate_equally_spaced_cells_task.delay(
                         cells.distance,
                         cells.elevation,
                         cells.model_dump().get("mask", None),

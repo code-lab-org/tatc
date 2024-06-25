@@ -11,7 +11,7 @@ from tatc.analysis import (
     reduce_observations,
     grid_observations,
 )
-from tatc.generation import generate_cubed_sphere_points, generate_cubed_sphere_cells
+from tatc.generation import generate_equally_spaced_points, generate_equally_spaced_cells
 from tatc.schemas import Point, WalkerConstellation, TwoLineElements, Instrument
 
 from .base import TatcTestCase
@@ -22,11 +22,11 @@ from ..generation.schemas import PointGenerator, CellGenerator
 class CoverageAnalysisTestCase(TatcTestCase):
     def test_analyze_coverage(self):
         points = PointGenerator(
-            method="cubed_square",
+            method="equally_spaced",
             distance=5000e3,
         )
         cells = CellGenerator(
-            method="cubed_square",
+            method="equally_spaced",
             distance=5000e3,
         )
         instrument = Instrument(name="Test", field_of_regard=180.0)
@@ -74,7 +74,7 @@ class CoverageAnalysisTestCase(TatcTestCase):
                             point, satellite.generate_members(), start, end
                         )
                     )
-                    for point in generate_cubed_sphere_points(5000e3).apply(
+                    for point in generate_equally_spaced_points(5000e3).apply(
                         lambda r: Point(
                             id=r.point_id, latitude=r.geometry.y, longitude=r.geometry.x
                         ),
@@ -95,7 +95,7 @@ class CoverageAnalysisTestCase(TatcTestCase):
         gdf_cells["revisit"] = gdf_cells["revisit"].astype("timedelta64[ns]")
         gdf_cells["access"] = gdf_cells["access"].astype("timedelta64[ns]")
         tatc_results_cells = grid_observations(
-            tatc_results_points, generate_cubed_sphere_cells(5000e3)
+            tatc_results_points, generate_equally_spaced_cells(5000e3)
         )
         tatc_results_cells = tatc_results_cells.reindex(
             columns=sorted(tatc_results_cells.columns)
