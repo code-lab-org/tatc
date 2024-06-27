@@ -597,8 +597,8 @@ $(document).ready(function() {
     var satellite = $("#satellites option:selected").data("satellite");
     if($("#satellite-type").val()=="train") {
       satellite.type = "train";
-      satellite.number_satellites = $("#train-count").val();
-      satellite.interval = $("#train-interval").val()*60;
+      satellite.number_satellites = +$("#train-count").val();
+      satellite.interval = +$("#train-interval").val()*60;
       $(".constellation-train-group").show();
     } else {
       delete satellite.interval;
@@ -606,10 +606,10 @@ $(document).ready(function() {
     }
     if($("#satellite-type").val()=="walker") {
       satellite.type = "walker";
-      satellite.number_satellites = $("#walker-count").val();
-      satellite.number_planes = $("#walker-planes").val();
+      satellite.number_satellites = +$("#walker-count").val();
+      satellite.number_planes = +$("#walker-planes").val();
       satellite.configuration = $("#walker-config").val();
-      satellite.relative_spacing = $("#walker-spacing").val();
+      satellite.relative_spacing = +$("#walker-spacing").val();
       $(".constellation-walker-group").show();
     } else {
       delete satellite.number_planes;
@@ -625,22 +625,22 @@ $(document).ready(function() {
   });
   $("#train-count").change(function() {
     var satellite = $("#satellites option:selected").data("satellite");
-    satellite.number_satellites = $("#train-count").val();
+    satellite.number_satellites = +$("#train-count").val();
     $("#orbit-data").prop("disabled", true);
   });
   $("#train-interval").change(function() {
     var satellite = $("#satellites option:selected").data("satellite");
-    satellite.interval = $("#train-interval").val()*60;
+    satellite.interval = +$("#train-interval").val()*60;
     $("#orbit-data").prop("disabled", true);
   });
   $("#walker-count").change(function() {
     var satellite = $("#satellites option:selected").data("satellite");
-    satellite.number_satellites = $("#walker-count").val();
+    satellite.number_satellites = +$("#walker-count").val();
     $("#orbit-data").prop("disabled", true);
   });
   $("#walker-planes").change(function() {
     var satellite = $("#satellites option:selected").data("satellite");
-    satellite.number_planes = $("#walker-planes").val();
+    satellite.number_planes = +$("#walker-planes").val();
     $("#orbit-data").prop("disabled", true);
   });
   $("#walker-config").change(function() {
@@ -650,7 +650,7 @@ $(document).ready(function() {
   });
   $("#walker-spacing").change(function() {
     var satellite = $("#satellites option:selected").data("satellite");
-    satellite.relative_spacing = $("#walker-spacing").val();
+    satellite.relative_spacing = +$("#walker-spacing").val();
     $("#orbit-data").prop("disabled", true);
   });
   $("#satellite-orbit").change(function() {
@@ -688,10 +688,10 @@ $(document).ready(function() {
   });
   $(".orbit-circular-group").change(function() {
     var satellite = $("#satellites option:selected").data("satellite");
-    satellite.orbit.altitude = $("#orbit-circular-altitude").val()*1000;
-    satellite.orbit.inclination = $("#orbit-circular-inclination").val();
-    satellite.orbit.right_ascension_ascending_node = $("#orbit-circular-raan").val();
-    satellite.orbit.true_anomaly = $("#orbit-circular-ta").val();
+    satellite.orbit.altitude = +$("#orbit-circular-altitude").val()*1000;
+    satellite.orbit.inclination = +$("#orbit-circular-inclination").val();
+    satellite.orbit.right_ascension_ascending_node = +$("#orbit-circular-raan").val();
+    satellite.orbit.true_anomaly = +$("#orbit-circular-ta").val();
     $("#orbit-data").prop("disabled", true);
   });
   $("#orbit-sso-epoch").on("change.datetimepicker", function() {
@@ -707,8 +707,8 @@ $(document).ready(function() {
   $(".orbit-sso-group").change(function() {
     var satellite = $("#satellites option:selected").data("satellite");
     satellite.orbit.equator_crossing_ascending = $("#orbit-sso-direction").val()=="asc";
-    satellite.orbit.altitude = $("#orbit-sso-altitude").val()*1000;
-    satellite.orbit.true_anomaly = $("#orbit-sso-ta").val();
+    satellite.orbit.altitude = +$("#orbit-sso-altitude").val()*1000;
+    satellite.orbit.true_anomaly = +$("#orbit-sso-ta").val();
     $("#orbit-data").prop("disabled", true);
   });
   $("#orbit-keplerian-epoch").on("change.datetimepicker", function() {
@@ -718,12 +718,12 @@ $(document).ready(function() {
   });
   $(".orbit-keplerian-group").change(function() {
     var satellite = $("#satellites option:selected").data("satellite");
-    satellite.orbit.altitude = $("#orbit-keplerian-altitude").val()*1000;
-    satellite.orbit.inclination = $("#orbit-keplerian-inclination").val();
-    satellite.orbit.eccentricity = $("#orbit-keplerian-eccentricity").val();
-    satellite.orbit.perigee_argument = $("#orbit-keplerian-pa").val();
-    satellite.orbit.right_ascension_ascending_node = $("#orbit-keplerian-raan").val();
-    satellite.orbit.true_anomaly = $("#orbit-keplerian-ta").val();
+    satellite.orbit.altitude = +$("#orbit-keplerian-altitude").val()*1000;
+    satellite.orbit.inclination = +$("#orbit-keplerian-inclination").val();
+    satellite.orbit.eccentricity = +$("#orbit-keplerian-eccentricity").val();
+    satellite.orbit.perigee_argument = +$("#orbit-keplerian-pa").val();
+    satellite.orbit.right_ascension_ascending_node = +$("#orbit-keplerian-raan").val();
+    satellite.orbit.true_anomaly = +$("#orbit-keplerian-ta").val();
     $("#orbit-data").prop("disabled", true);
   });
   $("#instrument-add").click(function() {
@@ -779,8 +779,8 @@ $(document).ready(function() {
   });
   $(".instrument-group").change(function() {
     var instrument = $("#instruments option:selected").data("instrument");
-    instrument.field_of_regard = $("#instrument-field").val();
-    instrument.min_access_time = $("#instrument-access").val();
+    instrument.field_of_regard = +$("#instrument-field").val();
+    instrument.min_access_time = +$("#instrument-access").val();
     instrument.req_self_sunlit = getSunlitState($("#instrument-self-sunlit").val());
     instrument.req_target_sunlit = getSunlitState($("#instrument-target-sunlit").val());
     $("#orbit-data").prop("disabled", true);
