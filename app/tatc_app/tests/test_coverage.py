@@ -11,7 +11,10 @@ from tatc.analysis import (
     reduce_observations,
     grid_observations,
 )
-from tatc.generation import generate_equally_spaced_points, generate_equally_spaced_cells
+from tatc.generation import (
+    generate_equally_spaced_points,
+    generate_equally_spaced_cells,
+)
 from tatc.schemas import Point, WalkerConstellation, TwoLineElements, Instrument
 
 from .base import TatcTestCase

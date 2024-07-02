@@ -12,7 +12,10 @@ from tatc.analysis import (
     reduce_latencies,
     grid_latencies,
 )
-from tatc.generation import generate_equally_spaced_points, generate_equally_spaced_cells
+from tatc.generation import (
+    generate_equally_spaced_points,
+    generate_equally_spaced_cells,
+)
 from tatc.schemas import (
     Point,
     GroundStation,
