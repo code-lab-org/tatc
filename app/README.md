@@ -125,7 +125,7 @@ environment `tatc_env` with the TAT-C library installed.
 Next, install the additional web application dependencies by installing tatc
 with the optional `app` dependency flag:
 ```shell
-pip install -e .[app]
+pip install -e ".[app]"
 ```
 
 To start the TAT-C server application, run the command:

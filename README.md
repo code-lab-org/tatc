@@ -16,14 +16,14 @@ pip install -e .
 ```
 
 Note: the following optional dependencies are available with bracket notation: 
- * `pip install -e .[dev]`: for development (unit testing, coverage, and linting)
- * `pip install -e .[docs]`: for generating documentation
- * `pip install -e .[examples]`: for running optional examples
- * `pip install -e .[osse]`: for running optional observing system simulation experiment (OSSE) examples
- * `pip install -e .[app]`: for running the web application
- * `pip install -e .[appdev]`: for development (unit testing) of the web application
+ * `pip install -e ".[dev]"`: for development (unit testing, coverage, and linting)
+ * `pip install -e ".[docs]"`: for generating documentation
+ * `pip install -e ".[examples]"`: for running optional examples
+ * `pip install -e ".[osse]"`: for running optional observing system simulation experiment (OSSE) examples
+ * `pip install -e ".[app]"`: for running the web application
+ * `pip install -e ".[appdev]"`: for development (unit testing) of the web application
 
-Multiple optional dependencies can be installed with a comma-separated list (e.g., `pip install -e .[dev,examples]`)
+Multiple optional dependencies can be installed with a comma-separated list (e.g., `pip install -e ".[dev,examples]"`)
 
 ## Development Tools
 

@@ -36,12 +36,12 @@ Clone the project repository using :console:`git clone https://github.com/code-l
 Install the tatc library in "editable" mode :console:`pip install -e .`
 
 Note: the following optional dependencies are available with bracket notation: 
- * :console:`pip install -e .[dev]`: for development functions (unit testing, coverage, and linting)
- * :console:`pip install -e .[docs]`: for generating documentation in :console:`docs/`
- * :console:`pip install -e .[examples]`: for running optional examples in :console:`docs/examples`
- * :console:`pip install -e .[app]`: for running the web application in :console:`app/`
+ * :console:`pip install -e ".[dev]"`: for development functions (unit testing, coverage, and linting)
+ * :console:`pip install -e ".[docs]"`: for generating documentation in :console:`docs/`
+ * :console:`pip install -e ".[examples]"`: for running optional examples in :console:`docs/examples`
+ * :console:`pip install -e ".[app]"`: for running the web application in :console:`app/`
 
-Multiple optional dependencies can be installed with a comma-separated list (e.g., :console:`pip install -e .[dev,examples]`)
+Multiple optional dependencies can be installed with a comma-separated list (e.g., :console:`pip install -e ".[dev,examples]"`)
 
 Faster Package Resolution
 -------------------------
