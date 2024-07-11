@@ -22,7 +22,7 @@ class Instrument(BaseModel):
     Remote sensing instrument.
     """
 
-    name: str = Field(..., description="Instrument name.")
+    name: str = Field("Default", description="Instrument name.")
     field_of_regard: float = Field(
         180,
         description="Angular field (degrees) of possible observations (with pointing).",

@@ -36,7 +36,7 @@ class SpaceSystem(BaseModel):
         TwoLineElements, CircularOrbit, SunSynchronousOrbit, KeplerianOrbit
     ] = Field(..., description="Orbit specification.")
     instruments: List[Instrument] = Field(
-        [], description="List of assigned instruments."
+        [Instrument()], min_length=1, description="List of assigned instruments."
     )
 
 
