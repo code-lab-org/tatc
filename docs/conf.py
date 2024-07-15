@@ -18,7 +18,7 @@
 # -- Project information -----------------------------------------------------
 
 project = "TAT-C"
-copyright = "2022, Stevens Institute of Technology"
+copyright = "2024, Stevens Institute of Technology"
 author = "Stevens Institute of Technology"
 
 # The full version, including alpha/beta/rc tags
