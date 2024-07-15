@@ -1,6 +1,9 @@
 import unittest
 
-from tatc.generation import generate_equally_spaced_cells, _generate_equally_spaced_cells
+from tatc.generation import (
+    generate_equally_spaced_cells,
+    _generate_equally_spaced_cells,
+)
 from shapely.geometry import Polygon
 
 
