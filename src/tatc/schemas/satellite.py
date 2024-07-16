@@ -21,6 +21,7 @@ from ..constants import EARTH_MEAN_RADIUS
 from .instrument import Instrument
 from .orbit import TwoLineElements, CircularOrbit, SunSynchronousOrbit, KeplerianOrbit
 
+
 class SpaceSystem(BaseModel):
     """
     Base class for space systems.

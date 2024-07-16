@@ -9,10 +9,10 @@ build-backend = "setuptools.build_meta"
 name = "tatc"
 description = "Tradespace Analysis Toolkit for Constellations (TAT-C)"
 authors = [
-    {"name" = "Paul T. Grogan", "email" = "paul.grogan@asu.edu"}
+    {name = "Paul T. Grogan", email = "paul.grogan@asu.edu"}
 ]
 readme = "README.md"
-requires-python = ">=3.8, <3.11"
+requires-python = ">=3.9, <3.11"
 license = {text = "BSD License"}
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -31,8 +31,17 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.urls]
+Homepage = "https://tatc.readthedocs.io"
+Repository = "https://github.com/code-lab-org/tatc"
+Documentation = "https://tatc.readthedocs.io"
+Issues = "https://github.com/code-lab-org/tatc/issues"
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"tatc" = ["resources/*.bsp"]
 
 [project.optional-dependencies]
 dev = [

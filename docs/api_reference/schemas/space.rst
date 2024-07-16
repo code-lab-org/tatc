@@ -27,3 +27,10 @@ Walker Constellation
 .. autopydantic_model:: tatc.schemas.WalkerConstellation
   :members:
   :inherited-members: BaseModel
+
+MOG Constellation
+--------------------
+
+.. autopydantic_model:: tatc.schemas.MOGConstellation
+  :members:
+  :inherited-members: BaseModel
