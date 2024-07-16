@@ -121,15 +121,26 @@ class TestCoverageAnalysis(unittest.TestCase):
     def test_collect_multi_observations(self):
         results = collect_multi_observations(
             self.point,
-            [self.constellation],
+            self.constellation.generate_members(),
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 2, tzinfo=timezone.utc),
         )
 
+    def test_collect_multi_observations_null(self):
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        end = datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc)
+        results = collect_multi_observations(
+            self.point,
+            self.constellation.generate_members(),
+            start,
+            end,
+        )
+        self.assertTrue(results.empty)
+
     def test_aggregate_observations(self):
         results = collect_multi_observations(
             self.point,
-            [self.constellation],
+            self.constellation.generate_members(),
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 2, tzinfo=timezone.utc),
         )
@@ -146,7 +157,7 @@ class TestCoverageAnalysis(unittest.TestCase):
     def test_aggregate_observations_null(self):
         results = collect_multi_observations(
             self.point,
-            [self.constellation],
+            self.constellation.generate_members(),
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
         )
@@ -156,7 +167,7 @@ class TestCoverageAnalysis(unittest.TestCase):
     def test_reduce_observations(self):
         results = collect_multi_observations(
             self.point,
-            [self.constellation],
+            self.constellation.generate_members(),
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 10, tzinfo=timezone.utc),
         )
@@ -181,10 +192,10 @@ class TestCoverageAnalysis(unittest.TestCase):
     def test_reduce_observations_null(self):
         results = collect_multi_observations(
             self.point,
-            [self.constellation],
+            self.constellation.generate_members(),
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
         )
         aggregated_results = aggregate_observations(results)
         reduced_results = reduce_observations(aggregated_results)
-        self.assertTrue(results.empty)
+        self.assertTrue(reduced_results.empty)
