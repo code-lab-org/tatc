@@ -145,13 +145,13 @@ def generate_fibonacci_lattice_points(
     return gdf
 
 
-def generate_cubed_sphere_points(
+def generate_equally_spaced_points(
     distance: float,
     elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
 ) -> gpd.GeoDataFrame:
     """
-    Generates geodetic points at the centroid of regular cubed-sphere grid
+    Generates geodetic points at the centroid of regular equally spaced grid
     cells.
 
     See: Putman and Lin (2007). "Finite-volume transport on various
@@ -171,17 +171,17 @@ def generate_cubed_sphere_points(
     # compute the angular disance of each sample (assuming sphere)
     theta_longitude = np.degrees(distance / EARTH_MEAN_RADIUS)
     theta_latitude = np.degrees(distance / EARTH_MEAN_RADIUS)
-    return _generate_cubed_sphere_points(
+    return _generate_equally_spaced_points(
         theta_longitude, theta_latitude, elevation, mask
     )
 
 
 @njit
-def _compute_cubed_sphere_point_id(
+def _compute_equally_spaced_point_id(
     i: int, j: int, theta_i: float, theta_j: float
 ) -> int:
     """
-    Fast method to compute the flattened id for a cubed sphere grid point.
+    Fast method to compute the flattened id for an equally spaced grid point.
     Indices increment west-to-east followed by south-to-north with a first
     point at -180 degrees latitude and close to -90 degrees latitude.
 
@@ -221,14 +221,14 @@ def _get_bounds(mask: Union[Polygon, MultiPolygon]) -> tuple:
     return (min_longitude, min_latitude, max_longitude, max_latitude)
 
 
-def _generate_cubed_sphere_indices(
+def _generate_equally_spaced_indices(
     theta_longitude: float,
     theta_latitude: float,
     mask: Union[Polygon, MultiPolygon] = None,
     strips: str = None,
 ) -> list:
     """
-    Generates a list of indices for a cubed sphere grid.
+    Generates a list of indices for an equally spaced grid.
 
     Args:
         theta_longitude (float): The angular difference in longitude (degrees)
@@ -278,14 +278,14 @@ def _generate_cubed_sphere_indices(
     ]
 
 
-def _generate_cubed_sphere_points(
+def _generate_equally_spaced_points(
     theta_longitude: float,
     theta_latitude: float,
     elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
 ) -> gpd.GeoDataFrame:
     """
-    Generates geodetic cells following regular cubed-sphere grid.
+    Generates geodetic cells following regular equally spaced grid.
 
     See: Putman and Lin (2007). "Finite-volume transport on various
     cubed-sphere grids", Journal of Computational Physics, 227(1).
@@ -306,7 +306,7 @@ def _generate_cubed_sphere_points(
     """
 
     # generate grid cells over the filtered region
-    indices = _generate_cubed_sphere_indices(
+    indices = _generate_equally_spaced_indices(
         theta_longitude,
         theta_latitude,
         mask,
@@ -315,7 +315,7 @@ def _generate_cubed_sphere_points(
     gdf = gpd.GeoDataFrame(
         {
             "point_id": [
-                _compute_cubed_sphere_point_id(i, j, theta_longitude, theta_latitude)
+                _compute_equally_spaced_point_id(i, j, theta_longitude, theta_latitude)
                 for (i, j) in indices
             ],
             "geometry": [
