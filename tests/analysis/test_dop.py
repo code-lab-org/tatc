@@ -27,7 +27,6 @@ class TestDopAnalysis(unittest.TestCase):
         self.gps_constellation = WalkerConstellation(
             name="GPS",
             orbit=self.orbit,
-            instruments=[],
             number_satellites=24,
             number_planes=6,
         )
