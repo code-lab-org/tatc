@@ -12,7 +12,7 @@ from itertools import chain
 import geopandas as gpd
 import numpy as np
 from shapely.geometry import MultiPoint, Point
-from skyfield.api import EarthSatellite, wgs84, Distance, Velocity
+from skyfield.api import EarthSatellite, wgs84, Distance, Velocity, Time
 from skyfield.positionlib import ICRF
 
 from ..schemas.satellite import Satellite
@@ -20,7 +20,17 @@ from ..schemas.satellite import Satellite
 from ..constants import timescale
 
 
-def _collect_ro_series(tx, ts, rx_pv, rx_n_u, max_azimuth, range_elevation):
+def _collect_ro_series(
+    transmitter: Satellite,
+    ts: Time,
+    rx_pv: ICRF,
+    rx_n_u: List[float],
+    max_azimuth: float,
+    range_elevation: Tuple[float],
+):
+    # construct transmitter
+    tx_tle = transmitter.orbit.to_tle()
+    tx = EarthSatellite(tx_tle.tle[0], tx_tle.tle[1], transmitter.name)
     # transmitter position (x_tx), velocity (v_tx)
     tx_pv = tx.at(ts)
     # relative position, velocity of transmitter from receiver
@@ -178,37 +188,33 @@ def collect_ro_observations(
         max_azimuth (float): the maximum transmitter azimuth angle (from receiver body-fixed frame) for a valid obsevation.
         range_elevation: (typing.Tuple[float]): the lower and upper bound on tangent point elevation (m) for a valid observation.
     """
+    # construct receiver
     rx_tle = receiver.orbit.to_tle()
     rx = EarthSatellite(rx_tle.tle[0], rx_tle.tle[1], receiver.name)
-
     # define time steps
     ts = timescale.from_datetimes(times)
-
     # receiver position, velocity
     rx_pv = rx.at(ts)
-
     # unit vector normal to receiver orbit plane
     rx_n_u = np.einsum(
         "iik->ik",
         np.cross(rx_pv.position.m.T[:, None, :], rx_pv.velocity.m_per_s.T[None, :, :]),
     ).T
     rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
-
-    txs = [
-        EarthSatellite(tx_tle.tle[0], tx_tle.tle[1], tx.name)
-        for tx in (transmitters if isinstance(transmitters, list) else [transmitters])
-        for tx_tle in [tx.orbit.to_tle()]
-    ]
-
+    # generate observations
     obs = list(
         chain.from_iterable(
             [
-                _collect_ro_series(tx, ts, rx_pv, rx_n_u, max_azimuth, range_elevation)
-                for tx in txs
+                _collect_ro_series(
+                    transmitter, ts, rx_pv, rx_n_u, max_azimuth, range_elevation
+                )
+                for transmitter in (
+                    transmitters if isinstance(transmitters, list) else [transmitters]
+                )
             ]
         )
     )
-
+    # format results
     return gpd.GeoDataFrame(
         [
             {
