@@ -34,6 +34,7 @@ release = tatc.__version__
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    "myst_nb",
     "sphinx.ext.autodoc",
     "sphinx.ext.doctest",
     "sphinx.ext.intersphinx",
@@ -44,9 +45,7 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.githubpages",
     "sphinx.ext.napoleon",
-    "nbsphinx",
     "sphinxcontrib.autodoc_pydantic",
-    "myst_parser",
 ]
 
 napoleon_google_docstring = True
