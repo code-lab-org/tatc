@@ -21,6 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "geopandas >= 0.13.2",
+    "joblib",
     "numba",
     "numpy",
     "pandas",
@@ -54,14 +55,12 @@ dev = [
 docs = [
     "autodoc_pydantic >= 2",
     "docutils",
-    "myst-parser",
-    "nbsphinx",
+    "myst-nb",
     "sphinx >= 7",
     "sphinx-rtd-theme"
 ]
 examples = [
     "ipykernel",
-    "joblib",
     "matplotlib"
 ]
 osse = [
@@ -71,22 +70,6 @@ osse = [
     "scipy",
     "scikit-learn",
     "seaborn"
-]
-app = [
-    "aiofiles",
-    "aiohttp",
-    "aiosqlite",
-    "celery[librabbitmq,redis]",
-    "fastapi >= 0.110.0",
-    "fastapi-users[sqlalchemy]",
-    "geojson-pydantic",
-    "msgpack-asgi",
-    "python-dotenv",
-    "tzlocal",
-    "uvicorn[standard]"
-]
-appdev = [
-    "httpx"
 ]
 
 [tool.setuptools.dynamic]

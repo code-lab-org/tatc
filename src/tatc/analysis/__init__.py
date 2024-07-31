@@ -9,6 +9,9 @@ from .coverage import (
     reduce_observations,
     grid_observations,
 )
+from .ro_coverage import (
+    collect_ro_observations,
+)
 from .track import (
     collect_orbit_track,
     collect_ground_track,

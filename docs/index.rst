@@ -12,7 +12,6 @@ This Python language library provides the low-level library to model observing s
     :caption: Contents
 
     installation.rst
-    app/index.md
     examples/index.rst
     api_reference/index.rst
 
