@@ -11,9 +11,10 @@ The following provide examples of TAT-C use in a Jupyter notebook environment.
   CollectOrbitGroundTrack.ipynb
   ComputeCoverage.ipynb
   ComputeLatency.ipynb
+  ComputeDOP.ipynb
 
-Note that running the above examples in a local Python environment requires additional dependencies (geoplot, contextily) which can be installed via::
+Note that running the above examples in a local Python environment requires additional dependencies which can be installed via::
 
-  conda install geoplot contextily -c conda-forge
+  pip install tatc[examples]
 
-using the conda package manager.
+using the pip package manager.
