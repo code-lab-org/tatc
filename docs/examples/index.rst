@@ -12,6 +12,7 @@ The following provide examples of TAT-C use in a Jupyter notebook environment.
   ComputeCoverage.ipynb
   ComputeLatency.ipynb
   ComputeDOP.ipynb
+  CollectRO.ipynb
 
 Note that running the above examples in a local Python environment requires additional dependencies which can be installed via::
 

@@ -21,6 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "geopandas >= 0.14",
+    "joblib",
     "numba",
     "numpy",
     "pandas",
@@ -60,7 +61,6 @@ docs = [
 ]
 examples = [
     "ipykernel",
-    "joblib",
     "matplotlib"
 ]
 osse = [
