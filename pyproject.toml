@@ -72,22 +72,6 @@ osse = [
     "scikit-learn",
     "seaborn"
 ]
-app = [
-    "aiofiles",
-    "aiohttp",
-    "aiosqlite",
-    "celery[librabbitmq,redis]",
-    "fastapi >= 0.110.0",
-    "fastapi-users[sqlalchemy]",
-    "geojson-pydantic",
-    "msgpack-asgi",
-    "python-dotenv",
-    "tzlocal",
-    "uvicorn[standard]"
-]
-appdev = [
-    "httpx"
-]
 
 [tool.setuptools.dynamic]
 version = {attr = "tatc.__version__"}
