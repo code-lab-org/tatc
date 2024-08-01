@@ -26,9 +26,11 @@ dependencies = [
     "numpy",
     "pandas",
     "pydantic >= 2.6",
+    "pyproj",
     "shapely >= 2",
     "skyfield >= 1.48",
-    "sgp4"
+    "sgp4",
+    "typing-extensions",
 ]
 dynamic = ["version"]
 
