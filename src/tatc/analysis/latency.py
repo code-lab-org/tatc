@@ -200,7 +200,7 @@ def compute_latencies(
 
     # set CRS if observations is a GeoDataFrame and has a defined CRS
     if isinstance(observations, gpd.GeoDataFrame) and observations.crs:
-        obs.crs = observations.crs
+        obs.set_crs(observations.crs)
 
     # sort observations by observed time
     obs.sort_values(by="observed", inplace=True)
