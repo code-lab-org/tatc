@@ -67,7 +67,11 @@ intersphinx_mapping = {
     "geopandas": ("https://geopandas.org/en/stable/", None),
     "pandas": ("https://pandas.pydata.org/docs/", None),
 }
-myst_enable_extensions = ["html_image"]
+myst_enable_extensions = [
+    "amsmath",
+    "dollarmath",
+    "html_image"
+]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
