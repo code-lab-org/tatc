@@ -21,7 +21,7 @@ from shapely.geometry import (
     Point,
     LineString,
 )
-from shapely.ops import split, transform, unary_union
+from shapely.ops import clip_by_rect, split, transform, unary_union
 import pyproj
 
 from ..schemas.satellite import Satellite
@@ -30,7 +30,7 @@ from ..utils import (
     split_polygon,
     field_of_regard_to_swath_width,
 )
-from ..constants import timescale
+from ..constants import timescale, EARTH_MEAN_RADIUS
 
 
 def _get_empty_orbit_track() -> gpd.GeoDataFrame:
