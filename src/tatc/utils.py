@@ -421,7 +421,7 @@ def _wrap_polygon_over_south_pole(
        Polygon, or MultiPolygon: The wrapped polygon.
     """
     if isinstance(polygon, Polygon):
-        if all(c[1] <= 90 for c in polygon.exterior.coords):
+        if all(c[1] >= -90 for c in polygon.exterior.coords):
             # no splitting necessary
             return polygon
         # map latitudes from [-90, -180) to [-90, 90), adjusting longitude by 180 degrees
@@ -618,18 +618,12 @@ def _split_polygon_antimeridian(
                 for i in polygon.interiors
             ],
         )
-        # attempt to fix invalid polygon using a zero buffer
-        if not polygon.is_valid:
-            polygon = polygon.buffer(0)
         # split along the anti-meridian (-180 for shift > 0; 180 for shift < 0)
         shift_dir = -180 if shift.max() >= 1 else 180
         parts = split(pgon, LineString([(shift_dir, -180), (shift_dir, 180)]))
         # convert to multi polygon
         if isinstance(parts, GeometryCollection):
             parts = _convert_collection_to_polygon(parts)
-        # give up and return original polygon if invalid
-        if not pgon.is_valid:
-            return polygon
         # return polygon with components wrapped over anti-meridian
         return _wrap_polygon_over_antimeridian(parts)
     if isinstance(polygon, MultiPolygon):
