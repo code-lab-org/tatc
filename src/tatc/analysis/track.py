@@ -262,12 +262,23 @@ def collect_ground_track(
             from_crs = pyproj.Transformer.from_crs(
                 pyproj.CRS(code), gdf.crs, always_xy=True
             ).transform
-            gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
-                lambda r: transform(
-                    from_crs, transform(to_crs, r.geometry).buffer(r.swath_width / 2)
-                ),
-                axis=1,
-            )
+            if code in ("EPSG:5041", "EPSG:5042"):
+                # keep polygons 500km away from UPS poles to encourage proper geometry
+                gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
+                    lambda r: transform(
+                        from_crs, transform(to_crs, r.geometry)
+                        .buffer(r.swath_width / 2)
+                        .difference(Point(2e6, 2e6, 0).buffer(5e5))
+                    ),
+                    axis=1,
+                )
+            else:
+                gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
+                    lambda r: transform(
+                        from_crs, transform(to_crs, r.geometry).buffer(r.swath_width / 2)
+                    ),
+                    axis=1,
+                )
     else:
         # do the swath projection in the specified coordinate reference system
         to_crs = pyproj.Transformer.from_crs(
