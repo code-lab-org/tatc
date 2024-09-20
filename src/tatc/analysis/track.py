@@ -321,9 +321,9 @@ def collect_ground_track(
     # split polygons to wrap over the anti-meridian and poles
     gdf.geometry = gdf.apply(lambda r: split_polygon(r.geometry), axis=1)
 
-    if mask is None:
-        return gdf
-    return gpd.clip(gdf, mask).reset_index(drop=True)
+    if mask is not None:
+        gdf = gpd.clip(gdf, mask).reset_index(drop=True)
+    return gdf
 
 
 def compute_ground_track(
@@ -359,11 +359,14 @@ def compute_ground_track(
         GeoDataFrame: The data frame of aggregated ground track results.
     """
     if method == "point":
-        track = collect_ground_track(satellite, instrument, times, elevation, mask, crs)
+        track = collect_ground_track(satellite, instrument, times, elevation, None, crs)
         # filter to valid observations and dissolve
-        return track[track.valid_obs].dissolve()
+        track = track[track.valid_obs].dissolve()
+        if mask is not None:
+            track = gpd.clip(track, mask).reset_index(drop=True)
+        return track
     if method == "line":
-        track = collect_orbit_track(satellite, instrument, times, elevation, mask)
+        track = collect_orbit_track(satellite, instrument, times, elevation, None)
         # assign track identifiers to group contiguous observation periods
         track["track_id"] = (
             (track.valid_obs != track.valid_obs.shift()).astype("int").cumsum()
@@ -446,5 +449,7 @@ def compute_ground_track(
         track = track.dissolve()
         # and replace the geometry with the union of computed polygons
         track.geometry = [unary_union(polygons)]
+        if mask is not None:
+            track = gpd.clip(track, mask).reset_index(drop=True)
         return track
     raise ValueError("Invalid method: " + str(method))
