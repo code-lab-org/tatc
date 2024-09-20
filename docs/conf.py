@@ -68,6 +68,7 @@ intersphinx_mapping = {
     "pandas": ("https://pandas.pydata.org/docs/", None),
 }
 myst_enable_extensions = ["amsmath", "dollarmath", "html_image"]
+nb_execution_mode = "off"
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
