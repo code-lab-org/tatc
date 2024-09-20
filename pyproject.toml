@@ -12,7 +12,7 @@ authors = [
     {name = "Paul T. Grogan", email = "paul.grogan@asu.edu"}
 ]
 readme = "README.md"
-requires-python = ">=3.8, <3.11"
+requires-python = ">=3.8, <3.13"
 license = {text = "BSD License"}
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -26,9 +26,11 @@ dependencies = [
     "numpy",
     "pandas",
     "pydantic >= 2.6",
+    "pyproj",
     "shapely >= 2",
     "skyfield >= 1.48",
-    "sgp4"
+    "sgp4",
+    "typing-extensions",
 ]
 dynamic = ["version"]
 
