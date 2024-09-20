@@ -345,8 +345,8 @@ def collect_observations(
             gdf["sat_sunlit"] = _get_satellite_sunlit_series(gdf, sat)
             # append solar altitude/azimuth columns
             sun_altaz = _get_solar_altaz_series(gdf)
-            gdf["sun_alt"] = sun_altaz.apply(lambda r: r[0].degrees)
-            gdf["sun_az"] = sun_altaz.apply(lambda r: r[1].degrees)
+            gdf["solar_alt"] = sun_altaz.apply(lambda r: r[0].degrees)
+            gdf["solar_az"] = sun_altaz.apply(lambda r: r[1].degrees)
             # append local solar time column
             gdf["solar_time"] = _get_solar_time_series(gdf)
     else:
