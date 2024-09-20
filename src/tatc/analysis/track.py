@@ -21,7 +21,7 @@ from shapely.geometry import (
     Point,
     LineString,
 )
-from shapely.ops import split, transform, unary_union
+from shapely.ops import clip_by_rect, split, transform, unary_union
 import pyproj
 
 from ..schemas.satellite import Satellite
@@ -30,7 +30,7 @@ from ..utils import (
     split_polygon,
     field_of_regard_to_swath_width,
 )
-from ..constants import timescale
+from ..constants import timescale, EARTH_MEAN_RADIUS
 
 
 def _get_empty_orbit_track() -> gpd.GeoDataFrame:
@@ -185,29 +185,33 @@ def collect_orbit_track(
     return gpd.clip(gdf, mask).reset_index(drop=True)
 
 
-def _get_utm_epsg_code(point: Point) -> str:
+def _get_utm_epsg_code(point: Point, swath_width: float) -> str:
     """
-    Get the Universal Transverse Mercator (UTM) EPSG code for a geodetic point.
+    Get the Universal Transverse Mercator (UTM) EPSG code for a ground track.
 
     Args:
-        point (Point): the geodetic point
+        point (Point): the geodetic sub-satellite point
+        swath_width (float): the observation swath width (meters)
 
     Returns:
-        str: the UTM EPSG code
+        str: the EPSG code
     """
+    # approximate footprint
+    polygon = point.buffer(np.degrees(swath_width / 2 / EARTH_MEAN_RADIUS))
     results = pyproj.database.query_utm_crs_info(
         datum_name="WGS 84",
-        area_of_interest=pyproj.aoi.AreaOfInterest(point.x, point.y, point.x, point.y),
+        area_of_interest=pyproj.aoi.AreaOfInterest(
+            *clip_by_rect(polygon, -180, -90, 180, 90).bounds
+        ),
     )
-    # return the first code if exists; otherwise return a default value
-    # 5041 is UPS North; 5042 is UPS South; 4087 is the default
+    # return 5041 for UPS North; 5042 for UPS South; UTM zone, or 4087 for default
     return (
-        "EPSG:" + results[0].code
-        if len(results) > 0
+        "EPSG:5041"
+        if polygon.bounds[3] > 84
         else (
-            "EPSG:5041"
-            if point.y > 84
-            else "EPSG:5042" if point.y < -80 else "EPSG:4087"
+            "EPSG:5042"
+            if polygon.bounds[1] < -80
+            else "EPSG:" + results[0].code if len(results) > 0 else "EPSG:4087"
         )
     )
 
@@ -248,7 +252,9 @@ def collect_ground_track(
     # at each point, draw a buffer equivalent to the swath radius
     if crs == "utm":
         # do the swath projection in the matching utm zone
-        utm_crs = gdf.geometry.apply(_get_utm_epsg_code)
+        utm_crs = gdf.apply(
+            lambda r: _get_utm_epsg_code(r.geometry, r.swath_width), axis=1
+        )
         for code in utm_crs.unique():
             to_crs = pyproj.Transformer.from_crs(
                 gdf.crs, pyproj.CRS(code), always_xy=True
@@ -257,24 +263,22 @@ def collect_ground_track(
                 pyproj.CRS(code), gdf.crs, always_xy=True
             ).transform
             if code in ("EPSG:5041", "EPSG:5042"):
-                # keep polygons 500km away from UPS poles and apply zero buffer
-                # to mitigate invalid polygons near poles in EPSG:4087
+                # keep polygons away from UPS poles to encourage proper geometry
                 gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
                     lambda r: transform(
                         from_crs,
                         transform(to_crs, r.geometry)
                         .buffer(r.swath_width / 2)
-                        .difference(Point(2e6, 2e6, 0).buffer(5e5)),
-                    ).buffer(0),
+                        .difference(Point(2e6, 2e6, 0).buffer(r.swath_width / 5)),
+                    ),
                     axis=1,
                 )
             else:
-                # apply zero buffer to mitigate invalid polygons in EPSG:4087
                 gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
                     lambda r: transform(
                         from_crs,
                         transform(to_crs, r.geometry).buffer(r.swath_width / 2),
-                    ).buffer(0),
+                    ),
                     axis=1,
                 )
     else:
@@ -317,9 +321,9 @@ def collect_ground_track(
     # split polygons to wrap over the anti-meridian and poles
     gdf.geometry = gdf.apply(lambda r: split_polygon(r.geometry), axis=1)
 
-    if mask is None:
-        return gdf
-    return gpd.clip(gdf, mask).reset_index(drop=True)
+    if mask is not None:
+        gdf = gpd.clip(gdf, mask).reset_index(drop=True)
+    return gdf
 
 
 def compute_ground_track(
@@ -355,11 +359,14 @@ def compute_ground_track(
         GeoDataFrame: The data frame of aggregated ground track results.
     """
     if method == "point":
-        track = collect_ground_track(satellite, instrument, times, elevation, mask, crs)
+        track = collect_ground_track(satellite, instrument, times, elevation, None, crs)
         # filter to valid observations and dissolve
-        return track[track.valid_obs].dissolve()
+        track = track[track.valid_obs].dissolve()
+        if mask is not None:
+            track = gpd.clip(track, mask).reset_index(drop=True)
+        return track
     if method == "line":
-        track = collect_orbit_track(satellite, instrument, times, elevation, mask)
+        track = collect_orbit_track(satellite, instrument, times, elevation, None)
         # assign track identifiers to group contiguous observation periods
         track["track_id"] = (
             (track.valid_obs != track.valid_obs.shift()).astype("int").cumsum()
@@ -442,5 +449,7 @@ def compute_ground_track(
         track = track.dissolve()
         # and replace the geometry with the union of computed polygons
         track.geometry = [unary_union(polygons)]
+        if mask is not None:
+            track = gpd.clip(track, mask).reset_index(drop=True)
         return track
     raise ValueError("Invalid method: " + str(method))
