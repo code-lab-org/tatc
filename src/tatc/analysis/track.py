@@ -72,8 +72,8 @@ class OrbitOutput(str, Enum):
 
 def collect_orbit_track(
     satellite: Satellite,
-    instrument: Instrument,
     times: List[datetime],
+    instrument_index: int = 0,
     elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     coordinates: OrbitCoordinate = OrbitCoordinate.WGS84,
@@ -84,7 +84,7 @@ def collect_orbit_track(
 
     Args:
         satellite (Satellite): The observing satellite.
-        instrument (Instrument): The observing instrument.
+        instrument_index (int): The index of the observing instrument in satellite.
         times (typing.List[datetime.datetime]): The list of times to sample.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate swath width.
@@ -97,6 +97,8 @@ def collect_orbit_track(
     """
     if len(times) == 0:
         return _get_empty_orbit_track()
+    # select the observing instrument
+    instrument = satellite.instruments[instrument_index]
     # convert orbit to tle
     orbit = satellite.orbit.to_tle()
     # construct a satellite for propagation
@@ -218,8 +220,8 @@ def _get_utm_epsg_code(point: Point, swath_width: float) -> str:
 
 def collect_ground_track(
     satellite: Satellite,
-    instrument: Instrument,
     times: List[datetime],
+    instrument_index: int = 0,
     elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     crs: str = "EPSG:4087",
@@ -229,7 +231,7 @@ def collect_ground_track(
 
     Args:
         satellite (Satellite): The observing satellite.
-        instrument (Instrument): The observing instrument.
+        instrument_index (int): The index of the observing instrument in satellite.
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate ground track.
@@ -243,8 +245,8 @@ def collect_ground_track(
     Returns:
         geopandas.GeoDataFrame: The data frame of collected ground track results.
     """
-    # first, compute the orbit track of the satellite
-    gdf = collect_orbit_track(satellite, instrument, times, elevation, mask)
+    # compute the orbit track of the satellite
+    gdf = collect_orbit_track(satellite, times, instrument_index, elevation, mask)
     if gdf.empty:
         return gdf
     # project points to specified elevation
@@ -328,8 +330,8 @@ def collect_ground_track(
 
 def compute_ground_track(
     satellite: Satellite,
-    instrument: Instrument,
     times: List[datetime],
+    instrument_index: int = 0,
     elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     crs: str = "EPSG:4087",
@@ -340,7 +342,7 @@ def compute_ground_track(
 
     Args:
         satellite (Satellite): The observing satellite.
-        instrument (Instrument): The observing instrument.
+        instrument_index (int): The index of the observing instrument in satellite.
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate ground track.
@@ -359,14 +361,14 @@ def compute_ground_track(
         GeoDataFrame: The data frame of aggregated ground track results.
     """
     if method == "point":
-        track = collect_ground_track(satellite, instrument, times, elevation, None, crs)
+        track = collect_ground_track(satellite, times, instrument_index, elevation, None, crs)
         # filter to valid observations and dissolve
         track = track[track.valid_obs].dissolve()
         if mask is not None:
             track = gpd.clip(track, mask).reset_index(drop=True)
         return track
     if method == "line":
-        track = collect_orbit_track(satellite, instrument, times, elevation, None)
+        track = collect_orbit_track(satellite, times, instrument_index, elevation, None)
         # assign track identifiers to group contiguous observation periods
         track["track_id"] = (
             (track.valid_obs != track.valid_obs.shift()).astype("int").cumsum()
