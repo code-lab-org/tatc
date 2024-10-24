@@ -84,8 +84,8 @@ def collect_orbit_track(
 
     Args:
         satellite (Satellite): The observing satellite.
-        instrument_index (int): The index of the observing instrument in satellite.
         times (typing.List[datetime.datetime]): The list of times to sample.
+        instrument_index (int): The index of the observing instrument in satellite.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate swath width.
         mask (Polygon or MultiPolygon): An optional mask to constrain results.

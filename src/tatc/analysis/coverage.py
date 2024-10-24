@@ -269,9 +269,9 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
 def collect_observations(
     point: Point,
     satellite: Satellite,
-    instrument: Instrument,
     start: datetime,
     end: datetime,
+    instrument_index: int = 0,
     omit_solar: bool = True,
 ) -> gpd.GeoDataFrame:
     """
@@ -283,6 +283,7 @@ def collect_observations(
         instrument (Instrument): The observing instrument.
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
+        instrument_index (int): The index of the observing instrument in satellite.
         omit_solar (bool): `True`, to omit solar angles to improve
             computational efficiency; otherwise `False`.
 
@@ -300,6 +301,7 @@ def collect_observations(
         sat.at(timescale.from_datetime(start))
     ).elevation.m
     # compute the minimum altitude angle required for observation
+    instrument = satellite.instruments[instrument_index]
     min_elevation_angle = compute_min_elevation_angle(
         satellite_altitude,
         instrument.field_of_regard,
@@ -376,12 +378,12 @@ def collect_multi_observations(
         geopandas.GeoDataFrame: The data frame with all recorded observations.
     """
     gdfs = [
-        collect_observations(point, satellite, instrument, start, end, omit_solar)
+        collect_observations(point, satellite, start, end, instrument_index, omit_solar)
         for constellation in (
             satellites if isinstance(satellites, list) else [satellites]
         )
         for satellite in (constellation.generate_members())
-        for instrument in satellite.instruments
+        for instrument_index in range(len(satellite.instruments))
     ]
     # concatenate into one data frame, sort by start time, and re-index
     return pd.concat(gdfs).sort_values("start").reset_index(drop=True)

@@ -42,9 +42,9 @@ class TestCoverageAnalysis(unittest.TestCase):
         results = collect_observations(
             self.point,
             self.satellite,
-            self.instrument,
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 2, tzinfo=timezone.utc),
+            instrument_index=0,
             omit_solar=True,
         )
 
@@ -52,9 +52,9 @@ class TestCoverageAnalysis(unittest.TestCase):
         results = collect_observations(
             self.point,
             self.satellite,
-            self.instrument,
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 2, tzinfo=timezone.utc),
+            instrument_index=0,
             omit_solar=False,
         )
 
@@ -64,7 +64,20 @@ class TestCoverageAnalysis(unittest.TestCase):
         results = collect_observations(
             self.point,
             self.satellite,
-            self.instrument,
+            start,
+            end,
+            instrument_index=0,
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results.iloc[0].start, start)
+        self.assertEqual(results.iloc[0].end, end)
+
+    def test_collect_observations_all_culminate_no_instrument_index(self):
+        start = datetime(2022, 6, 1, 0, 43, tzinfo=timezone.utc)
+        end = datetime(2022, 6, 1, 0, 45, tzinfo=timezone.utc)
+        results = collect_observations(
+            self.point,
+            self.satellite,
             start,
             end,
         )
@@ -78,9 +91,9 @@ class TestCoverageAnalysis(unittest.TestCase):
         results = collect_observations(
             self.point,
             self.satellite,
-            self.instrument,
             start,
             end,
+            instrument_index=0,
         )
         self.assertEqual(len(results), 1)
         self.assertEqual(results.iloc[0].start, start)
@@ -91,9 +104,9 @@ class TestCoverageAnalysis(unittest.TestCase):
         results = collect_observations(
             self.point,
             self.satellite,
-            self.instrument,
             start,
             end,
+            instrument_index=0,
         )
         self.assertEqual(len(results), 1)
         self.assertEqual(results.iloc[0].end, end)
@@ -104,9 +117,9 @@ class TestCoverageAnalysis(unittest.TestCase):
         results = collect_observations(
             self.point,
             self.satellite,
-            self.instrument,
             start,
             end,
+            instrument_index=0,
         )
         self.assertTrue(results.empty)
 
@@ -114,7 +127,7 @@ class TestCoverageAnalysis(unittest.TestCase):
         start = datetime(2022, 6, 1, tzinfo=timezone.utc)
         end = datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc)
         results = collect_observations(
-            self.point, self.satellite, self.instrument, start, end, omit_solar=False
+            self.point, self.satellite, start, end, instrument_index=0, omit_solar=False
         )
         self.assertTrue(results.empty)
 
