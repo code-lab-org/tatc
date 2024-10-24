@@ -12,4 +12,5 @@ from .satellite import (
     WalkerConfiguration,
     WalkerConstellation,
     MOGConstellation,
+    SOCConstellation,
 )
