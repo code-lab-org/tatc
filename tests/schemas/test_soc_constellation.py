@@ -16,11 +16,10 @@ class TestSOCConstellation(unittest.TestCase):
                     "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
                     "2 25544  51.6455  41.4969 0003508  68.0432  78.3395 15.48957534286754",
                 ],
-                "altitude": 78000
+                "altitude": 780000,
+                "inclination": 86.4,
             },
             "instruments": [{"name": "Test Instrument", "field_of_regard": 180.0}],
-            "inclination": 86.4,
-            "altitude": 780000,
             "swath_width": field_of_regard_to_swath_width(altitude=780000, field_of_regard=150),
             "packing_distance": 1
         }
@@ -35,12 +34,6 @@ class TestSOCConstellation(unittest.TestCase):
         self.assertEqual(
             self.d420_con.instruments[0],
             Instrument(**self.d420_data.get("instruments")[0]),
-        )
-        self.assertEqual(
-            self.d420_con.inclination, self.d420_data.get("inclination")
-        )
-        self.assertEqual(
-            self.d420_con.altitude, self.d420_data.get("altitude")
         )
         self.assertEqual(
             self.d420_con.swath_width, self.d420_data.get("swath_width")

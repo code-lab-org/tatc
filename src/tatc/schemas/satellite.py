@@ -408,8 +408,6 @@ class SOCConstellation(Satellite):
     orbit: CircularOrbit = Field(
         ..., description="Reference circular orbit for this constellation."
     )
-    inclination: float = Field(0, description="Inclination (degrees).", ge=0, le=180)
-    altitude: float = Field(..., description="Mean altitude (meters).", gt=0)
     swath_width: float = Field(
         ..., description="Observation diameter (meters) at specified elevation.", gt=0
     )
@@ -426,14 +424,14 @@ class SOCConstellation(Satellite):
         """
         # compute min elevation angle
         e = compute_min_elevation_angle(
-            altitude=self.altitude,
+            altitude=self.orbit.altitude,
             field_of_regard=swath_width_to_field_of_regard(
-                altitude=self.altitude, swath_width=self.swath_width
+                altitude=self.orbit.altitude, swath_width=self.swath_width
             ),
         )
 
         # nadir angle (degrees) [Eq. (19) in Anderson et al. (2022)]
-        eta = math.degrees(math.asin((EARTH_MEAN_RADIUS / (EARTH_MEAN_RADIUS + self.altitude)) * math.cos(math.radians(e))))
+        eta = math.degrees(math.asin((EARTH_MEAN_RADIUS / (EARTH_MEAN_RADIUS + self.orbit.altitude)) * math.cos(math.radians(e))))
 
         # compute gamma (earth central angle) [Eq. (20) in Anderson et al. (2022)]
         gamma = 90 - e - eta
