@@ -25,7 +25,8 @@ def _collect_ro_series(
     ts: Time,
     rx_pv: ICRF,
     rx_n_u: List[float],
-    max_azimuth: float,
+    rx_t_u: List[float],
+    max_yaw: float,
     range_elevation: Tuple[float],
 ):
     # construct transmitter
@@ -97,17 +98,33 @@ def _collect_ro_series(
     tp_sign = np.sign(
         np.einsum("ij,ij->j", tp_p - tx_pv.position.m, tp_p - rx_pv.position.m)
     )
-    # relative transmitter position from receiver in receiver orbit plane
-    rx_tx_p_rx_plane = rx_tx_pv.position.m - np.einsum(
+    # relative transmitter position from receiver in plane normal to receiver orbit
+    rx_tx_p_rx_n_plane = rx_tx_pv.position.m - np.einsum(
         "ij,j->ij", rx_n_u, np.einsum("ij,ij->j", rx_n_u, rx_tx_pv.position.m)
     )
-    # transmitter azimuth angle in receiver body-fixed frame
-    rx_tx_azimuth = np.degrees(
+    # relative transmitter position from receiver in plane tangent to receiver orbit
+    rx_tx_p_rx_t_plane = rx_tx_pv.position.m - np.einsum(
+        "ij,j->ij", rx_t_u, np.einsum("ij,ij->j", rx_t_u, rx_tx_pv.position.m)
+    )
+    # transmitter pitch angle in receiver body-fixed frame
+    rx_tx_pitch = np.degrees(
         np.arccos(
             np.divide(
-                np.einsum("ij,ij->j", rx_tx_p_rx_plane, rx_pv.velocity.m_per_s),
+                np.einsum("ij,ij->j", rx_tx_p_rx_n_plane, rx_pv.velocity.m_per_s),
                 np.multiply(
-                    np.linalg.norm(rx_tx_p_rx_plane, axis=0),
+                    np.linalg.norm(rx_tx_p_rx_n_plane, axis=0),
+                    np.linalg.norm(rx_pv.velocity.m_per_s, axis=0),
+                ),
+            )
+        )
+    )
+    # transmitter yaw angle in receiver body-fixed frame
+    rx_tx_yaw = np.degrees(
+        np.arccos(
+            np.divide(
+                np.einsum("ij,ij->j", rx_tx_p_rx_t_plane, rx_pv.velocity.m_per_s),
+                np.multiply(
+                    np.linalg.norm(rx_tx_p_rx_t_plane, axis=0),
                     np.linalg.norm(rx_pv.velocity.m_per_s, axis=0),
                 ),
             )
@@ -119,7 +136,7 @@ def _collect_ro_series(
     occ_arc = None
     # valid if tangent point intersects and transmitter view angle below maximum
     valid = np.logical_and(
-        tp_sign < 0, rx_tx_azimuth % (180 - max_azimuth) < max_azimuth
+        tp_sign < 0, rx_tx_yaw % (180 - max_yaw) < max_yaw
     )
     # events occur when validity changes value
     is_event = np.diff(valid)
@@ -143,7 +160,7 @@ def _collect_ro_series(
                 # start of new RO observation
                 occ_arc = {
                     "tx": tx.name,
-                    "is_rising": rx_tx_azimuth[j] < max_azimuth,
+                    "is_rising": rx_tx_pitch[j] < 90,
                     "points": [],
                 }
 
@@ -154,7 +171,8 @@ def _collect_ro_series(
                 {
                     "time": ts[j].utc_datetime(),
                     "tangent_point": tpp_geo,
-                    "rx_tx_azimuth": rx_tx_azimuth[j] % (180 - max_azimuth),
+                    "rx_tx_pitch": rx_tx_pitch[j],
+                    "rx_tx_yaw": rx_tx_yaw[j],
                     "tp_tx_azimuth": tp_tx_azmimuth,
                 }
             )
@@ -174,7 +192,7 @@ def collect_ro_observations(
     transmitters: Union[Satellite, List[Satellite]],
     times: List[datetime],
     sample_elevation: float = 0,
-    max_azimuth: float = 65,
+    max_yaw: float = 65,
     range_elevation: Tuple[float] = (-200e3, 60e3),
 ) -> gpd.GeoDataFrame:
     """
@@ -185,7 +203,7 @@ def collect_ro_observations(
         transmitters (typing.Union[Satellite,typing.List[Satellite]]): the satellite(s) with a RO transmitter.
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
         sample_elevation: (float): the elevation (m) at which to sample observation attributes.
-        max_azimuth (float): the maximum transmitter azimuth angle (from receiver body-fixed frame) for a valid obsevation.
+        max_yaw (float): the maximum transmitter yaw angle (from receiver body-fixed frame) for a valid obsevation.
         range_elevation: (typing.Tuple[float]): the lower and upper bound on tangent point elevation (m) for a valid observation.
     """
     # construct receiver
@@ -201,12 +219,14 @@ def collect_ro_observations(
         np.cross(rx_pv.position.m.T[:, None, :], rx_pv.velocity.m_per_s.T[None, :, :]),
     ).T
     rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
+    # unit vector tangent to receiver orbit plane
+    rx_t_u = np.divide(rx_pv.position.m, np.linalg.norm(rx_pv.position.m, axis=0))
     # generate observations
     obs = list(
         chain.from_iterable(
             [
                 _collect_ro_series(
-                    transmitter, ts, rx_pv, rx_n_u, max_azimuth, range_elevation
+                    transmitter, ts, rx_pv, rx_n_u, rx_t_u, max_yaw, range_elevation
                 )
                 for transmitter in (
                     transmitters if isinstance(transmitters, list) else [transmitters]
@@ -236,7 +256,8 @@ def collect_ro_observations(
                     o["points"][sample_index]["tangent_point"].latitude.degrees,
                     o["points"][sample_index]["tangent_point"].elevation.m,
                 ),
-                "rx_tx_azimuth": o["points"][sample_index]["rx_tx_azimuth"],
+                "rx_tx_pitch": o["points"][sample_index]["rx_tx_pitch"],
+                "rx_tx_yaw": o["points"][sample_index]["rx_tx_yaw"],
                 "tp_tx_azimuth": o["points"][sample_index]["tp_tx_azimuth"],
                 "start": o["points"][0]["time"],
                 "end": o["points"][-1]["time"],
