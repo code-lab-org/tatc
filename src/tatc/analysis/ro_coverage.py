@@ -26,6 +26,7 @@ def _collect_ro_series(
     rx_pv: ICRF,
     rx_n_u: List[float],
     rx_t_u: List[float],
+    rx_o_u: List[float],
     max_yaw: float,
     range_elevation: Tuple[float],
 ):
@@ -108,35 +109,25 @@ def _collect_ro_series(
     )
     # transmitter pitch angle in receiver body-fixed frame
     rx_tx_pitch = np.degrees(
-        np.arccos(
-            np.divide(
-                np.einsum("ij,ij->j", rx_tx_p_rx_n_plane, rx_pv.velocity.m_per_s),
-                np.multiply(
-                    np.linalg.norm(rx_tx_p_rx_n_plane, axis=0),
-                    np.linalg.norm(rx_pv.velocity.m_per_s, axis=0),
-                ),
-            )
+        np.arctan2(
+            np.einsum("ij,ij->j", rx_tx_p_rx_n_plane, rx_t_u),
+            np.einsum("ij,ij->j", rx_tx_p_rx_n_plane, rx_o_u)
         )
     )
     # transmitter yaw angle in receiver body-fixed frame
     rx_tx_yaw = np.degrees(
-        np.arccos(
-            np.divide(
-                np.einsum("ij,ij->j", rx_tx_p_rx_t_plane, rx_pv.velocity.m_per_s),
-                np.multiply(
-                    np.linalg.norm(rx_tx_p_rx_t_plane, axis=0),
-                    np.linalg.norm(rx_pv.velocity.m_per_s, axis=0),
-                ),
-            )
+        np.arctan2(
+            np.einsum("ij,ij->j", rx_tx_p_rx_t_plane, rx_n_u),
+            np.einsum("ij,ij->j", rx_tx_p_rx_t_plane, rx_o_u)
         )
     )
     # occultation observations
     occ_obs = []
     # occultation arc
     occ_arc = None
-    # valid if tangent point intersects and transmitter view angle below maximum
+    # valid if tangent point intersects and yaw angle below maximum
     valid = np.logical_and(
-        tp_sign < 0, rx_tx_yaw % (180 - max_yaw) < max_yaw
+        tp_sign < 0, np.abs(rx_tx_yaw) % (180 - max_yaw) < max_yaw
     )
     # events occur when validity changes value
     is_event = np.diff(valid)
@@ -160,7 +151,7 @@ def _collect_ro_series(
                 # start of new RO observation
                 occ_arc = {
                     "tx": tx.name,
-                    "is_rising": rx_tx_pitch[j] < 90,
+                    "is_rising": rx_tx_pitch[j] > -90,
                     "points": [],
                 }
 
@@ -221,12 +212,14 @@ def collect_ro_observations(
     rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
     # unit vector tangent to receiver orbit plane
     rx_t_u = np.divide(rx_pv.position.m, np.linalg.norm(rx_pv.position.m, axis=0))
+    # unit vector orthogonal to receiver orbit plane
+    rx_o_u = np.divide(rx_pv.velocity.m_per_s, np.linalg.norm(rx_pv.velocity.m_per_s, axis=0))
     # generate observations
     obs = list(
         chain.from_iterable(
             [
                 _collect_ro_series(
-                    transmitter, ts, rx_pv, rx_n_u, rx_t_u, max_yaw, range_elevation
+                    transmitter, ts, rx_pv, rx_n_u, rx_t_u, rx_o_u, max_yaw, range_elevation
                 )
                 for transmitter in (
                     transmitters if isinstance(transmitters, list) else [transmitters]
