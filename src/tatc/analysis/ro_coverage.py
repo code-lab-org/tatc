@@ -24,9 +24,9 @@ def _collect_ro_series(
     transmitter: Satellite,
     ts: Time,
     rx_pv: ICRF,
+    rx_v_u: List[float],
     rx_n_u: List[float],
-    rx_t_u: List[float],
-    rx_o_u: List[float],
+    rx_b_u: List[float],
     max_yaw: float,
     range_elevation: Tuple[float],
 ):
@@ -103,22 +103,22 @@ def _collect_ro_series(
     rx_tx_p_rx_n_plane = rx_tx_pv.position.m - np.einsum(
         "ij,j->ij", rx_n_u, np.einsum("ij,ij->j", rx_n_u, rx_tx_pv.position.m)
     )
-    # relative transmitter position from receiver in plane tangent to receiver orbit
+    # relative transmitter position from receiver in plane binormal to receiver orbit
     rx_tx_p_rx_t_plane = rx_tx_pv.position.m - np.einsum(
-        "ij,j->ij", rx_t_u, np.einsum("ij,ij->j", rx_t_u, rx_tx_pv.position.m)
+        "ij,j->ij", rx_b_u, np.einsum("ij,ij->j", rx_b_u, rx_tx_pv.position.m)
     )
     # transmitter pitch angle in receiver body-fixed frame
     rx_tx_pitch = np.degrees(
         np.arctan2(
-            np.einsum("ij,ij->j", rx_tx_p_rx_n_plane, rx_t_u),
-            np.einsum("ij,ij->j", rx_tx_p_rx_n_plane, rx_o_u)
+            np.einsum("ij,ij->j", rx_tx_p_rx_n_plane, rx_b_u),
+            np.einsum("ij,ij->j", rx_tx_p_rx_n_plane, rx_v_u)
         )
     )
     # transmitter yaw angle in receiver body-fixed frame
     rx_tx_yaw = np.degrees(
         np.arctan2(
             np.einsum("ij,ij->j", rx_tx_p_rx_t_plane, rx_n_u),
-            np.einsum("ij,ij->j", rx_tx_p_rx_t_plane, rx_o_u)
+            np.einsum("ij,ij->j", rx_tx_p_rx_t_plane, rx_v_u)
         )
     )
     # occultation observations
@@ -204,22 +204,22 @@ def collect_ro_observations(
     ts = timescale.from_datetimes(times)
     # receiver position, velocity
     rx_pv = rx.at(ts)
-    # unit vector normal to receiver orbit plane
+    # unit vector tangent to receiver orbit plane (VNB x-axis)
+    rx_v_u = np.divide(rx_pv.velocity.m_per_s, np.linalg.norm(rx_pv.velocity.m_per_s, axis=0))
+    # unit vector normal to receiver orbit plane (VNB y-axis)
     rx_n_u = np.einsum(
         "iik->ik",
         np.cross(rx_pv.position.m.T[:, None, :], rx_pv.velocity.m_per_s.T[None, :, :]),
     ).T
     rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
-    # unit vector tangent to receiver orbit plane
-    rx_t_u = np.divide(rx_pv.position.m, np.linalg.norm(rx_pv.position.m, axis=0))
-    # unit vector orthogonal to receiver orbit plane
-    rx_o_u = np.divide(rx_pv.velocity.m_per_s, np.linalg.norm(rx_pv.velocity.m_per_s, axis=0))
+    # unit vector orthogonal to receiver orbit plane (VNB z-axis)
+    rx_b_u = np.divide(rx_pv.position.m, np.linalg.norm(rx_pv.position.m, axis=0))
     # generate observations
     obs = list(
         chain.from_iterable(
             [
                 _collect_ro_series(
-                    transmitter, ts, rx_pv, rx_n_u, rx_t_u, rx_o_u, max_yaw, range_elevation
+                    transmitter, ts, rx_pv, rx_v_u, rx_n_u, rx_b_u, max_yaw, range_elevation
                 )
                 for transmitter in (
                     transmitters if isinstance(transmitters, list) else [transmitters]
