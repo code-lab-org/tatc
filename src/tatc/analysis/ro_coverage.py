@@ -111,14 +111,14 @@ def _collect_ro_series(
     rx_tx_pitch = np.degrees(
         np.arctan2(
             np.einsum("ij,ij->j", rx_tx_p_rx_n_plane, rx_b_u),
-            np.einsum("ij,ij->j", rx_tx_p_rx_n_plane, rx_v_u)
+            np.einsum("ij,ij->j", rx_tx_p_rx_n_plane, rx_v_u),
         )
     )
     # transmitter yaw angle in receiver body-fixed frame
     rx_tx_yaw = np.degrees(
         np.arctan2(
             np.einsum("ij,ij->j", rx_tx_p_rx_t_plane, rx_n_u),
-            np.einsum("ij,ij->j", rx_tx_p_rx_t_plane, rx_v_u)
+            np.einsum("ij,ij->j", rx_tx_p_rx_t_plane, rx_v_u),
         )
     )
     # occultation observations
@@ -126,9 +126,7 @@ def _collect_ro_series(
     # occultation arc
     occ_arc = None
     # valid if tangent point intersects and yaw angle below maximum
-    valid = np.logical_and(
-        tp_sign < 0, np.abs(rx_tx_yaw) % (180 - max_yaw) < max_yaw
-    )
+    valid = np.logical_and(tp_sign < 0, np.abs(rx_tx_yaw) % (180 - max_yaw) < max_yaw)
     # events occur when validity changes value
     is_event = np.diff(valid)
     # loop over valid times
@@ -205,7 +203,9 @@ def collect_ro_observations(
     # receiver position, velocity
     rx_pv = rx.at(ts)
     # unit vector tangent to receiver orbit plane (VNB x-axis)
-    rx_v_u = np.divide(rx_pv.velocity.m_per_s, np.linalg.norm(rx_pv.velocity.m_per_s, axis=0))
+    rx_v_u = np.divide(
+        rx_pv.velocity.m_per_s, np.linalg.norm(rx_pv.velocity.m_per_s, axis=0)
+    )
     # unit vector normal to receiver orbit plane (VNB y-axis)
     rx_n_u = np.einsum(
         "iik->ik",
@@ -219,7 +219,14 @@ def collect_ro_observations(
         chain.from_iterable(
             [
                 _collect_ro_series(
-                    transmitter, ts, rx_pv, rx_v_u, rx_n_u, rx_b_u, max_yaw, range_elevation
+                    transmitter,
+                    ts,
+                    rx_pv,
+                    rx_v_u,
+                    rx_n_u,
+                    rx_b_u,
+                    max_yaw,
+                    range_elevation,
                 )
                 for transmitter in (
                     transmitters if isinstance(transmitters, list) else [transmitters]
