@@ -431,7 +431,12 @@ class SOCConstellation(Satellite):
         )
 
         # nadir angle (degrees) [Eq. (19) in Anderson et al. (2022)]
-        eta = math.degrees(math.asin((EARTH_MEAN_RADIUS / (EARTH_MEAN_RADIUS + self.orbit.altitude)) * math.cos(math.radians(e))))
+        eta = math.degrees(
+            math.asin(
+                (EARTH_MEAN_RADIUS / (EARTH_MEAN_RADIUS + self.orbit.altitude))
+                * math.cos(math.radians(e))
+            )
+        )
 
         # compute gamma (earth central angle) [Eq. (20) in Anderson et al. (2022)]
         gamma = 90 - e - eta

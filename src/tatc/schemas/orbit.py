@@ -626,3 +626,155 @@ class KeplerianOrbit(CircularOrbit):
         )
         tle1, tle2 = exporter.export_tle(satrec)
         return TwoLineElements(tle=[tle1.replace("\x00", "U"), tle2])
+
+
+class MolniyaOrbit(OrbitBase):
+    """
+    Orbit defined by Molniya parameters. The altitude parameter is considered the altitude at perigee.
+    """
+
+    type: Literal["molniya"] = Field("molniya", description="Orbit type discriminator.")
+    inclination: float = Field(0, description="Inclination (degrees).", ge=0, lt=180)
+    right_ascension_ascending_node: float = Field(
+        0, description="Right ascension of ascending node (degrees).", ge=0, lt=360
+    )
+    orbital_period: float = Field(43080, description="Orbital period (seconds).", gt=0)
+    perigee_argument: float = Field(
+        0, description="Perigee argument (degrees).", ge=0, lt=360
+    )
+
+    def get_semimajor_axis(self) -> float:
+        gravitational_constant = 6.6743e-11
+        earth_mass = 5.9736e24
+
+        return np.cbrt(
+            gravitational_constant
+            * earth_mass
+            * (self.orbital_period**2)
+            / (4 * (np.pi**2))
+        )
+
+    def get_eccentricity(self) -> float:
+        """
+        Gets the eccentricity (float between 0 and 1).
+
+        Returns:
+            float: the eccentricity
+        """
+        semimajor_axis = self.get_semimajor_axis()
+        return (
+            semimajor_axis - (self.altitude + constants.EARTH_EQUATORIAL_RADIUS)
+        ) / semimajor_axis
+
+    def get_mean_anomaly(self) -> float:
+        """
+        Gets the mean anomaly (decimal degrees).
+
+        Returns:
+            float: the mean anomaly
+        """
+        return utils.true_anomaly_to_mean_anomaly(
+            self.true_anomaly, self.get_eccentricity()
+        )
+
+    def get_derived_orbit(
+        self, delta_mean_anomaly: float, delta_raan: float
+    ) -> MolniyaOrbit:
+        """
+        Gets a derived orbit with perturbations to the mean anomaly and right
+        ascension of ascending node.
+
+        Args:
+            delta_mean_anomaly (float):  Delta mean anomaly (degrees).
+            delta_raan (float):  Delta right ascension of ascending node (degrees).
+
+        Returns:
+            Molniya Orbit: the derived orbit
+        """
+        true_anomaly = utils.mean_anomaly_to_true_anomaly(
+            np.mod(self.get_mean_anomaly() + delta_mean_anomaly, 360),
+            eccentricity=self.get_eccentricity(),
+        )
+        raan = np.mod(self.right_ascension_ascending_node + delta_raan, 360)
+        return MolniyaOrbit(
+            altitude=self.altitude,
+            true_anomaly=true_anomaly,
+            epoch=self.epoch,
+            inclination=self.inclination,
+            right_ascension_ascending_node=raan,
+            eccentricity=self.get_eccentricity(),
+            perigee_argument=self.perigee_argument,
+        )
+
+    def to_tle(self) -> TwoLineElements:
+        """
+        Converts this orbit to a two line elements representation.
+
+        Returns:
+            TwoLineElements: the two line elements orbit
+        """
+        satrec = Satrec()
+        satrec.sgp4init(
+            WGS72,
+            "i",
+            0,
+            (self.epoch - datetime(1949, 12, 31, tzinfo=timezone.utc))
+            / timedelta(days=1),
+            0,
+            0.0,
+            0.0,
+            self.get_eccentricity(),
+            np.radians(self.perigee_argument),
+            np.radians(self.inclination),
+            np.radians(self.get_mean_anomaly()),
+            2 * np.pi / (self.orbital_period / 60),
+            np.radians(self.right_ascension_ascending_node),
+        )
+        tle1, tle2 = exporter.export_tle(satrec)
+        return TwoLineElements(tle=[tle1.replace("\x00", "U"), tle2])
+
+
+class TundraOrbit(MolniyaOrbit):
+    """
+    Orbit defined by Tundra parameters, inherits the Molniya class.
+    """
+
+    type: Literal["tundra"] = Field("tundra", description="Orbit type discriminator.")
+    inclination: float = Field(63.4, description="Inclination (degrees).", ge=0, lt=180)
+    orbital_period: float = Field(86400, description="Orbital period (seconds).", gt=0)
+    perigee_argument: float = Field(
+        270, description="Perigee argument (degrees).", ge=0, lt=360
+    )
+    eccentricity: float = Field(0.2, description="Eccentricity.", ge=0)
+
+    def get_eccentricity(self):
+        return self.eccentricity
+
+    def get_derived_orbit(
+        self, delta_mean_anomaly: float, delta_raan: float
+    ) -> TundraOrbit:
+        """
+        Gets a derived orbit with perturbations to the mean anomaly and right
+        ascension of ascending node.
+
+        Args:
+            delta_mean_anomaly (float):  Delta mean anomaly (degrees).
+            delta_raan (float):  Delta right ascension of ascending node (degrees).
+
+        Returns:
+            Tundra Orbit: the derived orbit
+        """
+        true_anomaly = utils.mean_anomaly_to_true_anomaly(
+            np.mod(self.get_mean_anomaly() + delta_mean_anomaly, 360),
+            eccentricity=self.get_eccentricity(),
+        )
+        raan = np.mod(self.right_ascension_ascending_node + delta_raan, 360)
+        return TundraOrbit(
+            altitude=self.altitude,
+            true_anomaly=true_anomaly,
+            epoch=self.epoch,
+            inclination=self.inclination,
+            right_ascension_ascending_node=raan,
+            eccentricity=self.eccentricity,
+            perigee_argument=self.perigee_argument,
+        )

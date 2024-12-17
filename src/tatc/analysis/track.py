@@ -361,7 +361,9 @@ def compute_ground_track(
         GeoDataFrame: The data frame of aggregated ground track results.
     """
     if method == "point":
-        track = collect_ground_track(satellite, times, instrument_index, elevation, None, crs)
+        track = collect_ground_track(
+            satellite, times, instrument_index, elevation, None, crs
+        )
         # filter to valid observations and dissolve
         track = track[track.valid_obs].dissolve()
         if mask is not None:

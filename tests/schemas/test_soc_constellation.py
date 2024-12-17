@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from tatc.utils import field_of_regard_to_swath_width
 from tatc.schemas import SOCConstellation, CircularOrbit, Instrument
 
+
 class TestSOCConstellation(unittest.TestCase):
     def setUp(self):
         self.d420_data = {
@@ -20,11 +21,13 @@ class TestSOCConstellation(unittest.TestCase):
                 "inclination": 86.4,
             },
             "instruments": [{"name": "Test Instrument", "field_of_regard": 180.0}],
-            "swath_width": field_of_regard_to_swath_width(altitude=780000, field_of_regard=150),
-            "packing_distance": 1
+            "swath_width": field_of_regard_to_swath_width(
+                altitude=780000, field_of_regard=150
+            ),
+            "packing_distance": 1,
         }
         self.d420_con = SOCConstellation(**self.d420_data)
-    
+
     def test_constructor(self):
         self.assertEqual(self.d420_con.name, self.d420_data.get("name"))
         self.assertEqual(
@@ -35,20 +38,20 @@ class TestSOCConstellation(unittest.TestCase):
             self.d420_con.instruments[0],
             Instrument(**self.d420_data.get("instruments")[0]),
         )
-        self.assertEqual(
-            self.d420_con.swath_width, self.d420_data.get("swath_width")
-        )
+        self.assertEqual(self.d420_con.swath_width, self.d420_data.get("swath_width"))
         self.assertEqual(
             self.d420_con.packing_distance, self.d420_data.get("packing_distance")
         )
 
     def test_get_num_satellites(self):
         self.assertEqual(
-            len(self.d420_con.generate_members()), self.d420_con.generate_walker().number_satellites
+            len(self.d420_con.generate_members()),
+            self.d420_con.generate_walker().number_satellites,
         )
-    
+
     def test_get_satellites_per_plane(self):
         self.assertEqual(
-            self.d420_con.generate_walker().number_satellites / self.d420_con.generate_walker().number_planes,
-            7
+            self.d420_con.generate_walker().number_satellites
+            / self.d420_con.generate_walker().number_planes,
+            7,
         )

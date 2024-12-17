@@ -27,3 +27,17 @@ Keplerian Orbit
 .. autopydantic_model:: tatc.schemas.KeplerianOrbit
   :members:
   :inherited-members: BaseModel
+
+Molniya Orbit
+---------------
+
+.. autopydantic_model:: tatc.schemas.MolniyaOrbit
+  :members:
+  :inherited-members: BaseModel
+
+Tundra Orbit
+---------------
+
+.. autopydantic_model:: tatc.schemas.TundraOrbit
+  :members:
+  :inherited-members: BaseModel
