@@ -292,13 +292,9 @@ def collect_observations(
     """
     # build a topocentric point at the designated geodetic point
     topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
-    # convert orbit to tle
-    orbit = satellite.orbit.to_tle()
-    # construct a satellite for propagation
-    sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
     # compute the initial satellite altitude
     satellite_altitude = wgs84.geographic_position_of(
-        sat.at(timescale.from_datetime(start))
+        satellite._get_orbit_track(start)
     ).elevation.m
     # compute the minimum altitude angle required for observation
     instrument = satellite.instruments[instrument_index]
@@ -325,12 +321,12 @@ def collect_observations(
             "epoch": period.mid,
         }
         for period in _get_visible_interval_series(
-            topos, sat, min_elevation_angle, start, end
+            topos, satellite.as_skyfield(), min_elevation_angle, start, end
         )
         if (
             instrument.min_access_time <= period.right - period.left
             and instrument.is_valid_observation(
-                sat, timescale.from_datetime(period.mid)
+                satellite._get_orbit_track(period.mid)
             )
         )
     ]
@@ -339,12 +335,12 @@ def collect_observations(
     if len(records) > 0:
         gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
         # append satellite altitude/azimuth columns
-        sat_altaz = _get_satellite_altaz_series(gdf, sat)
+        sat_altaz = _get_satellite_altaz_series(gdf, satellite.as_skyfield())
         gdf["sat_alt"] = sat_altaz.apply(lambda r: r[0].degrees)
         gdf["sat_az"] = sat_altaz.apply(lambda r: r[1].degrees)
         if not omit_solar:
             # append satellite sunlit column
-            gdf["sat_sunlit"] = _get_satellite_sunlit_series(gdf, sat)
+            gdf["sat_sunlit"] = _get_satellite_sunlit_series(gdf, satellite.as_skyfield())
             # append solar altitude/azimuth columns
             sun_altaz = _get_solar_altaz_series(gdf)
             gdf["solar_alt"] = sun_altaz.apply(lambda r: r[0].degrees)

@@ -25,12 +25,11 @@ from shapely.ops import clip_by_rect, split, transform, unary_union
 import pyproj
 
 from ..schemas.satellite import Satellite
-from ..schemas.instrument import Instrument
 from ..utils import (
     split_polygon,
     field_of_regard_to_swath_width,
 )
-from ..constants import timescale, EARTH_MEAN_RADIUS
+from ..constants import EARTH_MEAN_RADIUS
 
 
 def _get_empty_orbit_track() -> gpd.GeoDataFrame:
@@ -99,15 +98,9 @@ def collect_orbit_track(
         return _get_empty_orbit_track()
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
-    # convert orbit to tle
-    orbit = satellite.orbit.to_tle()
-    # construct a satellite for propagation
-    sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
-    # create skyfield time series
-    ts_times = timescale.from_datetimes(times)
-    # compute satellite positions
-    positions = sat.at(ts_times)
-    geo_positions = [wgs84.geographic_position_of(position) for position in positions]
+    # propagate orbit
+    orbit_track = satellite._get_orbit_track(times)
+    geo_positions = [wgs84.geographic_position_of(position) for position in orbit_track]
     # create shapely points in proper coordinate system
     if coordinates == OrbitCoordinate.WGS84:
         points = [
@@ -128,10 +121,10 @@ def collect_orbit_track(
     else:
         points = [
             Point(position.xyz.m[0], position.xyz.m[1], position.xyz.m[2])
-            for position in positions
+            for position in orbit_track
         ]
     # determine observation validity
-    valid_obs = instrument.is_valid_observation(sat, ts_times)
+    valid_obs = instrument.is_valid_observation(orbit_track)
     # create velocity points if needed
     if orbit_output == OrbitOutput.POSITION:
         records = [
@@ -152,13 +145,13 @@ def collect_orbit_track(
     else:
         # compute satellite velocity
         if coordinates == OrbitCoordinate.ECI:
-            eci_velocity = positions.velocity.m_per_s
+            eci_velocity = orbit_track.velocity.m_per_s
             velocities = [
                 Point(eci_velocity[0][i], eci_velocity[1][i], eci_velocity[2][i])
                 for i in range(len(eci_velocity[0]))
             ]
         else:
-            velocity = positions.frame_xyz_and_velocity(itrs)[1].m_per_s
+            velocity = orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s
             velocities = [
                 Point(velocity[0][i], velocity[1][i], velocity[2][i])
                 for i in range(len(velocity[0]))

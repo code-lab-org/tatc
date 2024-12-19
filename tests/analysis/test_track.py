@@ -49,14 +49,12 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
             ],
-            instrument_index=0,
         )
 
     def test_collect_orbit_track_empty(self):
         results = collect_orbit_track(
             self.satellite,
             [],
-            instrument_index=0,
         )
 
     def test_collect_orbit_track_with_mask(self):
@@ -67,7 +65,6 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
                 for i in range(10)
             ],
-            instrument_index=0,
             mask=mask,
         )
 
@@ -78,14 +75,12 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
             ],
-            instrument_index=0,
         )
 
     def test_collect_ground_track_empty(self):
         results = collect_ground_track(
             self.satellite,
             [],
-            instrument_index=0,
         )
 
     def test_collect_ground_track_utm(self):
@@ -95,7 +90,6 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
             ],
-            instrument_index=0,
             crs="utm",
         )
 
@@ -107,7 +101,6 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
                 for i in range(10)
             ],
-            instrument_index=0,
             mask=mask,
         )
 
@@ -118,7 +111,6 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 datetime(2022, 6, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
             ],
-            instrument_index=0,
             method="point",
         )
         self.assertEqual(len(results.index), 1)
@@ -143,7 +135,6 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 datetime(2022, 6, 1, 1, 40, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
             ],
-            instrument_index=0,
             method="point",
         )
         self.assertEqual(len(results.index), 1)
@@ -156,7 +147,6 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 datetime(2022, 6, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
             ],
-            instrument_index=0,
             method="line",
         )
         self.assertEqual(len(results.index), 1)
@@ -169,7 +159,6 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 datetime(2022, 6, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
                 for i in range(12)
             ],
-            instrument_index=0,
             method="line",
         )
         self.assertEqual(len(results.index), 1)
@@ -182,7 +171,6 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 datetime(2022, 6, 1, 1, 40, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
             ],
-            instrument_index=0,
             method="line",
         )
         self.assertEqual(len(results.index), 1)

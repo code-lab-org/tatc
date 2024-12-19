@@ -7,7 +7,7 @@ Object schemas for satellites.
 from __future__ import annotations
 
 import copy
-from datetime import timedelta
+from datetime import datetime, timedelta
 from enum import Enum
 import math
 from typing import List, Union
@@ -15,13 +15,15 @@ from typing import List, Union
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Literal
+from skyfield.api import EarthSatellite
+from skyfield.positionlib import Geocentric
 
 from tatc.utils import (
     zero_pad,
     swath_width_to_field_of_regard,
     compute_min_elevation_angle,
 )
-from ..constants import EARTH_MEAN_RADIUS
+from ..constants import timescale, EARTH_MEAN_RADIUS
 from .instrument import Instrument
 from .orbit import TwoLineElements, CircularOrbit, SunSynchronousOrbit, KeplerianOrbit
 
@@ -61,6 +63,36 @@ class Satellite(SpaceSystem):
             List[Satellite]: the member satellites
         """
         return [self]
+    
+    def as_skyfield(self) -> EarthSatellite:
+        """
+        Converts this satellite to a Skyfield `EarthSatellite`.
+
+        Returns:
+            EarthSatellite: the Skyfield EarthSatellite
+        """
+        # convert orbit to tle
+        orbit = self.orbit.to_tle()
+        # create skyfield EarthSatellite
+        return EarthSatellite(orbit.tle[0], orbit.tle[1], self.name)
+    
+    def _get_orbit_track(self, times: Union[datetime, List[datetime]]) -> Geocentric:
+        """
+        Gets the orbit track of this satellite using Skyfield.
+
+        Arguments:
+            times (Union[datetime, List[datetime]]): time(s) at which to compute position/velocity.
+
+        Returns:
+            Geocentric: the orbit track position/velocity
+        """
+        # create skyfield Time
+        if isinstance(times, datetime):
+            ts_times = timescale.from_datetime(times)
+        else:
+            ts_times = timescale.from_datetimes(times)
+        # compute satellite positions
+        return self.as_skyfield().at(ts_times)
 
 
 class TrainConstellation(Satellite):
