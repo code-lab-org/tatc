@@ -93,9 +93,9 @@ class TestLatencyAnalysis(unittest.TestCase):
             collect_observations(
                 self.point,
                 self.satellite,
-                self.instrument,
                 datetime(2022, 6, 1, tzinfo=timezone.utc),
                 datetime(2022, 6, 10, tzinfo=timezone.utc),
+                instrument_index=0,
             ),
             collect_downlinks(
                 self.station,
@@ -110,9 +110,9 @@ class TestLatencyAnalysis(unittest.TestCase):
             collect_observations(
                 self.point,
                 self.satellite,
-                self.instrument,
                 datetime(2022, 6, 1, tzinfo=timezone.utc),
                 datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
+                instrument_index=0,
             ),
             collect_downlinks(
                 self.station,
@@ -128,9 +128,9 @@ class TestLatencyAnalysis(unittest.TestCase):
             collect_observations(
                 self.point,
                 self.satellite,
-                self.instrument,
                 datetime(2022, 6, 1, tzinfo=timezone.utc),
                 datetime(2022, 6, 10, tzinfo=timezone.utc),
+                instrument_index=0,
             ),
             collect_downlinks(
                 self.station,
@@ -146,9 +146,9 @@ class TestLatencyAnalysis(unittest.TestCase):
             collect_observations(
                 self.point,
                 self.satellite,
-                self.instrument,
                 datetime(2022, 6, 1, tzinfo=timezone.utc),
                 datetime(2022, 6, 10, tzinfo=timezone.utc),
+                instrument_index=0,
             ),
             collect_downlinks(
                 self.stations,
@@ -164,9 +164,9 @@ class TestLatencyAnalysis(unittest.TestCase):
                 collect_observations(
                     self.point,
                     self.satellite,
-                    self.instrument,
                     datetime(2022, 6, 1, tzinfo=timezone.utc),
                     datetime(2022, 6, 10, tzinfo=timezone.utc),
+                    instrument_index=0,
                 ),
                 collect_downlinks(
                     self.stations,
@@ -183,9 +183,9 @@ class TestLatencyAnalysis(unittest.TestCase):
                 collect_observations(
                     self.point,
                     self.satellite,
-                    self.instrument,
                     datetime(2022, 6, 1, tzinfo=timezone.utc),
                     datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
+                    instrument_index=0,
                 ),
                 collect_downlinks(
                     self.stations,

@@ -45,57 +45,57 @@ class TestGroundTrackAnalysis(unittest.TestCase):
     def test_collect_orbit_track(self):
         results = collect_orbit_track(
             self.satellite,
-            self.instrument,
             [
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
             ],
+            instrument_index=0,
         )
 
     def test_collect_orbit_track_empty(self):
         results = collect_orbit_track(
             self.satellite,
-            self.instrument,
             [],
+            instrument_index=0,
         )
 
     def test_collect_orbit_track_with_mask(self):
         mask = Polygon([[-90, 45], [-90, 45], [90, 45], [90, -45], [-90, -45]])
         results = collect_orbit_track(
             self.satellite,
-            self.instrument,
             [
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
                 for i in range(10)
             ],
+            instrument_index=0,
             mask=mask,
         )
 
     def test_collect_ground_track(self):
         results = collect_ground_track(
             self.satellite,
-            self.instrument,
-            [
+            times=[
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
             ],
+            instrument_index=0,
         )
 
     def test_collect_ground_track_empty(self):
         results = collect_ground_track(
             self.satellite,
-            self.instrument,
             [],
+            instrument_index=0,
         )
 
     def test_collect_ground_track_utm(self):
         results = collect_ground_track(
             self.satellite,
-            self.instrument,
             [
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
             ],
+            instrument_index=0,
             crs="utm",
         )
 
@@ -103,18 +103,30 @@ class TestGroundTrackAnalysis(unittest.TestCase):
         mask = Polygon([[-90, 45], [-90, 45], [90, 45], [90, -45], [-90, -45]])
         results = collect_ground_track(
             self.satellite,
-            self.instrument,
             [
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
                 for i in range(10)
             ],
+            instrument_index=0,
             mask=mask,
         )
 
     def test_compute_ground_track_point(self):
         results = compute_ground_track(
             self.satellite,
-            self.instrument,
+            [
+                datetime(2022, 6, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
+                for i in range(10)
+            ],
+            instrument_index=0,
+            method="point",
+        )
+        self.assertEqual(len(results.index), 1)
+        self.assertEqual(type(results.iloc[0].geometry), Polygon)
+
+    def test_compute_ground_track_point_no_instr_index(self):
+        results = compute_ground_track(
+            self.satellite,
             [
                 datetime(2022, 6, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
@@ -127,11 +139,11 @@ class TestGroundTrackAnalysis(unittest.TestCase):
     def test_compute_ground_track_point_multipolygon(self):
         results = compute_ground_track(
             self.satellite,
-            self.instrument,
             [
                 datetime(2022, 6, 1, 1, 40, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
             ],
+            instrument_index=0,
             method="point",
         )
         self.assertEqual(len(results.index), 1)
@@ -140,11 +152,11 @@ class TestGroundTrackAnalysis(unittest.TestCase):
     def test_compute_ground_track_line_short(self):
         results = compute_ground_track(
             self.satellite,
-            self.instrument,
             [
                 datetime(2022, 6, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
             ],
+            instrument_index=0,
             method="line",
         )
         self.assertEqual(len(results.index), 1)
@@ -153,11 +165,11 @@ class TestGroundTrackAnalysis(unittest.TestCase):
     def test_compute_ground_track_line_long(self):
         results = compute_ground_track(
             self.satellite,
-            self.instrument,
             [
                 datetime(2022, 6, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
                 for i in range(12)
             ],
+            instrument_index=0,
             method="line",
         )
         self.assertEqual(len(results.index), 1)
@@ -166,11 +178,11 @@ class TestGroundTrackAnalysis(unittest.TestCase):
     def test_compute_ground_track_line_multipolygon(self):
         results = compute_ground_track(
             self.satellite,
-            self.instrument,
             [
                 datetime(2022, 6, 1, 1, 40, tzinfo=timezone.utc) + timedelta(minutes=i)
                 for i in range(10)
             ],
+            instrument_index=0,
             method="line",
         )
         self.assertEqual(len(results.index), 1)

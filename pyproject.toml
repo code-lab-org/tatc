@@ -63,7 +63,8 @@ docs = [
 ]
 examples = [
     "ipykernel",
-    "matplotlib"
+    "matplotlib",
+    "cartopy"
 ]
 osse = [
     "netcdf4",
