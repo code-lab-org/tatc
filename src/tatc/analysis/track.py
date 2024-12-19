@@ -21,11 +21,10 @@ from shapely.geometry import (
     Point,
     LineString,
 )
-from shapely.ops import clip_by_rect, split, transform, unary_union
+from shapely.ops import clip_by_rect, split, transform
 import pyproj
 
 from ..schemas.satellite import Satellite
-from ..schemas.instrument import Instrument
 from ..utils import (
     split_polygon,
     field_of_regard_to_swath_width,
@@ -336,6 +335,7 @@ def compute_ground_track(
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     crs: str = "EPSG:4087",
     method: str = "point",
+    dissolve_orbits: bool = True
 ) -> gpd.GeoDataFrame:
     """
     Compute the aggregated ground track for a satellite of interest.
@@ -353,24 +353,30 @@ def compute_ground_track(
                 zones for non-polar regions, and Universal Polar Stereographic
                 (UPS) systems for polar regions.
         method (str): The method for computing ground track: `"point"` buffers
-                individual points while `"line"` buffers a line of points. Note
-                that the `"line"` method assumes continuous observations and only
-                supports ground tracks that span LESS than 360 degrees longitude.
+                individual points while `"line"` buffers a line of points.
 
     Returns:
         GeoDataFrame: The data frame of aggregated ground track results.
     """
+    if method not in ["point", "line"]:
+        raise ValueError("Invalid method: " + str(method))
     if method == "point":
         track = collect_ground_track(
             satellite, times, instrument_index, elevation, None, crs
         )
+        # assign orbit identifier
+        track["orbit_id"] = [(time - times[0]) // satellite.orbit.to_tle().get_orbit_period() for time in times]
         # filter to valid observations and dissolve
-        track = track[track.valid_obs].dissolve()
+        track = track[track.valid_obs].dissolve(by="orbit_id").reset_index(drop=True)
         if mask is not None:
             track = gpd.clip(track, mask).reset_index(drop=True)
+        if dissolve_orbits:
+            track = track.dissolve()
         return track
     if method == "line":
         track = collect_orbit_track(satellite, times, instrument_index, elevation, None)
+        # assign orbit identifier
+        track["orbit_id"] = [(time - times[0]) // satellite.orbit.to_tle().get_orbit_period() for time in times]
         # assign track identifiers to group contiguous observation periods
         track["track_id"] = (
             (track.valid_obs != track.valid_obs.shift()).astype("int").cumsum()
@@ -379,17 +385,17 @@ def compute_ground_track(
         track = track[track.valid_obs].reset_index(drop=True)
         segments = []
         swath_widths = []
-        for track_id in track.track_id.unique():
+        for _, sub_track in track.groupby(["orbit_id", "track_id"]):
             # project points to specified elevation
-            points = track[track.track_id == track_id].geometry.apply(
+            points = sub_track.geometry.apply(
                 lambda p: Point(p.x, p.y, elevation)
             )
-            # extract longitudes and latitudes
-            lon = track[track.track_id == track_id].geometry.apply(lambda p: p.x)
+            # extract longitudes
+            lon = sub_track.geometry.apply(lambda p: p.x)
             # extract average swath width
-            swath_widths.append(track[track.track_id == track_id].swath_width.mean())
+            swath_widths.append(sub_track.swath_width.mean())
             # no anti-meridian crossings if all absolute longitude differences
-            # are less than 180 deg for non-polar points (mean absolute latitude < 80 deg)
+            # are less than 180 deg
             if np.all(np.abs(np.diff(lon)) < 180):
                 segments.append(LineString(points))
             else:
@@ -450,10 +456,11 @@ def compute_ground_track(
         # split polygons if necessary
         polygons = list(map(split_polygon, polygons))
         # dissolve the original track
-        track = track.dissolve()
+        track = track.dissolve(by=["orbit_id", "track_id"]).reset_index(drop=True)
         # and replace the geometry with the union of computed polygons
-        track.geometry = [unary_union(polygons)]
+        track.geometry = polygons
         if mask is not None:
             track = gpd.clip(track, mask).reset_index(drop=True)
+        if dissolve_orbits:
+            track = track.dissolve()
         return track
-    raise ValueError("Invalid method: " + str(method))
