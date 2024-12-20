@@ -8,19 +8,20 @@ Object schemas for satellite orbits.
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
-from typing import List, Optional
+from typing import List, Optional, Union
 import re
 
 import numpy as np
-import pandas as pd
 from pydantic import BaseModel, Field, field_validator
 from sgp4.api import Satrec, WGS72
 from sgp4 import exporter
 from sgp4.conveniences import sat_epoch_datetime
-from skyfield.api import EarthSatellite, wgs84
+from skyfield.api import EarthSatellite, Time, wgs84
+from skyfield.positionlib import Geocentric
 from skyfield.framelib import itrs
 from typing_extensions import Literal
 
+from .point import Point
 from .. import constants, utils
 
 
@@ -410,6 +411,99 @@ class TwoLineElements(BaseModel):
         if repeat_cycle > timedelta(0):
             return repeat_cycle
         return None
+
+    def get_orbit_track(
+        self, times: Union[datetime, List[datetime]], try_repeat: bool = True
+    ) -> Geocentric:
+        """
+        Gets the orbit track of this orbit using Skyfield.
+
+        Args:
+            times (Union[datetime, List[datetime]]): time(s) at which to compute position/velocity.
+            try_repeat (bool): Whether to try using a repeat orbit to improve long-term accuracy.
+
+        Returns:
+            skyfield.positionlib.Geocentric: the orbit track position/velocity
+        """
+        # create skyfield Time
+        if isinstance(times, datetime):
+            ts_times = constants.timescale.from_datetime(times)
+        else:
+            ts_times = constants.timescale.from_datetimes(times)
+        if try_repeat:
+            # try to compute repeat cycle positions
+            repeat_cycle = self.get_repeat_cycle()
+            if repeat_cycle is not None:
+                epoch = self.get_epoch()
+                if isinstance(times, datetime):
+                    repeat_times = constants.timescale.from_datetime(
+                        epoch + np.mod(times - epoch, repeat_cycle)
+                    )
+                else:
+                    repeat_times = constants.timescale.from_datetimes(
+                        epoch + np.mod(times - epoch, repeat_cycle)
+                    )
+                repeat_track = self.as_skyfield().at(repeat_times)
+                return Geocentric(
+                    repeat_track.position.au, repeat_track.velocity.au_per_d, ts_times
+                )
+        # compute satellite positions
+        return self.as_skyfield().at(ts_times)
+
+    def get_observation_events(
+        self,
+        point: Point,
+        start: datetime,
+        end: datetime,
+        min_elevation_angle: float,
+        try_repeat: bool = True,
+    ) -> tuple:
+        """
+        Gets the observation events of this orbit using Skyfield.
+
+        Args:
+            point (Point): Target location to observe.
+            start (datetime): Start time of the observation period.
+            end (datetime): End time of the observation period.
+            min_elevation_angle (float): Minimum elevation angle (eeg) to constrain observation.
+            try_repeat (bool): Whether to try using a repeat orbit to improve long-term accuracy.
+
+        Returns:
+            skyfield.positionlib.Geocentric: the orbit track position/velocity
+        """
+        # create skyfield Time
+        t_0 = constants.timescale.from_datetime(start)
+        topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
+        if try_repeat:
+            # try to compute repeat cycle positions
+            repeat_cycle = self.get_repeat_cycle()
+            if repeat_cycle is not None:
+                repeat_t_1 = constants.timescale.from_datetime(
+                    start + np.mod(end - start, repeat_cycle)
+                )
+                times, events = self.as_skyfield().find_events(
+                    topos, t_0, repeat_t_1, min_elevation_angle
+                )
+                number_cycles = (end - start) // repeat_cycle
+                if len(times) == 0:
+                    return (Time([], []), np.array([], dtype=int))
+                times_py = np.concatenate(
+                    [
+                        times.utc_datetime() + i * repeat_cycle
+                        for i in range(number_cycles)
+                    ]
+                )
+                events_py = np.concatenate([events for _ in range(number_cycles)])
+                if len(times_py) == 0:
+                    return Time([], []), np.array([], dtype=int)
+                return (
+                    constants.timescale.from_datetimes(times_py[times_py <= end]),
+                    events_py[times_py <= end],
+                )
+        # compute observation events
+        t_1 = constants.timescale.from_datetime(end)
+        # pylint: disable=E1101
+        return self.as_skyfield().find_events(topos, t_0, t_1, min_elevation_angle)
 
     def to_tle(self) -> TwoLineElements:
         """

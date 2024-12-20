@@ -7,7 +7,7 @@ Object schemas for satellites.
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timedelta
+from datetime import timedelta
 from enum import Enum
 import math
 from typing import List, Union
@@ -15,17 +15,14 @@ from typing import List, Union
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Literal
-from skyfield.api import EarthSatellite, Time, wgs84
-from skyfield.positionlib import Geocentric
 
 from tatc.utils import (
     zero_pad,
     swath_width_to_field_of_regard,
     compute_min_elevation_angle,
 )
-from ..constants import timescale, EARTH_MEAN_RADIUS
+from ..constants import EARTH_MEAN_RADIUS
 from .instrument import Instrument
-from .point import Point
 from .orbit import TwoLineElements, CircularOrbit, SunSynchronousOrbit, KeplerianOrbit
 
 
@@ -64,116 +61,6 @@ class Satellite(SpaceSystem):
             List[Satellite]: the member satellites
         """
         return [self]
-
-    def as_skyfield(self) -> EarthSatellite:
-        """
-        Converts this satellite to a Skyfield `EarthSatellite`.
-
-        Returns:
-            skyfield.api.EarthSatellite: the Skyfield EarthSatellite
-        """
-        # convert orbit to tle
-        # pylint: disable=E1101
-        orbit = self.orbit.to_tle()
-        # create skyfield EarthSatellite
-        return EarthSatellite(orbit.tle[0], orbit.tle[1], self.name)
-
-    def get_orbit_track(
-        self, times: Union[datetime, List[datetime]], try_repeat: bool = True
-    ) -> Geocentric:
-        """
-        Gets the orbit track of this satellite using Skyfield.
-
-        Args:
-            times (Union[datetime, List[datetime]]): time(s) at which to compute position/velocity.
-            try_repeat (bool): Whether to try using a repeat orbit to improve long-term accuracy.
-
-        Returns:
-            skyfield.positionlib.Geocentric: the orbit track position/velocity
-        """
-        # create skyfield Time
-        if isinstance(times, datetime):
-            ts_times = timescale.from_datetime(times)
-        else:
-            ts_times = timescale.from_datetimes(times)
-        # pylint: disable=E1101
-        orbit = self.orbit.to_tle()
-        if try_repeat:
-            # try to compute repeat cycle positions
-            repeat_cycle = orbit.get_repeat_cycle()
-            if repeat_cycle is not None:
-                epoch = orbit.get_epoch()
-                if isinstance(times, datetime):
-                    repeat_times = timescale.from_datetime(
-                        epoch + np.mod(times - epoch, repeat_cycle)
-                    )
-                else:
-                    repeat_times = timescale.from_datetimes(
-                        epoch + np.mod(times - epoch, repeat_cycle)
-                    )
-                repeat_track = orbit.as_skyfield().at(repeat_times)
-                return Geocentric(
-                    repeat_track.position.au, repeat_track.velocity.au_per_d, ts_times
-                )
-        # compute satellite positions
-        return orbit.as_skyfield().at(ts_times)
-
-    def get_observation_events(
-        self,
-        point: Point,
-        start: datetime,
-        end: datetime,
-        min_elevation_angle: float,
-        try_repeat: bool = True,
-    ) -> tuple:
-        """
-        Gets the observation events of this satellite using Skyfield.
-
-        Args:
-            point (Point): Target location to observe.
-            start (datetime): Start time of the observation period.
-            end (datetime): End time of the observation period.
-            min_elevation_angle (float): Minimum elevation angle (eeg) to constrain observation.
-            try_repeat (bool): Whether to try using a repeat orbit to improve long-term accuracy.
-
-        Returns:
-            skyfield.positionlib.Geocentric: the orbit track position/velocity
-        """
-        # create skyfield Time
-        t0 = timescale.from_datetime(start)
-        topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
-        # pylint: disable=E1101
-        orbit = self.orbit.to_tle()
-        if try_repeat:
-            # try to compute repeat cycle positions
-            repeat_cycle = orbit.get_repeat_cycle()
-            if repeat_cycle is not None:
-                repeat_t1 = timescale.from_datetime(
-                    start + np.mod(end - start, repeat_cycle)
-                )
-                times, events = orbit.as_skyfield().find_events(
-                    topos, t0, repeat_t1, min_elevation_angle
-                )
-                number_cycles = (end - start) // repeat_cycle
-                if len(times) == 0:
-                    return (Time([], []), np.array([], dtype=int))
-                times_py = np.concatenate(
-                    [
-                        times.utc_datetime() + i * repeat_cycle
-                        for i in range(number_cycles)
-                    ]
-                )
-                events_py = np.concatenate([events for _ in range(number_cycles)])
-                if len(times_py) == 0:
-                    return Time([], []), np.array([], dtype=int)
-                return (
-                    timescale.from_datetimes(times_py[times_py <= end]),
-                    events_py[times_py <= end],
-                )
-        # compute observation events
-        t1 = timescale.from_datetime(end)
-        # pylint: disable=E1101
-        return orbit.as_skyfield().find_events(topos, t0, t1, min_elevation_angle)
 
 
 class TrainConstellation(Satellite):

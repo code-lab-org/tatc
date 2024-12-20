@@ -31,7 +31,7 @@ def _collect_ro_series(
     range_elevation: Tuple[float],
 ):
     # transmitter position (x_tx), velocity (v_tx)
-    tx_pv = transmitter.get_orbit_track(times)
+    tx_pv = transmitter.orbit.to_tle().get_orbit_track(times)
     # relative position, velocity of transmitter from receiver
     # x_(rx,tx) = x_tx - x_rx; v_(rx,tx) = v_tx - v_rx
     rx_tx_pv = tx_pv - rx_pv
@@ -151,7 +151,7 @@ def _collect_ro_series(
 
             # azimuth of transmitter from geodetic tangent point (clockwise from North)
             tp_tx_azmimuth = (
-                (transmitter.as_skyfield() - tpp_geo)
+                (transmitter.orbit.to_tle().as_skyfield() - tpp_geo)
                 .at(timescale.from_datetime(times[j]))
                 .altaz()[1]
                 .degrees
@@ -197,7 +197,7 @@ def collect_ro_observations(
         range_elevation: (typing.Tuple[float]): the lower and upper bound on tangent point elevation (m) for a valid observation.
     """
     # receiver position, velocity
-    rx_pv = receiver.get_orbit_track(times)
+    rx_pv = receiver.orbit.to_tle().get_orbit_track(times)
     # unit vector tangent to receiver orbit plane (VNB x-axis)
     rx_v_u = np.divide(
         rx_pv.velocity.m_per_s, np.linalg.norm(rx_pv.velocity.m_per_s, axis=0)

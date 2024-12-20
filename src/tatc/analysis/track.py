@@ -99,7 +99,7 @@ def collect_orbit_track(
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
     # propagate orbit
-    orbit_track = satellite.get_orbit_track(times)
+    orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
     geo_positions = [wgs84.geographic_position_of(position) for position in orbit_track]
     # create shapely points in proper coordinate system
     if coordinates == OrbitCoordinate.WGS84:
@@ -259,6 +259,7 @@ def collect_ground_track(
             ).transform
             if code in ("EPSG:5041", "EPSG:5042"):
                 # keep polygons away from UPS poles to encourage proper geometry
+                # pylint: disable=W0640
                 gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
                     lambda r: transform(
                         from_crs,
@@ -269,6 +270,7 @@ def collect_ground_track(
                     axis=1,
                 )
             else:
+                # pylint: disable=W0640
                 gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
                     lambda r: transform(
                         from_crs,

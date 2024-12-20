@@ -48,7 +48,7 @@ def _get_visible_interval_series(
     # define starting and ending points
     t_0 = timescale.from_datetime(start)
     # build skyfield objects
-    sat = satellite.as_skyfield()
+    sat = satellite.orbit.to_tle().as_skyfield()
     # compute the initial satellite altitude
     satellite_altitude = wgs84.geographic_position_of(sat.at(t_0)).elevation.m
     # compute the maximum access time to filter bad data
@@ -56,7 +56,7 @@ def _get_visible_interval_series(
         seconds=compute_max_access_time(satellite_altitude, min_elevation_angle)
     )
     # find the set of observation events
-    times, events = satellite.get_observation_events(
+    times, events = satellite.orbit.to_tle().get_observation_events(
         point, start, end, min_elevation_angle
     )
 
@@ -133,7 +133,7 @@ def _get_satellite_altaz_series(
     Returns:
         Tuple[skyfield.api.Angle, skyfield.api.Angle, skyfield.api.Distance]: Altitude-azimuth objects associated with observations.
     """
-    sat = satellite.as_skyfield()
+    sat = satellite.orbit.to_tle().as_skyfield()
     topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
     ts = timescale.from_datetimes(times)
     return (sat - topos).at(ts).altaz()
@@ -153,7 +153,7 @@ def _get_satellite_sunlit_series(
     Returns:
         numpy.typing.NDArray: Array of indicators whether the satellite is sunlit.
     """
-    return satellite.get_orbit_track(times).is_sunlit(de421)
+    return satellite.orbit.to_tle().get_orbit_track(times).is_sunlit(de421)
 
 
 def _get_solar_altaz_series(
@@ -250,7 +250,7 @@ def collect_observations(
     instrument = satellite.instruments[instrument_index]
     # compute the initial satellite altitude
     satellite_altitude = wgs84.geographic_position_of(
-        satellite.get_orbit_track(start)
+        satellite.orbit.to_tle().get_orbit_track(start)
     ).elevation.m
     # compute the minimum altitude angle required for observation
     min_elevation_angle = compute_min_elevation_angle(
@@ -280,7 +280,9 @@ def collect_observations(
         )
         if (
             instrument.min_access_time <= period.right - period.left
-            and instrument.is_valid_observation(satellite.get_orbit_track(period.mid))
+            and instrument.is_valid_observation(
+                satellite.orbit.to_tle().get_orbit_track(period.mid)
+            )
         )
     ]
 
