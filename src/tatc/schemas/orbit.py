@@ -336,7 +336,7 @@ class TwoLineElements(BaseModel):
         )
         tle1, tle2 = exporter.export_tle(satrec)
         return TwoLineElements(tle=[tle1.replace("\x00", "U"), tle2])
-    
+
     def as_skyfield(self):
         """
         Converts this orbit to a Skyfield `EarthSatellite`.
@@ -353,7 +353,7 @@ class TwoLineElements(BaseModel):
         max_delta_velocity: float = 10,
         min_elevation_angle: float = 88,
         max_search_duration: timedelta = timedelta(days=30),
-        lazy_load = True
+        lazy_load=True,
     ) -> timedelta:
         """
         Compute the orbit repeat cycle. Lazy-loads a previously-computed repeat cycle if available.
@@ -376,7 +376,9 @@ class TwoLineElements(BaseModel):
             # extract the orbit epoch time
             epoch = self.get_epoch()
             # record the initial position and velocity in Earth-centered Earth-fixed frame
-            datum = wgs84.subpoint_of(self.as_skyfield().at(constants.timescale.from_datetime(epoch)))
+            datum = wgs84.subpoint_of(
+                self.as_skyfield().at(constants.timescale.from_datetime(epoch))
+            )
             position_0, velocity_0 = (
                 self.as_skyfield()
                 .at(constants.timescale.from_datetime(epoch))

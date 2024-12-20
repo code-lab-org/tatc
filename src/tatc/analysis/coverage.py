@@ -47,9 +47,7 @@ def _get_visible_interval_series(
     """
     # define starting and ending points
     t_0 = timescale.from_datetime(start)
-    t_1 = timescale.from_datetime(end)
     # build skyfield objects
-    topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
     sat = satellite.as_skyfield()
     # compute the initial satellite altitude
     satellite_altitude = wgs84.geographic_position_of(sat.at(t_0)).elevation.m
@@ -58,8 +56,8 @@ def _get_visible_interval_series(
         seconds=compute_max_access_time(satellite_altitude, min_elevation_angle)
     )
     # find the set of observation events
-    times, events = sat.find_events(
-        topos, t_0, t_1, altitude_degrees=min_elevation_angle
+    times, events = satellite.get_observation_events(
+        point, start, end, min_elevation_angle
     )
 
     # build the observation periods
@@ -177,9 +175,7 @@ def _get_solar_altaz_series(
     return (de421["earth"] + topos).at(ts).observe(de421["sun"]).apparent().altaz()
 
 
-def _get_solar_time_series(
-    point: Point, times: List[datetime]
-) -> npt.NDArray:
+def _get_solar_time_series(point: Point, times: List[datetime]) -> npt.NDArray:
     """
     Get a series with the local solar time for each observation.
 

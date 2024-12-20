@@ -150,7 +150,12 @@ def _collect_ro_series(
                 }
 
             # azimuth of transmitter from geodetic tangent point (clockwise from North)
-            tp_tx_azmimuth = (transmitter.as_skyfield() - tpp_geo).at(timescale.from_datetime(times[j])).altaz()[1].degrees
+            tp_tx_azmimuth = (
+                (transmitter.as_skyfield() - tpp_geo)
+                .at(timescale.from_datetime(times[j]))
+                .altaz()[1]
+                .degrees
+            )
 
             occ_arc["points"].append(
                 {
