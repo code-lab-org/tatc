@@ -8,8 +8,8 @@ Object schemas for instruments.
 from typing import Optional
 from datetime import timedelta
 
-from pydantic import BaseModel, Field
 import numpy as np
+from pydantic import BaseModel, Field
 from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
 

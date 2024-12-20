@@ -12,10 +12,13 @@ from typing import List, Optional
 import re
 
 import numpy as np
+import pandas as pd
 from pydantic import BaseModel, Field, field_validator
 from sgp4.api import Satrec, WGS72
 from sgp4 import exporter
 from sgp4.conveniences import sat_epoch_datetime
+from skyfield.api import EarthSatellite, wgs84
+from skyfield.framelib import itrs
 from typing_extensions import Literal
 
 from .. import constants, utils
@@ -333,6 +336,78 @@ class TwoLineElements(BaseModel):
         )
         tle1, tle2 = exporter.export_tle(satrec)
         return TwoLineElements(tle=[tle1.replace("\x00", "U"), tle2])
+    
+    def as_skyfield(self):
+        """
+        Converts this orbit to a Skyfield `EarthSatellite`.
+
+        Returns:
+            skyfield.api.EarthSatellite: the Skyfield EarthSatellite
+        """
+        # pylint: disable=E1136
+        return EarthSatellite(self.tle[0], self.tle[1])
+
+    def get_repeat_cycle(
+        self,
+        max_delta_position: float = 10000,
+        max_delta_velocity: float = 10,
+        min_elevation_angle: float = 88,
+        max_search_duration: timedelta = timedelta(days=30),
+        lazy_load = True
+    ) -> timedelta:
+        """
+        Compute the orbit repeat cycle. Lazy-loads a previously-computed repeat cycle if available.
+
+        Args:
+            max_delta_position (float): the maximum difference in position (m) allowed for a repeat.
+            max_delta_velocity (float): the maximum difference in velocity (m/s) allowed for a repeat.
+            min_elevation_angle (float): the minimum elevation angle (deg) for screening repeats.
+            max_search_duration (timedelta): the maximum period of time to search for repeats.
+            lazy_load (bool): True, if the previously-computed repeat cycle should be loaded.
+
+        Returns:
+            timedelta: the repeat cycle duration (if it exists)
+        """
+        if not lazy_load:
+            return None
+        # lazy-load repeat cycle
+        repeat_cycle = self.__dict__.get("repeat_cycle")
+        if repeat_cycle is None:
+            # extract the orbit epoch time
+            epoch = self.get_epoch()
+            # record the initial position and velocity in Earth-centered Earth-fixed frame
+            datum = wgs84.subpoint_of(self.as_skyfield().at(constants.timescale.from_datetime(epoch)))
+            position_0, velocity_0 = (
+                self.as_skyfield()
+                .at(constants.timescale.from_datetime(epoch))
+                .frame_xyz_and_velocity(itrs)
+            )
+            # find candidate repeat events
+            ts, es = self.as_skyfield().find_events(
+                datum,
+                constants.timescale.from_datetime(epoch + timedelta(minutes=10)),
+                constants.timescale.from_datetime(epoch + max_search_duration),
+                min_elevation_angle,
+            )
+            # compute position and velocity at culmination in Earth-centered Earth-fixed frame
+            position, velocity = (
+                self.as_skyfield().at(ts[es == 1]).frame_xyz_and_velocity(itrs)
+            )
+            # apply validity conditions on position and velocity error norms
+            is_valid = np.logical_and(
+                np.linalg.norm((position.m.T - position_0.m.T).T, axis=0)
+                < max_delta_position,
+                np.linalg.norm((velocity.m_per_s.T - velocity_0.m_per_s.T).T, axis=0)
+                < max_delta_velocity,
+            )
+            if np.any(is_valid):
+                repeat_cycle = ts[es == 1][is_valid][0].utc_datetime() - epoch
+            else:
+                repeat_cycle = timedelta(0)
+            self.__dict__["repeat_cycle"] = repeat_cycle
+        if repeat_cycle > timedelta(0):
+            return repeat_cycle
+        return None
 
     def to_tle(self) -> TwoLineElements:
         """
