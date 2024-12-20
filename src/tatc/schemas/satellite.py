@@ -15,7 +15,8 @@ from typing import List, Union
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Literal
-from skyfield.api import EarthSatellite
+from skyfield.api import EarthSatellite, wgs84
+from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 
 from tatc.utils import (
@@ -76,12 +77,13 @@ class Satellite(SpaceSystem):
         # create skyfield EarthSatellite
         return EarthSatellite(orbit.tle[0], orbit.tle[1], self.name)
 
-    def get_orbit_track(self, times: Union[datetime, List[datetime]]) -> Geocentric:
+    def get_orbit_track(self, times: Union[datetime, List[datetime]], try_repeat: bool = False) -> Geocentric:
         """
         Gets the orbit track of this satellite using Skyfield.
 
-        Arguments:
+        Args:
             times (Union[datetime, List[datetime]]): time(s) at which to compute position/velocity.
+            try_repeat (bool): Whether to try using a repeat orbit to improve long-term accuracy.
 
         Returns:
             skyfield.positionlib.Geocentric: the orbit track position/velocity
@@ -91,8 +93,69 @@ class Satellite(SpaceSystem):
             ts_times = timescale.from_datetime(times)
         else:
             ts_times = timescale.from_datetimes(times)
+        if try_repeat:
+            # try to compute repeat cycle positions
+            repeat_cycle = self.compute_repeat_cycle()
+            if repeat_cycle is not None:
+                epoch = self.orbit.to_tle().get_epoch()
+                if isinstance(times, datetime):
+                    repeat_times = timescale.from_datetime(epoch + np.mod(times - epoch, repeat_cycle))
+                else:
+                    repeat_times = timescale.from_datetimes(epoch + np.mod(times - epoch, repeat_cycle))
+                repeat_track = self.as_skyfield().at(repeat_times)
+                return Geocentric(repeat_track.position.au, repeat_track.velocity.au_per_d, ts_times)
         # compute satellite positions
         return self.as_skyfield().at(ts_times)
+
+    def compute_repeat_cycle(
+        self,
+        max_delta_position: float = 10,
+        max_delta_velocity: float = 1,
+        min_elevation_angle: float = 88,
+        max_search_duration: timedelta = timedelta(days=100),
+    ) -> timedelta:
+        """
+        Compute the repeat cycle.
+
+        Args:
+            max_delta_position (float): the maximum difference in position (km) allowed for a repeat.
+            max_delta_velocity (float): the maximum difference in velocity (km/s) allowed for a repeat.
+            min_elevation_angle_deg (float): the minimum elevation angle (deg) for screening repeats.
+            max_search_duration (timedelta): the maximum period of time to search for repeats.
+
+        Returns:
+            timedelta: the repeat cycle duration (if it exists)
+        """
+        # extract the orbit epoch time
+        epoch = self.orbit.to_tle().get_epoch()
+        # record the initial position and velocity in Earth-centered Earth-fixed frame
+        datum = wgs84.subpoint_of(self.as_skyfield().at(timescale.from_datetime(epoch)))
+        position_0, velocity_0 = (
+            self.as_skyfield()
+            .at(timescale.from_datetime(epoch))
+            .frame_xyz_and_velocity(itrs)
+        )
+        # find candidate repeat events
+        ts, es = self.as_skyfield().find_events(
+            datum,
+            timescale.from_datetime(epoch + timedelta(minutes=10)),
+            timescale.from_datetime(epoch + max_search_duration),
+            min_elevation_angle,
+        )
+        # compute position and velocity at culmination in Earth-centered Earth-fixed frame
+        position, velocity = (
+            self.as_skyfield().at(ts[es == 1]).frame_xyz_and_velocity(itrs)
+        )
+        # apply validity conditions on position and velocity error norms
+        is_valid = np.logical_and(
+            np.linalg.norm((position.km.T - position_0.km.T).T, axis=0)
+            < max_delta_position,
+            np.linalg.norm((velocity.km_per_s.T - velocity_0.km_per_s.T).T, axis=0)
+            < max_delta_velocity,
+        )
+        if np.any(is_valid):
+            return ts[es == 1][is_valid][0].utc_datetime() - epoch
+        return None
 
 
 class TrainConstellation(Satellite):
