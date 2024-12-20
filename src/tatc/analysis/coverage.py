@@ -155,7 +155,7 @@ def _get_satellite_sunlit_series(
     Returns:
         numpy.typing.NDArray: Array of indicators whether the satellite is sunlit.
     """
-    return satellite._get_orbit_track(times).is_sunlit(de421)
+    return satellite.get_orbit_track(times).is_sunlit(de421)
 
 
 def _get_solar_altaz_series(
@@ -254,7 +254,7 @@ def collect_observations(
     instrument = satellite.instruments[instrument_index]
     # compute the initial satellite altitude
     satellite_altitude = wgs84.geographic_position_of(
-        satellite._get_orbit_track(start)
+        satellite.get_orbit_track(start)
     ).elevation.m
     # compute the minimum altitude angle required for observation
     min_elevation_angle = compute_min_elevation_angle(
@@ -284,7 +284,7 @@ def collect_observations(
         )
         if (
             instrument.min_access_time <= period.right - period.left
-            and instrument.is_valid_observation(satellite._get_orbit_track(period.mid))
+            and instrument.is_valid_observation(satellite.get_orbit_track(period.mid))
         )
     ]
 

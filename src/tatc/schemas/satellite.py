@@ -76,7 +76,7 @@ class Satellite(SpaceSystem):
         # create skyfield EarthSatellite
         return EarthSatellite(orbit.tle[0], orbit.tle[1], self.name)
 
-    def _get_orbit_track(self, times: Union[datetime, List[datetime]]) -> Geocentric:
+    def get_orbit_track(self, times: Union[datetime, List[datetime]]) -> Geocentric:
         """
         Gets the orbit track of this satellite using Skyfield.
 

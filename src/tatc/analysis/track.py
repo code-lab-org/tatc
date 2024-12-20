@@ -99,7 +99,7 @@ def collect_orbit_track(
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
     # propagate orbit
-    orbit_track = satellite._get_orbit_track(times)
+    orbit_track = satellite.get_orbit_track(times)
     geo_positions = [wgs84.geographic_position_of(position) for position in orbit_track]
     # create shapely points in proper coordinate system
     if coordinates == OrbitCoordinate.WGS84:
