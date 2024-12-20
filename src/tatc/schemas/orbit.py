@@ -368,10 +368,10 @@ class TwoLineElements(BaseModel):
         Returns:
             timedelta: the repeat cycle duration (if it exists)
         """
-        if not lazy_load:
-            return None
-        # lazy-load repeat cycle
-        repeat_cycle = self.__dict__.get("repeat_cycle")
+        if lazy_load:
+            repeat_cycle = self.__dict__.get("repeat_cycle")
+        else:
+            repeat_cycle = None
         if repeat_cycle is None:
             # extract the orbit epoch time
             epoch = self.get_epoch()
