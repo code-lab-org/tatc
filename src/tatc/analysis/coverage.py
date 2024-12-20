@@ -179,7 +179,7 @@ def _get_solar_altaz_series(
 
 def _get_solar_time_series(
     point: Point, times: List[datetime]
-) -> npt.NDArray[np.float_]:
+) -> npt.NDArray[np.float64]:
     """
     Get a series with the local solar time for each observation.
 
@@ -187,7 +187,7 @@ def _get_solar_time_series(
         observations (geopandas.GeoDataFrame): Data frame of observation records.
 
     Returns:
-        numpy.typing.NDArray[numpy.float_]: Array of floats (local solar time in hours) associated with observations.
+        numpy.typing.NDArray[numpy.float64]: Array of floats (local solar time in hours) associated with observations.
     """
     topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
     ts = timescale.from_datetimes(times)
