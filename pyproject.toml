@@ -23,7 +23,7 @@ dependencies = [
     "geopandas >= 0.13.2",
     "joblib",
     "numba",
-    "numpy >= 2",
+    "numpy",
     "pandas",
     "pydantic >= 2.6",
     "pyproj",

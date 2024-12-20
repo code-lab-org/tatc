@@ -144,7 +144,7 @@ def _get_satellite_altaz_series(
 def _get_satellite_sunlit_series(
     satellite: Satellite,
     times: List[datetime],
-) -> npt.NDArray[np.bool_]:
+) -> npt.NDArray:
     """
     Get a series with the satellite sunlit condition for each observation.
 
@@ -153,7 +153,7 @@ def _get_satellite_sunlit_series(
         times (List[datetime]): Times of observation.
 
     Returns:
-        numpy.typing.NDArray[numpy.bool_]: Array of indicators whether the satellite is sunlit.
+        numpy.typing.NDArray: Array of indicators whether the satellite is sunlit.
     """
     return satellite._get_orbit_track(times).is_sunlit(de421)
 
@@ -179,7 +179,7 @@ def _get_solar_altaz_series(
 
 def _get_solar_time_series(
     point: Point, times: List[datetime]
-) -> npt.NDArray[np.float64]:
+) -> npt.NDArray:
     """
     Get a series with the local solar time for each observation.
 
@@ -187,7 +187,7 @@ def _get_solar_time_series(
         observations (geopandas.GeoDataFrame): Data frame of observation records.
 
     Returns:
-        numpy.typing.NDArray[numpy.float64]: Array of floats (local solar time in hours) associated with observations.
+        numpy.typing.NDArray: Array of floats (local solar time in hours) associated with observations.
     """
     topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
     ts = timescale.from_datetimes(times)
