@@ -77,11 +77,12 @@ class Instrument(BaseModel):
         """Determines if an instrument can provide a valid observations.
 
         Args:
-            orbit_track (Geocentric): orbit track position/velocity from Skyfield
+            orbit_track (skyfield.positionlib.Geocentric): orbit track position/velocity from Skyfield
 
         Returns:
             bool: `True` if instrument provides a valid observation, otherwise `False`.
         """
+        # determine if scalar or vector
         if np.size(orbit_track.t) == 1:
             # scalar
             is_valid = True
