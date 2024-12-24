@@ -302,6 +302,7 @@ class MOGConstellation(Satellite):
         orbits = []
 
         # semimajor axis (m)
+        # pylint: disable=E1101
         a = self.orbit.altitude + EARTH_MEAN_RADIUS
 
         # angle of separation (radians) of angular momentum vectors for reference and mutual orbiter
@@ -314,9 +315,11 @@ class MOGConstellation(Satellite):
         s = 1 if self.clockwise else -1
 
         # inclination (radians) of reference orbit
+        # pylint: disable=E1101
         i_0 = np.radians(self.orbit.inclination)
 
         # right ascension of ascending node (radians) of reference orbit
+        # pylint: disable=E1101
         omega_0 = np.radians(self.orbit.right_ascension_ascending_node)
 
         # direction of angular momentum for reference orbit [Eq. (21) in Leroy et al. (2020)]
@@ -371,6 +374,7 @@ class MOGConstellation(Satellite):
             # true anomaly (radians) [Eq. (33a) in Leroy et al. (2020)]
             nu = np.arctan2(np.sin(psi) * np.sqrt(1 - e**2), np.cos(psi) - e)
 
+            # pylint: disable=E1101
             orbits.append(
                 KeplerianOrbit(
                     altitude=self.orbit.altitude,
@@ -423,6 +427,7 @@ class SOCConstellation(Satellite):
             WalkerConstellation: the member satellites following the Walker pattern.
         """
         # compute min elevation angle
+        # pylint: disable=E1101
         e = compute_min_elevation_angle(
             altitude=self.orbit.altitude,
             field_of_regard=swath_width_to_field_of_regard(
@@ -431,6 +436,7 @@ class SOCConstellation(Satellite):
         )
 
         # nadir angle (degrees) [Eq. (19) in Anderson et al. (2022)]
+        # pylint: disable=E1101
         eta = math.degrees(
             math.asin(
                 (EARTH_MEAN_RADIUS / (EARTH_MEAN_RADIUS + self.orbit.altitude))
