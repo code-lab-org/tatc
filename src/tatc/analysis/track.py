@@ -12,9 +12,8 @@ from enum import Enum
 import pandas as pd
 import numpy as np
 import geopandas as gpd
-from skyfield.api import Distance, wgs84
+from skyfield.api import wgs84
 from skyfield.framelib import itrs
-from skyfield.toposlib import ITRSPosition
 
 from shapely.geometry import (
     Polygon,
@@ -23,22 +22,17 @@ from shapely.geometry import (
     LineString,
 )
 from shapely.ops import clip_by_rect, split, transform, unary_union
-from spiceypy.spiceypy import edlimb, inelpl, nvp2pl, surfpt
-from spiceypy.utils.exceptions import NotFoundError
 import pyproj
 
 from ..schemas.instrument import PointedInstrument
 from ..schemas.satellite import Satellite
 from ..utils import (
-    split_polygon,
+    compute_footprint,
     field_of_regard_to_swath_width,
+    project_polygon_to_elevation,
+    split_polygon,
 )
-from ..constants import (
-    EARTH_MEAN_RADIUS,
-    EARTH_EQUATORIAL_RADIUS,
-    EARTH_EQUATORIAL_RADIUS,
-    EARTH_POLAR_RADIUS,
-)
+from ..constants import EARTH_MEAN_RADIUS
 
 
 def _get_empty_orbit_track() -> gpd.GeoDataFrame:
@@ -243,7 +237,7 @@ def collect_ground_track(
                 Selecting `crs="utm"` uses Universal Transverse Mercator (UTM)
                 zones for non-polar regions, and Universal Polar Stereographic
                 (UPS) systems for polar regions. Selecting `crs="spice"` uses
-                SPICE to compute footprints.
+                SPICE to compute observation footprints.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected ground track results.
@@ -252,114 +246,47 @@ def collect_ground_track(
     gdf = collect_orbit_track(satellite, times, instrument_index, elevation, mask)
     if gdf.empty:
         return gdf
-    # project points to specified elevation
-    gdf.geometry = gdf.geometry.apply(lambda p: Point(p.x, p.y, elevation))
     if crs == "spice":
         # select the observing instrument
         instrument = satellite.instruments[instrument_index]
         # propagate orbit
         orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
-        position, velocity = orbit_track.frame_xyz_and_velocity(itrs)
-        # position vector
-        p = position.m
-        # velocity unit vector
-        v = np.divide(velocity.m_per_s, np.linalg.norm(velocity.m_per_s, axis=0))
-        # binormal unit vector
-        b = np.divide(-position.m, np.linalg.norm(position.m, axis=0))
-        # normal unit vector
-        n = np.einsum(
-            "iik->ik",
-            np.cross(position.m.T[:, None, :], velocity.m_per_s.T[None, :, :]),
-        ).T
-        n = np.divide(n, np.linalg.norm(n, axis=0))
 
         if isinstance(instrument, PointedInstrument):
-            pitch_angle = instrument.pitch_angle
-            roll_angle = instrument.roll_angle
-            along_track_field_of_view = instrument.along_track_field_of_view
+            # assign pointed instrument properties
             cross_track_field_of_view = instrument.cross_track_field_of_view
-            num_pts = 4 if instrument.is_rectangular else 16
+            along_track_field_of_view = instrument.along_track_field_of_view
+            roll_angle = instrument.roll_angle
+            pitch_angle = instrument.pitch_angle
+            number_points = 4 if instrument.is_rectangular else 16
         else:
-            pitch_angle = 0
-            roll_angle = 0
-            along_track_field_of_view = instrument.field_of_regard
+            # fall back to defaults
             cross_track_field_of_view = instrument.field_of_regard
-            num_pts = 16
+            along_track_field_of_view = instrument.field_of_regard
+            roll_angle = 0
+            pitch_angle = 0
+            number_points = 16
 
-        def get_visible_extent(p, v, n, b, i):
-            ray = (
-                b
-                + v * np.tan(np.radians(pitch_angle))
-                + n * np.tan(np.radians(roll_angle))
-                + v * np.sin(i) * np.tan(np.radians(along_track_field_of_view / 2))
-                + n * np.cos(i) * np.tan(np.radians(cross_track_field_of_view / 2))
-            )
-            try:
-                # find the intersection of the ray and the wgs84 geoid
-                return surfpt(
-                    p,
-                    ray,
-                    EARTH_EQUATORIAL_RADIUS,
-                    EARTH_EQUATORIAL_RADIUS,
-                    EARTH_POLAR_RADIUS,
-                )
-            except NotFoundError:
-                # projected point does not fall on the wgs84 geoid surface
-                # compute the observable limb ellipse for wgs84 geoid
-                limb = edlimb(
-                    EARTH_EQUATORIAL_RADIUS,
-                    EARTH_EQUATORIAL_RADIUS,
-                    EARTH_POLAR_RADIUS,
-                    p,
-                )
-                # find the two intersection points with the limb ellipse
-                limb_pt = inelpl(
-                    limb,
-                    nvp2pl(v * np.sin(np.pi / 2 + i) + n * np.cos(np.pi / 2 + i), p),
-                )
-                # compute the angles between the ray and limb
-                angle_1 = np.acos(
-                    np.dot(ray, limb_pt[1])
-                    / np.linalg.norm(ray)
-                    / np.linalg.norm(limb_pt[1])
-                )
-                angle_2 = np.acos(
-                    np.dot(ray, limb_pt[2])
-                    / np.linalg.norm(ray)
-                    / np.linalg.norm(limb_pt[2])
-                )
-                # return the closer limb point to the ray
-                if angle_1 <= angle_2:
-                    return limb_pt[1]
-                return limb_pt[2]
-
+        # construct polygons based on visible extent of instrument
+        # split polygons to wrap over the anti-meridian and poles
+        # reproject to specified elevation (lost during buffer)
         gdf.geometry = [
-            Polygon(
-                [
-                    (geo.longitude.degrees, geo.latitude.degrees, elevation)
-                    for geo in [
-                        wgs84.geographic_position_of(
-                            ITRSPosition(
-                                Distance(
-                                    m=get_visible_extent(
-                                        np.array(p[:, t].tolist()),
-                                        np.array(v[:, t].tolist()),
-                                        np.array(n[:, t].tolist()),
-                                        np.array(b[:, t].tolist()),
-                                        i,
-                                    )
-                                )
-                            ).at(orbit_track.t[t])
-                        )
-                        for i in np.linspace(np.pi / 4, 9 * np.pi / 4, num_pts, False)
-                    ]
-                ]
+            project_polygon_to_elevation(
+                split_polygon(
+                    compute_footprint(
+                        orbit_track[t],
+                        cross_track_field_of_view,
+                        along_track_field_of_view,
+                        roll_angle,
+                        pitch_angle,
+                        number_points,
+                    )
+                ),
+                elevation,
             )
             for t in range(len(times))
         ]
-    # at each point, draw a buffer equivalent to the swath radius
     elif crs == "utm":
-        # do the swath projection in the matching utm zone
         utm_crs = gdf.apply(
             lambda r: _get_utm_epsg_code(r.geometry, r.swath_width), axis=1
         )
@@ -371,28 +298,48 @@ def collect_ground_track(
                 pyproj.CRS(code), gdf.crs, always_xy=True
             ).transform
             if code in ("EPSG:5041", "EPSG:5042"):
+                # do the swath projection in the matching ups zone
                 # keep polygons away from UPS poles to encourage proper geometry
+                # split polygons to wrap over the anti-meridian and poles
+                # reproject to specified elevation (lost during buffer)
                 # pylint: disable=W0640
                 gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
-                    lambda r: transform(
-                        from_crs,
-                        transform(to_crs, r.geometry)
-                        .buffer(r.swath_width / 2)
-                        .difference(Point(2e6, 2e6, 0).buffer(r.swath_width / 5)),
+                    lambda r: project_polygon_to_elevation(
+                        split_polygon(
+                            transform(
+                                from_crs,
+                                transform(to_crs, r.geometry)
+                                .buffer(r.swath_width / 2)
+                                .difference(
+                                    Point(2e6, 2e6, 0).buffer(r.swath_width / 5)
+                                ),
+                            )
+                        ),
+                        elevation,
                     ),
                     axis=1,
                 )
             else:
+                # do the swath projection in the matching utm zone
+                # split polygons to wrap over the anti-meridian and poles
+                # reproject to specified elevation (lost during buffer)
                 # pylint: disable=W0640
                 gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
-                    lambda r: transform(
-                        from_crs,
-                        transform(to_crs, r.geometry).buffer(r.swath_width / 2),
+                    lambda r: project_polygon_to_elevation(
+                        split_polygon(
+                            transform(
+                                from_crs,
+                                transform(to_crs, r.geometry).buffer(r.swath_width / 2),
+                            )
+                        ),
+                        elevation,
                     ),
                     axis=1,
                 )
     else:
         # do the swath projection in the specified coordinate reference system
+        # split polygons to wrap over the anti-meridian and poles
+        # reproject to specified elevation (lost during buffer)
         to_crs = pyproj.Transformer.from_crs(
             gdf.crs, pyproj.CRS(crs), always_xy=True
         ).transform
@@ -400,36 +347,17 @@ def collect_ground_track(
             pyproj.CRS(crs), gdf.crs, always_xy=True
         ).transform
         gdf.geometry = gdf.apply(
-            lambda r: transform(
-                from_crs,
-                transform(to_crs, r.geometry).buffer(r.swath_width / 2),
+            lambda r: project_polygon_to_elevation(
+                split_polygon(
+                    transform(
+                        from_crs,
+                        transform(to_crs, r.geometry).buffer(r.swath_width / 2),
+                    )
+                ),
+                elevation,
             ),
             axis=1,
         )
-    # add elevation to all polygon coordinates (otherwise lost during buffering)
-    gdf.geometry = gdf.geometry.apply(
-        lambda g: (
-            Polygon(
-                [(p[0], p[1], elevation) for p in g.exterior.coords],
-                [[(p[0], p[1], elevation) for p in i.coords] for i in g.interiors],
-            )
-            if isinstance(g, Polygon)
-            else MultiPolygon(
-                [
-                    Polygon(
-                        [(p[0], p[1], elevation) for p in n.exterior.coords],
-                        [
-                            [(p[0], p[1], elevation) for p in i.coords]
-                            for i in n.interiors
-                        ],
-                    )
-                    for n in g.geoms
-                ]
-            )
-        )
-    )
-    # split polygons to wrap over the anti-meridian and poles
-    gdf.geometry = gdf.apply(lambda r: split_polygon(r.geometry), axis=1)
 
     if mask is not None:
         gdf = gpd.clip(gdf, mask).reset_index(drop=True)
@@ -538,24 +466,21 @@ def compute_ground_track(
         from_crs = pyproj.Transformer.from_crs(
             pyproj.CRS(crs), track.crs, always_xy=True
         ).transform
-        # apply the coordinate reference system transformation
+        # do the swath projection in the specified coordinate reference system
+        # split polygons to wrap over the anti-meridian and poles
+        # reproject to specified elevation (lost during buffer)
         polygons = [
-            transform(
-                from_crs,
-                transform(to_crs, segment).buffer(swath_width / 2),
+            project_polygon_to_elevation(
+                split_polygon(
+                    transform(
+                        from_crs,
+                        transform(to_crs, segment).buffer(swath_width / 2),
+                    )
+                ),
+                elevation
             )
             for segment, swath_width in zip(segments, swath_widths)
         ]
-        # add elevation to all polygon coordinates (otherwise lost during buffering)
-        polygons = [
-            Polygon(
-                [(p[0], p[1], elevation) for p in g.exterior.coords],
-                [[(p[0], p[1], elevation) for p in i.coords] for i in g.interiors],
-            )
-            for g in polygons
-        ]
-        # split polygons if necessary
-        polygons = list(map(split_polygon, polygons))
         # dissolve the original track
         track = track.dissolve()
         # and replace the geometry with the union of computed polygons

@@ -11,6 +11,12 @@ from numba import njit
 import geopandas as gpd
 from shapely.geometry import Polygon, MultiPolygon, GeometryCollection, LineString
 from shapely.ops import split
+from skyfield.api import Distance, wgs84
+from skyfield.framelib import itrs
+from skyfield.toposlib import ITRSPosition, GeographicPosition
+from skyfield.positionlib import Geocentric
+from spiceypy.spiceypy import edlimb, inelpl, nvp2pl, surfpt
+from spiceypy.utils.exceptions import NotFoundError
 
 from . import constants
 
@@ -335,6 +341,149 @@ def access_time_to_along_track_distance(
         - (2 * np.pi * np.cos(np.degrees(inclination)) / constants.EARTH_SIDEREAL_DAY_S)
     )
     return ground_velocity * access_time
+
+
+def _get_footprint_position(
+    orbit_track: Geocentric,
+    cross_track_field_of_view: float,
+    along_track_field_of_view: float,
+    roll_angle: float = 0,
+    pitch_angle: float = 0,
+    angle: float = 0,
+) -> GeographicPosition:
+    # extract earth-fixed position and velocity
+    position, velocity = orbit_track.frame_xyz_and_velocity(itrs)
+    # velocity unit vector
+    v = velocity.m_per_s / np.linalg.norm(velocity.m_per_s)
+    # binormal unit vector
+    b = -position.m / np.linalg.norm(position.m, axis=0)
+    # normal unit vector
+    n = np.cross(v, b)
+    # construct projected ray
+    ray = (
+        b
+        + v * np.tan(np.radians(pitch_angle))
+        + n * np.tan(np.radians(roll_angle))
+        + v * np.sin(angle) * np.tan(np.radians(along_track_field_of_view / 2))
+        + n * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
+    )
+    try:
+        # find the intersection of the ray and the WGS 84 geoid
+        pt = surfpt(
+            position.m,
+            ray,
+            constants.EARTH_EQUATORIAL_RADIUS,
+            constants.EARTH_EQUATORIAL_RADIUS,
+            constants.EARTH_POLAR_RADIUS,
+        )
+        return wgs84.geographic_position_of(
+            ITRSPosition(Distance(m=pt)).at(orbit_track.t)
+        )
+    except NotFoundError:
+        # projected point does not fall on the WGS 84 geoid surface
+        # compute the observable limb ellipse for WGS 84 geoid
+        limb = edlimb(
+            constants.EARTH_EQUATORIAL_RADIUS,
+            constants.EARTH_EQUATORIAL_RADIUS,
+            constants.EARTH_POLAR_RADIUS,
+            position.m,
+        )
+        # find the two intersection points between orthogonal plane and limb ellipse
+        _, pt_1, pt_2 = inelpl(
+            limb,
+            nvp2pl(
+                v * np.sin(np.pi / 2 + angle) + n * np.cos(np.pi / 2 + angle),
+                position.m,
+            ),
+        )
+        # compute the angles between the ray and limb intersection points
+        angle_1 = np.acos(
+            np.dot(ray, pt_1) / np.linalg.norm(ray) / np.linalg.norm(pt_1)
+        )
+        angle_2 = np.acos(
+            np.dot(ray, pt_2) / np.linalg.norm(ray) / np.linalg.norm(pt_2)
+        )
+        # use the limb intersection point closer to the ray
+        if angle_1 <= angle_2:
+            limb_pt = pt_1
+        else:
+            limb_pt = pt_2
+        # return resulting geographic position
+        return wgs84.geographic_position_of(
+            ITRSPosition(Distance(m=limb_pt)).at(orbit_track.t)
+        )
+
+
+def compute_footprint(
+    orbit_track: Geocentric,
+    cross_track_field_of_view: float,
+    along_track_field_of_view: float,
+    roll_angle: float = 0,
+    pitch_angle: float = 0,
+    number_points: int = 16,
+) -> Polygon:
+    """
+    Compute the instanteous instrument footprint.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite position/velocity.
+        cross_track_field_of_view (float): the angular (degrees) field of view orthogonal to velocity.
+        along_track_field_of_view (float): the angular (degrees) field of view in direction of velocity.
+        pitch_angle (float): the fore/aft look angle (degrees) in direction of velocity.
+        roll_angle (float): the left/right look angle (degrees) orthogonal to velocity.
+        number_points (int): the number of polygon points to generate.
+
+    Returns:
+        shapely.geometry.Polygon: the instrument footprint
+    """
+    angles = (
+        np.linspace(np.pi / 4, 9 * np.pi / 4, number_points, False)
+        if number_points == 4
+        else np.linspace(0, 2 * np.pi, number_points, False)
+    )
+    positions = [
+        _get_footprint_position(
+            orbit_track,
+            cross_track_field_of_view,
+            along_track_field_of_view,
+            pitch_angle,
+            roll_angle,
+            angle,
+        )
+        for angle in angles
+    ]
+    return split_polygon(
+        Polygon(
+            [
+                (
+                    p.longitude.degrees, 
+                    p.latitude.degrees
+                )
+                for p in positions
+            ]
+        )
+    )
+
+
+def project_polygon_to_elevation(
+    polygon: Union[Polygon, MultiPolygon], elevation: float
+) -> Union[Polygon, MultiPolygon]:
+    """
+    Projects a polygon to a specified elevation (z-coordinate).
+
+    Args:
+        polygon (Polygon or MultiPolygon): the polygon to project
+        elevation (float): the elevation (meters) above the WGS 84 geoid
+
+    Returns:
+        Polygon or MultiPolygon: the projected polygon
+    """
+    if isinstance(polygon, Polygon):
+        return Polygon(
+            [(p[0], p[1], elevation) for p in polygon.exterior.coords],
+            [[(p[0], p[1], elevation) for p in i.coords] for i in polygon.interiors],
+        )
+    return MultiPolygon([project_polygon_to_elevation(g, elevation) for g in polygon.geoms])
 
 
 def _wrap_polygon_over_north_pole(
