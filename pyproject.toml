@@ -30,6 +30,7 @@ dependencies = [
     "shapely >= 2",
     "skyfield >= 1.48",
     "sgp4",
+    "spiceypy",
     "typing-extensions",
 ]
 dynamic = ["version"]
