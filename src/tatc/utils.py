@@ -113,6 +113,44 @@ def swath_width_to_field_of_regard(
 
 
 @njit
+def swath_width_to_field_of_view(
+    altitude: float, swath_width: float, look_angle: float = 0, elevation: float = 0
+) -> float:
+    """
+    Fast conversion from swath width to field of view considering off-nadir pointing.
+
+    Args:
+        altitude (float): Altitude (meters) above WGS 84 datum for the observing instrument.
+        swath_width (float): Observation diameter (meters) at specified elevation.
+        look_angle (float): Off-nadir look angle (degrees) to observation center.
+        elevation (float): Elevation (meters) above WGS 84 datum to observe.
+
+    Returns:
+        float: The field of view (degrees).
+    """
+    # rho is the angular radius of the earth viewed by the satellite
+    sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
+        constants.EARTH_MEAN_RADIUS + altitude
+    )
+    # eta is the angular radius from sub-satellite point to center of view
+    sin_eta = min(sin_rho, np.sin(np.radians(look_angle) / 2))
+    # epsilon is the satellite elevation from the center of view
+    cos_epsilon = sin_eta / sin_rho
+    # lambda is the Earth central angle to the center of view
+    _lambda = np.pi / 2 - np.arcsin(sin_eta) - np.arccos(cos_epsilon)
+    sin_lambda_1 = np.sin(
+        _lambda - (swath_width / 2) / (constants.EARTH_MEAN_RADIUS + elevation)
+    )
+    sin_lambda_2 = np.sin(
+        _lambda + (swath_width / 2) / (constants.EARTH_MEAN_RADIUS + elevation)
+    )
+    # eta is the angular radius of the region viewable by the satellite
+    tan_eta_1 = sin_rho * sin_lambda_1 / (1 - sin_rho * np.cos(np.arcsin(sin_lambda_1)))
+    tan_eta_2 = sin_rho * sin_lambda_2 / (1 - sin_rho * np.cos(np.arcsin(sin_lambda_2)))
+    return np.degrees(np.arctan(tan_eta_2) - np.arctan(tan_eta_1))
+
+
+@njit
 def field_of_regard_to_swath_width(
     altitude: float, field_of_regard: float, elevation: float = 0
 ) -> float:

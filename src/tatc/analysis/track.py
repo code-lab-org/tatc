@@ -12,8 +12,9 @@ from enum import Enum
 import pandas as pd
 import numpy as np
 import geopandas as gpd
-from skyfield.api import wgs84, EarthSatellite
+from skyfield.api import Distance, wgs84
 from skyfield.framelib import itrs
+from skyfield.toposlib import ITRSPosition
 
 from shapely.geometry import (
     Polygon,
@@ -22,14 +23,22 @@ from shapely.geometry import (
     LineString,
 )
 from shapely.ops import clip_by_rect, split, transform, unary_union
+from spiceypy.spiceypy import edlimb, inelpl, nvp2pl, surfpt
+from spiceypy.utils.exceptions import NotFoundError
 import pyproj
 
+from ..schemas.instrument import PointedInstrument
 from ..schemas.satellite import Satellite
 from ..utils import (
     split_polygon,
     field_of_regard_to_swath_width,
 )
-from ..constants import EARTH_MEAN_RADIUS
+from ..constants import (
+    EARTH_MEAN_RADIUS,
+    EARTH_EQUATORIAL_RADIUS,
+    EARTH_EQUATORIAL_RADIUS,
+    EARTH_POLAR_RADIUS,
+)
 
 
 def _get_empty_orbit_track() -> gpd.GeoDataFrame:
@@ -233,7 +242,8 @@ def collect_ground_track(
                 distance (default: World Equidistant Cylindrical `"EPSG:4087"`).
                 Selecting `crs="utm"` uses Universal Transverse Mercator (UTM)
                 zones for non-polar regions, and Universal Polar Stereographic
-                (UPS) systems for polar regions.
+                (UPS) systems for polar regions. Selecting `crs="spice"` uses
+                SPICE to compute footprints.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected ground track results.
@@ -244,8 +254,111 @@ def collect_ground_track(
         return gdf
     # project points to specified elevation
     gdf.geometry = gdf.geometry.apply(lambda p: Point(p.x, p.y, elevation))
+    if crs == "spice":
+        # select the observing instrument
+        instrument = satellite.instruments[instrument_index]
+        # propagate orbit
+        orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
+        position, velocity = orbit_track.frame_xyz_and_velocity(itrs)
+        # position vector
+        p = position.m
+        # velocity unit vector
+        v = np.divide(velocity.m_per_s, np.linalg.norm(velocity.m_per_s, axis=0))
+        # binormal unit vector
+        b = np.divide(-position.m, np.linalg.norm(position.m, axis=0))
+        # normal unit vector
+        n = np.einsum(
+            "iik->ik",
+            np.cross(position.m.T[:, None, :], velocity.m_per_s.T[None, :, :]),
+        ).T
+        n = np.divide(n, np.linalg.norm(n, axis=0))
+
+        if isinstance(instrument, PointedInstrument):
+            pitch_angle = instrument.pitch_angle
+            roll_angle = instrument.roll_angle
+            along_track_field_of_view = instrument.along_track_field_of_view
+            cross_track_field_of_view = instrument.cross_track_field_of_view
+            num_pts = 4 if instrument.is_rectangular else 16
+        else:
+            pitch_angle = 0
+            roll_angle = 0
+            along_track_field_of_view = instrument.field_of_regard
+            cross_track_field_of_view = instrument.field_of_regard
+            num_pts = 16
+
+        def get_visible_extent(p, v, n, b, i):
+            ray = (
+                b
+                + v * np.tan(np.radians(pitch_angle))
+                + n * np.tan(np.radians(roll_angle))
+                + v * np.sin(i) * np.tan(np.radians(along_track_field_of_view / 2))
+                + n * np.cos(i) * np.tan(np.radians(cross_track_field_of_view / 2))
+            )
+            try:
+                # find the intersection of the ray and the wgs84 geoid
+                return surfpt(
+                    p,
+                    ray,
+                    EARTH_EQUATORIAL_RADIUS,
+                    EARTH_EQUATORIAL_RADIUS,
+                    EARTH_POLAR_RADIUS,
+                )
+            except NotFoundError:
+                # projected point does not fall on the wgs84 geoid surface
+                # compute the observable limb ellipse for wgs84 geoid
+                limb = edlimb(
+                    EARTH_EQUATORIAL_RADIUS,
+                    EARTH_EQUATORIAL_RADIUS,
+                    EARTH_POLAR_RADIUS,
+                    p,
+                )
+                # find the two intersection points with the limb ellipse
+                limb_pt = inelpl(
+                    limb,
+                    nvp2pl(v * np.sin(np.pi / 2 + i) + n * np.cos(np.pi / 2 + i), p),
+                )
+                # compute the angles between the ray and limb
+                angle_1 = np.acos(
+                    np.dot(ray, limb_pt[1])
+                    / np.linalg.norm(ray)
+                    / np.linalg.norm(limb_pt[1])
+                )
+                angle_2 = np.acos(
+                    np.dot(ray, limb_pt[2])
+                    / np.linalg.norm(ray)
+                    / np.linalg.norm(limb_pt[2])
+                )
+                # return the closer limb point to the ray
+                if angle_1 <= angle_2:
+                    return limb_pt[1]
+                return limb_pt[2]
+
+        gdf.geometry = [
+            Polygon(
+                [
+                    (geo.longitude.degrees, geo.latitude.degrees, elevation)
+                    for geo in [
+                        wgs84.geographic_position_of(
+                            ITRSPosition(
+                                Distance(
+                                    m=get_visible_extent(
+                                        np.array(p[:, t].tolist()),
+                                        np.array(v[:, t].tolist()),
+                                        np.array(n[:, t].tolist()),
+                                        np.array(b[:, t].tolist()),
+                                        i,
+                                    )
+                                )
+                            ).at(orbit_track.t[t])
+                        )
+                        for i in np.linspace(np.pi / 4, 9 * np.pi / 4, num_pts, False)
+                    ]
+                ]
+            )
+            for t in range(len(times))
+        ]
     # at each point, draw a buffer equivalent to the swath radius
-    if crs == "utm":
+    elif crs == "utm":
         # do the swath projection in the matching utm zone
         utm_crs = gdf.apply(
             lambda r: _get_utm_epsg_code(r.geometry, r.swath_width), axis=1
@@ -346,11 +459,10 @@ def compute_ground_track(
                 distance (default: World Equidistant Cylindrical `"EPSG:4087"`).
                 Selecting `crs="utm"` uses Universal Transverse Mercator (UTM)
                 zones for non-polar regions, and Universal Polar Stereographic
-                (UPS) systems for polar regions.
+                (UPS) systems for polar regions. Selecting `crs="spice"` uses
+                SPICE to compute footprints.
         method (str): The method for computing ground track: `"point"` buffers
-                individual points while `"line"` buffers a line of points. Note
-                that the `"line"` method assumes continuous observations and only
-                supports ground tracks that span LESS than 360 degrees longitude.
+                individual points and `"line"` buffers a line of points.
 
     Returns:
         GeoDataFrame: The data frame of aggregated ground track results.
@@ -451,4 +563,5 @@ def compute_ground_track(
         if mask is not None:
             track = gpd.clip(track, mask).reset_index(drop=True)
         return track
+
     raise ValueError("Invalid method: " + str(method))

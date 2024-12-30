@@ -129,3 +129,37 @@ class Instrument(BaseModel):
                 is_valid, self.req_target_sunlit == (solar_alt > 0)
             )
         return is_valid
+
+
+class PointedInstrument(Instrument):
+    """
+    Remote sensing instrument with off-nadir orientation.
+    """
+
+    cross_track_field_of_view: float = Field(
+        ...,
+        description="Angular field (degrees) of view orthogonal to instrument motion.",
+        gt=0,
+        le=180,
+    )
+    along_track_field_of_view: float = Field(
+        ...,
+        description="Angular field (degrees) of view in direction of instrument motion.",
+        gt=0,
+        le=180,
+    )
+    roll_angle: float = Field(
+        0,
+        description="Left/right look angle (degrees) orthogonal to instrument motion.",
+        ge=-180,
+        le=180,
+    )
+    pitch_angle: float = Field(
+        0,
+        description="Fore/aft look angle (degrees) in direction of instrument motion.",
+        ge=-180,
+        le=180,
+    )
+    is_rectangular: bool = Field(
+        False, description="True, if this instrument produces a rectangular view."
+    )
