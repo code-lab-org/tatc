@@ -343,12 +343,13 @@ def access_time_to_along_track_distance(
     return ground_velocity * access_time
 
 
-def _get_footprint_position(
+def _get_footprint_point(
     orbit_track: Geocentric,
     cross_track_field_of_view: float,
     along_track_field_of_view: float,
     roll_angle: float = 0,
     pitch_angle: float = 0,
+    is_rectangular: bool = False,
     angle: float = 0,
 ) -> GeographicPosition:
     # extract earth-fixed position and velocity
@@ -360,13 +361,67 @@ def _get_footprint_position(
     # normal unit vector
     n = np.cross(v, b)
     # construct projected ray
-    ray = (
-        b
-        + v * np.tan(np.radians(pitch_angle))
-        + n * np.tan(np.radians(roll_angle))
-        + v * np.sin(angle) * np.tan(np.radians(along_track_field_of_view / 2))
-        + n * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
-    )
+    if is_rectangular:
+        theta = np.arctan(along_track_field_of_view / cross_track_field_of_view)
+        tan_a_2 = np.tan(np.radians(along_track_field_of_view / 2))
+        tan_c_2 = np.tan(np.radians(cross_track_field_of_view / 2))
+        ray = (
+            b
+            + v * np.tan(np.radians(pitch_angle))
+            + n * np.tan(np.radians(roll_angle))
+            + v
+            * (
+                tan_a_2
+                if theta <= angle <= np.pi - theta
+                else (
+                    -tan_a_2
+                    if np.pi + theta <= angle <= 2 * np.pi - theta
+                    else (
+                        tan_c_2 * np.tan(angle)
+                        if angle < theta
+                        else (
+                            tan_c_2 * np.tan(np.pi - angle)
+                            if angle < np.pi
+                            else (
+                                -tan_c_2 * np.tan(angle - np.pi)
+                                if angle < np.pi + theta
+                                else -tan_c_2 * np.tan(2 * np.pi - angle)
+                            )
+                        )
+                    )
+                )
+            )
+            + n
+            * (
+                tan_c_2
+                if angle <= theta or angle >= 2 * np.pi - theta
+                else (
+                    -tan_c_2
+                    if np.pi - theta <= angle <= np.pi + theta
+                    else (
+                        tan_a_2 * np.tan(np.pi / 2 - angle)
+                        if angle < np.pi / 2
+                        else (
+                            -tan_a_2 * np.tan(angle - np.pi / 2)
+                            if angle < np.pi - theta
+                            else (
+                                -tan_a_2 * np.tan(3 * np.pi / 2 - angle)
+                                if angle < 3 * np.pi / 2
+                                else tan_a_2 * np.tan(angle - 3 * np.pi / 2)
+                            )
+                        )
+                    )
+                )
+            )
+        )
+    else:
+        ray = (
+            b
+            + v * np.tan(np.radians(pitch_angle))
+            + n * np.tan(np.radians(roll_angle))
+            + v * np.sin(angle) * np.tan(np.radians(along_track_field_of_view / 2))
+            + n * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
+        )
     try:
         # find the intersection of the ray and the WGS 84 geoid
         pt = surfpt(
@@ -397,10 +452,10 @@ def _get_footprint_position(
             ),
         )
         # compute the angles between the ray and limb intersection points
-        angle_1 = np.acos(
+        angle_1 = np.arccos(
             np.dot(ray, pt_1) / np.linalg.norm(ray) / np.linalg.norm(pt_1)
         )
-        angle_2 = np.acos(
+        angle_2 = np.arccos(
             np.dot(ray, pt_2) / np.linalg.norm(ray) / np.linalg.norm(pt_2)
         )
         # use the limb intersection point closer to the ray
@@ -420,48 +475,48 @@ def compute_footprint(
     along_track_field_of_view: float,
     roll_angle: float = 0,
     pitch_angle: float = 0,
-    number_points: int = 16,
+    is_rectangular: bool = False,
+    number_points: int = None,
 ) -> Polygon:
     """
     Compute the instanteous instrument footprint.
 
     Args:
-        orbit_track (skyfield.positionlib.Geocentric): the satellite position/velocity.
-        cross_track_field_of_view (float): the angular (degrees) field of view orthogonal to velocity.
-        along_track_field_of_view (float): the angular (degrees) field of view in direction of velocity.
-        pitch_angle (float): the fore/aft look angle (degrees) in direction of velocity.
-        roll_angle (float): the left/right look angle (degrees) orthogonal to velocity.
-        number_points (int): the number of polygon points to generate.
+        orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+        cross_track_field_of_view (float): The angular (degrees) field of view orthogonal to velocity.
+        along_track_field_of_view (float): The angular (degrees) field of view in direction of velocity.
+        pitch_angle (float): The fore/aft look angle (degrees) in direction of velocity.
+        roll_angle (float): The left/right look angle (degrees) orthogonal to velocity.
+        is_rectangular (float): True, if this is a rectangular sensor.
+        number_points (int): The required number of polygon points to generate.
 
     Returns:
-        shapely.geometry.Polygon: the instrument footprint
+        shapely.geometry.Polygon: The instrument footprint.
     """
-    angles = (
-        np.linspace(np.pi / 4, 9 * np.pi / 4, number_points, False)
-        if number_points == 4
-        else np.linspace(0, 2 * np.pi, number_points, False)
-    )
-    positions = [
-        _get_footprint_position(
+    if number_points is None:
+        # default number of points
+        number_points = 33
+        if is_rectangular:
+            theta = min(
+                np.arctan(along_track_field_of_view / cross_track_field_of_view),
+                np.arctan(cross_track_field_of_view / along_track_field_of_view),
+            )
+            # achieve 4 points along shortest side, with a minimum of 33
+            number_points = max(number_points, int(4 * np.pi / theta))
+    points = [
+        _get_footprint_point(
             orbit_track,
             cross_track_field_of_view,
             along_track_field_of_view,
-            pitch_angle,
             roll_angle,
+            pitch_angle,
+            is_rectangular,
             angle,
         )
-        for angle in angles
+        for angle in np.linspace(0, 2 * np.pi, number_points)
     ]
     return split_polygon(
-        Polygon(
-            [
-                (
-                    p.longitude.degrees, 
-                    p.latitude.degrees
-                )
-                for p in positions
-            ]
-        )
+        Polygon([(p.longitude.degrees, p.latitude.degrees) for p in points])
     )
 
 
@@ -472,18 +527,20 @@ def project_polygon_to_elevation(
     Projects a polygon to a specified elevation (z-coordinate).
 
     Args:
-        polygon (Polygon or MultiPolygon): the polygon to project
-        elevation (float): the elevation (meters) above the WGS 84 geoid
+        polygon (Polygon or MultiPolygon): The polygon to project.
+        elevation (float): The elevation (meters) above the WGS 84 geoid.
 
     Returns:
-        Polygon or MultiPolygon: the projected polygon
+        Polygon or MultiPolygon: The projected polygon.
     """
     if isinstance(polygon, Polygon):
         return Polygon(
             [(p[0], p[1], elevation) for p in polygon.exterior.coords],
             [[(p[0], p[1], elevation) for p in i.coords] for i in polygon.interiors],
         )
-    return MultiPolygon([project_polygon_to_elevation(g, elevation) for g in polygon.geoms])
+    return MultiPolygon(
+        [project_polygon_to_elevation(g, elevation) for g in polygon.geoms]
+    )
 
 
 def _wrap_polygon_over_north_pole(
@@ -784,6 +841,26 @@ def _split_polygon_antimeridian(
         # (adjacent coordinate longitude differs by more than 180 degrees)
         if all(np.abs(np.diff(lon)) < 180):
             return polygon
+        # check if this polygon contains a pole by counting
+        # how many times differences in longitude change sign
+        # (exactly two times indicates circling a pole)
+        if int(np.sum(np.abs(np.diff(np.sign(np.diff(lon))) / 2))) == 2:
+            # extract and sort coords by longitude
+            coords = polygon.exterior.coords[0:-1]
+            coords.sort(key=lambda r: r[0])
+            # determine if contains north or south pole based on sign of first latitude
+            n_s = 1 if coords[0][1] > 0 else -1
+            # interpolate latitude at antimeridian
+            lat = np.interp(
+                180, [coords[-1][0], coords[0][0] + 180], [coords[-1][1], coords[0][1]]
+            )
+            # reconstruct polygon (ccw) with added coords on antimeridian
+            return Polygon(
+                [(-180, 90 * n_s), (-180, lat)]
+                + coords
+                + [(180, lat), (180, 90 * n_s), (-180, 90 * n_s)],
+                polygon.interiors,
+            )
         # find anti-meridian crossings and calculate shift direction
         # coords from W -> E (shift < 0) will add 360 degrees to E component
         # coords from E -> W (shift > 0) will subtract 360 degrees from W component

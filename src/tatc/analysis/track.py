@@ -251,36 +251,31 @@ def collect_ground_track(
         instrument = satellite.instruments[instrument_index]
         # propagate orbit
         orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
-
         if isinstance(instrument, PointedInstrument):
             # assign pointed instrument properties
             cross_track_field_of_view = instrument.cross_track_field_of_view
             along_track_field_of_view = instrument.along_track_field_of_view
             roll_angle = instrument.roll_angle
             pitch_angle = instrument.pitch_angle
-            number_points = 4 if instrument.is_rectangular else 16
+            is_rectangular = instrument.is_rectangular
         else:
             # fall back to defaults
             cross_track_field_of_view = instrument.field_of_regard
             along_track_field_of_view = instrument.field_of_regard
             roll_angle = 0
             pitch_angle = 0
-            number_points = 16
-
+            is_rectangular = False
         # construct polygons based on visible extent of instrument
-        # split polygons to wrap over the anti-meridian and poles
-        # reproject to specified elevation (lost during buffer)
+        # project to specified elevation
         gdf.geometry = [
             project_polygon_to_elevation(
-                split_polygon(
-                    compute_footprint(
-                        orbit_track[t],
-                        cross_track_field_of_view,
-                        along_track_field_of_view,
-                        roll_angle,
-                        pitch_angle,
-                        number_points,
-                    )
+                compute_footprint(
+                    orbit_track[t],
+                    cross_track_field_of_view,
+                    along_track_field_of_view,
+                    roll_angle,
+                    pitch_angle,
+                    is_rectangular,
                 ),
                 elevation,
             )
@@ -372,7 +367,7 @@ def compute_ground_track(
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     crs: str = "EPSG:4087",
     method: str = "point",
-    dissolve_orbits: bool = True
+    dissolve_orbits: bool = True,
 ) -> gpd.GeoDataFrame:
     """
     Compute the aggregated ground track for a satellite of interest.
@@ -402,7 +397,10 @@ def compute_ground_track(
             satellite, times, instrument_index, elevation, None, crs
         )
         # assign orbit identifier
-        track["orbit_id"] = [(time - times[0]) // satellite.orbit.to_tle().get_orbit_period() for time in times]
+        track["orbit_id"] = [
+            (time - times[0]) // satellite.orbit.to_tle().get_orbit_period()
+            for time in times
+        ]
         # filter to valid observations and dissolve
         track = track[track.valid_obs].dissolve(by="orbit_id").reset_index(drop=True)
         if mask is not None:
@@ -413,7 +411,10 @@ def compute_ground_track(
     if method == "line":
         track = collect_orbit_track(satellite, times, instrument_index, elevation, None)
         # assign orbit identifier
-        track["orbit_id"] = [(time - times[0]) // satellite.orbit.to_tle().get_orbit_period() for time in times]
+        track["orbit_id"] = [
+            (time - times[0]) // satellite.orbit.to_tle().get_orbit_period()
+            for time in times
+        ]
         # assign track identifiers to group contiguous observation periods
         track["track_id"] = (
             (track.valid_obs != track.valid_obs.shift()).astype("int").cumsum()
@@ -424,9 +425,7 @@ def compute_ground_track(
         swath_widths = []
         for _, sub_track in track.groupby(["orbit_id", "track_id"]):
             # project points to specified elevation
-            points = sub_track.geometry.apply(
-                lambda p: Point(p.x, p.y, elevation)
-            )
+            points = sub_track.geometry.apply(lambda p: Point(p.x, p.y, elevation))
             # extract longitudes
             lon = sub_track.geometry.apply(lambda p: p.x)
             # extract average swath width
@@ -485,7 +484,7 @@ def compute_ground_track(
                         transform(to_crs, segment).buffer(swath_width / 2),
                     )
                 ),
-                elevation
+                elevation,
             )
             for segment, swath_width in zip(segments, swath_widths)
         ]
