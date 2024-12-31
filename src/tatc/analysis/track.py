@@ -128,6 +128,9 @@ def collect_orbit_track(
         ]
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track)
+    if len(times) == 1:
+        # transform scalar to vector results
+        valid_obs = np.array([valid_obs])
     # create velocity points if needed
     if orbit_output == OrbitOutput.POSITION:
         records = [
