@@ -10,8 +10,8 @@ import numpy as np
 from numba import njit
 import geopandas as gpd
 from pyproj import Transformer
-from shapely import Geometry
-from shapely.geometry import Polygon, MultiPolygon, GeometryCollection, LineString
+from shapely import Geometry, make_valid
+from shapely.geometry import Point, Polygon, MultiPolygon, GeometryCollection, LineString
 from shapely.ops import split, transform
 from skyfield.api import Distance, wgs84
 from skyfield.framelib import itrs
@@ -884,10 +884,8 @@ def _split_polygon_antimeridian(
         # (adjacent coordinate longitude differs by more than 180 degrees)
         if all(np.abs(np.diff(lon)) < 180):
             return polygon
-        # check if this polygon contains a pole by counting
-        # how many times differences in longitude change sign
-        # (exactly two times indicates circling a pole)
-        if int(np.sum(np.abs(np.diff(np.sign(np.diff(lon))) / 2))) == 2:
+        # check if this polygon contains a pole
+        if Polygon(zip(np.cos(np.radians(lon)), np.sin(np.radians(lon)))).contains(Point(0,0)):
             # extract and sort coords by longitude
             coords = polygon.exterior.coords[0:-1]
             coords.sort(key=lambda r: r[0])
@@ -898,12 +896,18 @@ def _split_polygon_antimeridian(
                 180, [coords[-1][0], coords[0][0] + 180], [coords[-1][1], coords[0][1]]
             )
             # reconstruct polygon (ccw) with added coords on antimeridian
-            return Polygon(
+            pgon = Polygon(
                 [(-180, 90 * n_s), (-180, lat)]
                 + coords
                 + [(180, lat), (180, 90 * n_s), (-180, 90 * n_s)],
                 polygon.interiors,
             )
+            # return polygon split down prime meridian to improve handling
+            parts = split(pgon, LineString([(0, -180), (0, 180)]))
+            # convert to multi polygon
+            if isinstance(parts, GeometryCollection):
+                parts = _convert_collection_to_polygon(parts)
+            return parts
         # find anti-meridian crossings and calculate shift direction
         # coords from W -> E (shift < 0) will add 360 degrees to E component
         # coords from E -> W (shift > 0) will subtract 360 degrees from W component
@@ -961,9 +965,19 @@ def split_polygon(
     Returns:
         Polygon, or MultiPolygon: The split polygon.
     """
-    return _split_polygon_north_pole(
+    geometry = _split_polygon_north_pole(
         _split_polygon_south_pole(_split_polygon_antimeridian(polygon))
     )
+    if not geometry.is_valid:
+        # try to fix geometry
+        make_valid(geometry)
+        if isinstance(geometry, GeometryCollection):
+            geometry = [
+                polygon
+                for polygon in geometry.geoms
+                if isinstance(polygon, (Polygon, MultiPolygon))
+            ]
+    return geometry
 
 
 def normalize_geometry(
