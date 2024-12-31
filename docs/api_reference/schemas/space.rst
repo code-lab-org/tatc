@@ -7,6 +7,12 @@ Instrument
 .. autopydantic_model:: tatc.schemas.Instrument
   :members:
 
+Pointed Instrument
+------------------
+
+.. autopydantic_model:: tatc.schemas.PointedInstrument
+  :members:
+
 Satellite
 ---------
 

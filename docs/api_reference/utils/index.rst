@@ -10,7 +10,11 @@ Utility Functions
 
 .. autofunction:: tatc.utils.swath_width_to_field_of_regard
 
+.. autofunction:: tatc.utils.swath_width_to_field_of_view
+
 .. autofunction:: tatc.utils.field_of_regard_to_swath_width
+
+.. autofunction:: tatc.utils.compute_footprint
 
 .. autofunction:: tatc.utils.compute_field_of_regard
 
@@ -19,6 +23,8 @@ Utility Functions
 .. autofunction:: tatc.utils.compute_orbit_period
 
 .. autofunction:: tatc.utils.compute_max_access_time
+
+.. autofunction:: tatc.utils.project_polygon_to_elevation
 
 .. autofunction:: tatc.utils.split_polygon
 

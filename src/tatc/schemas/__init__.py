@@ -3,7 +3,7 @@ Defines object schemas.
 """
 
 from .architecture import Architecture
-from .instrument import Instrument
+from .instrument import Instrument, PointedInstrument
 from .orbit import (
     TwoLineElements,
     CircularOrbit,
