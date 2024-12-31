@@ -972,11 +972,7 @@ def split_polygon(
         # try to fix geometry
         make_valid(geometry)
         if isinstance(geometry, GeometryCollection):
-            geometry = [
-                polygon
-                for polygon in geometry.geoms
-                if isinstance(polygon, (Polygon, MultiPolygon))
-            ]
+            geometry = _convert_collection_to_polygon(geometry)
     return geometry
 
 
