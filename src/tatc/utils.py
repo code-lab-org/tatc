@@ -11,7 +11,13 @@ from numba import njit
 import geopandas as gpd
 from pyproj import Transformer
 from shapely import Geometry, make_valid
-from shapely.geometry import Point, Polygon, MultiPolygon, GeometryCollection, LineString
+from shapely.geometry import (
+    Point,
+    Polygon,
+    MultiPolygon,
+    GeometryCollection,
+    LineString,
+)
 from shapely.ops import split, transform
 from skyfield.api import Distance, wgs84
 from skyfield.framelib import itrs
@@ -504,12 +510,18 @@ def compute_footprint(
             number_points = config.rc.footprint_points_elliptical
     if is_rectangular:
         theta = np.arctan(along_track_field_of_view / cross_track_field_of_view)
-        angles = np.concat((
-            np.linspace(-theta, theta, number_points, endpoint=False),
-            np.linspace(theta, np.pi - theta, number_points, endpoint=False),
-            np.linspace(np.pi - theta, np.pi + theta, number_points, endpoint=False),
-            np.linspace(np.pi + theta, 2 * np.pi - theta, number_points, endpoint=False),
-        ))
+        angles = np.concat(
+            (
+                np.linspace(-theta, theta, number_points, endpoint=False),
+                np.linspace(theta, np.pi - theta, number_points, endpoint=False),
+                np.linspace(
+                    np.pi - theta, np.pi + theta, number_points, endpoint=False
+                ),
+                np.linspace(
+                    np.pi + theta, 2 * np.pi - theta, number_points, endpoint=False
+                ),
+            )
+        )
     else:
         angles = np.linspace(0, 2 * np.pi, number_points)
     points = [
@@ -885,7 +897,9 @@ def _split_polygon_antimeridian(
         if all(np.abs(np.diff(lon)) < 180):
             return polygon
         # check if this polygon contains a pole
-        if Polygon(zip(np.cos(np.radians(lon)), np.sin(np.radians(lon)))).contains(Point(0,0)):
+        if Polygon(zip(np.cos(np.radians(lon)), np.sin(np.radians(lon)))).contains(
+            Point(0, 0)
+        ):
             # extract and sort coords by longitude
             coords = polygon.exterior.coords[0:-1]
             coords.sort(key=lambda r: r[0])
