@@ -460,7 +460,7 @@ class TwoLineElements(BaseModel):
                     )
                 else:
                     repeat_times = constants.timescale.from_datetimes(
-                        epoch + np.mod(times - epoch, repeat_cycle)
+                        epoch + np.mod(np.array(times) - epoch, repeat_cycle)
                     )
                 repeat_track = self.as_skyfield().at(repeat_times)
                 return Geocentric(
