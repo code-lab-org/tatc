@@ -22,11 +22,11 @@ class RuntimeConfiguration(BaseModel):
     Runtime configuration settings.
     """
 
-    footprint_points: int = Field(
-        33, description="Number of points for a SPICE footprint.", gt=4
+    footprint_points_elliptical: int = Field(
+        32, description="Number of points for a SPICE elliptical footprint.", ge=4
     )
-    footprint_points_rect_side: int = Field(
-        4, description="Number of points for a SPICE rectangular footprint side.", gt=1
+    footprint_points_rectangular_side: int = Field(
+        8, description="Number of points for a SPICE rectangular footprint side.", ge=1
     )
     repeat_cycle_delta_position_m: float = Field(
         10000,

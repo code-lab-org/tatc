@@ -1,6 +1,6 @@
 # SPICE-related footprint settings
-footprint_points: 33
-footprint_points_rect_side: 4
+footprint_points_elliptical: 32
+footprint_points_rectangular_side: 8
 
 # orbit repeat cycle search-related settings
 repeat_cycle_delta_position_m: 10000

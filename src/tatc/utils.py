@@ -498,17 +498,20 @@ def compute_footprint(
     """
     if number_points is None:
         # default number of points
-        number_points = config.rc.footprint_points
         if is_rectangular:
-            theta = min(
-                np.arctan(along_track_field_of_view / cross_track_field_of_view),
-                np.arctan(cross_track_field_of_view / along_track_field_of_view),
-            )
-            # set number of points on the shortest side
-            number_points = max(
-                number_points,
-                int(2 * np.pi / (theta / config.rc.footprint_points_rect_side)),
-            )
+            number_points = config.rc.footprint_points_rectangular_side
+        else:
+            number_points = config.rc.footprint_points_elliptical
+    if is_rectangular:
+        theta = np.arctan(along_track_field_of_view / cross_track_field_of_view)
+        angles = np.concat((
+            np.linspace(-theta, theta, number_points, endpoint=False),
+            np.linspace(theta, np.pi - theta, number_points, endpoint=False),
+            np.linspace(np.pi - theta, np.pi + theta, number_points, endpoint=False),
+            np.linspace(np.pi + theta, 2 * np.pi - theta, number_points, endpoint=False),
+        ))
+    else:
+        angles = np.linspace(0, 2 * np.pi, number_points)
     points = [
         _get_footprint_point(
             orbit_track,
@@ -519,7 +522,7 @@ def compute_footprint(
             is_rectangular,
             angle,
         )
-        for angle in np.linspace(0, 2 * np.pi, number_points)
+        for angle in angles
     ]
     return split_polygon(
         Polygon([(p.longitude.degrees, p.latitude.degrees) for p in points])
