@@ -250,7 +250,7 @@ def collect_ground_track(
         # select the observing instrument
         instrument = satellite.instruments[instrument_index]
         # propagate orbit
-        orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
+        orbit_track = satellite.orbit.to_tle().get_orbit_track(gdf.time)
         if isinstance(instrument, PointedInstrument):
             # assign pointed instrument properties
             cross_track_field_of_view = instrument.cross_track_field_of_view
@@ -279,7 +279,7 @@ def collect_ground_track(
                 ),
                 elevation,
             )
-            for t in range(len(times))
+            for t in range(len(gdf.index))
         ]
     elif crs == "utm":
         utm_crs = gdf.apply(
