@@ -499,9 +499,9 @@ class TwoLineElements(BaseModel):
         if try_repeat:
             # try to compute repeat cycle events
             repeat_cycle = self.get_repeat_cycle()
-            if repeat_cycle is not None:
+            if repeat_cycle is not None and repeat_cycle < end - start:
                 repeat_t_1 = constants.timescale.from_datetime(
-                    start + np.mod(end - start, repeat_cycle)
+                    start + repeat_cycle
                 )
                 times, events = self.as_skyfield().find_events(
                     topos, t_0, repeat_t_1, min_elevation_angle
