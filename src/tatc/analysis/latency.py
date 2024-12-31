@@ -136,13 +136,10 @@ def compute_latencies(
     if observations.empty or downlinks.empty:
         return _get_empty_latency_frame()
 
-    # sort downlinks
-    downlinks_sorted = downlinks.sort_values(by="start")
-
     # merge observations with downlinks to find matching satellite downlinks
     obs = pd.merge_asof(
-        observations.sort_values("end"),
-        downlinks_sorted,
+        observations.sort_values(by="end"),
+        downlinks.sort_values(by="start"),
         by="satellite",
         left_on="end",
         right_on="start",
