@@ -19,6 +19,7 @@ from spiceypy.spiceypy import edlimb, inelpl, nvp2pl, surfpt
 from spiceypy.utils.exceptions import NotFoundError
 
 from . import constants
+from . import config
 
 
 @njit
@@ -495,14 +496,17 @@ def compute_footprint(
     """
     if number_points is None:
         # default number of points
-        number_points = 33
+        number_points = config.rc.footprint_points
         if is_rectangular:
             theta = min(
                 np.arctan(along_track_field_of_view / cross_track_field_of_view),
                 np.arctan(cross_track_field_of_view / along_track_field_of_view),
             )
-            # achieve 4 points along shortest side, with a minimum of 33
-            number_points = max(number_points, int(4 * np.pi / theta))
+            # set number of points on the shortest side
+            number_points = max(
+                number_points,
+                int(2 * np.pi / (theta / config.rc.footprint_points_rect_side)),
+            )
     points = [
         _get_footprint_point(
             orbit_track,

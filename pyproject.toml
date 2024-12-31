@@ -32,6 +32,7 @@ dependencies = [
     "sgp4",
     "spiceypy",
     "typing-extensions",
+    "yaml",
 ]
 dynamic = ["version"]
 
