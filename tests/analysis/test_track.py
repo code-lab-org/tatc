@@ -148,6 +148,7 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 for i in range(10)
             ],
             method="line",
+            crs="EPSG:4087",
         )
         self.assertEqual(len(results.index), 1)
         self.assertEqual(type(results.iloc[0].geometry), Polygon)
@@ -160,6 +161,7 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 for i in range(12)
             ],
             method="line",
+            crs="EPSG:4087",
         )
         self.assertEqual(len(results.index), 1)
         self.assertEqual(type(results.iloc[0].geometry), MultiPolygon)
@@ -172,6 +174,7 @@ class TestGroundTrackAnalysis(unittest.TestCase):
                 for i in range(10)
             ],
             method="line",
+            crs="EPSG:4087",
         )
         self.assertEqual(len(results.index), 1)
         self.assertEqual(type(results.iloc[0].geometry), MultiPolygon)

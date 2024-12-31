@@ -386,7 +386,8 @@ def compute_ground_track(
                 (UPS) systems for polar regions. Selecting `crs="spice"` uses
                 SPICE to compute footprints.
         method (str): The method for computing ground track: `"point"` buffers
-                individual points and `"line"` buffers a line of points.
+                individual points and `"line"` buffers a line of points. The line
+                method is not compatible with the `crs="spice"` option above.
     Returns:
         GeoDataFrame: The data frame of aggregated ground track results.
     """
