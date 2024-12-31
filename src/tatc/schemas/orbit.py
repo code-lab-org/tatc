@@ -22,7 +22,7 @@ from skyfield.framelib import itrs
 from typing_extensions import Literal
 
 from .point import Point
-from .. import constants, utils
+from .. import config, constants, utils
 
 
 class TwoLineElements(BaseModel):
@@ -350,11 +350,11 @@ class TwoLineElements(BaseModel):
 
     def get_repeat_cycle(
         self,
-        max_delta_position: float = 10000,
-        max_delta_velocity: float = 10,
-        min_elevation_angle: float = 88,
-        max_search_duration: timedelta = timedelta(days=30),
-        lazy_load=True,
+        max_delta_position: float = None,
+        max_delta_velocity: float = None,
+        min_elevation_angle: float = None,
+        max_search_duration: timedelta = None,
+        lazy_load: bool = None,
     ) -> timedelta:
         """
         Compute the orbit repeat cycle. Lazy-loads a previously-computed repeat cycle if available.
@@ -369,6 +369,20 @@ class TwoLineElements(BaseModel):
         Returns:
             timedelta: the repeat cycle duration (if it exists)
         """
+        # load defaults
+        if max_delta_position is None:
+            max_delta_position = config.rc.repeat_cycle_delta_position_m
+        if max_delta_velocity is None:
+            max_delta_velocity = config.rc.repeat_cycle_delta_velocity_m_per_s
+        if min_elevation_angle is None:
+            min_elevation_angle = config.rc.repeat_cycle_search_elevation_deg
+        if max_search_duration is None:
+            max_search_duration = timedelta(
+                days=config.rc.repeat_cycle_search_duration_days
+            )
+        if lazy_load is None:
+            lazy_load = config.rc.repeat_cycle_lazy_load
+
         if lazy_load:
             repeat_cycle = self.__dict__.get("repeat_cycle")
         else:
@@ -404,8 +418,10 @@ class TwoLineElements(BaseModel):
                 < max_delta_velocity,
             )
             if np.any(is_valid):
+                # assign repeat cycle
                 repeat_cycle = ts[es == 1][is_valid][0].utc_datetime() - epoch
             else:
+                # assign zero repeat cycle value to avoid recalculation
                 repeat_cycle = timedelta(0)
             self.__dict__["repeat_cycle"] = repeat_cycle
         if repeat_cycle > timedelta(0):
@@ -413,18 +429,21 @@ class TwoLineElements(BaseModel):
         return None
 
     def get_orbit_track(
-        self, times: Union[datetime, List[datetime]], try_repeat: bool = True
+        self, times: Union[datetime, List[datetime]], try_repeat: bool = None
     ) -> Geocentric:
         """
         Gets the orbit track of this orbit using Skyfield.
 
         Args:
             times (Union[datetime, List[datetime]]): time(s) at which to compute position/velocity.
-            try_repeat (bool): Whether to try using a repeat orbit to improve long-term accuracy.
+            try_repeat (bool): True, if a repeat orbit should be used to improve long-term accuracy.
 
         Returns:
             skyfield.positionlib.Geocentric: the orbit track position/velocity
         """
+        # load defaults
+        if try_repeat is None:
+            try_repeat = config.rc.repeat_cycle_for_orbit_track
         # create skyfield Time
         if isinstance(times, datetime):
             ts_times = constants.timescale.from_datetime(times)
@@ -456,7 +475,7 @@ class TwoLineElements(BaseModel):
         start: datetime,
         end: datetime,
         min_elevation_angle: float,
-        try_repeat: bool = True,
+        try_repeat: bool = None,
     ) -> tuple:
         """
         Gets the observation events of this orbit using Skyfield.
@@ -465,12 +484,15 @@ class TwoLineElements(BaseModel):
             point (Point): Target location to observe.
             start (datetime): Start time of the observation period.
             end (datetime): End time of the observation period.
-            min_elevation_angle (float): Minimum elevation angle (eeg) to constrain observation.
-            try_repeat (bool): Whether to try using a repeat orbit to improve long-term accuracy.
+            min_elevation_angle (float): Minimum elevation angle (deg) to constrain observation.
+            try_repeat (bool): True, if a repeat orbit should be used to improve long-term accuracy.
 
         Returns:
             skyfield.positionlib.Geocentric: the orbit track position/velocity
         """
+        # load defaults
+        if try_repeat is None:
+            try_repeat = config.rc.repeat_cycle_for_observation_events
         # create skyfield Time
         t_0 = constants.timescale.from_datetime(start)
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)

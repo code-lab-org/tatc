@@ -26,7 +26,34 @@ class RuntimeConfiguration(BaseModel):
         33, description="Number of points for a SPICE footprint.", gt=4
     )
     footprint_points_rect_side: int = Field(
-        4, description="Number of points for a SPICE rectangular footprint side."
+        4, description="Number of points for a SPICE rectangular footprint side.", gt=1
+    )
+    repeat_cycle_delta_position_m: float = Field(
+        10000,
+        description="Maximum difference in position (meters) for a valid repeat.",
+        gt=0,
+    )
+    repeat_cycle_delta_velocity_m_per_s: float = Field(
+        10,
+        description="Maximum difference in velocity (meters/second) for a valid repeat.",
+        gt=0,
+    )
+    repeat_cycle_search_elevation_deg: float = Field(
+        88, description="Minimum elevation angle (degrees) for .", gt=0
+    )
+    repeat_cycle_search_duration_days: float = Field(
+        30, description="Maximum duration for which to search for repeat cycles."
+    )
+    repeat_cycle_lazy_load: bool = Field(
+        True, description="True, if a previously-computed repeat cycle should be used."
+    )
+    repeat_cycle_for_orbit_track: bool = Field(
+        True,
+        description="True, if a repeat cycle should be used to generate orbit tracks.",
+    )
+    repeat_cycle_for_observation_events: bool = Field(
+        True,
+        description="True, if a repeat cycle should be used to generate observation events.",
     )
 
 
