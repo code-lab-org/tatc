@@ -9,8 +9,10 @@ from typing import Union
 import numpy as np
 from numba import njit
 import geopandas as gpd
+from pyproj import Transformer
+from shapely import Geometry
 from shapely.geometry import Polygon, MultiPolygon, GeometryCollection, LineString
-from shapely.ops import split
+from shapely.ops import split, transform
 from skyfield.api import Distance, wgs84
 from skyfield.framelib import itrs
 from skyfield.toposlib import ITRSPosition, GeographicPosition
@@ -484,8 +486,8 @@ def compute_footprint(
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
-        cross_track_field_of_view (float): The angular (degrees) field of view orthogonal to velocity.
-        along_track_field_of_view (float): The angular (degrees) field of view in direction of velocity.
+        cross_track_field_of_view (float): The angular (degrees) view orthogonal to velocity.
+        along_track_field_of_view (float): The angular (degrees) view in direction of velocity.
         pitch_angle (float): The fore/aft look angle (degrees) in direction of velocity.
         roll_angle (float): The left/right look angle (degrees) orthogonal to velocity.
         is_rectangular (float): True, if this is a rectangular sensor.
@@ -521,6 +523,40 @@ def compute_footprint(
     ]
     return split_polygon(
         Polygon([(p.longitude.degrees, p.latitude.degrees) for p in points])
+    )
+
+
+def buffer_footprint(
+    geometry: Geometry,
+    to_crs: Transformer,
+    from_crs: Transformer,
+    swath_width: float,
+    elevation: float,
+) -> Polygon:
+    """
+    Buffers a ground track point to create a footprint.
+
+    Args:
+        geometry (shapely.Geometry): The geometry to buffer.
+        origin_crs (str): The origin coordinate reference system (CRS).
+        buffer_crs (str): The buffering coordinate reference system (CRS).
+        swath_width (float): The swath width (meters) to buffer.
+        elevation (float): The elevation (meters) at which project the buffered polygon.
+
+    Returns:
+        shapely.geometry.Polygon: The buffered footprint.
+    """
+    # do the swath projection in the specified coordinate reference system
+    # split polygons to wrap over the anti-meridian and poles
+    # reproject to specified elevation (lost during buffer)
+    return project_polygon_to_elevation(
+        split_polygon(
+            transform(
+                from_crs.transform,
+                transform(to_crs.transform, geometry).buffer(swath_width / 2),
+            )
+        ),
+        elevation,
     )
 
 

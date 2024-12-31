@@ -21,16 +21,16 @@ from shapely.geometry import (
     Point,
     LineString,
 )
-from shapely.ops import clip_by_rect, split, transform
+from shapely.ops import clip_by_rect, split
 import pyproj
 
 from ..schemas.instrument import PointedInstrument
 from ..schemas.satellite import Satellite
 from ..utils import (
+    buffer_footprint,
     compute_footprint,
     field_of_regard_to_swath_width,
     project_polygon_to_elevation,
-    split_polygon,
 )
 from ..constants import EARTH_MEAN_RADIUS
 
@@ -282,74 +282,36 @@ def collect_ground_track(
             for t in range(len(gdf.index))
         ]
     elif crs == "utm":
-        utm_crs = gdf.apply(
+        gdf["utm_crs"] = gdf.apply(
             lambda r: _get_utm_epsg_code(r.geometry, r.swath_width), axis=1
         )
-        for code in utm_crs.unique():
-            to_crs = pyproj.Transformer.from_crs(
+        # preload transformers
+        to_crs = {}
+        from_crs = {}
+        for code in gdf.utm_crs.unique():
+            to_crs[code] = pyproj.Transformer.from_crs(
                 gdf.crs, pyproj.CRS(code), always_xy=True
-            ).transform
-            from_crs = pyproj.Transformer.from_crs(
+            )
+            from_crs[code] = pyproj.Transformer.from_crs(
                 pyproj.CRS(code), gdf.crs, always_xy=True
-            ).transform
-            if code in ("EPSG:5041", "EPSG:5042"):
-                # do the swath projection in the matching ups zone
-                # keep polygons away from UPS poles to encourage proper geometry
-                # split polygons to wrap over the anti-meridian and poles
-                # reproject to specified elevation (lost during buffer)
-                # pylint: disable=W0640
-                gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
-                    lambda r: project_polygon_to_elevation(
-                        split_polygon(
-                            transform(
-                                from_crs,
-                                transform(to_crs, r.geometry)
-                                .buffer(r.swath_width / 2)
-                                .difference(
-                                    Point(2e6, 2e6, 0).buffer(r.swath_width / 5)
-                                ),
-                            )
-                        ),
-                        elevation,
-                    ),
-                    axis=1,
-                )
-            else:
-                # do the swath projection in the matching utm zone
-                # split polygons to wrap over the anti-meridian and poles
-                # reproject to specified elevation (lost during buffer)
-                # pylint: disable=W0640
-                gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
-                    lambda r: project_polygon_to_elevation(
-                        split_polygon(
-                            transform(
-                                from_crs,
-                                transform(to_crs, r.geometry).buffer(r.swath_width / 2),
-                            )
-                        ),
-                        elevation,
-                    ),
-                    axis=1,
-                )
-    else:
-        # do the swath projection in the specified coordinate reference system
-        # split polygons to wrap over the anti-meridian and poles
-        # reproject to specified elevation (lost during buffer)
-        to_crs = pyproj.Transformer.from_crs(
-            gdf.crs, pyproj.CRS(crs), always_xy=True
-        ).transform
-        from_crs = pyproj.Transformer.from_crs(
-            pyproj.CRS(crs), gdf.crs, always_xy=True
-        ).transform
+            )
         gdf.geometry = gdf.apply(
-            lambda r: project_polygon_to_elevation(
-                split_polygon(
-                    transform(
-                        from_crs,
-                        transform(to_crs, r.geometry).buffer(r.swath_width / 2),
-                    )
-                ),
+            lambda r: buffer_footprint(
+                r.geometry,
+                to_crs[r.utm_crs],
+                from_crs[r.utm_crs],
+                r.swath_width,
                 elevation,
+            ),
+            axis=1,
+        )
+        gdf.drop(columns=["utm_crs"])
+    else:
+        to_crs = pyproj.Transformer.from_crs(gdf.crs, pyproj.CRS(crs), always_xy=True)
+        from_crs = pyproj.Transformer.from_crs(pyproj.CRS(crs), gdf.crs, always_xy=True)
+        gdf.geometry = gdf.apply(
+            lambda r: buffer_footprint(
+                r.geometry, to_crs, from_crs, r.swath_width, elevation
             ),
             axis=1,
         )
@@ -410,6 +372,8 @@ def compute_ground_track(
             track = track.dissolve()
         return track
     if method == "line":
+        if crs == "spice":
+            raise ValueError("The line method is not compatible with spice")
         track = collect_orbit_track(satellite, times, instrument_index, elevation, None)
         # assign orbit identifier
         track["orbit_id"] = [
@@ -468,25 +432,12 @@ def compute_ground_track(
                         for line in collection.geoms
                     ]
                 )
-        to_crs = pyproj.Transformer.from_crs(
-            track.crs, pyproj.CRS(crs), always_xy=True
-        ).transform
+        to_crs = pyproj.Transformer.from_crs(track.crs, pyproj.CRS(crs), always_xy=True)
         from_crs = pyproj.Transformer.from_crs(
             pyproj.CRS(crs), track.crs, always_xy=True
-        ).transform
-        # do the swath projection in the specified coordinate reference system
-        # split polygons to wrap over the anti-meridian and poles
-        # reproject to specified elevation (lost during buffer)
+        )
         polygons = [
-            project_polygon_to_elevation(
-                split_polygon(
-                    transform(
-                        from_crs,
-                        transform(to_crs, segment).buffer(swath_width / 2),
-                    )
-                ),
-                elevation,
-            )
+            buffer_footprint(segment, to_crs, from_crs, swath_width, elevation)
             for segment, swath_width in zip(segments, swath_widths)
         ]
         # dissolve the original track

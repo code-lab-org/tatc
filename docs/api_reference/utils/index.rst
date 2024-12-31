@@ -14,6 +14,8 @@ Utility Functions
 
 .. autofunction:: tatc.utils.field_of_regard_to_swath_width
 
+.. autofunction:: tatc.utils.buffer_footprint
+
 .. autofunction:: tatc.utils.compute_footprint
 
 .. autofunction:: tatc.utils.compute_field_of_regard
