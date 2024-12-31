@@ -220,7 +220,7 @@ def collect_ground_track(
     instrument_index: int = 0,
     elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
-    crs: str = "spice",
+    crs: str = "EPSG:4087",
 ) -> gpd.GeoDataFrame:
     """
     Collect ground track polygons for a satellite of interest.
@@ -327,7 +327,7 @@ def compute_ground_track(
     instrument_index: int = 0,
     elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
-    crs: str = "spice",
+    crs: str = "EPSG:4087",
     method: str = "point",
     dissolve_orbits: bool = True,
 ) -> gpd.GeoDataFrame:
