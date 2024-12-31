@@ -979,15 +979,16 @@ def split_polygon(
     Returns:
         Polygon, or MultiPolygon: The split polygon.
     """
-    geometry = _split_polygon_north_pole(
+    polygon = _split_polygon_north_pole(
         _split_polygon_south_pole(_split_polygon_antimeridian(polygon))
     )
-    if not geometry.is_valid:
+    # invalid polygons can arise from narrow sensor geometries in polar regions
+    if not polygon.is_valid:
         # try to fix geometry
-        make_valid(geometry)
-        if isinstance(geometry, GeometryCollection):
-            geometry = _convert_collection_to_polygon(geometry)
-    return geometry
+        polygon = make_valid(polygon)
+        if isinstance(polygon, GeometryCollection):
+            polygon = _convert_collection_to_polygon(polygon)
+    return polygon
 
 
 def normalize_geometry(

@@ -270,10 +270,10 @@ def collect_ground_track(
             is_rectangular = False
         # construct polygons based on visible extent of instrument
         # project to specified elevation
-        gdf.geometry = [
-            project_polygon_to_elevation(
+        gdf.geometry = gdf.apply(
+            lambda r: project_polygon_to_elevation(
                 compute_footprint(
-                    orbit_track[t],
+                    orbit_track[r.name],
                     cross_track_field_of_view,
                     along_track_field_of_view,
                     roll_angle,
@@ -281,9 +281,9 @@ def collect_ground_track(
                     is_rectangular,
                 ),
                 elevation,
-            )
-            for t in range(len(gdf.index))
-        ]
+            ),
+            axis=1,
+        )
     elif crs == "utm":
         gdf["utm_crs"] = gdf.apply(
             lambda r: _get_utm_epsg_code(r.geometry, r.swath_width), axis=1
