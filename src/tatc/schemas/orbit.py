@@ -475,7 +475,7 @@ class TwoLineElements(BaseModel):
         t_0 = constants.timescale.from_datetime(start)
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
         if try_repeat:
-            # try to compute repeat cycle positions
+            # try to compute repeat cycle events
             repeat_cycle = self.get_repeat_cycle()
             if repeat_cycle is not None:
                 repeat_t_1 = constants.timescale.from_datetime(
@@ -484,7 +484,7 @@ class TwoLineElements(BaseModel):
                 times, events = self.as_skyfield().find_events(
                     topos, t_0, repeat_t_1, min_elevation_angle
                 )
-                number_cycles = (end - start) // repeat_cycle
+                number_cycles = int(np.ceil((end - start) / repeat_cycle))
                 if len(times) == 0:
                     return (Time([], []), np.array([], dtype=int))
                 times_py = np.concatenate(
