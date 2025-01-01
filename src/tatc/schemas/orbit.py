@@ -623,20 +623,32 @@ class CircularOrbit(OrbitBase):
             right_ascension_ascending_node=raan,
         )
 
-    def to_tle(self) -> TwoLineElements:
+    def to_tle(self, lazy_load: bool = None) -> TwoLineElements:
         """
         Converts this orbit to a two line elements representation.
+
+        Args:
+            lazy_load (bool): True, if this tle should be lazy-loaded.
 
         Returns:
             TwoLineElements: the two line elements orbit
         """
-        return KeplerianOrbit(
-            altitude=self.altitude,
-            true_anomaly=self.true_anomaly,
-            epoch=self.epoch,
-            inclination=self.inclination,
-            right_ascension_ascending_node=self.right_ascension_ascending_node,
-        ).to_tle()
+        if lazy_load is None:
+            lazy_load = config.rc.orbit_tle_lazy_load
+        if lazy_load:
+            tle = self.__dict__.get("tle")
+        else:
+            tle = None
+        if tle is None:
+            tle = KeplerianOrbit(
+                altitude=self.altitude,
+                true_anomaly=self.true_anomaly,
+                epoch=self.epoch,
+                inclination=self.inclination,
+                right_ascension_ascending_node=self.right_ascension_ascending_node,
+            ).to_tle()
+            self.__dict__["tle"] = tle
+        return tle
 
 
 class SunSynchronousOrbit(OrbitBase):
@@ -724,20 +736,32 @@ class SunSynchronousOrbit(OrbitBase):
             right_ascension_ascending_node=raan,
         )
 
-    def to_tle(self) -> TwoLineElements:
+    def to_tle(self, lazy_load: bool = None) -> TwoLineElements:
         """
         Converts this orbit to a two line elements representation.
+
+        Args:
+            lazy_load (bool): True, if this tle should be lazy-loaded.
 
         Returns:
             TwoLineElements: the two line elements orbit
         """
-        return KeplerianOrbit(
-            altitude=self.altitude,
-            inclination=self.get_inclination(),
-            right_ascension_ascending_node=self.get_right_ascension_ascending_node(),
-            true_anomaly=self.true_anomaly,
-            epoch=self.epoch,
-        ).to_tle()
+        if lazy_load is None:
+            lazy_load = config.rc.orbit_tle_lazy_load
+        if lazy_load:
+            tle = self.__dict__.get("tle")
+        else:
+            tle = None
+        if tle is None:
+            tle = KeplerianOrbit(
+                altitude=self.altitude,
+                inclination=self.get_inclination(),
+                right_ascension_ascending_node=self.get_right_ascension_ascending_node(),
+                true_anomaly=self.true_anomaly,
+                epoch=self.epoch,
+            ).to_tle()
+            self.__dict__["tle"] = tle
+        return tle
 
 
 class KeplerianOrbit(CircularOrbit):
@@ -791,32 +815,44 @@ class KeplerianOrbit(CircularOrbit):
             perigee_argument=self.perigee_argument,
         )
 
-    def to_tle(self) -> TwoLineElements:
+    def to_tle(self, lazy_load: bool = None) -> TwoLineElements:
         """
         Converts this orbit to a two line elements representation.
+
+        Args:
+            lazy_load (bool): True, if this tle should be lazy-loaded.
 
         Returns:
             TwoLineElements: the two line elements orbit
         """
-        satrec = Satrec()
-        satrec.sgp4init(
-            WGS72,
-            "i",
-            0,
-            (self.epoch - datetime(1949, 12, 31, tzinfo=timezone.utc))
-            / timedelta(days=1),
-            0,
-            0.0,
-            0.0,
-            self.eccentricity,
-            np.radians(self.perigee_argument),
-            np.radians(self.inclination),
-            np.radians(self.get_mean_anomaly()),
-            self.get_mean_motion() * 2 * np.pi / 1440,
-            np.radians(self.right_ascension_ascending_node),
-        )
-        tle1, tle2 = exporter.export_tle(satrec)
-        return TwoLineElements(tle=[tle1.replace("\x00", "U"), tle2])
+        if lazy_load is None:
+            lazy_load = config.rc.orbit_tle_lazy_load
+        if lazy_load:
+            tle = self.__dict__.get("tle")
+        else:
+            tle = None
+        if tle is None:
+            satrec = Satrec()
+            satrec.sgp4init(
+                WGS72,
+                "i",
+                0,
+                (self.epoch - datetime(1949, 12, 31, tzinfo=timezone.utc))
+                / timedelta(days=1),
+                0,
+                0.0,
+                0.0,
+                self.eccentricity,
+                np.radians(self.perigee_argument),
+                np.radians(self.inclination),
+                np.radians(self.get_mean_anomaly()),
+                self.get_mean_motion() * 2 * np.pi / 1440,
+                np.radians(self.right_ascension_ascending_node),
+            )
+            tle1, tle2 = exporter.export_tle(satrec)
+            tle = TwoLineElements(tle=[tle1.replace("\x00", "U"), tle2])
+            self.__dict__["tle"] = tle
+        return tle
 
 
 class MolniyaOrbit(OrbitBase):
@@ -897,32 +933,44 @@ class MolniyaOrbit(OrbitBase):
             perigee_argument=self.perigee_argument,
         )
 
-    def to_tle(self) -> TwoLineElements:
+    def to_tle(self, lazy_load: bool = None) -> TwoLineElements:
         """
         Converts this orbit to a two line elements representation.
+
+        Args:
+            lazy_load (bool): True, if this tle should be lazy-loaded.
 
         Returns:
             TwoLineElements: the two line elements orbit
         """
-        satrec = Satrec()
-        satrec.sgp4init(
-            WGS72,
-            "i",
-            0,
-            (self.epoch - datetime(1949, 12, 31, tzinfo=timezone.utc))
-            / timedelta(days=1),
-            0,
-            0.0,
-            0.0,
-            self.get_eccentricity(),
-            np.radians(self.perigee_argument),
-            np.radians(self.inclination),
-            np.radians(self.get_mean_anomaly()),
-            2 * np.pi / (self.orbital_period / 60),
-            np.radians(self.right_ascension_ascending_node),
-        )
-        tle1, tle2 = exporter.export_tle(satrec)
-        return TwoLineElements(tle=[tle1.replace("\x00", "U"), tle2])
+        if lazy_load is None:
+            lazy_load = config.rc.orbit_tle_lazy_load
+        if lazy_load:
+            tle = self.__dict__.get("tle")
+        else:
+            tle = None
+        if tle is None:
+            satrec = Satrec()
+            satrec.sgp4init(
+                WGS72,
+                "i",
+                0,
+                (self.epoch - datetime(1949, 12, 31, tzinfo=timezone.utc))
+                / timedelta(days=1),
+                0,
+                0.0,
+                0.0,
+                self.get_eccentricity(),
+                np.radians(self.perigee_argument),
+                np.radians(self.inclination),
+                np.radians(self.get_mean_anomaly()),
+                2 * np.pi / (self.orbital_period / 60),
+                np.radians(self.right_ascension_ascending_node),
+            )
+            tle1, tle2 = exporter.export_tle(satrec)
+            tle = TwoLineElements(tle=[tle1.replace("\x00", "U"), tle2])
+            self.__dict__["tle"] = tle
+        return tle
 
 
 class TundraOrbit(MolniyaOrbit):

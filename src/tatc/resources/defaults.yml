@@ -2,7 +2,7 @@
 footprint_points_elliptical: 32
 footprint_points_rectangular_side: 8
 
-# orbit repeat cycle search-related settings
+# orbit repeat cycle-related settings
 repeat_cycle_delta_position_m: 10000
 repeat_cycle_delta_velocity_m_per_s: 10
 repeat_cycle_search_elevation_deg: 88
@@ -10,3 +10,6 @@ repeat_cycle_search_duration_days: 30
 repeat_cycle_lazy_load: True
 repeat_cycle_for_orbit_track: True
 repeat_cycle_for_observation_events: True
+
+# orbit tle-related settings
+orbit_tle_lazy_load: True
