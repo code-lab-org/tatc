@@ -510,7 +510,7 @@ def compute_footprint(
             number_points = config.rc.footprint_points_elliptical
     if is_rectangular:
         theta = np.arctan(along_track_field_of_view / cross_track_field_of_view)
-        angles = np.concat(
+        angles = np.concatenate(
             (
                 np.linspace(-theta, theta, number_points, endpoint=False),
                 np.linspace(theta, np.pi - theta, number_points, endpoint=False),
