@@ -10,4 +10,4 @@ from . import constants
 from . import utils
 from . import resources
 
-__version__ = "3.4.0"
+__version__ = "3.4.1"
