@@ -82,6 +82,7 @@ def load_yaml_config(path: pathlib.Path):
     except ValidationError as err:
         raise ConfigError(f"Couldn't validate config file - {err}") from err
 
+
 try:
     # try to load default config file
     rc = load_yaml_config(
