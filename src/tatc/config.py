@@ -83,6 +83,11 @@ def load_yaml_config(path: pathlib.Path):
         raise ConfigError(f"Couldn't validate config file - {err}") from err
 
 
-rc = load_yaml_config(
-    os.path.join(os.path.dirname(__file__), "resources", "defaults.yml")
-)
+try:
+    # try to load default config file
+    rc = load_yaml_config(
+        os.path.join(os.path.dirname(__file__), "resources", "defaults.yml")
+    )
+except ConfigError as e:
+    # fall back to default constructor
+    rc = RuntimeConfiguration()
