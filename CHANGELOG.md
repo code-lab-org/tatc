@@ -1,5 +1,10 @@
 # TAT-C Change Log
 
+## 3.4.1
+
+Changed:
+ - Use default runtime configuration settings from constructor if default config file cannot be loaded.
+
 ## 3.4.0
 
 Added:
