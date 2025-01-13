@@ -5,8 +5,9 @@ Numerical constants.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import numpy as np
 import os
+
+import numpy as np
 from skyfield.api import load, Loader
 
 

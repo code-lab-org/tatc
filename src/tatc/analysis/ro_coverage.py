@@ -12,8 +12,8 @@ from itertools import chain
 import geopandas as gpd
 import numpy as np
 from shapely.geometry import MultiPoint, Point
-from skyfield.api import EarthSatellite, wgs84, Distance, Velocity, Time
-from skyfield.positionlib import ICRF
+from skyfield.api import wgs84, Distance, Velocity
+from skyfield.positionlib import Geocentric
 
 from ..schemas.satellite import Satellite
 
@@ -22,19 +22,16 @@ from ..constants import timescale
 
 def _collect_ro_series(
     transmitter: Satellite,
-    ts: Time,
-    rx_pv: ICRF,
+    times: List[datetime],
+    rx_pv: Geocentric,
     rx_v_u: List[float],
     rx_n_u: List[float],
     rx_b_u: List[float],
     max_yaw: float,
     range_elevation: Tuple[float],
 ):
-    # construct transmitter
-    tx_tle = transmitter.orbit.to_tle()
-    tx = EarthSatellite(tx_tle.tle[0], tx_tle.tle[1], transmitter.name)
     # transmitter position (x_tx), velocity (v_tx)
-    tx_pv = tx.at(ts)
+    tx_pv = transmitter.orbit.to_tle().get_orbit_track(times)
     # relative position, velocity of transmitter from receiver
     # x_(rx,tx) = x_tx - x_rx; v_(rx,tx) = v_tx - v_rx
     rx_tx_pv = tx_pv - rx_pv
@@ -132,14 +129,13 @@ def _collect_ro_series(
     # loop over valid times
     for j in np.nonzero(valid)[0]:
         # tangent point inertial position
-        tpp_icrf = ICRF(
+        tpp_pv = Geocentric(
             Distance(m=tp_p[:, j]).au,
             Velocity(km_per_s=tp_v[:, j] / 1000).au_per_d,
-            ts[j],
-            399,
+            timescale.from_datetime(times[j]),
         )
         # tangent point geodetic position
-        tpp_geo = wgs84.geographic_position_of(tpp_icrf)
+        tpp_geo = wgs84.geographic_position_of(tpp_pv)
         # check if the tangent point height is within elevation range
         if (
             tpp_geo.elevation.m > range_elevation[0]
@@ -148,24 +144,29 @@ def _collect_ro_series(
             if occ_arc is None:
                 # start of new RO observation
                 occ_arc = {
-                    "tx": tx.name,
+                    "tx": transmitter.name,
                     "is_rising": rx_tx_pitch[j] > -90,
                     "points": [],
                 }
 
             # azimuth of transmitter from geodetic tangent point (clockwise from North)
-            tp_tx_azmimuth = (tx - tpp_geo).at(ts[j]).altaz()[1].degrees
+            tp_tx_azmimuth = (
+                (transmitter.orbit.to_tle().as_skyfield() - tpp_geo)
+                .at(timescale.from_datetime(times[j]))
+                .altaz()[1]
+                .degrees
+            )
 
             occ_arc["points"].append(
                 {
-                    "time": ts[j].utc_datetime(),
+                    "time": times[j],
                     "tangent_point": tpp_geo,
                     "rx_tx_pitch": rx_tx_pitch[j],
                     "rx_tx_yaw": rx_tx_yaw[j],
                     "tp_tx_azimuth": tp_tx_azmimuth,
                 }
             )
-            if j + 1 >= len(ts) or is_event[j]:
+            if j + 1 >= len(times) or is_event[j]:
                 # end of RO observation due to validity or boundary constraint
                 occ_obs.append(occ_arc)
                 occ_arc = None
@@ -195,13 +196,8 @@ def collect_ro_observations(
         max_yaw (float): the maximum transmitter yaw angle (from receiver body-fixed frame) for a valid obsevation.
         range_elevation: (typing.Tuple[float]): the lower and upper bound on tangent point elevation (m) for a valid observation.
     """
-    # construct receiver
-    rx_tle = receiver.orbit.to_tle()
-    rx = EarthSatellite(rx_tle.tle[0], rx_tle.tle[1], receiver.name)
-    # define time steps
-    ts = timescale.from_datetimes(times)
     # receiver position, velocity
-    rx_pv = rx.at(ts)
+    rx_pv = receiver.orbit.to_tle().get_orbit_track(times)
     # unit vector tangent to receiver orbit plane (VNB x-axis)
     rx_v_u = np.divide(
         rx_pv.velocity.m_per_s, np.linalg.norm(rx_pv.velocity.m_per_s, axis=0)
@@ -220,7 +216,7 @@ def collect_ro_observations(
             [
                 _collect_ro_series(
                     transmitter,
-                    ts,
+                    times,
                     rx_pv,
                     rx_v_u,
                     rx_n_u,

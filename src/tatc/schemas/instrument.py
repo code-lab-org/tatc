@@ -8,10 +8,10 @@ Object schemas for instruments.
 from typing import Optional
 from datetime import timedelta
 
-from pydantic import BaseModel, Field
 import numpy as np
-from skyfield.api import wgs84, EarthSatellite
-from skyfield.timelib import Time
+from pydantic import BaseModel, Field
+from skyfield.api import wgs84
+from skyfield.positionlib import Geocentric
 
 from ..constants import de421
 from ..utils import compute_min_elevation_angle, field_of_regard_to_swath_width
@@ -73,29 +73,29 @@ class Instrument(BaseModel):
         """
         return compute_min_elevation_angle(height, self.field_of_regard)
 
-    def is_valid_observation(self, sat: EarthSatellite, time: Time) -> bool:
+    def is_valid_observation(self, orbit_track: Geocentric) -> bool:
         """Determines if an instrument can provide a valid observations.
 
         Args:
-            sat (EarthSatellite): Satellite hosting this instrument.
-            time (Time): Observation time(s).
+            orbit_track (skyfield.positionlib.Geocentric): orbit track position/velocity from Skyfield
 
         Returns:
             bool: `True` if instrument provides a valid observation, otherwise `False`.
         """
-        if isinstance(time.tt, float):
+        # determine if scalar or vector
+        if np.size(orbit_track.t) == 1:
             # scalar
             is_valid = True
             if self.req_self_sunlit is not None:
                 # compare requirement to satellite sunlit condition
                 is_valid = is_valid and (
-                    self.req_self_sunlit == sat.at(time).is_sunlit(de421)
+                    self.req_self_sunlit == orbit_track.is_sunlit(de421)
                 )
             if self.req_target_sunlit is not None:
                 # compute solar altitude angle at sub-satellite point
                 solar_alt = (
-                    (de421["earth"] + wgs84.subpoint_of(sat.at(time)))
-                    .at(time)
+                    (de421["earth"] + wgs84.subpoint_of(orbit_track))
+                    .at(orbit_track.t)
                     .observe(de421["sun"])
                     .apparent()
                     .altaz()[0]
@@ -105,23 +105,23 @@ class Instrument(BaseModel):
                 is_valid = is_valid and (self.req_target_sunlit == (solar_alt > 0))
             return is_valid
         # vector
-        is_valid = np.ones(len(time), dtype=bool)
+        is_valid = np.ones(np.size(orbit_track.t), dtype=bool)
         if self.req_self_sunlit is not None:
             # compare requirement to satellite sunlit condition
             is_valid = np.logical_and(
-                is_valid, self.req_self_sunlit == sat.at(time).is_sunlit(de421)
+                is_valid, self.req_self_sunlit == orbit_track.is_sunlit(de421)
             )
         if self.req_target_sunlit is not None:
             # compute solar altitude angle at sub-satellite points
             solar_alt = np.array(
                 [
-                    (de421["earth"] + wgs84.subpoint_of(sat.at(t)))
-                    .at(t)
+                    (de421["earth"] + wgs84.subpoint_of(point))
+                    .at(point.t)
                     .observe(de421["sun"])
                     .apparent()
                     .altaz()[0]
                     .degrees
-                    for t in time
+                    for point in orbit_track
                 ]
             )
             # compare requirement to sub-satellite point sunlit conditions
@@ -129,3 +129,37 @@ class Instrument(BaseModel):
                 is_valid, self.req_target_sunlit == (solar_alt > 0)
             )
         return is_valid
+
+
+class PointedInstrument(Instrument):
+    """
+    Remote sensing instrument with off-nadir orientation.
+    """
+
+    cross_track_field_of_view: float = Field(
+        ...,
+        description="Angular field (degrees) of view orthogonal to instrument motion.",
+        gt=0,
+        le=180,
+    )
+    along_track_field_of_view: float = Field(
+        ...,
+        description="Angular field (degrees) of view in direction of instrument motion.",
+        gt=0,
+        le=180,
+    )
+    roll_angle: float = Field(
+        0,
+        description="Left/right look angle (degrees) orthogonal to instrument motion.",
+        ge=-180,
+        le=180,
+    )
+    pitch_angle: float = Field(
+        0,
+        description="Fore/aft look angle (degrees) in direction of instrument motion.",
+        ge=-180,
+        le=180,
+    )
+    is_rectangular: bool = Field(
+        False, description="True, if this instrument produces a rectangular view."
+    )

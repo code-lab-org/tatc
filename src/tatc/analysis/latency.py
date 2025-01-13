@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 from shapely import geometry as geo
-from skyfield.api import wgs84, EarthSatellite
 
 from ..schemas.point import GroundStation
 from ..schemas.satellite import Satellite
@@ -56,10 +55,6 @@ def collect_downlinks(
     Returns:
         geopandas.GeoDataFrame: The data frame of collected downlink results.
     """
-    # convert orbit to tle
-    orbit = satellite.orbit.to_tle()
-    # construct a satellite for propagation
-    sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
     # collect the records of ground station overpasses
     records = [
         {
@@ -74,8 +69,8 @@ def collect_downlinks(
         }
         for station in (stations if isinstance(stations, list) else [stations])
         for period in _get_visible_interval_series(
-            wgs84.latlon(station.latitude, station.longitude, station.elevation),
-            sat,
+            station,
+            satellite,
             station.min_elevation_angle,
             start,
             end,
@@ -141,13 +136,10 @@ def compute_latencies(
     if observations.empty or downlinks.empty:
         return _get_empty_latency_frame()
 
-    # sort downlinks
-    downlinks_sorted = downlinks.sort_values(by="start")
-
     # merge observations with downlinks to find matching satellite downlinks
     obs = pd.merge_asof(
-        observations.sort_values("end"),
-        downlinks_sorted,
+        observations.sort_values(by="end"),
+        downlinks.sort_values(by="start"),
         by="satellite",
         left_on="end",
         right_on="start",

@@ -12,7 +12,7 @@ from enum import Enum
 import pandas as pd
 import numpy as np
 import geopandas as gpd
-from skyfield.api import wgs84, EarthSatellite
+from skyfield.api import wgs84
 from skyfield.framelib import itrs
 
 from shapely.geometry import (
@@ -21,16 +21,18 @@ from shapely.geometry import (
     Point,
     LineString,
 )
-from shapely.ops import clip_by_rect, split, transform, unary_union
+from shapely.ops import clip_by_rect, split
 import pyproj
 
+from ..schemas.instrument import PointedInstrument
 from ..schemas.satellite import Satellite
-from ..schemas.instrument import Instrument
 from ..utils import (
-    split_polygon,
+    buffer_footprint,
+    compute_footprint,
     field_of_regard_to_swath_width,
+    project_polygon_to_elevation,
 )
-from ..constants import timescale, EARTH_MEAN_RADIUS
+from ..constants import EARTH_MEAN_RADIUS
 
 
 def _get_empty_orbit_track() -> gpd.GeoDataFrame:
@@ -99,15 +101,9 @@ def collect_orbit_track(
         return _get_empty_orbit_track()
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
-    # convert orbit to tle
-    orbit = satellite.orbit.to_tle()
-    # construct a satellite for propagation
-    sat = EarthSatellite(orbit.tle[0], orbit.tle[1], satellite.name)
-    # create skyfield time series
-    ts_times = timescale.from_datetimes(times)
-    # compute satellite positions
-    positions = sat.at(ts_times)
-    geo_positions = [wgs84.geographic_position_of(position) for position in positions]
+    # propagate orbit
+    orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
+    geo_positions = [wgs84.geographic_position_of(position) for position in orbit_track]
     # create shapely points in proper coordinate system
     if coordinates == OrbitCoordinate.WGS84:
         points = [
@@ -128,10 +124,13 @@ def collect_orbit_track(
     else:
         points = [
             Point(position.xyz.m[0], position.xyz.m[1], position.xyz.m[2])
-            for position in positions
+            for position in orbit_track
         ]
     # determine observation validity
-    valid_obs = instrument.is_valid_observation(sat, ts_times)
+    valid_obs = instrument.is_valid_observation(orbit_track)
+    if len(times) == 1:
+        # transform scalar to vector results
+        valid_obs = np.array([valid_obs])
     # create velocity points if needed
     if orbit_output == OrbitOutput.POSITION:
         records = [
@@ -152,13 +151,13 @@ def collect_orbit_track(
     else:
         # compute satellite velocity
         if coordinates == OrbitCoordinate.ECI:
-            eci_velocity = positions.velocity.m_per_s
+            eci_velocity = orbit_track.velocity.m_per_s
             velocities = [
                 Point(eci_velocity[0][i], eci_velocity[1][i], eci_velocity[2][i])
                 for i in range(len(eci_velocity[0]))
             ]
         else:
-            velocity = positions.frame_xyz_and_velocity(itrs)[1].m_per_s
+            velocity = orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s
             velocities = [
                 Point(velocity[0][i], velocity[1][i], velocity[2][i])
                 for i in range(len(velocity[0]))
@@ -240,7 +239,8 @@ def collect_ground_track(
                 distance (default: World Equidistant Cylindrical `"EPSG:4087"`).
                 Selecting `crs="utm"` uses Universal Transverse Mercator (UTM)
                 zones for non-polar regions, and Universal Polar Stereographic
-                (UPS) systems for polar regions.
+                (UPS) systems for polar regions. Selecting `crs="spice"` uses
+                SPICE to compute observation footprints.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected ground track results.
@@ -249,79 +249,75 @@ def collect_ground_track(
     gdf = collect_orbit_track(satellite, times, instrument_index, elevation, mask)
     if gdf.empty:
         return gdf
-    # project points to specified elevation
-    gdf.geometry = gdf.geometry.apply(lambda p: Point(p.x, p.y, elevation))
-    # at each point, draw a buffer equivalent to the swath radius
-    if crs == "utm":
-        # do the swath projection in the matching utm zone
-        utm_crs = gdf.apply(
-            lambda r: _get_utm_epsg_code(r.geometry, r.swath_width), axis=1
-        )
-        for code in utm_crs.unique():
-            to_crs = pyproj.Transformer.from_crs(
-                gdf.crs, pyproj.CRS(code), always_xy=True
-            ).transform
-            from_crs = pyproj.Transformer.from_crs(
-                pyproj.CRS(code), gdf.crs, always_xy=True
-            ).transform
-            if code in ("EPSG:5041", "EPSG:5042"):
-                # keep polygons away from UPS poles to encourage proper geometry
-                gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
-                    lambda r: transform(
-                        from_crs,
-                        transform(to_crs, r.geometry)
-                        .buffer(r.swath_width / 2)
-                        .difference(Point(2e6, 2e6, 0).buffer(r.swath_width / 5)),
-                    ),
-                    axis=1,
-                )
-            else:
-                gdf.loc[utm_crs == code, "geometry"] = gdf[utm_crs == code].apply(
-                    lambda r: transform(
-                        from_crs,
-                        transform(to_crs, r.geometry).buffer(r.swath_width / 2),
-                    ),
-                    axis=1,
-                )
-    else:
-        # do the swath projection in the specified coordinate reference system
-        to_crs = pyproj.Transformer.from_crs(
-            gdf.crs, pyproj.CRS(crs), always_xy=True
-        ).transform
-        from_crs = pyproj.Transformer.from_crs(
-            pyproj.CRS(crs), gdf.crs, always_xy=True
-        ).transform
+    if crs == "spice":
+        # select the observing instrument
+        instrument = satellite.instruments[instrument_index]
+        # propagate orbit
+        orbit_track = satellite.orbit.to_tle().get_orbit_track(gdf.time)
+        if isinstance(instrument, PointedInstrument):
+            # assign pointed instrument properties
+            cross_track_field_of_view = instrument.cross_track_field_of_view
+            along_track_field_of_view = instrument.along_track_field_of_view
+            roll_angle = instrument.roll_angle
+            pitch_angle = instrument.pitch_angle
+            is_rectangular = instrument.is_rectangular
+        else:
+            # fall back to defaults
+            cross_track_field_of_view = instrument.field_of_regard
+            along_track_field_of_view = instrument.field_of_regard
+            roll_angle = 0
+            pitch_angle = 0
+            is_rectangular = False
+        # construct polygons based on visible extent of instrument
+        # project to specified elevation
         gdf.geometry = gdf.apply(
-            lambda r: transform(
-                from_crs,
-                transform(to_crs, r.geometry).buffer(r.swath_width / 2),
+            lambda r: project_polygon_to_elevation(
+                compute_footprint(
+                    orbit_track[r.name],
+                    cross_track_field_of_view,
+                    along_track_field_of_view,
+                    roll_angle,
+                    pitch_angle,
+                    is_rectangular,
+                ),
+                elevation,
             ),
             axis=1,
         )
-    # add elevation to all polygon coordinates (otherwise lost during buffering)
-    gdf.geometry = gdf.geometry.apply(
-        lambda g: (
-            Polygon(
-                [(p[0], p[1], elevation) for p in g.exterior.coords],
-                [[(p[0], p[1], elevation) for p in i.coords] for i in g.interiors],
-            )
-            if isinstance(g, Polygon)
-            else MultiPolygon(
-                [
-                    Polygon(
-                        [(p[0], p[1], elevation) for p in n.exterior.coords],
-                        [
-                            [(p[0], p[1], elevation) for p in i.coords]
-                            for i in n.interiors
-                        ],
-                    )
-                    for n in g.geoms
-                ]
-            )
+    elif crs == "utm":
+        gdf["utm_crs"] = gdf.apply(
+            lambda r: _get_utm_epsg_code(r.geometry, r.swath_width), axis=1
         )
-    )
-    # split polygons to wrap over the anti-meridian and poles
-    gdf.geometry = gdf.apply(lambda r: split_polygon(r.geometry), axis=1)
+        # preload transformers
+        to_crs = {}
+        from_crs = {}
+        for code in gdf.utm_crs.unique():
+            to_crs[code] = pyproj.Transformer.from_crs(
+                gdf.crs, pyproj.CRS(code), always_xy=True
+            )
+            from_crs[code] = pyproj.Transformer.from_crs(
+                pyproj.CRS(code), gdf.crs, always_xy=True
+            )
+        gdf.geometry = gdf.apply(
+            lambda r: buffer_footprint(
+                r.geometry,
+                to_crs[r.utm_crs],
+                from_crs[r.utm_crs],
+                r.swath_width,
+                elevation,
+            ),
+            axis=1,
+        )
+        gdf.drop(columns=["utm_crs"])
+    else:
+        to_crs = pyproj.Transformer.from_crs(gdf.crs, pyproj.CRS(crs), always_xy=True)
+        from_crs = pyproj.Transformer.from_crs(pyproj.CRS(crs), gdf.crs, always_xy=True)
+        gdf.geometry = gdf.apply(
+            lambda r: buffer_footprint(
+                r.geometry, to_crs, from_crs, r.swath_width, elevation
+            ),
+            axis=1,
+        )
 
     if mask is not None:
         gdf = gpd.clip(gdf, mask).reset_index(drop=True)
@@ -336,6 +332,7 @@ def compute_ground_track(
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     crs: str = "EPSG:4087",
     method: str = "point",
+    dissolve_orbits: bool = True,
 ) -> gpd.GeoDataFrame:
     """
     Compute the aggregated ground track for a satellite of interest.
@@ -351,26 +348,42 @@ def compute_ground_track(
                 distance (default: World Equidistant Cylindrical `"EPSG:4087"`).
                 Selecting `crs="utm"` uses Universal Transverse Mercator (UTM)
                 zones for non-polar regions, and Universal Polar Stereographic
-                (UPS) systems for polar regions.
+                (UPS) systems for polar regions. Selecting `crs="spice"` uses
+                SPICE to compute footprints.
         method (str): The method for computing ground track: `"point"` buffers
-                individual points while `"line"` buffers a line of points. Note
-                that the `"line"` method assumes continuous observations and only
-                supports ground tracks that span LESS than 360 degrees longitude.
-
+                individual points and `"line"` buffers a line of points. The line
+                method is not compatible with the `crs="spice"` option above.
+        dissolve_orbits (bool): True, to aggregate multiple orbits in one output.
     Returns:
         GeoDataFrame: The data frame of aggregated ground track results.
     """
+    if method not in ["point", "line"]:
+        raise ValueError("Invalid method: " + str(method))
     if method == "point":
         track = collect_ground_track(
             satellite, times, instrument_index, elevation, None, crs
         )
+        # assign orbit identifier
+        track["orbit_id"] = [
+            (time - times[0]) // satellite.orbit.to_tle().get_orbit_period()
+            for time in times
+        ]
         # filter to valid observations and dissolve
-        track = track[track.valid_obs].dissolve()
+        track = track[track.valid_obs].dissolve(by="orbit_id").reset_index(drop=True)
         if mask is not None:
             track = gpd.clip(track, mask).reset_index(drop=True)
+        if dissolve_orbits:
+            track = track.dissolve()
         return track
     if method == "line":
+        if crs == "spice":
+            raise ValueError("The line method is not compatible with spice")
         track = collect_orbit_track(satellite, times, instrument_index, elevation, None)
+        # assign orbit identifier
+        track["orbit_id"] = [
+            (time - times[0]) // satellite.orbit.to_tle().get_orbit_period()
+            for time in times
+        ]
         # assign track identifiers to group contiguous observation periods
         track["track_id"] = (
             (track.valid_obs != track.valid_obs.shift()).astype("int").cumsum()
@@ -379,17 +392,15 @@ def compute_ground_track(
         track = track[track.valid_obs].reset_index(drop=True)
         segments = []
         swath_widths = []
-        for track_id in track.track_id.unique():
+        for _, sub_track in track.groupby(["orbit_id", "track_id"]):
             # project points to specified elevation
-            points = track[track.track_id == track_id].geometry.apply(
-                lambda p: Point(p.x, p.y, elevation)
-            )
-            # extract longitudes and latitudes
-            lon = track[track.track_id == track_id].geometry.apply(lambda p: p.x)
+            points = sub_track.geometry.apply(lambda p: Point(p.x, p.y, elevation))
+            # extract longitudes
+            lon = sub_track.geometry.apply(lambda p: p.x)
             # extract average swath width
-            swath_widths.append(track[track.track_id == track_id].swath_width.mean())
+            swath_widths.append(sub_track.swath_width.mean())
             # no anti-meridian crossings if all absolute longitude differences
-            # are less than 180 deg for non-polar points (mean absolute latitude < 80 deg)
+            # are less than 180 deg
             if np.all(np.abs(np.diff(lon)) < 180):
                 segments.append(LineString(points))
             else:
@@ -425,35 +436,20 @@ def compute_ground_track(
                         for line in collection.geoms
                     ]
                 )
-        to_crs = pyproj.Transformer.from_crs(
-            track.crs, pyproj.CRS(crs), always_xy=True
-        ).transform
+        to_crs = pyproj.Transformer.from_crs(track.crs, pyproj.CRS(crs), always_xy=True)
         from_crs = pyproj.Transformer.from_crs(
             pyproj.CRS(crs), track.crs, always_xy=True
-        ).transform
-        # apply the coordinate reference system transformation
+        )
         polygons = [
-            transform(
-                from_crs,
-                transform(to_crs, segment).buffer(swath_width / 2),
-            )
+            buffer_footprint(segment, to_crs, from_crs, swath_width, elevation)
             for segment, swath_width in zip(segments, swath_widths)
         ]
-        # add elevation to all polygon coordinates (otherwise lost during buffering)
-        polygons = [
-            Polygon(
-                [(p[0], p[1], elevation) for p in g.exterior.coords],
-                [[(p[0], p[1], elevation) for p in i.coords] for i in g.interiors],
-            )
-            for g in polygons
-        ]
-        # split polygons if necessary
-        polygons = list(map(split_polygon, polygons))
         # dissolve the original track
-        track = track.dissolve()
+        track = track.dissolve(by=["orbit_id", "track_id"]).reset_index(drop=True)
         # and replace the geometry with the union of computed polygons
-        track.geometry = [unary_union(polygons)]
+        track.geometry = polygons
         if mask is not None:
             track = gpd.clip(track, mask).reset_index(drop=True)
+        if dissolve_orbits:
+            track = track.dissolve()
         return track
-    raise ValueError("Invalid method: " + str(method))

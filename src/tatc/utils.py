@@ -9,10 +9,25 @@ from typing import Union
 import numpy as np
 from numba import njit
 import geopandas as gpd
-from shapely.geometry import Polygon, MultiPolygon, GeometryCollection, LineString
-from shapely.ops import split
+from pyproj import Transformer
+from shapely import Geometry, make_valid
+from shapely.geometry import (
+    Point,
+    Polygon,
+    MultiPolygon,
+    GeometryCollection,
+    LineString,
+)
+from shapely.ops import split, transform
+from skyfield.api import Distance, wgs84
+from skyfield.framelib import itrs
+from skyfield.toposlib import ITRSPosition, GeographicPosition
+from skyfield.positionlib import Geocentric
+from spiceypy.spiceypy import edlimb, inelpl, nvp2pl, surfpt
+from spiceypy.utils.exceptions import NotFoundError
 
 from . import constants
+from . import config
 
 
 @njit
@@ -110,6 +125,44 @@ def swath_width_to_field_of_regard(
     # eta is the angular radius of the region viewable by the satellite
     tan_eta = sin_rho * sin_lambda / (1 - sin_rho * np.cos(np.arcsin(sin_lambda)))
     return np.degrees(2 * np.arctan(tan_eta))
+
+
+@njit
+def swath_width_to_field_of_view(
+    altitude: float, swath_width: float, look_angle: float = 0, elevation: float = 0
+) -> float:
+    """
+    Fast conversion from swath width to field of view considering off-nadir pointing.
+
+    Args:
+        altitude (float): Altitude (meters) above WGS 84 datum for the observing instrument.
+        swath_width (float): Observation diameter (meters) at specified elevation.
+        look_angle (float): Off-nadir look angle (degrees) to observation center.
+        elevation (float): Elevation (meters) above WGS 84 datum to observe.
+
+    Returns:
+        float: The field of view (degrees).
+    """
+    # rho is the angular radius of the earth viewed by the satellite
+    sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
+        constants.EARTH_MEAN_RADIUS + altitude
+    )
+    # eta is the angular radius from sub-satellite point to center of view
+    sin_eta = min(sin_rho, np.sin(np.radians(look_angle) / 2))
+    # epsilon is the satellite elevation from the center of view
+    cos_epsilon = sin_eta / sin_rho
+    # lambda is the Earth central angle to the center of view
+    _lambda = np.pi / 2 - np.arcsin(sin_eta) - np.arccos(cos_epsilon)
+    sin_lambda_1 = np.sin(
+        _lambda - (swath_width / 2) / (constants.EARTH_MEAN_RADIUS + elevation)
+    )
+    sin_lambda_2 = np.sin(
+        _lambda + (swath_width / 2) / (constants.EARTH_MEAN_RADIUS + elevation)
+    )
+    # eta is the angular radius of the region viewable by the satellite
+    tan_eta_1 = sin_rho * sin_lambda_1 / (1 - sin_rho * np.cos(np.arcsin(sin_lambda_1)))
+    tan_eta_2 = sin_rho * sin_lambda_2 / (1 - sin_rho * np.cos(np.arcsin(sin_lambda_2)))
+    return np.degrees(np.arctan(tan_eta_2) - np.arctan(tan_eta_1))
 
 
 @njit
@@ -297,6 +350,252 @@ def access_time_to_along_track_distance(
         - (2 * np.pi * np.cos(np.degrees(inclination)) / constants.EARTH_SIDEREAL_DAY_S)
     )
     return ground_velocity * access_time
+
+
+def _get_footprint_point(
+    orbit_track: Geocentric,
+    cross_track_field_of_view: float,
+    along_track_field_of_view: float,
+    roll_angle: float = 0,
+    pitch_angle: float = 0,
+    is_rectangular: bool = False,
+    angle: float = 0,
+) -> GeographicPosition:
+    # extract earth-fixed position and velocity
+    position, velocity = orbit_track.frame_xyz_and_velocity(itrs)
+    # velocity unit vector
+    v = velocity.m_per_s / np.linalg.norm(velocity.m_per_s)
+    # binormal unit vector
+    b = -position.m / np.linalg.norm(position.m, axis=0)
+    # normal unit vector
+    n = np.cross(v, b)
+    # construct projected ray
+    if is_rectangular:
+        theta = np.arctan(along_track_field_of_view / cross_track_field_of_view)
+        tan_a_2 = np.tan(np.radians(along_track_field_of_view / 2))
+        tan_c_2 = np.tan(np.radians(cross_track_field_of_view / 2))
+        ray = (
+            b
+            + v * np.tan(np.radians(pitch_angle))
+            + n * np.tan(np.radians(roll_angle))
+            + v
+            * (
+                tan_a_2
+                if theta <= angle <= np.pi - theta
+                else (
+                    -tan_a_2
+                    if np.pi + theta <= angle <= 2 * np.pi - theta
+                    else (
+                        tan_c_2 * np.tan(angle)
+                        if angle < theta
+                        else (
+                            tan_c_2 * np.tan(np.pi - angle)
+                            if angle < np.pi
+                            else (
+                                -tan_c_2 * np.tan(angle - np.pi)
+                                if angle < np.pi + theta
+                                else -tan_c_2 * np.tan(2 * np.pi - angle)
+                            )
+                        )
+                    )
+                )
+            )
+            + n
+            * (
+                tan_c_2
+                if angle <= theta or angle >= 2 * np.pi - theta
+                else (
+                    -tan_c_2
+                    if np.pi - theta <= angle <= np.pi + theta
+                    else (
+                        tan_a_2 * np.tan(np.pi / 2 - angle)
+                        if angle < np.pi / 2
+                        else (
+                            -tan_a_2 * np.tan(angle - np.pi / 2)
+                            if angle < np.pi - theta
+                            else (
+                                -tan_a_2 * np.tan(3 * np.pi / 2 - angle)
+                                if angle < 3 * np.pi / 2
+                                else tan_a_2 * np.tan(angle - 3 * np.pi / 2)
+                            )
+                        )
+                    )
+                )
+            )
+        )
+    else:
+        ray = (
+            b
+            + v * np.tan(np.radians(pitch_angle))
+            + n * np.tan(np.radians(roll_angle))
+            + v * np.sin(angle) * np.tan(np.radians(along_track_field_of_view / 2))
+            + n * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
+        )
+    try:
+        # find the intersection of the ray and the WGS 84 geoid
+        pt = surfpt(
+            position.m,
+            ray,
+            constants.EARTH_EQUATORIAL_RADIUS,
+            constants.EARTH_EQUATORIAL_RADIUS,
+            constants.EARTH_POLAR_RADIUS,
+        )
+        return wgs84.geographic_position_of(
+            ITRSPosition(Distance(m=pt)).at(orbit_track.t)
+        )
+    except NotFoundError:
+        # projected point does not fall on the WGS 84 geoid surface
+        # compute the observable limb ellipse for WGS 84 geoid
+        limb = edlimb(
+            constants.EARTH_EQUATORIAL_RADIUS,
+            constants.EARTH_EQUATORIAL_RADIUS,
+            constants.EARTH_POLAR_RADIUS,
+            position.m,
+        )
+        # find the two intersection points between orthogonal plane and limb ellipse
+        _, pt_1, pt_2 = inelpl(
+            limb,
+            nvp2pl(
+                v * np.sin(np.pi / 2 + angle) + n * np.cos(np.pi / 2 + angle),
+                position.m,
+            ),
+        )
+        # compute the angles between the ray and limb intersection points
+        angle_1 = np.arccos(
+            np.dot(ray, pt_1) / np.linalg.norm(ray) / np.linalg.norm(pt_1)
+        )
+        angle_2 = np.arccos(
+            np.dot(ray, pt_2) / np.linalg.norm(ray) / np.linalg.norm(pt_2)
+        )
+        # use the limb intersection point closer to the ray
+        if angle_1 <= angle_2:
+            limb_pt = pt_1
+        else:
+            limb_pt = pt_2
+        # return resulting geographic position
+        return wgs84.geographic_position_of(
+            ITRSPosition(Distance(m=limb_pt)).at(orbit_track.t)
+        )
+
+
+def compute_footprint(
+    orbit_track: Geocentric,
+    cross_track_field_of_view: float,
+    along_track_field_of_view: float,
+    roll_angle: float = 0,
+    pitch_angle: float = 0,
+    is_rectangular: bool = False,
+    number_points: int = None,
+) -> Polygon:
+    """
+    Compute the instanteous instrument footprint.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+        cross_track_field_of_view (float): The angular (degrees) view orthogonal to velocity.
+        along_track_field_of_view (float): The angular (degrees) view in direction of velocity.
+        pitch_angle (float): The fore/aft look angle (degrees) in direction of velocity.
+        roll_angle (float): The left/right look angle (degrees) orthogonal to velocity.
+        is_rectangular (float): True, if this is a rectangular sensor.
+        number_points (int): The required number of polygon points to generate.
+
+    Returns:
+        shapely.geometry.Polygon: The instrument footprint.
+    """
+    if number_points is None:
+        # default number of points
+        if is_rectangular:
+            number_points = config.rc.footprint_points_rectangular_side
+        else:
+            number_points = config.rc.footprint_points_elliptical
+    if is_rectangular:
+        theta = np.arctan(along_track_field_of_view / cross_track_field_of_view)
+        angles = np.concatenate(
+            (
+                np.linspace(-theta, theta, number_points, endpoint=False),
+                np.linspace(theta, np.pi - theta, number_points, endpoint=False),
+                np.linspace(
+                    np.pi - theta, np.pi + theta, number_points, endpoint=False
+                ),
+                np.linspace(
+                    np.pi + theta, 2 * np.pi - theta, number_points, endpoint=False
+                ),
+            )
+        )
+    else:
+        angles = np.linspace(0, 2 * np.pi, number_points)
+    points = [
+        _get_footprint_point(
+            orbit_track,
+            cross_track_field_of_view,
+            along_track_field_of_view,
+            roll_angle,
+            pitch_angle,
+            is_rectangular,
+            angle,
+        )
+        for angle in angles
+    ]
+    return split_polygon(
+        Polygon([(p.longitude.degrees, p.latitude.degrees) for p in points])
+    )
+
+
+def buffer_footprint(
+    geometry: Geometry,
+    to_crs: Transformer,
+    from_crs: Transformer,
+    swath_width: float,
+    elevation: float,
+) -> Polygon:
+    """
+    Buffers a ground track point to create a footprint.
+
+    Args:
+        geometry (shapely.Geometry): The geometry to buffer.
+        origin_crs (str): The origin coordinate reference system (CRS).
+        buffer_crs (str): The buffering coordinate reference system (CRS).
+        swath_width (float): The swath width (meters) to buffer.
+        elevation (float): The elevation (meters) at which project the buffered polygon.
+
+    Returns:
+        shapely.geometry.Polygon: The buffered footprint.
+    """
+    # do the swath projection in the specified coordinate reference system
+    # split polygons to wrap over the anti-meridian and poles
+    # reproject to specified elevation (lost during buffer)
+    return project_polygon_to_elevation(
+        split_polygon(
+            transform(
+                from_crs.transform,
+                transform(to_crs.transform, geometry).buffer(swath_width / 2),
+            )
+        ),
+        elevation,
+    )
+
+
+def project_polygon_to_elevation(
+    polygon: Union[Polygon, MultiPolygon], elevation: float
+) -> Union[Polygon, MultiPolygon]:
+    """
+    Projects a polygon to a specified elevation (z-coordinate).
+
+    Args:
+        polygon (Polygon or MultiPolygon): The polygon to project.
+        elevation (float): The elevation (meters) above the WGS 84 geoid.
+
+    Returns:
+        Polygon or MultiPolygon: The projected polygon.
+    """
+    if isinstance(polygon, Polygon):
+        return Polygon(
+            [(p[0], p[1], elevation) for p in polygon.exterior.coords],
+            [[(p[0], p[1], elevation) for p in i.coords] for i in polygon.interiors],
+        )
+    return MultiPolygon(
+        [project_polygon_to_elevation(g, elevation) for g in polygon.geoms]
+    )
 
 
 def _wrap_polygon_over_north_pole(
@@ -597,6 +896,32 @@ def _split_polygon_antimeridian(
         # (adjacent coordinate longitude differs by more than 180 degrees)
         if all(np.abs(np.diff(lon)) < 180):
             return polygon
+        # check if this polygon contains a pole
+        if Polygon(zip(np.cos(np.radians(lon)), np.sin(np.radians(lon)))).contains(
+            Point(0, 0)
+        ):
+            # extract and sort coords by longitude
+            coords = polygon.exterior.coords[0:-1]
+            coords.sort(key=lambda r: r[0])
+            # determine if contains north or south pole based on sign of first latitude
+            n_s = 1 if coords[0][1] > 0 else -1
+            # interpolate latitude at antimeridian
+            lat = np.interp(
+                180, [coords[-1][0], coords[0][0] + 180], [coords[-1][1], coords[0][1]]
+            )
+            # reconstruct polygon (ccw) with added coords on antimeridian
+            pgon = Polygon(
+                [(-180, 90 * n_s), (-180, lat)]
+                + coords
+                + [(180, lat), (180, 90 * n_s), (-180, 90 * n_s)],
+                polygon.interiors,
+            )
+            # return polygon split down prime meridian to improve handling
+            parts = split(pgon, LineString([(0, -180), (0, 180)]))
+            # convert to multi polygon
+            if isinstance(parts, GeometryCollection):
+                parts = _convert_collection_to_polygon(parts)
+            return parts
         # find anti-meridian crossings and calculate shift direction
         # coords from W -> E (shift < 0) will add 360 degrees to E component
         # coords from E -> W (shift > 0) will subtract 360 degrees from W component
@@ -654,9 +979,16 @@ def split_polygon(
     Returns:
         Polygon, or MultiPolygon: The split polygon.
     """
-    return _split_polygon_north_pole(
+    polygon = _split_polygon_north_pole(
         _split_polygon_south_pole(_split_polygon_antimeridian(polygon))
     )
+    # invalid polygons can arise from narrow sensor geometries in polar regions
+    if not polygon.is_valid:
+        # try to fix geometry
+        polygon = make_valid(polygon)
+        if isinstance(polygon, GeometryCollection):
+            polygon = _convert_collection_to_polygon(polygon)
+    return polygon
 
 
 def normalize_geometry(
