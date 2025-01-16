@@ -19,10 +19,10 @@ from ..schemas.instrument import PointedInstrument
 from ..schemas.point import Point
 from ..schemas.satellite import Satellite
 
-from ..analysis.track import compute_footprint
 from ..utils import (
     compute_min_elevation_angle,
     compute_max_access_time,
+    compute_footprint,
 )
 from ..constants import de421, timescale
 
