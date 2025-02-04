@@ -259,20 +259,6 @@ def collect_observations(
         satellite_altitude,
         instrument.field_of_regard,
     )
-    if isinstance(instrument, PointedInstrument):
-        # assign pointed instrument properties
-        cross_track_field_of_view = instrument.cross_track_field_of_view
-        along_track_field_of_view = instrument.along_track_field_of_view
-        roll_angle = instrument.roll_angle
-        pitch_angle = instrument.pitch_angle
-        is_rectangular = instrument.is_rectangular
-    else:
-        # fall back to defaults
-        cross_track_field_of_view = instrument.field_of_regard
-        along_track_field_of_view = instrument.field_of_regard
-        roll_angle = 0
-        pitch_angle = 0
-        is_rectangular = False
     records = [
         {
             "point_id": point.id,
@@ -299,15 +285,17 @@ def collect_observations(
             and instrument.is_valid_observation(
                 satellite.orbit.to_tle().get_orbit_track(period.mid)
             )
-            and compute_footprint(
-                satellite.orbit.to_tle().get_orbit_track(period.mid),
-                cross_track_field_of_view,
-                along_track_field_of_view,
-                roll_angle,
-                pitch_angle,
-                is_rectangular,
-            ).contains(
-                geo.Point(point.longitude, point.latitude)
+            and (
+                not isinstance(instrument, PointedInstrument) or compute_footprint(
+                    satellite.orbit.to_tle().get_orbit_track(period.mid),
+                    instrument.cross_track_field_of_view,
+                    instrument.along_track_field_of_view,
+                    instrument.roll_angle,
+                    instrument.pitch_angle,
+                    instrument.is_rectangular,
+                ).contains(
+                    geo.Point(point.longitude, point.latitude)
+                )
             )
     )
     ]
