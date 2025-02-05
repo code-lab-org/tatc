@@ -15,12 +15,14 @@ import geopandas as gpd
 from shapely import geometry as geo
 from skyfield.api import Angle, Distance, wgs84
 
+from ..schemas.instrument import PointedInstrument
 from ..schemas.point import Point
 from ..schemas.satellite import Satellite
 
 from ..utils import (
     compute_min_elevation_angle,
     compute_max_access_time,
+    compute_footprint,
 )
 from ..constants import de421, timescale
 
@@ -282,6 +284,17 @@ def collect_observations(
             instrument.min_access_time <= period.right - period.left
             and instrument.is_valid_observation(
                 satellite.orbit.to_tle().get_orbit_track(period.mid)
+            )
+            and (
+                not isinstance(instrument, PointedInstrument)
+                or compute_footprint(
+                    satellite.orbit.to_tle().get_orbit_track(period.mid),
+                    instrument.cross_track_field_of_view,
+                    instrument.along_track_field_of_view,
+                    instrument.roll_angle,
+                    instrument.pitch_angle,
+                    instrument.is_rectangular,
+                ).contains(geo.Point(point.longitude, point.latitude))
             )
         )
     ]
