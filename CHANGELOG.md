@@ -1,5 +1,10 @@
 # TAT-C Change Log
 
+## 3.4.2
+
+Changed:
+ - Analysis functions `collect_observations` and `collect_multi_observations` constrain observations to be contained within the ground track when using an instrument that inherits from `PointedInstrument` (address off-nadir pointing).
+
 ## 3.4.1
 
 Changed:
