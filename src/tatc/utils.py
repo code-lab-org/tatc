@@ -352,7 +352,7 @@ def access_time_to_along_track_distance(
     return ground_velocity * access_time
 
 
-def _get_footprint_point(
+def _get_projected_ray_position(
     orbit_track: Geocentric,
     cross_track_field_of_view: float,
     along_track_field_of_view: float,
@@ -361,6 +361,27 @@ def _get_footprint_point(
     is_rectangular: bool = False,
     angle: float = 0,
 ) -> GeographicPosition:
+    """
+    Get the location of a projected ray from an instrument.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        cross_track_field_of_view (float): the instrument cross-track 
+            (orthogonal to velocity vector) field of view (degrees).
+        along_track_field_of_view (float): the instrument along-track 
+            (parallel to velocity vector) field of view (degrees).
+        roll_angle (float): the instrument roll (right-hand about 
+            velocity vector) angle (degrees).
+        pitch_angle (float): the instrument pitch (right-hand about 
+            orbit normal vector) angle (degrees).
+        is_rectangular (bool): `True` if the instrument view has a rectangular
+            shape (otherwise elliptical).
+        angle (float): ray angle (degrees) counterclockwise from right-hand cross-track 
+            direction about the instrument field of view.
+    
+    Returns:
+        (skyfield.toposlib.GeographicPosition): the geographic position of the projected ray
+    """
     # extract earth-fixed position and velocity
     position, velocity = orbit_track.frame_xyz_and_velocity(itrs)
     # velocity unit vector
@@ -525,7 +546,7 @@ def compute_footprint(
     else:
         angles = np.linspace(0, 2 * np.pi, number_points)
     points = [
-        _get_footprint_point(
+        _get_projected_ray_position(
             orbit_track,
             cross_track_field_of_view,
             along_track_field_of_view,
