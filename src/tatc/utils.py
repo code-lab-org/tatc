@@ -366,30 +366,36 @@ def _get_projected_ray_position(
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
-        cross_track_field_of_view (float): the instrument cross-track 
+        cross_track_field_of_view (float): the instrument cross-track
             (orthogonal to velocity vector) field of view (degrees).
-        along_track_field_of_view (float): the instrument along-track 
+        along_track_field_of_view (float): the instrument along-track
             (parallel to velocity vector) field of view (degrees).
-        roll_angle (float): the instrument roll (right-hand about 
+        roll_angle (float): the instrument roll (right-hand about
             velocity vector) angle (degrees).
-        pitch_angle (float): the instrument pitch (right-hand about 
+        pitch_angle (float): the instrument pitch (right-hand about
             orbit normal vector) angle (degrees).
         is_rectangular (bool): `True` if the instrument view has a rectangular
             shape (otherwise elliptical).
-        angle (float): ray angle (degrees) counterclockwise from right-hand cross-track 
+        angle (float): ray angle (degrees) counterclockwise from right-hand cross-track
             direction about the instrument field of view.
-    
+
     Returns:
         (skyfield.toposlib.GeographicPosition): the geographic position of the projected ray
     """
     # extract earth-fixed position and velocity
     position, velocity = orbit_track.frame_xyz_and_velocity(itrs)
     # velocity unit vector
-    v = velocity.m_per_s / np.linalg.norm(velocity.m_per_s)
+    v = np.divide(velocity.m_per_s, np.linalg.norm(velocity.m_per_s, axis=0))
     # binormal unit vector
-    b = -position.m / np.linalg.norm(position.m, axis=0)
+    b = np.divide(-position.m, np.linalg.norm(position.m, axis=0))
     # normal unit vector
-    n = np.cross(v, b)
+    if len(np.shape(position.m)) > 1:
+        n = np.einsum(
+            "iik->ik",
+            np.cross(v.T[:, None, :], b.T[None, :, :]),
+        ).T
+    else:
+        n = np.cross(v, b)
     # construct projected ray
     if is_rectangular:
         theta = np.arctan(along_track_field_of_view / cross_track_field_of_view)
@@ -452,8 +458,91 @@ def _get_projected_ray_position(
             + v * np.sin(angle) * np.tan(np.radians(along_track_field_of_view / 2))
             + n * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
         )
-    try:
+    if len(np.shape(position.m)) > 1:
         # find the intersection of the ray and the WGS 84 geoid
+        try:
+            pt = np.array(
+                [
+                    surfpt(
+                        position.m[:, i].copy(),
+                        ray[:, i].copy(),
+                        constants.EARTH_EQUATORIAL_RADIUS,
+                        constants.EARTH_EQUATORIAL_RADIUS,
+                        constants.EARTH_POLAR_RADIUS,
+                    )
+                    for i in range(np.size(position.m, axis=0))
+                ]
+            )
+            return wgs84.geographic_position_of(
+                Geocentric(
+                    [
+                        ITRSPosition(Distance(m=pt[i])).at(orbit_track.t[i]).position.au
+                        for i in range(len(pt))
+                    ],
+                    t=orbit_track.t[0],
+                )
+            )
+        except NotFoundError:
+            # projected point does not fall on the WGS 84 geoid surface
+            # compute the observable limb ellipse for WGS 84 geoid
+            limb = np.array(
+                [
+                    edlimb(
+                        constants.EARTH_EQUATORIAL_RADIUS,
+                        constants.EARTH_EQUATORIAL_RADIUS,
+                        constants.EARTH_POLAR_RADIUS,
+                        position.m[:, i].copy(),
+                    )
+                    for i in range(np.size(position.m, axis=0))
+                ]
+            )
+            # find the two intersection points between orthogonal plane and limb ellipse
+            results = [
+                inelpl(
+                    limb[i],
+                    nvp2pl(
+                        v[:, i].copy() * np.sin(np.pi / 2 + angle)
+                        + n[:, i].copy() * np.cos(np.pi / 2 + angle),
+                        position.m[:, i].copy(),
+                    ),
+                )
+                for i in range(len(limb))
+            ]
+            pt_1 = np.array([results[i][1] for i in range(len(results))])
+            pt_2 = np.array([results[i][2] for i in range(len(results))])
+            # compute the angles between the ray and limb intersection points
+            angle_1 = np.arccos(
+                np.divide(
+                    np.einsum("ij,ij->j", ray, pt_1),
+                    np.multiply(
+                        np.linalg.norm(ray, axis=0), np.linalg.norm(pt_1, axis=0)
+                    ),
+                )
+            )
+            angle_2 = np.arccos(
+                np.divide(
+                    np.einsum("ij,ij->j", ray, pt_2),
+                    np.multiply(
+                        np.linalg.norm(ray, axis=0), np.linalg.norm(pt_2, axis=0)
+                    ),
+                )
+            )
+            # use the limb intersection point closer to the ray
+            limb_pt = np.where(angle_1 <= angle_2, pt_1, pt_2)
+            # return resulting geographic position
+            return wgs84.geographic_position_of(
+                Geocentric(
+                    [
+                        ITRSPosition(Distance(m=limb_pt[i]))
+                        .at(orbit_track.t[i])
+                        .position.au
+                        for i in range(len(limb_pt))
+                    ],
+                    t=orbit_track.t[0],
+                )
+            )
+    # find the intersection of the ray and the WGS 84 geoid
+    try:
         pt = surfpt(
             position.m,
             ray,
@@ -489,14 +578,44 @@ def _get_projected_ray_position(
             np.dot(ray, pt_2) / np.linalg.norm(ray) / np.linalg.norm(pt_2)
         )
         # use the limb intersection point closer to the ray
-        if angle_1 <= angle_2:
-            limb_pt = pt_1
-        else:
-            limb_pt = pt_2
+        limb_pt = pt_1 if angle_1 <= angle_2 else pt_2
         # return resulting geographic position
         return wgs84.geographic_position_of(
             ITRSPosition(Distance(m=limb_pt)).at(orbit_track.t)
         )
+
+
+def compute_footprint_center(
+    orbit_track: Geocentric,
+    roll_angle: float = 0,
+    pitch_angle: float = 0,
+) -> Point:
+    """
+    Get the center of an instaneous instrument footprint.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+        pitch_angle (float): The fore/aft look angle (degrees); right-hand
+            rotation about orbit normal vector.
+        roll_angle (float): The left/right look angle (degrees); right-hand
+            rotation about orbit velocity vector.
+
+    Returns:
+        shapely.geometry.Point: The instrument footprint center.
+    """
+    point = _get_projected_ray_position(
+        orbit_track=orbit_track,
+        cross_track_field_of_view=0,
+        along_track_field_of_view=0,
+        roll_angle=roll_angle,
+        pitch_angle=pitch_angle,
+        is_rectangular=False,
+        angle=0,
+    )
+    return [
+        Point(point.longitude.degrees[i], point.latitude.degrees[i])
+        for i in range(np.size(point))
+    ]
 
 
 def compute_footprint(
@@ -515,8 +634,10 @@ def compute_footprint(
         orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
         cross_track_field_of_view (float): The angular (degrees) view orthogonal to velocity.
         along_track_field_of_view (float): The angular (degrees) view in direction of velocity.
-        pitch_angle (float): The fore/aft look angle (degrees) in direction of velocity.
-        roll_angle (float): The left/right look angle (degrees) orthogonal to velocity.
+        pitch_angle (float): The fore/aft look angle (degrees); right-hand
+            rotation about orbit normal vector.
+        roll_angle (float): The left/right look angle (degrees); right-hand
+            rotation about orbit velocity vector.
         is_rectangular (float): True, if this is a rectangular sensor.
         number_points (int): The required number of polygon points to generate.
 

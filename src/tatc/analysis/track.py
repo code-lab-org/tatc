@@ -29,10 +29,11 @@ from ..schemas.satellite import Satellite
 from ..utils import (
     buffer_footprint,
     compute_footprint,
+    compute_footprint_center,
     field_of_regard_to_swath_width,
     project_polygon_to_elevation,
 )
-from ..constants import EARTH_MEAN_RADIUS
+from ..constants import de421, EARTH_MEAN_RADIUS, timescale
 
 
 def _get_empty_orbit_track() -> gpd.GeoDataFrame:
@@ -224,6 +225,8 @@ def collect_ground_track(
     elevation: float = 0,
     mask: Optional[Union[Polygon, MultiPolygon]] = None,
     crs: str = "EPSG:4087",
+    sat_altaz: bool = False,
+    solar_altaz: bool = False,
 ) -> gpd.GeoDataFrame:
     """
     Collect ground track polygons for a satellite of interest.
@@ -241,83 +244,158 @@ def collect_ground_track(
                 zones for non-polar regions, and Universal Polar Stereographic
                 (UPS) systems for polar regions. Selecting `crs="spice"` uses
                 SPICE to compute observation footprints.
+        sat_altaz (bool): `True` to include satellite altitude/azimuth angles.
+        solar_altaz (bool): `True` to include solar altitude/azimuth angles.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected ground track results.
     """
-    # compute the orbit track of the satellite
-    gdf = collect_orbit_track(satellite, times, instrument_index, elevation, mask)
-    if gdf.empty:
-        return gdf
+
+    if len(times) == 0:
+        return _get_empty_orbit_track()
+    # propagate orbit
+    orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
+    # select the observing instrument
+    instrument = satellite.instruments[instrument_index]
+    # compute targets
+    targets = [
+        compute_footprint_center(
+            orbit_track,
+            (instrument.roll_angle if isinstance(instrument, PointedInstrument) else 0),
+            (
+                instrument.pitch_angle
+                if isinstance(instrument, PointedInstrument)
+                else 0
+            ),
+        )
+    ]
+    # determine observation validity
+    valid_obs = instrument.is_valid_observation(orbit_track, targets)
+    if len(times) == 1:
+        # transform scalar to vector results
+        valid_obs = np.array([valid_obs])
     if crs == "spice":
-        # select the observing instrument
-        instrument = satellite.instruments[instrument_index]
-        # propagate orbit
-        orbit_track = satellite.orbit.to_tle().get_orbit_track(gdf.time)
-        if isinstance(instrument, PointedInstrument):
-            # assign pointed instrument properties
-            cross_track_field_of_view = instrument.cross_track_field_of_view
-            along_track_field_of_view = instrument.along_track_field_of_view
-            roll_angle = instrument.roll_angle
-            pitch_angle = instrument.pitch_angle
-            is_rectangular = instrument.is_rectangular
-        else:
-            # fall back to defaults
-            cross_track_field_of_view = instrument.field_of_regard
-            along_track_field_of_view = instrument.field_of_regard
-            roll_angle = 0
-            pitch_angle = 0
-            is_rectangular = False
-        # construct polygons based on visible extent of instrument
-        # project to specified elevation
-        gdf.geometry = gdf.apply(
-            lambda r: project_polygon_to_elevation(
+        geometries = [
+            project_polygon_to_elevation(
                 compute_footprint(
-                    orbit_track[r.name],
-                    cross_track_field_of_view,
-                    along_track_field_of_view,
-                    roll_angle,
-                    pitch_angle,
-                    is_rectangular,
+                    orbit_track[i],
+                    (
+                        instrument.cross_track_field_of_view
+                        if isinstance(instrument, PointedInstrument)
+                        else instrument.field_of_regard
+                    ),
+                    (
+                        instrument.along_track_field_of_view
+                        if isinstance(instrument, PointedInstrument)
+                        else instrument.field_of_regard
+                    ),
+                    (
+                        instrument.roll_angle
+                        if isinstance(instrument, PointedInstrument)
+                        else 0
+                    ),
+                    (
+                        instrument.pitch_angle
+                        if isinstance(instrument, PointedInstrument)
+                        else 0
+                    ),
+                    (
+                        instrument.is_rectangular
+                        if isinstance(instrument, PointedInstrument)
+                        else False
+                    ),
                 ),
                 elevation,
-            ),
-            axis=1,
-        )
-    elif crs == "utm":
-        gdf["utm_crs"] = gdf.apply(
-            lambda r: _get_utm_epsg_code(r.geometry, r.swath_width), axis=1
-        )
-        # preload transformers
-        to_crs = {}
-        from_crs = {}
-        for code in gdf.utm_crs.unique():
-            to_crs[code] = pyproj.Transformer.from_crs(
-                gdf.crs, pyproj.CRS(code), always_xy=True
             )
-            from_crs[code] = pyproj.Transformer.from_crs(
-                pyproj.CRS(code), gdf.crs, always_xy=True
-            )
-        gdf.geometry = gdf.apply(
-            lambda r: buffer_footprint(
-                r.geometry,
-                to_crs[r.utm_crs],
-                from_crs[r.utm_crs],
-                r.swath_width,
-                elevation,
-            ),
-            axis=1,
-        )
-        gdf.drop(columns=["utm_crs"])
+            for i in range(len(times))
+        ]
     else:
-        to_crs = pyproj.Transformer.from_crs(gdf.crs, pyproj.CRS(crs), always_xy=True)
-        from_crs = pyproj.Transformer.from_crs(pyproj.CRS(crs), gdf.crs, always_xy=True)
-        gdf.geometry = gdf.apply(
-            lambda r: buffer_footprint(
-                r.geometry, to_crs, from_crs, r.swath_width, elevation
-            ),
-            axis=1,
-        )
+        # compute the orbit track of the satellite
+        gdf = collect_orbit_track(satellite, times, instrument_index, elevation)
+        if crs == "utm":
+            gdf["utm_crs"] = gdf.apply(
+                lambda r: _get_utm_epsg_code(r.geometry, r.swath_width), axis=1
+            )
+            # preload transformers
+            to_crs = {}
+            from_crs = {}
+            for code in gdf.utm_crs.unique():
+                to_crs[code] = pyproj.Transformer.from_crs(
+                    gdf.crs, pyproj.CRS(code), always_xy=True
+                )
+                from_crs[code] = pyproj.Transformer.from_crs(
+                    pyproj.CRS(code), gdf.crs, always_xy=True
+                )
+            geometries = gdf.apply(
+                lambda r: buffer_footprint(
+                    r.geometry,
+                    to_crs[r.utm_crs],
+                    from_crs[r.utm_crs],
+                    r.swath_width,
+                    elevation,
+                ),
+                axis=1,
+            ).values
+        else:
+            to_crs = pyproj.Transformer.from_crs(
+                gdf.crs, pyproj.CRS(crs), always_xy=True
+            )
+            from_crs = pyproj.Transformer.from_crs(
+                pyproj.CRS(crs), gdf.crs, always_xy=True
+            )
+            geometries = gdf.apply(
+                lambda r: buffer_footprint(
+                    r.geometry, to_crs, from_crs, r.swath_width, elevation
+                ),
+                axis=1,
+            ).values
+    records = [
+        {
+            "time": time,
+            "satellite": satellite.name,
+            "instrument": instrument.name,
+            "valid_obs": valid_obs[i],
+            "geometry": geometries[i],
+        }
+        for i, time in enumerate(times)
+    ]
+    # construct polygons based on visible extent of instrument
+    # project to specified elevation
+    gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
+    if sat_altaz:
+        # append satellite altitude/azimuth columns
+        gdf["sat_alt"] = [
+            (orbit_track[i] - targets[i].at(timescale.from_datetime(times[i])))
+            .altaz()[0]
+            .degrees
+            for i in range(len(times))
+        ]
+        gdf["sat_az"] = [
+            (orbit_track[i] - targets[i].at(timescale.from_datetime(times[i])))
+            .altaz()[1]
+            .degrees
+            for i in range(len(times))
+        ]
+    if solar_altaz:
+        # append solar altitude/azimuth columns
+        gdf["solar_alt"] = [
+            (de421["earth"] + targets[i])
+            .at(timescale.from_datetime(times[i]))
+            .observe(de421["sun"])
+            .apparent()
+            .altaz()[0]
+            .degrees
+            for i in range(len(times))
+        ]
+        gdf["solar_az"] = [
+            (de421["earth"] + targets[i])
+            .at(timescale.from_datetime(times[i]))
+            .observe(de421["sun"])
+            .apparent()
+            .altaz()[1]
+            .degrees
+            for i in range(len(times))
+        ]
 
     if mask is not None:
         gdf = gpd.clip(gdf, mask).reset_index(drop=True)

@@ -9,9 +9,11 @@ from typing import Optional
 from datetime import timedelta
 
 import numpy as np
+import numpy.typing as npt
 from pydantic import BaseModel, Field
 from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
+from skyfield.toposlib import GeographicPosition
 
 from ..constants import de421
 from ..utils import compute_min_elevation_angle, field_of_regard_to_swath_width
@@ -73,61 +75,39 @@ class Instrument(BaseModel):
         """
         return compute_min_elevation_angle(height, self.field_of_regard)
 
-    def is_valid_observation(self, orbit_track: Geocentric) -> bool:
+    def is_valid_observation(
+        self, orbit_track: Geocentric, targets: GeographicPosition = None
+    ) -> npt.NDArray:
         """Determines if an instrument can provide a valid observations.
 
         Args:
             orbit_track (skyfield.positionlib.Geocentric): orbit track position/velocity from Skyfield
+            target (skyfield.toposlib.GeographicPosition): target position from Skyfield
 
         Returns:
-            bool: `True` if instrument provides a valid observation, otherwise `False`.
+            numpy.typing.NDArray: Array of indicators: `True` if instrument provides a valid observation.
         """
-        # determine if scalar or vector
-        if np.size(orbit_track.t) == 1:
-            # scalar
-            is_valid = True
-            if self.req_self_sunlit is not None:
-                # compare requirement to satellite sunlit condition
-                is_valid = is_valid and (
-                    self.req_self_sunlit == orbit_track.is_sunlit(de421)
-                )
-            if self.req_target_sunlit is not None:
-                # compute solar altitude angle at sub-satellite point
-                solar_alt = (
-                    (de421["earth"] + wgs84.subpoint_of(orbit_track))
-                    .at(orbit_track.t)
-                    .observe(de421["sun"])
-                    .apparent()
-                    .altaz()[0]
-                    .degrees
-                )
-                # compare requirement to sub-satellite point sunlit condition
-                is_valid = is_valid and (self.req_target_sunlit == (solar_alt > 0))
-            return is_valid
-        # vector
+        if targets is None:
+            # support backwards compatibility
+            targets = wgs84.subpoint_of(orbit_track)
         is_valid = np.ones(np.size(orbit_track.t), dtype=bool)
         if self.req_self_sunlit is not None:
             # compare requirement to satellite sunlit condition
-            is_valid = np.logical_and(
-                is_valid, self.req_self_sunlit == orbit_track.is_sunlit(de421)
-            )
+            is_self_sunlit_valid = orbit_track.is_sunlit(de421) == self.req_self_sunlit
+            is_valid = np.logical_and(is_valid, is_self_sunlit_valid)
         if self.req_target_sunlit is not None:
             # compute solar altitude angle at sub-satellite points
-            solar_alt = np.array(
-                [
-                    (de421["earth"] + wgs84.subpoint_of(point))
-                    .at(point.t)
-                    .observe(de421["sun"])
-                    .apparent()
-                    .altaz()[0]
-                    .degrees
-                    for point in orbit_track
-                ]
+            solar_alt = (
+                (de421["earth"] + targets)
+                .at(orbit_track.t)
+                .observe(de421["sun"])
+                .apparent()
+                .altaz()[0]
+                .degrees
             )
             # compare requirement to sub-satellite point sunlit conditions
-            is_valid = np.logical_and(
-                is_valid, self.req_target_sunlit == (solar_alt > 0)
-            )
+            is_target_sunlit_valid = (solar_alt > 0) == self.req_target_sunlit
+            is_valid = np.logical_and(is_valid, is_target_sunlit_valid)
         return is_valid
 
 
