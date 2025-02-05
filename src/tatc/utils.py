@@ -599,7 +599,7 @@ def project_polygon_to_elevation(
 
 
 def _wrap_polygon_over_north_pole(
-    polygon: Union[Polygon, MultiPolygon]
+    polygon: Union[Polygon, MultiPolygon],
 ) -> Union[Polygon, MultiPolygon]:
     """
     Wraps polygon coordinates over the North pole. Due to buffering and projection,
@@ -659,7 +659,7 @@ def _wrap_polygon_over_north_pole(
 
 
 def _split_polygon_north_pole(
-    polygon: Union[Polygon, MultiPolygon]
+    polygon: Union[Polygon, MultiPolygon],
 ) -> Union[Polygon, MultiPolygon]:
     """
     Splits a Polygon into a MultiPolygon if it crosses north pole.
@@ -702,7 +702,7 @@ def _split_polygon_north_pole(
 
 
 def _wrap_polygon_over_south_pole(
-    polygon: Union[Polygon, MultiPolygon]
+    polygon: Union[Polygon, MultiPolygon],
 ) -> Union[Polygon, MultiPolygon]:
     """
     Wraps polygon coordinates over the South pole. Due to buffering and projection,
@@ -762,7 +762,7 @@ def _wrap_polygon_over_south_pole(
 
 
 def _split_polygon_south_pole(
-    polygon: Union[Polygon, MultiPolygon]
+    polygon: Union[Polygon, MultiPolygon],
 ) -> Union[Polygon, MultiPolygon]:
     """
     Splits a Polygon into a MultiPolygon if it crosses south pole.
@@ -805,7 +805,7 @@ def _split_polygon_south_pole(
 
 
 def _wrap_polygon_over_antimeridian(
-    polygon: Union[Polygon, MultiPolygon]
+    polygon: Union[Polygon, MultiPolygon],
 ) -> Union[Polygon, MultiPolygon]:
     """
     Wraps polygon coordinates over the antimeridian. Due to buffering and projection,
@@ -877,7 +877,7 @@ def _convert_collection_to_polygon(
 
 
 def _split_polygon_antimeridian(
-    polygon: Union[Polygon, MultiPolygon]
+    polygon: Union[Polygon, MultiPolygon],
 ) -> Union[Polygon, MultiPolygon]:
     """
     Splits a Polygon into a MultiPolygon if it crosses the anti-meridian after
@@ -965,7 +965,7 @@ def _split_polygon_antimeridian(
 
 
 def split_polygon(
-    polygon: Union[Polygon, MultiPolygon]
+    polygon: Union[Polygon, MultiPolygon],
 ) -> Union[Polygon, MultiPolygon]:
     """
     Splits a Polygon into a MultiPolygon if it crosses the anti-meridian
@@ -992,7 +992,7 @@ def split_polygon(
 
 
 def normalize_geometry(
-    geometry: Union[Polygon, MultiPolygon, gpd.GeoDataFrame]
+    geometry: Union[Polygon, MultiPolygon, gpd.GeoDataFrame],
 ) -> gpd.GeoDataFrame:
     """
     Normalize geometry to a GeoDataFrame with antimeridian wrapping.

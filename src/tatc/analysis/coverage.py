@@ -286,18 +286,17 @@ def collect_observations(
                 satellite.orbit.to_tle().get_orbit_track(period.mid)
             )
             and (
-                not isinstance(instrument, PointedInstrument) or compute_footprint(
+                not isinstance(instrument, PointedInstrument)
+                or compute_footprint(
                     satellite.orbit.to_tle().get_orbit_track(period.mid),
                     instrument.cross_track_field_of_view,
                     instrument.along_track_field_of_view,
                     instrument.roll_angle,
                     instrument.pitch_angle,
                     instrument.is_rectangular,
-                ).contains(
-                    geo.Point(point.longitude, point.latitude)
-                )
+                ).contains(geo.Point(point.longitude, point.latitude))
             )
-    )
+        )
     ]
 
     # build the dataframe
