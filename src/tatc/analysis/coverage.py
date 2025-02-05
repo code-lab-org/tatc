@@ -133,7 +133,8 @@ def _get_satellite_altaz_series(
         times (List[datetime.datetime]): Times of observation.
 
     Returns:
-        Tuple[skyfield.api.Angle, skyfield.api.Angle, skyfield.api.Distance]: Altitude-azimuth objects associated with observations.
+        Tuple[skyfield.api.Angle, skyfield.api.Angle, skyfield.api.Distance]: 
+            Altitude-azimuth objects associated with observations.
     """
     sat = satellite.orbit.to_tle().as_skyfield()
     topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
@@ -170,7 +171,8 @@ def _get_solar_altaz_series(
         times (List[datetime.datetime]): Times of observation.
 
     Returns:
-        Tuple[skyfield.api.Angle, skyfield.api.Angle, skyfield.api.Distance]: Altitude-azimuth objects associated with observations.
+        Tuple[skyfield.api.Angle, skyfield.api.Angle, skyfield.api.Distance]: 
+            Altitude-azimuth objects associated with observations.
     """
     topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
     ts = timescale.from_datetimes(times)
@@ -186,7 +188,7 @@ def _get_solar_time_series(point: Point, times: List[datetime]) -> npt.NDArray:
         times (List[datetime.datetime]): Times of observation.
 
     Returns:
-        numpy.typing.NDArray: Array of floats (local solar time in hours) associated with observations.
+        numpy.typing.NDArray: Array of floats (local solar time in hours).
     """
     topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
     ts = timescale.from_datetimes(times)
