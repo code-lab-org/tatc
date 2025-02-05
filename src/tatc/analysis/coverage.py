@@ -128,9 +128,9 @@ def _get_satellite_altaz_series(
     Get a series with the satellite altitude/azimuth for each observation.
 
     Args:
-        point (skyfield.positionlib.GeographicPosition): Observed location.
-        satellite (skyfield.api.EarthSatellite): Satellite doing the observation.
-        times (List[datetime]): Times of observation.
+        point (Point): Observed location.
+        satellite (Satellite): Satellite doing the observation.
+        times (List[datetime.datetime]): Times of observation.
 
     Returns:
         Tuple[skyfield.api.Angle, skyfield.api.Angle, skyfield.api.Distance]: Altitude-azimuth objects associated with observations.
@@ -150,7 +150,7 @@ def _get_satellite_sunlit_series(
 
     Args:
         satellite (Satellite): Satellite doing the observation.
-        times (List[datetime]): Times of observation.
+        times (List[datetime.datetime]): Times of observation.
 
     Returns:
         numpy.typing.NDArray: Array of indicators whether the satellite is sunlit.
@@ -167,7 +167,7 @@ def _get_solar_altaz_series(
 
     Args:
         point (Point): Observed location.
-        times (List[datetime]): Times of observation.
+        times (List[datetime.datetime]): Times of observation.
 
     Returns:
         Tuple[skyfield.api.Angle, skyfield.api.Angle, skyfield.api.Distance]: Altitude-azimuth objects associated with observations.
@@ -183,7 +183,7 @@ def _get_solar_time_series(point: Point, times: List[datetime]) -> npt.NDArray:
 
     Args:
         point (Point): Observed location.
-        times (List[datetime]): Times of observation.
+        times (List[datetime.datetime]): Times of observation.
 
     Returns:
         numpy.typing.NDArray: Array of floats (local solar time in hours) associated with observations.
@@ -200,7 +200,7 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
     Gets an empty data frame for coverage analysis results.
 
     Args:
-        omit_solar (bool): True, to omit solar properties to improve performance.
+        omit_solar (bool): `True`, to omit solar angles to improve performance.
 
     Returns:
         geopandas.GeoDataFrame: Empty data frame.
@@ -247,8 +247,7 @@ def collect_observations(
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
         instrument_index (int): The index of the observing instrument in satellite.
-        omit_solar (bool): `True`, to omit solar angles to improve
-            computational efficiency; otherwise `False`.
+        omit_solar (bool): `True`, to omit solar angles to improve performance.
 
     Returns:
         geopandas.GeoDataFrame: The data frame with recorded observations.
@@ -339,8 +338,7 @@ def collect_multi_observations(
         satellites (Satellite or List[Satellite]): The observing satellite(s).
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
-        omit_solar (bool): `True`, to omit solar angles to improve
-            computational efficiency; otherwise `False`.
+        omit_solar (bool): `True`, to omit solar angles to improve performance.
 
     Returns:
         geopandas.GeoDataFrame: The data frame with all recorded observations.
