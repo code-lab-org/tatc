@@ -535,7 +535,7 @@ def compute_footprint_center(
     orbit_track: Geocentric,
     roll_angle: float = 0,
     pitch_angle: float = 0,
-) -> Point | List[Point]:
+) -> Union[Point, List[Point]]:
     """
     Get the center of an instaneous instrument footprint.
 
@@ -574,7 +574,7 @@ def compute_footprint(
     pitch_angle: float = 0,
     is_rectangular: bool = False,
     number_points: int = None,
-) -> Geometry | List[Geometry]:
+) -> Union[Geometry, List[Geometry]]:
     """
     Compute the instanteous instrument footprint.
 
