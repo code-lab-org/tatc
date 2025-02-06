@@ -398,9 +398,13 @@ def _get_projected_ray_position(
         n = np.cross(v, b)
     # construct projected ray
     if is_rectangular:
+        # find orientation of rectangle corner
         theta = np.arctan(along_track_field_of_view / cross_track_field_of_view)
+        # along track half width
         tan_a_2 = np.tan(np.radians(along_track_field_of_view / 2))
+        # cross track half width
         tan_c_2 = np.tan(np.radians(cross_track_field_of_view / 2))
+        # compose the ray with different equations for each side
         ray = (
             b
             + v * np.tan(np.radians(pitch_angle))
@@ -458,138 +462,80 @@ def _get_projected_ray_position(
             + v * np.sin(angle) * np.tan(np.radians(along_track_field_of_view / 2))
             + n * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
         )
-    if len(np.shape(position.m)) > 1:
+    points = np.zeros_like(position.m)
+    for i in range(np.size(points, axis=1) if len(np.shape(points)) > 1 else [-1]):
+        _position = position.m[:, i].copy() if i >= 0 else position.m
+        _ray = ray[:, i].copy() if i >= 0 else ray
         # find the intersection of the ray and the WGS 84 geoid
         try:
-            pt = np.array(
-                [
-                    surfpt(
-                        position.m[:, i].copy(),
-                        ray[:, i].copy(),
-                        constants.EARTH_EQUATORIAL_RADIUS,
-                        constants.EARTH_EQUATORIAL_RADIUS,
-                        constants.EARTH_POLAR_RADIUS,
-                    )
-                    for i in range(np.size(position.m, axis=0))
-                ]
+            pt = surfpt(
+                _position,
+                _ray,
+                constants.EARTH_EQUATORIAL_RADIUS,
+                constants.EARTH_EQUATORIAL_RADIUS,
+                constants.EARTH_POLAR_RADIUS,
             )
-            return wgs84.geographic_position_of(
-                Geocentric(
-                    [
-                        ITRSPosition(Distance(m=pt[i])).at(orbit_track.t[i]).position.au
-                        for i in range(len(pt))
-                    ],
-                    t=orbit_track.t[0],
-                )
-            )
+            if i >= 0:
+                points[:, i] = pt
+            else:
+                points[:] = pt
         except NotFoundError:
             # projected point does not fall on the WGS 84 geoid surface
             # compute the observable limb ellipse for WGS 84 geoid
-            limb = np.array(
-                [
-                    edlimb(
-                        constants.EARTH_EQUATORIAL_RADIUS,
-                        constants.EARTH_EQUATORIAL_RADIUS,
-                        constants.EARTH_POLAR_RADIUS,
-                        position.m[:, i].copy(),
-                    )
-                    for i in range(np.size(position.m, axis=0))
-                ]
+            limb = edlimb(
+                constants.EARTH_EQUATORIAL_RADIUS,
+                constants.EARTH_EQUATORIAL_RADIUS,
+                constants.EARTH_POLAR_RADIUS,
+                _position,
             )
             # find the two intersection points between orthogonal plane and limb ellipse
-            results = [
-                inelpl(
-                    limb[i],
-                    nvp2pl(
-                        v[:, i].copy() * np.sin(np.pi / 2 + angle)
-                        + n[:, i].copy() * np.cos(np.pi / 2 + angle),
-                        position.m[:, i].copy(),
-                    ),
-                )
-                for i in range(len(limb))
-            ]
-            pt_1 = np.array([results[i][1] for i in range(len(results))])
-            pt_2 = np.array([results[i][2] for i in range(len(results))])
+            _v = v[:, i].copy() if i >= 0 else v
+            _n = n[:, i].copy() if i >= 0 else v
+            _, pt_1, pt_2 = inelpl(
+                limb,
+                nvp2pl(
+                    _v * np.sin(np.pi / 2 + angle) + _n * np.cos(np.pi / 2 + angle),
+                    _position,
+                ),
+            )
             # compute the angles between the ray and limb intersection points
             angle_1 = np.arccos(
-                np.divide(
-                    np.einsum("ij,ij->j", ray, pt_1),
-                    np.multiply(
-                        np.linalg.norm(ray, axis=0), np.linalg.norm(pt_1, axis=0)
-                    ),
-                )
+                np.dot(_ray, pt_1) / np.linalg.norm(_ray) / np.linalg.norm(pt_1)
             )
             angle_2 = np.arccos(
-                np.divide(
-                    np.einsum("ij,ij->j", ray, pt_2),
-                    np.multiply(
-                        np.linalg.norm(ray, axis=0), np.linalg.norm(pt_2, axis=0)
-                    ),
-                )
+                np.dot(_ray, pt_2) / np.linalg.norm(_ray) / np.linalg.norm(pt_2)
             )
             # use the limb intersection point closer to the ray
-            limb_pt = np.where(angle_1 <= angle_2, pt_1, pt_2)
-            # return resulting geographic position
-            return wgs84.geographic_position_of(
-                Geocentric(
+            limb_pt = pt_1 if angle_1 <= angle_2 else pt_2
+            if i >= 0:
+                points[:, i] = limb_pt
+            else:
+                points[:] = limb_pt
+    # return resulting geographic position
+    if len(np.shape(points)) > 1:
+        return wgs84.geographic_position_of(
+            Geocentric(
+                np.array(
                     [
-                        ITRSPosition(Distance(m=limb_pt[i]))
+                        ITRSPosition(Distance(m=points[:, i]))
                         .at(orbit_track.t[i])
                         .position.au
-                        for i in range(len(limb_pt))
-                    ],
-                    t=orbit_track.t[0],
-                )
+                        for i in range(np.size(points, axis=1))
+                    ]
+                ).T,
+                t=orbit_track.t,
             )
-    # find the intersection of the ray and the WGS 84 geoid
-    try:
-        pt = surfpt(
-            position.m,
-            ray,
-            constants.EARTH_EQUATORIAL_RADIUS,
-            constants.EARTH_EQUATORIAL_RADIUS,
-            constants.EARTH_POLAR_RADIUS,
         )
-        return wgs84.geographic_position_of(
-            ITRSPosition(Distance(m=pt)).at(orbit_track.t)
-        )
-    except NotFoundError:
-        # projected point does not fall on the WGS 84 geoid surface
-        # compute the observable limb ellipse for WGS 84 geoid
-        limb = edlimb(
-            constants.EARTH_EQUATORIAL_RADIUS,
-            constants.EARTH_EQUATORIAL_RADIUS,
-            constants.EARTH_POLAR_RADIUS,
-            position.m,
-        )
-        # find the two intersection points between orthogonal plane and limb ellipse
-        _, pt_1, pt_2 = inelpl(
-            limb,
-            nvp2pl(
-                v * np.sin(np.pi / 2 + angle) + n * np.cos(np.pi / 2 + angle),
-                position.m,
-            ),
-        )
-        # compute the angles between the ray and limb intersection points
-        angle_1 = np.arccos(
-            np.dot(ray, pt_1) / np.linalg.norm(ray) / np.linalg.norm(pt_1)
-        )
-        angle_2 = np.arccos(
-            np.dot(ray, pt_2) / np.linalg.norm(ray) / np.linalg.norm(pt_2)
-        )
-        # use the limb intersection point closer to the ray
-        limb_pt = pt_1 if angle_1 <= angle_2 else pt_2
-        # return resulting geographic position
-        return wgs84.geographic_position_of(
-            ITRSPosition(Distance(m=limb_pt)).at(orbit_track.t)
-        )
+    return wgs84.geographic_position_of(
+        ITRSPosition(Distance(m=points)).at(orbit_track.t)
+    )
 
 
 def compute_footprint_center(
     orbit_track: Geocentric,
     roll_angle: float = 0,
     pitch_angle: float = 0,
-) -> List[Point]:
+) -> Point | List[Point]:
     """
     Get the center of an instaneous instrument footprint.
 
@@ -612,10 +558,12 @@ def compute_footprint_center(
         is_rectangular=False,
         angle=0,
     )
-    return [
-        Point(point.longitude.degrees[i], point.latitude.degrees[i])
-        for i in range(np.size(point))
-    ]
+    if len(orbit_track.t) > 1:
+        return [
+            Point(point.longitude.degrees[i], point.latitude.degrees[i])
+            for i in range(len(orbit_track.t))
+        ]
+    return Point(point.longitude.degrees, point.latitude.degrees)
 
 
 def compute_footprint(
@@ -626,7 +574,7 @@ def compute_footprint(
     pitch_angle: float = 0,
     is_rectangular: bool = False,
     number_points: int = None,
-) -> List[Polygon]:
+) -> Geometry | List[Geometry]:
     """
     Compute the instanteous instrument footprint.
 
@@ -678,18 +626,21 @@ def compute_footprint(
         )
         for angle in angles
     ]
-    print(points[0].longitude.degrees, len(orbit_track.t))
-    return [
-        split_polygon(
-            Polygon(
-                [
-                    (point.longitude.degrees[i], point.latitude.degrees[i])
-                    for point in points
-                ]
+    if len(orbit_track.t) > 1:
+        return [
+            split_polygon(
+                Polygon(
+                    [
+                        (point.longitude.degrees[i], point.latitude.degrees[i])
+                        for point in points
+                    ]
+                )
             )
-        )
-        for i in range(len(orbit_track.t))
-    ]
+            for i in range(len(orbit_track.t))
+        ]
+    return split_polygon(
+        Polygon([(point.longitude.degrees, point.latitude.degrees) for point in points])
+    )
 
 
 def buffer_footprint(

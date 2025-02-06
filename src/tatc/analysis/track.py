@@ -261,11 +261,7 @@ def collect_ground_track(
     targets = compute_footprint_center(
         orbit_track,
         (instrument.roll_angle if isinstance(instrument, PointedInstrument) else 0),
-        (
-            instrument.pitch_angle
-            if isinstance(instrument, PointedInstrument)
-            else 0
-        ),
+        (instrument.pitch_angle if isinstance(instrument, PointedInstrument) else 0),
     )
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track, targets)
@@ -285,11 +281,7 @@ def collect_ground_track(
                 if isinstance(instrument, PointedInstrument)
                 else instrument.field_of_regard
             ),
-            (
-                instrument.roll_angle
-                if isinstance(instrument, PointedInstrument)
-                else 0
-            ),
+            (instrument.roll_angle if isinstance(instrument, PointedInstrument) else 0),
             (
                 instrument.pitch_angle
                 if isinstance(instrument, PointedInstrument)
