@@ -513,7 +513,7 @@ def collect_ground_pixels(
         solar_altaz (bool): `True` to include solar altitude/azimuth angles.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame of collected ground track results.
+        geopandas.GeoDataFrame: The data frame of collected ground pixels results.
     """
 
     if len(times) == 0:
