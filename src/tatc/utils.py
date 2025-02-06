@@ -14,6 +14,7 @@ from shapely import Geometry, make_valid
 from shapely.geometry import (
     Point,
     Polygon,
+    MultiPoint,
     MultiPolygon,
     GeometryCollection,
     LineString,
@@ -650,6 +651,131 @@ def compute_footprint(
             )
         ),
         elevation,
+    )
+
+
+def _get_projected_pixel_position(
+    orbit_track: Geocentric,
+    cross_track_field_of_view: float,
+    along_track_field_of_view: float,
+    cross_track_pixels: int,
+    along_track_pixels: int,
+    cross_track_index: int,
+    along_track_index: int,
+    roll_angle: float = 0,
+    pitch_angle: float = 0,
+    elevation: float = 0,
+) -> GeographicPosition:
+    """
+    Get the location of a projected pixel from an instrument.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        cross_track_field_of_view (float): the instrument cross-track
+            (orthogonal to velocity vector) field of view (degrees).
+        along_track_field_of_view (float): the instrument along-track
+            (parallel to velocity vector) field of view (degrees).
+        cross_track_pixels (int): number of cross-track pixels.
+        along_track_pixels (int): number of along-track pixels.
+        cross_track_index (int): cross-track pixel index (left-to-right).
+        along_track_index (int): along-track pixel index (fore-to-aft).
+        roll_angle (float): the instrument roll (right-hand about
+            velocity vector) angle (degrees).
+        pitch_angle (float): the instrument pitch (right-hand about
+            orbit normal vector) angle (degrees).
+        elevation (float): The elevation (meters) at which project the pixel.
+
+    Returns:
+        (skyfield.toposlib.GeographicPosition): the geographic position of the projected pixel
+    """
+    cross_track_offset = (
+        (0.5 + cross_track_index - cross_track_pixels / 2)
+        * cross_track_field_of_view
+        / cross_track_pixels
+    )
+    along_track_offset = (
+        (along_track_pixels / 2 - 0.5 - along_track_index)
+        * along_track_field_of_view
+        / along_track_pixels
+    )
+    pixel_offset = np.sqrt(cross_track_offset**2 + along_track_offset**2)
+    pixel_angle = np.atan2(along_track_offset, cross_track_offset)
+
+    return _get_projected_ray_position(
+        orbit_track=orbit_track,
+        cross_track_field_of_view=pixel_offset,
+        along_track_field_of_view=pixel_offset,
+        roll_angle=roll_angle,
+        pitch_angle=pitch_angle,
+        is_rectangular=False,
+        angle=pixel_angle,
+        elevation=elevation,
+    )
+
+
+def compute_footprint_pixel_array(
+    orbit_track: Geocentric,
+    cross_track_field_of_view: float,
+    along_track_field_of_view: float,
+    cross_track_pixels: int,
+    along_track_pixels: int,
+    roll_angle: float = 0,
+    pitch_angle: float = 0,
+    elevation: float = 0,
+) -> Union[MultiPoint, List[MultiPoint]]:
+    """
+    Compute the instanteous footprint pixel array.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+        cross_track_field_of_view (float): The angular (degrees) view orthogonal to velocity.
+        along_track_field_of_view (float): The angular (degrees) view in direction of velocity.
+        cross_track_pixels (int): number of cross-track pixels.
+        along_track_pixels (int): number of along-track pixels.
+        pitch_angle (float): The fore/aft look angle (degrees); right-hand
+            rotation about orbit normal vector.
+        roll_angle (float): The left/right look angle (degrees); right-hand
+            rotation about orbit velocity vector.
+        is_rectangular (float): True, if this is a rectangular sensor.
+        number_points (int): The required number of polygon points to generate.
+        elevation (float): The elevation (meters) at which project the footprint.
+
+    Returns:
+        Union[shapely.geometry.MultiPoint, List[shapely.geometry.MultiPoint]: The instrument pixel array(s).
+    """
+    points = [
+        _get_projected_pixel_position(
+            orbit_track=orbit_track,
+            cross_track_field_of_view=cross_track_field_of_view,
+            along_track_field_of_view=along_track_field_of_view,
+            cross_track_pixels=cross_track_pixels,
+            along_track_pixels=along_track_pixels,
+            cross_track_index=i,
+            along_track_index=j,
+            roll_angle=roll_angle,
+            pitch_angle=pitch_angle,
+            elevation=elevation,
+        )
+        for i in range(cross_track_pixels)
+        for j in range(along_track_pixels)
+    ]
+    if len(orbit_track.t) > 1:
+        return [
+            MultiPoint(
+                [
+                    Point(
+                        point.longitude.degrees[i], point.latitude.degrees[i], point.elevation.m[i]
+                    )
+                    for point in points
+                ]
+            )
+            for i in range(len(orbit_track.t))
+        ]
+    return MultiPoint(
+        [
+            Point(point.longitude.degrees, point.latitude.degrees, point.elevation.m)
+            for point in points
+        ]
     )
 
 

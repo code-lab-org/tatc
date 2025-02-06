@@ -30,6 +30,7 @@ from ..utils import (
     buffer_footprint,
     compute_footprint,
     compute_footprint_center,
+    compute_footprint_pixel_array,
     field_of_regard_to_swath_width,
 )
 from ..constants import de421, EARTH_MEAN_RADIUS, timescale
@@ -186,6 +187,23 @@ def collect_orbit_track(
     return gpd.clip(gdf, mask).reset_index(drop=True)
 
 
+def _get_empty_ground_track() -> gpd.GeoDataFrame:
+    """
+    Gets an empty data frame for ground track results.
+
+    Returns:
+        geopandas.GeoDataFrame: Empty data frame.
+    """
+    columns = {
+        "time": pd.Series([], dtype="datetime64[ns, utc]"),
+        "satellite": pd.Series([], dtype="str"),
+        "instrument": pd.Series([], dtype="str"),
+        "valid_obs": pd.Series([], dtype="bool"),
+        "geometry": pd.Series([], dtype="object"),
+    }
+    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
+
+
 def _get_utm_epsg_code(point: Point, swath_width: float) -> str:
     """
     Get the Universal Transverse Mercator (UTM) EPSG code for a ground track.
@@ -251,7 +269,7 @@ def collect_ground_track(
     """
 
     if len(times) == 0:
-        return _get_empty_orbit_track()
+        return _get_empty_ground_track()
     # propagate orbit
     orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
     # select the observing instrument
@@ -499,3 +517,99 @@ def compute_ground_track(
         if dissolve_orbits:
             track = track.dissolve()
         return track
+
+
+def collect_ground_pixels(
+    satellite: Satellite,
+    times: List[datetime],
+    instrument_index: int = 0,
+    elevation: float = 0,
+    mask: Optional[Union[Polygon, MultiPolygon]] = None,
+    sat_altaz: bool = False,
+    solar_altaz: bool = False,
+) -> gpd.GeoDataFrame:
+    """
+    Collect ground pixels for a satellite of interest.
+
+    Args:
+        satellite (Satellite): The observing satellite.
+        instrument_index (int): The index of the observing instrument in satellite.
+        times (typing.List[datetime.datetime]): The list of datetimes to sample.
+        elevation (float): The elevation (meters) above the datum in the
+                WGS 84 coordinate system for which to calculate ground pixels.
+        mask (Polygon or MultiPolygon): An optional mask to constrain results.
+        sat_altaz (bool): `True` to include satellite altitude/azimuth angles.
+        solar_altaz (bool): `True` to include solar altitude/azimuth angles.
+
+    Returns:
+        geopandas.GeoDataFrame: The data frame of collected ground track results.
+    """
+
+    if len(times) == 0:
+        return _get_empty_ground_track()
+    # propagate orbit
+    orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
+    # select the observing instrument
+    instrument = satellite.instruments[instrument_index]
+    if not isinstance(instrument, PointedInstrument) or not instrument.is_rectangular:
+        raise ValueError(
+            "Ground pixels are only compatible with rectangular PointedInstrument instances"
+        )
+    geometries = compute_footprint_pixel_array(
+        orbit_track,
+        instrument.cross_track_field_of_view,
+        instrument.along_track_field_of_view,
+        instrument.cross_track_pixels,
+        instrument.along_track_pixels,
+        instrument.roll_angle,
+        instrument.pitch_angle,
+        elevation,
+    )
+
+    records = [
+        {
+            "time": time,
+            "satellite": satellite.name,
+            "instrument": instrument.name,
+            "valid_obs": instrument.is_valid_observation(
+                orbit_track[i], wgs84.latlon(point.x, point.y, point.z)
+            ),
+            "geometry": point,
+        }
+        for i, time in enumerate(times)
+        for point in (geometries[i].geoms if len(times)>1 else geometries.geoms)
+    ]
+
+    gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
+
+    if sat_altaz or solar_altaz:
+        targets = [
+            wgs84.latlon(record["geometry"].x, record["geometry"].y, record["geometry"].z)
+            for record in records
+        ]
+        if sat_altaz:
+            # append satellite altitude/azimuth columns
+            sat_altaz = [
+                (orbit_track[i] - target.at(timescale.from_datetime(time))).altaz()
+                for i, time in enumerate(times)
+                for target in targets
+            ]
+            gdf["sat_alt"] = list(map(lambda altaz: altaz[0].degrees, sat_altaz))
+            gdf["sat_az"] = list(map(lambda altaz: altaz[1].degrees, sat_altaz))
+        if solar_altaz:
+            # append solar altitude/azimuth columns
+            solar_altaz = [
+                (de421["earth"] + target)
+                .at(timescale.from_datetime(time))
+                .observe(de421["sun"])
+                .apparent()
+                .altaz()
+                for time in times
+                for target in targets
+            ]
+            gdf["solar_alt"] = list(map(lambda altaz: altaz[0].degrees, solar_altaz))
+            gdf["solar_az"] = list(map(lambda altaz: altaz[1].degrees, solar_altaz))
+
+    if mask is not None:
+        gdf = gpd.clip(gdf, mask).reset_index(drop=True)
+    return gdf

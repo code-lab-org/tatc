@@ -5,7 +5,7 @@ Object schemas for instruments.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import Optional
+from typing import Optional, Union
 from datetime import timedelta
 
 import numpy as np
@@ -77,7 +77,7 @@ class Instrument(BaseModel):
 
     def is_valid_observation(
         self, orbit_track: Geocentric, target: GeographicPosition = None
-    ) -> npt.NDArray:
+    ) -> Union[bool,npt.NDArray]:
         """Determines if an instrument can provide a valid observations.
 
         Args:
@@ -108,7 +108,9 @@ class Instrument(BaseModel):
             # compare requirement to sub-satellite point sunlit conditions
             is_target_sunlit_valid = (solar_alt > 0) == self.req_target_sunlit
             is_valid = np.logical_and(is_valid, is_target_sunlit_valid)
-        return is_valid
+        if np.size(orbit_track.t) > 1:
+            return is_valid
+        return bool(is_valid[0])
 
 
 class PointedInstrument(Instrument):
@@ -142,4 +144,10 @@ class PointedInstrument(Instrument):
     )
     is_rectangular: bool = Field(
         False, description="True, if this instrument produces a rectangular view."
+    )
+    cross_track_pixels: int = Field(
+        1, description="Number of pixels in cross-track direction.", ge=1
+    )
+    along_track_pixels: int = Field(
+        1, description="Number of pixels in along-track direction.", ge=1
     )
