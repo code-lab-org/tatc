@@ -15,6 +15,7 @@ from .ro_coverage import (
 from .track import (
     collect_orbit_track,
     collect_ground_track,
+    collect_ground_pixels,
     compute_ground_track,
     OrbitCoordinate,
     OrbitOutput,

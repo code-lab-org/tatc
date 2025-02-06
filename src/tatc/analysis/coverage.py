@@ -119,84 +119,12 @@ def _get_visible_interval_series(
     return pd.Series(obs_periods, dtype="interval")
 
 
-def _get_satellite_altaz_series(
-    point: Point,
-    satellite: Satellite,
-    times: List[datetime],
-) -> Tuple[Angle, Angle, Distance]:
-    """
-    Get a series with the satellite altitude/azimuth for each observation.
-
-    Args:
-        point (skyfield.positionlib.GeographicPosition): Observed location.
-        satellite (skyfield.api.EarthSatellite): Satellite doing the observation.
-        times (List[datetime]): Times of observation.
-
-    Returns:
-        Tuple[skyfield.api.Angle, skyfield.api.Angle, skyfield.api.Distance]: Altitude-azimuth objects associated with observations.
-    """
-    sat = satellite.orbit.to_tle().as_skyfield()
-    topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
-    ts = timescale.from_datetimes(times)
-    return (sat - topos).at(ts).altaz()
-
-
-def _get_satellite_sunlit_series(
-    satellite: Satellite,
-    times: List[datetime],
-) -> npt.NDArray:
-    """
-    Get a series with the satellite sunlit condition for each observation.
-
-    Args:
-        satellite (skyfield.api.EarthSatellite): Satellite doing the observation.
-        times (List[datetime]): Times of observation.
-
-    Returns:
-        numpy.typing.NDArray: Array of indicators whether the satellite is sunlit.
-    """
-    return satellite.orbit.to_tle().get_orbit_track(times).is_sunlit(de421)
-
-
-def _get_solar_altaz_series(
-    point: Point,
-    times: List[datetime],
-) -> Tuple[Angle, Angle, Distance]:
-    """
-    Get a series with the solar altitude/azimuth for each observation.
-
-    Args:
-        point (skyfield.positionlib.GeographicPosition): Observed location.
-        times (List[datetime]): Times of observation.
-
-    Returns:
-        Tuple[skyfield.api.Angle, skyfield.api.Angle, skyfield.api.Distance]: Altitude-azimuth objects associated with observations.
-    """
-    topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
-    ts = timescale.from_datetimes(times)
-    return (de421["earth"] + topos).at(ts).observe(de421["sun"]).apparent().altaz()
-
-
-def _get_solar_time_series(point: Point, times: List[datetime]) -> npt.NDArray:
-    """
-    Get a series with the local solar time for each observation.
-
-    Args:
-        observations (geopandas.GeoDataFrame): Data frame of observation records.
-
-    Returns:
-        numpy.typing.NDArray: Array of floats (local solar time in hours) associated with observations.
-    """
-    topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
-    ts = timescale.from_datetimes(times)
-    return (de421["earth"] + topos).at(ts).observe(de421["sun"]).apparent().hadec()[
-        0
-    ].hours + 12
-
-
 def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for coverage analysis results.
+
+    Args:
+        omit_solar (bool): `True`, to omit solar angles to improve performance.
 
     Returns:
         geopandas.GeoDataFrame: Empty data frame.
@@ -243,8 +171,7 @@ def collect_observations(
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
         instrument_index (int): The index of the observing instrument in satellite.
-        omit_solar (bool): `True`, to omit solar angles to improve
-            computational efficiency; otherwise `False`.
+        omit_solar (bool): `True`, to omit solar angles to improve performance.
 
     Returns:
         geopandas.GeoDataFrame: The data frame with recorded observations.
@@ -283,17 +210,19 @@ def collect_observations(
         if (
             instrument.min_access_time <= period.right - period.left
             and instrument.is_valid_observation(
-                satellite.orbit.to_tle().get_orbit_track(period.mid)
+                satellite.orbit.to_tle().get_orbit_track(period.mid),
+                wgs84.latlon(point.latitude, point.longitude, point.elevation),
             )
             and (
                 not isinstance(instrument, PointedInstrument)
                 or compute_footprint(
-                    satellite.orbit.to_tle().get_orbit_track(period.mid),
-                    instrument.cross_track_field_of_view,
-                    instrument.along_track_field_of_view,
-                    instrument.roll_angle,
-                    instrument.pitch_angle,
-                    instrument.is_rectangular,
+                    orbit_track=satellite.orbit.to_tle().get_orbit_track(period.mid),
+                    cross_track_field_of_view=instrument.cross_track_field_of_view,
+                    along_track_field_of_view=instrument.along_track_field_of_view,
+                    roll_angle=instrument.roll_angle,
+                    pitch_angle=instrument.pitch_angle,
+                    is_rectangular=instrument.is_rectangular,
+                    elevation=point.elevation,
                 ).contains(geo.Point(point.longitude, point.latitude))
             )
         )
@@ -302,19 +231,26 @@ def collect_observations(
     # build the dataframe
     if len(records) > 0:
         gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
+        topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
+        ts = timescale.from_datetimes(gdf.epoch)
+        orbit_track = satellite.orbit.to_tle().get_orbit_track(gdf.epoch)
         # append satellite altitude/azimuth columns
-        sat_altaz = _get_satellite_altaz_series(point, satellite, gdf.epoch)
+        sat_altaz = (orbit_track - topos.at(ts)).altaz()
         gdf["sat_alt"] = sat_altaz[0].degrees
         gdf["sat_az"] = sat_altaz[1].degrees
         if not omit_solar:
             # append satellite sunlit column
-            gdf["sat_sunlit"] = _get_satellite_sunlit_series(satellite, gdf.epoch)
+            gdf["sat_sunlit"] = orbit_track.is_sunlit(de421)
             # append solar altitude/azimuth columns
-            sun_altaz = _get_solar_altaz_series(point, gdf.epoch)
+            sun_altaz = (
+                (de421["earth"] + topos).at(ts).observe(de421["sun"]).apparent().altaz()
+            )
             gdf["solar_alt"] = sun_altaz[0].degrees
             gdf["solar_az"] = sun_altaz[1].degrees
             # append local solar time column
-            gdf["solar_time"] = _get_solar_time_series(point, gdf.epoch)
+            gdf["solar_time"] = (de421["earth"] + topos).at(ts).observe(
+                de421["sun"]
+            ).apparent().hadec()[0].hours + 12
     else:
         gdf = _get_empty_coverage_frame(omit_solar)
     return gdf
@@ -335,8 +271,7 @@ def collect_multi_observations(
         satellites (Satellite or List[Satellite]): The observing satellite(s).
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
-        omit_solar (bool): `True`, to omit solar angles to improve
-            computational efficiency; otherwise `False`.
+        omit_solar (bool): `True`, to omit solar angles to improve performance.
 
     Returns:
         geopandas.GeoDataFrame: The data frame with all recorded observations.
