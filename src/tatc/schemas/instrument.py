@@ -11,6 +11,7 @@ from datetime import timedelta
 import numpy as np
 import numpy.typing as npt
 from pydantic import BaseModel, Field
+from shapely import Geometry
 from shapely.geometry import MultiPoint, Point
 from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
@@ -18,9 +19,10 @@ from skyfield.toposlib import GeographicPosition
 
 from ..constants import de421
 from ..utils import (
+    compute_footprint,
     compute_min_elevation_angle,
-    field_of_regard_to_swath_width,
     compute_projected_ray_position,
+    field_of_regard_to_swath_width,
 )
 
 
@@ -79,6 +81,60 @@ class Instrument(BaseModel):
             float: The minimum elevation angle (degrees) for observation.
         """
         return compute_min_elevation_angle(height, self.field_of_regard)
+
+    def compute_footprint(
+        self,
+        orbit_track: Geocentric,
+        number_points: int = None,
+        elevation: float = 0,
+    ) -> Union[Geometry, List[Geometry]]:
+        """
+        Compute the instanteous instrument footprint.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+            number_points (int): The required number of polygon points to generate.
+            elevation (float): The elevation (meters) at which project the footprint.
+
+        Returns:
+            Union[shapely.Geometry, List[shapely.Geometry]: The instrument footprint(s).
+        """
+        return compute_footprint(
+            orbit_track=orbit_track,
+            cross_track_field_of_view=self.field_of_regard,
+            along_track_field_of_view=self.field_of_regard,
+            roll_angle=0,
+            pitch_angle=0,
+            is_rectangular=False,
+            number_points=number_points,
+            elevation=elevation,
+        )
+
+    def compute_footprint_center(
+        self,
+        orbit_track: Geocentric,
+        elevation: float = 0,
+    ) -> GeographicPosition:
+        """
+        Compute the center of an instaneous instrument footprint.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+            elevation (float): The elevation (meters) at which project the footprint.
+
+        Returns:
+            skyfield.toposlib.GeographicPosition: The instrument footprint center.
+        """
+        return compute_projected_ray_position(
+            orbit_track=orbit_track,
+            cross_track_field_of_view=0,
+            along_track_field_of_view=0,
+            roll_angle=0,
+            pitch_angle=0,
+            is_rectangular=False,
+            angle=0,
+            elevation=elevation,
+        )
 
     def is_valid_observation(
         self, orbit_track: Geocentric, target: GeographicPosition = None
@@ -189,6 +245,60 @@ class PointedInstrument(Instrument):
             / (1 - self.along_track_oversampling)
         )
 
+    def compute_footprint(
+        self,
+        orbit_track: Geocentric,
+        number_points: int = None,
+        elevation: float = 0,
+    ) -> Union[Geometry, List[Geometry]]:
+        """
+        Compute the instanteous instrument footprint.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+            number_points (int): The required number of polygon points to generate.
+            elevation (float): The elevation (meters) at which project the footprint.
+
+        Returns:
+            Union[shapely.Geometry, List[shapely.Geometry]: The instrument footprint(s).
+        """
+        return compute_footprint(
+            orbit_track=orbit_track,
+            cross_track_field_of_view=self.cross_track_field_of_view,
+            along_track_field_of_view=self.along_track_field_of_view,
+            roll_angle=self.roll_angle,
+            pitch_angle=self.pitch_angle,
+            is_rectangular=self.is_rectangular,
+            number_points=number_points,
+            elevation=elevation,
+        )
+
+    def compute_footprint_center(
+        self,
+        orbit_track: Geocentric,
+        elevation: float = 0,
+    ) -> GeographicPosition:
+        """
+        Compute the center of an instaneous instrument footprint.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+            elevation (float): The elevation (meters) at which project the footprint.
+
+        Returns:
+            skyfield.toposlib.GeographicPosition: The instrument footprint center.
+        """
+        return compute_projected_ray_position(
+            orbit_track=orbit_track,
+            cross_track_field_of_view=0,
+            along_track_field_of_view=0,
+            roll_angle=self.roll_angle,
+            pitch_angle=self.pitch_angle,
+            is_rectangular=False,
+            angle=0,
+            elevation=elevation,
+        )
+
     def compute_projected_pixel_position(
         self,
         orbit_track: Geocentric,
@@ -231,7 +341,7 @@ class PointedInstrument(Instrument):
 
         Args:
             cross_track_index (int): pixel index in cross-track dimension (left to right).
-            along_track_index (int): pixel location in along-track dimension (fore to aft).
+            along_track_index (int): pixel index in along-track dimension (fore to aft).
 
         Returns:
             Tuple[float, float]: cone (from nadir-looking) and clock

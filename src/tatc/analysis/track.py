@@ -28,8 +28,6 @@ from ..schemas.instrument import PointedInstrument
 from ..schemas.satellite import Satellite
 from ..utils import (
     buffer_footprint,
-    compute_footprint,
-    compute_footprint_center,
     field_of_regard_to_swath_width,
 )
 from ..constants import de421, EARTH_MEAN_RADIUS, timescale
@@ -274,41 +272,15 @@ def collect_ground_track(
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
     # compute targets
-    target = compute_footprint_center(
-        orbit_track,
-        (instrument.roll_angle if isinstance(instrument, PointedInstrument) else 0),
-        (instrument.pitch_angle if isinstance(instrument, PointedInstrument) else 0),
-        elevation,
-    )
+    target = instrument.compute_footprint_center(orbit_track, elevation)
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track, target)
     if len(times) == 1:
         # transform scalar to vector results
         valid_obs = np.array([valid_obs])
     if crs == "spice":
-        geometries = compute_footprint(
+        geometries = instrument.compute_footprint(
             orbit_track,
-            (
-                instrument.cross_track_field_of_view
-                if isinstance(instrument, PointedInstrument)
-                else instrument.field_of_regard
-            ),
-            (
-                instrument.along_track_field_of_view
-                if isinstance(instrument, PointedInstrument)
-                else instrument.field_of_regard
-            ),
-            (instrument.roll_angle if isinstance(instrument, PointedInstrument) else 0),
-            (
-                instrument.pitch_angle
-                if isinstance(instrument, PointedInstrument)
-                else 0
-            ),
-            (
-                instrument.is_rectangular
-                if isinstance(instrument, PointedInstrument)
-                else False
-            ),
             None,
             elevation,
         )

@@ -14,7 +14,6 @@ from shapely import Geometry, make_valid
 from shapely.geometry import (
     Point,
     Polygon,
-    MultiPoint,
     MultiPolygon,
     GeometryCollection,
     LineString,
@@ -534,38 +533,6 @@ def compute_projected_ray_position(
     )
 
 
-def compute_footprint_center(
-    orbit_track: Geocentric,
-    roll_angle: float = 0,
-    pitch_angle: float = 0,
-    elevation: float = 0,
-) -> GeographicPosition:
-    """
-    Compute the center of an instaneous instrument footprint.
-
-    Args:
-        orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
-        pitch_angle (float): The fore/aft look angle (degrees); right-hand
-            rotation about orbit normal vector.
-        roll_angle (float): The left/right look angle (degrees); right-hand
-            rotation about orbit velocity vector.
-        elevation (float): The elevation (meters) at which project the footprint.
-
-    Returns:
-        skyfield.toposlib.GeographicPosition: The instrument footprint center.
-    """
-    return compute_projected_ray_position(
-        orbit_track=orbit_track,
-        cross_track_field_of_view=0,
-        along_track_field_of_view=0,
-        roll_angle=roll_angle,
-        pitch_angle=pitch_angle,
-        is_rectangular=False,
-        angle=0,
-        elevation=elevation,
-    )
-
-
 def compute_footprint(
     orbit_track: Geocentric,
     cross_track_field_of_view: float,
@@ -592,7 +559,7 @@ def compute_footprint(
         elevation (float): The elevation (meters) at which project the footprint.
 
     Returns:
-        Union[shapely.geometry.Geometry, List[shapely.geometry.Geometry]: The instrument footprint(s).
+        Union[shapely.Geometry, List[shapely.Geometry]: The instrument footprint(s).
     """
     if number_points is None:
         # default number of points
