@@ -76,7 +76,7 @@ class Instrument(BaseModel):
         return compute_min_elevation_angle(height, self.field_of_regard)
 
     def is_valid_observation(
-        self, orbit_track: Geocentric, targets: GeographicPosition = None
+        self, orbit_track: Geocentric, target: GeographicPosition = None
     ) -> npt.NDArray:
         """Determines if an instrument can provide a valid observations.
 
@@ -87,9 +87,9 @@ class Instrument(BaseModel):
         Returns:
             numpy.typing.NDArray: Array of indicators: `True` if instrument provides a valid observation.
         """
-        if targets is None:
+        if target is None:
             # support backwards compatibility
-            targets = wgs84.subpoint_of(orbit_track)
+            target = wgs84.subpoint_of(orbit_track)
         is_valid = np.ones(np.size(orbit_track.t), dtype=bool)
         if self.req_self_sunlit is not None:
             # compare requirement to satellite sunlit condition
@@ -98,7 +98,7 @@ class Instrument(BaseModel):
         if self.req_target_sunlit is not None:
             # compute solar altitude angle at sub-satellite points
             solar_alt = (
-                (de421["earth"] + targets)
+                (de421["earth"] + target)
                 .at(orbit_track.t)
                 .observe(de421["sun"])
                 .apparent()
