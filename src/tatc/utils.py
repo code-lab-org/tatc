@@ -4,7 +4,7 @@ Utility functions.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
-from typing import Union
+from typing import List, Union
 
 import numpy as np
 from numba import njit
@@ -352,7 +352,7 @@ def access_time_to_along_track_distance(
     return ground_velocity * access_time
 
 
-def _get_footprint_point(
+def compute_projected_ray_position(
     orbit_track: Geocentric,
     cross_track_field_of_view: float,
     along_track_field_of_view: float,
@@ -360,20 +360,53 @@ def _get_footprint_point(
     pitch_angle: float = 0,
     is_rectangular: bool = False,
     angle: float = 0,
+    elevation: float = 0,
 ) -> GeographicPosition:
+    """
+    Get the location of a projected ray from an instrument.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        cross_track_field_of_view (float): the instrument cross-track
+            (orthogonal to velocity vector) field of view (degrees).
+        along_track_field_of_view (float): the instrument along-track
+            (parallel to velocity vector) field of view (degrees).
+        roll_angle (float): the instrument roll (right-hand about
+            velocity vector) angle (degrees).
+        pitch_angle (float): the instrument pitch (right-hand about
+            orbit normal vector) angle (degrees).
+        is_rectangular (bool): `True` if the instrument view has a rectangular
+            shape (otherwise elliptical).
+        angle (float): ray angle (degrees) counterclockwise from right-hand cross-track
+            direction about the instrument field of view.
+        elevation (float): The elevation (meters) at which project the footprint.
+
+    Returns:
+        (skyfield.toposlib.GeographicPosition): the geographic position of the projected ray
+    """
     # extract earth-fixed position and velocity
     position, velocity = orbit_track.frame_xyz_and_velocity(itrs)
     # velocity unit vector
-    v = velocity.m_per_s / np.linalg.norm(velocity.m_per_s)
+    v = np.divide(velocity.m_per_s, np.linalg.norm(velocity.m_per_s, axis=0))
     # binormal unit vector
-    b = -position.m / np.linalg.norm(position.m, axis=0)
+    b = np.divide(-position.m, np.linalg.norm(position.m, axis=0))
     # normal unit vector
-    n = np.cross(v, b)
+    if len(np.shape(position.m)) > 1:
+        n = np.einsum(
+            "iik->ik",
+            np.cross(v.T[:, None, :], b.T[None, :, :]),
+        ).T
+    else:
+        n = np.cross(v, b)
     # construct projected ray
     if is_rectangular:
+        # find orientation of rectangle corner
         theta = np.arctan(along_track_field_of_view / cross_track_field_of_view)
+        # along track half width
         tan_a_2 = np.tan(np.radians(along_track_field_of_view / 2))
+        # cross track half width
         tan_c_2 = np.tan(np.radians(cross_track_field_of_view / 2))
+        # compose the ray with different equations for each side
         ray = (
             b
             + v * np.tan(np.radians(pitch_angle))
@@ -431,51 +464,73 @@ def _get_footprint_point(
             + v * np.sin(angle) * np.tan(np.radians(along_track_field_of_view / 2))
             + n * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
         )
-    try:
+    points = np.zeros_like(position.m)
+    for i in range(np.size(points, axis=1) if len(np.shape(points)) > 1 else [-1]):
+        _position = position.m[:, i].copy() if i >= 0 else position.m
+        _ray = ray[:, i].copy() if i >= 0 else ray
         # find the intersection of the ray and the WGS 84 geoid
-        pt = surfpt(
-            position.m,
-            ray,
-            constants.EARTH_EQUATORIAL_RADIUS,
-            constants.EARTH_EQUATORIAL_RADIUS,
-            constants.EARTH_POLAR_RADIUS,
-        )
+        try:
+            pt = surfpt(
+                _position,
+                _ray,
+                constants.EARTH_EQUATORIAL_RADIUS + elevation,
+                constants.EARTH_EQUATORIAL_RADIUS + elevation,
+                constants.EARTH_POLAR_RADIUS + elevation,
+            )
+            if i >= 0:
+                points[:, i] = pt
+            else:
+                points[:] = pt
+        except NotFoundError:
+            # projected point does not fall on the WGS 84 geoid surface
+            # compute the observable limb ellipse for WGS 84 geoid
+            limb = edlimb(
+                constants.EARTH_EQUATORIAL_RADIUS + elevation,
+                constants.EARTH_EQUATORIAL_RADIUS + elevation,
+                constants.EARTH_POLAR_RADIUS + elevation,
+                _position,
+            )
+            # find the two intersection points between orthogonal plane and limb ellipse
+            _v = v[:, i].copy() if i >= 0 else v
+            _n = n[:, i].copy() if i >= 0 else n
+            _, pt_1, pt_2 = inelpl(
+                limb,
+                nvp2pl(
+                    _v * np.sin(np.pi / 2 + angle) + _n * np.cos(np.pi / 2 + angle),
+                    _position,
+                ),
+            )
+            # compute the angles between the ray and limb intersection points
+            angle_1 = np.arccos(
+                np.dot(_ray, pt_1) / np.linalg.norm(_ray) / np.linalg.norm(pt_1)
+            )
+            angle_2 = np.arccos(
+                np.dot(_ray, pt_2) / np.linalg.norm(_ray) / np.linalg.norm(pt_2)
+            )
+            # use the limb intersection point closer to the ray
+            limb_pt = pt_1 if angle_1 <= angle_2 else pt_2
+            if i >= 0:
+                points[:, i] = limb_pt
+            else:
+                points[:] = limb_pt
+    # return resulting geographic position
+    if len(np.shape(points)) > 1:
         return wgs84.geographic_position_of(
-            ITRSPosition(Distance(m=pt)).at(orbit_track.t)
+            Geocentric(
+                np.array(
+                    [
+                        ITRSPosition(Distance(m=points[:, i]))
+                        .at(orbit_track.t[i])
+                        .position.au
+                        for i in range(np.size(points, axis=1))
+                    ]
+                ).T,
+                t=orbit_track.t,
+            )
         )
-    except NotFoundError:
-        # projected point does not fall on the WGS 84 geoid surface
-        # compute the observable limb ellipse for WGS 84 geoid
-        limb = edlimb(
-            constants.EARTH_EQUATORIAL_RADIUS,
-            constants.EARTH_EQUATORIAL_RADIUS,
-            constants.EARTH_POLAR_RADIUS,
-            position.m,
-        )
-        # find the two intersection points between orthogonal plane and limb ellipse
-        _, pt_1, pt_2 = inelpl(
-            limb,
-            nvp2pl(
-                v * np.sin(np.pi / 2 + angle) + n * np.cos(np.pi / 2 + angle),
-                position.m,
-            ),
-        )
-        # compute the angles between the ray and limb intersection points
-        angle_1 = np.arccos(
-            np.dot(ray, pt_1) / np.linalg.norm(ray) / np.linalg.norm(pt_1)
-        )
-        angle_2 = np.arccos(
-            np.dot(ray, pt_2) / np.linalg.norm(ray) / np.linalg.norm(pt_2)
-        )
-        # use the limb intersection point closer to the ray
-        if angle_1 <= angle_2:
-            limb_pt = pt_1
-        else:
-            limb_pt = pt_2
-        # return resulting geographic position
-        return wgs84.geographic_position_of(
-            ITRSPosition(Distance(m=limb_pt)).at(orbit_track.t)
-        )
+    return wgs84.geographic_position_of(
+        ITRSPosition(Distance(m=points)).at(orbit_track.t)
+    )
 
 
 def compute_footprint(
@@ -486,7 +541,8 @@ def compute_footprint(
     pitch_angle: float = 0,
     is_rectangular: bool = False,
     number_points: int = None,
-) -> Polygon:
+    elevation: float = 0,
+) -> Union[Geometry, List[Geometry]]:
     """
     Compute the instanteous instrument footprint.
 
@@ -494,13 +550,16 @@ def compute_footprint(
         orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
         cross_track_field_of_view (float): The angular (degrees) view orthogonal to velocity.
         along_track_field_of_view (float): The angular (degrees) view in direction of velocity.
-        pitch_angle (float): The fore/aft look angle (degrees) in direction of velocity.
-        roll_angle (float): The left/right look angle (degrees) orthogonal to velocity.
+        pitch_angle (float): The fore/aft look angle (degrees); right-hand
+            rotation about orbit normal vector.
+        roll_angle (float): The left/right look angle (degrees); right-hand
+            rotation about orbit velocity vector.
         is_rectangular (float): True, if this is a rectangular sensor.
         number_points (int): The required number of polygon points to generate.
+        elevation (float): The elevation (meters) at which project the footprint.
 
     Returns:
-        shapely.geometry.Polygon: The instrument footprint.
+        Union[shapely.Geometry, List[shapely.Geometry]: The instrument footprint(s).
     """
     if number_points is None:
         # default number of points
@@ -525,7 +584,7 @@ def compute_footprint(
     else:
         angles = np.linspace(0, 2 * np.pi, number_points)
     points = [
-        _get_footprint_point(
+        compute_projected_ray_position(
             orbit_track,
             cross_track_field_of_view,
             along_track_field_of_view,
@@ -533,11 +592,32 @@ def compute_footprint(
             pitch_angle,
             is_rectangular,
             angle,
+            elevation,
         )
         for angle in angles
     ]
-    return split_polygon(
-        Polygon([(p.longitude.degrees, p.latitude.degrees) for p in points])
+    if len(orbit_track.t) > 1:
+        return [
+            project_polygon_to_elevation(
+                split_polygon(
+                    Polygon(
+                        [
+                            (point.longitude.degrees[i], point.latitude.degrees[i])
+                            for point in points
+                        ]
+                    )
+                ),
+                elevation,
+            )
+            for i in range(len(orbit_track.t))
+        ]
+    return project_polygon_to_elevation(
+        split_polygon(
+            Polygon(
+                [(point.longitude.degrees, point.latitude.degrees) for point in points]
+            )
+        ),
+        elevation,
     )
 
 
