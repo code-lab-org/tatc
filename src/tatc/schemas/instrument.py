@@ -17,7 +17,11 @@ from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
 from ..constants import de421
-from ..utils import compute_min_elevation_angle, field_of_regard_to_swath_width, compute_projected_ray_position
+from ..utils import (
+    compute_min_elevation_angle,
+    field_of_regard_to_swath_width,
+    compute_projected_ray_position,
+)
 
 
 class Instrument(BaseModel):
@@ -204,7 +208,9 @@ class PointedInstrument(Instrument):
         Returns:
             (skyfield.toposlib.GeographicPosition): the geographic position of the projected pixel
         """
-        cone, clock = self.get_pixel_cone_and_clock_angle(cross_track_index, along_track_index)
+        cone, clock = self.get_pixel_cone_and_clock_angle(
+            cross_track_index, along_track_index
+        )
 
         return compute_projected_ray_position(
             orbit_track=orbit_track,
@@ -261,7 +267,7 @@ class PointedInstrument(Instrument):
             elevation (float): The elevation (meters) at which project the footprint.
 
         Returns:
-            Union[shapely.geometry.MultiPoint, List[shapely.geometry.MultiPoint]: The instrument pixel array(s).
+            Union[shapely.geometry.MultiPoint, List[shapely.geometry.MultiPoint]]: The instrument pixel array(s).
         """
         points = [
             self.compute_projected_pixel_position(
@@ -289,7 +295,9 @@ class PointedInstrument(Instrument):
             ]
         return MultiPoint(
             [
-                Point(point.longitude.degrees, point.latitude.degrees, point.elevation.m)
+                Point(
+                    point.longitude.degrees, point.latitude.degrees, point.elevation.m
+                )
                 for point in points
             ]
         )

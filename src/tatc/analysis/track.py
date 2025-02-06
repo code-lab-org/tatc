@@ -554,56 +554,57 @@ def collect_ground_pixels(
         raise ValueError(
             "Ground pixels are only compatible with rectangular PointedInstrument instances"
         )
+    # compute the footprint pixel array
     geometries = instrument.compute_footprint_pixel_array(
         orbit_track,
         elevation,
     )
-
+    # construct results as a list of dictionaries
     records = [
         {
             "time": time,
             "satellite": satellite.name,
             "instrument": instrument.name,
             "valid_obs": instrument.is_valid_observation(
-                orbit_track[i], wgs84.latlon(point.x, point.y, point.z)
+                orbit_track[i], wgs84.latlon(point.y, point.x, point.z)
             ),
             "geometry": point,
         }
         for i, time in enumerate(times)
         for point in (geometries[i].geoms if len(times) > 1 else geometries.geoms)
     ]
-
+    # build geodataframe
     gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
-
-    if sat_altaz or solar_altaz:
-        targets = [
-            wgs84.latlon(
-                record["geometry"].x, record["geometry"].y, record["geometry"].z
-            )
+    if sat_altaz:
+        # append satellite altitude/azimuth columns
+        sat_altaz = [
+            (
+                orbit_track[list(times).index(record["time"])]
+                - wgs84.latlon(
+                    record["geometry"].y, record["geometry"].x, record["geometry"].z
+                ).at(timescale.from_datetime(record["time"]))
+            ).altaz()
             for record in records
         ]
-        if sat_altaz:
-            # append satellite altitude/azimuth columns
-            sat_altaz = [
-                (orbit_track[i] - target.at(timescale.from_datetime(time))).altaz()
-                for i, time in enumerate(times)
-                for target in targets
-            ]
-            gdf["sat_alt"] = list(map(lambda altaz: altaz[0].degrees, sat_altaz))
-            gdf["sat_az"] = list(map(lambda altaz: altaz[1].degrees, sat_altaz))
-        if solar_altaz:
-            # append solar altitude/azimuth columns
-            solar_altaz = [
-                (de421["earth"] + target)
-                .at(timescale.from_datetime(time))
-                .observe(de421["sun"])
-                .apparent()
-                .altaz()
-                for time in times
-                for target in targets
-            ]
-            gdf["solar_alt"] = list(map(lambda altaz: altaz[0].degrees, solar_altaz))
-            gdf["solar_az"] = list(map(lambda altaz: altaz[1].degrees, solar_altaz))
+        gdf["sat_alt"] = list(map(lambda altaz: altaz[0].degrees, sat_altaz))
+        gdf["sat_az"] = list(map(lambda altaz: altaz[1].degrees, sat_altaz))
+    if solar_altaz:
+        # append solar altitude/azimuth columns
+        solar_altaz = [
+            (
+                de421["earth"]
+                + wgs84.latlon(
+                    record["geometry"].y, record["geometry"].x, record["geometry"].z
+                )
+            )
+            .at(timescale.from_datetime(record["time"]))
+            .observe(de421["sun"])
+            .apparent()
+            .altaz()
+            for record in records
+        ]
+        gdf["solar_alt"] = list(map(lambda altaz: altaz[0].degrees, solar_altaz))
+        gdf["solar_az"] = list(map(lambda altaz: altaz[1].degrees, solar_altaz))
 
     if mask is not None:
         gdf = gpd.clip(gdf, mask).reset_index(drop=True)
