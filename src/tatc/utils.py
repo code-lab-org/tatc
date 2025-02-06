@@ -4,7 +4,7 @@ Utility functions.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
-from typing import Union
+from typing import List, Union
 
 import numpy as np
 from numba import njit
@@ -589,7 +589,7 @@ def compute_footprint_center(
     orbit_track: Geocentric,
     roll_angle: float = 0,
     pitch_angle: float = 0,
-) -> Point:
+) -> List[Point]:
     """
     Get the center of an instaneous instrument footprint.
 
@@ -626,7 +626,7 @@ def compute_footprint(
     pitch_angle: float = 0,
     is_rectangular: bool = False,
     number_points: int = None,
-) -> Polygon:
+) -> List[Polygon]:
     """
     Compute the instanteous instrument footprint.
 
@@ -678,9 +678,18 @@ def compute_footprint(
         )
         for angle in angles
     ]
-    return split_polygon(
-        Polygon([(p.longitude.degrees, p.latitude.degrees) for p in points])
-    )
+    print(points[0].longitude.degrees, len(orbit_track.t))
+    return [
+        split_polygon(
+            Polygon(
+                [
+                    (point.longitude.degrees[i], point.latitude.degrees[i])
+                    for point in points
+                ]
+            )
+        )
+        for i in range(len(orbit_track.t))
+    ]
 
 
 def buffer_footprint(

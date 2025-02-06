@@ -258,53 +258,52 @@ def collect_ground_track(
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
     # compute targets
-    targets = [
-        compute_footprint_center(
-            orbit_track,
-            (instrument.roll_angle if isinstance(instrument, PointedInstrument) else 0),
-            (
-                instrument.pitch_angle
-                if isinstance(instrument, PointedInstrument)
-                else 0
-            ),
-        )
-    ]
+    targets = compute_footprint_center(
+        orbit_track,
+        (instrument.roll_angle if isinstance(instrument, PointedInstrument) else 0),
+        (
+            instrument.pitch_angle
+            if isinstance(instrument, PointedInstrument)
+            else 0
+        ),
+    )
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track, targets)
     if len(times) == 1:
         # transform scalar to vector results
         valid_obs = np.array([valid_obs])
     if crs == "spice":
+        polygons = compute_footprint(
+            orbit_track,
+            (
+                instrument.cross_track_field_of_view
+                if isinstance(instrument, PointedInstrument)
+                else instrument.field_of_regard
+            ),
+            (
+                instrument.along_track_field_of_view
+                if isinstance(instrument, PointedInstrument)
+                else instrument.field_of_regard
+            ),
+            (
+                instrument.roll_angle
+                if isinstance(instrument, PointedInstrument)
+                else 0
+            ),
+            (
+                instrument.pitch_angle
+                if isinstance(instrument, PointedInstrument)
+                else 0
+            ),
+            (
+                instrument.is_rectangular
+                if isinstance(instrument, PointedInstrument)
+                else False
+            ),
+        )
         geometries = [
             project_polygon_to_elevation(
-                compute_footprint(
-                    orbit_track[i],
-                    (
-                        instrument.cross_track_field_of_view
-                        if isinstance(instrument, PointedInstrument)
-                        else instrument.field_of_regard
-                    ),
-                    (
-                        instrument.along_track_field_of_view
-                        if isinstance(instrument, PointedInstrument)
-                        else instrument.field_of_regard
-                    ),
-                    (
-                        instrument.roll_angle
-                        if isinstance(instrument, PointedInstrument)
-                        else 0
-                    ),
-                    (
-                        instrument.pitch_angle
-                        if isinstance(instrument, PointedInstrument)
-                        else 0
-                    ),
-                    (
-                        instrument.is_rectangular
-                        if isinstance(instrument, PointedInstrument)
-                        else False
-                    ),
-                ),
+                polygons[i],
                 elevation,
             )
             for i in range(len(times))
