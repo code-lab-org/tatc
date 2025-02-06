@@ -492,7 +492,7 @@ def compute_projected_ray_position(
             )
             # find the two intersection points between orthogonal plane and limb ellipse
             _v = v[:, i].copy() if i >= 0 else v
-            _n = n[:, i].copy() if i >= 0 else v
+            _n = n[:, i].copy() if i >= 0 else n
             _, pt_1, pt_2 = inelpl(
                 limb,
                 nvp2pl(
