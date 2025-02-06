@@ -258,13 +258,13 @@ def collect_ground_track(
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
     # compute targets
-    targets = compute_footprint_center(
+    target = compute_footprint_center(
         orbit_track,
         (instrument.roll_angle if isinstance(instrument, PointedInstrument) else 0),
         (instrument.pitch_angle if isinstance(instrument, PointedInstrument) else 0),
     )
     # determine observation validity
-    valid_obs = instrument.is_valid_observation(orbit_track, targets)
+    valid_obs = instrument.is_valid_observation(orbit_track, target)
     if len(times) == 1:
         # transform scalar to vector results
         valid_obs = np.array([valid_obs])
@@ -355,38 +355,20 @@ def collect_ground_track(
     gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
     if sat_altaz:
         # append satellite altitude/azimuth columns
-        gdf["sat_alt"] = [
-            (orbit_track[i] - targets[i].at(timescale.from_datetime(times[i])))
-            .altaz()[0]
-            .degrees
-            for i in range(len(times))
-        ]
-        gdf["sat_az"] = [
-            (orbit_track[i] - targets[i].at(timescale.from_datetime(times[i])))
-            .altaz()[1]
-            .degrees
-            for i in range(len(times))
-        ]
+        sat_altaz = (orbit_track - target.at(timescale.from_datetimes(times))).altaz()
+        gdf["sat_alt"] = sat_altaz[0].degrees
+        gdf["sat_az"] = sat_altaz[1].degrees
     if solar_altaz:
         # append solar altitude/azimuth columns
-        gdf["solar_alt"] = [
-            (de421["earth"] + targets[i])
-            .at(timescale.from_datetime(times[i]))
+        solar_altaz = (
+            (de421["earth"] + target)
+            .at(timescale.from_datetimes(times))
             .observe(de421["sun"])
             .apparent()
-            .altaz()[0]
-            .degrees
-            for i in range(len(times))
-        ]
-        gdf["solar_az"] = [
-            (de421["earth"] + targets[i])
-            .at(timescale.from_datetime(times[i]))
-            .observe(de421["sun"])
-            .apparent()
-            .altaz()[1]
-            .degrees
-            for i in range(len(times))
-        ]
+            .altaz()
+        )
+        gdf["solar_alt"] = solar_altaz[0].degrees
+        gdf["solar_az"] = solar_altaz[1].degrees
 
     if mask is not None:
         gdf = gpd.clip(gdf, mask).reset_index(drop=True)

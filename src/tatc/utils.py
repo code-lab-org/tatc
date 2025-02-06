@@ -535,7 +535,7 @@ def compute_footprint_center(
     orbit_track: Geocentric,
     roll_angle: float = 0,
     pitch_angle: float = 0,
-) -> Union[Point, List[Point]]:
+) -> GeographicPosition:
     """
     Get the center of an instaneous instrument footprint.
 
@@ -547,9 +547,9 @@ def compute_footprint_center(
             rotation about orbit velocity vector.
 
     Returns:
-        shapely.geometry.Point: The instrument footprint center.
+        skyfield.toposlib.GeographicPosition: The instrument footprint center.
     """
-    point = _get_projected_ray_position(
+    return _get_projected_ray_position(
         orbit_track=orbit_track,
         cross_track_field_of_view=0,
         along_track_field_of_view=0,
@@ -558,12 +558,6 @@ def compute_footprint_center(
         is_rectangular=False,
         angle=0,
     )
-    if len(orbit_track.t) > 1:
-        return [
-            Point(point.longitude.degrees[i], point.latitude.degrees[i])
-            for i in range(len(orbit_track.t))
-        ]
-    return Point(point.longitude.degrees, point.latitude.degrees)
 
 
 def compute_footprint(
