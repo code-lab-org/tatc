@@ -5,18 +5,19 @@ Object schemas for instruments.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import Optional, Union
+from typing import List, Optional, Tuple, Union
 from datetime import timedelta
 
 import numpy as np
 import numpy.typing as npt
 from pydantic import BaseModel, Field
+from shapely.geometry import MultiPoint, Point
 from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
 from ..constants import de421
-from ..utils import compute_min_elevation_angle, field_of_regard_to_swath_width
+from ..utils import compute_min_elevation_angle, field_of_regard_to_swath_width, compute_projected_ray_position
 
 
 class Instrument(BaseModel):
@@ -77,7 +78,7 @@ class Instrument(BaseModel):
 
     def is_valid_observation(
         self, orbit_track: Geocentric, target: GeographicPosition = None
-    ) -> Union[bool,npt.NDArray]:
+    ) -> Union[bool, npt.NDArray]:
         """Determines if an instrument can provide a valid observations.
 
         Args:
@@ -115,7 +116,7 @@ class Instrument(BaseModel):
 
 class PointedInstrument(Instrument):
     """
-    Remote sensing instrument with off-nadir orientation.
+    Remote sensing instrument with optional off-nadir orientation.
     """
 
     cross_track_field_of_view: float = Field(
@@ -151,3 +152,144 @@ class PointedInstrument(Instrument):
     along_track_pixels: int = Field(
         1, description="Number of pixels in along-track direction.", ge=1
     )
+    cross_track_oversampling: float = Field(
+        0, description="Fraction of pixel overlap in cross-track diraction.", ge=0, lt=1
+    )
+    along_track_oversampling: float = Field(
+        0, description="Fraction of pixel overlap in along-track diraction.", ge=0, lt=1
+    )
+
+    def get_cross_track_instantaneous_field_of_view(self) -> float:
+        """
+        Gets the instananeous field of view (degrees) for cross-track pixels.
+
+        Returns:
+            float: the cross-track instantaneous pixel field of view (degrees)
+        """
+        return (
+            self.cross_track_field_of_view
+            / self.cross_track_pixels
+            / (1 - self.cross_track_oversampling)
+        )
+
+    def get_along_track_instantaneous_field_of_view(self) -> float:
+        """
+        Gets the instananeous field of view (degrees) for along-track pixels.
+
+        Returns:
+            float: the along-track instantaneous pixel field of view (degrees)
+        """
+        return (
+            self.along_track_field_of_view
+            / self.along_track_pixels
+            / (1 - self.along_track_oversampling)
+        )
+
+    def compute_projected_pixel_position(
+        self,
+        orbit_track: Geocentric,
+        cross_track_index: int,
+        along_track_index: int,
+        elevation: float = 0,
+    ) -> GeographicPosition:
+        """
+        Get the location of a projected pixel.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+            cross_track_index (int): cross-track pixel index (left-to-right).
+            along_track_index (int): along-track pixel index (fore-to-aft).
+            elevation (float): The elevation (meters) at which project the pixel.
+
+        Returns:
+            (skyfield.toposlib.GeographicPosition): the geographic position of the projected pixel
+        """
+        cone, clock = self.get_pixel_cone_and_clock_angle(cross_track_index, along_track_index)
+
+        return compute_projected_ray_position(
+            orbit_track=orbit_track,
+            cross_track_field_of_view=cone,
+            along_track_field_of_view=cone,
+            roll_angle=self.roll_angle,
+            pitch_angle=self.pitch_angle,
+            is_rectangular=False,
+            angle=clock,
+            elevation=elevation,
+        )
+
+    def get_pixel_cone_and_clock_angle(
+        self, cross_track_index: int, along_track_index: int
+    ) -> Tuple[float, float]:
+        """
+        Gets the cone () and clock angles (degrees) for given pixel.
+
+        Args:
+            cross_track_index (int): pixel index in cross-track dimension (left to right).
+            along_track_index (int): pixel location in along-track dimension (fore to aft).
+
+        Returns:
+            Tuple[float, float]: cone (from nadir-looking) and clock
+                (counter-clockwise from right-looking) angles (degrees).
+        """
+        cross_track_offset = (
+            (0.5 + cross_track_index - self.cross_track_pixels / 2)
+            * (1 - self.cross_track_oversampling)
+            * self.cross_track_field_of_view
+            / self.cross_track_pixels
+        )
+        along_track_offset = (
+            (self.along_track_pixels / 2 - 0.5 - along_track_index)
+            * (1 - self.along_track_oversampling)
+            * self.along_track_field_of_view
+            / self.along_track_pixels
+        )
+        return (
+            np.sqrt(cross_track_offset**2 + along_track_offset**2),
+            np.arctan2(along_track_offset, cross_track_offset),
+        )
+
+    def compute_footprint_pixel_array(
+        self,
+        orbit_track: Geocentric,
+        elevation: float = 0,
+    ) -> Union[MultiPoint, List[MultiPoint]]:
+        """
+        Compute the instanteous footprint pixel array.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+            elevation (float): The elevation (meters) at which project the footprint.
+
+        Returns:
+            Union[shapely.geometry.MultiPoint, List[shapely.geometry.MultiPoint]: The instrument pixel array(s).
+        """
+        points = [
+            self.compute_projected_pixel_position(
+                orbit_track=orbit_track,
+                cross_track_index=i,
+                along_track_index=j,
+                elevation=elevation,
+            )
+            for i in range(self.cross_track_pixels)
+            for j in range(self.along_track_pixels)
+        ]
+        if len(orbit_track.t) > 1:
+            return [
+                MultiPoint(
+                    [
+                        Point(
+                            point.longitude.degrees[i],
+                            point.latitude.degrees[i],
+                            point.elevation.m[i],
+                        )
+                        for point in points
+                    ]
+                )
+                for i in range(len(orbit_track.t))
+            ]
+        return MultiPoint(
+            [
+                Point(point.longitude.degrees, point.latitude.degrees, point.elevation.m)
+                for point in points
+            ]
+        )

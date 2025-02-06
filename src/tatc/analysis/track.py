@@ -30,7 +30,6 @@ from ..utils import (
     buffer_footprint,
     compute_footprint,
     compute_footprint_center,
-    compute_footprint_pixel_array,
     field_of_regard_to_swath_width,
 )
 from ..constants import de421, EARTH_MEAN_RADIUS, timescale
@@ -555,14 +554,8 @@ def collect_ground_pixels(
         raise ValueError(
             "Ground pixels are only compatible with rectangular PointedInstrument instances"
         )
-    geometries = compute_footprint_pixel_array(
+    geometries = instrument.compute_footprint_pixel_array(
         orbit_track,
-        instrument.cross_track_field_of_view,
-        instrument.along_track_field_of_view,
-        instrument.cross_track_pixels,
-        instrument.along_track_pixels,
-        instrument.roll_angle,
-        instrument.pitch_angle,
         elevation,
     )
 
@@ -577,14 +570,16 @@ def collect_ground_pixels(
             "geometry": point,
         }
         for i, time in enumerate(times)
-        for point in (geometries[i].geoms if len(times)>1 else geometries.geoms)
+        for point in (geometries[i].geoms if len(times) > 1 else geometries.geoms)
     ]
 
     gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
 
     if sat_altaz or solar_altaz:
         targets = [
-            wgs84.latlon(record["geometry"].x, record["geometry"].y, record["geometry"].z)
+            wgs84.latlon(
+                record["geometry"].x, record["geometry"].y, record["geometry"].z
+            )
             for record in records
         ]
         if sat_altaz:
