@@ -360,6 +360,7 @@ def _get_projected_ray_position(
     pitch_angle: float = 0,
     is_rectangular: bool = False,
     angle: float = 0,
+    elevation: float = 0,
 ) -> GeographicPosition:
     """
     Get the location of a projected ray from an instrument.
@@ -378,6 +379,7 @@ def _get_projected_ray_position(
             shape (otherwise elliptical).
         angle (float): ray angle (degrees) counterclockwise from right-hand cross-track
             direction about the instrument field of view.
+        elevation (float): The elevation (meters) at which project the footprint.
 
     Returns:
         (skyfield.toposlib.GeographicPosition): the geographic position of the projected ray
@@ -471,9 +473,9 @@ def _get_projected_ray_position(
             pt = surfpt(
                 _position,
                 _ray,
-                constants.EARTH_EQUATORIAL_RADIUS,
-                constants.EARTH_EQUATORIAL_RADIUS,
-                constants.EARTH_POLAR_RADIUS,
+                constants.EARTH_EQUATORIAL_RADIUS + elevation,
+                constants.EARTH_EQUATORIAL_RADIUS + elevation,
+                constants.EARTH_POLAR_RADIUS + elevation,
             )
             if i >= 0:
                 points[:, i] = pt
@@ -483,9 +485,9 @@ def _get_projected_ray_position(
             # projected point does not fall on the WGS 84 geoid surface
             # compute the observable limb ellipse for WGS 84 geoid
             limb = edlimb(
-                constants.EARTH_EQUATORIAL_RADIUS,
-                constants.EARTH_EQUATORIAL_RADIUS,
-                constants.EARTH_POLAR_RADIUS,
+                constants.EARTH_EQUATORIAL_RADIUS + elevation,
+                constants.EARTH_EQUATORIAL_RADIUS + elevation,
+                constants.EARTH_POLAR_RADIUS + elevation,
                 _position,
             )
             # find the two intersection points between orthogonal plane and limb ellipse
@@ -535,6 +537,7 @@ def compute_footprint_center(
     orbit_track: Geocentric,
     roll_angle: float = 0,
     pitch_angle: float = 0,
+    elevation: float = 0,
 ) -> GeographicPosition:
     """
     Get the center of an instaneous instrument footprint.
@@ -545,6 +548,7 @@ def compute_footprint_center(
             rotation about orbit normal vector.
         roll_angle (float): The left/right look angle (degrees); right-hand
             rotation about orbit velocity vector.
+        elevation (float): The elevation (meters) at which project the footprint.
 
     Returns:
         skyfield.toposlib.GeographicPosition: The instrument footprint center.
@@ -557,6 +561,7 @@ def compute_footprint_center(
         pitch_angle=pitch_angle,
         is_rectangular=False,
         angle=0,
+        elevation=elevation,
     )
 
 
@@ -568,6 +573,7 @@ def compute_footprint(
     pitch_angle: float = 0,
     is_rectangular: bool = False,
     number_points: int = None,
+    elevation: float = 0,
 ) -> Union[Geometry, List[Geometry]]:
     """
     Compute the instanteous instrument footprint.
@@ -582,9 +588,10 @@ def compute_footprint(
             rotation about orbit velocity vector.
         is_rectangular (float): True, if this is a rectangular sensor.
         number_points (int): The required number of polygon points to generate.
+        elevation (float): The elevation (meters) at which project the footprint.
 
     Returns:
-        shapely.geometry.Polygon: The instrument footprint.
+        Union[shapely.geometry.Geometry, List[shapely.geometry.Geometry]: The instrument footprint(s).
     """
     if number_points is None:
         # default number of points
@@ -617,23 +624,32 @@ def compute_footprint(
             pitch_angle,
             is_rectangular,
             angle,
+            elevation,
         )
         for angle in angles
     ]
     if len(orbit_track.t) > 1:
         return [
-            split_polygon(
-                Polygon(
-                    [
-                        (point.longitude.degrees[i], point.latitude.degrees[i])
-                        for point in points
-                    ]
-                )
+            project_polygon_to_elevation(
+                split_polygon(
+                    Polygon(
+                        [
+                            (point.longitude.degrees[i], point.latitude.degrees[i])
+                            for point in points
+                        ]
+                    )
+                ),
+                elevation,
             )
             for i in range(len(orbit_track.t))
         ]
-    return split_polygon(
-        Polygon([(point.longitude.degrees, point.latitude.degrees) for point in points])
+    return project_polygon_to_elevation(
+        split_polygon(
+            Polygon(
+                [(point.longitude.degrees, point.latitude.degrees) for point in points]
+            )
+        ),
+        elevation,
     )
 
 

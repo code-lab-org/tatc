@@ -31,7 +31,6 @@ from ..utils import (
     compute_footprint,
     compute_footprint_center,
     field_of_regard_to_swath_width,
-    project_polygon_to_elevation,
 )
 from ..constants import de421, EARTH_MEAN_RADIUS, timescale
 
@@ -262,6 +261,7 @@ def collect_ground_track(
         orbit_track,
         (instrument.roll_angle if isinstance(instrument, PointedInstrument) else 0),
         (instrument.pitch_angle if isinstance(instrument, PointedInstrument) else 0),
+        elevation,
     )
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track, target)
@@ -269,7 +269,7 @@ def collect_ground_track(
         # transform scalar to vector results
         valid_obs = np.array([valid_obs])
     if crs == "spice":
-        polygons = compute_footprint(
+        geometries = compute_footprint(
             orbit_track,
             (
                 instrument.cross_track_field_of_view
@@ -292,14 +292,9 @@ def collect_ground_track(
                 if isinstance(instrument, PointedInstrument)
                 else False
             ),
+            None,
+            elevation,
         )
-        geometries = [
-            project_polygon_to_elevation(
-                polygons[i],
-                elevation,
-            )
-            for i in range(len(times))
-        ]
     else:
         # compute the orbit track of the satellite
         gdf = collect_orbit_track(satellite, times, instrument_index, elevation)

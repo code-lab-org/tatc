@@ -216,12 +216,13 @@ def collect_observations(
             and (
                 not isinstance(instrument, PointedInstrument)
                 or compute_footprint(
-                    satellite.orbit.to_tle().get_orbit_track(period.mid),
-                    instrument.cross_track_field_of_view,
-                    instrument.along_track_field_of_view,
-                    instrument.roll_angle,
-                    instrument.pitch_angle,
-                    instrument.is_rectangular,
+                    orbit_track=satellite.orbit.to_tle().get_orbit_track(period.mid),
+                    cross_track_field_of_view=instrument.cross_track_field_of_view,
+                    along_track_field_of_view=instrument.along_track_field_of_view,
+                    roll_angle=instrument.roll_angle,
+                    pitch_angle=instrument.pitch_angle,
+                    is_rectangular=instrument.is_rectangular,
+                    elevation=point.elevation,
                 ).contains(geo.Point(point.longitude, point.latitude))
             )
         )
