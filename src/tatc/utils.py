@@ -465,7 +465,7 @@ def compute_projected_ray_position(
             + n * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
         )
     points = np.zeros_like(position.m)
-    for i in range(np.size(points, axis=1) if len(np.shape(points)) > 1 else [-1]):
+    for i in (range(np.size(points, axis=1)) if len(np.shape(points)) > 1 else [-1]):
         _position = position.m[:, i].copy() if i >= 0 else position.m
         _ray = ray[:, i].copy() if i >= 0 else ray
         # find the intersection of the ray and the WGS 84 geoid
@@ -596,7 +596,7 @@ def compute_footprint(
         )
         for angle in angles
     ]
-    if len(orbit_track.t) > 1:
+    if np.size(orbit_track.t) > 1:
         return [
             project_polygon_to_elevation(
                 split_polygon(
@@ -609,7 +609,7 @@ def compute_footprint(
                 ),
                 elevation,
             )
-            for i in range(len(orbit_track.t))
+            for i in range(np.size(orbit_track.t))
         ]
     return project_polygon_to_elevation(
         split_polygon(
