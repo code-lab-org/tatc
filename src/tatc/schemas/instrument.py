@@ -389,7 +389,7 @@ class PointedInstrument(Instrument):
             for i in range(self.cross_track_pixels)
             for j in range(self.along_track_pixels)
         ]
-        if len(orbit_track.t) > 1:
+        if np.size(orbit_track.t) > 1:
             return [
                 MultiPoint(
                     [
@@ -401,7 +401,7 @@ class PointedInstrument(Instrument):
                         for point in points
                     ]
                 )
-                for i in range(len(orbit_track.t))
+                for i in range(np.size(orbit_track.t))
             ]
         return MultiPoint(
             [
