@@ -101,7 +101,20 @@ def collect_orbit_track(
     instrument = satellite.instruments[instrument_index]
     # propagate orbit
     orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
-    geo_positions = [wgs84.geographic_position_of(position) for position in orbit_track]
+    geo_positions = [wgs84.geographic_position_of(p) for p in orbit_track]
+    if mask is not None:
+        # trim orbit track to provided mask
+        orbit_track = orbit_track[
+            [
+                mask.contains(
+                    Point(
+                        g.longitude.degrees,
+                        g.latitude.degrees,
+                    )
+                )
+                for g in geo_positions
+            ]
+        ]
     # create shapely points in proper coordinate system
     if coordinates == OrbitCoordinate.WGS84:
         points = [
@@ -126,7 +139,7 @@ def collect_orbit_track(
         ]
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track)
-    if len(times) == 1:
+    if len(orbit_track.t) == 1:
         # transform scalar to vector results
         valid_obs = np.array([valid_obs])
     # create velocity points if needed
@@ -144,7 +157,7 @@ def collect_orbit_track(
                 "valid_obs": valid_obs[i],
                 "geometry": points[i],
             }
-            for i, time in enumerate(times)
+            for i, time in enumerate(orbit_track.t.utc_datetime())
         ]
     else:
         # compute satellite velocity
@@ -175,7 +188,7 @@ def collect_orbit_track(
                 "geometry": points[i],
                 "velocity": velocities[i],
             }
-            for i, time in enumerate(times)
+            for i, time in enumerate(orbit_track.t.utc_datetime())
         ]
 
     gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
@@ -269,13 +282,27 @@ def collect_ground_track(
         return _get_empty_ground_track()
     # propagate orbit
     orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
+    geo_positions = [wgs84.geographic_position_of(p) for p in orbit_track]
+    if mask is not None:
+        # trim orbit track to provided mask
+        orbit_track = orbit_track[
+            [
+                mask.contains(
+                    Point(
+                        g.longitude.degrees,
+                        g.latitude.degrees,
+                    )
+                )
+                for g in geo_positions
+            ]
+        ]
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
     # compute targets
     target = instrument.compute_footprint_center(orbit_track, elevation)
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track, target)
-    if len(times) == 1:
+    if len(orbit_track.t) == 1:
         # transform scalar to vector results
         valid_obs = np.array([valid_obs])
     if crs == "spice":
@@ -286,7 +313,9 @@ def collect_ground_track(
         )
     else:
         # compute the orbit track of the satellite
-        gdf = collect_orbit_track(satellite, times, instrument_index, elevation)
+        gdf = collect_orbit_track(
+            satellite, orbit_track.t.utc_datetime(), instrument_index, elevation
+        )
         if crs == "utm":
             gdf["utm_crs"] = gdf.apply(
                 lambda r: _get_utm_epsg_code(r.geometry, r.swath_width), axis=1
@@ -332,21 +361,21 @@ def collect_ground_track(
             "valid_obs": valid_obs[i],
             "geometry": geometries[i],
         }
-        for i, time in enumerate(times)
+        for i, time in enumerate(orbit_track.t.utc_datetime())
     ]
     # construct polygons based on visible extent of instrument
     # project to specified elevation
     gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
     if sat_altaz:
         # append satellite altitude/azimuth columns
-        sat_altaz = (orbit_track - target.at(timescale.from_datetimes(times))).altaz()
+        sat_altaz = (orbit_track - target.at(orbit_track.t)).altaz()
         gdf["sat_alt"] = sat_altaz[0].degrees
         gdf["sat_az"] = sat_altaz[1].degrees
     if solar_altaz:
         # append solar altitude/azimuth columns
         solar_altaz = (
             (de421["earth"] + target)
-            .at(timescale.from_datetimes(times))
+            .at(orbit_track.t)
             .observe(de421["sun"])
             .apparent()
             .altaz()
