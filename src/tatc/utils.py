@@ -983,13 +983,14 @@ def _split_polygon_antimeridian(
             # extract and sort coords by longitude
             coords = polygon.exterior.coords[0:-1]
             coords.sort(key=lambda r: r[0])
-            # determine if contains north or south pole based on sign of first latitude
-            n_s = 1 if coords[0][1] > 0 else -1
+            # determine if contains north or south pole based on sign of mean latitude
+            n_s = 1 if np.array(coords)[:, 1].mean() > 0 else -1
             # interpolate latitude at antimeridian
             lat = np.interp(
                 180, [coords[-1][0], coords[0][0] + 180], [coords[-1][1], coords[0][1]]
             )
             # reconstruct polygon (ccw) with added coords on antimeridian
+            # TODO potential problem if provided polygon has z-dimension
             pgon = Polygon(
                 [(-180, 90 * n_s), (-180, lat)]
                 + coords
