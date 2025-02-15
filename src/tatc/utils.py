@@ -392,10 +392,7 @@ def compute_projected_ray_position(
     b = np.divide(-position.m, np.linalg.norm(position.m, axis=0))
     # normal unit vector
     if len(np.shape(position.m)) > 1:
-        n = np.einsum(
-            "iik->ik",
-            np.cross(v.T[:, None, :], b.T[None, :, :]),
-        ).T
+        n = np.cross(v, b, 0, 0, -1).T
     else:
         n = np.cross(v, b)
     # construct projected ray

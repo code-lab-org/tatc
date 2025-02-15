@@ -203,10 +203,7 @@ def collect_ro_observations(
         rx_pv.velocity.m_per_s, np.linalg.norm(rx_pv.velocity.m_per_s, axis=0)
     )
     # unit vector normal to receiver orbit plane (VNB y-axis)
-    rx_n_u = np.einsum(
-        "iik->ik",
-        np.cross(rx_pv.position.m.T[:, None, :], rx_pv.velocity.m_per_s.T[None, :, :]),
-    ).T
+    rx_n_u = np.cross(rx_pv.position.m, rx_pv.velocity.m_per_s, 0, 0, -1).T
     rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
     # unit vector orthogonal to receiver orbit plane (VNB z-axis)
     rx_b_u = np.divide(rx_pv.position.m, np.linalg.norm(rx_pv.position.m, axis=0))
