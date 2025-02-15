@@ -101,41 +101,36 @@ def collect_orbit_track(
     instrument = satellite.instruments[instrument_index]
     # propagate orbit
     orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
-    geo_positions = [wgs84.geographic_position_of(p) for p in orbit_track]
+    geo_positions = wgs84.geographic_position_of(orbit_track)
     if mask is not None:
         # trim orbit track to provided mask
         orbit_track = orbit_track[
             [
-                mask.contains(
-                    Point(
-                        g.longitude.degrees,
-                        g.latitude.degrees,
-                    )
+                mask.contains(Point(longitude, latitude))
+                for (longitude, latitude) in zip(
+                    geo_positions.longitude.degrees, geo_positions.latitude.degrees
                 )
-                for g in geo_positions
             ]
         ]
     # create shapely points in proper coordinate system
     if coordinates == OrbitCoordinate.WGS84:
         points = [
-            Point(
-                position.longitude.degrees,
-                position.latitude.degrees,
-                position.elevation.m,
+            Point(longitude, latitude, elevation)
+            for (longitude, latitude, elevation) in zip(
+                geo_positions.longitude.degrees,
+                geo_positions.latitude.degrees,
+                geo_positions.elevation.m,
             )
-            for position in geo_positions
         ]
     elif coordinates == OrbitCoordinate.ECEF:
         points = [
-            Point(
-                position.itrs_xyz.m[0], position.itrs_xyz.m[1], position.itrs_xyz.m[2]
-            )
-            for position in geo_positions
+            Point(position[0], position[1], position[2])
+            for position in geo_positions.itrs_xyz.m.T
         ]
     else:
         points = [
-            Point(position.xyz.m[0], position.xyz.m[1], position.xyz.m[2])
-            for position in orbit_track
+            Point(position[0], position[1], position[2])
+            for position in orbit_track.xyz.m.T
         ]
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track)
@@ -150,7 +145,7 @@ def collect_orbit_track(
                 "satellite": satellite.name,
                 "instrument": instrument.name,
                 "swath_width": field_of_regard_to_swath_width(
-                    geo_positions[i].elevation.m,
+                    geo_positions.elevation.m[i],
                     instrument.field_of_regard,
                     elevation,
                 ),
@@ -162,16 +157,14 @@ def collect_orbit_track(
     else:
         # compute satellite velocity
         if coordinates == OrbitCoordinate.ECI:
-            eci_velocity = orbit_track.velocity.m_per_s
             velocities = [
-                Point(eci_velocity[0][i], eci_velocity[1][i], eci_velocity[2][i])
-                for i in range(len(eci_velocity[0]))
+                Point(velocity[0], velocity[1], velocity[2])
+                for velocity in orbit_track.velocity.m_per_s.T
             ]
         else:
-            velocity = orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s
             velocities = [
-                Point(velocity[0][i], velocity[1][i], velocity[2][i])
-                for i in range(len(velocity[0]))
+                Point(velocity[0], velocity[1], velocity[2])
+                for velocity in orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s.T
             ]
 
         records = [
@@ -180,7 +173,7 @@ def collect_orbit_track(
                 "satellite": satellite.name,
                 "instrument": instrument.name,
                 "swath_width": field_of_regard_to_swath_width(
-                    geo_positions[i].elevation.m,
+                    geo_positions.elevation.m[i],
                     instrument.field_of_regard,
                     elevation,
                 ),
@@ -282,24 +275,21 @@ def collect_ground_track(
         return _get_empty_ground_track()
     # propagate orbit
     orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
-    geo_positions = [wgs84.geographic_position_of(p) for p in orbit_track]
-    if mask is not None:
-        # trim orbit track to provided mask
-        orbit_track = orbit_track[
-            [
-                mask.contains(
-                    Point(
-                        g.longitude.degrees,
-                        g.latitude.degrees,
-                    )
-                )
-                for g in geo_positions
-            ]
-        ]
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
     # compute targets
     target = instrument.compute_footprint_center(orbit_track, elevation)
+    if mask is not None:
+        # trim orbit track to provided mask
+        mask_contains_target = [
+            mask.contains(Point(longitude, latitude))
+            for (longitude, latitude) in zip(
+                target.longitude.degrees, target.latitude.degrees
+            )
+        ]
+        orbit_track = orbit_track[mask_contains_target]
+        # recompute targets
+        target = instrument.compute_footprint_center(orbit_track, elevation)
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track, target)
     if len(orbit_track.t) == 1:
