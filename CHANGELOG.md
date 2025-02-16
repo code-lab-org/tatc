@@ -1,5 +1,25 @@
 # TAT-C Change Log
 
+## 3.4.3
+
+Added:
+ - Analysis function `collect_ground_track` arguments `sat_altaz` and `solar_altaz` optionally report satellite and solar altitude/azimuth metrics.
+ - Analysis function `collect_ground_pixels` allows pixel-level analysis similar to ground tracks.
+ - Analysis function `compute_limb` computes the observable limb (maximum extent of viewable Earth).
+ - Schema `PointedInstrument` variables `cross_track_pixels`, `along_track_pixels`, `cross_track_oversampling`, `along_track_oversampling` enable pixel-level analysis.
+ - Schema `PointedInstrument` methods `compute_footprint`, `compute_footprint_center`, `compute_projected_pixel_position`, `get_pixel_cone_and_clock_angle`, and `compute_footprint_pixel_array` refactor utility functions and add pixel-level capabilities.
+ 
+Changed:
+ - Updates analysis function `collect_orbit_track` to check if a masked area contains each subsatellite point prior to additional computation.
+ - Refactors analysis function `collect_orbit_track` and utility function `compute_projected_ray_position` to use more vectorized calculations.
+ - Updates analysis function `collect_ground_track` to check if a masked area contains each footprint center point prior to additional computation.
+ - Updates analysis function `collect_ground_track` to compute ground tracks at a designated elevation.
+ - Renames utility function `_get_footprint_point` to `compute_projected_ray_position`.
+ - Refactors `Instrument` method `is_valid_observation` argument from `targets` to `target`.
+ - Refactors utility function `compute_footprint_center` return type from a Skyfield GeographicPosition to a Shapely Geometry.
+ - Replaced memory-intensive cross-product in analysis function `collect_ro_observations` and utility function `compute_projected_ray_position`.
+ - Fixes a bug in utility function `_split_polygon_antimeridian` where a ground track footprint could circle the wrong pole if the smallest longitude coordinate is in the opposite north/south hemisphere.
+
 ## 3.4.2
 
 Changed:
