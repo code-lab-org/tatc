@@ -101,32 +101,40 @@ def collect_orbit_track(
     instrument = satellite.instruments[instrument_index]
     # propagate orbit
     orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
-    geo_positions = [wgs84.geographic_position_of(position) for position in orbit_track]
+    geo_positions = wgs84.geographic_position_of(orbit_track)
+    if mask is not None:
+        # trim orbit track to provided mask
+        orbit_track = orbit_track[
+            [
+                mask.contains(Point(longitude, latitude))
+                for (longitude, latitude) in zip(
+                    geo_positions.longitude.degrees, geo_positions.latitude.degrees
+                )
+            ]
+        ]
     # create shapely points in proper coordinate system
     if coordinates == OrbitCoordinate.WGS84:
         points = [
-            Point(
-                position.longitude.degrees,
-                position.latitude.degrees,
-                position.elevation.m,
+            Point(longitude, latitude, elevation)
+            for (longitude, latitude, elevation) in zip(
+                geo_positions.longitude.degrees,
+                geo_positions.latitude.degrees,
+                geo_positions.elevation.m,
             )
-            for position in geo_positions
         ]
     elif coordinates == OrbitCoordinate.ECEF:
         points = [
-            Point(
-                position.itrs_xyz.m[0], position.itrs_xyz.m[1], position.itrs_xyz.m[2]
-            )
-            for position in geo_positions
+            Point(position[0], position[1], position[2])
+            for position in geo_positions.itrs_xyz.m.T
         ]
     else:
         points = [
-            Point(position.xyz.m[0], position.xyz.m[1], position.xyz.m[2])
-            for position in orbit_track
+            Point(position[0], position[1], position[2])
+            for position in orbit_track.xyz.m.T
         ]
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track)
-    if len(times) == 1:
+    if len(orbit_track.t) == 1:
         # transform scalar to vector results
         valid_obs = np.array([valid_obs])
     # create velocity points if needed
@@ -137,28 +145,26 @@ def collect_orbit_track(
                 "satellite": satellite.name,
                 "instrument": instrument.name,
                 "swath_width": field_of_regard_to_swath_width(
-                    geo_positions[i].elevation.m,
+                    geo_positions.elevation.m[i],
                     instrument.field_of_regard,
                     elevation,
                 ),
                 "valid_obs": valid_obs[i],
                 "geometry": points[i],
             }
-            for i, time in enumerate(times)
+            for i, time in enumerate(orbit_track.t.utc_datetime())
         ]
     else:
         # compute satellite velocity
         if coordinates == OrbitCoordinate.ECI:
-            eci_velocity = orbit_track.velocity.m_per_s
             velocities = [
-                Point(eci_velocity[0][i], eci_velocity[1][i], eci_velocity[2][i])
-                for i in range(len(eci_velocity[0]))
+                Point(velocity[0], velocity[1], velocity[2])
+                for velocity in orbit_track.velocity.m_per_s.T
             ]
         else:
-            velocity = orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s
             velocities = [
-                Point(velocity[0][i], velocity[1][i], velocity[2][i])
-                for i in range(len(velocity[0]))
+                Point(velocity[0], velocity[1], velocity[2])
+                for velocity in orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s.T
             ]
 
         records = [
@@ -167,7 +173,7 @@ def collect_orbit_track(
                 "satellite": satellite.name,
                 "instrument": instrument.name,
                 "swath_width": field_of_regard_to_swath_width(
-                    geo_positions[i].elevation.m,
+                    geo_positions.elevation.m[i],
                     instrument.field_of_regard,
                     elevation,
                 ),
@@ -175,7 +181,7 @@ def collect_orbit_track(
                 "geometry": points[i],
                 "velocity": velocities[i],
             }
-            for i, time in enumerate(times)
+            for i, time in enumerate(orbit_track.t.utc_datetime())
         ]
 
     gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
@@ -273,9 +279,20 @@ def collect_ground_track(
     instrument = satellite.instruments[instrument_index]
     # compute targets
     target = instrument.compute_footprint_center(orbit_track, elevation)
+    if mask is not None:
+        # trim orbit track to provided mask
+        mask_contains_target = [
+            mask.contains(Point(longitude, latitude))
+            for (longitude, latitude) in zip(
+                target.longitude.degrees, target.latitude.degrees
+            )
+        ]
+        orbit_track = orbit_track[mask_contains_target]
+        # recompute targets
+        target = instrument.compute_footprint_center(orbit_track, elevation)
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track, target)
-    if len(times) == 1:
+    if len(orbit_track.t) == 1:
         # transform scalar to vector results
         valid_obs = np.array([valid_obs])
     if crs == "spice":
@@ -286,7 +303,9 @@ def collect_ground_track(
         )
     else:
         # compute the orbit track of the satellite
-        gdf = collect_orbit_track(satellite, times, instrument_index, elevation)
+        gdf = collect_orbit_track(
+            satellite, orbit_track.t.utc_datetime(), instrument_index, elevation
+        )
         if crs == "utm":
             gdf["utm_crs"] = gdf.apply(
                 lambda r: _get_utm_epsg_code(r.geometry, r.swath_width), axis=1
@@ -332,21 +351,21 @@ def collect_ground_track(
             "valid_obs": valid_obs[i],
             "geometry": geometries[i],
         }
-        for i, time in enumerate(times)
+        for i, time in enumerate(orbit_track.t.utc_datetime())
     ]
     # construct polygons based on visible extent of instrument
     # project to specified elevation
     gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
     if sat_altaz:
         # append satellite altitude/azimuth columns
-        sat_altaz = (orbit_track - target.at(timescale.from_datetimes(times))).altaz()
+        sat_altaz = (orbit_track - target.at(orbit_track.t)).altaz()
         gdf["sat_alt"] = sat_altaz[0].degrees
         gdf["sat_az"] = sat_altaz[1].degrees
     if solar_altaz:
         # append solar altitude/azimuth columns
         solar_altaz = (
             (de421["earth"] + target)
-            .at(timescale.from_datetimes(times))
+            .at(orbit_track.t)
             .observe(de421["sun"])
             .apparent()
             .altaz()

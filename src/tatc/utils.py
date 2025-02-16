@@ -19,11 +19,11 @@ from shapely.geometry import (
     LineString,
 )
 from shapely.ops import split, transform
-from skyfield.api import Distance, wgs84
+from skyfield.api import wgs84
 from skyfield.framelib import itrs
-from skyfield.toposlib import ITRSPosition, GeographicPosition
+from skyfield.toposlib import GeographicPosition
 from skyfield.positionlib import Geocentric
-from spiceypy.spiceypy import edlimb, inelpl, nvp2pl, surfpt
+from spiceypy.spiceypy import edlimb, inelpl, nvp2pl, recgeo, surfpt
 from spiceypy.utils.exceptions import NotFoundError
 
 from . import constants
@@ -392,10 +392,7 @@ def compute_projected_ray_position(
     b = np.divide(-position.m, np.linalg.norm(position.m, axis=0))
     # normal unit vector
     if len(np.shape(position.m)) > 1:
-        n = np.einsum(
-            "iik->ik",
-            np.cross(v.T[:, None, :], b.T[None, :, :]),
-        ).T
+        n = np.cross(v, b, 0, 0, -1).T
     else:
         n = np.cross(v, b)
     # construct projected ray
@@ -464,8 +461,8 @@ def compute_projected_ray_position(
             + v * np.sin(angle) * np.tan(np.radians(along_track_field_of_view / 2))
             + n * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
         )
-    points = np.zeros_like(position.m)
-    for i in range(np.size(points, axis=1)) if len(np.shape(points)) > 1 else [-1]:
+    geos = np.zeros_like(position.m)
+    for i in range(np.size(geos, axis=1)) if len(np.shape(geos)) > 1 else [-1]:
         _position = position.m[:, i].copy() if i >= 0 else position.m
         _ray = ray[:, i].copy() if i >= 0 else ray
         # find the intersection of the ray and the WGS 84 geoid
@@ -477,10 +474,15 @@ def compute_projected_ray_position(
                 constants.EARTH_EQUATORIAL_RADIUS + elevation,
                 constants.EARTH_POLAR_RADIUS + elevation,
             )
+            geo = recgeo(
+                pt,
+                constants.EARTH_EQUATORIAL_RADIUS,
+                constants.EARTH_FLATTENING,
+            )
             if i >= 0:
-                points[:, i] = pt
+                geos[:, i] = geo
             else:
-                points[:] = pt
+                geos[:] = geo
         except NotFoundError:
             # projected point does not fall on the WGS 84 geoid surface
             # compute the observable limb ellipse for WGS 84 geoid
@@ -509,28 +511,19 @@ def compute_projected_ray_position(
             )
             # use the limb intersection point closer to the ray
             limb_pt = pt_1 if angle_1 <= angle_2 else pt_2
-            if i >= 0:
-                points[:, i] = limb_pt
-            else:
-                points[:] = limb_pt
-    # return resulting geographic position
-    if len(np.shape(points)) > 1:
-        return wgs84.geographic_position_of(
-            Geocentric(
-                np.array(
-                    [
-                        ITRSPosition(Distance(m=points[:, i]))
-                        .at(orbit_track.t[i])
-                        .position.au
-                        for i in range(np.size(points, axis=1))
-                    ]
-                ).T,
-                t=orbit_track.t,
+            limb_geo = recgeo(
+                limb_pt,
+                constants.EARTH_EQUATORIAL_RADIUS,
+                constants.EARTH_FLATTENING,
             )
-        )
-    return wgs84.geographic_position_of(
-        ITRSPosition(Distance(m=points)).at(orbit_track.t)
-    )
+            if i >= 0:
+                geos[:, i] = limb_geo
+            else:
+                geos[:] = limb_geo
+    # return resulting geographic position
+    if len(np.shape(geos)) > 1:
+        return wgs84.latlon(np.degrees(geos[1, :]), np.degrees(geos[0, :]), geos[2, :])
+    return wgs84.latlon(np.degrees(geos[1]), np.degrees(geos[0]), geos[2])
 
 
 def compute_footprint(
@@ -619,6 +612,60 @@ def compute_footprint(
         ),
         elevation,
     )
+
+
+def compute_limb(
+    orbit_track: Geocentric,
+    number_points: int = 16,
+    elevation: float = 0,
+) -> Union[Geometry, List[Geometry]]:
+    """
+    Compute the instanteous limb.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+        number_points (int): The required number of polygon points to generate.
+        elevation (float): The elevation (meters) at which project the limb.
+
+    Returns:
+        Union[shapely.Geometry, List[shapely.Geometry]: The limb(s).
+    """
+    position, _ = orbit_track.frame_xyz_and_velocity(itrs)
+    polygons = [None] * np.size(orbit_track.t)
+    for i, _ in enumerate(polygons):
+        _position = position.m[:, i].copy() if len(polygons) > 1 else position.m
+        limb = edlimb(
+            constants.EARTH_EQUATORIAL_RADIUS + elevation,
+            constants.EARTH_EQUATORIAL_RADIUS + elevation,
+            constants.EARTH_POLAR_RADIUS + elevation,
+            _position,
+        )
+        polygons[i] = project_polygon_to_elevation(
+            split_polygon(
+                Polygon(
+                    [
+                        Point(np.degrees(g[0]), np.degrees(g[1]))
+                        for p in [
+                            limb.center
+                            + np.cos(i) * limb.semi_major
+                            + np.sin(i) * limb.semi_minor
+                            for i in np.linspace(0, np.pi * 2, number_points)
+                        ]
+                        for g in [
+                            recgeo(
+                                p,
+                                constants.EARTH_EQUATORIAL_RADIUS,
+                                constants.EARTH_FLATTENING,
+                            )
+                        ]
+                    ]
+                )
+            ),
+            elevation,
+        )
+    if np.size(orbit_track.t) > 1:
+        return polygons
+    return polygons[0]
 
 
 def buffer_footprint(
@@ -983,13 +1030,14 @@ def _split_polygon_antimeridian(
             # extract and sort coords by longitude
             coords = polygon.exterior.coords[0:-1]
             coords.sort(key=lambda r: r[0])
-            # determine if contains north or south pole based on sign of first latitude
-            n_s = 1 if coords[0][1] > 0 else -1
+            # determine if contains north or south pole based on sign of mean latitude
+            n_s = 1 if np.array(coords)[:, 1].mean() > 0 else -1
             # interpolate latitude at antimeridian
             lat = np.interp(
                 180, [coords[-1][0], coords[0][0] + 180], [coords[-1][1], coords[0][1]]
             )
             # reconstruct polygon (ccw) with added coords on antimeridian
+            # TODO potential problem if provided polygon has z-dimension
             pgon = Polygon(
                 [(-180, 90 * n_s), (-180, lat)]
                 + coords
