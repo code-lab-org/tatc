@@ -101,31 +101,34 @@ def collect_orbit_track(
     instrument = satellite.instruments[instrument_index]
     # propagate orbit
     orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
-    geo_positions = wgs84.geographic_position_of(orbit_track)
+    ssp = wgs84.geographic_position_of(orbit_track)
     if mask is not None:
         # trim orbit track to provided mask
-        orbit_track = orbit_track[
+        mask_contains_ssp = [
             [
                 mask.contains(Point(longitude, latitude))
                 for (longitude, latitude) in zip(
-                    geo_positions.longitude.degrees, geo_positions.latitude.degrees
+                    ssp.longitude.degrees, ssp.latitude.degrees
                 )
             ]
         ]
+        orbit_track = orbit_track[mask_contains_ssp]
+        # recompute ssp
+        ssp = wgs84.geographic_position_of(orbit_track)
     # create shapely points in proper coordinate system
     if coordinates == OrbitCoordinate.WGS84:
         points = [
             Point(longitude, latitude, elevation)
             for (longitude, latitude, elevation) in zip(
-                geo_positions.longitude.degrees,
-                geo_positions.latitude.degrees,
-                geo_positions.elevation.m,
+                ssp.longitude.degrees,
+                ssp.latitude.degrees,
+                ssp.elevation.m,
             )
         ]
     elif coordinates == OrbitCoordinate.ECEF:
         points = [
             Point(position[0], position[1], position[2])
-            for position in geo_positions.itrs_xyz.m.T
+            for position in ssp.itrs_xyz.m.T
         ]
     else:
         points = [
@@ -145,7 +148,7 @@ def collect_orbit_track(
                 "satellite": satellite.name,
                 "instrument": instrument.name,
                 "swath_width": field_of_regard_to_swath_width(
-                    geo_positions.elevation.m[i],
+                    ssp.elevation.m[i],
                     instrument.field_of_regard,
                     elevation,
                 ),
@@ -173,7 +176,7 @@ def collect_orbit_track(
                 "satellite": satellite.name,
                 "instrument": instrument.name,
                 "swath_width": field_of_regard_to_swath_width(
-                    geo_positions.elevation.m[i],
+                    ssp.elevation.m[i],
                     instrument.field_of_regard,
                     elevation,
                 ),
@@ -184,10 +187,10 @@ def collect_orbit_track(
             for i, time in enumerate(orbit_track.t.utc_datetime())
         ]
 
-    gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
-    if mask is None:
-        return gdf
-    return gpd.clip(gdf, mask).reset_index(drop=True)
+    track = gpd.GeoDataFrame(records, crs="EPSG:4326")
+    # if mask is not None:
+        # track = gpd.clip(track, mask).reset_index(drop=True)
+    return track
 
 
 def _get_empty_ground_track() -> gpd.GeoDataFrame:
@@ -355,12 +358,12 @@ def collect_ground_track(
     ]
     # construct polygons based on visible extent of instrument
     # project to specified elevation
-    gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
+    track = gpd.GeoDataFrame(records, crs="EPSG:4326")
     if sat_altaz:
         # append satellite altitude/azimuth columns
         sat_altaz = (orbit_track - target.at(orbit_track.t)).altaz()
-        gdf["sat_alt"] = sat_altaz[0].degrees
-        gdf["sat_az"] = sat_altaz[1].degrees
+        track["sat_alt"] = sat_altaz[0].degrees
+        track["sat_az"] = sat_altaz[1].degrees
     if solar_altaz:
         # append solar altitude/azimuth columns
         solar_altaz = (
@@ -370,12 +373,12 @@ def collect_ground_track(
             .apparent()
             .altaz()
         )
-        gdf["solar_alt"] = solar_altaz[0].degrees
-        gdf["solar_az"] = solar_altaz[1].degrees
+        track["solar_alt"] = solar_altaz[0].degrees
+        track["solar_az"] = solar_altaz[1].degrees
 
     if mask is not None:
-        gdf = gpd.clip(gdf, mask).reset_index(drop=True)
-    return gdf
+        track = gpd.clip(track, mask).reset_index(drop=True)
+    return track
 
 
 def compute_ground_track(
