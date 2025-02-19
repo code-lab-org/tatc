@@ -105,12 +105,10 @@ def collect_orbit_track(
     if mask is not None:
         # trim orbit track to provided mask
         mask_contains_ssp = [
-            [
-                mask.contains(Point(longitude, latitude))
-                for (longitude, latitude) in zip(
-                    ssp.longitude.degrees, ssp.latitude.degrees
-                )
-            ]
+            mask.contains(Point(longitude, latitude))
+            for (longitude, latitude) in zip(
+                ssp.longitude.degrees, ssp.latitude.degrees
+            )
         ]
         orbit_track = orbit_track[mask_contains_ssp]
         # recompute ssp
