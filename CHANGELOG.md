@@ -1,5 +1,11 @@
 # TAT-C Change Log
 
+## 3.4.4
+ 
+Changed:
+ - Fixes bug in analysis function `collect_orbit_track` when specifying a `mask`.
+ - Allows `mask` argument to analysis functions `collect_orbit_track`, `collect_ground_track`, `compute_ground_track`, and `collect_ground_pixels` to have a GeoDataFrame, GeoSeries, or list-like type.
+
 ## 3.4.3
 
 Added:
