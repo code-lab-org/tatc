@@ -470,7 +470,7 @@ def compute_ground_track(
         # assign orbit identifier
         track["orbit_id"] = [
             (time - times[0]) // satellite.orbit.to_tle().get_orbit_period()
-            for time in times
+            for time in track.time
         ]
         # assign track identifiers to group contiguous observation periods
         track["track_id"] = (
