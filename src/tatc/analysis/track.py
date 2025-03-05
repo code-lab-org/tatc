@@ -452,13 +452,14 @@ def compute_ground_track(
         track = collect_ground_track(
             satellite, times, instrument_index, elevation, mask, crs
         )
-        # assign orbit identifier
-        track["orbit_id"] = [
-            (time - times[0]) // satellite.orbit.to_tle().get_orbit_period()
-            for time in times
-        ]
-        # filter to valid observations and dissolve
-        track = track[track.valid_obs].dissolve(by="orbit_id").reset_index(drop=True)
+        if not track.empty:
+            # assign orbit identifier
+            track["orbit_id"] = [
+                (time - times[0]) // satellite.orbit.to_tle().get_orbit_period()
+                for time in track.time
+            ]
+            # filter to valid observations and dissolve
+            track = track[track.valid_obs].dissolve(by="orbit_id").reset_index(drop=True)
         if dissolve_orbits:
             track = track.dissolve()
         return track
