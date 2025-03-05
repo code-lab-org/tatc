@@ -459,7 +459,9 @@ def compute_ground_track(
                 for time in track.time
             ]
             # filter to valid observations and dissolve
-            track = track[track.valid_obs].dissolve(by="orbit_id").reset_index(drop=True)
+            track = (
+                track[track.valid_obs].dissolve(by="orbit_id").reset_index(drop=True)
+            )
         if dissolve_orbits:
             track = track.dissolve()
         return track
