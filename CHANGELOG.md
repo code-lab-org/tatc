@@ -1,6 +1,9 @@
 # TAT-C Change Log
 
 ## 3.4.5
+
+Added:
+ - Support for Python 3.13.
  
 Changed:
  - Fixes bug in analysis function `compute_ground_track` when specifying a `mask`.
