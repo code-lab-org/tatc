@@ -82,8 +82,6 @@ def collect_orbit_track(
             MultiPolygon,
             gpd.GeoDataFrame,
             gpd.GeoSeries,
-            List[Polygon],
-            List[MultiPolygon],
         ]
     ] = None,
     coordinates: OrbitCoordinate = OrbitCoordinate.WGS84,
@@ -285,8 +283,6 @@ def collect_ground_track(
             MultiPolygon,
             gpd.GeoDataFrame,
             gpd.GeoSeries,
-            List[Polygon],
-            List[MultiPolygon],
         ]
     ] = None,
     crs: str = "EPSG:4087",
@@ -453,8 +449,6 @@ def compute_ground_track(
             MultiPolygon,
             gpd.GeoDataFrame,
             gpd.GeoSeries,
-            List[Polygon],
-            List[MultiPolygon],
         ]
     ] = None,
     crs: str = "EPSG:4087",
@@ -595,8 +589,6 @@ def collect_ground_pixels(
             MultiPolygon,
             gpd.GeoDataFrame,
             gpd.GeoSeries,
-            List[Polygon],
-            List[MultiPolygon],
         ]
     ] = None,
     sat_altaz: bool = False,
