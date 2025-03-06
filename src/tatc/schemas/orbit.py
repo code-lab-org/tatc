@@ -600,9 +600,9 @@ class TwoLineElements(BaseModel):
                 for i, t in zip(tle_i, times)
             ]
             return Geocentric(
-                [track.position.au for track in tracks],
-                [track.velocity.au_per_d for track in tracks],
-                [track.t for track in tracks],
+                np.array([track.position.au for track in tracks]).T,
+                np.array([track.velocity.au_per_d for track in tracks]).T,
+                constants.timescale.from_datetimes(times),
             )
         # create skyfield Time
         if isinstance(times, datetime):
@@ -615,12 +615,18 @@ class TwoLineElements(BaseModel):
             if repeat_cycle is not None:
                 epoch = self.get_epoch()
                 if isinstance(times, datetime):
+                    offset = times - epoch
                     repeat_times = constants.timescale.from_datetime(
-                        epoch + np.mod(times - epoch, repeat_cycle)
+                        epoch
+                        + np.sign(offset / timedelta(1))
+                        * np.mod(np.abs(offset), repeat_cycle)
                     )
                 else:
+                    offset = np.array(times) - epoch
                     repeat_times = constants.timescale.from_datetimes(
-                        epoch + np.mod(np.array(times) - epoch, repeat_cycle)
+                        epoch
+                        + np.sign(offset / timedelta(1))
+                        * np.mod(np.abs(offset), repeat_cycle)
                     )
                 repeat_track = self.as_skyfield().at(repeat_times)
                 return Geocentric(
@@ -661,14 +667,14 @@ class TwoLineElements(BaseModel):
                 self.as_skyfield(tle_is[i]).find_events(
                     topos,
                     constants.timescale.from_datetime(times[i]),
-                    constants.timescale.from_datetime(times[i+1]),
-                    min_elevation_angle
+                    constants.timescale.from_datetime(times[i + 1]),
+                    min_elevation_angle,
                 )
                 for i in range(len(times) - 1)
             ]
             return (
                 Time(ts=constants.timescale, tt=[t.tt for e in events for t in e[0]]),
-                np.array([t for e in events for t in e[1]])
+                np.array([t for e in events for t in e[1]]),
             )
         # create skyfield Time
         t_0 = constants.timescale.from_datetime(start)
