@@ -630,23 +630,35 @@ def collect_ground_pixels(
         raise ValueError(
             "Ground pixels are only compatible with rectangular PointedInstrument instances"
         )
-    # compute targets to cull footprint pixel array
-    target = instrument.compute_footprint_center(orbit_track, elevation)
     if mask is not None:
-        # trim orbit track to provided mask
-        mask_contains_target = [
+        # compute observable limb for culling
+        limb = compute_limb(orbit_track, elevation=elevation)
+        # cull orbit track to observable limb
+        mask_intersects_limb = [
             (
-                any(mask.contains(Point(longitude, latitude)))
+                any(mask.intersects(l))
                 if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries))
-                else mask.contains(Point(longitude, latitude))
+                else mask.intersects(l)
             )
-            for (longitude, latitude) in zip(
-                target.longitude.degrees, target.latitude.degrees
-            )
+            for l in (limb if isinstance(limb, list) else [limb])
         ]
-        if not any(mask_contains_target):
+        if not any(mask_intersects_limb):
             return _get_empty_ground_track()
-        orbit_track = orbit_track[mask_contains_target]
+        orbit_track = orbit_track[mask_intersects_limb]
+        # compute footprint for culling
+        footprint = instrument.compute_footprint(orbit_track, elevation=elevation)
+        # cull orbit track to observable footprint
+        mask_intersects_footprint = [
+            (
+                any(mask.intersects(f))
+                if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries))
+                else mask.intersects(f)
+            )
+            for f in (footprint if isinstance(footprint, list) else [footprint])
+        ]
+        if not any(mask_intersects_footprint):
+            return _get_empty_ground_track()
+        orbit_track = orbit_track[mask_intersects_footprint]
     # compute the footprint pixel array
     geometries = instrument.compute_footprint_pixel_array(
         orbit_track,
@@ -663,8 +675,8 @@ def collect_ground_pixels(
             ),
             "geometry": point,
         }
-        for i, time in enumerate(times)
-        for point in (geometries[i].geoms if len(times) > 1 else geometries.geoms)
+        for i, time in enumerate(orbit_track.t.utc_datetime())
+        for point in (geometries[i].geoms if len(orbit_track.t) > 1 else geometries.geoms)
     ]
     # build geodataframe
     gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
@@ -672,7 +684,7 @@ def collect_ground_pixels(
         # append satellite altitude/azimuth columns
         sat_altaz = [
             (
-                orbit_track[list(times).index(record["time"])]
+                orbit_track[list(orbit_track.t.utc_datetime()).index(record["time"])]
                 - wgs84.latlon(
                     record["geometry"].y, record["geometry"].x, record["geometry"].z
                 ).at(timescale.from_datetime(record["time"]))
