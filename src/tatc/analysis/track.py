@@ -676,7 +676,9 @@ def collect_ground_pixels(
             "geometry": point,
         }
         for i, time in enumerate(orbit_track.t.utc_datetime())
-        for point in (geometries[i].geoms if len(orbit_track.t) > 1 else geometries.geoms)
+        for point in (
+            geometries[i].geoms if len(orbit_track.t) > 1 else geometries.geoms
+        )
     ]
     # build geodataframe
     gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
