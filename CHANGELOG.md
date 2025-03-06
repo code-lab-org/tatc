@@ -1,5 +1,11 @@
 # TAT-C Change Log
 
+## 3.4.6
+ 
+Changed:
+ - Improves analysis function `collect_ground_track` when specifying a `mask` to include ground track area when the footprint center falls outside the masked domain.
+ - Fixed bugs in analysis functions `compute_orbit_track`, `collect_ground_track`, and `collect_ground_pixels` when specifying a `mask` with multiple geometries in a GeoSeries or GeoDataFrame.
+
 ## 3.4.5
 
 Added:
