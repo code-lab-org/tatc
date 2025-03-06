@@ -631,16 +631,16 @@ def compute_limb(
         Union[shapely.Geometry, List[shapely.Geometry]: The limb(s).
     """
     position, _ = orbit_track.frame_xyz_and_velocity(itrs)
-    polygons = [None] * np.size(orbit_track.t)
-    for i, _ in enumerate(polygons):
-        _position = position.m[:, i].copy() if position.m.ndim > 1 else position.m
+    polygons = [None] * np.size(position.m, axis=1) if position.m.ndim > 1 else None
+    for i in range(len(polygons)) if position.m.ndim > 1 else [-1]:
+        _position = position.m[:, i].copy() if i >= 0 else position.m
         limb = edlimb(
             constants.EARTH_EQUATORIAL_RADIUS + elevation,
             constants.EARTH_EQUATORIAL_RADIUS + elevation,
             constants.EARTH_POLAR_RADIUS + elevation,
             _position,
         )
-        polygons[i] = project_polygon_to_elevation(
+        polygon = project_polygon_to_elevation(
             split_polygon(
                 Polygon(
                     [
@@ -663,9 +663,11 @@ def compute_limb(
             ),
             elevation,
         )
-    if np.size(orbit_track.t) > 1:
-        return polygons
-    return polygons[0]
+        if i >= 0:
+            polygons[i] = polygon
+        else:
+            polygons = polygon
+    return polygons
 
 
 def buffer_footprint(
