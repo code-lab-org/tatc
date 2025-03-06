@@ -662,19 +662,21 @@ class TwoLineElements(BaseModel):
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
         if self.get_tle_count() > 1:
             # try to use use multiple TLEs
-            times, tle_is = self.partition_by_tle_index(start, end)
+            part_ts, tle_is = self.partition_by_tle_index(start, end)
             events = [
                 self.as_skyfield(tle_is[i]).find_events(
                     topos,
-                    constants.timescale.from_datetime(times[i]),
-                    constants.timescale.from_datetime(times[i + 1]),
+                    constants.timescale.from_datetime(part_ts[i]),
+                    constants.timescale.from_datetime(part_ts[i + 1]),
                     min_elevation_angle,
                 )
-                for i in range(len(times) - 1)
+                for i in range(len(part_ts) - 1)
             ]
             return (
-                Time(ts=constants.timescale, tt=[t.tt for e in events for t in e[0]]),
-                np.array([t for e in events for t in e[1]]),
+                constants.timescale.from_datetimes(
+                    [t.utc_datetime() for e in events for t in e[0]]
+                ),
+                np.array([v for e in events for v in e[1]]),
             )
         # create skyfield Time
         t_0 = constants.timescale.from_datetime(start)
