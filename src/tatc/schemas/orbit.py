@@ -8,18 +8,18 @@ Object schemas for satellite orbits.
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 import re
 
 import numpy as np
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AfterValidator, BaseModel, Field, field_validator
 from sgp4.api import Satrec, WGS72
 from sgp4 import exporter
 from sgp4.conveniences import sat_epoch_datetime
 from skyfield.api import EarthSatellite, Time, wgs84
 from skyfield.positionlib import Geocentric
 from skyfield.framelib import itrs
-from typing_extensions import Literal
+from typing_extensions import Annotated, Literal
 
 from .point import Point
 from .. import config, constants, utils
@@ -31,11 +31,10 @@ class TwoLineElements(BaseModel):
     """
 
     type: Literal["tle"] = Field("tle", description="Orbit type discriminator.")
-    tle: List[str] = Field(
+    tle: Annotated[List[str], AfterValidator(utils.is_even_length_list)] = Field(
         ...,
         description="Two line elements.",
         min_length=2,
-        max_length=2,
         examples=[
             [
                 "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
@@ -44,37 +43,55 @@ class TwoLineElements(BaseModel):
         ],
     )
 
-    def get_catalog_number(self) -> int:
+    def get_tle_count(self) -> int:
+        """
+        Gets the number of TLEs specified for this orbit.
+
+        Returns:
+            int: the number of TLEs
+        """
+        return len(self.tle) // 2
+
+    def get_catalog_number(self, tle_i=0) -> int:
         """
         Gets the TLE catalog number.
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             int: the catalog number
         """
         # pylint: disable=E1136
-        return int(self.tle[0][2:7])
+        return int(self.tle[2 * tle_i][2:7])
 
-    def get_classification(self) -> str:
+    def get_classification(self, tle_i=0) -> str:
         """
         Gets the TLE classification type (U: unclassified; C: classified).
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             str: the classification type
         """
         # pylint: disable=E1136
-        return self.tle[0][7]
+        return self.tle[2 * tle_i][7]
 
-    def get_international_designator(self) -> str:
+    def get_international_designator(self, tle_i=0) -> str:
         """
         Gets the TLE international designator.
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             str: the international designator
         """
         # pylint: disable=E1136
-        year = self.tle[0][9:11]
-        launch = self.tle[0][11:14]
-        piece = self.tle[0][14:17]
+        year = self.tle[2 * tle_i][9:11]
+        launch = self.tle[2 * tle_i][11:14]
+        piece = self.tle[2 * tle_i][14:17]
         return str(
             ("" if not year.isdigit() else "20" if int(year) < 57 else "19")
             + year
@@ -83,180 +100,233 @@ class TwoLineElements(BaseModel):
             + piece
         ).strip()
 
-    def get_epoch(self) -> datetime:
+    def get_epoch(self, tle_i=0) -> datetime:
         """
         Gets the TLE epoch time.
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             datetime: the epoch datetime
         """
         # pylint: disable=E1136
-        return sat_epoch_datetime(Satrec.twoline2rv(self.tle[0], self.tle[1]))
+        return sat_epoch_datetime(
+            Satrec.twoline2rv(self.tle[2 * tle_i], self.tle[2 * tle_i + 1])
+        )
 
-    def get_first_derivative_mean_motion(self) -> float:
+    def get_first_derivative_mean_motion(self, tle_i=0) -> float:
         """
         Gets the first derivative of mean motion (ballistic coefficient).
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             float: the first derivative of mean motion
         """
         # pylint: disable=E1136
-        return float(self.tle[0][33:43])
+        return float(self.tle[2 * tle_i][33:43])
 
-    def get_second_derivative_mean_motion(self) -> float:
+    def get_second_derivative_mean_motion(self, tle_i=0) -> float:
         """
         Gets the second derivative of mean motion.
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             float: the second derivative of mean motion
         """
         # pylint: disable=E1136
-        return float("0." + self.tle[0][44:50].strip()) * 10 ** (
-            int(self.tle[0][50:52])
+        return float("0." + self.tle[2 * tle_i][44:50].strip()) * 10 ** (
+            int(self.tle[2 * tle_i][50:52])
         )
 
-    def get_b_star(self) -> float:
+    def get_b_star(self, tle_i=0) -> float:
         """
         Gets the b-star term (drag or radiation pressure coefficient).
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             float: the b-star term
         """
         # pylint: disable=E1136
-        return float("0." + self.tle[0][53:59].strip()) * 10 ** (
-            int(self.tle[0][59:61])
+        return float("0." + self.tle[2 * tle_i][53:59].strip()) * 10 ** (
+            int(self.tle[2 * tle_i][59:61])
         )
 
-    def get_ephemeris_type(self) -> int:
+    def get_ephemeris_type(self, tle_i=0) -> int:
         """
         Gets the TLE ephemeris type.
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             int: the ephemeris type
         """
         # pylint: disable=E1136
-        return int(self.tle[0][62])
+        return int(self.tle[2 * tle_i][62])
 
-    def get_element_set_number(self) -> int:
+    def get_element_set_number(self, tle_i=0) -> int:
         """
         Gets the TLE element set number.
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             int: the element set number
         """
         # pylint: disable=E1136
-        return int(self.tle[0][64:68])
+        return int(self.tle[2 * tle_i][64:68])
 
-    def get_inclination(self) -> float:
+    def get_inclination(self, tle_i=0) -> float:
         """
         Gets the orbit inclination (decimal degrees).
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             float: the inclination
         """
         # pylint: disable=E1136
-        return float(self.tle[1][8:16])
+        return float(self.tle[2 * tle_i + 1][8:16])
 
-    def get_right_ascension_ascending_node(self) -> float:
+    def get_right_ascension_ascending_node(self, tle_i=0) -> float:
         """
         Gets the right ascension of ascending node (decimal degrees).
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             float: the right ascension of ascending node
         """
         # pylint: disable=E1136
-        return float(self.tle[1][17:25])
+        return float(self.tle[2 * tle_i + 1][17:25])
 
-    def get_eccentricity(self) -> float:
+    def get_eccentricity(self, tle_i=0) -> float:
         """
         Gets the eccentricity.
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             float: the eccentricity
         """
         # pylint: disable=E1136
-        return float("0." + self.tle[1][26:33].strip())
+        return float("0." + self.tle[2 * tle_i + 1][26:33].strip())
 
-    def get_perigee_argument(self) -> float:
+    def get_perigee_argument(self, tle_i=0) -> float:
         """
         Gets the argument of perigee (decimal degrees).
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             float: the argument of perigee
         """
         # pylint: disable=E1136
-        return float(self.tle[1][34:42])
+        return float(self.tle[2 * tle_i + 1][34:42])
 
-    def get_mean_anomaly(self) -> float:
+    def get_mean_anomaly(self, tle_i=0) -> float:
         """
         Gets the mean anomaly (decimal degrees).
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             float: the mean anomaly
         """
         # pylint: disable=E1136
-        return float(self.tle[1][43:51])
+        return float(self.tle[2 * tle_i + 1][43:51])
 
-    def get_mean_motion(self) -> float:
+    def get_mean_motion(self, tle_i=0) -> float:
         """
         Gets the mean motion (revolutions per day).
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             float: the mean motion
         """
         # pylint: disable=E1136
-        return float(self.tle[1][52:63])
+        return float(self.tle[2 * tle_i + 1][52:63])
 
-    def get_orbit_period(self) -> timedelta:
+    def get_orbit_period(self, tle_i=0) -> timedelta:
         """
         Gets the approximate orbit period.
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             timedelta: the orbit period
         """
-        return timedelta(days=1 / self.get_mean_motion())
+        return timedelta(days=1 / self.get_mean_motion(tle_i))
 
-    def get_revolution_number_at_epoch(self) -> int:
+    def get_revolution_number_at_epoch(self, tle_i=0) -> int:
         """
         Gets the revolution number at epoch.
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             timedelta: the revolution number
         """
         # pylint: disable=E1136
-        return int(self.tle[1][63:68])
+        return int(self.tle[2 * tle_i + 1][63:68])
 
-    def get_semimajor_axis(self) -> float:
+    def get_semimajor_axis(self, tle_i=0) -> float:
         """
         Gets the semimajor axis (meters).
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             float: the semimajor axis
         """
-        mean_motion_rad_s = self.get_mean_motion() * 2 * np.pi / 86400
+        mean_motion_rad_s = self.get_mean_motion(tle_i) * 2 * np.pi / 86400
         return np.power(
             constants.EARTH_MU / mean_motion_rad_s**2,
             1 / 3,
         )
 
-    def get_altitude(self) -> float:
+    def get_altitude(self, tle_i=0) -> float:
         """
         Gets the altitude (meters).
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             float: the altitude
         """
-        return self.get_semimajor_axis() - constants.EARTH_MEAN_RADIUS
+        return self.get_semimajor_axis(tle_i) - constants.EARTH_MEAN_RADIUS
 
-    def get_true_anomaly(self) -> float:
+    def get_true_anomaly(self, tle_i=0) -> float:
         """
         Gets the true anomaly (decimal degrees).
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             float: the true anomaly
         """
         return utils.mean_anomaly_to_true_anomaly(
-            self.get_mean_anomaly(), self.get_eccentricity()
+            self.get_mean_anomaly(tle_i), self.get_eccentricity(tle_i)
         )
 
     @field_validator("tle")
@@ -265,41 +335,42 @@ class TwoLineElements(BaseModel):
         """
         Validate the two line element set.
         """
-        # based on orekit's TLE.isFormatOK function
-        if len(v[0]) != 69:
-            raise ValueError("Invalid tle: line 1 incorrect length.")
-        if len(v[1]) != 69:
-            raise ValueError("Invalid tle: line 2 incorrect length.")
+        for i in range(0, len(v), 2):
+            # based on orekit's TLE.isFormatOK function
+            if len(v[i]) != 69:
+                raise ValueError(f"Invalid tle: line {i+1} incorrect length.")
+            if len(v[i + 1]) != 69:
+                raise ValueError(f"Invalid tle: line {i+2} incorrect length.")
 
-        line_1_pattern = (
-            r"1 [ 0-9A-HJ-NP-Z][ 0-9]{4}[A-Z] [ 0-9]{5}[ A-Z]{3} "
-            + r"[ 0-9]{5}[.][ 0-9]{8} (?:(?:[ 0+-][.][ 0-9]{8})|(?: "
-            + r"[ +-][.][ 0-9]{7})) [ +-][ 0-9]{5}[+-][ 0-9] "
-            + r"[ +-][ 0-9]{5}[+-][ 0-9] [ 0-9] [ 0-9]{4}[ 0-9]"
-        )
-        if re.match(line_1_pattern, v[0]) is None:
-            raise ValueError("Invalid tle: line 1 does not match pattern.")
-        line_2_pattern = (
-            r"2 [ 0-9A-HJ-NP-Z][ 0-9]{4} [ 0-9]{3}[.][ 0-9]{4} "
-            + r"[ 0-9]{3}[.][ 0-9]{4} [ 0-9]{7} [ 0-9]{3}[.][ 0-9]{4} "
-            + r"[ 0-9]{3}[.][ 0-9]{4} [ 0-9]{2}[.][ 0-9]{13}[ 0-9]"
-        )
-        if re.match(line_2_pattern, v[1]) is None:
-            raise ValueError("Invalid tle: line 2 does not match pattern.")
+            line_1_pattern = (
+                r"1 [ 0-9A-HJ-NP-Z][ 0-9]{4}[A-Z] [ 0-9]{5}[ A-Z]{3} "
+                + r"[ 0-9]{5}[.][ 0-9]{8} (?:(?:[ 0+-][.][ 0-9]{8})|(?: "
+                + r"[ +-][.][ 0-9]{7})) [ +-][ 0-9]{5}[+-][ 0-9] "
+                + r"[ +-][ 0-9]{5}[+-][ 0-9] [ 0-9] [ 0-9]{4}[ 0-9]"
+            )
+            if re.match(line_1_pattern, v[i]) is None:
+                raise ValueError(f"Invalid tle: line {i+1} does not match pattern.")
+            line_2_pattern = (
+                r"2 [ 0-9A-HJ-NP-Z][ 0-9]{4} [ 0-9]{3}[.][ 0-9]{4} "
+                + r"[ 0-9]{3}[.][ 0-9]{4} [ 0-9]{7} [ 0-9]{3}[.][ 0-9]{4} "
+                + r"[ 0-9]{3}[.][ 0-9]{4} [ 0-9]{2}[.][ 0-9]{13}[ 0-9]"
+            )
+            if re.match(line_2_pattern, v[i + 1]) is None:
+                raise ValueError(f"Invalid tle: line {i+2} does not match pattern.")
 
-        def checksum(line):
-            the_sum = 0
-            for i in range(68):
-                if line[i].isdigit():
-                    the_sum += int(line[i])
-                elif line[i] == "-":
-                    the_sum += 1
-            return the_sum % 10
+            def checksum(line):
+                the_sum = 0
+                for j in range(68):
+                    if line[j].isdigit():
+                        the_sum += int(line[j])
+                    elif line[j] == "-":
+                        the_sum += 1
+                return the_sum % 10
 
-        if int(v[0][68]) != checksum(v[0]):
-            raise ValueError("Invalid tle: line 1 checksum failed.")
-        if int(v[1][68]) != checksum(v[1]):
-            raise ValueError("Invalid tle: line 2 checksum failed.")
+            if int(v[i][68]) != checksum(v[i]):
+                raise ValueError(f"Invalid tle: line {i+1} checksum failed.")
+            if int(v[i + 1][68]) != checksum(v[i + 1]):
+                raise ValueError(f"Invalid tle: line {1+2} checksum failed.")
         return v
 
     def get_derived_orbit(
@@ -316,37 +387,109 @@ class TwoLineElements(BaseModel):
         Returns:
             TwoLineElements: the derived orbit
         """
-        # pylint: disable=E1136
-        lead_tle = Satrec.twoline2rv(self.tle[0], self.tle[1])
-        epoch = sat_epoch_datetime(lead_tle)
-        satrec = Satrec()
-        satrec.sgp4init(
-            WGS72,
-            "i",
-            0,
-            (epoch - datetime(1949, 12, 31, tzinfo=timezone.utc)) / timedelta(days=1),
-            lead_tle.bstar,
-            lead_tle.ndot,
-            lead_tle.nddot,
-            lead_tle.ecco,
-            lead_tle.argpo,
-            lead_tle.inclo,
-            np.mod(lead_tle.mo + np.radians(delta_mean_anomaly), 2 * np.pi),
-            lead_tle.no_kozai,
-            np.mod(lead_tle.nodeo + np.radians(delta_raan), 2 * np.pi),
-        )
-        tle1, tle2 = exporter.export_tle(satrec)
-        return TwoLineElements(tle=[tle1.replace("\x00", "U"), tle2])
+        # pylint: disable=E1101
+        tles = self.tle.copy()
+        for i in range(self.get_tle_count()):
+            # pylint: disable=E1136
+            lead_tle = Satrec.twoline2rv(self.tle[2 * i], self.tle[2 * i + 1])
+            epoch = sat_epoch_datetime(lead_tle)
+            satrec = Satrec()
+            satrec.sgp4init(
+                WGS72,
+                "i",
+                0,
+                (epoch - datetime(1949, 12, 31, tzinfo=timezone.utc))
+                / timedelta(days=1),
+                lead_tle.bstar,
+                lead_tle.ndot,
+                lead_tle.nddot,
+                lead_tle.ecco,
+                lead_tle.argpo,
+                lead_tle.inclo,
+                np.mod(lead_tle.mo + np.radians(delta_mean_anomaly), 2 * np.pi),
+                lead_tle.no_kozai,
+                np.mod(lead_tle.nodeo + np.radians(delta_raan), 2 * np.pi),
+            )
+            tle1, tle2 = exporter.export_tle(satrec)
+            tles[2 * i] = tle1.replace("\x00", "U")
+            tles[2 * i + 1] = tle2
+        return TwoLineElements(tle=tles)
 
-    def as_skyfield(self):
+    def as_skyfield(self, tle_i=0):
         """
         Converts this orbit to a Skyfield `EarthSatellite`.
+
+        Args:
+            tle_i (int): the TLE index.
 
         Returns:
             skyfield.api.EarthSatellite: the Skyfield EarthSatellite
         """
         # pylint: disable=E1136
-        return EarthSatellite(self.tle[0], self.tle[1])
+        return EarthSatellite(self.tle[2 * tle_i], self.tle[2 * tle_i + 1])
+
+    def get_closest_tle_index(
+        self, at_times: Union[datetime, List[datetime]]
+    ) -> Union[int, List[int]]:
+        """
+        Gets the closest TLE index to specified time(s).
+
+        Args:
+            at_times (datetime or List[datetime]): specified times
+
+        Returns:
+            int or List[int]: closest TLE index or indices
+        """
+        if at_times is None:
+            return 0
+        if isinstance(at_times, datetime):
+            return int(
+                np.argmin(
+                    [
+                        abs(self.get_epoch(i) - at_times)
+                        for i in range(self.get_tle_count())
+                    ]
+                )
+            )
+        return [
+            int(
+                np.argmin(
+                    [abs(self.get_epoch(i) - t) for i in range(self.get_tle_count())]
+                )
+            )
+            for t in at_times
+        ]
+
+    def partition_by_tle_index(
+        self, start: datetime, end: datetime
+    ) -> Tuple[List[datetime], List[int]]:
+        """
+        Partition a timeline based on closest TLE index.
+
+        Args:
+            start (datetime): Start time.
+            end (datetime): End time.
+
+        Returns:
+            Tuple[List[datetime], List[int]]: list of partitioned times and assigned TLE indices
+        """
+        if self.get_tle_count() <= 1:
+            return [start, end], [0, 0]
+        epochs = [self.get_epoch(i) for i in range(self.get_tle_count())]
+        sorted_epochs = np.sort(epochs)
+        tle_i = np.argsort(epochs)
+        epoch_midpoints = (
+            sorted_epochs[1:] + (sorted_epochs[:-1] - sorted_epochs[1:]) / 2
+        )
+        midpoint_indices = [i for i, t in enumerate(epoch_midpoints) if start < t < end]
+        return (
+            [start] + list(epoch_midpoints[midpoint_indices]) + [end],
+            (
+                [self.get_closest_tle_index(start)]
+                + list(map(int, tle_i[midpoint_indices]))
+                + [self.get_closest_tle_index(end)]
+            ),
+        )
 
     def get_repeat_cycle(
         self,
@@ -444,6 +587,23 @@ class TwoLineElements(BaseModel):
         # load defaults
         if try_repeat is None:
             try_repeat = config.rc.repeat_cycle_for_orbit_track
+
+        if self.get_tle_count() > 1:
+            # try to use use multiple TLEs
+            if isinstance(times, datetime):
+                return self.as_skyfield(self.get_closest_tle_index(times)).at(
+                    constants.timescale.from_datetime(times)
+                )
+            tle_i = self.get_closest_tle_index(times)
+            tracks = [
+                self.as_skyfield(i).at(constants.timescale.from_datetime(t))
+                for i, t in zip(tle_i, times)
+            ]
+            return Geocentric(
+                np.array([track.position.au for track in tracks]).T,
+                np.array([track.velocity.au_per_d for track in tracks]).T,
+                constants.timescale.from_datetimes(times),
+            )
         # create skyfield Time
         if isinstance(times, datetime):
             ts_times = constants.timescale.from_datetime(times)
@@ -455,12 +615,18 @@ class TwoLineElements(BaseModel):
             if repeat_cycle is not None:
                 epoch = self.get_epoch()
                 if isinstance(times, datetime):
+                    offset = times - epoch
                     repeat_times = constants.timescale.from_datetime(
-                        epoch + np.mod(times - epoch, repeat_cycle)
+                        epoch
+                        + np.sign(offset / timedelta(1))
+                        * np.mod(np.abs(offset), repeat_cycle)
                     )
                 else:
+                    offset = np.array(times) - epoch
                     repeat_times = constants.timescale.from_datetimes(
-                        epoch + np.mod(np.array(times) - epoch, repeat_cycle)
+                        epoch
+                        + np.sign(offset / timedelta(1))
+                        * np.mod(np.abs(offset), repeat_cycle)
                     )
                 repeat_track = self.as_skyfield().at(repeat_times)
                 return Geocentric(
@@ -493,9 +659,27 @@ class TwoLineElements(BaseModel):
         # load defaults
         if try_repeat is None:
             try_repeat = config.rc.repeat_cycle_for_observation_events
+        topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
+        if self.get_tle_count() > 1:
+            # try to use use multiple TLEs
+            part_ts, tle_is = self.partition_by_tle_index(start, end)
+            events = [
+                self.as_skyfield(tle_is[i]).find_events(
+                    topos,
+                    constants.timescale.from_datetime(part_ts[i]),
+                    constants.timescale.from_datetime(part_ts[i + 1]),
+                    min_elevation_angle,
+                )
+                for i in range(len(part_ts) - 1)
+            ]
+            return (
+                constants.timescale.from_datetimes(
+                    [t.utc_datetime() for e in events for t in e[0]]
+                ),
+                np.array([v for e in events for v in e[1]]),
+            )
         # create skyfield Time
         t_0 = constants.timescale.from_datetime(start)
-        topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
         if try_repeat:
             # try to compute repeat cycle events
             repeat_cycle = self.get_repeat_cycle()

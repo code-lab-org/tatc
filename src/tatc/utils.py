@@ -1161,3 +1161,12 @@ def zero_pad(object_name: str, max_number: int, current_number: int) -> str:
     """
     max_length = len(str(max_number))
     return object_name + " " + str(current_number).zfill(max_length)
+
+
+def is_even_length_list(value: List) -> List:
+    """
+    Validator to check for even-length lists.
+    """
+    if len(value) % 2 == 1:
+        raise ValueError(f"{value} does not have even length")
+    return value

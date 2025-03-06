@@ -1,10 +1,14 @@
 # TAT-C Change Log
 
 ## 3.4.7
+
+Added:
+ - Allow `TwoLineElements` orbits to accept multiple TLE pairs to more accurately reproduce historical orbits.
  
 Changed:
  - Improves analysis function `collect_ground_pixels` when specifying a `mask` to include pixels when the footprint center falls outside the masked domain.
  - Fixes bugs in utility functions `compute_projected_ray_position` and `compute_limb` if the requested times are an array of length 1.
+ - Fixes a bug in orbit progagation for orbits with a repeat cycle where large state errors occurred at simulation times prior to the epoch date.
 
 ## 3.4.6
  
