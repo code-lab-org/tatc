@@ -140,7 +140,7 @@ class TestCoverageAnalysis(unittest.TestCase):
         )
 
     def test_collect_multi_observations_null(self):
-        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        start = datetime(2022, 6, 1, 0, 10, tzinfo=timezone.utc)
         end = datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc)
         results = collect_multi_observations(
             self.point,
@@ -171,7 +171,7 @@ class TestCoverageAnalysis(unittest.TestCase):
         results = collect_multi_observations(
             self.point,
             self.constellation.generate_members(),
-            datetime(2022, 6, 1, tzinfo=timezone.utc),
+            datetime(2022, 6, 1, 0, 10, tzinfo=timezone.utc),
             datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
         )
         results = aggregate_observations(results)
@@ -206,7 +206,7 @@ class TestCoverageAnalysis(unittest.TestCase):
         results = collect_multi_observations(
             self.point,
             self.constellation.generate_members(),
-            datetime(2022, 6, 1, tzinfo=timezone.utc),
+            datetime(2022, 6, 1, 0, 10, tzinfo=timezone.utc),
             datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
         )
         aggregated_results = aggregate_observations(results)
