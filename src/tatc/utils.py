@@ -462,7 +462,7 @@ def compute_projected_ray_position(
             + n * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
         )
     geos = np.zeros_like(position.m)
-    for i in range(np.size(geos, axis=1)) if len(np.shape(geos)) > 1 else [-1]:
+    for i in range(np.size(geos, axis=1)) if geos.ndim > 1 else [-1]:
         _position = position.m[:, i].copy() if i >= 0 else position.m
         _ray = ray[:, i].copy() if i >= 0 else ray
         # find the intersection of the ray and the WGS 84 geoid
@@ -633,7 +633,7 @@ def compute_limb(
     position, _ = orbit_track.frame_xyz_and_velocity(itrs)
     polygons = [None] * np.size(orbit_track.t)
     for i, _ in enumerate(polygons):
-        _position = position.m[:, i].copy() if len(polygons) > 1 else position.m
+        _position = position.m[:, i].copy() if position.m.ndim > 1 else position.m
         limb = edlimb(
             constants.EARTH_EQUATORIAL_RADIUS + elevation,
             constants.EARTH_EQUATORIAL_RADIUS + elevation,
