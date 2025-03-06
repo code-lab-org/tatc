@@ -28,6 +28,7 @@ from ..schemas.instrument import PointedInstrument
 from ..schemas.satellite import Satellite
 from ..utils import (
     buffer_footprint,
+    compute_limb,
     field_of_regard_to_swath_width,
 )
 from ..constants import de421, EARTH_MEAN_RADIUS, timescale
@@ -99,7 +100,7 @@ def collect_orbit_track(
         instrument_index (int): The index of the observing instrument in satellite.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate swath width.
-        mask (Polygon, MultiPolygon, geopandas.GeoDataFrame, geopandas.GeoSeries, or list-like):
+        mask (Polygon, MultiPolygon, geopandas.GeoDataFrame, geopandas.GeoSeries):
                 An optional mask to constrain results.
         coordinates (OrbitCoordinate): The coordinate system of orbit track points.
         orbit_output (OrbitOutput): The output option.
@@ -119,13 +120,17 @@ def collect_orbit_track(
     if mask is not None:
         # trim orbit track to provided mask
         mask_contains_ssp = [
-            mask.contains(Point(longitude, latitude))
+            (
+                any(mask.contains(Point(longitude, latitude)))
+                if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries))
+                else mask.contains(Point(longitude, latitude))
+            )
             for (longitude, latitude) in zip(
                 ssp.longitude.degrees, ssp.latitude.degrees
             )
         ]
-        if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries, list)):
-            mask_contains_ssp = list(map(all, mask_contains_ssp))
+        if not any(mask_contains_ssp):
+            return _get_empty_orbit_track()
         orbit_track = orbit_track[mask_contains_ssp]
         # recompute ssp
         ssp = wgs84.geographic_position_of(orbit_track)
@@ -297,7 +302,7 @@ def collect_ground_track(
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate ground track.
-        mask (Polygon, MultiPolygon, geopandas.GeoDataFrame, geopandas.GeoSeries, or list-like):
+        mask (Polygon, MultiPolygon, geopandas.GeoDataFrame, geopandas.GeoSeries):
                 An optional mask to constrain results.
         crs (str): The coordinate reference system (CRS) in which to compute
                 distance (default: World Equidistant Cylindrical `"EPSG:4087"`).
@@ -318,21 +323,37 @@ def collect_ground_track(
     orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
+    if mask is not None:
+        # compute observable limb for culling
+        limb = compute_limb(orbit_track, elevation=elevation)
+        # cull orbit track to observable limb
+        mask_intersects_limb = [
+            (
+                any(mask.intersects(l))
+                if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries))
+                else mask.intersects(l)
+            )
+            for l in (limb if isinstance(limb, list) else [limb])
+        ]
+        if not any(mask_intersects_limb):
+            return _get_empty_ground_track()
+        orbit_track = orbit_track[mask_intersects_limb]
+        # compute footprint for culling
+        footprint = instrument.compute_footprint(orbit_track, elevation=elevation)
+        # cull orbit track to observable footprint
+        mask_intersects_footprint = [
+            (
+                any(mask.intersects(f))
+                if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries))
+                else mask.intersects(f)
+            )
+            for f in (footprint if isinstance(footprint, list) else [footprint])
+        ]
+        if not any(mask_intersects_footprint):
+            return _get_empty_ground_track()
+        orbit_track = orbit_track[mask_intersects_footprint]
     # compute targets
     target = instrument.compute_footprint_center(orbit_track, elevation)
-    if mask is not None:
-        # trim orbit track to provided mask
-        mask_contains_target = [
-            mask.contains(Point(longitude, latitude))
-            for (longitude, latitude) in zip(
-                target.longitude.degrees, target.latitude.degrees
-            )
-        ]
-        if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries, list)):
-            mask_contains_target = list(map(all, mask_contains_target))
-        orbit_track = orbit_track[mask_contains_target]
-        # recompute targets
-        target = instrument.compute_footprint_center(orbit_track, elevation)
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track, target)
     if len(orbit_track.t) == 1:
@@ -449,7 +470,7 @@ def compute_ground_track(
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate ground track.
-        mask (Polygon, MultiPolygon, geopandas.GeoDataFrame, geopandas.GeoSeries, or list-like):
+        mask (Polygon, MultiPolygon, geopandas.GeoDataFrame, geopandas.GeoSeries):
                 An optional mask to constrain results.
         crs (str): The coordinate reference system (CRS) in which to compute
                 distance (default: World Equidistant Cylindrical `"EPSG:4087"`).
@@ -590,7 +611,7 @@ def collect_ground_pixels(
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate ground pixels.
-        mask (Polygon, MultiPolygon, geopandas.GeoDataFrame, geopandas.GeoSeries, or list-like):
+        mask (Polygon, MultiPolygon, geopandas.GeoDataFrame, geopandas.GeoSeries):
                 An optional mask to constrain results.
         sat_altaz (bool): `True` to include satellite altitude/azimuth angles.
         solar_altaz (bool): `True` to include solar altitude/azimuth angles.
@@ -614,13 +635,17 @@ def collect_ground_pixels(
     if mask is not None:
         # trim orbit track to provided mask
         mask_contains_target = [
-            mask.contains(Point(longitude, latitude))
+            (
+                any(mask.contains(Point(longitude, latitude)))
+                if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries))
+                else mask.contains(Point(longitude, latitude))
+            )
             for (longitude, latitude) in zip(
                 target.longitude.degrees, target.latitude.degrees
             )
         ]
-        if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries, list)):
-            mask_contains_target = list(map(all, mask_contains_target))
+        if not any(mask_contains_target):
+            return _get_empty_ground_track()
         orbit_track = orbit_track[mask_contains_target]
     # compute the footprint pixel array
     geometries = instrument.compute_footprint_pixel_array(
