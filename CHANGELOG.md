@@ -4,6 +4,7 @@
 
 Added:
  - Support for Python 3.13.
+ - Analysis function `collect_orbit_track` arguments `sat_sunlit` and `solar_altaz` optionally report satellite sunlit and solar altitude/azimuth metrics.
  
 Changed:
  - Fixes bug in analysis function `compute_ground_track` when specifying a `mask`.

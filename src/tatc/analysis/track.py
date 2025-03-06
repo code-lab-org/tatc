@@ -87,6 +87,8 @@ def collect_orbit_track(
     ] = None,
     coordinates: OrbitCoordinate = OrbitCoordinate.WGS84,
     orbit_output: OrbitOutput = OrbitOutput.POSITION,
+    sat_sunlit: bool = False,
+    solar_altaz: bool = False,
 ) -> gpd.GeoDataFrame:
     """
     Collect orbit track points for a satellite of interest.
@@ -101,6 +103,8 @@ def collect_orbit_track(
                 An optional mask to constrain results.
         coordinates (OrbitCoordinate): The coordinate system of orbit track points.
         orbit_output (OrbitOutput): The output option.
+        sat_sunlit (bool): `True` to include whether the satellite is sunlit.
+        solar_altaz (bool): `True` to include solar altitude/azimuth angles.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected orbit track results.
@@ -198,6 +202,20 @@ def collect_orbit_track(
         ]
 
     track = gpd.GeoDataFrame(records, crs="EPSG:4326")
+    if sat_sunlit:
+        # append sat_sunlit column
+        track["sat_sunlit"] = orbit_track.is_sunlit(de421)
+    if solar_altaz:
+        # append solar altitude/azimuth columns
+        solar_altaz = (
+            (de421["earth"] + wgs84.geographic_position_of(orbit_track))
+            .at(orbit_track.t)
+            .observe(de421["sun"])
+            .apparent()
+            .altaz()
+        )
+        track["solar_alt"] = solar_altaz[0].degrees
+        track["solar_az"] = solar_altaz[1].degrees
     if mask is not None:
         track = gpd.clip(track, mask).reset_index(drop=True)
     return track
@@ -362,6 +380,8 @@ def collect_ground_track(
             from_crs = pyproj.Transformer.from_crs(
                 pyproj.CRS(crs), gdf.crs, always_xy=True
             )
+            # construct polygons based on visible extent of instrument
+            # project to specified elevation
             geometries = gdf.apply(
                 lambda r: buffer_footprint(
                     r.geometry, to_crs, from_crs, r.swath_width, elevation
@@ -378,8 +398,6 @@ def collect_ground_track(
         }
         for i, time in enumerate(orbit_track.t.utc_datetime())
     ]
-    # construct polygons based on visible extent of instrument
-    # project to specified elevation
     track = gpd.GeoDataFrame(records, crs="EPSG:4326")
     if sat_altaz:
         # append satellite altitude/azimuth columns
