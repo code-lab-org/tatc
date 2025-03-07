@@ -1218,7 +1218,7 @@ def is_valid_tle(v: List[str]) -> List[str]:
     return v
 
 
-def ensure_chronological_tle(v: List[str]) -> List[str]:
+def is_chronological_tle(v: List[str]) -> List[str]:
     """
     Validator to check for chronological TLEs.
     """

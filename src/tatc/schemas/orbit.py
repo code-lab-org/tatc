@@ -32,7 +32,7 @@ class TwoLineElements(BaseModel):
     type: Literal["tle"] = Field("tle", description="Orbit type discriminator.")
     tle: Annotated[
         List[str],
-        AfterValidator(utils.ensure_chronological_tle),
+        AfterValidator(utils.is_chronological_tle),
         AfterValidator(utils.is_valid_tle),
         AfterValidator(utils.is_even_length_list),
     ] = Field(
