@@ -407,9 +407,9 @@ class TwoLineElements(BaseModel):
         tle_epochs = self.__dict__.get("tle_epochs")
         if tle_epochs is None:
             # extract the orbit epoch time
-            tle_epochs = np.array([
-                self.get_epoch(i) for i in range(self.get_tle_count())
-            ])
+            tle_epochs = np.array(
+                [self.get_epoch(i) for i in range(self.get_tle_count())]
+            )
             self.__dict__["tle_epochs"] = tle_epochs
         # handle scalar
         if isinstance(at_times, datetime):

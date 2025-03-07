@@ -1222,10 +1222,12 @@ def ensure_chronological_tle(v: List[str]) -> List[str]:
     """
     Validator to check for chronological TLEs.
     """
-    epochs = np.array([
-        sat_epoch_datetime(Satrec.twoline2rv(v[i], v[i + 1]))
-        for i in range(0, len(v), 2)
-    ])
+    epochs = np.array(
+        [
+            sat_epoch_datetime(Satrec.twoline2rv(v[i], v[i + 1]))
+            for i in range(0, len(v), 2)
+        ]
+    )
     if not all(epochs[:-1] <= epochs[1:]):
         raise ValueError(f"Invalid multi-tle: not in chronological order.")
     return v
