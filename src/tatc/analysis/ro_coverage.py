@@ -291,6 +291,6 @@ def collect_ro_observations(
                     ),
                 )
             ]
-        ], 
-        crs="EPSG:4326"
+        ],
+        crs="EPSG:4326",
     ).sort_values("time", ignore_index=True)
