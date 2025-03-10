@@ -11,6 +11,7 @@ from itertools import chain
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 from shapely.geometry import MultiPoint, Point
 from skyfield.api import wgs84, Distance, Velocity
 from skyfield.positionlib import Geocentric
@@ -177,6 +178,29 @@ def _collect_ro_series(
     return occ_obs
 
 
+def _get_empty_ro_frame() -> gpd.GeoDataFrame:
+    """
+    Gets an empty data frame for ro results.
+
+    Returns:
+        geopandas.GeoDataFrame: Empty data frame.
+    """
+    columns = {
+        "receiver": pd.Series([], dtype="str"),
+        "transmitter": pd.Series([], dtype="str"),
+        "is_rising": pd.Series([], dtype="float"),
+        "geometry": pd.Series([], dtype="object"),
+        "position": pd.Series([], dtype="object"),
+        "rx_tx_pitch": pd.Series([], dtype="float"),
+        "rx_tx_yaw": pd.Series([], dtype="float"),
+        "tp_tx_azimuth": pd.Series([], dtype="float"),
+        "start": pd.Series([], dtype="datetime64[ns, utc]"),
+        "end": pd.Series([], dtype="datetime64[ns, utc]"),
+        "time": pd.Series([], dtype="datetime64[ns, utc]"),
+    }
+    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
+
+
 def collect_ro_observations(
     receiver: Satellite,
     transmitters: Union[Satellite, List[Satellite]],
@@ -227,6 +251,8 @@ def collect_ro_observations(
             ]
         )
     )
+    if len(obs) == 0:
+        return _get_empty_ro_frame()
     # format results
     return gpd.GeoDataFrame(
         [
@@ -265,5 +291,6 @@ def collect_ro_observations(
                     ),
                 )
             ]
-        ]
+        ],
+        crs="EPSG:4326",
     ).sort_values("time", ignore_index=True)

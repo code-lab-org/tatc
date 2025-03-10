@@ -4,12 +4,15 @@ Utility functions.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+import re
 from typing import List, Union
 
 import numpy as np
 from numba import njit
 import geopandas as gpd
 from pyproj import Transformer
+from sgp4.conveniences import sat_epoch_datetime
+from sgp4.api import Satrec
 from shapely import Geometry, make_valid
 from shapely.geometry import (
     Point,
@@ -1163,10 +1166,68 @@ def zero_pad(object_name: str, max_number: int, current_number: int) -> str:
     return object_name + " " + str(current_number).zfill(max_length)
 
 
-def is_even_length_list(value: List) -> List:
+def is_even_length_list(v: List) -> List:
     """
     Validator to check for even-length lists.
     """
-    if len(value) % 2 == 1:
-        raise ValueError(f"{value} does not have even length")
-    return value
+    if len(v) % 2 == 1:
+        raise ValueError(f"{v} does not have even length")
+    return v
+
+
+def is_valid_tle(v: List[str]) -> List[str]:
+    """
+    Validate the two line element set.
+    """
+    for i in range(0, len(v), 2):
+        # based on orekit's TLE.isFormatOK function
+        if len(v[i]) != 69:
+            raise ValueError(f"Invalid tle: line {i+1} incorrect length.")
+        if len(v[i + 1]) != 69:
+            raise ValueError(f"Invalid tle: line {i+2} incorrect length.")
+
+        line_1_pattern = (
+            r"1 [ 0-9A-HJ-NP-Z][ 0-9]{4}[A-Z] [ 0-9]{5}[ A-Z]{3} "
+            + r"[ 0-9]{5}[.][ 0-9]{8} (?:(?:[ 0+-][.][ 0-9]{8})|(?: "
+            + r"[ +-][.][ 0-9]{7})) [ +-][ 0-9]{5}[+-][ 0-9] "
+            + r"[ +-][ 0-9]{5}[+-][ 0-9] [ 0-9] [ 0-9]{4}[ 0-9]"
+        )
+        if re.match(line_1_pattern, v[i]) is None:
+            raise ValueError(f"Invalid tle: line {i+1} does not match pattern.")
+        line_2_pattern = (
+            r"2 [ 0-9A-HJ-NP-Z][ 0-9]{4} [ 0-9]{3}[.][ 0-9]{4} "
+            + r"[ 0-9]{3}[.][ 0-9]{4} [ 0-9]{7} [ 0-9]{3}[.][ 0-9]{4} "
+            + r"[ 0-9]{3}[.][ 0-9]{4} [ 0-9]{2}[.][ 0-9]{13}[ 0-9]"
+        )
+        if re.match(line_2_pattern, v[i + 1]) is None:
+            raise ValueError(f"Invalid tle: line {i+2} does not match pattern.")
+
+        def checksum(line):
+            the_sum = 0
+            for j in range(68):
+                if line[j].isdigit():
+                    the_sum += int(line[j])
+                elif line[j] == "-":
+                    the_sum += 1
+            return the_sum % 10
+
+        if int(v[i][68]) != checksum(v[i]):
+            raise ValueError(f"Invalid tle: line {i+1} checksum failed.")
+        if int(v[i + 1][68]) != checksum(v[i + 1]):
+            raise ValueError(f"Invalid tle: line {1+2} checksum failed.")
+    return v
+
+
+def is_chronological_tle(v: List[str]) -> List[str]:
+    """
+    Validator to check for chronological TLEs.
+    """
+    epochs = np.array(
+        [
+            sat_epoch_datetime(Satrec.twoline2rv(v[i], v[i + 1]))
+            for i in range(0, len(v), 2)
+        ]
+    )
+    if not all(epochs[:-1] <= epochs[1:]):
+        raise ValueError(f"Invalid multi-tle: not in chronological order.")
+    return v
