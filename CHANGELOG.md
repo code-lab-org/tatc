@@ -1,5 +1,10 @@
 # TAT-C Change Log
 
+## 3.4.8
+
+Changed:
+ - Improves performance for `TwoLineElements` orbits having multiple (perhaps many) TLE pairs.
+
 ## 3.4.7
 
 Added:
