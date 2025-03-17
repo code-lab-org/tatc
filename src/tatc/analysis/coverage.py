@@ -5,15 +5,14 @@ Methods to perform coverage analysis.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import List, Union, Tuple
-from datetime import datetime, timedelta
+from typing import List, Union
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import numpy as np
-import numpy.typing as npt
 import geopandas as gpd
 from shapely import geometry as geo
-from skyfield.api import Angle, Distance, wgs84
+from skyfield.api import wgs84
 
 from ..schemas.instrument import PointedInstrument
 from ..schemas.point import Point
@@ -66,7 +65,12 @@ def _get_visible_interval_series(
     obs_periods = []
     if len(events) > 0 and np.all(events == 1):
         # if all events are type 1 (culminate), create a period from start to end
-        obs_periods += [pd.Interval(left=pd.Timestamp(start), right=pd.Timestamp(end))]
+        obs_periods += [
+            pd.Interval(
+                left=pd.Timestamp(start.astimezone(tz=timezone.utc)),
+                right=pd.Timestamp(end.astimezone(tz=timezone.utc)),
+            )
+        ]
     elif len(events) > 0:
         # otherwise, match rise/set events
         rises = times[events == 0]
@@ -79,7 +83,8 @@ def _get_visible_interval_series(
             # if first event is a set, create a period from the start
             obs_periods += [
                 pd.Interval(
-                    left=pd.Timestamp(start), right=pd.Timestamp(sets[0].utc_datetime())
+                    left=pd.Timestamp(start.astimezone(tz=timezone.utc)),
+                    right=pd.Timestamp(sets[0].utc_datetime()),
                 )
             ]
         # create an observation period to match with each rise event if
@@ -113,7 +118,8 @@ def _get_visible_interval_series(
             # if last event is a rise, create a period to the end
             obs_periods += [
                 pd.Interval(
-                    left=pd.Timestamp(rises[-1].utc_datetime()), right=pd.Timestamp(end)
+                    left=pd.Timestamp(rises[-1].utc_datetime()),
+                    right=pd.Timestamp(end.astimezone(tz=timezone.utc)),
                 )
             ]
     return pd.Series(obs_periods, dtype="interval")
