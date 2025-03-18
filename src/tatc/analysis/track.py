@@ -361,6 +361,8 @@ def collect_ground_track(
             None,
             elevation,
         )
+        if len(orbit_track.t) == 1:
+            geometries = [geometries]
     else:
         # compute the orbit track of the satellite
         gdf = collect_orbit_track(

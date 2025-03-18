@@ -5,6 +5,7 @@
 Changed:
  - Improves performance for `TwoLineElements` orbits having multiple (perhaps many) TLE pairs.
  - Coerces `collect_observations` observation intervals constrained by `start` and `end` times to use the `datetime.timezone.utc` timezone value to address inability for pandas to combine `TzInfo(UTC)` and `datetime.UTC` representations.
+ - Fixes a geometry indexing bug in `collect_ground_track` with option `crs="spice"` when `times` is a list of length 1.
 
 ## 3.4.7
 
