@@ -13,7 +13,7 @@ import geopandas as gpd
 from pyproj import Transformer
 from sgp4.conveniences import sat_epoch_datetime
 from sgp4.api import Satrec
-from shapely import Geometry, make_valid
+from shapely import Geometry, make_valid, simplify
 from shapely.geometry import (
     Point,
     Polygon,
@@ -679,6 +679,7 @@ def buffer_footprint(
     from_crs: Transformer,
     swath_width: float,
     elevation: float,
+    simplify_tolerance: float = None,
 ) -> Polygon:
     """
     Buffers a ground track point to create a footprint.
@@ -700,10 +701,61 @@ def buffer_footprint(
         split_polygon(
             transform(
                 from_crs.transform,
-                transform(to_crs.transform, geometry).buffer(swath_width / 2),
+                transform(to_crs.transform, geometry).buffer(swath_width / 2)
             )
         ),
         elevation,
+    )
+
+def get_culling_distance(
+    altitude: float,
+    inclination: float,
+    field_of_regard: float, 
+    time_step: float,
+) -> float:
+    """
+    Gets the maximum distance between the sub-satellite point and target 
+    supporting a potential observation within the next time step.
+
+    Args:
+        altitude (float): The spacecraft orbit altitude (meters).
+        inclination (float): The spacecraft orbit inclination (degrees).
+        field_of_regard (float): The spacecraft instrument field of regard (degrees).
+        time_step (float): The simulation time step (degrees).
+
+    Returns:
+        float: The culling distance (meters).
+    """
+    swath_width = field_of_regard_to_swath_width(altitude, field_of_regard)
+    distance = compute_ground_velocity(altitude, inclination) * time_step
+    return distance + swath_width / 2
+
+import pyproj
+
+def buffer_mask(
+    geometry: Geometry,
+    altitude: float,
+    inclination: float,
+    field_of_regard: float, 
+    time_step: float,
+    distance_crs = "EPSG:3857"
+):
+    to_crs = pyproj.Transformer.from_crs("EPSG:4326", distance_crs, always_xy=True)
+    from_crs = pyproj.Transformer.from_crs(distance_crs, "EPSG:4326", always_xy=True)
+    distance = get_culling_distance(
+        altitude, 
+        inclination, 
+        field_of_regard, 
+        time_step
+    )
+    return split_polygon(
+        transform(
+            from_crs.transform,
+            simplify(
+                transform(to_crs.transform, geometry).buffer(distance), 
+                distance / 10
+            )
+        )
     )
 
 
