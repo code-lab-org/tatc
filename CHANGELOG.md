@@ -1,5 +1,10 @@
 # TAT-C Change Log
 
+## 3.4.9
+
+Changed:
+ - Adopts new SPDX license expression format (3-clause BSD license unchanged).
+
 ## 3.4.8
 
 Changed:
