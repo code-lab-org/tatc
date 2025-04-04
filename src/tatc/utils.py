@@ -679,7 +679,6 @@ def buffer_footprint(
     from_crs: Transformer,
     swath_width: float,
     elevation: float,
-    simplify_tolerance: float = None,
 ) -> Polygon:
     """
     Buffers a ground track point to create a footprint.
@@ -692,7 +691,7 @@ def buffer_footprint(
         elevation (float): The elevation (meters) at which project the buffered polygon.
 
     Returns:
-        shapely.geometry.Polygon: The buffered footprint.
+        Union[shapely.geometry.Polygon, shapely.geometry.MultiPolygon]: The buffered footprint.
     """
     # do the swath projection in the specified coordinate reference system
     # split polygons to wrap over the anti-meridian and poles
@@ -701,60 +700,60 @@ def buffer_footprint(
         split_polygon(
             transform(
                 from_crs.transform,
-                transform(to_crs.transform, geometry).buffer(swath_width / 2)
+                transform(to_crs.transform, geometry).buffer(swath_width / 2),
             )
         ),
         elevation,
     )
 
-def get_culling_distance(
-    altitude: float,
-    inclination: float,
-    field_of_regard: float, 
-    time_step: float,
-) -> float:
-    """
-    Gets the maximum distance between the sub-satellite point and target 
-    supporting a potential observation within the next time step.
 
-    Args:
-        altitude (float): The spacecraft orbit altitude (meters).
-        inclination (float): The spacecraft orbit inclination (degrees).
-        field_of_regard (float): The spacecraft instrument field of regard (degrees).
-        time_step (float): The simulation time step (degrees).
-
-    Returns:
-        float: The culling distance (meters).
-    """
-    swath_width = field_of_regard_to_swath_width(altitude, field_of_regard)
-    distance = compute_ground_velocity(altitude, inclination) * time_step
-    return distance + swath_width / 2
-
-import pyproj
-
-def buffer_mask(
+def buffer_target(
     geometry: Geometry,
     altitude: float,
     inclination: float,
-    field_of_regard: float, 
+    field_of_regard: float,
     time_step: float,
-    distance_crs = "EPSG:3857"
+    distance_crs: str = "EPSG:4087",
+    distance_scaling: float = 1.0,
+    simplify_tolerance: float = 0.05,
 ):
-    to_crs = pyproj.Transformer.from_crs("EPSG:4326", distance_crs, always_xy=True)
-    from_crs = pyproj.Transformer.from_crs(distance_crs, "EPSG:4326", always_xy=True)
-    distance = get_culling_distance(
-        altitude, 
-        inclination, 
-        field_of_regard, 
-        time_step
-    )
+    """
+    Buffers a target geometry to support culling operations. Selects a buffer distance
+    equal to the distance traveled in one time step plus half of the field of regard
+    swath width. Simplifies geometries to distance tolerances within 5% of the buffer distance.
+
+    Args:
+        geometry (shapely.Geometry): The target geometry (with EPSG:4326 coordinates) to buffer.
+        altitude (float): The spacecraft orbit altitude (meters).
+        inclination (float): The spacecraft orbit inclination (degrees).
+        field_of_regard (float): The spacecraft instrument field of regard (degrees).
+        time_step (float): The simulation time step (seconds).
+        distance_crs (str): The coordinate reference system in which to perform
+            distance calculations (default: EPSG:4087).
+        distance_scaling (float): A multiplicative scaling factor to adjust the buffer
+            distance (default: 1.0).
+        simplify_tolerance (float): The buffer distance fraction used as a tolerance to
+            simplify the resulting geometry (default: 0.05).
+
+    Returns:
+        Union[shapely.geometry.Polygon, shapely.geometry.MultiPolygon]: The buffered geometry.
+    """
+    to_crs = Transformer.from_crs("EPSG:4326", distance_crs, always_xy=True)
+    from_crs = Transformer.from_crs(distance_crs, "EPSG:4326", always_xy=True)
+    swath_width = field_of_regard_to_swath_width(altitude, field_of_regard)
+    ground_distance = compute_ground_velocity(altitude, inclination) * time_step
+    distance = (ground_distance + swath_width / 2) * distance_scaling
     return split_polygon(
         transform(
             from_crs.transform,
-            simplify(
-                transform(to_crs.transform, geometry).buffer(distance), 
-                distance / 10
-            )
+            (
+                simplify(
+                    transform(to_crs.transform, geometry).buffer(distance),
+                    distance * simplify_tolerance,
+                )
+                if simplify_tolerance is not None
+                else transform(to_crs.transform, geometry).buffer(distance)
+            ),
         )
     )
 

@@ -28,8 +28,7 @@ from ..schemas.instrument import PointedInstrument
 from ..schemas.satellite import Satellite
 from ..utils import (
     buffer_footprint,
-    buffer_mask,
-    compute_limb,
+    buffer_target,
     field_of_regard_to_swath_width,
 )
 from ..constants import de421, EARTH_MEAN_RADIUS, timescale
@@ -271,7 +270,7 @@ def _get_utm_epsg_code(point: Point, swath_width: float) -> str:
             else "EPSG:" + results[0].code if len(results) > 0 else "EPSG:4087"
         )
     )
-    
+
 
 def collect_ground_track(
     satellite: Satellite,
@@ -322,14 +321,20 @@ def collect_ground_track(
     instrument = satellite.instruments[instrument_index]
     if mask is not None and len(times) > 1:
         ssp = wgs84.geographic_position_of(orbit_track)
-        buffered_mask = buffer_mask(
-            mask if isinstance(mask, (Polygon, MultiPolygon))
-            else mask.geometry if isinstance(mask, gpd.GeoSeries)
-            else mask.dissolve().iloc[0].geometry,
-            satellite.orbit.to_tle().get_altitude(),
-            satellite.orbit.to_tle().get_inclination(),
-            instrument.field_of_regard,
-            np.diff(times).mean() / timedelta(seconds=1)
+        buffered_mask = buffer_target(
+            geometry=(
+                mask
+                if isinstance(mask, (Polygon, MultiPolygon))
+                else (
+                    mask.geometry
+                    if isinstance(mask, gpd.GeoSeries)
+                    else mask.dissolve().iloc[0].geometry
+                )
+            ),
+            altitude=satellite.orbit.to_tle().get_altitude(),
+            inclination=satellite.orbit.to_tle().get_inclination(),
+            field_of_regard=instrument.field_of_regard,
+            time_step=np.diff(times).mean() / timedelta(seconds=1),
         )
         # cull orbit track with buffered mask
         buffered_mask_contains_ssp = [
@@ -637,14 +642,20 @@ def collect_ground_pixels(
         )
     if mask is not None and len(times) > 1:
         ssp = wgs84.geographic_position_of(orbit_track)
-        buffered_mask = buffer_mask(
-            mask if isinstance(mask, (Polygon, MultiPolygon))
-            else mask.geometry if isinstance(mask, gpd.GeoSeries)
-            else mask.dissolve().iloc[0].geometry,
-            satellite.orbit.to_tle().get_altitude(),
-            satellite.orbit.to_tle().get_inclination(),
-            instrument.field_of_regard,
-            np.diff(times).mean() / timedelta(seconds=1)
+        buffered_mask = buffer_target(
+            geometry=(
+                mask
+                if isinstance(mask, (Polygon, MultiPolygon))
+                else (
+                    mask.dissolve().iloc[0].geometry
+                    if isinstance(mask, gpd.GeoDataFrame)
+                    else mask.geometry
+                )
+            ),
+            altitude=satellite.orbit.to_tle().get_altitude(),
+            inclination=satellite.orbit.to_tle().get_inclination(),
+            field_of_regard=instrument.field_of_regard,
+            time_step=np.diff(times).mean() / timedelta(seconds=1),
         )
         # cull orbit track with buffered mask
         buffered_mask_contains_ssp = [
