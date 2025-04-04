@@ -715,7 +715,6 @@ def buffer_target(
     time_step: float,
     distance_crs: str = "EPSG:4087",
     distance_scaling: float = 1.0,
-    simplify_tolerance: float = 0.05,
 ):
     """
     Buffers a target geometry to support culling operations. Selects a buffer distance
@@ -732,8 +731,6 @@ def buffer_target(
             distance calculations (default: EPSG:4087).
         distance_scaling (float): A multiplicative scaling factor to adjust the buffer
             distance (default: 1.0).
-        simplify_tolerance (float): The buffer distance fraction used as a tolerance to
-            simplify the resulting geometry (default: 0.05).
 
     Returns:
         Union[shapely.geometry.Polygon, shapely.geometry.MultiPolygon]: The buffered geometry.
@@ -745,15 +742,7 @@ def buffer_target(
     distance = (ground_distance + swath_width / 2) * distance_scaling
     return split_polygon(
         transform(
-            from_crs.transform,
-            (
-                simplify(
-                    transform(to_crs.transform, geometry).buffer(distance),
-                    distance * simplify_tolerance,
-                )
-                if simplify_tolerance is not None
-                else transform(to_crs.transform, geometry).buffer(distance)
-            ),
+            from_crs.transform, transform(to_crs.transform, geometry).buffer(distance)
         )
     )
 
