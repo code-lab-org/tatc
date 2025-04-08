@@ -326,9 +326,9 @@ def collect_ground_track(
                 mask
                 if isinstance(mask, (Polygon, MultiPolygon))
                 else (
-                    mask.geometry
-                    if isinstance(mask, gpd.GeoSeries)
-                    else mask.dissolve().iloc[0].geometry
+                    mask.dissolve().iloc[0].geometry
+                    if isinstance(mask, gpd.GeoDataFrame)
+                    else mask.iloc[0]
                 )
             ),
             altitude=satellite.orbit.to_tle().get_altitude(),
@@ -649,7 +649,7 @@ def collect_ground_pixels(
                 else (
                     mask.dissolve().iloc[0].geometry
                     if isinstance(mask, gpd.GeoDataFrame)
-                    else mask.geometry
+                    else mask.iloc[0]
                 )
             ),
             altitude=satellite.orbit.to_tle().get_altitude(),
