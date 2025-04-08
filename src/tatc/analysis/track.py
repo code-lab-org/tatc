@@ -6,7 +6,7 @@ Methods to generate coverage statistics.
 """
 
 from typing import List, Union, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 
 import pandas as pd
@@ -28,7 +28,7 @@ from ..schemas.instrument import PointedInstrument
 from ..schemas.satellite import Satellite
 from ..utils import (
     buffer_footprint,
-    compute_limb,
+    buffer_target,
     field_of_regard_to_swath_width,
 )
 from ..constants import de421, EARTH_MEAN_RADIUS, timescale
@@ -319,21 +319,37 @@ def collect_ground_track(
     orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
-    if mask is not None:
-        # compute observable limb for culling
-        limb = compute_limb(orbit_track, elevation=elevation)
-        # cull orbit track to observable limb
-        mask_intersects_limb = [
+    if mask is not None and len(times) > 1:
+        ssp = wgs84.geographic_position_of(orbit_track)
+        buffered_mask = buffer_target(
+            geometry=(
+                mask
+                if isinstance(mask, (Polygon, MultiPolygon))
+                else (
+                    mask.dissolve().iloc[0].geometry
+                    if isinstance(mask, gpd.GeoDataFrame)
+                    else mask.iloc[0]
+                )
+            ),
+            altitude=satellite.orbit.to_tle().get_altitude(),
+            inclination=satellite.orbit.to_tle().get_inclination(),
+            field_of_regard=instrument.field_of_regard,
+            time_step=np.diff(times).mean() / timedelta(seconds=1),
+        )
+        # cull orbit track with buffered mask
+        buffered_mask_contains_ssp = [
             (
-                any(mask.intersects(l))
-                if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries))
-                else mask.intersects(l)
+                any(buffered_mask.contains(Point(longitude, latitude)))
+                if isinstance(buffered_mask, (gpd.GeoDataFrame, gpd.GeoSeries))
+                else buffered_mask.contains(Point(longitude, latitude))
             )
-            for l in (limb if isinstance(limb, list) else [limb])
+            for (longitude, latitude) in zip(
+                ssp.longitude.degrees, ssp.latitude.degrees
+            )
         ]
-        if not any(mask_intersects_limb):
+        if not any(buffered_mask_contains_ssp):
             return _get_empty_ground_track()
-        orbit_track = orbit_track[mask_intersects_limb]
+        orbit_track = orbit_track[buffered_mask_contains_ssp]
         # compute footprint for culling
         footprint = instrument.compute_footprint(orbit_track, elevation=elevation)
         # cull orbit track to observable footprint
@@ -624,21 +640,37 @@ def collect_ground_pixels(
         raise ValueError(
             "Ground pixels are only compatible with rectangular PointedInstrument instances"
         )
-    if mask is not None:
-        # compute observable limb for culling
-        limb = compute_limb(orbit_track, elevation=elevation)
-        # cull orbit track to observable limb
-        mask_intersects_limb = [
+    if mask is not None and len(times) > 1:
+        ssp = wgs84.geographic_position_of(orbit_track)
+        buffered_mask = buffer_target(
+            geometry=(
+                mask
+                if isinstance(mask, (Polygon, MultiPolygon))
+                else (
+                    mask.dissolve().iloc[0].geometry
+                    if isinstance(mask, gpd.GeoDataFrame)
+                    else mask.iloc[0]
+                )
+            ),
+            altitude=satellite.orbit.to_tle().get_altitude(),
+            inclination=satellite.orbit.to_tle().get_inclination(),
+            field_of_regard=instrument.field_of_regard,
+            time_step=np.diff(times).mean() / timedelta(seconds=1),
+        )
+        # cull orbit track with buffered mask
+        buffered_mask_contains_ssp = [
             (
-                any(mask.intersects(l))
-                if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries))
-                else mask.intersects(l)
+                any(buffered_mask.contains(Point(longitude, latitude)))
+                if isinstance(buffered_mask, (gpd.GeoDataFrame, gpd.GeoSeries))
+                else buffered_mask.contains(Point(longitude, latitude))
             )
-            for l in (limb if isinstance(limb, list) else [limb])
+            for (longitude, latitude) in zip(
+                ssp.longitude.degrees, ssp.latitude.degrees
+            )
         ]
-        if not any(mask_intersects_limb):
+        if not any(buffered_mask_contains_ssp):
             return _get_empty_ground_track()
-        orbit_track = orbit_track[mask_intersects_limb]
+        orbit_track = orbit_track[buffered_mask_contains_ssp]
         # compute footprint for culling
         footprint = instrument.compute_footprint(orbit_track, elevation=elevation)
         # cull orbit track to observable footprint

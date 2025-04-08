@@ -13,7 +13,7 @@ import geopandas as gpd
 from pyproj import Transformer
 from sgp4.conveniences import sat_epoch_datetime
 from sgp4.api import Satrec
-from shapely import Geometry, make_valid
+from shapely import Geometry, make_valid, simplify
 from shapely.geometry import (
     Point,
     Polygon,
@@ -691,7 +691,7 @@ def buffer_footprint(
         elevation (float): The elevation (meters) at which project the buffered polygon.
 
     Returns:
-        shapely.geometry.Polygon: The buffered footprint.
+        Union[shapely.geometry.Polygon, shapely.geometry.MultiPolygon]: The buffered footprint.
     """
     # do the swath projection in the specified coordinate reference system
     # split polygons to wrap over the anti-meridian and poles
@@ -704,6 +704,46 @@ def buffer_footprint(
             )
         ),
         elevation,
+    )
+
+
+def buffer_target(
+    geometry: Geometry,
+    altitude: float,
+    inclination: float,
+    field_of_regard: float,
+    time_step: float,
+    distance_crs: str = "EPSG:4087",
+    distance_scaling: float = 1.0,
+):
+    """
+    Buffers a target geometry to support culling operations. Selects a buffer distance
+    equal to the distance traveled in one time step plus half of the field of regard
+    swath width. Simplifies geometries to distance tolerances within 5% of the buffer distance.
+
+    Args:
+        geometry (shapely.Geometry): The target geometry (with EPSG:4326 coordinates) to buffer.
+        altitude (float): The spacecraft orbit altitude (meters).
+        inclination (float): The spacecraft orbit inclination (degrees).
+        field_of_regard (float): The spacecraft instrument field of regard (degrees).
+        time_step (float): The simulation time step (seconds).
+        distance_crs (str): The coordinate reference system in which to perform
+            distance calculations (default: EPSG:4087).
+        distance_scaling (float): A multiplicative scaling factor to adjust the buffer
+            distance (default: 1.0).
+
+    Returns:
+        Union[shapely.geometry.Polygon, shapely.geometry.MultiPolygon]: The buffered geometry.
+    """
+    to_crs = Transformer.from_crs("EPSG:4326", distance_crs, always_xy=True)
+    from_crs = Transformer.from_crs(distance_crs, "EPSG:4326", always_xy=True)
+    swath_width = field_of_regard_to_swath_width(altitude, field_of_regard)
+    ground_distance = compute_ground_velocity(altitude, inclination) * time_step
+    distance = (ground_distance + swath_width / 2) * distance_scaling
+    return split_polygon(
+        transform(
+            from_crs.transform, transform(to_crs.transform, geometry).buffer(distance)
+        )
     )
 
 
