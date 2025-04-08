@@ -1,5 +1,14 @@
 # TAT-C Change Log
 
+## 3.4.9
+
+Added:
+ - Utility function `buffer_target` to buffer a target region based on orbit and instrument geometry to help with culling.
+
+Changed:
+ - Analysis functions `collect_ground_track` and `collect_ground_pixels` check whether the sub-satellite point is inside an expanded mask region (using `buffer_target`) for culling, rather a slower check for nonzero intersections between the mask region and the viewable limb projection.
+
+
 ## 3.4.8
 
 Changed:
