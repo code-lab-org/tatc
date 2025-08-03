@@ -11,6 +11,7 @@ from datetime import datetime, time, timedelta, timezone
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
+from astropy.time import Time
 from pydantic import AfterValidator, BaseModel, Field
 from sgp4.api import Satrec, WGS72
 from sgp4 import exporter
@@ -1181,3 +1182,56 @@ class TundraOrbit(MolniyaOrbit):
             eccentricity=self.eccentricity,
             perigee_argument=self.perigee_argument,
         )
+
+class GeosynchronousOrbit(CircularOrbit):
+    """
+    Geosynchronous orbit defined by longitude to be observed.
+    Geostationary orbit can be specified with inclination equal to 0.
+    """
+
+    type: Literal["geosynchronous"] = Field(
+        "geosynchronous", description="Orbit type discriminator."
+    )
+    altitude: float = Field(35786000, description="Mean altitude (meters).")
+    longitude: float = Field(0, description="Longitude (degrees).", ge=0, lt=360)
+
+    def get_true_anomaly(self) -> float:
+        """
+        Gets the true anomaly for the satellite over a given longitude at a given epoch.
+
+        Returns:
+            float: True anomaly in degrees.
+        """
+        # convert to astropy time
+        t = Time(self.epoch, scale="utc")
+        # get greenwich sidereal time in degrees
+        gst = t.sidereal_time('mean', 'greenwich').deg
+        # return earth-centered inertial angle
+        return (self.longitude + gst) % 360
+
+    def to_tle(self, lazy_load: bool = None) -> TwoLineElements:
+        """
+        Converts this orbit to a two line elements representation.
+
+        Args:
+            lazy_load (bool): True, if this tle should be lazy-loaded.
+
+        Returns:
+            TwoLineElements: the two line elements orbit
+        """
+        if lazy_load is None:
+            lazy_load = config.rc.orbit_tle_lazy_load
+        if lazy_load:
+            tle = self.__dict__.get("tle")
+        else:
+            tle = None
+        if tle is None:
+            tle = CircularOrbit(
+                altitude=self.altitude,
+                inclination=self.inclination,
+                right_ascension_ascending_node=self.right_ascension_ascending_node,
+                true_anomaly=self.compute_true_anomaly(),
+                epoch=self.epoch,
+            ).to_tle()
+            self.__dict__["tle"] = tle
+        return tle
