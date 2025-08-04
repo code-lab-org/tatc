@@ -1183,6 +1183,7 @@ class TundraOrbit(MolniyaOrbit):
             perigee_argument=self.perigee_argument,
         )
 
+
 class GeosynchronousOrbit(CircularOrbit):
     """
     Geosynchronous orbit defined by longitude to be observed.
@@ -1205,16 +1206,16 @@ class GeosynchronousOrbit(CircularOrbit):
         # convert to astropy time
         t = Time(self.epoch, scale="utc")
         # get greenwich sidereal time in degrees
-        gst = t.sidereal_time('mean', 'greenwich').deg
+        gst = t.sidereal_time("mean", "greenwich").deg
         # return earth-centered inertial angle
         return (self.longitude + gst) % 360
-    
+
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float
     ) -> GeosynchronousOrbit:
         """
-        Gets a derived geosynchronous orbit with pertubations to the 
-        mean anomaly (interpreted as a shift in observed longitude) and 
+        Gets a derived geosynchronous orbit with pertubations to the
+        mean anomaly (interpreted as a shift in observed longitude) and
         right ascension of ascending node.
 
         Args:
@@ -1237,7 +1238,7 @@ class GeosynchronousOrbit(CircularOrbit):
             right_ascension_ascending_node=raan,
             longitude=longitude,
         )
-    
+
     def to_tle(self, lazy_load: bool = None) -> TwoLineElements:
         """
         Converts this orbit to a two line elements representation.
