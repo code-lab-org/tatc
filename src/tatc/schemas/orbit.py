@@ -1208,7 +1208,36 @@ class GeosynchronousOrbit(CircularOrbit):
         gst = t.sidereal_time('mean', 'greenwich').deg
         # return earth-centered inertial angle
         return (self.longitude + gst) % 360
+    
+    def get_derived_orbit(
+        self, delta_mean_anomaly: float, delta_raan: float
+    ) -> GeosynchronousOrbit:
+        """
+        Gets a derived geosynchronous orbit with pertubations to the 
+        mean anomaly (interpreted as a shift in observed longitude) and 
+        right ascension of ascending node.
 
+        Args:
+            delta_mean_anomaly (float): Delta mean anomaly (degrees).
+            delta_raan (float): Delta right ascension of ascending node (degrees).
+
+        Returns:
+            GeosynchronousOrbit: the derived orbit
+        """
+        true_anomaly = utils.mean_anomaly_to_true_anomaly(
+            np.mod(self.get_mean_anomaly() + delta_mean_anomaly, 360)
+        )
+        longitude = np.mod(self.longitude + delta_mean_anomaly, 360)
+        raan = np.mod(self.right_ascension_ascending_node + delta_raan, 360)
+        return GeosynchronousOrbit(
+            altitude=self.altitude,
+            true_anomaly=true_anomaly,
+            epoch=self.epoch,
+            inclination=self.inclination,
+            right_ascension_ascending_node=raan,
+            longitude=longitude,
+        )
+    
     def to_tle(self, lazy_load: bool = None) -> TwoLineElements:
         """
         Converts this orbit to a two line elements representation.
