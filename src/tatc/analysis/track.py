@@ -225,9 +225,11 @@ def collect_orbit_track(
     if solar_beta:
         # append solar beta column
         # based on https://github.com/skyfielders/python-skyfield/issues/1054
-        plane_normal = np.cross(orbit_track.position.m, orbit_track.velocity.m_per_s, axis=0)
+        plane_normal = np.cross(
+            orbit_track.position.m, orbit_track.velocity.m_per_s, axis=0
+        )
         sun = de421["earth"].at(orbit_track.t).observe(de421["sun"]).position.m
-        beta = np.pi/2 - angle_between(plane_normal, sun)
+        beta = np.pi / 2 - angle_between(plane_normal, sun)
         track["solar_beta"] = np.degrees(beta)
     if mask is not None:
         track = gpd.clip(track, mask).reset_index(drop=True)
