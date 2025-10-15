@@ -40,7 +40,7 @@ def mean_anomaly_to_true_anomaly(mean_anomaly: float, eccentricity: float = 0) -
 
     Args:
         mean_anomaly (float): The mean anomaly (degrees).
-        true_anomaly (float): The orbit eccentricity.
+        eccentricity (float): The orbit eccentricity.
 
     Returns:
         float: The true anomaly (degrees).
