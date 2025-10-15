@@ -1,5 +1,11 @@
 # TAT-C Change Log
 
+## 3.4.10
+
+Added:
+ - Argument `solar_beta` to `collect_orbit_track` to optionally compute solar beta angle.
+ - `CITATION.cff` file to provide guidance on citing this project.
+
 ## 3.4.9
 
 Added:
