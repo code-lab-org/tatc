@@ -4,7 +4,7 @@ authors:
 - family-names: "Grogan"
   given-names: "Paul T."
   orcid: "https://orcid.org/0000-0001-8986-4806"
-title: "tatc"
+title: "Tradespace Analysis Toolkit for Constellations (TAT-C)"
 version: 3.4.10
 date-released: 2025-10-15
 doi: 10.5281/zenodo.17363629
