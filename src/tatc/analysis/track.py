@@ -14,6 +14,7 @@ import numpy as np
 import geopandas as gpd
 from skyfield.api import wgs84
 from skyfield.framelib import itrs
+from skyfield.functions import angle_between
 
 from shapely.geometry import (
     Polygon,
@@ -88,6 +89,7 @@ def collect_orbit_track(
     orbit_output: OrbitOutput = OrbitOutput.POSITION,
     sat_sunlit: bool = False,
     solar_altaz: bool = False,
+    solar_beta: bool = False,
 ) -> gpd.GeoDataFrame:
     """
     Collect orbit track points for a satellite of interest.
@@ -104,6 +106,7 @@ def collect_orbit_track(
         orbit_output (OrbitOutput): The output option.
         sat_sunlit (bool): `True` to include whether the satellite is sunlit.
         solar_altaz (bool): `True` to include solar altitude/azimuth angles.
+        solar_beta (bool): `True` to include solar beta angles.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected orbit track results.
@@ -219,6 +222,15 @@ def collect_orbit_track(
         )
         track["solar_alt"] = solar_altaz[0].degrees
         track["solar_az"] = solar_altaz[1].degrees
+    if solar_beta:
+        # append solar beta column
+        # based on https://github.com/skyfielders/python-skyfield/issues/1054
+        plane_normal = np.cross(
+            orbit_track.position.m, orbit_track.velocity.m_per_s, axis=0
+        )
+        sun = de421["earth"].at(orbit_track.t).observe(de421["sun"]).position.m
+        beta = np.pi / 2 - angle_between(plane_normal, sun)
+        track["solar_beta"] = np.degrees(beta)
     if mask is not None:
         track = gpd.clip(track, mask).reset_index(drop=True)
     return track
