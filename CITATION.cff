@@ -7,6 +7,6 @@ authors:
 title: "tatc"
 version: 3.4.10
 date-released: 2025-10-15
-doi: https://doi.org/10.5281/zenodo.17363629
+doi: 10.5281/zenodo.17363629
 url: "https://github.com/code-lab-org/tatc"
 license: "BSD-3-Clause"
