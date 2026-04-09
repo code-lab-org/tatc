@@ -5,6 +5,7 @@ Methods to analyze dilusion of precision.
 @author: Michael P. Jones <mpj@mit.edu>
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import warnings
 from datetime import datetime
 from enum import Enum

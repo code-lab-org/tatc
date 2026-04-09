@@ -10,7 +10,6 @@ import os
 import numpy as np
 from skyfield.api import load, Loader
 
-
 # load ephemeris file
 resources_dir = os.path.join(os.path.dirname(__file__), "resources")
 de421_loader = Loader(resources_dir)

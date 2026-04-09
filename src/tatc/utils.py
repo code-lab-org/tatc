@@ -4,6 +4,7 @@ Utility functions.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import re
 from typing import List, Union
 

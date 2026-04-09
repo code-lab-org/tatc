@@ -52,9 +52,7 @@ class TestGeosynchronousOrbit(unittest.TestCase):
     def test_get_true_anomaly_matches_sidereal_time(self):
         t = constants.timescale.from_datetime(self.test_data.get("epoch"))
         expected = (self.test_data.get("longitude") + t.gmst * 15) % 360
-        self.assertAlmostEqual(
-            self.test_orbit.get_true_anomaly(), expected, delta=1e-6
-        )
+        self.assertAlmostEqual(self.test_orbit.get_true_anomaly(), expected, delta=1e-6)
 
     def test_get_derived_orbit(self):
         derived_orbit = self.test_orbit.get_derived_orbit(20, 10)
