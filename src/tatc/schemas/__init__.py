@@ -11,6 +11,7 @@ from .orbit import (
     KeplerianOrbit,
     MolniyaOrbit,
     TundraOrbit,
+    GeosynchronousOrbit,
 )
 from .point import Point, GroundStation
 from .satellite import (

@@ -11,7 +11,6 @@ from datetime import datetime, time, timedelta, timezone
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
-from astropy.time import Time
 from pydantic import AfterValidator, BaseModel, Field
 from sgp4.api import Satrec, WGS72
 from sgp4 import exporter
@@ -1203,11 +1202,8 @@ class GeosynchronousOrbit(CircularOrbit):
         Returns:
             float: True anomaly in degrees.
         """
-        # convert to astropy time
-        t = Time(self.epoch, scale="utc")
-        # get greenwich sidereal time in degrees
-        gst = t.sidereal_time("mean", "greenwich").deg
-        # return earth-centered inertial angle
+        t = constants.timescale.from_datetime(self.epoch)
+        gst = t.gmst * 15
         return (self.longitude + gst) % 360
 
     def get_derived_orbit(
@@ -1260,7 +1256,7 @@ class GeosynchronousOrbit(CircularOrbit):
                 altitude=self.altitude,
                 inclination=self.inclination,
                 right_ascension_ascending_node=self.right_ascension_ascending_node,
-                true_anomaly=self.compute_true_anomaly(),
+                true_anomaly=self.get_true_anomaly(),
                 epoch=self.epoch,
             ).to_tle()
             self.__dict__["tle"] = tle
