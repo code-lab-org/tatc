@@ -3,17 +3,17 @@ import unittest
 from pydantic import ValidationError
 from datetime import datetime, timezone
 
-from tatc.schemas import TwoLineElements
+from tatc.schemas import GeneralPerturbationsOrbit
 
 
-class TestTLE(unittest.TestCase):
+class TestGPOrbit(unittest.TestCase):
     def setUp(self):
-        self.test_tle = TwoLineElements(
-            tle=[
-                "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
-                "2 25544  51.6455  41.4969 0003508  68.0432  78.3395 15.48957534286754",
-            ]
-        )
+        self.test_gp_orbit = GeneralPerturbationsOrbit.from_tle(
+                [
+                    "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
+                    "2 25544  51.6455  41.4969 0003508  68.0432  78.3395 15.48957534286754",
+                ]
+            )
 
     def test_good_data(self):
         good_data = {
@@ -140,8 +140,8 @@ class TestTLE(unittest.TestCase):
     def test_get_semimajor_axis(self):
         self.assertAlmostEqual(self.test_tle.get_semimajor_axis(), 6797911, delta=1.0)
 
-    def test_get_altitude(self):
-        self.assertAlmostEqual(self.test_tle.get_altitude(), 426902, delta=1.0)
+    def test_get_mean_altitude(self):
+        self.assertAlmostEqual(self.test_tle.get_mean_altitude(), 426902, delta=1.0)
 
     def test_get_true_anomaly(self):
         self.assertAlmostEqual(self.test_tle.get_true_anomaly(), 78.3788725993742)

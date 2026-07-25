@@ -49,32 +49,36 @@ class TestKeplerianOrbit(unittest.TestCase):
             delta=0.001,
         )
 
-    def test_to_tle(self):
-        tle = self.test_orbit.to_tle()
+    def test_to_gp_orbit(self):
+        gp_orbit = self.test_orbit.to_gp_orbit()
         self.assertAlmostEqual(
-            tle.get_altitude(), self.test_data.get("altitude"), delta=1.0
+            gp_orbit.get_mean_altitude(),
+            self.test_data.get("altitude"),
+            delta=1.0
         )
         self.assertAlmostEqual(
-            tle.get_true_anomaly(), self.test_data.get("true_anomaly"), delta=0.001
+            gp_orbit.get_true_anomaly(),
+            self.test_data.get("true_anomaly"),
+            delta=0.001
         )
         self.assertAlmostEqual(
-            tle.get_epoch().timestamp(),
+            gp_orbit.get_epoch().timestamp(),
             self.test_data.get("epoch").timestamp(),
             delta=1,
         )
         self.assertEqual(
-            tle.get_inclination(),
+            gp_orbit.get_inclination(),
             self.test_data.get("inclination"),
         )
         self.assertAlmostEqual(
-            tle.get_right_ascension_ascending_node(),
+            gp_orbit.get_right_ascension_ascending_node(),
             self.test_data.get("right_ascension_ascending_node"),
         )
         self.assertAlmostEqual(
-            tle.get_eccentricity(),
+            gp_orbit.get_eccentricity(),
             self.test_data.get("eccentricity"),
         )
         self.assertAlmostEqual(
-            tle.get_perigee_argument(),
+            gp_orbit.get_perigee_argument(),
             self.test_data.get("perigee_argument"),
         )

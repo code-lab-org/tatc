@@ -343,8 +343,8 @@ def collect_ground_track(
                     else mask.iloc[0]
                 )
             ),
-            altitude=satellite.orbit.to_tle().get_altitude(),
-            inclination=satellite.orbit.to_tle().get_inclination(),
+            altitude=satellite.orbit.to_gp_orbit().get_mean_altitude(),
+            inclination=satellite.orbit.to_gp_orbit().get_inclination(),
             field_of_regard=instrument.field_of_regard,
             time_step=np.diff(times).mean() / timedelta(seconds=1),
         )
@@ -664,8 +664,8 @@ def collect_ground_pixels(
                     else mask.iloc[0]
                 )
             ),
-            altitude=satellite.orbit.to_tle().get_altitude(),
-            inclination=satellite.orbit.to_tle().get_inclination(),
+            altitude=satellite.orbit.to_gp_orbit().get_mean_altitude(),
+            inclination=satellite.orbit.to_gp_orbit().get_inclination(),
             field_of_regard=instrument.field_of_regard,
             time_step=np.diff(times).mean() / timedelta(seconds=1),
         )

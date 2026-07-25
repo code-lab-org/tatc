@@ -7,23 +7,24 @@ Object schemas for satellites.
 from __future__ import annotations
 
 import copy
+import math
 from datetime import timedelta
 from enum import Enum
-import math
 from typing import List, Union
 
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Literal
 
-from tatc.utils import (
-    zero_pad,
-    swath_width_to_field_of_regard,
+from tatc.utils.formatting import zero_pad
+from tatc.utils.observation import (
     compute_min_elevation_angle,
+    swath_width_to_field_of_regard,
 )
+
 from ..constants import EARTH_MEAN_RADIUS
 from .instrument import Instrument
-from .orbit import TwoLineElements, CircularOrbit, SunSynchronousOrbit, KeplerianOrbit
+from .orbit import CircularOrbit, KeplerianOrbit, SunSynchronousOrbit, TwoLineElements
 
 
 class SpaceSystem(BaseModel):
