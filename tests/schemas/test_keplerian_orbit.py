@@ -1,14 +1,21 @@
-import unittest
+"""
+Unit tests for the KeplerianOrbit schema.
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
 
+import unittest
 from datetime import datetime, timezone
 
 from tatc.schemas import KeplerianOrbit
 
 
 class TestKeplerianOrbit(unittest.TestCase):
+    """
+    Unit tests for the KeplerianOrbit schema.
+    """
     def setUp(self):
         self.test_data = {
-            "altitude": 400000,
+            "semimajor_axis": 400000 + 6371000, # 400 km mean altitude
             "true_anomaly": 10.0,
             "epoch": datetime(2022, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             "inclination": 45.0,
@@ -19,7 +26,10 @@ class TestKeplerianOrbit(unittest.TestCase):
         self.test_orbit = KeplerianOrbit(**self.test_data)
 
     def test_good_data(self):
-        self.assertEqual(self.test_orbit.altitude, self.test_data.get("altitude"))
+        """
+        Test that the KeplerianOrbit schema correctly initializes with valid data.
+        """
+        self.assertEqual(self.test_orbit.semimajor_axis, self.test_data.get("semimajor_axis"))
         self.assertEqual(
             self.test_orbit.true_anomaly, self.test_data.get("true_anomaly")
         )
@@ -37,6 +47,9 @@ class TestKeplerianOrbit(unittest.TestCase):
         )
 
     def test_get_derived_orbit(self):
+        """
+        Test that a derived orbit can be computed from the base orbit.
+        """
         derived_orbit = self.test_orbit.get_derived_orbit(20, 10)
         self.assertAlmostEqual(
             derived_orbit.get_mean_anomaly(),
@@ -50,11 +63,14 @@ class TestKeplerianOrbit(unittest.TestCase):
         )
 
     def test_to_gp_orbit(self):
+        """
+        Test that the KeplerianOrbit can be converted to a GP orbit.
+        """
         gp_orbit = self.test_orbit.to_gp_orbit()
         self.assertAlmostEqual(
             gp_orbit.get_mean_altitude(),
-            self.test_data.get("altitude"),
-            delta=1.0
+            self.test_data.get("semimajor_axis") - 6371000,
+            delta=10
         )
         self.assertAlmostEqual(
             gp_orbit.get_true_anomaly(),

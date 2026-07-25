@@ -1,29 +1,26 @@
-# -*- coding: utf-8 -*-
 """
 Methods to perform coverage analysis.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import List, Union
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
 
-import pandas as pd
-import numpy as np
 import geopandas as gpd
+import numpy as np
+import pandas as pd
 from shapely import geometry as geo
 from skyfield.api import wgs84
 
-from ..schemas.instrument import PointedInstrument
-from ..schemas.point import Point
-from ..schemas.satellite import Satellite
-
-from ..utils import (
-    compute_min_elevation_angle,
-    compute_max_access_time,
-    compute_footprint,
-)
 from ..constants import de421, timescale
+from ..schemas import Point, PointedInstrument, Satellite
+from ..utils.observation import (
+    compute_max_access_time,
+    compute_min_elevation_angle,
+)
+from ..utils.projection import compute_footprint
 
 
 def _get_visible_interval_series(
@@ -149,12 +146,10 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
     if not omit_solar:
         columns = {
             **columns,
-            **{
-                "sat_sunlit": pd.Series(dtype="bool"),
-                "solar_alt": pd.Series(dtype="float"),
-                "solar_az": pd.Series(dtype="float"),
-                "solar_time": pd.Series(dtype="float"),
-            },
+            "sat_sunlit": pd.Series(dtype="bool"),
+            "solar_alt": pd.Series(dtype="float"),
+            "solar_az": pd.Series(dtype="float"),
+            "solar_time": pd.Series(dtype="float"),
         }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
@@ -264,7 +259,7 @@ def collect_observations(
 
 def collect_multi_observations(
     point: Point,
-    satellites: Union[Satellite, List[Satellite]],
+    satellites: Satellite | list[Satellite],
     start: datetime,
     end: datetime,
     omit_solar: bool = True,
@@ -274,7 +269,7 @@ def collect_multi_observations(
 
     Args:
         point (Point): The ground point of interest.
-        satellites (Satellite or List[Satellite]): The observing satellite(s).
+        satellites (Satellite | list[Satellite]): The observing satellite(s).
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
         omit_solar (bool): `True`, to omit solar angles to improve performance.

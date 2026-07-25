@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 """
 Methods to perform radio occultation (RO) coverage analysis.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+from __future__ import annotations
 
-from typing import List, Tuple, Union
 from datetime import datetime
 from itertools import chain
 
@@ -13,23 +12,22 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from shapely.geometry import MultiPoint, Point
-from skyfield.api import wgs84, Distance, Velocity
+from skyfield.api import Distance, Velocity, wgs84
 from skyfield.positionlib import Geocentric
 
-from ..schemas.satellite import Satellite
-
 from ..constants import timescale
+from ..schemas import Satellite
 
 
 def _collect_ro_series(
     transmitter: Satellite,
-    times: List[datetime],
+    times: list[datetime],
     rx_pv: Geocentric,
-    rx_v_u: List[float],
-    rx_n_u: List[float],
-    rx_b_u: List[float],
+    rx_v_u: list[float],
+    rx_n_u: list[float],
+    rx_b_u: list[float],
     max_yaw: float,
-    range_elevation: Tuple[float],
+    range_elevation: tuple[float],
 ):
     # transmitter position (x_tx), velocity (v_tx)
     tx_pv = transmitter.orbit.to_tle().get_orbit_track(times)
@@ -203,22 +201,22 @@ def _get_empty_ro_frame() -> gpd.GeoDataFrame:
 
 def collect_ro_observations(
     receiver: Satellite,
-    transmitters: Union[Satellite, List[Satellite]],
-    times: List[datetime],
+    transmitters: Satellite | list[Satellite],
+    times: list[datetime],
     sample_elevation: float = 0,
     max_yaw: float = 65,
-    range_elevation: Tuple[float] = (-200e3, 60e3),
+    range_elevation: tuple[float] = (-200e3, 60e3),
 ) -> gpd.GeoDataFrame:
     """
     Collects Radio Occultation (RO) observations.
 
     Args:
         receiver (Satellite): the satellite with a RO receiver.
-        transmitters (typing.Union[Satellite,typing.List[Satellite]]): the satellite(s) with a RO transmitter.
+        transmitters (Satellite | list[Satellite]]): the satellite(s) with a RO transmitter.
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
         sample_elevation: (float): the elevation (m) at which to sample observation attributes.
         max_yaw (float): the maximum transmitter yaw angle (from receiver body-fixed frame) for a valid obsevation.
-        range_elevation: (typing.Tuple[float]): the lower and upper bound on tangent point elevation (m) for a valid observation.
+        range_elevation: (tuple[float]): the lower and upper bound on tangent point elevation (m) for a valid observation.
     """
     # receiver position, velocity
     rx_pv = receiver.orbit.to_tle().get_orbit_track(times)
@@ -286,8 +284,8 @@ def collect_ro_observations(
             for sample_index in [
                 min(
                     range(len(o["points"])),
-                    key=lambda i: abs(
-                        o["points"][i]["tangent_point"].elevation.m - sample_elevation
+                    key=lambda i, points=o["points"]: abs(
+                        points[i]["tangent_point"].elevation.m - sample_elevation
                     ),
                 )
             ]

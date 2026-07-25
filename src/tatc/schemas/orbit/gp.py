@@ -15,14 +15,13 @@ from pydantic import BaseModel, Field
 from sgp4 import exporter, omm
 from sgp4.api import WGS72, Satrec
 from sgp4.conveniences import sat_epoch_datetime
-from sgp4.io import twoline2rv
 from skyfield.api import EarthSatellite, Time, wgs84
 from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 from typing_extensions import Literal
 
 from ... import config, constants, utils
-from ..point import Point
+from ..surface import Point
 
 
 class GeneralPerturbationsElements(BaseModel):
@@ -33,13 +32,23 @@ class GeneralPerturbationsElements(BaseModel):
     mean_motion: float = Field(..., description="Mean motion (degrees/second).", gt=0)
     eccentricity: float = Field(..., description="Eccentricity.", ge=0, le=1)
     inclination: float = Field(..., description="Inclination (degrees).", ge=-90, le=90)
-    ra_of_asc_node: float = Field(..., description="Right ascension of ascending node (degrees).", ge=0, lt=360)
-    arg_of_pericenter: float = Field(..., description="Argument of pericenter (degrees).", ge=0, lt=360)
-    mean_anomaly: float = Field(..., description="Mean anomaly (degrees).", ge=0, lt=360)
+    ra_of_asc_node: float = Field(
+        ..., description="Right ascension of ascending node (degrees).", ge=0, lt=360
+    )
+    arg_of_pericenter: float = Field(
+        ..., description="Argument of pericenter (degrees).", ge=0, lt=360
+    )
+    mean_anomaly: float = Field(
+        ..., description="Mean anomaly (degrees).", ge=0, lt=360
+    )
     norad_cat_id: int = Field(0, description="NORAD catalog identifier.", ge=0)
     bstar: float = Field(0, description="Starred ballistic coefficient.")
-    mean_motion_dot: float = Field(0, description="First derivative of mean motion (degrees/second^2).")
-    mean_motion_ddot: float = Field(0, description="Second derivative of mean motion (degrees/second^3).")
+    mean_motion_dot: float = Field(
+        0, description="First derivative of mean motion (degrees/second^2)."
+    )
+    mean_motion_ddot: float = Field(
+        0, description="Second derivative of mean motion (degrees/second^3)."
+    )
 
     @classmethod
     def from_satrec(cls, satrec: Satrec) -> GeneralPerturbationsElements:
@@ -61,9 +70,9 @@ class GeneralPerturbationsElements(BaseModel):
             norad_cat_id=satrec.satnum,
             bstar=satrec.bstar,
             mean_motion_dot=np.degrees(satrec.ndot) / 60**2,
-            mean_motion_ddot=np.degrees(satrec.nddot) / 60**3
+            mean_motion_ddot=np.degrees(satrec.nddot) / 60**3,
         )
-    
+
     def to_satrec(self) -> Satrec:
         """
         Converts this GP elements object to a Satrec object.
@@ -76,7 +85,8 @@ class GeneralPerturbationsElements(BaseModel):
             WGS72,
             "i",
             self.norad_cat_id,
-            (self.epoch - datetime(1949, 12, 31, tzinfo=timezone.utc)) / timedelta(days=1),
+            (self.epoch - datetime(1949, 12, 31, tzinfo=timezone.utc))
+            / timedelta(days=1),
             self.bstar,
             np.radians(self.mean_motion_dot) * 60**2,
             np.radians(self.mean_motion_ddot) * 60**3,
@@ -137,7 +147,7 @@ class GeneralPerturbationsElements(BaseModel):
             GeneralPerturbationsElements: the GP elements
         """
         return GeneralPerturbationsElements.from_satrec(
-            twoline2rv(tle_lines[0], tle_lines[1])
+            Satrec.twoline2rv(tle_lines[0], tle_lines[1])
         )
 
     def to_tle(self) -> list[str]:
@@ -148,7 +158,7 @@ class GeneralPerturbationsElements(BaseModel):
             list[str]: the two line elements
         """
         return exporter.export_tle(self.to_satrec())
-    
+
     @classmethod
     def from_omm_dict(cls, omm_dict: dict) -> GeneralPerturbationsElements:
         """
@@ -169,7 +179,7 @@ class GeneralPerturbationsElements(BaseModel):
             dict: the OMM dictionary
         """
         return exporter.export_omm(self.to_satrec(), self.object_name)
-    
+
     @classmethod
     def from_omm_csv(cls, omm_csv: list[str]) -> GeneralPerturbationsElements:
         """
@@ -180,7 +190,7 @@ class GeneralPerturbationsElements(BaseModel):
         """
         for fields in csv.DictReader(omm_csv):
             return GeneralPerturbationsElements.from_omm_dict(fields)
-    
+
     @classmethod
     def from_omm_json(cls, omm_json: str) -> GeneralPerturbationsElements:
         """
@@ -201,13 +211,16 @@ class GeneralPerturbationsElements(BaseModel):
         """
         return EarthSatellite.from_omm(constants.timescale, self.to_omm_dict())
 
+
 class GeneralPerturbationsOrbit(BaseModel):
     """
     Orbit defined with general perturbations (GP) elements.
     """
 
     type: Literal["gp"] = Field("gp", description="Orbit type discriminator.")
-    elements: list[GeneralPerturbationsElements] = Field(..., description="General perturbations elements.")
+    elements: list[GeneralPerturbationsElements] = Field(
+        ..., description="General perturbations elements."
+    )
 
     def get_mean_altitude(self, index: int = 0) -> float:
         """
@@ -232,7 +245,31 @@ class GeneralPerturbationsOrbit(BaseModel):
             float: the inclination (degrees)
         """
         return self.elements[index].inclination
-    
+
+    def get_eccentricity(self, index: int = 0) -> float:
+        """
+        Gets the eccentricity of the specified element.
+
+        Args:
+            index (int): the index of the element
+
+        Returns:
+            float: the eccentricity
+        """
+        return self.elements[index].eccentricity
+
+    def get_epoch(self, index: int = 0) -> datetime:
+        """
+        Gets the epoch of the specified element.
+
+        Args:
+            index (int): the index of the element
+
+        Returns:
+            datetime: the epoch
+        """
+        return self.elements[index].epoch
+
     def get_true_anomaly(self, index: int = 0) -> float:
         """
         Gets the true anomaly of the specified element.
@@ -244,7 +281,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             float: the true anomaly (degrees)
         """
         return self.elements[index].get_true_anomaly()
-    
+
     def get_right_ascension_ascending_node(self, index: int = 0) -> float:
         """
         Gets the right ascension of ascending node of the specified element.
@@ -256,7 +293,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             float: the right ascension of ascending node (degrees)
         """
         return self.elements[index].ra_of_asc_node
-    
+
     def get_perigee_argument(self, index: int = 0) -> float:
         """
         Gets the argument of perigee of the specified element.
@@ -279,7 +316,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         return GeneralPerturbationsOrbit(
             elements=[
-                GeneralPerturbationsElements.from_tle(tle_lines[i:i+2])
+                GeneralPerturbationsElements.from_tle(tle_lines[i : i + 2])
                 for i in range(0, len(tle_lines), 2)
             ]
         )
@@ -325,9 +362,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         element_epochs = self.__dict__.get("element_epochs")
         if element_epochs is None:
             # extract the element epoch times
-            element_epochs = np.array(
-                [el.epoch for el in self.elements]
-            )
+            element_epochs = np.array([el.epoch for el in self.elements])
             self.__dict__["element_epochs"] = element_epochs
         return element_epochs
 
@@ -348,8 +383,12 @@ class GeneralPerturbationsOrbit(BaseModel):
         derived_elements = []
         for original_el in self.elements:
             derived_el = original_el.model_copy(deep=True)
-            derived_el.mean_anomaly = np.mod(derived_el.mean_anomaly + delta_mean_anomaly, 360)
-            derived_el.ra_of_asc_node = np.mod(derived_el.ra_of_asc_node + delta_raan, 360)
+            derived_el.mean_anomaly = np.mod(
+                derived_el.mean_anomaly + delta_mean_anomaly, 360
+            )
+            derived_el.ra_of_asc_node = np.mod(
+                derived_el.ra_of_asc_node + delta_raan, 360
+            )
             derived_elements.append(derived_el)
         return GeneralPerturbationsOrbit(elements=derived_elements)
 
@@ -477,11 +516,9 @@ class GeneralPerturbationsOrbit(BaseModel):
             datum = wgs84.subpoint_of(
                 satellite.at(constants.timescale.from_datetime(epoch))
             )
-            position_0, velocity_0 = (
-                satellite
-                .at(constants.timescale.from_datetime(epoch))
-                .frame_xyz_and_velocity(itrs)
-            )
+            position_0, velocity_0 = satellite.at(
+                constants.timescale.from_datetime(epoch)
+            ).frame_xyz_and_velocity(itrs)
             # find candidate repeat events
             ts, es = satellite.find_events(
                 datum,
@@ -490,9 +527,7 @@ class GeneralPerturbationsOrbit(BaseModel):
                 min_elevation_angle,
             )
             # compute position and velocity at culmination in Earth-centered Earth-fixed frame
-            position, velocity = (
-                satellite.at(ts[es == 1]).frame_xyz_and_velocity(itrs)
-            )
+            position, velocity = satellite.at(ts[es == 1]).frame_xyz_and_velocity(itrs)
             # apply validity conditions on position and velocity error norms
             is_valid = np.logical_and(
                 np.linalg.norm((position.m.T - position_0.m.T).T, axis=0)
@@ -532,8 +567,10 @@ class GeneralPerturbationsOrbit(BaseModel):
             # try to use use multiple TLEs
             if isinstance(times, datetime):
                 nearest_index = self.get_closest_element_index(times)
-                return self.elements[nearest_index].to_skyfield().at(
-                    constants.timescale.from_datetime(times)
+                return (
+                    self.elements[nearest_index]
+                    .to_skyfield()
+                    .at(constants.timescale.from_datetime(times))
                 )
             nearest_indices = self.get_closest_element_index(times)
             tracks = [
@@ -605,7 +642,9 @@ class GeneralPerturbationsOrbit(BaseModel):
             # try to use use multiple TLEs
             part_ts, element_is = self.partition_by_element_index(start, end)
             events = [
-                element_is[i].to_skyfield().find_events(
+                element_is[i]
+                .to_skyfield()
+                .find_events(
                     topos,
                     constants.timescale.from_datetime(part_ts[i]),
                     constants.timescale.from_datetime(part_ts[i + 1]),
@@ -626,8 +665,10 @@ class GeneralPerturbationsOrbit(BaseModel):
             repeat_cycle = self.get_repeat_cycle()
             if repeat_cycle is not None and repeat_cycle < end - start:
                 repeat_t_1 = constants.timescale.from_datetime(start + repeat_cycle)
-                times, events = self.elements[0].to_skyfield().find_events(
-                    topos, t_0, repeat_t_1, min_elevation_angle
+                times, events = (
+                    self.elements[0]
+                    .to_skyfield()
+                    .find_events(topos, t_0, repeat_t_1, min_elevation_angle)
                 )
                 number_cycles = int(np.ceil((end - start) / repeat_cycle))
                 if len(times) == 0:
@@ -648,7 +689,11 @@ class GeneralPerturbationsOrbit(BaseModel):
         # compute observation events
         t_1 = constants.timescale.from_datetime(end)
         # pylint: disable=E1101
-        return self.elements[0].to_skyfield().find_events(topos, t_0, t_1, min_elevation_angle)
+        return (
+            self.elements[0]
+            .to_skyfield()
+            .find_events(topos, t_0, t_1, min_elevation_angle)
+        )
 
     def to_gp_orbit(self) -> GeneralPerturbationsOrbit:
         """

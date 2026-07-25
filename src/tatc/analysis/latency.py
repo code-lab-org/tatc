@@ -1,21 +1,19 @@
-# -*- coding: utf-8 -*-
 """
 Methods to perform latency analysis.
 
-@author: Isaac Feldman, Paul T. Grogan <paul.grogan@asu.edu>
+@author: Isaac Feldman
+@author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+from __future__ import annotations
 
-from typing import List, Union
 from datetime import datetime, timedelta
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
-import geopandas as gpd
 from shapely import geometry as geo
 
-from ..schemas.point import GroundStation
-from ..schemas.satellite import Satellite
-
+from ..schemas import GroundStation, Satellite
 from .coverage import _get_visible_interval_series
 
 
@@ -38,7 +36,7 @@ def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
 
 
 def collect_downlinks(
-    stations: Union[GroundStation, List[GroundStation]],
+    stations: GroundStation | list[GroundStation],
     satellite: Satellite,
     start: datetime,
     end: datetime,
@@ -47,7 +45,7 @@ def collect_downlinks(
     Collect satellite downlink opportunities to ground station(s) of interest.
 
     Args:
-        stations (GroundStation or typing.List[GroundStation]): The ground stations.
+        stations (GroundStation | list[GroundStation]): The ground stations.
         satellite (Satellite): The observing satellite.
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.

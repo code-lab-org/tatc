@@ -1,17 +1,16 @@
 import unittest
-
 from datetime import datetime, timedelta, timezone
 
 from tatc.analysis import (
-    collect_observations,
-    collect_multi_observations,
     aggregate_observations,
+    collect_multi_observations,
+    collect_observations,
     reduce_observations,
 )
 from tatc.schemas import (
+    Instrument,
     Point,
     Satellite,
-    Instrument,
     TwoLineElements,
     WalkerConstellation,
 )

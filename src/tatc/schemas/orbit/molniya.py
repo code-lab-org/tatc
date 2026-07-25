@@ -113,6 +113,7 @@ class MolniyaOrbit(OrbitBase):
         return MolniyaOrbit(
             true_anomaly=true_anomaly,
             epoch=self.epoch,
+            perigee_altitude=self.perigee_altitude,
             right_ascension_ascending_node=raan,
             northern_coverage=self.northern_coverage,
         )

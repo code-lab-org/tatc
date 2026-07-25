@@ -1,14 +1,21 @@
-import unittest
+"""
+Unit tests for the CircularOrbit schema.
 
+@author Paul T. Grogan <paul.grogan@asu.edu>
+"""
+import unittest
 from datetime import datetime, timezone
 
 from tatc.schemas import CircularOrbit
 
 
 class TestCircularOrbit(unittest.TestCase):
+    """
+    Unit tests for the CircularOrbit schema.
+    """
     def setUp(self):
         self.test_data = {
-            "altitude": 400000,
+            "mean_altitude": 400000,
             "true_anomaly": 10.0,
             "epoch": datetime(2022, 1, 1, 12, tzinfo=timezone.utc),
             "inclination": 45.0,
@@ -17,7 +24,10 @@ class TestCircularOrbit(unittest.TestCase):
         self.test_orbit = CircularOrbit(**self.test_data)
 
     def test_good_data(self):
-        self.assertEqual(self.test_orbit.altitude, self.test_data.get("altitude"))
+        """
+        Test that the CircularOrbit schema correctly initializes with valid data.
+        """
+        self.assertEqual(self.test_orbit.mean_altitude, self.test_data.get("mean_altitude"))
         self.assertEqual(
             self.test_orbit.true_anomaly, self.test_data.get("true_anomaly")
         )
@@ -29,6 +39,10 @@ class TestCircularOrbit(unittest.TestCase):
         )
 
     def test_good_data_iso8601_datetime(self):
+        """
+        Test that the CircularOrbit schema correctly initializes with valid data
+        when the epoch is provided as an ISO 8601 string.
+        """
         good_data = {
             "mean_altitude": 400000,
             "true_anomaly": 10.0,
@@ -47,6 +61,9 @@ class TestCircularOrbit(unittest.TestCase):
         )
 
     def test_get_derived_orbit(self):
+        """
+        Test that the CircularOrbit schema correctly derives a new orbit.
+        """
         derived_orbit = self.test_orbit.get_derived_orbit(20, 10)
         self.assertAlmostEqual(
             derived_orbit.get_mean_anomaly(),
@@ -60,6 +77,9 @@ class TestCircularOrbit(unittest.TestCase):
         )
 
     def test_to_gp_orbit(self):
+        """
+        Test that the CircularOrbit schema correctly converts to a general perturbations orbit.
+        """
         gp_orbit = self.test_orbit.to_gp_orbit()
         self.assertAlmostEqual(
             gp_orbit.get_mean_altitude(), self.test_data.get("mean_altitude"), delta=1.0

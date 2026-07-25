@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Numerical constants.
 
@@ -8,8 +7,7 @@ Numerical constants.
 import os
 
 import numpy as np
-from skyfield.api import load, Loader
-
+from skyfield.api import Loader, load
 
 # load ephemeris file
 resources_dir = os.path.join(os.path.dirname(__file__), "resources")

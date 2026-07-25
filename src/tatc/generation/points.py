@@ -1,19 +1,17 @@
-# -*- coding: utf-8 -*-
 """
 Methods to generate geospatial points to sample data.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+from __future__ import annotations
 
-from typing import Optional, Union
-
-import numpy as np
 import geopandas as gpd
+import numpy as np
 from numba import njit
-from shapely.geometry import Point, Polygon, MultiPolygon
+from shapely.geometry import MultiPolygon, Point, Polygon
 
 from ..constants import EARTH_MEAN_RADIUS
-from ..utils import compute_number_samples
+from ..utils.surface import compute_number_samples
 
 
 @njit
@@ -55,7 +53,7 @@ def _compute_fibonacci_lattice_point_longitude(index: int) -> float:
 def generate_fibonacci_lattice_points(
     distance: float,
     elevation: float = 0,
-    mask: Optional[Union[Polygon, MultiPolygon]] = None,
+    mask: Polygon | MultiPolygon | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Generates geodetic points following a Fibonacci lattice.
@@ -72,7 +70,7 @@ def generate_fibonacci_lattice_points(
         distance (float): The typical surface distance (meters) between points.
         elevation (float): The elevation (meters) above the datum in the WGS 84
             coordinate system.
-        mask (Polygon or MultiPolygon):  An optional mask to constrain points
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  An optional mask to constrain points
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
@@ -148,7 +146,7 @@ def generate_fibonacci_lattice_points(
 def generate_equally_spaced_points(
     distance: float,
     elevation: float = 0,
-    mask: Optional[Union[Polygon, MultiPolygon]] = None,
+    mask: Polygon | MultiPolygon | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Generates geodetic points at the centroid of regular equally spaced grid
@@ -162,7 +160,7 @@ def generate_equally_spaced_points(
         distance (float):  The typical surface distance (meters) between points.
         elevation (float): The elevation (meters) above the datum in the WGS 84
             coordinate system.
-        mask (Polygon or MultiPolygon):  An optional mask to constrain points
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  An optional mask to constrain points
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
@@ -197,12 +195,12 @@ def _compute_equally_spaced_point_id(
     return int(j * int(360 / theta_j) + np.mod(i, int(360 / theta_i)))
 
 
-def _get_bounds(mask: Union[Polygon, MultiPolygon]) -> tuple:
+def _get_bounds(mask: Polygon | MultiPolygon) -> tuple:
     """
     Generates a tuple of bounds for a polygon mask.
 
     Args:
-        mask (Polygon or MultiPolygon):  Geometric shape using WGS84 (EPSG:4326)
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon):  Geometric shape using WGS84 (EPSG:4326)
             geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
@@ -224,8 +222,8 @@ def _get_bounds(mask: Union[Polygon, MultiPolygon]) -> tuple:
 def _generate_equally_spaced_indices(
     theta_longitude: float,
     theta_latitude: float,
-    mask: Union[Polygon, MultiPolygon] = None,
-    strips: str = None,
+    mask: Polygon | MultiPolygon | None = None,
+    strips: str | None = None,
 ) -> list:
     """
     Generates a list of indices for an equally spaced grid.
@@ -235,9 +233,9 @@ def _generate_equally_spaced_indices(
             between points.
         theta_latitude (float): The angular difference in latitude (degrees)
             between points.
-        mask (Polygon or MultiPolygon):  An optional mask to constrain points
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  An optional mask to constrain points
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
-        strips (str): Option to generate one-dimensional strips along latitude
+        strips (str | None): Option to generate one-dimensional strips along latitude
             (`"lat"`), longitude (`"lon"`), or none (`None`).
 
     Returns:
@@ -282,7 +280,7 @@ def _generate_equally_spaced_points(
     theta_longitude: float,
     theta_latitude: float,
     elevation: float = 0,
-    mask: Optional[Union[Polygon, MultiPolygon]] = None,
+    mask: Polygon | MultiPolygon | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Generates geodetic cells following regular equally spaced grid.
@@ -298,7 +296,7 @@ def _generate_equally_spaced_points(
             between points.
         elevation (float): The elevation (meters) above the datum in the WGS 84
             coordinate system.
-        mask (Polygon or MultiPolygon):  An optional mask to constrain points
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  An optional mask to constrain points
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:

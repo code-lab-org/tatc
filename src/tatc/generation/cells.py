@@ -1,30 +1,27 @@
-# -*- coding: utf-8 -*-
 """
 Methods to generate geospatial cells to aggregate data.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+from __future__ import annotations
 
-from typing import Optional, Union
-
-import numpy as np
 import geopandas as gpd
-from shapely.geometry import Polygon, MultiPolygon
+import numpy as np
+from shapely.geometry import MultiPolygon, Polygon
 
+from ..constants import EARTH_MEAN_RADIUS
 from .points import (
     _compute_equally_spaced_point_id,
     _generate_equally_spaced_indices,
     _get_bounds,
 )
 
-from ..constants import EARTH_MEAN_RADIUS
-
 
 def generate_equally_spaced_cells(
     distance: float,
     elevation: float = 0,
-    mask: Optional[Union[Polygon, MultiPolygon]] = None,
-    strips: str = None,
+    mask: Polygon | MultiPolygon | None = None,
+    strips: str | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Generates geodetic polygons over a regular equally spaced grid.
@@ -37,9 +34,9 @@ def generate_equally_spaced_cells(
         distance (float):  The typical surface distance (meters) between points.
         elevation (float): The elevation (meters) above the datum in the WGS 84
             coordinate system.
-        mask (Polygon or MultiPolygon):  An optional mask to constrain cells
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  An optional mask to constrain cells
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
-        strips (str): Option to generate strip-cells along latitude (`"lat"`),
+        strips (str | None): Option to generate strip-cells along latitude (`"lat"`),
             longitude (`"lon"`), or none (`None`).
 
     Returns:
@@ -57,8 +54,8 @@ def _generate_equally_spaced_cells(
     theta_longitude: float,
     theta_latitude: float,
     elevation: float = 0,
-    mask: Optional[Union[Polygon, MultiPolygon]] = None,
-    strips: str = None,
+    mask: Polygon | MultiPolygon | None = None,
+    strips: str | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Generates geodetic polygons over a regular equally spaced grid.
@@ -74,9 +71,9 @@ def _generate_equally_spaced_cells(
             between cell centroids.
         elevation (float): The elevation (meters) above the datum in the WGS 84
             coordinate system.
-        mask (Polygon or MultiPolygon):  An optional mask to constrain cells
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  An optional mask to constrain cells
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
-        strips (str): Option to generate strip-cells along latitude (`"lat"`),
+        strips (str | None): Option to generate strip-cells along latitude (`"lat"`),
             longitude (`"lon"`), or none (`None`).
 
     Returns:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Configuration Settings.
 
@@ -9,8 +8,8 @@ import os
 import pathlib
 
 import yaml
-from yaml.parser import ParserError
 from pydantic import BaseModel, Field, ValidationError
+from yaml.parser import ParserError
 
 
 class ConfigError(Exception):

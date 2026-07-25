@@ -180,11 +180,11 @@ def compute_max_access_time(mean_altitude: float, min_elevation_angle: float) ->
     return orbital_distance / orbital_velocity
 
 @njit
-def compute_maximum_access_time(
+def compute_max_transit_time(
     mean_altitude: float, inclination: float, along_track: float
 ) -> float:
     """
-    Fast computation of maximum access time for a specified along track distance.
+    Fast computation of maximum transit time to cover a specified along track distance.
 
     Args:
         mean_altitude (float): The mean orbit altitude (meters) above WGS 84 datum.
@@ -200,7 +200,7 @@ def compute_maximum_access_time(
 
 
 @njit
-def compute_minimum_along_track_distance(
+def compute_min_along_track_distance(
     mean_altitude: float, inclination: float, access_time: float
 ) -> float:
     """

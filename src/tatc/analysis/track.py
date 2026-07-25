@@ -1,38 +1,35 @@
-# -*- coding: utf-8 -*-
 """
 Methods to generate coverage statistics.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+from __future__ import annotations
 
-from typing import List, Union, Optional
 from datetime import datetime, timedelta
 from enum import Enum
 
-import pandas as pd
-import numpy as np
 import geopandas as gpd
+import numpy as np
+import pandas as pd
+import pyproj
+from shapely.geometry import (
+    LineString,
+    MultiPolygon,
+    Point,
+    Polygon,
+)
+from shapely.ops import clip_by_rect, split
 from skyfield.api import wgs84
 from skyfield.framelib import itrs
 from skyfield.functions import angle_between
 
-from shapely.geometry import (
-    Polygon,
-    MultiPolygon,
-    Point,
-    LineString,
-)
-from shapely.ops import clip_by_rect, split
-import pyproj
-
-from ..schemas.instrument import PointedInstrument
-from ..schemas.satellite import Satellite
-from ..utils import (
+from ..constants import EARTH_MEAN_RADIUS, de421, timescale
+from ..schemas import PointedInstrument, Satellite
+from ..utils.observation import field_of_regard_to_swath_width
+from ..utils.projection import (
     buffer_footprint,
     buffer_target,
-    field_of_regard_to_swath_width,
 )
-from ..constants import de421, EARTH_MEAN_RADIUS, timescale
 
 
 def _get_empty_orbit_track() -> gpd.GeoDataFrame:
@@ -74,17 +71,10 @@ class OrbitOutput(str, Enum):
 
 def collect_orbit_track(
     satellite: Satellite,
-    times: List[datetime],
+    times: list[datetime],
     instrument_index: int = 0,
     elevation: float = 0,
-    mask: Optional[
-        Union[
-            Polygon,
-            MultiPolygon,
-            gpd.GeoDataFrame,
-            gpd.GeoSeries,
-        ]
-    ] = None,
+    mask: Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries | None = None,
     coordinates: OrbitCoordinate = OrbitCoordinate.WGS84,
     orbit_output: OrbitOutput = OrbitOutput.POSITION,
     sat_sunlit: bool = False,
@@ -100,7 +90,7 @@ def collect_orbit_track(
         instrument_index (int): The index of the observing instrument in satellite.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate swath width.
-        mask (Polygon, MultiPolygon, geopandas.GeoDataFrame, geopandas.GeoSeries):
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
                 An optional mask to constrain results.
         coordinates (OrbitCoordinate): The coordinate system of orbit track points.
         orbit_output (OrbitOutput): The output option.
@@ -286,17 +276,10 @@ def _get_utm_epsg_code(point: Point, swath_width: float) -> str:
 
 def collect_ground_track(
     satellite: Satellite,
-    times: List[datetime],
+    times: list[datetime],
     instrument_index: int = 0,
     elevation: float = 0,
-    mask: Optional[
-        Union[
-            Polygon,
-            MultiPolygon,
-            gpd.GeoDataFrame,
-            gpd.GeoSeries,
-        ]
-    ] = None,
+    mask: Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries | None = None,
     crs: str = "EPSG:4087",
     sat_altaz: bool = False,
     solar_altaz: bool = False,
@@ -310,7 +293,7 @@ def collect_ground_track(
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate ground track.
-        mask (Polygon, MultiPolygon, geopandas.GeoDataFrame, geopandas.GeoSeries):
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
                 An optional mask to constrain results.
         crs (str): The coordinate reference system (CRS) in which to compute
                 distance (default: World Equidistant Cylindrical `"EPSG:4087"`).
@@ -470,17 +453,10 @@ def collect_ground_track(
 
 def compute_ground_track(
     satellite: Satellite,
-    times: List[datetime],
+    times: list[datetime],
     instrument_index: int = 0,
     elevation: float = 0,
-    mask: Optional[
-        Union[
-            Polygon,
-            MultiPolygon,
-            gpd.GeoDataFrame,
-            gpd.GeoSeries,
-        ]
-    ] = None,
+    mask: Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries | None = None,
     crs: str = "EPSG:4087",
     method: str = "point",
     dissolve_orbits: bool = True,
@@ -494,7 +470,7 @@ def compute_ground_track(
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate ground track.
-        mask (Polygon, MultiPolygon, geopandas.GeoDataFrame, geopandas.GeoSeries):
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
                 An optional mask to constrain results.
         crs (str): The coordinate reference system (CRS) in which to compute
                 distance (default: World Equidistant Cylindrical `"EPSG:4087"`).
@@ -610,17 +586,10 @@ def compute_ground_track(
 
 def collect_ground_pixels(
     satellite: Satellite,
-    times: List[datetime],
+    times: list[datetime],
     instrument_index: int = 0,
     elevation: float = 0,
-    mask: Optional[
-        Union[
-            Polygon,
-            MultiPolygon,
-            gpd.GeoDataFrame,
-            gpd.GeoSeries,
-        ]
-    ] = None,
+    mask: Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries | None = None,
     sat_altaz: bool = False,
     solar_altaz: bool = False,
 ) -> gpd.GeoDataFrame:
@@ -633,7 +602,7 @@ def collect_ground_pixels(
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate ground pixels.
-        mask (Polygon, MultiPolygon, geopandas.GeoDataFrame, geopandas.GeoSeries):
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
                 An optional mask to constrain results.
         sat_altaz (bool): `True` to include satellite altitude/azimuth angles.
         solar_altaz (bool): `True` to include solar altitude/azimuth angles.
@@ -731,8 +700,8 @@ def collect_ground_pixels(
             ).altaz()
             for record in records
         ]
-        gdf["sat_alt"] = list(map(lambda altaz: altaz[0].degrees, sat_altaz))
-        gdf["sat_az"] = list(map(lambda altaz: altaz[1].degrees, sat_altaz))
+        gdf["sat_alt"] = [altaz[0].degrees for altaz in sat_altaz]
+        gdf["sat_az"] = [altaz[1].degrees for altaz in sat_altaz]
     if solar_altaz:
         # append solar altitude/azimuth columns
         solar_altaz = [
@@ -748,8 +717,8 @@ def collect_ground_pixels(
             .altaz()
             for record in records
         ]
-        gdf["solar_alt"] = list(map(lambda altaz: altaz[0].degrees, solar_altaz))
-        gdf["solar_az"] = list(map(lambda altaz: altaz[1].degrees, solar_altaz))
+        gdf["solar_alt"] = [altaz[0].degrees for altaz in solar_altaz]
+        gdf["solar_az"] = [altaz[1].degrees for altaz in solar_altaz]
 
     if mask is not None:
         gdf = gpd.clip(gdf, mask).reset_index(drop=True)

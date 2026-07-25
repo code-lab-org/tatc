@@ -1,19 +1,19 @@
-# -*- coding: utf-8 -*-
 """
 Methods to analyze dilusion of precision.
 
 @author: Michael P. Jones <mpj@mit.edu>
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+from __future__ import annotations
+
 import warnings
 from datetime import datetime
 from enum import Enum
-from typing import List
 
-import pandas as pd
-import numpy as np
 import geopandas as gpd
-from skyfield.api import wgs84, EarthSatellite
+import numpy as np
+import pandas as pd
+from skyfield.api import EarthSatellite, wgs84
 
 from ..constants import timescale
 from ..schemas import Point, Satellite
@@ -32,9 +32,9 @@ class DopMethod(str, Enum):
 
 
 def compute_dop(
-    times: List[datetime],
+    times: list[datetime],
     point: Point,
-    satellites: List[Satellite],
+    satellites: list[Satellite],
     min_elevation: float,
     dop_method: DopMethod,
     min_count_visible: int = 3,
@@ -72,9 +72,9 @@ def compute_dop(
 
     # compute elevation/azimuth angles and range
     altazs = [(sk_sat - sk_position).at(sk_times).altaz() for sk_sat in sk_sats]
-    el = np.array(list(map(lambda i: i[0].radians, altazs)))
-    az = np.array(list(map(lambda i: i[1].radians, altazs)))
-    r = np.array(list(map(lambda i: i[2].m, altazs)))
+    el = np.array([i[0].radians for i in altazs])
+    az = np.array([i[1].radians for i in altazs])
+    r = np.array([i[2].m for i in altazs])
 
     # compute number of visible satellites
     n = np.sum(el >= np.deg2rad(min_elevation), axis=0)
