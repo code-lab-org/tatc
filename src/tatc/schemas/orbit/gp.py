@@ -49,6 +49,11 @@ class GeneralPerturbationsElements(BaseModel):
     mean_motion_ddot: float = Field(
         0, description="Second derivative of mean motion (degrees/second^3)."
     )
+    classification: str = Field("U", description="Classification type.")
+    international_designator: str = Field("00000A", description="International designator.")
+    ephemeris_type: int = Field(0, description="Ephemeris type.")
+    element_set_num: int = Field(0, description="Element set number.")
+    revolution_num: int = Field(0, description="Revolution number at epoch.")
 
     @classmethod
     def from_satrec(cls, satrec: Satrec) -> GeneralPerturbationsElements:
@@ -70,6 +75,11 @@ class GeneralPerturbationsElements(BaseModel):
             bstar=satrec.bstar,
             mean_motion_dot=np.degrees(satrec.ndot) / 60**2,
             mean_motion_ddot=np.degrees(satrec.nddot) / 60**3,
+            classification=satrec.classification,
+            international_designator=satrec.intldesg,
+            ephemeris_type=satrec.ephtype,
+            element_set_num=satrec.elnum,
+            revolution_num=satrec.revnum,
         )
 
     def to_satrec(self) -> Satrec:
@@ -80,6 +90,11 @@ class GeneralPerturbationsElements(BaseModel):
             Satrec: the Satrec object
         """
         satrec = Satrec()
+        satrec.classification = self.classification
+        satrec.intldesg = self.international_designator
+        satrec.ephtype = self.ephemeris_type
+        satrec.elnum = self.element_set_num
+        satrec.revnum = self.revolution_num
         satrec.sgp4init(
             WGS72,
             "i",
@@ -232,7 +247,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             float: the semimajor axis (meters)
         """
         return self.elements[index].get_semimajor_axis()
-    
+
     def get_mean_altitude(self, index: int = 0) -> float:
         """
         Gets the mean altitude of the specified element.
@@ -340,7 +355,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             float: the argument of perigee (degrees)
         """
         return self.elements[index].arg_of_pericenter
-
+    
     @classmethod
     def from_tle(cls, tle_lines: list[str]) -> GeneralPerturbationsOrbit:
         """
@@ -472,6 +487,23 @@ class GeneralPerturbationsOrbit(BaseModel):
             )
             for i, idx in enumerate(indices)
         ]
+
+    def get_closest_element(
+        self, at_times: datetime | list[datetime]
+    ) -> GeneralPerturbationsElements | list[GeneralPerturbationsElements]:
+        """
+        Gets the closest element to specified time(s).
+
+        Args:
+            at_times (datetime | list[datetime]): specified times
+
+        Returns:
+            GeneralPerturbationsElements | list[GeneralPerturbationsElements]: closest element or elements
+        """
+        indices = self.get_closest_element_index(at_times)
+        if isinstance(indices, int):
+            return self.elements[indices]
+        return [self.elements[i] for i in indices]
 
     def partition_by_element_index(
         self, start: datetime, end: datetime

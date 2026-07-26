@@ -106,7 +106,7 @@ def collect_orbit_track(
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
     # propagate orbit
-    orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
+    orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(times)
     ssp = wgs84.geographic_position_of(orbit_track)
     if mask is not None:
         # trim orbit track to provided mask
@@ -311,7 +311,7 @@ def collect_ground_track(
     if len(times) == 0:
         return _get_empty_ground_track()
     # propagate orbit
-    orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
+    orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(times)
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
     if mask is not None and len(times) > 1:
@@ -494,7 +494,7 @@ def compute_ground_track(
         if not track.empty:
             # assign orbit identifier
             track["orbit_id"] = [
-                (time - times[0]) // satellite.orbit.to_tle().get_orbit_period()
+                (time - times[0]) // satellite.orbit.to_gp_orbit().get_closest_element(time).get_orbit_period()
                 for time in track.time
             ]
             # filter to valid observations and dissolve
@@ -510,7 +510,7 @@ def compute_ground_track(
         track = collect_orbit_track(satellite, times, instrument_index, elevation, None)
         # assign orbit identifier
         track["orbit_id"] = [
-            (time - times[0]) // satellite.orbit.to_tle().get_orbit_period()
+            (time - times[0]) // satellite.orbit.to_gp_orbit().get_closest_element(time).get_orbit_period()
             for time in track.time
         ]
         # assign track identifiers to group contiguous observation periods
@@ -614,7 +614,7 @@ def collect_ground_pixels(
     if len(times) == 0:
         return _get_empty_ground_track()
     # propagate orbit
-    orbit_track = satellite.orbit.to_tle().get_orbit_track(times)
+    orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(times)
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
     if not isinstance(instrument, PointedInstrument) or not instrument.is_rectangular:

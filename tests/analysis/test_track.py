@@ -1,19 +1,25 @@
-import unittest
+"""
+Unit tests for the track analysis functions.
 
-from datetime import datetime, timezone, timedelta
-from shapely.geometry import Polygon, MultiPolygon
+@author Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
+import unittest
+from datetime import datetime, timedelta, timezone
+
+from shapely.geometry import MultiPolygon, Polygon
 
 from tatc.analysis import (
-    collect_orbit_track,
     collect_ground_track,
+    collect_orbit_track,
     compute_ground_track,
 )
 from tatc.schemas import (
-    Point,
+    GeneralPerturbationsOrbit,
     GroundStation,
-    Satellite,
     Instrument,
-    TwoLineElements,
+    Point,
+    Satellite,
     WalkerConstellation,
 )
 
@@ -25,8 +31,8 @@ class TestGroundTrackAnalysis(unittest.TestCase):
             name="Station 1", latitude=0, longitude=180, min_elevation_angle=10
         )
         self.instrument = Instrument(name="Test", field_of_regard=180.0)
-        self.orbit = TwoLineElements(
-            tle=[
+        self.orbit = GeneralPerturbationsOrbit.from_tle(
+            [
                 "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
                 "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
             ]
@@ -43,7 +49,10 @@ class TestGroundTrackAnalysis(unittest.TestCase):
         )
 
     def test_collect_orbit_track(self):
-        results = collect_orbit_track(
+        """
+        Test that orbit track collection works for a single satellite and a list of times.
+        """
+        collect_orbit_track(
             self.satellite,
             [
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
@@ -52,14 +61,20 @@ class TestGroundTrackAnalysis(unittest.TestCase):
         )
 
     def test_collect_orbit_track_empty(self):
-        results = collect_orbit_track(
+        """
+        Test that orbit track collection returns an empty DataFrame when no times are provided.
+        """
+        collect_orbit_track(
             self.satellite,
             [],
         )
 
     def test_collect_orbit_track_with_mask(self):
+        """
+        Test that orbit track collection works for a single satellite, a list of times, and a mask.
+        """
         mask = Polygon([[-90, 45], [-90, 45], [90, 45], [90, -45], [-90, -45]])
-        results = collect_orbit_track(
+        collect_orbit_track(
             self.satellite,
             [
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
@@ -69,7 +84,10 @@ class TestGroundTrackAnalysis(unittest.TestCase):
         )
 
     def test_collect_ground_track(self):
-        results = collect_ground_track(
+        """
+        Test that ground track collection works for a single satellite and a list of times.
+        """
+        collect_ground_track(
             self.satellite,
             times=[
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
@@ -78,13 +96,21 @@ class TestGroundTrackAnalysis(unittest.TestCase):
         )
 
     def test_collect_ground_track_empty(self):
-        results = collect_ground_track(
+        """
+        Test that ground track collection returns an empty DataFrame when
+        no times are provided.
+        """
+        collect_ground_track(
             self.satellite,
             [],
         )
 
     def test_collect_ground_track_utm(self):
-        results = collect_ground_track(
+        """
+        Test that ground track collection works for a single satellite and a list
+        of times in UTM coordinates.
+        """
+        collect_ground_track(
             self.satellite,
             [
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
@@ -94,8 +120,12 @@ class TestGroundTrackAnalysis(unittest.TestCase):
         )
 
     def test_collect_ground_track_with_mask(self):
+        """
+        Test that ground track collection works for a single satellite, a list
+        of times, and a mask.
+        """
         mask = Polygon([[-90, 45], [-90, 45], [90, 45], [90, -45], [-90, -45]])
-        results = collect_ground_track(
+        collect_ground_track(
             self.satellite,
             [
                 datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
@@ -105,6 +135,10 @@ class TestGroundTrackAnalysis(unittest.TestCase):
         )
 
     def test_compute_ground_track_point(self):
+        """
+        Test that ground track computation works for a single satellite and a list
+        of times using the point method.
+        """
         results = compute_ground_track(
             self.satellite,
             [
@@ -117,6 +151,10 @@ class TestGroundTrackAnalysis(unittest.TestCase):
         self.assertEqual(type(results.iloc[0].geometry), Polygon)
 
     def test_compute_ground_track_point_no_instr_index(self):
+        """
+        Test that ground track computation works for a single satellite and a list
+        of times using the point method with no instrument index.
+        """
         results = compute_ground_track(
             self.satellite,
             [
@@ -129,6 +167,10 @@ class TestGroundTrackAnalysis(unittest.TestCase):
         self.assertEqual(type(results.iloc[0].geometry), Polygon)
 
     def test_compute_ground_track_point_multipolygon(self):
+        """
+        Test that ground track computation works for a single satellite and a list
+        of times using the point method with a multipolygon result.
+        """
         results = compute_ground_track(
             self.satellite,
             [
@@ -141,6 +183,10 @@ class TestGroundTrackAnalysis(unittest.TestCase):
         self.assertEqual(type(results.iloc[0].geometry), MultiPolygon)
 
     def test_compute_ground_track_line_short(self):
+        """
+        Test that ground track computation works for a single satellite and a list
+        of times using the line method with a short time span.
+        """
         results = compute_ground_track(
             self.satellite,
             [
@@ -154,6 +200,10 @@ class TestGroundTrackAnalysis(unittest.TestCase):
         self.assertEqual(type(results.iloc[0].geometry), Polygon)
 
     def test_compute_ground_track_line_long(self):
+        """
+        Test that ground track computation works for a single satellite and a list
+        of times using the line method with a long time span.
+        """
         results = compute_ground_track(
             self.satellite,
             [
@@ -167,6 +217,10 @@ class TestGroundTrackAnalysis(unittest.TestCase):
         self.assertEqual(type(results.iloc[0].geometry), MultiPolygon)
 
     def test_compute_ground_track_line_multipolygon(self):
+        """
+        Test that ground track computation works for a single satellite and a list
+        of times using the line method with a multipolygon result.
+        """
         results = compute_ground_track(
             self.satellite,
             [

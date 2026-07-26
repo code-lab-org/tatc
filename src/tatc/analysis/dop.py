@@ -56,11 +56,7 @@ def compute_dop(
     """
     # construct skyfield satellites for each satellite
     sk_sats = [
-        EarthSatellite(
-            satellite.orbit.to_tle().tle[0],
-            satellite.orbit.to_tle().tle[1],
-            satellite.name,
-        )
+        satellite.orbit.to_gp_orbit().get_closest_element(times[0]).to_skyfield()
         for satellite in satellites
     ]
 

@@ -1,3 +1,8 @@
+"""
+Unit tests for the coverage analysis functions in tatc.analysis.
+
+@author Paul T. Grogan <paul.grogan@asu.edu>
+"""
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -8,20 +13,23 @@ from tatc.analysis import (
     reduce_observations,
 )
 from tatc.schemas import (
+    GeneralPerturbationsOrbit,
     Instrument,
     Point,
     Satellite,
-    TwoLineElements,
     WalkerConstellation,
 )
 
 
 class TestCoverageAnalysis(unittest.TestCase):
+    """
+    Unit tests for the coverage analysis functions in tatc.analysis.
+    """
     def setUp(self):
         self.point = Point(id=0, latitude=0, longitude=0)
         self.instrument = Instrument(name="Test", field_of_regard=180.0)
-        self.orbit = TwoLineElements(
-            tle=[
+        self.orbit = GeneralPerturbationsOrbit.from_tle(
+            [
                 "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
                 "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
             ]
@@ -38,7 +46,10 @@ class TestCoverageAnalysis(unittest.TestCase):
         )
 
     def test_collect_observations(self):
-        results = collect_observations(
+        """
+        Test that observations can be collected for a single satellite and point.
+        """
+        collect_observations(
             self.point,
             self.satellite,
             datetime(2022, 6, 1, tzinfo=timezone.utc),
@@ -48,7 +59,10 @@ class TestCoverageAnalysis(unittest.TestCase):
         )
 
     def test_collect_observations_with_solar(self):
-        results = collect_observations(
+        """
+        Test that observations can be collected for a single satellite and point with solar constraints.
+        """
+        collect_observations(
             self.point,
             self.satellite,
             datetime(2022, 6, 1, tzinfo=timezone.utc),
@@ -58,6 +72,10 @@ class TestCoverageAnalysis(unittest.TestCase):
         )
 
     def test_collect_observations_all_culminate(self):
+        """
+        Test that observations can be collected for a single satellite 
+        and point when all observations culminate.
+        """
         start = datetime(2022, 6, 1, 0, 43, tzinfo=timezone.utc)
         end = datetime(2022, 6, 1, 0, 45, tzinfo=timezone.utc)
         results = collect_observations(
@@ -72,6 +90,10 @@ class TestCoverageAnalysis(unittest.TestCase):
         self.assertEqual(results.iloc[0].end, end)
 
     def test_collect_observations_all_culminate_no_instrument_index(self):
+        """
+        Test that observations can be collected for a single satellite and p
+        oint when all observations culminate and no instrument index is provided.
+        """
         start = datetime(2022, 6, 1, 0, 43, tzinfo=timezone.utc)
         end = datetime(2022, 6, 1, 0, 45, tzinfo=timezone.utc)
         results = collect_observations(
@@ -85,6 +107,10 @@ class TestCoverageAnalysis(unittest.TestCase):
         self.assertEqual(results.iloc[0].end, end)
 
     def test_collect_observations_miss_first_rise(self):
+        """
+        Test that observations can be collected for a single satellite and point
+        when the first observation is missed due to the start time.
+        """
         start = datetime(2022, 6, 1, 0, 43, tzinfo=timezone.utc)
         end = datetime(2022, 6, 1, 1, tzinfo=timezone.utc)
         results = collect_observations(
@@ -98,6 +124,10 @@ class TestCoverageAnalysis(unittest.TestCase):
         self.assertEqual(results.iloc[0].start, start)
 
     def test_collect_observations_miss_last_set(self):
+        """
+        Test that observations can be collected for a single satellite and point
+        when the last observation is missed due to the end time.
+        """
         start = datetime(2022, 6, 1, tzinfo=timezone.utc)
         end = datetime(2022, 6, 1, 0, 45, tzinfo=timezone.utc)
         results = collect_observations(
@@ -111,6 +141,10 @@ class TestCoverageAnalysis(unittest.TestCase):
         self.assertEqual(results.iloc[0].end, end)
 
     def test_collect_observations_null(self):
+        """
+        Test that no observations are collected for a single satellite and point
+        when the time window does not overlap with any observations.
+        """
         start = datetime(2022, 6, 1, tzinfo=timezone.utc)
         end = datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc)
         results = collect_observations(
@@ -123,6 +157,10 @@ class TestCoverageAnalysis(unittest.TestCase):
         self.assertTrue(results.empty)
 
     def test_collect_observations_null_with_solar(self):
+        """
+        Test that no observations are collected for a single satellite and point
+        when the time window does not overlap with any observations, even with solar constraints.
+        """
         start = datetime(2022, 6, 1, tzinfo=timezone.utc)
         end = datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc)
         results = collect_observations(
@@ -131,7 +169,10 @@ class TestCoverageAnalysis(unittest.TestCase):
         self.assertTrue(results.empty)
 
     def test_collect_multi_observations(self):
-        results = collect_multi_observations(
+        """
+        Test that observations can be collected for multiple satellites and a single point.
+        """
+        collect_multi_observations(
             self.point,
             self.constellation.generate_members(),
             datetime(2022, 6, 1, tzinfo=timezone.utc),
@@ -139,6 +180,10 @@ class TestCoverageAnalysis(unittest.TestCase):
         )
 
     def test_collect_multi_observations_null(self):
+        """
+        Test that no observations are collected for multiple satellites and a single point
+        when the time window does not overlap with any observations.
+        """
         start = datetime(2022, 6, 1, 0, 10, tzinfo=timezone.utc)
         end = datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc)
         results = collect_multi_observations(
@@ -150,6 +195,9 @@ class TestCoverageAnalysis(unittest.TestCase):
         self.assertTrue(results.empty)
 
     def test_aggregate_observations(self):
+        """
+        Test that observations can be aggregated for multiple satellites and a single point.
+        """
         results = collect_multi_observations(
             self.point,
             self.constellation.generate_members(),
@@ -167,6 +215,10 @@ class TestCoverageAnalysis(unittest.TestCase):
             )
 
     def test_aggregate_observations_null(self):
+        """
+        Test that no observations are aggregated for multiple satellites and a single point
+        when the time window does not overlap with any observations.
+        """
         results = collect_multi_observations(
             self.point,
             self.constellation.generate_members(),
@@ -177,6 +229,9 @@ class TestCoverageAnalysis(unittest.TestCase):
         self.assertTrue(results.empty)
 
     def test_reduce_observations(self):
+        """
+        Test that observations can be reduced for multiple satellites and a single point.
+        """
         results = collect_multi_observations(
             self.point,
             self.constellation.generate_members(),
@@ -202,6 +257,10 @@ class TestCoverageAnalysis(unittest.TestCase):
         )
 
     def test_reduce_observations_null(self):
+        """
+        Test that no observations are reduced for multiple satellites and a single point
+        when the time window does not overlap with any observations.
+        """
         results = collect_multi_observations(
             self.point,
             self.constellation.generate_members(),

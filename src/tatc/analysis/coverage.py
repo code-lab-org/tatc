@@ -43,18 +43,16 @@ def _get_visible_interval_series(
     Returns:
         pandas.Series: Series of observation intervals.
     """
-    # define starting and ending points
-    t_0 = timescale.from_datetime(start)
-    # build skyfield objects
-    sat = satellite.orbit.to_tle().as_skyfield()
     # compute the initial satellite altitude
-    satellite_altitude = wgs84.geographic_position_of(sat.at(t_0)).elevation.m
+    init_altitude = wgs84.geographic_position_of(
+        satellite.orbit.to_gp_orbit().get_orbit_track(start)
+    ).elevation.m
     # compute the maximum access time to filter bad data
     max_access_time = timedelta(
-        seconds=compute_max_access_time(satellite_altitude, min_elevation_angle)
+        seconds=compute_max_access_time(init_altitude, min_elevation_angle)
     )
     # find the set of observation events
-    times, events = satellite.orbit.to_tle().get_observation_events(
+    times, events = satellite.orbit.to_gp_orbit().get_observation_events(
         point, start, end, min_elevation_angle
     )
 
@@ -179,12 +177,12 @@ def collect_observations(
     """
     instrument = satellite.instruments[instrument_index]
     # compute the initial satellite altitude
-    satellite_altitude = wgs84.geographic_position_of(
-        satellite.orbit.to_tle().get_orbit_track(start)
+    init_altitude = wgs84.geographic_position_of(
+        satellite.orbit.to_gp_orbit().get_orbit_track(start)
     ).elevation.m
     # compute the minimum altitude angle required for observation
     min_elevation_angle = compute_min_elevation_angle(
-        satellite_altitude,
+        init_altitude,
         instrument.field_of_regard,
     )
     records = [
@@ -211,13 +209,13 @@ def collect_observations(
         if (
             instrument.min_access_time <= period.right - period.left
             and instrument.is_valid_observation(
-                satellite.orbit.to_tle().get_orbit_track(period.mid),
+                satellite.orbit.to_gp_orbit().get_orbit_track(period.mid),
                 wgs84.latlon(point.latitude, point.longitude, point.elevation),
             )
             and (
                 not isinstance(instrument, PointedInstrument)
                 or compute_footprint(
-                    orbit_track=satellite.orbit.to_tle().get_orbit_track(period.mid),
+                    orbit_track=satellite.orbit.to_gp_orbit().get_orbit_track(period.mid),
                     cross_track_field_of_view=instrument.cross_track_field_of_view,
                     along_track_field_of_view=instrument.along_track_field_of_view,
                     roll_angle=instrument.roll_angle,
@@ -234,7 +232,7 @@ def collect_observations(
         gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
         ts = timescale.from_datetimes(gdf.epoch)
-        orbit_track = satellite.orbit.to_tle().get_orbit_track(gdf.epoch)
+        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(gdf.epoch)
         # append satellite altitude/azimuth columns
         sat_altaz = (orbit_track - topos.at(ts)).altaz()
         gdf["sat_alt"] = sat_altaz[0].degrees
