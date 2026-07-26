@@ -22,7 +22,7 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_min_elevation_angle
 
-.. autofunction:: tatc.utils.compute_orbit_period
+.. autofunction:: tatc.utils.semimajor_axis_to_orbit_period
 
 .. autofunction:: tatc.utils.compute_max_access_time
 

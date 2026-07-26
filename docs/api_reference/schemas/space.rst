@@ -35,14 +35,14 @@ Walker Constellation
   :inherited-members: BaseModel
 
 MOG Constellation
---------------------
+-----------------
 
 .. autopydantic_model:: tatc.schemas.MOGConstellation
   :members:
   :inherited-members: BaseModel
 
 SOC Constellation
---------------------
+-----------------
 
 .. autopydantic_model:: tatc.schemas.SOCConstellation
   :members:

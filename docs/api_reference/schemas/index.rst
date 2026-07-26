@@ -8,7 +8,7 @@ TAT-C uses pydantic to specify schemas in a format compatible with JavaScript Ob
 .. toctree::
   :maxdepth: 1
 
-  ground
+  surface
   orbit
   space
   mission

@@ -150,7 +150,7 @@ def _collect_ro_series(
 
             # azimuth of transmitter from geodetic tangent point (clockwise from North)
             tp_tx_azmimuth = (
-                (transmitter.orbit.to_gp_orbit().get_closest_element(times[j]).as_skyfield() - tpp_geo)
+                (transmitter.orbit.to_gp_orbit().get_closest_element(times[j]).to_skyfield() - tpp_geo)
                 .at(timescale.from_datetime(times[j]))
                 .altaz()[1]
                 .degrees
