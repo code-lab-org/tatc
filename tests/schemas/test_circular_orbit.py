@@ -4,9 +4,13 @@ Unit tests for the CircularOrbit schema.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+import numpy as np
+
+from tatc.constants import EARTH_MEAN_RADIUS, EARTH_MU
 from tatc.schemas import CircularOrbit
+from tatc.utils.orbital import semimajor_axis_to_mean_motion
 
 
 class TestCircularOrbit(unittest.TestCase):
@@ -58,6 +62,50 @@ class TestCircularOrbit(unittest.TestCase):
         self.assertEqual(
             o.right_ascension_ascending_node,
             good_data.get("right_ascension_ascending_node"),
+        )
+
+    def test_get_semimajor_axis(self):
+        """
+        Test that the CircularOrbit class correctly calculates the semimajor axis.
+        """
+        self.assertEqual(
+            self.test_orbit.get_semimajor_axis(),
+            self.test_data.get("mean_altitude") + EARTH_MEAN_RADIUS,
+        )
+
+    def test_get_mean_anomaly(self):
+        """
+        Test that the CircularOrbit class correctly calculates the mean anomaly.
+        """
+        self.assertEqual(
+            self.test_orbit.get_mean_anomaly(), self.test_data.get("true_anomaly")
+        )
+
+    def test_get_mean_motion(self):
+        """
+        Test that the CircularOrbit class correctly calculates the mean motion.
+        """
+        self.assertAlmostEqual(
+            self.test_orbit.get_mean_motion(), 
+            semimajor_axis_to_mean_motion(EARTH_MEAN_RADIUS + self.test_orbit.mean_altitude),
+            delta=0.001
+        )
+
+    def test_get_orbit_period(self):
+        """
+        Test that the CircularOrbit class correctly calculates the orbit period.
+        """
+        orbit_period = (
+            2
+            * np.pi
+            * np.sqrt(
+                np.power(EARTH_MEAN_RADIUS + self.test_orbit.mean_altitude, 3) / EARTH_MU
+            )
+        )
+        self.assertAlmostEqual(
+            self.test_orbit.get_orbit_period(),
+            timedelta(seconds=orbit_period),
+            delta=1.0,
         )
 
     def test_get_derived_orbit(self):

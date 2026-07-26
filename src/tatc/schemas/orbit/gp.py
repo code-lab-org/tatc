@@ -31,7 +31,7 @@ class GeneralPerturbationsElements(BaseModel):
     epoch: datetime = Field(..., description="Epoch.")
     mean_motion: float = Field(..., description="Mean motion (degrees/second).", gt=0)
     eccentricity: float = Field(..., description="Eccentricity.", ge=0, le=1)
-    inclination: float = Field(..., description="Inclination (degrees).", ge=-90, le=90)
+    inclination: float = Field(..., description="Inclination (degrees).", ge=0, le=180)
     ra_of_asc_node: float = Field(
         ..., description="Right ascension of ascending node (degrees).", ge=0, lt=360
     )
@@ -59,7 +59,6 @@ class GeneralPerturbationsElements(BaseModel):
             GeneralPerturbationsElements: the GP elements
         """
         return GeneralPerturbationsElements(
-            object_name=satrec.satname,
             epoch=sat_epoch_datetime(satrec),
             mean_motion=np.degrees(satrec.no_kozai) / 60,
             eccentricity=satrec.ecco,
@@ -222,6 +221,18 @@ class GeneralPerturbationsOrbit(BaseModel):
         ..., description="General perturbations elements."
     )
 
+    def get_semimajor_axis(self, index: int = 0) -> float:
+        """
+        Gets the semimajor axis of the specified element.
+
+        Args:
+            index (int): the index of the element
+
+        Returns:
+            float: the semimajor axis (meters)
+        """
+        return self.elements[index].get_semimajor_axis()
+    
     def get_mean_altitude(self, index: int = 0) -> float:
         """
         Gets the mean altitude of the specified element.
@@ -269,6 +280,30 @@ class GeneralPerturbationsOrbit(BaseModel):
             datetime: the epoch
         """
         return self.elements[index].epoch
+
+    def get_mean_motion(self, index: int = 0) -> float:
+        """
+        Gets the mean motion of the specified element.
+
+        Args:
+            index (int): the index of the element
+
+        Returns:
+            float: the mean motion (degrees/second)
+        """
+        return self.elements[index].mean_motion
+
+    def get_mean_anomaly(self, index: int = 0) -> float:
+        """
+        Gets the mean anomaly of the specified element.
+
+        Args:
+            index (int): the index of the element
+
+        Returns:
+            float: the mean anomaly (degrees)
+        """
+        return self.elements[index].mean_anomaly
 
     def get_true_anomaly(self, index: int = 0) -> float:
         """

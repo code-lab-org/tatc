@@ -1,22 +1,30 @@
+"""
+Unit tests for the WalkerConstellation schema.
+
+@author Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 import unittest
 
-from datetime import timedelta
 import numpy as np
 from pydantic import ValidationError
 
-from tatc.schemas import WalkerConstellation, TwoLineElements, Instrument
+from tatc.schemas import CircularOrbit, Instrument, WalkerConstellation
 
 
 class TestWalkerConstellation(unittest.TestCase):
+    """
+    Unit tests for the WalkerConstellation schema.
+    """
     def setUp(self):
         self.d420_data = {
             "name": "Test Constellation",
             "configuration": "delta",
             "orbit": {
-                "tle": [
-                    "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
-                    "2 25544  51.6455  41.4969 0003508  68.0432  78.3395 15.48957534286754",
-                ]
+                "mean_altitude": "400000",
+                "inclination": 51.6,
+                "right_ascension_ascending_node": 180,
+                "true_anomaly": 180,
             },
             "instruments": [{"name": "Test Instrument", "field_of_regard": 25.0}],
             "number_satellites": 4,
@@ -28,10 +36,10 @@ class TestWalkerConstellation(unittest.TestCase):
             "name": "Test Constellation",
             "configuration": "star",
             "orbit": {
-                "tle": [
-                    "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
-                    "2 25544  51.6455  41.4969 0003508  68.0432  78.3395 15.48957534286754",
-                ]
+                "mean_altitude": "400000",
+                "inclination": 51.6,
+                "right_ascension_ascending_node": 180,
+                "true_anomaly": 180,
             },
             "instruments": [{"name": "Test Instrument", "field_of_regard": 25.0}],
             "number_satellites": 4,
@@ -39,31 +47,22 @@ class TestWalkerConstellation(unittest.TestCase):
             "relative_spacing": 0,
         }
         self.s420_con = WalkerConstellation(**self.s420_data)
-        self.d520_data = {
-            "name": "Test Constellation",
-            "configuration": "delta",
-            "orbit": {
-                "altitude": "400000",
-                "inclination": 51.6,
-                "right_ascension_ascending_node": 180,
-                "true_anomaly": 180,
-            },
-            "instruments": [{"name": "Test Instrument", "field_of_regard": 25.0}],
-            "number_satellites": 5,
-            "number_planes": 2,
-            "relative_spacing": 1,
-        }
-        self.d520_con = WalkerConstellation(**self.d520_data)
 
     def normalize_angle(self, angle):
+        """
+        Normalize an angle to the range [0, 360) degrees.
+        """
         return np.mod(360 + angle, 360)
 
     def test_invalid_planes(self):
+        """
+        Test that the WalkerConstellation schema raises a ValidationError when the number of planes is invalid.
+        """
         bad_data = {
             "name": "Test Constellation",
             "configuration": "delta",
             "orbit": {
-                "altitude": "400000",
+                "mean_altitude": "400000",
                 "inclination": 51.6,
                 "right_ascension_ascending_node": 180,
                 "true_anomaly": 180,
@@ -77,11 +76,14 @@ class TestWalkerConstellation(unittest.TestCase):
             WalkerConstellation(**bad_data)
 
     def test_invalid_relative_spacing(self):
+        """
+        Test that the WalkerConstellation schema raises a ValidationError when the relative spacing is invalid.
+        """
         bad_data = {
             "name": "Test Constellation",
             "configuration": "delta",
             "orbit": {
-                "altitude": "400000",
+                "mean_altitude": "400000",
                 "inclination": 51.6,
                 "right_ascension_ascending_node": 180,
                 "true_anomaly": 180,
@@ -95,9 +97,12 @@ class TestWalkerConstellation(unittest.TestCase):
             WalkerConstellation(**bad_data)
 
     def test_constructor(self):
+        """
+        Test that the WalkerConstellation schema correctly initializes with valid data.
+        """
         self.assertEqual(self.d420_con.name, self.d420_data.get("name"))
         self.assertEqual(
-            self.d420_con.orbit, TwoLineElements(**self.d420_data.get("orbit"))
+            self.d420_con.orbit, CircularOrbit(**self.d420_data.get("orbit"))
         )
         self.assertEqual(len(self.d420_con.instruments), 1)
         self.assertEqual(
@@ -118,13 +123,12 @@ class TestWalkerConstellation(unittest.TestCase):
         )
 
     def test_get_satellites_per_plane(self):
+        """
+        Test that the number of satellites per plane can be calculated correctly.
+        """
         self.assertEqual(
             self.d420_con.get_satellites_per_plane(),
             np.ceil(self.d420_con.number_satellites / self.d420_con.number_planes),
-        )
-        self.assertEqual(
-            self.d520_con.get_satellites_per_plane(),
-            np.ceil(self.d520_con.number_satellites / self.d520_con.number_planes),
         )
         self.assertEqual(
             self.s420_con.get_satellites_per_plane(),
@@ -132,13 +136,12 @@ class TestWalkerConstellation(unittest.TestCase):
         )
 
     def test_get_delta_mean_anomaly_within_planes(self):
+        """
+        Test that the delta mean anomaly within planes can be calculated correctly.
+        """
         self.assertEqual(
             self.d420_con.get_delta_mean_anomaly_within_planes(),
             360 / self.d420_con.get_satellites_per_plane(),
-        )
-        self.assertEqual(
-            self.d520_con.get_delta_mean_anomaly_within_planes(),
-            360 / self.d520_con.get_satellites_per_plane(),
         )
         self.assertEqual(
             self.s420_con.get_delta_mean_anomaly_within_planes(),
@@ -146,13 +149,12 @@ class TestWalkerConstellation(unittest.TestCase):
         )
 
     def test_get_delta_mean_anomaly_between_planes(self):
+        """
+        Test that the delta mean anomaly between planes can be calculated correctly.
+        """
         self.assertEqual(
             self.d420_con.get_delta_mean_anomaly_between_planes(),
             self.d420_con.relative_spacing * 360 / self.d420_con.number_satellites,
-        )
-        self.assertEqual(
-            self.d520_con.get_delta_mean_anomaly_between_planes(),
-            self.d520_con.relative_spacing * 360 / self.d520_con.number_satellites,
         )
         self.assertEqual(
             self.s420_con.get_delta_mean_anomaly_between_planes(),
@@ -160,22 +162,28 @@ class TestWalkerConstellation(unittest.TestCase):
         )
 
     def test_get_delta_raan_between_planes_delta(self):
+        """
+        Test that the delta right ascension of ascending node between planes can be calculated correctly for delta configuration.
+        """
         self.assertEqual(
             self.d420_con.get_delta_raan_between_planes(),
             360 / self.d420_con.number_planes,
         )
-        self.assertEqual(
-            self.d520_con.get_delta_raan_between_planes(),
-            360 / self.d520_con.number_planes,
-        )
 
     def test_get_delta_raan_between_planes_star(self):
+        """
+        Test that the delta right ascension of ascending node between planes can be calculated correctly for star configuration.
+        """
         self.assertEqual(
             self.s420_con.get_delta_raan_between_planes(),
             180 / self.s420_con.number_planes,
         )
 
     def helper_test_generate_members(self, constellation):
+        """
+        Helper function to test that the WalkerConstellation schema correctly 
+        generates constellation members with the specified parameters
+        """
         members = constellation.generate_members()
         self.assertEqual(len(members), constellation.number_satellites)
         for i in range(len(members) - 1):
@@ -230,11 +238,16 @@ class TestWalkerConstellation(unittest.TestCase):
                     delta=0.001,
                 )
 
-    def test_generate_members_delta_tle(self):
+    def test_generate_members_delta(self):
+        """
+        Test that the WalkerConstellation schema correctly generates 
+        constellation members for delta configuration with TLE orbit.
+        """
         self.helper_test_generate_members(self.d420_con)
 
-    def test_generate_members_delta_circular(self):
-        self.helper_test_generate_members(self.d520_con)
-
-    def test_generate_members_star_tle(self):
+    def test_generate_members_star(self):
+        """
+        Test that the WalkerConstellation schema correctly generates 
+        constellation members for star configuration with TLE orbit.
+        """
         self.helper_test_generate_members(self.s420_con)

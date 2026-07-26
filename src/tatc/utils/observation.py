@@ -9,7 +9,7 @@ import numpy as np
 from numba import njit
 
 from .. import constants
-from .orbital import compute_ground_surface_velocity, compute_orbit_inertial_velocity
+from .orbital import compute_ground_surface_velocity, semimajor_axis_to_mean_motion
 
 
 @njit
@@ -170,14 +170,16 @@ def compute_max_access_time(mean_altitude: float, min_elevation_angle: float) ->
     Returns:
         float: The maximum access time (seconds) for observation.
     """
-    semimajor_axis = constants.EARTH_MEAN_RADIUS + mean_altitude
-    # find orbital velocity
-    orbital_velocity = compute_orbit_inertial_velocity(semimajor_axis)
-    # find distance along orbit that target is observable
-    orbital_distance = semimajor_axis * (
-        np.pi - 2 * np.radians(min_elevation_angle)
+    # angular distance from sub-satellite point to edge of viewable region
+    earth_angle = np.degrees(
+        np.arccos(
+            constants.EARTH_MEAN_RADIUS
+            / (constants.EARTH_MEAN_RADIUS + mean_altitude)
+            * np.cos(np.radians(min_elevation_angle))
+        ) - np.radians(min_elevation_angle)
     )
-    return orbital_distance / orbital_velocity
+    # max access time is twice the earth central angle divided by the mean motion of the orbit
+    return 2 * earth_angle / semimajor_axis_to_mean_motion(constants.EARTH_MEAN_RADIUS + mean_altitude)
 
 @njit
 def compute_max_transit_time(

@@ -1,12 +1,22 @@
-import unittest
+"""
+Unit tests for the GroundStation schema.
 
+@author Paul T. Grogan <paul.grogan@asu.edu>
+"""
+import unittest
 from datetime import timedelta
 
 from tatc.schemas import GroundStation
 
 
 class TestGroundStation(unittest.TestCase):
+    """
+    Unit tests for the GroundStation schema.
+    """
     def test_good_data(self):
+        """
+        Test that the GroundStation schema correctly initializes with valid data.
+        """
         good_data = {
             "name": "test",
             "latitude": 40.74259,
@@ -22,6 +32,10 @@ class TestGroundStation(unittest.TestCase):
         self.assertEqual(o.min_access_time, good_data.get("min_access_time"))
 
     def test_good_data_timedelta_seconds(self):
+        """
+        Test that the GroundStation schema correctly initializes with valid data
+        when min_access_time is provided as seconds.
+        """
         good_data = {
             "name": "test",
             "latitude": 40.74259,

@@ -1,26 +1,28 @@
+"""
+Unit tests for the SOCConstellation schema.
+
+@author Paul T. Grogan <paul.grogan@asu.edu>
+"""
 import unittest
 
-from datetime import timedelta
-import numpy as np
-from pydantic import ValidationError
-
+from tatc.schemas import CircularOrbit, Instrument, SOCConstellation
 from tatc.utils import field_of_regard_to_swath_width
-from tatc.schemas import SOCConstellation, CircularOrbit, Instrument
 
 
 class TestSOCConstellation(unittest.TestCase):
+    """
+    Unit tests for the SOCConstellation schema.
+    """
     def setUp(self):
         self.d420_data = {
             "name": "Test Constellation",
             "orbit": {
-                "tle": [
-                    "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
-                    "2 25544  51.6455  41.4969 0003508  68.0432  78.3395 15.48957534286754",
-                ],
-                "altitude": 780000,
+                "type": "circular",
+                "mean_altitude": 780000,
                 "inclination": 86.4,
+                "epoch": "2000-01-01T00:00:00Z",
             },
-            "instruments": [{"name": "Test Instrument", "field_of_regard": 180.0}],
+            "instruments": [{"name": "Test Instrument", "field_of_regard": 150.0}],
             "swath_width": field_of_regard_to_swath_width(
                 altitude=780000, field_of_regard=150
             ),
@@ -29,6 +31,9 @@ class TestSOCConstellation(unittest.TestCase):
         self.d420_con = SOCConstellation(**self.d420_data)
 
     def test_constructor(self):
+        """
+        Test that the SOCConstellation schema correctly initializes with valid data.
+        """
         self.assertEqual(self.d420_con.name, self.d420_data.get("name"))
         self.assertEqual(
             self.d420_con.orbit, CircularOrbit(**self.d420_data.get("orbit"))
@@ -44,12 +49,18 @@ class TestSOCConstellation(unittest.TestCase):
         )
 
     def test_get_num_satellites(self):
+        """
+        Test that the SOCConstellation schema correctly calculates the number of satellites.
+        """
         self.assertEqual(
             len(self.d420_con.generate_members()),
             self.d420_con.generate_walker().number_satellites,
         )
 
     def test_get_satellites_per_plane(self):
+        """
+        Test that the SOCConstellation schema correctly calculates the number of satellites per plane.
+        """
         self.assertEqual(
             self.d420_con.generate_walker().number_satellites
             / self.d420_con.generate_walker().number_planes,

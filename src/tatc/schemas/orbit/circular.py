@@ -78,10 +78,11 @@ class CircularOrbit(OrbitBase):
         )
         raan = np.mod(self.right_ascension_ascending_node + delta_raan, 360)
         return CircularOrbit(
-            true_anomaly=true_anomaly,
-            epoch=self.epoch,
+            mean_altitude=self.mean_altitude,
             inclination=self.inclination,
             right_ascension_ascending_node=raan,
+            true_anomaly=true_anomaly,
+            epoch=self.epoch,
         )
 
     def to_gp_orbit(self, lazy_load: bool | None = None) -> GeneralPerturbationsOrbit:

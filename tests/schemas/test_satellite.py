@@ -1,26 +1,38 @@
+"""
+Unit tests for the Satellite schema.
+
+@author Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
 import unittest
 
-from tatc.schemas import Satellite, TwoLineElements, Instrument
+from tatc.schemas import CircularOrbit, Instrument, Satellite
 
 
 class TestSatellite(unittest.TestCase):
+    """
+    Unit tests for the Satellite schema.
+    """
     def setUp(self):
         self.test_data = {
             "name": "Test Satellite",
             "orbit": {
-                "tle": [
-                    "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
-                    "2 25544  51.6455  41.4969 0003508  68.0432  78.3395 15.48957534286754",
-                ]
+                "type": "circular",
+                "mean_altitude": 400000,
+                "inclination": 51.6,
+                "epoch": "2000-01-01T00:00:00Z",
             },
             "instruments": [{"name": "Test Instrument", "field_of_regard": 25.0}],
         }
         self.test_sat = Satellite(**self.test_data)
 
     def test_good_data(self):
+        """
+        Test that the Satellite schema correctly initializes with valid data.
+        """
         self.assertEqual(self.test_sat.name, self.test_data.get("name"))
         self.assertEqual(
-            self.test_sat.orbit, TwoLineElements(**self.test_data.get("orbit"))
+            self.test_sat.orbit, CircularOrbit(**self.test_data.get("orbit"))
         )
         self.assertEqual(len(self.test_sat.instruments), 1)
         self.assertEqual(
@@ -29,6 +41,9 @@ class TestSatellite(unittest.TestCase):
         )
 
     def test_generate_members(self):
+        """
+        Test that the Satellite schema correctly generates members.
+        """
         members = self.test_sat.generate_members()
         self.assertEqual(len(members), 1)
         self.assertEqual(members[0], self.test_sat)

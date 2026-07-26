@@ -47,7 +47,7 @@ class TrainConstellation(SpaceSystem):
             float: the difference in mean anomaly
         """
         # pylint: disable=E1101
-        return -360 * self.orbit.get_mean_motion() * (self.interval / timedelta(days=1))
+        return -360 * self.interval / self.orbit.get_orbit_period()
 
     def get_delta_raan(self) -> float:
         """

@@ -54,9 +54,9 @@ class SOCConstellation(SpaceSystem):
         # compute min elevation angle
         # pylint: disable=E1101
         e = compute_min_elevation_angle(
-            altitude=self.orbit.altitude,
+            altitude=self.orbit.mean_altitude,
             field_of_regard=swath_width_to_field_of_regard(
-                altitude=self.orbit.altitude, swath_width=self.swath_width
+                altitude=self.orbit.mean_altitude, swath_width=self.swath_width
             ),
         )
 
@@ -64,7 +64,7 @@ class SOCConstellation(SpaceSystem):
         # pylint: disable=E1101
         eta = math.degrees(
             math.asin(
-                (EARTH_MEAN_RADIUS / (EARTH_MEAN_RADIUS + self.orbit.altitude))
+                (EARTH_MEAN_RADIUS / (EARTH_MEAN_RADIUS + self.orbit.mean_altitude))
                 * math.cos(math.radians(e))
             )
         )

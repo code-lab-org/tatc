@@ -38,6 +38,15 @@ class SunSynchronousOrbit(OrbitBase):
         description="True, if the equator crossing time is ascending (south-to-north).",
     )
 
+    def get_semimajor_axis(self) -> float:
+        """
+        Gets the semimajor axis (meters).
+
+        Returns:
+            float: the semimajor axis
+        """
+        return self.mean_altitude + constants.EARTH_MEAN_RADIUS
+
     def get_inclination(self) -> float:
         """
         Gets the inclination (decimal degrees).
