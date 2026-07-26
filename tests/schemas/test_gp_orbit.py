@@ -6,8 +6,6 @@ Unit tests for the GeneralPerturbationsOrbit schema.
 import unittest
 from datetime import datetime, timezone
 
-from pydantic import ValidationError
-
 from tatc.schemas import GeneralPerturbationsOrbit
 
 

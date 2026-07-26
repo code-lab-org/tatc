@@ -169,7 +169,7 @@ def generate_equally_spaced_points(
     # compute the angular disance of each sample (assuming sphere)
     theta_longitude = np.degrees(distance / EARTH_MEAN_RADIUS)
     theta_latitude = np.degrees(distance / EARTH_MEAN_RADIUS)
-    return _generate_equally_spaced_points(
+    return generate_points_uniform_angular_distance(
         theta_longitude, theta_latitude, elevation, mask
     )
 
@@ -276,7 +276,7 @@ def _generate_equally_spaced_indices(
     ]
 
 
-def _generate_equally_spaced_points(
+def generate_points_uniform_angular_distance(
     theta_longitude: float,
     theta_latitude: float,
     elevation: float = 0,

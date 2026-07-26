@@ -45,12 +45,12 @@ def generate_equally_spaced_cells(
     # compute the angular disance of each sample (assuming sphere)
     theta_longitude = np.degrees(distance / EARTH_MEAN_RADIUS)
     theta_latitude = np.degrees(distance / EARTH_MEAN_RADIUS)
-    return _generate_equally_spaced_cells(
+    return generate_cells_uniform_angular_spacing(
         theta_longitude, theta_latitude, elevation, mask, strips
     )
 
 
-def _generate_equally_spaced_cells(
+def generate_cells_uniform_angular_spacing(
     theta_longitude: float,
     theta_latitude: float,
     elevation: float = 0,
