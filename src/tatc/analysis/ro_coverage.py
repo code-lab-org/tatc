@@ -12,7 +12,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from shapely.geometry import MultiPoint, Point
-from skyfield.api import Distance, Velocity, wgs84
+from skyfield.api import Distance, wgs84
 from skyfield.positionlib import Geocentric
 from skyfield.searchlib import find_discrete
 
@@ -26,10 +26,16 @@ def _tangent_point_geometry(
     rx_v_u: list[float],
     rx_n_u: list[float],
     rx_b_u: list[float],
+    compute_velocity: bool = False,
 ):
     """
-    Computes tangent point position/velocity and receiver-frame pitch/yaw angles
-    of the transmitter, as seen from the receiver, at one or more times.
+    Computes tangent point position (and, optionally, velocity) and
+    receiver-frame pitch/yaw angles of the transmitter, as seen from the
+    receiver, at one or more times.
+
+    Tangent point velocity is not needed for geodetic position or azimuth
+    computations (Skyfield ignores it there), so it is skipped by default;
+    pass `compute_velocity=True` to compute it anyway.
     """
     # relative position, velocity of transmitter from receiver
     # x_(rx,tx) = x_tx - x_rx; v_(rx,tx) = v_tx - v_rx
@@ -44,53 +50,64 @@ def _tangent_point_geometry(
             np.einsum("ij,ij->j", rx_tx_pv.position.m, rx_tx_pv.position.m),
         ),
     )
-    # tangent point velocity (m/s) - derived using chain rule
-    # v_tp = v_tx - v_(rx,tx) . [ x_tx . x_(rx,tx) ] / || x_(rx,tx) ||
-    #        - x_(rx,tx) . [
-    #           [ v_tx . x_(rx,tx) ] + [ x_tx . v_(rx,tx) ] ] / || x_(rx,tx) || ]
-    #           - 2 * [ v_(rx,tx) . x_(rx,tx) ] * [ x_tx . x_(rx,tx) ] / || x_(rx,tx) ||^2
-    #        ]
-    tp_v = (
-        tx_pv.velocity.m_per_s
-        - np.einsum(
-            "ij,j->ij",
-            rx_tx_pv.velocity.m_per_s,
-            np.divide(
-                np.einsum("ij,ij->j", tx_pv.position.m, rx_tx_pv.position.m),
-                np.einsum("ij,ij->j", rx_tx_pv.position.m, rx_tx_pv.position.m),
-            ),
-        )
-        - np.einsum(
-            "ij,j->ij",
-            rx_tx_pv.position.m,
-            (
+    if compute_velocity:
+        # tangent point velocity (m/s) - derived using chain rule
+        # v_tp = v_tx - v_(rx,tx) . [ x_tx . x_(rx,tx) ] / || x_(rx,tx) ||
+        #        - x_(rx,tx) . [
+        #           [ v_tx . x_(rx,tx) ] + [ x_tx . v_(rx,tx) ] ] / || x_(rx,tx) || ]
+        #           - 2 * [ v_(rx,tx) . x_(rx,tx) ] * [ x_tx . x_(rx,tx) ] / || x_(rx,tx) ||^2
+        #        ]
+        tp_v = (
+            tx_pv.velocity.m_per_s
+            - np.einsum(
+                "ij,j->ij",
+                rx_tx_pv.velocity.m_per_s,
                 np.divide(
-                    (
-                        np.einsum(
-                            "ij,ij->j", tx_pv.velocity.m_per_s, rx_tx_pv.position.m
-                        )
-                        + np.einsum(
-                            "ij,ij->j", tx_pv.position.m, rx_tx_pv.velocity.m_per_s
-                        )
-                    ),
+                    np.einsum("ij,ij->j", tx_pv.position.m, rx_tx_pv.position.m),
                     np.einsum("ij,ij->j", rx_tx_pv.position.m, rx_tx_pv.position.m),
-                )
-                - 2
-                * np.divide(
-                    np.multiply(
-                        np.einsum(
-                            "ij,ij->j", rx_tx_pv.velocity.m_per_s, rx_tx_pv.position.m
+                ),
+            )
+            - np.einsum(
+                "ij,j->ij",
+                rx_tx_pv.position.m,
+                (
+                    np.divide(
+                        (
+                            np.einsum(
+                                "ij,ij->j", tx_pv.velocity.m_per_s, rx_tx_pv.position.m
+                            )
+                            + np.einsum(
+                                "ij,ij->j", tx_pv.position.m, rx_tx_pv.velocity.m_per_s
+                            )
                         ),
-                        np.einsum("ij,ij->j", tx_pv.position.m, rx_tx_pv.position.m),
-                    ),
-                    np.power(
-                        np.einsum("ij,ij->j", rx_tx_pv.position.m, rx_tx_pv.position.m),
-                        2,
-                    ),
-                )
-            ),
+                        np.einsum(
+                            "ij,ij->j", rx_tx_pv.position.m, rx_tx_pv.position.m
+                        ),
+                    )
+                    - 2
+                    * np.divide(
+                        np.multiply(
+                            np.einsum(
+                                "ij,ij->j",
+                                rx_tx_pv.velocity.m_per_s,
+                                rx_tx_pv.position.m,
+                            ),
+                            np.einsum(
+                                "ij,ij->j", tx_pv.position.m, rx_tx_pv.position.m
+                            ),
+                        ),
+                        np.power(
+                            np.einsum(
+                                "ij,ij->j", rx_tx_pv.position.m, rx_tx_pv.position.m
+                            ),
+                            2,
+                        ),
+                    )
+                ),
+            )
         )
-    )
+    else:
+        tp_v = None
     # intersecting (-1) or parallel (+1) view of tangent point
     tp_sign = np.sign(
         np.einsum("ij,ij->j", tp_p - tx_pv.position.m, tp_p - rx_pv.position.m)
@@ -166,12 +183,15 @@ def _tangent_point_tx_azimuth(
     transmitter: Satellite,
     times: list[datetime],
     t,
-    tpp_pv: Geocentric,
+    tp_p: np.ndarray,
 ) -> np.ndarray:
     """
     Computes the transmitter azimuth (deg, clockwise from North) as viewed from
     each point of a tangent point track, vectorized per distinct TLE element used
     across the track (almost always a single element, given how short RO arcs are).
+
+    Only the tangent point position (not velocity) is needed: Skyfield's
+    geodetic and azimuth computations do not use it.
     """
     orbit = transmitter.orbit.to_gp_orbit()
     element_indices = np.asarray(orbit.get_closest_element_index(times))
@@ -180,9 +200,7 @@ def _tangent_point_tx_azimuth(
         mask = element_indices == element_index
         sat = orbit.elements[element_index].to_skyfield()
         tpp_geo = wgs84.geographic_position_of(
-            Geocentric(
-                tpp_pv.position.au[:, mask], tpp_pv.velocity.au_per_d[:, mask], t[mask]
-            )
+            Geocentric(Distance(m=tp_p[:, mask]).au, None, t[mask])
         )
         azimuth[mask] = (sat - tpp_geo).at(t[mask]).altaz()[1].degrees
     return azimuth
@@ -209,18 +227,17 @@ def _sample_ro_arc(
     rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track_at_time(t)
     rx_v_u, rx_n_u, rx_b_u = _receiver_frame_vectors(rx_pv)
     tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track_at_time(t)
-    tp_p, tp_v, _, rx_tx_pitch, rx_tx_yaw = _tangent_point_geometry(
+    tp_p, _, _, rx_tx_pitch, rx_tx_yaw = _tangent_point_geometry(
         tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u
     )
 
-    # tangent point inertial and geodetic positions, computed once for the whole arc
-    tpp_pv = Geocentric(Distance(m=tp_p).au, Velocity(km_per_s=tp_v / 1000).au_per_d, t)
-    tpp_geo = wgs84.geographic_position_of(tpp_pv)
+    # tangent point geodetic position, computed once for the whole arc
+    tpp_geo = wgs84.geographic_position_of(Geocentric(Distance(m=tp_p).au, None, t))
     longitude = tpp_geo.longitude.degrees
     latitude = tpp_geo.latitude.degrees
     elevation = tpp_geo.elevation.m
     # azimuth of transmitter from geodetic tangent point (clockwise from North)
-    tp_tx_azimuth = _tangent_point_tx_azimuth(transmitter, times, t, tpp_pv)
+    tp_tx_azimuth = _tangent_point_tx_azimuth(transmitter, times, t, tp_p)
     # tangent point height within elevation range
     in_range = np.logical_and(
         elevation > range_elevation[0], elevation < range_elevation[1]
