@@ -5,6 +5,8 @@ Projection utility functions.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import numpy as np
 from pyproj import Transformer
 from shapely import Geometry
@@ -61,12 +63,14 @@ def compute_projected_ray_position(
     """
     # extract earth-fixed position and velocity
     position, velocity = orbit_track.frame_xyz_and_velocity(itrs)
+    v_m_per_s = np.array(velocity.m_per_s)
+    p_m = np.array(position.m)
     # velocity unit vector
-    v = np.divide(velocity.m_per_s, np.linalg.norm(velocity.m_per_s, axis=0))
+    v = np.divide(v_m_per_s, np.linalg.norm(v_m_per_s, axis=0))
     # binormal unit vector
-    b = np.divide(-position.m, np.linalg.norm(position.m, axis=0))
+    b = np.divide(-p_m, np.linalg.norm(p_m, axis=0))
     # normal unit vector
-    if len(np.shape(position.m)) > 1:
+    if len(np.shape(p_m)) > 1:
         n = np.cross(v, b, 0, 0, -1).T
     else:
         n = np.cross(v, b)
@@ -136,9 +140,9 @@ def compute_projected_ray_position(
             + v * np.sin(angle) * np.tan(np.radians(along_track_field_of_view / 2))
             + n * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
         )
-    geos = np.zeros_like(position.m)
+    geos = np.zeros_like(p_m)
     for i in range(np.size(geos, axis=1)) if geos.ndim > 1 else [-1]:
-        _position = position.m[:, i].copy() if i >= 0 else position.m
+        _position = p_m[:, i].copy() if i >= 0 else p_m
         _ray = ray[:, i].copy() if i >= 0 else ray
         # find the intersection of the ray and the WGS 84 geoid
         try:
@@ -197,7 +201,7 @@ def compute_projected_ray_position(
                 geos[:] = limb_geo
     # return resulting geographic position
     if len(np.shape(geos)) > 1:
-        return wgs84.latlon(np.degrees(geos[1, :]), np.degrees(geos[0, :]), geos[2, :])
+        return wgs84.latlon(np.degrees(geos[1, :]), np.degrees(geos[0, :]), np.float64(geos[2, :]))
     return wgs84.latlon(np.degrees(geos[1]), np.degrees(geos[0]), geos[2])
 
 
@@ -264,7 +268,7 @@ def compute_footprint(
         )
         for angle in angles
     ]
-    if np.size(orbit_track.t) > 1:
+    if np.size(orbit_track.t) > 1: # type: ignore
         return [
             project_polygon_to_elevation(
                 split_polygon(
@@ -277,12 +281,47 @@ def compute_footprint(
                 ),
                 elevation,
             )
-            for i in range(np.size(orbit_track.t))
+            for i in range(np.size(orbit_track.t)) # type: ignore
         ]
     return project_polygon_to_elevation(
         split_polygon(
             Polygon(
                 [(point.longitude.degrees, point.latitude.degrees) for point in points]
+            )
+        ),
+        elevation,
+    )
+
+def _compute_limb_for_position(
+    position: Iterable[float],
+    number_points: int = 16,
+    elevation: float = 0,
+) -> Geometry:
+    limb = edlimb(
+        constants.EARTH_EQUATORIAL_RADIUS + elevation,
+        constants.EARTH_EQUATORIAL_RADIUS + elevation,
+        constants.EARTH_POLAR_RADIUS + elevation,
+        position,
+    )
+    return project_polygon_to_elevation(
+        split_polygon(
+            Polygon(
+                [
+                    Point(np.degrees(g[0]), np.degrees(g[1]))
+                    for p in [
+                        limb.center
+                        + np.cos(i) * limb.semi_major
+                        + np.sin(i) * limb.semi_minor
+                        for i in np.linspace(0, np.pi * 2, number_points)
+                    ]
+                    for g in [
+                        recgeo(
+                            p,
+                            constants.EARTH_EQUATORIAL_RADIUS,
+                            constants.EARTH_FLATTENING,
+                        )
+                    ]
+                ]
             )
         ),
         elevation,
@@ -306,44 +345,13 @@ def compute_limb(
         shapely.Geometry | list[shapely.Geometry]: The limb(s).
     """
     position, _ = orbit_track.frame_xyz_and_velocity(itrs)
-    polygons = [None] * np.size(position.m, axis=1) if position.m.ndim > 1 else None
-    for i in range(len(polygons)) if position.m.ndim > 1 else [-1]:
-        _position = position.m[:, i].copy() if i >= 0 else position.m
-        limb = edlimb(
-            constants.EARTH_EQUATORIAL_RADIUS + elevation,
-            constants.EARTH_EQUATORIAL_RADIUS + elevation,
-            constants.EARTH_POLAR_RADIUS + elevation,
-            _position,
-        )
-        polygon = project_polygon_to_elevation(
-            split_polygon(
-                Polygon(
-                    [
-                        Point(np.degrees(g[0]), np.degrees(g[1]))
-                        for p in [
-                            limb.center
-                            + np.cos(i) * limb.semi_major
-                            + np.sin(i) * limb.semi_minor
-                            for i in np.linspace(0, np.pi * 2, number_points)
-                        ]
-                        for g in [
-                            recgeo(
-                                p,
-                                constants.EARTH_EQUATORIAL_RADIUS,
-                                constants.EARTH_FLATTENING,
-                            )
-                        ]
-                    ]
-                )
-            ),
-            elevation,
-        )
-        if i >= 0:
-            polygons[i] = polygon
-        else:
-            polygons = polygon
-    return polygons
-
+    p_m = np.array(position.m)
+    if p_m.ndim <= 1:
+        return _compute_limb_for_position(p_m, number_points, elevation)
+    return [
+        _compute_limb_for_position(p_m[:, i].copy(), number_points, elevation) 
+        for i in range(np.size(p_m, axis=1))
+    ]
 
 def buffer_footprint(
     geometry: Geometry,
@@ -351,7 +359,7 @@ def buffer_footprint(
     from_crs: Transformer,
     swath_width: float,
     elevation: float,
-) -> Polygon:
+) -> Polygon | MultiPolygon:
     """
     Buffers a ground track point to create a footprint.
 
@@ -363,7 +371,7 @@ def buffer_footprint(
         elevation (float): The elevation (meters) at which project the buffered polygon.
 
     Returns:
-        shapely.geometry.Polygon: The buffered footprint.
+        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The buffered footprint.
     """
     # do the swath projection in the specified coordinate reference system
     # split polygons to wrap over the anti-meridian and poles
@@ -372,7 +380,7 @@ def buffer_footprint(
         split_polygon(
             transform(
                 from_crs.transform,
-                transform(to_crs.transform, geometry).buffer(swath_width / 2),
+                transform(to_crs.transform, geometry).buffer(swath_width / 2), # type: ignore
             )
         ),
         elevation,
@@ -414,6 +422,6 @@ def buffer_target(
     distance = (ground_distance + swath_width / 2) * distance_scaling
     return split_polygon(
         transform(
-            from_crs.transform, transform(to_crs.transform, geometry).buffer(distance)
+            from_crs.transform, transform(to_crs.transform, geometry).buffer(distance) # type: ignore
         )
     )

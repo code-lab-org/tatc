@@ -1,7 +1,7 @@
 """
-Object schemas for sampling points.
+Base classes for surface objects.
 
-@author: Paul T. Grogan <paul.grogan@asu.edu>
+@author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from pydantic import BaseModel, Field, NonNegativeInt
@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, NonNegativeInt
 
 class Point(BaseModel):
     """
-    Geodetic point in the WGS 84 coordinate system.
+    Surface point in the WGS 84 coordinate system.
     """
 
     id: NonNegativeInt = Field(..., description="Unique point identifier.")
@@ -28,6 +28,6 @@ class Point(BaseModel):
         examples=[-74.02686],
     )
     elevation: float = Field(
-        0,
+        default=0,
         description="Elevation (meters) above datum in the WGS 84 coordinate system.",
     )

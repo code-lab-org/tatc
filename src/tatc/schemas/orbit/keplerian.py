@@ -7,10 +7,10 @@ Object schemas for Keplerian orbits.
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Literal
 
 import numpy as np
 from pydantic import Field
-from typing_extensions import Literal
 
 from ... import config, utils
 from .base import OrbitBase
@@ -23,7 +23,7 @@ class KeplerianOrbit(OrbitBase):
     """
 
     type: Literal["keplerian"] = Field(
-        "keplerian", description="Orbit type discriminator."
+        default="keplerian", description="Orbit type discriminator."
     )
     semimajor_axis: float = Field(..., description="Semimajor axis (meters).")
     inclination: float = Field(0, description="Inclination (degrees).", ge=0, lt=180)
@@ -121,5 +121,5 @@ class KeplerianOrbit(OrbitBase):
                     )
                 ]
             )
-            self.__dict__["gp_orbit"] = gp_orbit
+            self.__dict__["gp_orbit"] = gp_orbit # type: ignore
         return gp_orbit

@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import json
 from datetime import datetime, timedelta, timezone
+from typing import Literal, overload
 
 import numpy as np
 from pydantic import BaseModel, Field
@@ -19,7 +20,6 @@ from skyfield.api import EarthSatellite, Time, wgs84
 from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
-from typing_extensions import Literal
 
 from ... import config, constants, utils
 from ..surface import Point
@@ -28,7 +28,7 @@ from ..surface import Point
 class GeneralPerturbationsElements(BaseModel):
     """General perturbations orbital elements for a satellite."""
 
-    object_name: str | None = Field(None, description="Object name.")
+    object_name: str | None = Field(default=None, description="Object name.")
     epoch: datetime = Field(..., description="Epoch.")
     mean_motion: float = Field(..., description="Mean motion (degrees/second).", gt=0)
     eccentricity: float = Field(..., description="Eccentricity.", ge=0, le=1)
@@ -42,19 +42,19 @@ class GeneralPerturbationsElements(BaseModel):
     mean_anomaly: float = Field(
         ..., description="Mean anomaly (degrees).", ge=0, lt=360
     )
-    norad_cat_id: int = Field(0, description="NORAD catalog identifier.", ge=0)
-    bstar: float = Field(0, description="Starred ballistic coefficient.")
+    norad_cat_id: int = Field(default=0, description="NORAD catalog identifier.", ge=0)
+    bstar: float = Field(default=0, description="Starred ballistic coefficient.")
     mean_motion_dot: float = Field(
-        0, description="First derivative of mean motion (degrees/second^2)."
+        default=0, description="First derivative of mean motion (degrees/second^2)."
     )
     mean_motion_ddot: float = Field(
-        0, description="Second derivative of mean motion (degrees/second^3)."
+        default=0, description="Second derivative of mean motion (degrees/second^3)."
     )
-    classification: str = Field("U", description="Classification type.")
-    international_designator: str = Field("00000A", description="International designator.")
-    ephemeris_type: int = Field(0, description="Ephemeris type.")
-    element_set_num: int = Field(0, description="Element set number.")
-    revolution_num: int = Field(0, description="Revolution number at epoch.")
+    classification: str = Field(default="U", description="Classification type.")
+    international_designator: str = Field(default="00000A", description="International designator.")
+    ephemeris_type: int = Field(default=0, description="Ephemeris type.")
+    element_set_num: int = Field(default=0, description="Element set number.")
+    revolution_num: int = Field(default=0, description="Revolution number at epoch.")
 
     @classmethod
     def from_satrec(cls, satrec: Satrec) -> GeneralPerturbationsElements:
@@ -154,7 +154,7 @@ class GeneralPerturbationsElements(BaseModel):
         )
 
     @classmethod
-    def from_tle(cls, tle_lines: list[str]) -> GeneralPerturbationsElements:
+    def from_tle(cls, tle_lines: tuple[str, str]) -> GeneralPerturbationsElements:
         """
         Creates a GP elements object from two line element (TLE) lines.
 
@@ -165,12 +165,12 @@ class GeneralPerturbationsElements(BaseModel):
             Satrec.twoline2rv(tle_lines[0], tle_lines[1])
         )
 
-    def to_tle(self) -> list[str]:
+    def to_tle(self) -> tuple[str, str]:
         """
         Converts this GP elements object to a two line element (TLE) representation.
 
         Returns:
-            list[str]: the two line elements
+            tuple[str, str]: the two line elements
         """
         return exporter.export_tle(self.to_satrec())
 
@@ -205,6 +205,7 @@ class GeneralPerturbationsElements(BaseModel):
         """
         for fields in csv.DictReader(omm_csv):
             return GeneralPerturbationsElements.from_omm_dict(fields)
+        raise ValueError("No OMM CSV lines found.")
 
     @classmethod
     def from_omm_json(cls, omm_json: str) -> GeneralPerturbationsElements:
@@ -216,7 +217,8 @@ class GeneralPerturbationsElements(BaseModel):
         """
         for fields in json.loads(omm_json):
             return GeneralPerturbationsElements.from_omm_dict(fields)
-
+        raise ValueError("No OMM JSON lines found.")
+    
     def to_skyfield(self):
         """
         Converts this GP elements object to a Skyfield `EarthSatellite`.
@@ -232,7 +234,7 @@ class GeneralPerturbationsOrbit(BaseModel):
     Orbit defined with general perturbations (GP) elements.
     """
 
-    type: Literal["gp"] = Field("gp", description="Orbit type discriminator.")
+    type: Literal["gp"] = Field(default="gp", description="Orbit type discriminator.")
     elements: list[GeneralPerturbationsElements] = Field(
         ..., description="General perturbations elements."
     )
@@ -321,6 +323,18 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         return self.elements[index].mean_anomaly
 
+    def get_orbit_period(self, index: int = 0) -> timedelta:
+        """
+        Gets the approximate orbit period of the specified element.
+
+        Args:
+            index (int): the index of the element
+
+        Returns:
+            timedelta: the orbit period
+        """
+        return self.elements[index].get_orbit_period()
+
     def get_true_anomaly(self, index: int = 0) -> float:
         """
         Gets the true anomaly of the specified element.
@@ -361,13 +375,16 @@ class GeneralPerturbationsOrbit(BaseModel):
     def from_tle(cls, tle_lines: list[str]) -> GeneralPerturbationsOrbit:
         """
         Creates a GP orbit from two line element (TLE) lines.
+        
+        Args:
+            tle_lines (list[str]): the two line element lines
 
         Returns:
             GeneralPerturbationsOrbit: the GP orbit
         """
         return GeneralPerturbationsOrbit(
             elements=[
-                GeneralPerturbationsElements.from_tle(tle_lines[i : i + 2])
+                GeneralPerturbationsElements.from_tle((tle_lines[i], tle_lines[i + 1]))
                 for i in range(0, len(tle_lines), 2)
             ]
         )
@@ -414,8 +431,8 @@ class GeneralPerturbationsOrbit(BaseModel):
         if element_epochs is None:
             # extract the element epoch times
             element_epochs = np.array([el.epoch for el in self.elements])
-            self.__dict__["element_epochs"] = element_epochs
-        return element_epochs
+            self.__dict__["element_epochs"] = element_epochs  # type: ignore
+        return element_epochs  # type: ignore
 
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float
@@ -443,6 +460,12 @@ class GeneralPerturbationsOrbit(BaseModel):
             derived_elements.append(derived_el)
         return GeneralPerturbationsOrbit(elements=derived_elements)
 
+    @overload
+    def get_closest_element_index(self, at_times: datetime) -> int: ...
+
+    @overload
+    def get_closest_element_index(self, at_times: list[datetime]) -> list[int]: ...
+
     def get_closest_element_index(
         self, at_times: datetime | list[datetime]
     ) -> int | list[int]:
@@ -459,10 +482,10 @@ class GeneralPerturbationsOrbit(BaseModel):
         if at_times is None:
             return 0
         # lazy-load element epochs
-        element_epochs = self.get_element_epochs()
+        element_epochs = np.array(self.get_element_epochs(), dtype="datetime64[ns]")
         # handle scalar
         if isinstance(at_times, datetime):
-            idx = np.searchsorted(element_epochs, at_times, side="left")
+            idx = np.searchsorted(element_epochs, np.datetime64(at_times, "ns"), side="left")
             return (
                 int(idx - 1)
                 if idx > 0
@@ -474,7 +497,7 @@ class GeneralPerturbationsOrbit(BaseModel):
                 else int(idx)
             )
         # handle vector
-        indices = np.searchsorted(element_epochs, at_times, side="left")
+        indices = np.searchsorted(element_epochs, np.array(at_times, dtype="datetime64[ns]"), side="left")
         return [
             (
                 int(idx - 1)
@@ -488,6 +511,12 @@ class GeneralPerturbationsOrbit(BaseModel):
             )
             for i, idx in enumerate(indices)
         ]
+
+    @overload
+    def get_closest_element(self, at_times: datetime) -> GeneralPerturbationsElements: ...
+        
+    @overload
+    def get_closest_element(self, at_times: list[datetime]) -> list[GeneralPerturbationsElements]: ...
 
     def get_closest_element(
         self, at_times: datetime | list[datetime]
@@ -521,7 +550,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         if len(self.elements) <= 1:
             return [start, end], [0, 0]
-        element_epochs = self.get_element_epochs()
+        element_epochs = np.array(self.get_element_epochs(), dtype="datetime64[ns]")
         sorted_epochs = np.sort(element_epochs)
         element_indices = np.argsort(element_epochs)
         epoch_midpoints = (
@@ -544,7 +573,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         min_elevation_angle: float | None = None,
         max_search_duration: timedelta | None = None,
         lazy_load: bool | None = None,
-    ) -> timedelta:
+    ) -> timedelta | None:
         """
         Compute the orbit repeat cycle. Lazy-loads a previously-computed repeat cycle if available.
 
@@ -609,8 +638,8 @@ class GeneralPerturbationsOrbit(BaseModel):
             else:
                 # assign zero repeat cycle value to avoid recalculation
                 repeat_cycle = timedelta(0)
-            self.__dict__["repeat_cycle"] = repeat_cycle
-        if repeat_cycle > timedelta(0):
+            self.__dict__["repeat_cycle"] = repeat_cycle # type: ignore
+        if repeat_cycle is not None and repeat_cycle > timedelta(0):
             return repeat_cycle
         return None
 
@@ -636,7 +665,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         if len(self.elements) > 1:
             # try to use multiple TLEs
             nearest_indices = self.get_closest_element_index(t.utc_datetime())
-            if t.shape == ():
+            if isinstance(nearest_indices, int):
                 return self.elements[nearest_indices].to_skyfield().at(t)
             nearest_indices = np.asarray(nearest_indices)
             position_au = np.empty((3,) + t.shape)
@@ -765,7 +794,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             # try to use use multiple TLEs
             part_ts, element_is = self.partition_by_element_index(start, end)
             events = [
-                element_is[i]
+                self.elements[element_is[i]]
                 .to_skyfield()
                 .find_events(
                     topos,
@@ -811,7 +840,6 @@ class GeneralPerturbationsOrbit(BaseModel):
                 )
         # compute observation events
         t_1 = constants.timescale.from_datetime(end)
-        # pylint: disable=E1101
         return (
             self.elements[0]
             .to_skyfield()

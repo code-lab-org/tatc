@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from itertools import chain
+from typing import Callable
 
 import geopandas as gpd
 import numpy as np
@@ -23,11 +24,11 @@ from ..schemas import Satellite
 def _tangent_point_geometry(
     tx_pv: Geocentric,
     rx_pv: Geocentric,
-    rx_v_u: list[float],
-    rx_n_u: list[float],
-    rx_b_u: list[float],
+    rx_v_u: np.ndarray,
+    rx_n_u: np.ndarray,
+    rx_b_u: np.ndarray,
     compute_velocity: bool = False,
-):
+) -> tuple[np.ndarray, np.ndarray | None, np.ndarray, np.ndarray, np.ndarray]:
     """
     Computes tangent point position (and, optionally, velocity) and
     receiver-frame pitch/yaw angles of the transmitter, as seen from the
@@ -42,12 +43,15 @@ def _tangent_point_geometry(
     rx_tx_pv = tx_pv - rx_pv
     # tangent point position (m)
     # x_tp = x_tx - x_(rx,tx) . [ x_tx . x_(rx,tx) ] / || x_(rx,tx) ||
+    rx_tx_p_m = np.array(rx_tx_pv.position.m)
+    rx_p_m = np.array(rx_pv.position.m)
+    tx_p_m = np.array(tx_pv.position.m)
     tp_p = tx_pv.position.m - np.einsum(
         "ij,j->ij",
-        rx_tx_pv.position.m,
+        rx_tx_p_m,
         np.divide(
-            np.einsum("ij,ij->j", tx_pv.position.m, rx_tx_pv.position.m),
-            np.einsum("ij,ij->j", rx_tx_pv.position.m, rx_tx_pv.position.m),
+            np.einsum("ij,ij->j", tx_p_m, rx_tx_p_m),
+            np.einsum("ij,ij->j", rx_tx_p_m, rx_tx_p_m),
         ),
     )
     if compute_velocity:
@@ -57,31 +61,34 @@ def _tangent_point_geometry(
         #           [ v_tx . x_(rx,tx) ] + [ x_tx . v_(rx,tx) ] ] / || x_(rx,tx) || ]
         #           - 2 * [ v_(rx,tx) . x_(rx,tx) ] * [ x_tx . x_(rx,tx) ] / || x_(rx,tx) ||^2
         #        ]
+        tx_p_m = np.array(tx_pv.position.m)
+        tx_v_m_per_s = np.array(tx_pv.velocity.m_per_s)
+        rx_tx_v_m_per_s = np.array(rx_tx_pv.velocity.m_per_s)
         tp_v = (
-            tx_pv.velocity.m_per_s
+            tx_v_m_per_s
             - np.einsum(
                 "ij,j->ij",
-                rx_tx_pv.velocity.m_per_s,
+                rx_tx_v_m_per_s,
                 np.divide(
-                    np.einsum("ij,ij->j", tx_pv.position.m, rx_tx_pv.position.m),
-                    np.einsum("ij,ij->j", rx_tx_pv.position.m, rx_tx_pv.position.m),
+                    np.einsum("ij,ij->j", tx_p_m, rx_tx_p_m),
+                    np.einsum("ij,ij->j", rx_tx_p_m, rx_tx_p_m),
                 ),
             )
             - np.einsum(
                 "ij,j->ij",
-                rx_tx_pv.position.m,
+                rx_tx_p_m,
                 (
                     np.divide(
                         (
                             np.einsum(
-                                "ij,ij->j", tx_pv.velocity.m_per_s, rx_tx_pv.position.m
+                                "ij,ij->j", tx_v_m_per_s, rx_tx_p_m
                             )
                             + np.einsum(
-                                "ij,ij->j", tx_pv.position.m, rx_tx_pv.velocity.m_per_s
+                                "ij,ij->j", tx_p_m, rx_tx_v_m_per_s
                             )
                         ),
                         np.einsum(
-                            "ij,ij->j", rx_tx_pv.position.m, rx_tx_pv.position.m
+                            "ij,ij->j", rx_tx_p_m, rx_tx_p_m
                         ),
                     )
                     - 2
@@ -89,16 +96,16 @@ def _tangent_point_geometry(
                         np.multiply(
                             np.einsum(
                                 "ij,ij->j",
-                                rx_tx_pv.velocity.m_per_s,
-                                rx_tx_pv.position.m,
+                                rx_tx_v_m_per_s,
+                                rx_tx_p_m,
                             ),
                             np.einsum(
-                                "ij,ij->j", tx_pv.position.m, rx_tx_pv.position.m
+                                "ij,ij->j", tx_p_m, rx_tx_p_m
                             ),
                         ),
                         np.power(
                             np.einsum(
-                                "ij,ij->j", rx_tx_pv.position.m, rx_tx_pv.position.m
+                                "ij,ij->j", rx_tx_p_m, rx_tx_p_m
                             ),
                             2,
                         ),
@@ -110,15 +117,15 @@ def _tangent_point_geometry(
         tp_v = None
     # intersecting (-1) or parallel (+1) view of tangent point
     tp_sign = np.sign(
-        np.einsum("ij,ij->j", tp_p - tx_pv.position.m, tp_p - rx_pv.position.m)
+        np.einsum("ij,ij->j", tp_p - tx_p_m, tp_p - rx_p_m)
     )
     # relative transmitter position from receiver in plane normal to receiver orbit
     rx_tx_p_rx_n_plane = rx_tx_pv.position.m - np.einsum(
-        "ij,j->ij", rx_n_u, np.einsum("ij,ij->j", rx_n_u, rx_tx_pv.position.m)
+        "ij,j->ij", rx_n_u, np.einsum("ij,ij->j", rx_n_u, rx_tx_p_m)
     )
     # relative transmitter position from receiver in plane binormal to receiver orbit
     rx_tx_p_rx_t_plane = rx_tx_pv.position.m - np.einsum(
-        "ij,j->ij", rx_b_u, np.einsum("ij,ij->j", rx_b_u, rx_tx_pv.position.m)
+        "ij,j->ij", rx_b_u, np.einsum("ij,ij->j", rx_b_u, rx_tx_p_m)
     )
     # transmitter pitch angle in receiver body-fixed frame
     rx_tx_pitch = np.degrees(
@@ -137,25 +144,27 @@ def _tangent_point_geometry(
     return tp_p, tp_v, tp_sign, rx_tx_pitch, rx_tx_yaw
 
 
-def _receiver_frame_vectors(rx_pv: Geocentric):
+def _receiver_frame_vectors(rx_pv: Geocentric) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Computes the receiver body-fixed (VNB) frame unit vectors.
     """
+    rx_p_m = np.array(rx_pv.position.m)
+    rx_v_m_per_s = np.array(rx_pv.velocity.m_per_s)
     # unit vector tangent to receiver orbit plane (VNB x-axis)
     rx_v_u = np.divide(
-        rx_pv.velocity.m_per_s, np.linalg.norm(rx_pv.velocity.m_per_s, axis=0)
+        rx_v_m_per_s, np.linalg.norm(rx_v_m_per_s, axis=0)
     )
     # unit vector normal to receiver orbit plane (VNB y-axis)
-    rx_n_u = np.cross(rx_pv.position.m, rx_pv.velocity.m_per_s, 0, 0, -1).T
+    rx_n_u = np.cross(rx_p_m, rx_v_m_per_s, 0, 0, -1).T
     rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
     # unit vector orthogonal to receiver orbit plane (VNB z-axis)
-    rx_b_u = np.divide(rx_pv.position.m, np.linalg.norm(rx_pv.position.m, axis=0))
+    rx_b_u = np.divide(rx_p_m, np.linalg.norm(rx_p_m, axis=0))
     return rx_v_u, rx_n_u, rx_b_u
 
 
 def _make_ro_validity_function(
     transmitter: Satellite, receiver: Satellite, max_yaw: float, step_days: float
-):
+) -> Callable:
     """
     Builds a Skyfield-compatible discrete function of time returning whether the
     tangent point intersects the Earth and the transmitter yaw is within bounds,
@@ -178,7 +187,7 @@ def _make_ro_validity_function(
         )
         return valid.astype(int)
 
-    f.step_days = step_days
+    f.step_days = step_days # type: ignore
     return f
 
 
@@ -215,7 +224,7 @@ def _sample_ro_arc(
     arc_start: datetime,
     arc_end: datetime,
     time_step: timedelta,
-    range_elevation: tuple[float],
+    range_elevation: tuple[float, float],
 ) -> list[dict]:
     """
     Samples tangent point observations across a single valid RO arc, splitting it
@@ -236,9 +245,9 @@ def _sample_ro_arc(
 
     # tangent point geodetic position, computed once for the whole arc
     tpp_geo = wgs84.geographic_position_of(Geocentric(Distance(m=tp_p).au, None, t))
-    longitude = tpp_geo.longitude.degrees
-    latitude = tpp_geo.latitude.degrees
-    elevation = tpp_geo.elevation.m
+    longitude = np.array(tpp_geo.longitude.degrees)
+    latitude = np.array(tpp_geo.latitude.degrees)
+    elevation = np.array(tpp_geo.elevation.m)
     # azimuth of transmitter from geodetic tangent point (clockwise from North)
     tp_tx_azimuth = _tangent_point_tx_azimuth(transmitter, times, t, tp_p)
     # tangent point height within elevation range
@@ -288,7 +297,7 @@ def _collect_ro_series(
     end: datetime,
     time_step: timedelta,
     max_yaw: float,
-    range_elevation: tuple[float],
+    range_elevation: tuple[float, float],
     min_profile_duration: timedelta,
 ) -> list[dict]:
     # discrete function of time: 1 if the tangent point intersects and the
@@ -402,7 +411,7 @@ def collect_ro_observations(
     time_step: timedelta = timedelta(seconds=10),
     sample_elevation: float = -80e3,
     max_yaw: float = 65,
-    range_elevation: tuple[float] = (-200e3, 60e3),
+    range_elevation: tuple[float, float] = (-200e3, 60e3),
     min_profile_duration: timedelta = timedelta(seconds=30),
 ) -> gpd.GeoDataFrame:
     """
@@ -417,7 +426,7 @@ def collect_ro_observations(
             tracks within each observation period, once its bounds are found.
         sample_elevation: (float): the elevation (m) at which to interpolate observation attributes.
         max_yaw (float): the maximum transmitter yaw angle (from receiver body-fixed frame) for a valid obsevation.
-        range_elevation: (tuple[float]): the lower and upper bound on tangent point elevation (m) for a valid observation.
+        range_elevation: (tuple[float, float]): the lower and upper bound on tangent point elevation (m) for a valid observation.
         min_profile_duration (datetime.timedelta): the shortest RO observation period
             guaranteed to be detected. Sets the coarse scan resolution used to search
             for observation periods (via `skyfield.searchlib.find_discrete`),

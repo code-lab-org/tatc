@@ -117,7 +117,8 @@ def collect_orbit_track(
                 else mask.contains(Point(longitude, latitude))
             )
             for (longitude, latitude) in zip(
-                ssp.longitude.degrees, ssp.latitude.degrees
+                np.array(ssp.longitude.degrees), 
+                np.array(ssp.latitude.degrees)
             )
         ]
         if not any(mask_contains_ssp):
@@ -130,9 +131,9 @@ def collect_orbit_track(
         points = [
             Point(longitude, latitude, elevation)
             for (longitude, latitude, elevation) in zip(
-                ssp.longitude.degrees,
-                ssp.latitude.degrees,
-                ssp.elevation.m,
+                np.array(ssp.longitude.degrees),
+                np.array(ssp.latitude.degrees),
+                np.array(ssp.elevation.m),
             )
         ]
     elif coordinates == OrbitCoordinate.ECEF:
@@ -147,7 +148,7 @@ def collect_orbit_track(
         ]
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track)
-    if len(orbit_track.t) == 1:
+    if len(orbit_track.t) == 1: # type: ignore
         # transform scalar to vector results
         valid_obs = np.array([valid_obs])
     # create velocity points if needed
@@ -203,22 +204,24 @@ def collect_orbit_track(
         track["sat_sunlit"] = orbit_track.is_sunlit(de421)
     if solar_altaz:
         # append solar altitude/azimuth columns
-        solar_altaz = (
+        solar_altaz_data = (
             (de421["earth"] + ssp)
             .at(orbit_track.t)
             .observe(de421["sun"])
             .apparent()
             .altaz()
         )
-        track["solar_alt"] = solar_altaz[0].degrees
-        track["solar_az"] = solar_altaz[1].degrees
+        track["solar_alt"] = solar_altaz_data[0].degrees
+        track["solar_az"] = solar_altaz_data[1].degrees
     if solar_beta:
         # append solar beta column
         # based on https://github.com/skyfielders/python-skyfield/issues/1054
         plane_normal = np.cross(
-            orbit_track.position.m, orbit_track.velocity.m_per_s, axis=0
+            np.array(orbit_track.position.m), 
+            np.array(orbit_track.velocity.m_per_s), 
+            axis=0
         )
-        sun = de421["earth"].at(orbit_track.t).observe(de421["sun"]).position.m
+        sun = de421["earth"].at(orbit_track.t).observe(de421["sun"]).position.m # type: ignore
         beta = np.pi / 2 - angle_between(plane_normal, sun)
         track["solar_beta"] = np.degrees(beta)
     if mask is not None:
@@ -366,7 +369,7 @@ def collect_ground_track(
     target = instrument.compute_footprint_center(orbit_track, elevation)
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track, target)
-    if len(orbit_track.t) == 1:
+    if len(orbit_track.t) == 1: # type: ignore
         # transform scalar to vector results
         valid_obs = np.array([valid_obs])
     if crs == "spice":
@@ -375,7 +378,7 @@ def collect_ground_track(
             None,
             elevation,
         )
-        if len(orbit_track.t) == 1:
+        if len(orbit_track.t) == 1: # type: ignore
             geometries = [geometries]
     else:
         # compute the orbit track of the satellite
@@ -703,7 +706,7 @@ def collect_ground_pixels(
     gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
     if sat_altaz:
         # append satellite altitude/azimuth columns
-        sat_altaz = [
+        sat_altaz_data = [
             (
                 orbit_track[i]
                 - wgs84.latlon(
@@ -712,11 +715,11 @@ def collect_ground_pixels(
             ).altaz()
             for i, record in indexed_records
         ]
-        gdf["sat_alt"] = [altaz[0].degrees for altaz in sat_altaz]
-        gdf["sat_az"] = [altaz[1].degrees for altaz in sat_altaz]
+        gdf["sat_alt"] = [altaz[0].degrees for altaz in sat_altaz_data]
+        gdf["sat_az"] = [altaz[1].degrees for altaz in sat_altaz_data]
     if solar_altaz:
         # append solar altitude/azimuth columns
-        solar_altaz = [
+        solar_altaz_data = [
             (
                 de421["earth"]
                 + wgs84.latlon(
@@ -729,8 +732,8 @@ def collect_ground_pixels(
             .altaz()
             for i, record in indexed_records
         ]
-        gdf["solar_alt"] = [altaz[0].degrees for altaz in solar_altaz]
-        gdf["solar_az"] = [altaz[1].degrees for altaz in solar_altaz]
+        gdf["solar_alt"] = [altaz[0].degrees for altaz in solar_altaz_data]
+        gdf["solar_az"] = [altaz[1].degrees for altaz in solar_altaz_data]
 
     if mask is not None:
         gdf = gpd.clip(gdf, mask).reset_index(drop=True)

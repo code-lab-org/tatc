@@ -5,9 +5,11 @@ Object schema for satellites.
 """
 from __future__ import annotations
 
-from pydantic import Field
-from typing_extensions import Literal
+from typing import Literal
 
+from pydantic import Field
+
+from ..orbit import AllOrbits
 from .base import SpaceSystem
 
 
@@ -17,14 +19,6 @@ class Satellite(SpaceSystem):
     """
 
     type: Literal["satellite"] = Field(
-        "satellite", description="Space system type discriminator."
+        default="satellite", description="Space system type discriminator."
     )
-
-    def generate_members(self) -> list[Satellite]:
-        """
-        Generate space system member satellites (returns a list containing this satellite).
-
-        Returns:
-            list[Satellite]: the member satellites
-        """
-        return [self]
+    orbit: AllOrbits = Field(..., description="Orbit specification.")

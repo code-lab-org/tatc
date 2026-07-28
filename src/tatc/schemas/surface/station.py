@@ -6,42 +6,26 @@ Object schemas for ground stations.
 
 from datetime import timedelta
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from .point import Point
 
 
-class GroundStation(BaseModel):
+class GroundStation(Point):
     """
     Ground station in the WGS 84 coordinate system.
     """
 
     name: str = Field(..., description="Ground station name", examples=["station 1"])
-    latitude: float = Field(
-        ...,
-        description="Latitude (decimal degrees) in the WGS 84 coordinate system.",
-        ge=-90,
-        le=90,
-        examples=[40.74259],
-    )
-    longitude: float = Field(
-        ...,
-        description="Longitude (decimal degrees) in the WGS 84 coordinate system.",
-        ge=-180,
-        le=180,
-        examples=[-74.02686],
-    )
-    elevation: float = Field(
-        0,
-        description="Elevation (meters) above datum in the WGS 84 coordinate system.",
-    )
     min_elevation_angle: float = Field(
-        0,
+        default=0,
         description="The minimum elevation angle (decimal degrees) required "
         + "for satellite communication.",
         ge=0,
         le=90,
     )
     min_access_time: timedelta = Field(
-        timedelta(0),
+        default=timedelta(0),
         description="Minimum access (integration) time required for satellite communication.",
         examples=[timedelta(seconds=10)],
     )

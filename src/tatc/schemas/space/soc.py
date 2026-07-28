@@ -6,9 +6,9 @@ Object schema for streets-of-coverage (SOC) constellations.
 from __future__ import annotations
 
 import math
+from typing import Literal
 
 from pydantic import Field
-from typing_extensions import Literal
 
 from tatc.utils.observation import (
     compute_min_elevation_angle,
@@ -17,12 +17,12 @@ from tatc.utils.observation import (
 
 from ...constants import EARTH_MEAN_RADIUS
 from ..orbit import CircularOrbit
-from .base import SpaceSystem
+from .base_constellation import BaseConstellation
 from .satellite import Satellite
 from .walker import WalkerConstellation
 
 
-class SOCConstellation(SpaceSystem):
+class SOCConstellation(BaseConstellation):
     """
     A constellation that arranges member satellites following the streets of coverage pattern.
 
@@ -33,7 +33,7 @@ class SOCConstellation(SpaceSystem):
     pp. 179-193. doi: 10.1016/j.actaastro.2022.05.022
     """
 
-    type: Literal["soc"] = Field("soc", description="Space system type discriminator.")
+    type: Literal["soc"] = Field(default="soc", description="Space system type discriminator.")
     orbit: CircularOrbit = Field(
         ..., description="Reference circular orbit for this constellation."
     )
@@ -52,7 +52,6 @@ class SOCConstellation(SpaceSystem):
             WalkerConstellation: the member satellites following the Walker pattern.
         """
         # compute min elevation angle
-        # pylint: disable=E1101
         e = compute_min_elevation_angle(
             altitude=self.orbit.mean_altitude,
             field_of_regard=swath_width_to_field_of_regard(
@@ -61,7 +60,6 @@ class SOCConstellation(SpaceSystem):
         )
 
         # nadir angle (degrees) [Eq. (19) in Anderson et al. (2022)]
-        # pylint: disable=E1101
         eta = math.degrees(
             math.asin(
                 (EARTH_MEAN_RADIUS / (EARTH_MEAN_RADIUS + self.orbit.mean_altitude))

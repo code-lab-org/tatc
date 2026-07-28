@@ -7,21 +7,21 @@ Object schemas for satellite orbits.
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Literal
 
 import numpy as np
 from pydantic import Field
-from typing_extensions import Literal
 
 from ... import constants, utils
-from .molniya import MolniyaOrbit
+from .base_molniya_tundra import MolniyaTundraOrbitBase
 
 
-class TundraOrbit(MolniyaOrbit):
+class TundraOrbit(MolniyaTundraOrbitBase):
     """
     Orbit defined by Tundra parameters.
     """
 
-    type: Literal["tundra"] = Field("tundra", description="Orbit type discriminator.")
+    type: Literal["tundra"] = Field(default="tundra", description="Orbit type discriminator.")
 
     def get_orbit_period(self) -> timedelta:
         """

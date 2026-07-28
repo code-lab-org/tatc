@@ -37,31 +37,31 @@ class PointedInstrument(Instrument):
         le=180,
     )
     roll_angle: float = Field(
-        0,
+        default=0,
         description="Left/right look angle (degrees) orthogonal to instrument motion.",
         ge=-180,
         le=180,
     )
     pitch_angle: float = Field(
-        0,
+        default=0,
         description="Fore/aft look angle (degrees) in direction of instrument motion.",
         ge=-180,
         le=180,
     )
     is_rectangular: bool = Field(
-        False, description="True, if this instrument produces a rectangular view."
+        default=False, description="True, if this instrument produces a rectangular view."
     )
     cross_track_pixels: int = Field(
-        1, description="Number of pixels in cross-track direction.", ge=1
+        default=1, description="Number of pixels in cross-track direction.", ge=1
     )
     along_track_pixels: int = Field(
-        1, description="Number of pixels in along-track direction.", ge=1
+        default=1, description="Number of pixels in along-track direction.", ge=1
     )
     cross_track_oversampling: float = Field(
-        0, description="Fraction of pixel overlap in cross-track diraction.", ge=0, lt=1
+        default=0, description="Fraction of pixel overlap in cross-track diraction.", ge=0, lt=1
     )
     along_track_oversampling: float = Field(
-        0, description="Fraction of pixel overlap in along-track diraction.", ge=0, lt=1
+        default=0, description="Fraction of pixel overlap in along-track diraction.", ge=0, lt=1
     )
 
     def get_cross_track_instantaneous_field_of_view(self) -> float:
@@ -234,7 +234,7 @@ class PointedInstrument(Instrument):
             for i in range(self.cross_track_pixels)
             for j in range(self.along_track_pixels)
         ]
-        if np.size(orbit_track.t) > 1:
+        if np.size(orbit_track.t) > 1: # type: ignore
             return [
                 MultiPoint(
                     [
@@ -246,7 +246,7 @@ class PointedInstrument(Instrument):
                         for point in points
                     ]
                 )
-                for i in range(np.size(orbit_track.t))
+                for i in range(np.size(orbit_track.t)) # type: ignore
             ]
         return MultiPoint(
             [

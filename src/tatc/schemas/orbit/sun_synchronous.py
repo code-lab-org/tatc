@@ -7,23 +7,23 @@ Object schemas for sunsynchronous orbits.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from typing import Literal
 
 import numpy as np
 from pydantic import Field
-from typing_extensions import Literal
 
 from ... import config, constants, utils
-from .base import OrbitBase
+from .base_circular import CircularOrbitBase
 from .gp import GeneralPerturbationsOrbit
 from .keplerian import KeplerianOrbit
 
 
-class SunSynchronousOrbit(OrbitBase):
+class SunSynchronousOrbit(CircularOrbitBase):
     """
     Orbit defined by sun synchronous parameters.
     """
 
-    type: Literal["sso"] = Field("sso", description="Orbit type discriminator.")
+    type: Literal["sso"] = Field(default="sso", description="Orbit type discriminator.")
     mean_altitude: float = Field(
         ...,
         description="Mean altitude (meters).",
@@ -34,18 +34,9 @@ class SunSynchronousOrbit(OrbitBase):
         ..., description="Equator crossing time (local solar time)."
     )
     equator_crossing_ascending: bool = Field(
-        True,
+        default=True,
         description="True, if the equator crossing time is ascending (south-to-north).",
     )
-
-    def get_semimajor_axis(self) -> float:
-        """
-        Gets the semimajor axis (meters).
-
-        Returns:
-            float: the semimajor axis
-        """
-        return self.mean_altitude + constants.EARTH_MEAN_RADIUS
 
     def get_inclination(self) -> float:
         """
@@ -65,7 +56,6 @@ class SunSynchronousOrbit(OrbitBase):
         Returns:
             float: the right ascension of ascending node
         """
-        # pylint: disable=E1101
         ect_day = timedelta(
             hours=self.equator_crossing_time.hour,
             minutes=self.equator_crossing_time.minute,
@@ -75,7 +65,7 @@ class SunSynchronousOrbit(OrbitBase):
         epoch_time = constants.timescale.from_datetime(self.epoch)
         sun = constants.de421["sun"]
         earth = constants.de421["earth"]
-        right_ascension, _, _ = earth.at(epoch_time).observe(sun).radec()
+        right_ascension, _, _ = earth.at(epoch_time).observe(sun).radec() # type: ignore
         # pylint: disable=W0212
         return (
             right_ascension._degrees
@@ -139,5 +129,5 @@ class SunSynchronousOrbit(OrbitBase):
                 true_anomaly=self.true_anomaly,
                 epoch=self.epoch,
             ).to_gp_orbit()
-            self.__dict__["gp_orbit"] = gp_orbit
+            self.__dict__["gp_orbit"] = gp_orbit # type: ignore
         return gp_orbit

@@ -19,7 +19,7 @@ class OrbitBase(BaseModel):
     """
 
     true_anomaly: float = Field(0, description="True anomaly (degrees).", ge=0, lt=360)
-    epoch: datetime | None = Field(
+    epoch: datetime = Field(
         datetime.now(tz=timezone.utc),
         description="Timestamp (epoch) of the initial orbital state.",
     )

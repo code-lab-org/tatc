@@ -7,20 +7,19 @@ Object schema for mutual orbiting group (MOG) constellations.
 from __future__ import annotations
 
 import copy
+from typing import Literal
 
 import numpy as np
 from pydantic import Field
-from typing_extensions import Literal
 
 from tatc.utils.formatting import zero_pad
 
-from ...constants import EARTH_MEAN_RADIUS
 from ..orbit import CircularOrbit, KeplerianOrbit
-from .base import SpaceSystem
+from .base_constellation import BaseConstellation
 from .satellite import Satellite
 
 
-class MOGConstellation(SpaceSystem):
+class MOGConstellation(BaseConstellation):
     """
     A constellation that arranges member satellites following the mutual orbiting group pattern.
 
@@ -30,7 +29,7 @@ class MOGConstellation(SpaceSystem):
     pp. 307-317. doi: 10.1109/JSTARS.2019.2961084
     """
 
-    type: Literal["mog"] = Field("mog", description="Space system type discriminator.")
+    type: Literal["mog"] = Field(default="mog", description="Space system type discriminator.")
     orbit: CircularOrbit = Field(
         ..., description="Reference circular orbit for this constellation."
     )
@@ -60,8 +59,7 @@ class MOGConstellation(SpaceSystem):
         orbits = []
 
         # semimajor axis (m)
-        # pylint: disable=E1101
-        a = self.orbit.altitude + EARTH_MEAN_RADIUS
+        a = self.orbit.get_semimajor_axis()
 
         # angle of separation (radians) of angular momentum vectors for reference and mutual orbiter
         delta = self.transverse_axis / (2 * a)
@@ -73,11 +71,9 @@ class MOGConstellation(SpaceSystem):
         s = 1 if self.clockwise else -1
 
         # inclination (radians) of reference orbit
-        # pylint: disable=E1101
         i_0 = np.radians(self.orbit.inclination)
 
         # right ascension of ascending node (radians) of reference orbit
-        # pylint: disable=E1101
         omega_0 = np.radians(self.orbit.right_ascension_ascending_node)
 
         # direction of angular momentum for reference orbit [Eq. (21) in Leroy et al. (2020)]
@@ -133,10 +129,9 @@ class MOGConstellation(SpaceSystem):
             # true anomaly (radians) [Eq. (33a) in Leroy et al. (2020)]
             nu = np.arctan2(np.sin(psi) * np.sqrt(1 - e**2), np.cos(psi) - e)
 
-            # pylint: disable=E1101
             orbits.append(
                 KeplerianOrbit(
-                    altitude=self.orbit.altitude,
+                    semimajor_axis=self.orbit.get_semimajor_axis(),
                     inclination=(360 + np.degrees(i)) % 360,
                     eccentricity=e,
                     right_ascension_ascending_node=(360 + np.degrees(omega)) % 360,

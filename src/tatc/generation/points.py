@@ -195,12 +195,12 @@ def _compute_equally_spaced_point_id(
     return int(j * int(360 / theta_j) + np.mod(i, int(360 / theta_i)))
 
 
-def _get_bounds(mask: Polygon | MultiPolygon) -> tuple:
+def _get_bounds(mask: Polygon | MultiPolygon | None) -> tuple:
     """
     Generates a tuple of bounds for a polygon mask.
 
     Args:
-        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon):  Geometric shape using WGS84 (EPSG:4326)
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  Geometric shape using WGS84 (EPSG:4326)
             geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:

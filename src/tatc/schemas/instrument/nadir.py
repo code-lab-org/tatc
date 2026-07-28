@@ -31,31 +31,31 @@ class Instrument(BaseModel):
     Remote sensing instrument.
     """
 
-    name: str = Field("Default", description="Instrument name.")
+    name: str = Field(default="Default", description="Instrument name.")
     field_of_regard: float = Field(
-        180,
+        default=180,
         description="Angular field (degrees) of possible observations (with pointing).",
         gt=0,
         le=360,
         examples=[50],
     )
     min_access_time: timedelta = Field(
-        timedelta(0),
+        default=timedelta(0),
         description="Minimum access (integration) time to record an observation.",
         examples=[timedelta(seconds=10)],
     )
     req_self_sunlit: bool | None = Field(
-        None,
+        default=None,
         description="Required instrument sunlit state for valid observation "
         + "(`True`: sunlit, `False`: eclipse, `None`: no requirement).",
     )
     req_target_sunlit: bool | None = Field(
-        None,
+        default=None,
         description="Required target sunlit state for valid observation "
         + "(`True`: sunlit, `False`: eclipse, `None`: no requirement).",
     )
     access_time_fixed: bool = Field(
-        False, description="`True`, if access time is fixed to minimum value."
+        default=False, description="`True`, if access time is fixed to minimum value."
     )
 
     def get_swath_width(self, height: float) -> float:
@@ -137,7 +137,7 @@ class Instrument(BaseModel):
         )
 
     def is_valid_observation(
-        self, orbit_track: Geocentric, target: GeographicPosition = None
+        self, orbit_track: Geocentric, target: GeographicPosition | None = None
     ) -> bool | npt.NDArray:
         """Determines if an instrument can provide a valid observations.
 
@@ -151,7 +151,7 @@ class Instrument(BaseModel):
         if target is None:
             # support backwards compatibility
             target = wgs84.subpoint_of(orbit_track)
-        is_valid = np.ones(np.size(orbit_track.t), dtype=bool)
+        is_valid = np.ones(np.size(orbit_track.t), dtype=bool) # type: ignore
         if self.req_self_sunlit is not None:
             # compare requirement to satellite sunlit condition
             is_self_sunlit_valid = orbit_track.is_sunlit(de421) == self.req_self_sunlit
@@ -169,6 +169,6 @@ class Instrument(BaseModel):
             # compare requirement to sub-satellite point sunlit conditions
             is_target_sunlit_valid = (solar_alt > 0) == self.req_target_sunlit
             is_valid = np.logical_and(is_valid, is_target_sunlit_valid)
-        if np.size(orbit_track.t) > 1:
+        if np.size(orbit_track.t) > 1: # type: ignore
             return is_valid
         return bool(is_valid[0])
