@@ -176,6 +176,60 @@ def _collect_ro_series(
     return occ_obs
 
 
+def _interpolate_ro_point(points: list[dict], sample_elevation: float) -> dict:
+    """
+    Interpolates RO observation attributes at the specified tangent point elevation.
+
+    Args:
+        points (list[dict]): the RO observation points (ordered by time).
+        sample_elevation (float): the tangent point elevation (m) at which to interpolate.
+
+    Returns:
+        dict: interpolated longitude (deg), latitude (deg), elevation (m), rx_tx_pitch (deg),
+            rx_tx_yaw (deg), tp_tx_azimuth (deg), and time.
+    """
+    elevations = np.array([point["tangent_point"].elevation.m for point in points])
+    diffs = elevations - sample_elevation
+    # bracketing indices where the tangent point elevation crosses the sample elevation
+    crossings = np.nonzero(np.diff(np.sign(diffs)))[0]
+    if len(crossings) > 0:
+        i = crossings[0]
+        p0, p1 = points[i], points[i + 1]
+        denom = diffs[i] - diffs[i + 1]
+        frac = diffs[i] / denom if denom != 0 else 0.0
+    else:
+        # sample elevation is outside the observed range: clamp to the nearest endpoint
+        i = 0 if abs(diffs[0]) <= abs(diffs[-1]) else len(points) - 1
+        p0 = p1 = points[i]
+        frac = 0.0
+
+    def lerp(a, b):
+        return a + frac * (b - a)
+
+    def lerp_angle(a, b, low=-180.0):
+        # interpolate along the shortest angular path, then wrap to [low, low + 360)
+        diff = ((b - a + 180) % 360) - 180
+        return (a + frac * diff - low) % 360 + low
+
+    return {
+        "longitude": lerp_angle(
+            p0["tangent_point"].longitude.degrees,
+            p1["tangent_point"].longitude.degrees,
+        ),
+        "latitude": lerp(
+            p0["tangent_point"].latitude.degrees,
+            p1["tangent_point"].latitude.degrees,
+        ),
+        "elevation": lerp(
+            p0["tangent_point"].elevation.m, p1["tangent_point"].elevation.m
+        ),
+        "rx_tx_pitch": lerp_angle(p0["rx_tx_pitch"], p1["rx_tx_pitch"]),
+        "rx_tx_yaw": lerp_angle(p0["rx_tx_yaw"], p1["rx_tx_yaw"]),
+        "tp_tx_azimuth": lerp_angle(p0["tp_tx_azimuth"], p1["tp_tx_azimuth"], low=0.0),
+        "time": p0["time"] + frac * (p1["time"] - p0["time"]),
+    }
+
+
 def _get_empty_ro_frame() -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for ro results.
@@ -214,7 +268,7 @@ def collect_ro_observations(
         receiver (Satellite): the satellite with a RO receiver.
         transmitters (Satellite | list[Satellite]]): the satellite(s) with a RO transmitter.
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
-        sample_elevation: (float): the elevation (m) at which to sample observation attributes.
+        sample_elevation: (float): the elevation (m) at which to interpolate observation attributes.
         max_yaw (float): the maximum transmitter yaw angle (from receiver body-fixed frame) for a valid obsevation.
         range_elevation: (tuple[float]): the lower and upper bound on tangent point elevation (m) for a valid observation.
     """
@@ -269,26 +323,17 @@ def collect_ro_observations(
                     ]
                 ),
                 "position": Point(
-                    o["points"][sample_index]["tangent_point"].longitude.degrees,
-                    o["points"][sample_index]["tangent_point"].latitude.degrees,
-                    o["points"][sample_index]["tangent_point"].elevation.m,
+                    sample["longitude"], sample["latitude"], sample["elevation"]
                 ),
-                "rx_tx_pitch": o["points"][sample_index]["rx_tx_pitch"],
-                "rx_tx_yaw": o["points"][sample_index]["rx_tx_yaw"],
-                "tp_tx_azimuth": o["points"][sample_index]["tp_tx_azimuth"],
+                "rx_tx_pitch": sample["rx_tx_pitch"],
+                "rx_tx_yaw": sample["rx_tx_yaw"],
+                "tp_tx_azimuth": sample["tp_tx_azimuth"],
                 "start": o["points"][0]["time"],
                 "end": o["points"][-1]["time"],
-                "time": o["points"][sample_index]["time"],
+                "time": sample["time"],
             }
             for o in obs
-            for sample_index in [
-                min(
-                    range(len(o["points"])),
-                    key=lambda i, points=o["points"]: abs(
-                        points[i]["tangent_point"].elevation.m - sample_elevation
-                    ),
-                )
-            ]
+            for sample in [_interpolate_ro_point(o["points"], sample_elevation)]
         ],
         crs="EPSG:4326",
     ).sort_values("time", ignore_index=True)
