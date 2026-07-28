@@ -204,7 +204,7 @@ def collect_orbit_track(
     if solar_altaz:
         # append solar altitude/azimuth columns
         solar_altaz = (
-            (de421["earth"] + wgs84.geographic_position_of(orbit_track))
+            (de421["earth"] + ssp)
             .at(orbit_track.t)
             .observe(de421["sun"])
             .apparent()
@@ -315,7 +315,10 @@ def collect_ground_track(
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
     if mask is not None and len(times) > 1:
-        ssp = wgs84.geographic_position_of(orbit_track)
+        # use the (possibly repeat-cycle-corrected) geodetic position for this
+        # rough, buffer-tolerant culling step only; final geometry/validity
+        # below still uses the true orbit_track for consistency.
+        ssp = satellite.orbit.to_gp_orbit().get_geographic_position(times)
         buffered_mask = buffer_target(
             geometry=(
                 mask
@@ -622,7 +625,10 @@ def collect_ground_pixels(
             "Ground pixels are only compatible with rectangular PointedInstrument instances"
         )
     if mask is not None and len(times) > 1:
-        ssp = wgs84.geographic_position_of(orbit_track)
+        # use the (possibly repeat-cycle-corrected) geodetic position for this
+        # rough, buffer-tolerant culling step only; final geometry/validity
+        # below still uses the true orbit_track for consistency.
+        ssp = satellite.orbit.to_gp_orbit().get_geographic_position(times)
         buffered_mask = buffer_target(
             geometry=(
                 mask

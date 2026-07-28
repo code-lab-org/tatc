@@ -12,7 +12,6 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from shapely import geometry as geo
-from skyfield.api import wgs84
 
 from ..schemas import GroundStation, Satellite
 from .coverage import _get_visible_interval_series
@@ -55,8 +54,8 @@ def collect_downlinks(
         geopandas.GeoDataFrame: The data frame of collected downlink results.
     """
     # compute the initial satellite altitude (shared across all ground stations)
-    init_altitude = wgs84.geographic_position_of(
-        satellite.orbit.to_gp_orbit().get_orbit_track(start)
+    init_altitude = satellite.orbit.to_gp_orbit().get_geographic_position(
+        start
     ).elevation.m
     # collect the records of ground station overpasses
     records = [

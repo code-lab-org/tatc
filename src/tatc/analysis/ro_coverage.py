@@ -163,6 +163,9 @@ def _make_ro_validity_function(
     """
 
     def f(t):
+        # get_orbit_track_at_time always does true (directly propagated) inertial
+        # propagation, which is required here since receiver and transmitter
+        # positions are compared directly in the inertial frame.
         rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track_at_time(t)
         tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track_at_time(t)
         rx_v_u, rx_n_u, rx_b_u = _receiver_frame_vectors(rx_pv)

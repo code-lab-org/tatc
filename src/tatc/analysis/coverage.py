@@ -175,8 +175,8 @@ def collect_observations(
     """
     instrument = satellite.instruments[instrument_index]
     # compute the initial satellite altitude
-    init_altitude = wgs84.geographic_position_of(
-        satellite.orbit.to_gp_orbit().get_orbit_track(start)
+    init_altitude = satellite.orbit.to_gp_orbit().get_geographic_position(
+        start
     ).elevation.m
     # compute the minimum altitude angle required for observation
     min_elevation_angle = compute_min_elevation_angle(

@@ -18,6 +18,7 @@ from sgp4.conveniences import sat_epoch_datetime
 from skyfield.api import EarthSatellite, Time, wgs84
 from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
+from skyfield.toposlib import GeographicPosition
 from typing_extensions import Literal
 
 from ... import config, constants, utils
@@ -613,11 +614,10 @@ class GeneralPerturbationsOrbit(BaseModel):
             return repeat_cycle
         return None
 
-    def get_orbit_track_at_time(
-        self, t: Time, try_repeat: bool | None = None
-    ) -> Geocentric:
+    def get_orbit_track_at_time(self, t: Time) -> Geocentric:
         """
-        Gets the orbit track of this orbit at given Skyfield time(s).
+        Gets the true (directly propagated) orbit track of this orbit at given
+        Skyfield time(s), in the inertial (GCRS) frame.
 
         Prefer this method over `get_orbit_track` when a Skyfield `Time` is
         already in hand (e.g. while iterating a Skyfield search such as
@@ -627,17 +627,22 @@ class GeneralPerturbationsOrbit(BaseModel):
         of the per-instant quantities Skyfield caches on a `Time` object (such as
         nutation angles), forcing Skyfield to recompute them from scratch.
 
+        This always propagates directly at `t`, however distant `t` is from this
+        orbit's epoch. See `get_geographic_position_at_time` for a variant that
+        may substitute a detected repeat cycle to improve long-term accuracy --
+        that substitution is only valid for Earth-fixed results, so it is not
+        offered here: a repeat-cycle position/velocity would be labeled with `t`
+        while numerically describing a different instant, corrupting any
+        computation (e.g. relative geometry with another independently
+        propagated object, or Sun-relative geometry) that assumes the returned
+        `Geocentric` genuinely holds this orbit's inertial state at `t`.
+
         Args:
             t (skyfield.timelib.Time): time(s) at which to compute position/velocity.
-            try_repeat (bool | None): True, if a repeat orbit should be used to improve long-term accuracy.
 
         Returns:
             skyfield.positionlib.Geocentric: the orbit track position/velocity
         """
-        # load defaults
-        if try_repeat is None:
-            try_repeat = config.rc.repeat_cycle_for_orbit_track
-
         if len(self.elements) > 1:
             # try to use multiple TLEs
             nearest_indices = self.get_closest_element_index(t.utc_datetime())
@@ -654,8 +659,54 @@ class GeneralPerturbationsOrbit(BaseModel):
                 position_au[:, mask] = track.position.au
                 velocity_au_per_d[:, mask] = track.velocity.au_per_d
             return Geocentric(position_au, velocity_au_per_d, t)
-        if try_repeat:
-            # try to compute repeat cycle positions
+        # compute satellite positions directly at the given time(s)
+        return self.elements[0].to_skyfield().at(t)
+
+    def get_orbit_track(self, times: datetime | list[datetime]) -> Geocentric:
+        """
+        Gets the true (directly propagated) orbit track of this orbit using
+        Skyfield, in the inertial (GCRS) frame.
+
+        Args:
+            times (datetime | list[datetime]): time(s) at which to compute position/velocity.
+
+        Returns:
+            skyfield.positionlib.Geocentric: the orbit track position/velocity
+        """
+        t = (
+            constants.timescale.from_datetime(times)
+            if isinstance(times, datetime)
+            else constants.timescale.from_datetimes(times)
+        )
+        return self.get_orbit_track_at_time(t)
+
+    def get_geographic_position_at_time(
+        self, t: Time, try_repeat: bool | None = None
+    ) -> GeographicPosition:
+        """
+        Gets the geodetic (WGS84) position of this orbit at given Skyfield
+        time(s), in an Earth-fixed frame.
+
+        Unlike `get_orbit_track_at_time`, this method may substitute a detected
+        repeat cycle to improve long-term accuracy: rather than directly
+        propagating to a possibly-distant `t`, it propagates near this orbit's
+        epoch (reducing `t`'s offset from epoch modulo the repeat cycle) and
+        relies on the orbit's ground track repeating with that period. Because
+        the result is a `GeographicPosition` -- a location descriptor, not a
+        frozen inertial state vector -- it can be freely reused afterward (e.g.
+        `.at(some_time)` for a look angle or Sun angle at any moment) without
+        carrying forward any inaccuracy from the substitution.
+
+        Args:
+            t (skyfield.timelib.Time): time(s) at which to compute geodetic position.
+            try_repeat (bool | None): True, if a repeat orbit should be used to improve long-term accuracy.
+
+        Returns:
+            skyfield.toposlib.GeographicPosition: the geodetic position
+        """
+        if try_repeat is None:
+            try_repeat = config.rc.repeat_cycle_for_orbit_track
+        if try_repeat and len(self.elements) == 1:
             repeat_cycle = self.get_repeat_cycle()
             if repeat_cycle is not None:
                 epoch = self.get_epoch()
@@ -668,32 +719,32 @@ class GeneralPerturbationsOrbit(BaseModel):
                     if t.shape == ()
                     else constants.timescale.from_datetimes(epoch + repeat_offset)
                 )
-                repeat_track = self.elements[0].to_skyfield().at(repeat_times)
-                return Geocentric(
-                    repeat_track.position.au, repeat_track.velocity.au_per_d, t
+                return wgs84.geographic_position_of(
+                    self.elements[0].to_skyfield().at(repeat_times)
                 )
-        # compute satellite positions directly at the given time(s)
-        return self.elements[0].to_skyfield().at(t)
+        # compute geodetic position from a true, directly propagated orbit track
+        return wgs84.geographic_position_of(self.get_orbit_track_at_time(t))
 
-    def get_orbit_track(
+    def get_geographic_position(
         self, times: datetime | list[datetime], try_repeat: bool | None = None
-    ) -> Geocentric:
+    ) -> GeographicPosition:
         """
-        Gets the orbit track of this orbit using Skyfield.
+        Gets the geodetic (WGS84) position of this orbit at given time(s), in
+        an Earth-fixed frame.
 
         Args:
-            times (datetime | list[datetime]): time(s) at which to compute position/velocity.
+            times (datetime | list[datetime]): time(s) at which to compute geodetic position.
             try_repeat (bool | None): True, if a repeat orbit should be used to improve long-term accuracy.
 
         Returns:
-            skyfield.positionlib.Geocentric: the orbit track position/velocity
+            skyfield.toposlib.GeographicPosition: the geodetic position
         """
         t = (
             constants.timescale.from_datetime(times)
             if isinstance(times, datetime)
             else constants.timescale.from_datetimes(times)
         )
-        return self.get_orbit_track_at_time(t, try_repeat)
+        return self.get_geographic_position_at_time(t, try_repeat)
 
     def get_observation_events(
         self,
