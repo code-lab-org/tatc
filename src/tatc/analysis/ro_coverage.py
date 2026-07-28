@@ -5,7 +5,7 @@ Methods to perform radio occultation (RO) coverage analysis.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import chain
 
 import geopandas as gpd
@@ -14,23 +14,23 @@ import pandas as pd
 from shapely.geometry import MultiPoint, Point
 from skyfield.api import Distance, Velocity, wgs84
 from skyfield.positionlib import Geocentric
+from skyfield.searchlib import find_discrete
 
 from ..constants import timescale
 from ..schemas import Satellite
 
 
-def _collect_ro_series(
-    transmitter: Satellite,
-    times: list[datetime],
+def _tangent_point_geometry(
+    tx_pv: Geocentric,
     rx_pv: Geocentric,
     rx_v_u: list[float],
     rx_n_u: list[float],
     rx_b_u: list[float],
-    max_yaw: float,
-    range_elevation: tuple[float],
 ):
-    # transmitter position (x_tx), velocity (v_tx)
-    tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track(times)
+    """
+    Computes tangent point position/velocity and receiver-frame pitch/yaw angles
+    of the transmitter, as seen from the receiver, at one or more times.
+    """
     # relative position, velocity of transmitter from receiver
     # x_(rx,tx) = x_tx - x_rx; v_(rx,tx) = v_tx - v_rx
     rx_tx_pv = tx_pv - rx_pv
@@ -117,16 +117,81 @@ def _collect_ro_series(
             np.einsum("ij,ij->j", rx_tx_p_rx_t_plane, rx_v_u),
         )
     )
+    return tp_p, tp_v, tp_sign, rx_tx_pitch, rx_tx_yaw
+
+
+def _receiver_frame_vectors(rx_pv: Geocentric):
+    """
+    Computes the receiver body-fixed (VNB) frame unit vectors.
+    """
+    # unit vector tangent to receiver orbit plane (VNB x-axis)
+    rx_v_u = np.divide(
+        rx_pv.velocity.m_per_s, np.linalg.norm(rx_pv.velocity.m_per_s, axis=0)
+    )
+    # unit vector normal to receiver orbit plane (VNB y-axis)
+    rx_n_u = np.cross(rx_pv.position.m, rx_pv.velocity.m_per_s, 0, 0, -1).T
+    rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
+    # unit vector orthogonal to receiver orbit plane (VNB z-axis)
+    rx_b_u = np.divide(rx_pv.position.m, np.linalg.norm(rx_pv.position.m, axis=0))
+    return rx_v_u, rx_n_u, rx_b_u
+
+
+def _make_ro_validity_function(
+    transmitter: Satellite, receiver: Satellite, max_yaw: float, step_days: float
+):
+    """
+    Builds a Skyfield-compatible discrete function of time returning whether the
+    tangent point intersects the Earth and the transmitter yaw is within bounds,
+    for use with `skyfield.searchlib.find_discrete`.
+    """
+
+    def f(t):
+        times = t.utc_datetime()
+        rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track(list(times))
+        tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track(list(times))
+        rx_v_u, rx_n_u, rx_b_u = _receiver_frame_vectors(rx_pv)
+        _, _, tp_sign, _, rx_tx_yaw = _tangent_point_geometry(
+            tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u
+        )
+        # valid if tangent point intersects and yaw angle below maximum
+        valid = np.logical_and(
+            tp_sign < 0, np.abs(rx_tx_yaw) % (180 - max_yaw) < max_yaw
+        )
+        return valid.astype(int)
+
+    f.step_days = step_days
+    return f
+
+
+def _sample_ro_arc(
+    transmitter: Satellite,
+    receiver: Satellite,
+    arc_start: datetime,
+    arc_end: datetime,
+    time_step: timedelta,
+    range_elevation: tuple[float],
+) -> list[dict]:
+    """
+    Samples tangent point observations across a single valid RO arc, splitting it
+    into one or more observations if the tangent point elevation leaves the
+    specified range.
+    """
+    # sample the arc at (at most) the specified time step, including both endpoints
+    steps = max(int(np.ceil((arc_end - arc_start) / time_step)), 1)
+    times = [arc_start + i * (arc_end - arc_start) / steps for i in range(steps + 1)]
+
+    rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track(times)
+    rx_v_u, rx_n_u, rx_b_u = _receiver_frame_vectors(rx_pv)
+    tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track(times)
+    tp_p, tp_v, _, rx_tx_pitch, rx_tx_yaw = _tangent_point_geometry(
+        tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u
+    )
+
     # occultation observations
     occ_obs = []
     # occultation arc
     occ_arc = None
-    # valid if tangent point intersects and yaw angle below maximum
-    valid = np.logical_and(tp_sign < 0, np.abs(rx_tx_yaw) % (180 - max_yaw) < max_yaw)
-    # events occur when validity changes value
-    is_event = np.diff(valid)
-    # loop over valid times
-    for j in np.nonzero(valid)[0]:
+    for j in range(len(times)):
         # tangent point inertial position
         tpp_pv = Geocentric(
             Distance(m=tp_p[:, j]).au,
@@ -165,8 +230,8 @@ def _collect_ro_series(
                     "tp_tx_azimuth": tp_tx_azmimuth,
                 }
             )
-            if j + 1 >= len(times) or is_event[j]:
-                # end of RO observation due to validity or boundary constraint
+            if j + 1 >= len(times):
+                # end of RO observation due to arc boundary
                 occ_obs.append(occ_arc)
                 occ_arc = None
         elif occ_arc is not None:
@@ -174,6 +239,47 @@ def _collect_ro_series(
             occ_obs.append(occ_arc)
             occ_arc = None
     return occ_obs
+
+
+def _collect_ro_series(
+    transmitter: Satellite,
+    receiver: Satellite,
+    start: datetime,
+    end: datetime,
+    time_step: timedelta,
+    max_yaw: float,
+    range_elevation: tuple[float],
+) -> list[dict]:
+    # discrete function of time: 1 if the tangent point intersects and the
+    # transmitter yaw angle is below maximum, 0 otherwise
+    is_valid = _make_ro_validity_function(
+        transmitter, receiver, max_yaw, time_step / timedelta(days=1)
+    )
+    # find the precise times at which validity changes, scanning at time_step resolution
+    transition_times, transition_values = find_discrete(
+        timescale.from_datetime(start), timescale.from_datetime(end), is_valid
+    )
+    initial_valid = bool(is_valid(timescale.from_datetimes([start]))[0])
+    final_valid = bool(transition_values[-1]) if len(transition_values) else initial_valid
+    # boundary times/values delimiting alternating valid/invalid segments
+    boundary_times = [start] + list(transition_times.utc_datetime()) + [end]
+    boundary_values = (
+        [initial_valid] + [bool(value) for value in transition_values] + [final_valid]
+    )
+    # keep only the segments where validity holds
+    arcs = [
+        (boundary_times[i], boundary_times[i + 1])
+        for i in range(len(boundary_times) - 1)
+        if boundary_values[i] and boundary_times[i + 1] > boundary_times[i]
+    ]
+    return list(
+        chain.from_iterable(
+            _sample_ro_arc(
+                transmitter, receiver, arc_start, arc_end, time_step, range_elevation
+            )
+            for arc_start, arc_end in arcs
+        )
+    )
 
 
 def _interpolate_ro_point(points: list[dict], sample_elevation: float) -> dict:
@@ -256,8 +362,10 @@ def _get_empty_ro_frame() -> gpd.GeoDataFrame:
 def collect_ro_observations(
     receiver: Satellite,
     transmitters: Satellite | list[Satellite],
-    times: list[datetime],
-    sample_elevation: float = 0,
+    start: datetime,
+    end: datetime,
+    time_step: timedelta = timedelta(seconds=10),
+    sample_elevation: float = -80e3,
     max_yaw: float = 65,
     range_elevation: tuple[float] = (-200e3, 60e3),
 ) -> gpd.GeoDataFrame:
@@ -267,40 +375,30 @@ def collect_ro_observations(
     Args:
         receiver (Satellite): the satellite with a RO receiver.
         transmitters (Satellite | list[Satellite]]): the satellite(s) with a RO transmitter.
-        times (typing.List[datetime.datetime]): The list of datetimes to sample.
+        start (datetime.datetime): the start of the analysis period.
+        end (datetime.datetime): the end of the analysis period.
+        time_step (datetime.timedelta): the time step used both to scan for valid
+            observation periods (via `skyfield.searchlib.find_discrete`) and to
+            sample tangent point tracks within each period.
         sample_elevation: (float): the elevation (m) at which to interpolate observation attributes.
         max_yaw (float): the maximum transmitter yaw angle (from receiver body-fixed frame) for a valid obsevation.
         range_elevation: (tuple[float]): the lower and upper bound on tangent point elevation (m) for a valid observation.
     """
-    # receiver position, velocity
-    rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track(times)
-    # unit vector tangent to receiver orbit plane (VNB x-axis)
-    rx_v_u = np.divide(
-        rx_pv.velocity.m_per_s, np.linalg.norm(rx_pv.velocity.m_per_s, axis=0)
-    )
-    # unit vector normal to receiver orbit plane (VNB y-axis)
-    rx_n_u = np.cross(rx_pv.position.m, rx_pv.velocity.m_per_s, 0, 0, -1).T
-    rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
-    # unit vector orthogonal to receiver orbit plane (VNB z-axis)
-    rx_b_u = np.divide(rx_pv.position.m, np.linalg.norm(rx_pv.position.m, axis=0))
     # generate observations
     obs = list(
         chain.from_iterable(
-            [
-                _collect_ro_series(
-                    transmitter,
-                    times,
-                    rx_pv,
-                    rx_v_u,
-                    rx_n_u,
-                    rx_b_u,
-                    max_yaw,
-                    range_elevation,
-                )
-                for transmitter in (
-                    transmitters if isinstance(transmitters, list) else [transmitters]
-                )
-            ]
+            _collect_ro_series(
+                transmitter,
+                receiver,
+                start,
+                end,
+                time_step,
+                max_yaw,
+                range_elevation,
+            )
+            for transmitter in (
+                transmitters if isinstance(transmitters, list) else [transmitters]
+            )
         )
     )
     if len(obs) == 0:
