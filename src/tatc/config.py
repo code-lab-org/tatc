@@ -87,6 +87,6 @@ try:
     rc = load_yaml_config(
         os.path.join(os.path.dirname(__file__), "resources", "defaults.yml")
     )
-except ConfigError as e:
+except ConfigError:
     # fall back to default constructor
     rc = RuntimeConfiguration()
