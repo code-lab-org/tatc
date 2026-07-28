@@ -23,7 +23,7 @@ from skyfield.api import wgs84
 from skyfield.framelib import itrs
 from skyfield.functions import angle_between
 
-from ..constants import EARTH_MEAN_RADIUS, de421, timescale
+from ..constants import EARTH_MEAN_RADIUS, de421
 from ..schemas import PointedInstrument, Satellite
 from ..utils.observation import field_of_regard_to_swath_width
 from ..utils.projection import (
@@ -671,34 +671,40 @@ def collect_ground_pixels(
         orbit_track,
         elevation,
     )
-    # construct results as a list of dictionaries
-    records = [
-        {
-            "time": time,
-            "satellite": satellite.name,
-            "instrument": instrument.name,
-            "valid_obs": instrument.is_valid_observation(
-                orbit_track[i], wgs84.latlon(point.y, point.x, point.z)
-            ),
-            "geometry": point,
-        }
+    # construct results as a list of (time index, record) tuples, keeping the
+    # source orbit_track index alongside each record so satellite/solar altaz
+    # below can index directly into orbit_track rather than re-deriving it
+    indexed_records = [
+        (
+            i,
+            {
+                "time": time,
+                "satellite": satellite.name,
+                "instrument": instrument.name,
+                "valid_obs": instrument.is_valid_observation(
+                    orbit_track[i], wgs84.latlon(point.y, point.x, point.z)
+                ),
+                "geometry": point,
+            },
+        )
         for i, time in enumerate(orbit_track.t.utc_datetime())
         for point in (
             geometries[i].geoms if len(orbit_track.t) > 1 else geometries.geoms
         )
     ]
+    records = [record for _, record in indexed_records]
     # build geodataframe
     gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
     if sat_altaz:
         # append satellite altitude/azimuth columns
         sat_altaz = [
             (
-                orbit_track[list(orbit_track.t.utc_datetime()).index(record["time"])]
+                orbit_track[i]
                 - wgs84.latlon(
                     record["geometry"].y, record["geometry"].x, record["geometry"].z
-                ).at(timescale.from_datetime(record["time"]))
+                ).at(orbit_track.t[i])
             ).altaz()
-            for record in records
+            for i, record in indexed_records
         ]
         gdf["sat_alt"] = [altaz[0].degrees for altaz in sat_altaz]
         gdf["sat_az"] = [altaz[1].degrees for altaz in sat_altaz]
@@ -711,11 +717,11 @@ def collect_ground_pixels(
                     record["geometry"].y, record["geometry"].x, record["geometry"].z
                 )
             )
-            .at(timescale.from_datetime(record["time"]))
+            .at(orbit_track.t[i])
             .observe(de421["sun"])
             .apparent()
             .altaz()
-            for record in records
+            for i, record in indexed_records
         ]
         gdf["solar_alt"] = [altaz[0].degrees for altaz in solar_altaz]
         gdf["solar_az"] = [altaz[1].degrees for altaz in solar_altaz]

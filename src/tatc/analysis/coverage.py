@@ -27,6 +27,7 @@ def _get_visible_interval_series(
     point: Point,
     satellite: Satellite,
     min_elevation_angle: float,
+    init_altitude: float,
     start: datetime,
     end: datetime,
 ) -> pd.Series:
@@ -37,16 +38,13 @@ def _get_visible_interval_series(
         point (Point): Point to observe.
         satellite (Satellite): Satellite doing the observation.
         min_elevation_angle (float): Minimum elevation angle (degrees) for valid observation.
+        init_altitude (float): Initial satellite altitude (meters), used to filter bad data.
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
 
     Returns:
         pandas.Series: Series of observation intervals.
     """
-    # compute the initial satellite altitude
-    init_altitude = wgs84.geographic_position_of(
-        satellite.orbit.to_gp_orbit().get_orbit_track(start)
-    ).elevation.m
     # compute the maximum access time to filter bad data
     max_access_time = timedelta(
         seconds=compute_max_access_time(init_altitude, min_elevation_angle)
@@ -204,18 +202,22 @@ def collect_observations(
             "epoch": period.mid,
         }
         for period in _get_visible_interval_series(
-            point, satellite, min_elevation_angle, start, end
+            point, satellite, min_elevation_angle, init_altitude, start, end
         )
         if (
             instrument.min_access_time <= period.right - period.left
             and instrument.is_valid_observation(
-                satellite.orbit.to_gp_orbit().get_orbit_track(period.mid),
+                (
+                    orbit_track := satellite.orbit.to_gp_orbit().get_orbit_track(
+                        period.mid
+                    )
+                ),
                 wgs84.latlon(point.latitude, point.longitude, point.elevation),
             )
             and (
                 not isinstance(instrument, PointedInstrument)
                 or compute_footprint(
-                    orbit_track=satellite.orbit.to_gp_orbit().get_orbit_track(period.mid),
+                    orbit_track=orbit_track,
                     cross_track_field_of_view=instrument.cross_track_field_of_view,
                     along_track_field_of_view=instrument.along_track_field_of_view,
                     roll_angle=instrument.roll_angle,
