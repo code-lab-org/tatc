@@ -627,16 +627,6 @@ class GeneralPerturbationsOrbit(BaseModel):
         of the per-instant quantities Skyfield caches on a `Time` object (such as
         nutation angles), forcing Skyfield to recompute them from scratch.
 
-        This always propagates directly at `t`, however distant `t` is from this
-        orbit's epoch. See `get_geographic_position_at_time` for a variant that
-        may substitute a detected repeat cycle to improve long-term accuracy --
-        that substitution is only valid for Earth-fixed results, so it is not
-        offered here: a repeat-cycle position/velocity would be labeled with `t`
-        while numerically describing a different instant, corrupting any
-        computation (e.g. relative geometry with another independently
-        propagated object, or Sun-relative geometry) that assumes the returned
-        `Geocentric` genuinely holds this orbit's inertial state at `t`.
-
         Args:
             t (skyfield.timelib.Time): time(s) at which to compute position/velocity.
 
