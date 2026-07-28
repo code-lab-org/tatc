@@ -146,9 +146,8 @@ def _make_ro_validity_function(
     """
 
     def f(t):
-        times = t.utc_datetime()
-        rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track(list(times))
-        tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track(list(times))
+        rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track_at_time(t)
+        tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track_at_time(t)
         rx_v_u, rx_n_u, rx_b_u = _receiver_frame_vectors(rx_pv)
         _, _, tp_sign, _, rx_tx_yaw = _tangent_point_geometry(
             tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u
@@ -207,9 +206,9 @@ def _sample_ro_arc(
     times = [arc_start + i * (arc_end - arc_start) / steps for i in range(steps + 1)]
     t = timescale.from_datetimes(times)
 
-    rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track(times)
+    rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track_at_time(t)
     rx_v_u, rx_n_u, rx_b_u = _receiver_frame_vectors(rx_pv)
-    tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track(times)
+    tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track_at_time(t)
     tp_p, tp_v, _, rx_tx_pitch, rx_tx_yaw = _tangent_point_geometry(
         tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u
     )

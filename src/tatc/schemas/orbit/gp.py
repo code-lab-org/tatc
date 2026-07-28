@@ -613,6 +613,68 @@ class GeneralPerturbationsOrbit(BaseModel):
             return repeat_cycle
         return None
 
+    def get_orbit_track_at_time(
+        self, t: Time, try_repeat: bool | None = None
+    ) -> Geocentric:
+        """
+        Gets the orbit track of this orbit at given Skyfield time(s).
+
+        Prefer this method over `get_orbit_track` when a Skyfield `Time` is
+        already in hand (e.g. while iterating a Skyfield search such as
+        `skyfield.searchlib.find_discrete`). Converting a `Time` to Python
+        `datetime` objects and back (as `get_orbit_track` must, since it only
+        accepts `datetime`) builds a new `Time` instance that starts without any
+        of the per-instant quantities Skyfield caches on a `Time` object (such as
+        nutation angles), forcing Skyfield to recompute them from scratch.
+
+        Args:
+            t (skyfield.timelib.Time): time(s) at which to compute position/velocity.
+            try_repeat (bool | None): True, if a repeat orbit should be used to improve long-term accuracy.
+
+        Returns:
+            skyfield.positionlib.Geocentric: the orbit track position/velocity
+        """
+        # load defaults
+        if try_repeat is None:
+            try_repeat = config.rc.repeat_cycle_for_orbit_track
+
+        if len(self.elements) > 1:
+            # try to use multiple TLEs
+            nearest_indices = self.get_closest_element_index(t.utc_datetime())
+            if t.shape == ():
+                return self.elements[nearest_indices].to_skyfield().at(t)
+            nearest_indices = np.asarray(nearest_indices)
+            position_au = np.empty((3,) + t.shape)
+            velocity_au_per_d = np.empty((3,) + t.shape)
+            for element_index in np.unique(nearest_indices):
+                # propagate each distinct nearest TLE across all its assigned
+                # times in one vectorized call, rather than one time at a time
+                mask = nearest_indices == element_index
+                track = self.elements[element_index].to_skyfield().at(t[mask])
+                position_au[:, mask] = track.position.au
+                velocity_au_per_d[:, mask] = track.velocity.au_per_d
+            return Geocentric(position_au, velocity_au_per_d, t)
+        if try_repeat:
+            # try to compute repeat cycle positions
+            repeat_cycle = self.get_repeat_cycle()
+            if repeat_cycle is not None:
+                epoch = self.get_epoch()
+                offset = t.utc_datetime() - epoch
+                repeat_offset = np.sign(offset / timedelta(1)) * np.mod(
+                    np.abs(offset), repeat_cycle
+                )
+                repeat_times = (
+                    constants.timescale.from_datetime(epoch + repeat_offset)
+                    if t.shape == ()
+                    else constants.timescale.from_datetimes(epoch + repeat_offset)
+                )
+                repeat_track = self.elements[0].to_skyfield().at(repeat_times)
+                return Geocentric(
+                    repeat_track.position.au, repeat_track.velocity.au_per_d, t
+                )
+        # compute satellite positions directly at the given time(s)
+        return self.elements[0].to_skyfield().at(t)
+
     def get_orbit_track(
         self, times: datetime | list[datetime], try_repeat: bool | None = None
     ) -> Geocentric:
@@ -626,59 +688,12 @@ class GeneralPerturbationsOrbit(BaseModel):
         Returns:
             skyfield.positionlib.Geocentric: the orbit track position/velocity
         """
-        # load defaults
-        if try_repeat is None:
-            try_repeat = config.rc.repeat_cycle_for_orbit_track
-
-        if len(self.elements) > 1:
-            # try to use use multiple TLEs
-            if isinstance(times, datetime):
-                nearest_index = self.get_closest_element_index(times)
-                return (
-                    self.elements[nearest_index]
-                    .to_skyfield()
-                    .at(constants.timescale.from_datetime(times))
-                )
-            nearest_indices = self.get_closest_element_index(times)
-            tracks = [
-                self.elements[i].to_skyfield().at(constants.timescale.from_datetime(t))
-                for i, t in zip(nearest_indices, times)
-            ]
-            return Geocentric(
-                np.array([track.position.au for track in tracks]).T,
-                np.array([track.velocity.au_per_d for track in tracks]).T,
-                constants.timescale.from_datetimes(times),
-            )
-        # create skyfield Time
-        if isinstance(times, datetime):
-            ts_times = constants.timescale.from_datetime(times)
-        else:
-            ts_times = constants.timescale.from_datetimes(times)
-        if try_repeat:
-            # try to compute repeat cycle positions
-            repeat_cycle = self.get_repeat_cycle()
-            if repeat_cycle is not None:
-                epoch = self.get_epoch()
-                if isinstance(times, datetime):
-                    offset = times - epoch
-                    repeat_times = constants.timescale.from_datetime(
-                        epoch
-                        + np.sign(offset / timedelta(1))
-                        * np.mod(np.abs(offset), repeat_cycle)
-                    )
-                else:
-                    offset = np.array(times) - epoch
-                    repeat_times = constants.timescale.from_datetimes(
-                        epoch
-                        + np.sign(offset / timedelta(1))
-                        * np.mod(np.abs(offset), repeat_cycle)
-                    )
-                repeat_track = self.elements[0].to_skyfield().at(repeat_times)
-                return Geocentric(
-                    repeat_track.position.au, repeat_track.velocity.au_per_d, ts_times
-                )
-        # compute satellite positions
-        return self.elements[0].to_skyfield().at(ts_times)
+        t = (
+            constants.timescale.from_datetime(times)
+            if isinstance(times, datetime)
+            else constants.timescale.from_datetimes(times)
+        )
+        return self.get_orbit_track_at_time(t, try_repeat)
 
     def get_observation_events(
         self,
