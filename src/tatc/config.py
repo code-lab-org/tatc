@@ -54,8 +54,8 @@ class RuntimeConfiguration(BaseModel):
         True,
         description="True, if a repeat cycle should be used to generate observation events.",
     )
-    orbit_tle_lazy_load: bool = Field(
-        True, description="True, if a previously-computed tle should be used."
+    gp_orbit_lazy_load: bool = Field(
+        True, description="True, if a previously-computed general perturbations orbit should be used."
     )
 
 

@@ -12,4 +12,4 @@ repeat_cycle_for_orbit_track: True
 repeat_cycle_for_observation_events: True
 
 # orbit tle-related settings
-orbit_tle_lazy_load: True
+gp_orbit_lazy_load: True
