@@ -163,6 +163,32 @@ def _make_ro_validity_function(
     return f
 
 
+def _tangent_point_tx_azimuth(
+    transmitter: Satellite,
+    times: list[datetime],
+    t,
+    tpp_pv: Geocentric,
+) -> np.ndarray:
+    """
+    Computes the transmitter azimuth (deg, clockwise from North) as viewed from
+    each point of a tangent point track, vectorized per distinct TLE element used
+    across the track (almost always a single element, given how short RO arcs are).
+    """
+    orbit = transmitter.orbit.to_gp_orbit()
+    element_indices = np.asarray(orbit.get_closest_element_index(times))
+    azimuth = np.empty(len(times))
+    for element_index in np.unique(element_indices):
+        mask = element_indices == element_index
+        sat = orbit.elements[element_index].to_skyfield()
+        tpp_geo = wgs84.geographic_position_of(
+            Geocentric(
+                tpp_pv.position.au[:, mask], tpp_pv.velocity.au_per_d[:, mask], t[mask]
+            )
+        )
+        azimuth[mask] = (sat - tpp_geo).at(t[mask]).altaz()[1].degrees
+    return azimuth
+
+
 def _sample_ro_arc(
     transmitter: Satellite,
     receiver: Satellite,
@@ -179,6 +205,7 @@ def _sample_ro_arc(
     # sample the arc at (at most) the specified time step, including both endpoints
     steps = max(int(np.ceil((arc_end - arc_start) / time_step)), 1)
     times = [arc_start + i * (arc_end - arc_start) / steps for i in range(steps + 1)]
+    t = timescale.from_datetimes(times)
 
     rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track(times)
     rx_v_u, rx_n_u, rx_b_u = _receiver_frame_vectors(rx_pv)
@@ -187,24 +214,25 @@ def _sample_ro_arc(
         tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u
     )
 
+    # tangent point inertial and geodetic positions, computed once for the whole arc
+    tpp_pv = Geocentric(Distance(m=tp_p).au, Velocity(km_per_s=tp_v / 1000).au_per_d, t)
+    tpp_geo = wgs84.geographic_position_of(tpp_pv)
+    longitude = tpp_geo.longitude.degrees
+    latitude = tpp_geo.latitude.degrees
+    elevation = tpp_geo.elevation.m
+    # azimuth of transmitter from geodetic tangent point (clockwise from North)
+    tp_tx_azimuth = _tangent_point_tx_azimuth(transmitter, times, t, tpp_pv)
+    # tangent point height within elevation range
+    in_range = np.logical_and(
+        elevation > range_elevation[0], elevation < range_elevation[1]
+    )
+
     # occultation observations
     occ_obs = []
     # occultation arc
     occ_arc = None
     for j in range(len(times)):
-        # tangent point inertial position
-        tpp_pv = Geocentric(
-            Distance(m=tp_p[:, j]).au,
-            Velocity(km_per_s=tp_v[:, j] / 1000).au_per_d,
-            timescale.from_datetime(times[j]),
-        )
-        # tangent point geodetic position
-        tpp_geo = wgs84.geographic_position_of(tpp_pv)
-        # check if the tangent point height is within elevation range
-        if (
-            tpp_geo.elevation.m > range_elevation[0]
-            and tpp_geo.elevation.m < range_elevation[1]
-        ):
+        if in_range[j]:
             if occ_arc is None:
                 # start of new RO observation
                 occ_arc = {
@@ -212,22 +240,15 @@ def _sample_ro_arc(
                     "is_rising": rx_tx_pitch[j] > -90,
                     "points": [],
                 }
-
-            # azimuth of transmitter from geodetic tangent point (clockwise from North)
-            tp_tx_azmimuth = (
-                (transmitter.orbit.to_gp_orbit().get_closest_element(times[j]).to_skyfield() - tpp_geo)
-                .at(timescale.from_datetime(times[j]))
-                .altaz()[1]
-                .degrees
-            )
-
             occ_arc["points"].append(
                 {
                     "time": times[j],
-                    "tangent_point": tpp_geo,
+                    "longitude": longitude[j],
+                    "latitude": latitude[j],
+                    "elevation": elevation[j],
                     "rx_tx_pitch": rx_tx_pitch[j],
                     "rx_tx_yaw": rx_tx_yaw[j],
-                    "tp_tx_azimuth": tp_tx_azmimuth,
+                    "tp_tx_azimuth": tp_tx_azimuth[j],
                 }
             )
             if j + 1 >= len(times):
@@ -249,13 +270,16 @@ def _collect_ro_series(
     time_step: timedelta,
     max_yaw: float,
     range_elevation: tuple[float],
+    min_profile_duration: timedelta,
 ) -> list[dict]:
     # discrete function of time: 1 if the tangent point intersects and the
     # transmitter yaw angle is below maximum, 0 otherwise
+    # scan at half the shortest profile duration we must not skip, decoupled
+    # from time_step so long mission durations don't blow up the coarse scan
     is_valid = _make_ro_validity_function(
-        transmitter, receiver, max_yaw, time_step / timedelta(days=1)
+        transmitter, receiver, max_yaw, (min_profile_duration / 2) / timedelta(days=1)
     )
-    # find the precise times at which validity changes, scanning at time_step resolution
+    # find the precise times at which validity changes
     transition_times, transition_values = find_discrete(
         timescale.from_datetime(start), timescale.from_datetime(end), is_valid
     )
@@ -294,7 +318,7 @@ def _interpolate_ro_point(points: list[dict], sample_elevation: float) -> dict:
         dict: interpolated longitude (deg), latitude (deg), elevation (m), rx_tx_pitch (deg),
             rx_tx_yaw (deg), tp_tx_azimuth (deg), and time.
     """
-    elevations = np.array([point["tangent_point"].elevation.m for point in points])
+    elevations = np.array([point["elevation"] for point in points])
     diffs = elevations - sample_elevation
     # bracketing indices where the tangent point elevation crosses the sample elevation
     crossings = np.nonzero(np.diff(np.sign(diffs)))[0]
@@ -318,17 +342,9 @@ def _interpolate_ro_point(points: list[dict], sample_elevation: float) -> dict:
         return (a + frac * diff - low) % 360 + low
 
     return {
-        "longitude": lerp_angle(
-            p0["tangent_point"].longitude.degrees,
-            p1["tangent_point"].longitude.degrees,
-        ),
-        "latitude": lerp(
-            p0["tangent_point"].latitude.degrees,
-            p1["tangent_point"].latitude.degrees,
-        ),
-        "elevation": lerp(
-            p0["tangent_point"].elevation.m, p1["tangent_point"].elevation.m
-        ),
+        "longitude": lerp_angle(p0["longitude"], p1["longitude"]),
+        "latitude": lerp(p0["latitude"], p1["latitude"]),
+        "elevation": lerp(p0["elevation"], p1["elevation"]),
         "rx_tx_pitch": lerp_angle(p0["rx_tx_pitch"], p1["rx_tx_pitch"]),
         "rx_tx_yaw": lerp_angle(p0["rx_tx_yaw"], p1["rx_tx_yaw"]),
         "tp_tx_azimuth": lerp_angle(p0["tp_tx_azimuth"], p1["tp_tx_azimuth"], low=0.0),
@@ -368,6 +384,7 @@ def collect_ro_observations(
     sample_elevation: float = -80e3,
     max_yaw: float = 65,
     range_elevation: tuple[float] = (-200e3, 60e3),
+    min_profile_duration: timedelta = timedelta(seconds=30),
 ) -> gpd.GeoDataFrame:
     """
     Collects Radio Occultation (RO) observations.
@@ -377,12 +394,17 @@ def collect_ro_observations(
         transmitters (Satellite | list[Satellite]]): the satellite(s) with a RO transmitter.
         start (datetime.datetime): the start of the analysis period.
         end (datetime.datetime): the end of the analysis period.
-        time_step (datetime.timedelta): the time step used both to scan for valid
-            observation periods (via `skyfield.searchlib.find_discrete`) and to
-            sample tangent point tracks within each period.
+        time_step (datetime.timedelta): the time step used to sample tangent point
+            tracks within each observation period, once its bounds are found.
         sample_elevation: (float): the elevation (m) at which to interpolate observation attributes.
         max_yaw (float): the maximum transmitter yaw angle (from receiver body-fixed frame) for a valid obsevation.
         range_elevation: (tuple[float]): the lower and upper bound on tangent point elevation (m) for a valid observation.
+        min_profile_duration (datetime.timedelta): the shortest RO observation period
+            guaranteed to be detected. Sets the coarse scan resolution used to search
+            for observation periods (via `skyfield.searchlib.find_discrete`),
+            independent of `time_step` and of the overall analysis duration. Set this
+            no larger than the shortest profile you expect; a smaller value costs more
+            computation but guards against silently skipping brief observation periods.
     """
     # generate observations
     obs = list(
@@ -395,6 +417,7 @@ def collect_ro_observations(
                 time_step,
                 max_yaw,
                 range_elevation,
+                min_profile_duration,
             )
             for transmitter in (
                 transmitters if isinstance(transmitters, list) else [transmitters]
@@ -412,11 +435,7 @@ def collect_ro_observations(
                 "is_rising": o["is_rising"],
                 "geometry": MultiPoint(
                     [
-                        [
-                            point["tangent_point"].longitude.degrees,
-                            point["tangent_point"].latitude.degrees,
-                            point["tangent_point"].elevation.m,
-                        ]
+                        [point["longitude"], point["latitude"], point["elevation"]]
                         for point in o["points"]
                     ]
                 ),
