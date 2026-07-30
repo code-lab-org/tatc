@@ -4,7 +4,6 @@ Unit tests for latency analysis functions.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import unittest
 from datetime import datetime, timezone
 
 from tatc.analysis import (
@@ -13,22 +12,18 @@ from tatc.analysis import (
     compute_latencies,
     reduce_latencies,
 )
-from tatc.schemas import (
-    GeneralPerturbationsOrbit,
-    GroundStation,
-    Instrument,
-    Point,
-    Satellite,
-    WalkerConstellation,
-)
+from tatc.schemas import GroundStation, Point
+
+from .common import IssConstellationTestCase
 
 
-class TestLatencyAnalysis(unittest.TestCase):
+class TestLatencyAnalysis(IssConstellationTestCase):
     """
     Unit tests for latency analysis functions.
     """
 
     def setUp(self):
+        super().setUp()
         self.point = Point(id=0, latitude=0, longitude=0, min_elevation_angle=10)
         self.station = GroundStation(
             name="Station 1", latitude=0, longitude=180, min_elevation_angle=10
@@ -45,23 +40,6 @@ class TestLatencyAnalysis(unittest.TestCase):
                 name="Station 4", latitude=50, longitude=-90, min_elevation_angle=10
             ),
         ]
-        self.instrument = Instrument(name="Test", field_of_regard=180.0)
-        self.orbit = GeneralPerturbationsOrbit.from_tle(
-            [
-                "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
-                "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
-            ]
-        )
-        self.satellite = Satellite(
-            name="Test", orbit=self.orbit, instruments=[self.instrument]
-        )
-        self.constellation = WalkerConstellation(
-            name="Test",
-            orbit=self.orbit,
-            instruments=[self.instrument],
-            number_satellites=4,
-            number_planes=2,
-        )
 
     def test_collect_downlinks(self):
         """

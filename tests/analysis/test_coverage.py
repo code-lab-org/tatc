@@ -3,7 +3,6 @@ Unit tests for the coverage analysis functions in tatc.analysis.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
-import unittest
 from datetime import datetime, timedelta, timezone
 
 from tatc.analysis import (
@@ -12,38 +11,18 @@ from tatc.analysis import (
     collect_observations,
     reduce_observations,
 )
-from tatc.schemas import (
-    GeneralPerturbationsOrbit,
-    Instrument,
-    Point,
-    Satellite,
-    WalkerConstellation,
-)
+from tatc.schemas import Point
+
+from .common import IssConstellationTestCase
 
 
-class TestCoverageAnalysis(unittest.TestCase):
+class TestCoverageAnalysis(IssConstellationTestCase):
     """
     Unit tests for the coverage analysis functions in tatc.analysis.
     """
     def setUp(self):
+        super().setUp()
         self.point = Point(id=0, latitude=0, longitude=0)
-        self.instrument = Instrument(name="Test", field_of_regard=180.0)
-        self.orbit = GeneralPerturbationsOrbit.from_tle(
-            [
-                "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
-                "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
-            ]
-        )
-        self.satellite = Satellite(
-            name="Test", orbit=self.orbit, instruments=[self.instrument]
-        )
-        self.constellation = WalkerConstellation(
-            name="Test",
-            orbit=self.orbit,
-            instruments=[self.instrument],
-            number_satellites=4,
-            number_planes=2,
-        )
 
     def test_collect_observations(self):
         """
