@@ -71,8 +71,14 @@ def _wrap_polygon_over_north_pole(
     Wraps polygon coordinates over the North pole. Due to buffering and projection,
     sometimes latitudes exceed 90 degrees. This method wraps them to the correct
     latitude between -90 and 90 degrees and adjusts the longitude by 180 degrees.
+    Only coordinates exceeding 90 degrees latitude are shifted; coordinates at or
+    below 90 degrees are left unchanged.
+
     This method requires a polygon above 90 degrees latitude to be only on one
-    side of the prime meridian.
+    side of the prime meridian: if the coordinates being shifted span both
+    sides, the per-coordinate shift can produce a self-intersecting (invalid)
+    ring. In that case this method gives up and returns the original,
+    unwrapped polygon.
 
     Note: this method only changes coordinates: it does not create a MultiPolygon.
 
@@ -80,7 +86,8 @@ def _wrap_polygon_over_north_pole(
        polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to wrap.
 
     Returns:
-       shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon.
+       shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon, or the
+       original polygon if wrapping would produce an invalid geometry.
     """
     if isinstance(polygon, Polygon):
         if all(c[1] <= 90 for c in polygon.exterior.coords):
@@ -128,7 +135,15 @@ def _split_polygon_north_pole(
     polygon: Polygon | MultiPolygon,
 ) -> Polygon | MultiPolygon:
     """
-    Splits a Polygon into a MultiPolygon if it crosses north pole.
+    Splits a polygon that encompasses the north pole (exceeds 90 degrees
+    latitude) into a valid MultiPolygon on the standard (-180, -90, 180, 90)
+    plane. The polygon is first split along the north pole (90 degrees
+    latitude); any resulting piece that also straddles the prime meridian
+    (0 degrees longitude) while above the pole is split again there, since
+    such a piece cannot be wrapped to one side in a single step. Each piece
+    exceeding 90 degrees latitude is then wrapped to its correct
+    latitude/longitude. A polygon that does not exceed 90 degrees latitude
+    is returned unchanged.
 
     Args:
        polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to split.
@@ -182,8 +197,14 @@ def _wrap_polygon_over_south_pole(
     Wraps polygon coordinates over the South pole. Due to buffering and projection,
     sometimes latitudes exceed -90 degrees. This method wraps them to the correct
     latitude between -90 and 90 degrees and adjusts the longitude by 180 degrees.
-    This method requires a polygon above 90 degrees latitude to be only on one
-    side of the prime meridian.
+    Only coordinates below -90 degrees latitude are shifted; coordinates at or
+    above -90 degrees are left unchanged.
+
+    This method requires a polygon below -90 degrees latitude to be only on one
+    side of the prime meridian: if the coordinates being shifted span both
+    sides, the per-coordinate shift can produce a self-intersecting (invalid)
+    ring. In that case this method gives up and returns the original,
+    unwrapped polygon.
 
     Note: this method only changes coordinates: it does not create a MultiPolygon.
 
@@ -191,7 +212,8 @@ def _wrap_polygon_over_south_pole(
        polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to wrap.
 
     Returns:
-       shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon.
+       shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon, or the
+       original polygon if wrapping would produce an invalid geometry.
     """
     if isinstance(polygon, Polygon):
         if all(c[1] >= -90 for c in polygon.exterior.coords):
@@ -239,7 +261,15 @@ def _split_polygon_south_pole(
     polygon: Polygon | MultiPolygon,
 ) -> Polygon | MultiPolygon:
     """
-    Splits a Polygon into a MultiPolygon if it crosses south pole.
+    Splits a polygon that encompasses the south pole (exceeds -90 degrees
+    latitude) into a valid MultiPolygon on the standard (-180, -90, 180, 90)
+    plane. The polygon is first split along the south pole (-90 degrees
+    latitude); any resulting piece that also straddles the prime meridian
+    (0 degrees longitude) while below the pole is split again there, since
+    such a piece cannot be wrapped to one side in a single step. Each piece
+    exceeding -90 degrees latitude is then wrapped to its correct
+    latitude/longitude. A polygon that does not exceed -90 degrees latitude
+    is returned unchanged.
 
     Args:
        polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to split.
@@ -292,7 +322,14 @@ def _wrap_polygon_over_antimeridian(
     """
     Wraps polygon coordinates over the antimeridian. Due to buffering and projection,
     sometimes longitudes exceed 180 degrees. This method wraps them to
-    the correct longitude between -180 and 180 degrees.
+    the correct longitude between -180 and 180 degrees by adding or
+    subtracting 360 degrees to every coordinate.
+
+    This method requires all coordinates to be at or beyond the same side
+    of the antimeridian (all at or below -180 degrees, or all at or above
+    180 degrees). If coordinates span both extremes, no single shift
+    applies to all of them, and the original, unwrapped polygon is
+    returned unchanged.
 
     Note: this method only changes coordinates: it does not create a MultiPolygon.
 
@@ -300,7 +337,8 @@ def _wrap_polygon_over_antimeridian(
        polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to wrap.
 
     Returns:
-       shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon.
+       shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon, or the
+       original polygon if no single shift applies to all of its coordinates.
     """
     if isinstance(polygon, Polygon):
         if all(c[0] >= -180 and c[0] <= 180 for c in polygon.exterior.coords):
@@ -342,11 +380,13 @@ def _convert_collection_to_polygon(
     """
     Converts a GeometryCollection to a Polygon or MultiPolygon. Quick clipping
     can create dirty results with points or lines on boundaries. This method
-    drops and lines or points from a GeometryCollection to return only the
-    Polygon or MultiPolygon geometry.
+    drops any points or lines from a GeometryCollection, flattens any
+    MultiPolygon members into their constituent polygons, and returns a
+    single Polygon if only one remains, or a MultiPolygon otherwise
+    (empty if no polygons remain).
 
     Args:
-       polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to convert.
+       collection (shapely.geometry.GeometryCollection): The geometry collection to convert.
 
     Returns:
        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The converted polygon.
@@ -363,8 +403,25 @@ def _split_polygon_antimeridian(
     polygon: Polygon | MultiPolygon,
 ) -> Polygon | MultiPolygon:
     """
-    Splits a Polygon into a MultiPolygon if it crosses the anti-meridian after
-    wrapping its coordinates using `wrap_coordinates_antimeridian`. Note: this
+    Splits a polygon that crosses the antimeridian (180 degrees longitude)
+    into a valid MultiPolygon on the standard (-180, 180) longitude range.
+    A crossing is detected when adjacent exterior vertices jump by 180
+    degrees of longitude or more.
+
+    Two cases are handled differently:
+
+    - If the polygon's vertex longitudes wrap all the way around the globe
+      (e.g. a polar cap that does not itself exceed +/-90 degrees
+      latitude), it is reconstructed with a flattened edge at the pole and
+      split along the prime meridian instead of the antimeridian. Note:
+      the raw result of this case may be reported as invalid (the two
+      pieces touch along the shared prime-meridian cut edge); the public
+      `split_polygon` function repairs this via `shapely.make_valid`.
+    - Otherwise, coordinates are "unrolled" past +/-180 degrees according to
+      the cumulative crossing direction, split along the antimeridian, and
+      wrapped back with `_wrap_polygon_over_antimeridian`.
+
+    A polygon with no detected crossing is returned unchanged. Note: this
     function only supports polygons that span LESS than 360 degrees longitude.
 
     Args:
