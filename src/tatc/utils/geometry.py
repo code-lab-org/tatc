@@ -41,10 +41,12 @@ def project_polygon_to_elevation(
 
     Args:
         polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to project.
-        elevation (float): The elevation (meters) above the WGS 84 geoid to assign to every coordinate.
+        elevation (float): The elevation (meters) above the WGS 84 geoid to
+            assign to every coordinate.
 
     Returns:
-        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The projected polygon, matching the input type.
+        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The projected
+        polygon, matching the input type.
     """
     if isinstance(polygon, Polygon):
         return Polygon(
@@ -56,256 +58,123 @@ def project_polygon_to_elevation(
     )
 
 
-@overload
-def _wrap_polygon_over_north_pole(polygon: Polygon) -> Polygon: ...
+def _flatten_polygons(pgons: list[Polygon | MultiPolygon]) -> list[Polygon]:
+    """
+    Flattens a list of Polygon/MultiPolygon geometries into a flat list of
+    Polygon, unpacking any MultiPolygon into its constituent polygons.
+
+    Args:
+       pgons (list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]):
+           The geometries to flatten.
+
+    Returns:
+       list[shapely.geometry.Polygon]: The flattened list of polygons.
+    """
+    return [g for p in pgons for g in (p.geoms if isinstance(p, MultiPolygon) else [p])]
 
 
-@overload
-def _wrap_polygon_over_north_pole(polygon: MultiPolygon) -> MultiPolygon: ...
-
-
-def _wrap_polygon_over_north_pole(
-    polygon: Polygon | MultiPolygon,
+def _wrap_polygon_over_pole(
+    polygon: Polygon | MultiPolygon, pole: int
 ) -> Polygon | MultiPolygon:
     """
-    Wraps polygon coordinates over the North pole. Due to buffering and projection,
-    sometimes latitudes exceed 90 degrees. This method wraps them to the correct
-    latitude between -90 and 90 degrees and adjusts the longitude by 180 degrees.
-    Only coordinates exceeding 90 degrees latitude are shifted; coordinates at or
-    below 90 degrees are left unchanged.
+    Wraps polygon coordinates over a pole (`pole` = 1 for the North pole,
+    -1 for the South pole). Due to buffering and projection, sometimes
+    latitudes exceed the pole (i.e. exceed 90 * pole degrees). This method
+    wraps them to the correct latitude between -90 and 90 degrees and
+    adjusts the longitude by 180 degrees. Only coordinates exceeding the
+    pole are shifted; other coordinates are left unchanged.
 
-    This method requires a polygon above 90 degrees latitude to be only on one
-    side of the prime meridian: if the coordinates being shifted span both
-    sides, the per-coordinate shift can produce a self-intersecting (invalid)
-    ring. In that case this method gives up and returns the original,
-    unwrapped polygon.
+    This method requires a polygon exceeding the pole to be confined to one
+    side of the prime meridian: this is guaranteed by `_split_polygon_over_pole`,
+    which is the only caller, since it splits off any piece straddling the
+    prime meridian before wrapping. A polygon violating this precondition
+    would produce a self-intersecting (invalid) ring.
 
     Note: this method only changes coordinates: it does not create a MultiPolygon.
 
     Args:
        polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to wrap.
+       pole (int): 1 for the North pole, -1 for the South pole.
 
     Returns:
-       shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon, or the
-       original polygon if wrapping would produce an invalid geometry.
+       shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon.
     """
     if isinstance(polygon, Polygon):
-        if all(c[1] <= 90 for c in polygon.exterior.coords):
+        if all(c[1] * pole <= 90 for c in polygon.exterior.coords):
             # no wrapping necessary
             return polygon
-        # map latitudes from [90, 180) to [90, -90), adjusting longitude by 180 degrees
+        # map latitudes beyond the pole back between -90 and 90, adjusting longitude by 180 degrees
         lat_shift = 180 if all(c[0] <= 0 for c in polygon.exterior.coords) else -180
-        pgon = Polygon(
+        return Polygon(
             [
                 [
-                    c[0] + lat_shift if c[1] >= 90 else c[0],
-                    180 - c[1] if c[1] >= 90 else c[1],
+                    c[0] + lat_shift if c[1] * pole >= 90 else c[0],
+                    pole * 180 - c[1] if c[1] * pole >= 90 else c[1],
                 ]
                 for c in polygon.exterior.coords
             ],
             [
                 [
                     [
-                        c[0] + lat_shift if c[1] >= 90 else c[0],
-                        180 - c[1] if c[1] >= 90 else c[1],
+                        c[0] + lat_shift if c[1] * pole >= 90 else c[0],
+                        pole * 180 - c[1] if c[1] * pole >= 90 else c[1],
                     ]
                     for c in i.coords
                 ]
                 for i in polygon.interiors
             ],
         )
-        # give up and return original polygon if invalid
-        if not pgon.is_valid:
-            return polygon
-        return pgon
-    if isinstance(polygon, MultiPolygon):
-        # recursive call for each polygon
-        polygons = [_wrap_polygon_over_north_pole(p) for p in polygon.geoms]
-        return MultiPolygon(
-            [
-                g
-                for p in polygons
-                for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
-            ]
-        )
-    raise ValueError("Unknown geometry: " + str(type(polygon)))
+    # recursive call for each polygon
+    return MultiPolygon(
+        _flatten_polygons([_wrap_polygon_over_pole(p, pole) for p in polygon.geoms])
+    )
 
 
-def _split_polygon_north_pole(
-    polygon: Polygon | MultiPolygon,
+def _split_polygon_over_pole(
+    polygon: Polygon | MultiPolygon, pole: int
 ) -> Polygon | MultiPolygon:
     """
-    Splits a polygon that encompasses the north pole (exceeds 90 degrees
-    latitude) into a valid MultiPolygon on the standard (-180, -90, 180, 90)
-    plane. The polygon is first split along the north pole (90 degrees
-    latitude); any resulting piece that also straddles the prime meridian
-    (0 degrees longitude) while above the pole is split again there, since
-    such a piece cannot be wrapped to one side in a single step. Each piece
-    exceeding 90 degrees latitude is then wrapped to its correct
-    latitude/longitude. A polygon that does not exceed 90 degrees latitude
-    is returned unchanged.
+    Splits a polygon that encompasses a pole (`pole` = 1 for the North
+    pole, -1 for the South pole; i.e. exceeds 90 * pole degrees latitude)
+    into a valid MultiPolygon on the standard (-180, -90, 180, 90) plane.
+    The polygon is first split along the pole latitude; any resulting
+    piece that also straddles the prime meridian (0 degrees longitude)
+    while beyond the pole is split again there, since such a piece cannot
+    be wrapped to one side in a single step. Each piece exceeding the pole
+    latitude is then wrapped to its correct latitude/longitude. A polygon
+    that does not exceed the pole latitude is returned unchanged.
 
     Args:
        polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to split.
+       pole (int): 1 for the North pole, -1 for the South pole.
 
     Returns:
        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The split polygon.
     """
     if isinstance(polygon, Polygon):
-        if all(c[1] <= 90 for c in polygon.exterior.coords):
+        if all(c[1] * pole <= 90 for c in polygon.exterior.coords):
             # no splitting necessary
             return polygon
-        # split polygon along north pole
-        parts = split(polygon, LineString([(-360, 90), (360, 90)]))
+        # split polygon along the pole
+        pole_line = LineString([(-360, 90 * pole), (360, 90 * pole)])
+        parts = split(polygon, pole_line)
         # check and split part over prime meridian if necessary
+        meridian_line = LineString([(0, 90 * pole), (0, 180 * pole)])
         for part in parts.geoms:
-            if part.crosses(LineString([(0, 90), (0, 180)])):
+            if part.crosses(meridian_line):
                 parts = GeometryCollection(
                     [g for g in parts.geoms if g != part]
-                    + [g for g in split(part, LineString([(0, 90), (0, 180)])).geoms]
+                    + list(split(part, meridian_line).geoms)
                 )
         # convert to a multi polygon
         if isinstance(parts, GeometryCollection):
             parts = _convert_collection_to_polygon(parts)
-        # return polygon with components wrapped over north pole
-        return _wrap_polygon_over_north_pole(parts)
-    if isinstance(polygon, MultiPolygon):
-        # recursive call for each polygon
-        pgons = [_split_polygon_north_pole(p) for p in polygon.geoms]
-        return MultiPolygon(
-            [
-                g
-                for p in pgons
-                for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
-            ]
-        )
-    raise ValueError("Unknown geometry: " + str(type(polygon)))
-
-
-@overload
-def _wrap_polygon_over_south_pole(polygon: Polygon) -> Polygon: ...
-
-
-@overload
-def _wrap_polygon_over_south_pole(polygon: MultiPolygon) -> MultiPolygon: ...
-
-
-def _wrap_polygon_over_south_pole(
-    polygon: Polygon | MultiPolygon,
-) -> Polygon | MultiPolygon:
-    """
-    Wraps polygon coordinates over the South pole. Due to buffering and projection,
-    sometimes latitudes exceed -90 degrees. This method wraps them to the correct
-    latitude between -90 and 90 degrees and adjusts the longitude by 180 degrees.
-    Only coordinates below -90 degrees latitude are shifted; coordinates at or
-    above -90 degrees are left unchanged.
-
-    This method requires a polygon below -90 degrees latitude to be only on one
-    side of the prime meridian: if the coordinates being shifted span both
-    sides, the per-coordinate shift can produce a self-intersecting (invalid)
-    ring. In that case this method gives up and returns the original,
-    unwrapped polygon.
-
-    Note: this method only changes coordinates: it does not create a MultiPolygon.
-
-    Args:
-       polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to wrap.
-
-    Returns:
-       shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon, or the
-       original polygon if wrapping would produce an invalid geometry.
-    """
-    if isinstance(polygon, Polygon):
-        if all(c[1] >= -90 for c in polygon.exterior.coords):
-            # no splitting necessary
-            return polygon
-        # map latitudes from [-90, -180) to [-90, 90), adjusting longitude by 180 degrees
-        lat_shift = 180 if all(c[0] <= 0 for c in polygon.exterior.coords) else -180
-        pgon = Polygon(
-            [
-                [
-                    c[0] + lat_shift if c[1] <= -90 else c[0],
-                    -180 - c[1] if c[1] <= -90 else c[1],
-                ]
-                for c in polygon.exterior.coords
-            ],
-            [
-                [
-                    [
-                        c[0] + lat_shift if c[1] <= -90 else c[0],
-                        -180 - c[1] if c[1] <= -90 else c[1],
-                    ]
-                    for c in i.coords
-                ]
-                for i in polygon.interiors
-            ],
-        )
-        # give up and return original polygon if invalid
-        if not pgon.is_valid:
-            return polygon
-        return pgon
-    if isinstance(polygon, MultiPolygon):
-        # recursive call for each polygon
-        polygons = [_wrap_polygon_over_south_pole(p) for p in polygon.geoms]
-        return MultiPolygon(
-            [
-                g
-                for p in polygons
-                for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
-            ]
-        )
-    raise ValueError("Unknown geometry: " + str(type(polygon)))
-
-
-def _split_polygon_south_pole(
-    polygon: Polygon | MultiPolygon,
-) -> Polygon | MultiPolygon:
-    """
-    Splits a polygon that encompasses the south pole (exceeds -90 degrees
-    latitude) into a valid MultiPolygon on the standard (-180, -90, 180, 90)
-    plane. The polygon is first split along the south pole (-90 degrees
-    latitude); any resulting piece that also straddles the prime meridian
-    (0 degrees longitude) while below the pole is split again there, since
-    such a piece cannot be wrapped to one side in a single step. Each piece
-    exceeding -90 degrees latitude is then wrapped to its correct
-    latitude/longitude. A polygon that does not exceed -90 degrees latitude
-    is returned unchanged.
-
-    Args:
-       polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to split.
-
-    Returns:
-       shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The split polygon.
-    """
-    if isinstance(polygon, Polygon):
-        lat = np.array([c[1] for c in polygon.exterior.coords])
-        if np.all(lat >= -90):
-            return polygon
-        # split polygon along south pole
-        parts = split(polygon, LineString([(-360, -90), (360, -90)]))
-        # check and split part over prime meridian if necessary
-        for part in parts.geoms:
-            if part.crosses(LineString([(0, -90), (0, -180)])):
-                parts = GeometryCollection(
-                    [g for g in parts.geoms if g != part]
-                    + [g for g in split(part, LineString([(0, -90), (0, -180)])).geoms]
-                )
-        # convert to a multi polygon
-        if isinstance(parts, GeometryCollection):
-            parts = _convert_collection_to_polygon(parts)
-        # return polygon with components wrapped over south pole
-        return _wrap_polygon_over_south_pole(parts)
-    if isinstance(polygon, MultiPolygon):
-        # recursive call for each polygon
-        pgons = [_split_polygon_south_pole(p) for p in polygon.geoms]
-        return MultiPolygon(
-            [
-                g
-                for p in pgons
-                for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
-            ]
-        )
-    raise ValueError("Unknown geometry: " + str(type(polygon)))
+        # return polygon with components wrapped over the pole
+        return _wrap_polygon_over_pole(parts, pole)
+    # recursive call for each polygon
+    return MultiPolygon(
+        _flatten_polygons([_split_polygon_over_pole(p, pole) for p in polygon.geoms])
+    )
 
 
 @overload
@@ -327,9 +196,9 @@ def _wrap_polygon_over_antimeridian(
 
     This method requires all coordinates to be at or beyond the same side
     of the antimeridian (all at or below -180 degrees, or all at or above
-    180 degrees). If coordinates span both extremes, no single shift
-    applies to all of them, and the original, unwrapped polygon is
-    returned unchanged.
+    180 degrees): this is guaranteed by `_split_polygon_antimeridian`, which
+    is the only caller, since it splits along a single meridian line before
+    wrapping, confining each resulting piece to one side.
 
     Note: this method only changes coordinates: it does not create a MultiPolygon.
 
@@ -337,41 +206,27 @@ def _wrap_polygon_over_antimeridian(
        polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to wrap.
 
     Returns:
-       shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon, or the
-       original polygon if no single shift applies to all of its coordinates.
+       shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon.
     """
     if isinstance(polygon, Polygon):
         if all(c[0] >= -180 and c[0] <= 180 for c in polygon.exterior.coords):
             # no wrapping necessary
             return polygon
-        pgon = None
         if all(c[0] <= -180 for c in polygon.exterior.coords):
             # map longitudes from (-540, -180] to (-180, 180]
-            pgon = Polygon(
+            return Polygon(
                 [[c[0] + 360, c[1]] for c in polygon.exterior.coords],
                 [[[c[0] + 360, c[1]] for c in i.coords] for i in polygon.interiors],
             )
-        elif all(c[0] >= 180 for c in polygon.exterior.coords):
-            # map longitudes from [180, 540) to [-180, 180)
-            pgon = Polygon(
-                [[c[0] - 360, c[1]] for c in polygon.exterior.coords],
-                [[[c[0] - 360, c[1]] for c in i.coords] for i in polygon.interiors],
-            )
-        # give up and return original polygon if invalid
-        if pgon is None or not pgon.is_valid:
-            return polygon
-        return pgon
-    if isinstance(polygon, MultiPolygon):
-        # recursive call for each polygon
-        pgons = [_wrap_polygon_over_antimeridian(p) for p in polygon.geoms]
-        return MultiPolygon(
-            [
-                g
-                for p in pgons
-                for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
-            ]
+        # map longitudes from [180, 540) to [-180, 180)
+        return Polygon(
+            [[c[0] - 360, c[1]] for c in polygon.exterior.coords],
+            [[[c[0] - 360, c[1]] for c in i.coords] for i in polygon.interiors],
         )
-    raise ValueError("Unknown geometry: " + str(type(polygon)))
+    # recursive call for each polygon
+    return MultiPolygon(
+        _flatten_polygons([_wrap_polygon_over_antimeridian(p) for p in polygon.geoms])
+    )
 
 
 def _convert_collection_to_polygon(
@@ -440,8 +295,8 @@ def _split_polygon_antimeridian(
         if Polygon(zip(np.cos(np.radians(lon)), np.sin(np.radians(lon)))).contains(
             Point(0, 0)
         ):
-            # extract and sort coords by longitude
-            coords = polygon.exterior.coords[0:-1]
+            # extract (lon, lat) only, discarding any z-dimension, and sort by longitude
+            coords = [(c[0], c[1]) for c in polygon.exterior.coords[0:-1]]
             coords.sort(key=lambda r: r[0])
             # determine if contains north or south pole based on sign of mean latitude
             n_s = 1 if np.array(coords)[:, 1].mean() > 0 else -1
@@ -450,12 +305,14 @@ def _split_polygon_antimeridian(
                 180, [coords[-1][0], coords[0][0] + 180], [coords[-1][1], coords[0][1]]
             )
             # reconstruct polygon (ccw) with added coords on antimeridian
-            # TODO potential problem if provided polygon has z-dimension
             pgon = Polygon(
                 [(-180, 90 * n_s), (-180, lat)]
                 + coords
                 + [(180, lat), (180, 90 * n_s), (-180, 90 * n_s)],
-                [interior.coords for interior in polygon.interiors],
+                [
+                    [(c[0], c[1]) for c in interior.coords]
+                    for interior in polygon.interiors
+                ],
             )
             # return polygon split down prime meridian to improve handling
             parts = split(pgon, LineString([(0, -180), (0, 180)]))
@@ -494,13 +351,10 @@ def _split_polygon_antimeridian(
         return _wrap_polygon_over_antimeridian(parts)
     if isinstance(polygon, MultiPolygon):
         # recursive call for each polygon
-        pgons = [_split_polygon_antimeridian(p) for p in polygon.geoms]
         return MultiPolygon(
-            [
-                g
-                for p in pgons
-                for g in (p.geoms if isinstance(p, MultiPolygon) else [p])
-            ]
+            _flatten_polygons(
+                [_split_polygon_antimeridian(p) for p in polygon.geoms]
+            )
         )
     raise ValueError("Unknown geometry: " + str(type(polygon)))
 
@@ -513,6 +367,9 @@ def split_polygon(
     (180 degrees longitude), exceeds the north pole (90 degrees latitude), or
     exceeds the south pole (-90 degrees latitude). Note: this function
     only supports polygons that span LESS than 360 degrees longitude.
+    Operates on (longitude, latitude) only: any z-dimension on the input
+    is discarded. Use `project_polygon_to_elevation` to add elevation back
+    after splitting.
 
     Args:
         polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to split.
@@ -520,8 +377,9 @@ def split_polygon(
     Returns:
         shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The split polygon.
     """
-    polygon = _split_polygon_north_pole(
-        _split_polygon_south_pole(_split_polygon_antimeridian(polygon))
+    polygon = _split_polygon_over_pole(
+        _split_polygon_over_pole(_split_polygon_antimeridian(polygon), pole=-1),
+        pole=1,
     )
     # invalid polygons can arise from narrow sensor geometries in polar regions
     if not polygon.is_valid:
@@ -539,7 +397,8 @@ def normalize_geometry(
     Normalize geometry to a GeoDataFrame with antimeridian wrapping.
 
     Args:
-        geometry (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame): The geometry to normalize.
+        geometry (shapely.geometry.Polygon | shapely.geometry.MultiPolygon |
+            geopandas.GeoDataFrame): The geometry to normalize.
 
     Returns:
         geopandas.GeoDataFrame: The normalized geometry.
