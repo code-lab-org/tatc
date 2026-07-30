@@ -18,15 +18,21 @@ def swath_width_to_field_of_regard(
     altitude: float, swath_width: float, elevation: float = 0
 ) -> float:
     """
-    Fast conversion from swath width to field of regard.
+    Fast computation of the field of regard (the total angular width an
+    instrument must be able to point or scan across) required to observe a
+    specified ground swath width, assuming a spherical Earth (using the
+    mean Earth radius) and a circular orbit at constant altitude.
 
     Args:
-        altitude (float): Altitude (meters) above WGS 84 datum for the observing instrument.
-        swath_width (float): Observation diameter (meters) at specified elevation.
-        elevation (float): Elevation (meters) above WGS 84 datum to observe.
+        altitude (float): Altitude (meters) above the mean Earth radius for the
+            observing instrument.
+        swath_width (float): Ground swath width (meters): the cross-track distance,
+            measured along the Earth's surface, at the specified elevation.
+        elevation (float): Elevation (meters) above the mean Earth radius of the observed swath.
 
     Returns:
-        float: The field of regard (degrees).
+        float: The field of regard (degrees): the full angular width, centered on
+        nadir, that the instrument must be able to point across to observe the swath.
     """
     # rho is the angular radius of the earth viewed by the satellite
     sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
@@ -44,23 +50,34 @@ def swath_width_to_field_of_view(
     altitude: float, swath_width: float, look_angle: float = 0, elevation: float = 0
 ) -> float:
     """
-    Fast conversion from swath width to field of view considering off-nadir pointing.
+    Fast computation of the field of view (the angular extent, as seen
+    from the satellite, spanning the near to far edge of a swath) required
+    to observe a specified ground swath width centered on a given off-nadir
+    look angle, assuming a spherical Earth (using the mean Earth radius)
+    and a circular orbit at constant altitude. Unlike
+    `swath_width_to_field_of_regard`, the swath is not centered on nadir,
+    so the field of view spans asymmetrically between the near and far
+    edges of the swath.
 
     Args:
-        altitude (float): Altitude (meters) above WGS 84 datum for the observing instrument.
-        swath_width (float): Observation diameter (meters) at specified elevation.
-        look_angle (float): Off-nadir look angle (degrees) to observation center.
-        elevation (float): Elevation (meters) above WGS 84 datum to observe.
+        altitude (float): Altitude (meters) above the mean Earth radius for the
+            observing instrument.
+        swath_width (float): Ground swath width (meters): the cross-track distance,
+            measured along the Earth's surface, centered on the look angle direction.
+        look_angle (float): Off-nadir look angle (degrees), measured at the satellite,
+            to the center of the swath. Saturates at the horizon-limited maximum.
+        elevation (float): Elevation (meters) above the mean Earth radius of the observed swath.
 
     Returns:
-        float: The field of view (degrees).
+        float: The field of view (degrees): the angular extent, as seen from the
+        satellite, spanning the near to far edge of the swath.
     """
     # rho is the angular radius of the earth viewed by the satellite
     sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
         constants.EARTH_MEAN_RADIUS + altitude
     )
     # eta is the angular radius from sub-satellite point to center of view
-    sin_eta = min(sin_rho, np.sin(np.radians(look_angle) / 2))
+    sin_eta = min(sin_rho, np.sin(np.radians(look_angle)))
     # epsilon is the satellite elevation from the center of view
     cos_epsilon = sin_eta / sin_rho
     # lambda is the Earth central angle to the center of view
