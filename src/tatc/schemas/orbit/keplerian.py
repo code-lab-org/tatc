@@ -42,7 +42,9 @@ class KeplerianOrbit(OrbitBase):
         Returns:
             float: the mean anomaly
         """
-        return utils.orbital.true_anomaly_to_mean_anomaly(self.true_anomaly, self.eccentricity)
+        return utils.orbital.true_anomaly_to_mean_anomaly(
+            self.true_anomaly, self.eccentricity
+        )
 
     def get_mean_motion(self) -> float:
         """
@@ -60,7 +62,9 @@ class KeplerianOrbit(OrbitBase):
         Returns:
             timedelta: the orbit period
         """
-        return timedelta(seconds=utils.orbital.semimajor_axis_to_orbit_period(self.semimajor_axis))
+        return timedelta(
+            seconds=utils.orbital.semimajor_axis_to_orbit_period(self.semimajor_axis)
+        )
 
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float
@@ -121,5 +125,5 @@ class KeplerianOrbit(OrbitBase):
                     )
                 ]
             )
-            self.__dict__["gp_orbit"] = gp_orbit # type: ignore
+            self.__dict__["gp_orbit"] = gp_orbit  # type: ignore
         return gp_orbit

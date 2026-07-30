@@ -3,6 +3,7 @@ Methods to generate coverage statistics.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -11,7 +12,9 @@ from enum import Enum
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import pyproj
+from pyproj import CRS, Transformer
+from pyproj.aoi import AreaOfInterest
+from pyproj.database import query_utm_crs_info
 from shapely.geometry import (
     LineString,
     MultiPolygon,
@@ -117,8 +120,7 @@ def collect_orbit_track(
                 else mask.contains(Point(longitude, latitude))
             )
             for (longitude, latitude) in zip(
-                np.array(ssp.longitude.degrees), 
-                np.array(ssp.latitude.degrees)
+                np.array(ssp.longitude.degrees), np.array(ssp.latitude.degrees)
             )
         ]
         if not any(mask_contains_ssp):
@@ -139,18 +141,15 @@ def collect_orbit_track(
     elif coordinates == OrbitCoordinate.ECEF:
         points = [
             Point(position[0], position[1], position[2])
-            for position in ssp.itrs_xyz.m.T
+            for position in np.array(ssp.itrs_xyz.m).T
         ]
     else:
         points = [
             Point(position[0], position[1], position[2])
-            for position in orbit_track.xyz.m.T
+            for position in np.array(orbit_track.xyz.m).T
         ]
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track)
-    if len(orbit_track.t) == 1: # type: ignore
-        # transform scalar to vector results
-        valid_obs = np.array([valid_obs])
     # create velocity points if needed
     if orbit_output == OrbitOutput.POSITION:
         records = [
@@ -159,26 +158,26 @@ def collect_orbit_track(
                 "satellite": satellite.name,
                 "instrument": instrument.name,
                 "swath_width": field_of_regard_to_swath_width(
-                    ssp.elevation.m[i],
+                    np.array(ssp.elevation.m)[i],
                     instrument.field_of_regard,
                     elevation,
                 ),
                 "valid_obs": valid_obs[i],
                 "geometry": points[i],
             }
-            for i, time in enumerate(orbit_track.t.utc_datetime())
+            for i, time in enumerate(orbit_track.t.utc_datetime()) # type: ignore
         ]
     else:
         # compute satellite velocity
         if coordinates == OrbitCoordinate.ECI:
             velocities = [
                 Point(velocity[0], velocity[1], velocity[2])
-                for velocity in orbit_track.velocity.m_per_s.T
+                for velocity in np.array(orbit_track.velocity.m_per_s).T
             ]
         else:
             velocities = [
                 Point(velocity[0], velocity[1], velocity[2])
-                for velocity in orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s.T
+                for velocity in np.array(orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s).T
             ]
 
         records = [
@@ -187,7 +186,7 @@ def collect_orbit_track(
                 "satellite": satellite.name,
                 "instrument": instrument.name,
                 "swath_width": field_of_regard_to_swath_width(
-                    ssp.elevation.m[i],
+                    np.array(ssp.elevation.m)[i],
                     instrument.field_of_regard,
                     elevation,
                 ),
@@ -195,7 +194,7 @@ def collect_orbit_track(
                 "geometry": points[i],
                 "velocity": velocities[i],
             }
-            for i, time in enumerate(orbit_track.t.utc_datetime())
+            for i, time in enumerate(orbit_track.t.utc_datetime()) # type: ignore
         ]
 
     track = gpd.GeoDataFrame(records, crs="EPSG:4326")
@@ -217,11 +216,11 @@ def collect_orbit_track(
         # append solar beta column
         # based on https://github.com/skyfielders/python-skyfield/issues/1054
         plane_normal = np.cross(
-            np.array(orbit_track.position.m), 
-            np.array(orbit_track.velocity.m_per_s), 
-            axis=0
+            np.array(orbit_track.position.m),
+            np.array(orbit_track.velocity.m_per_s),
+            axis=0,
         )
-        sun = de421["earth"].at(orbit_track.t).observe(de421["sun"]).position.m # type: ignore
+        sun = de421["earth"].at(orbit_track.t).observe(de421["sun"]).position.m  # type: ignore
         beta = np.pi / 2 - angle_between(plane_normal, sun)
         track["solar_beta"] = np.degrees(beta)
     if mask is not None:
@@ -259,9 +258,9 @@ def _get_utm_epsg_code(point: Point, swath_width: float) -> str:
     """
     # approximate footprint
     polygon = point.buffer(np.degrees(swath_width / 2 / EARTH_MEAN_RADIUS))
-    results = pyproj.database.query_utm_crs_info(
+    results = query_utm_crs_info(
         datum_name="WGS 84",
-        area_of_interest=pyproj.aoi.AreaOfInterest(
+        area_of_interest=AreaOfInterest(
             *clip_by_rect(polygon, -180, -90, 180, 90).bounds
         ),
     )
@@ -322,28 +321,22 @@ def collect_ground_track(
         # rough, buffer-tolerant culling step only; final geometry/validity
         # below still uses the true orbit_track for consistency.
         ssp = satellite.orbit.to_gp_orbit().get_geographic_position(times)
+        if isinstance(mask, (Polygon, MultiPolygon)):
+            geometry = mask
+        elif isinstance(mask, gpd.GeoDataFrame):
+            geometry = mask.dissolve().iloc[0].geometry
+        else:
+            geometry = mask.union_all()
         buffered_mask = buffer_target(
-            geometry=(
-                mask
-                if isinstance(mask, (Polygon, MultiPolygon))
-                else (
-                    mask.dissolve().iloc[0].geometry
-                    if isinstance(mask, gpd.GeoDataFrame)
-                    else mask.iloc[0]
-                )
-            ),
+            geometry=geometry,
             altitude=satellite.orbit.to_gp_orbit().get_mean_altitude(),
             inclination=satellite.orbit.to_gp_orbit().get_inclination(),
             field_of_regard=instrument.field_of_regard,
-            time_step=np.diff(times).mean() / timedelta(seconds=1),
+            time_step=np.diff(np.array(times)).mean() / timedelta(seconds=1),
         )
         # cull orbit track with buffered mask
         buffered_mask_contains_ssp = [
-            (
-                any(buffered_mask.contains(Point(longitude, latitude)))
-                if isinstance(buffered_mask, (gpd.GeoDataFrame, gpd.GeoSeries))
-                else buffered_mask.contains(Point(longitude, latitude))
-            )
+            buffered_mask.contains(Point(longitude, latitude))
             for (longitude, latitude) in zip(
                 ssp.longitude.degrees, ssp.latitude.degrees
             )
@@ -360,7 +353,7 @@ def collect_ground_track(
                 if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries))
                 else mask.intersects(f)
             )
-            for f in (footprint if isinstance(footprint, list) else [footprint])
+            for f in footprint
         ]
         if not any(mask_intersects_footprint):
             return _get_empty_ground_track()
@@ -369,21 +362,16 @@ def collect_ground_track(
     target = instrument.compute_footprint_center(orbit_track, elevation)
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track, target)
-    if len(orbit_track.t) == 1: # type: ignore
-        # transform scalar to vector results
-        valid_obs = np.array([valid_obs])
     if crs == "spice":
         geometries = instrument.compute_footprint(
             orbit_track,
             None,
             elevation,
         )
-        if len(orbit_track.t) == 1: # type: ignore
-            geometries = [geometries]
     else:
         # compute the orbit track of the satellite
         gdf = collect_orbit_track(
-            satellite, orbit_track.t.utc_datetime(), instrument_index, elevation
+            satellite, orbit_track.t.utc_datetime(), instrument_index, elevation # type: ignore
         )
         if crs == "utm":
             gdf["utm_crs"] = gdf.apply(
@@ -393,11 +381,11 @@ def collect_ground_track(
             to_crs = {}
             from_crs = {}
             for code in gdf.utm_crs.unique():
-                to_crs[code] = pyproj.Transformer.from_crs(
-                    gdf.crs, pyproj.CRS(code), always_xy=True
+                to_crs[code] = Transformer.from_crs(
+                    gdf.crs, CRS(code), always_xy=True
                 )
-                from_crs[code] = pyproj.Transformer.from_crs(
-                    pyproj.CRS(code), gdf.crs, always_xy=True
+                from_crs[code] = Transformer.from_crs(
+                    CRS(code), gdf.crs, always_xy=True
                 )
             geometries = gdf.apply(
                 lambda r: buffer_footprint(
@@ -410,11 +398,11 @@ def collect_ground_track(
                 axis=1,
             ).values
         else:
-            to_crs = pyproj.Transformer.from_crs(
-                gdf.crs, pyproj.CRS(crs), always_xy=True
+            to_crs = Transformer.from_crs(
+                gdf.crs, CRS(crs), always_xy=True
             )
-            from_crs = pyproj.Transformer.from_crs(
-                pyproj.CRS(crs), gdf.crs, always_xy=True
+            from_crs = Transformer.from_crs(
+                CRS(crs), gdf.crs, always_xy=True
             )
             # construct polygons based on visible extent of instrument
             # project to specified elevation
@@ -432,25 +420,25 @@ def collect_ground_track(
             "valid_obs": valid_obs[i],
             "geometry": geometries[i],
         }
-        for i, time in enumerate(orbit_track.t.utc_datetime())
+        for i, time in enumerate(orbit_track.t.utc_datetime()) # type: ignore
     ]
     track = gpd.GeoDataFrame(records, crs="EPSG:4326")
     if sat_altaz:
         # append satellite altitude/azimuth columns
-        sat_altaz = (orbit_track - target.at(orbit_track.t)).altaz()
-        track["sat_alt"] = sat_altaz[0].degrees
-        track["sat_az"] = sat_altaz[1].degrees
+        sat_altaz_data = (orbit_track - target.at(orbit_track.t)).altaz()
+        track["sat_alt"] = sat_altaz_data[0].degrees # type: ignore
+        track["sat_az"] = sat_altaz_data[1].degrees # type: ignore
     if solar_altaz:
         # append solar altitude/azimuth columns
-        solar_altaz = (
+        solar_altaz_data = (
             (de421["earth"] + target)
             .at(orbit_track.t)
             .observe(de421["sun"])
             .apparent()
             .altaz()
         )
-        track["solar_alt"] = solar_altaz[0].degrees
-        track["solar_az"] = solar_altaz[1].degrees
+        track["solar_alt"] = solar_altaz_data[0].degrees # type: ignore
+        track["solar_az"] = solar_altaz_data[1].degrees # type: ignore
 
     if mask is not None:
         track = gpd.clip(track, mask).reset_index(drop=True)
@@ -491,8 +479,6 @@ def compute_ground_track(
     Returns:
         GeoDataFrame: The data frame of aggregated ground track results.
     """
-    if method not in ["point", "line"]:
-        raise ValueError("Invalid method: " + str(method))
     if method == "point":
         track = collect_ground_track(
             satellite, times, instrument_index, elevation, mask, crs
@@ -500,7 +486,10 @@ def compute_ground_track(
         if not track.empty:
             # assign orbit identifier
             track["orbit_id"] = [
-                (time - times[0]) // satellite.orbit.to_gp_orbit().get_closest_element(time).get_orbit_period()
+                (time - times[0])
+                // satellite.orbit.to_gp_orbit()
+                .get_closest_element(time)
+                .get_orbit_period()
                 for time in track.time
             ]
             # filter to valid observations and dissolve
@@ -516,7 +505,10 @@ def compute_ground_track(
         track = collect_orbit_track(satellite, times, instrument_index, elevation, None)
         # assign orbit identifier
         track["orbit_id"] = [
-            (time - times[0]) // satellite.orbit.to_gp_orbit().get_closest_element(time).get_orbit_period()
+            (time - times[0])
+            // satellite.orbit.to_gp_orbit()
+            .get_closest_element(time)
+            .get_orbit_period()
             for time in track.time
         ]
         # assign track identifiers to group contiguous observation periods
@@ -529,7 +521,7 @@ def compute_ground_track(
         swath_widths = []
         for _, sub_track in track.groupby(["orbit_id", "track_id"]):
             # project points to specified elevation
-            points = sub_track.geometry.apply(lambda p: Point(p.x, p.y, elevation))
+            points = sub_track.geometry.apply(lambda p: Point(p.x, p.y, elevation)) # type: ignore
             # extract longitudes
             lon = sub_track.geometry.apply(lambda p: p.x)
             # extract average swath width
@@ -571,9 +563,9 @@ def compute_ground_track(
                         for line in collection.geoms
                     ]
                 )
-        to_crs = pyproj.Transformer.from_crs(track.crs, pyproj.CRS(crs), always_xy=True)
-        from_crs = pyproj.Transformer.from_crs(
-            pyproj.CRS(crs), track.crs, always_xy=True
+        to_crs = Transformer.from_crs(track.crs, CRS(crs), always_xy=True)
+        from_crs = Transformer.from_crs(
+            CRS(crs), track.crs, always_xy=True
         )
         polygons = [
             buffer_footprint(segment, to_crs, from_crs, swath_width, elevation)
@@ -588,6 +580,7 @@ def compute_ground_track(
         if dissolve_orbits:
             track = track.dissolve()
         return track
+    raise ValueError("Invalid method: " + str(method))
 
 
 def collect_ground_pixels(
@@ -632,28 +625,22 @@ def collect_ground_pixels(
         # rough, buffer-tolerant culling step only; final geometry/validity
         # below still uses the true orbit_track for consistency.
         ssp = satellite.orbit.to_gp_orbit().get_geographic_position(times)
+        if isinstance(mask, (Polygon, MultiPolygon)):
+            geometry = mask
+        elif isinstance(mask, gpd.GeoDataFrame):
+            geometry = mask.dissolve().iloc[0].geometry
+        else:
+            geometry = mask.union_all()
         buffered_mask = buffer_target(
-            geometry=(
-                mask
-                if isinstance(mask, (Polygon, MultiPolygon))
-                else (
-                    mask.dissolve().iloc[0].geometry
-                    if isinstance(mask, gpd.GeoDataFrame)
-                    else mask.iloc[0]
-                )
-            ),
+            geometry=geometry,
             altitude=satellite.orbit.to_gp_orbit().get_mean_altitude(),
             inclination=satellite.orbit.to_gp_orbit().get_inclination(),
             field_of_regard=instrument.field_of_regard,
-            time_step=np.diff(times).mean() / timedelta(seconds=1),
+            time_step=np.diff(np.array(times)).mean() / timedelta(seconds=1),
         )
         # cull orbit track with buffered mask
         buffered_mask_contains_ssp = [
-            (
-                any(buffered_mask.contains(Point(longitude, latitude)))
-                if isinstance(buffered_mask, (gpd.GeoDataFrame, gpd.GeoSeries))
-                else buffered_mask.contains(Point(longitude, latitude))
-            )
+            buffered_mask.contains(Point(longitude, latitude))
             for (longitude, latitude) in zip(
                 ssp.longitude.degrees, ssp.latitude.degrees
             )
@@ -670,7 +657,7 @@ def collect_ground_pixels(
                 if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries))
                 else mask.intersects(f)
             )
-            for f in (footprint if isinstance(footprint, list) else [footprint])
+            for f in footprint
         ]
         if not any(mask_intersects_footprint):
             return _get_empty_ground_track()
@@ -692,14 +679,12 @@ def collect_ground_pixels(
                 "instrument": instrument.name,
                 "valid_obs": instrument.is_valid_observation(
                     orbit_track[i], wgs84.latlon(point.y, point.x, point.z)
-                ),
+                ).all(),
                 "geometry": point,
             },
         )
-        for i, time in enumerate(orbit_track.t.utc_datetime())
-        for point in (
-            geometries[i].geoms if len(orbit_track.t) > 1 else geometries.geoms
-        )
+        for i, time in enumerate(orbit_track.t.utc_datetime()) # type: ignore
+        for point in geometries[i].geoms
     ]
     records = [record for _, record in indexed_records]
     # build geodataframe
@@ -711,12 +696,12 @@ def collect_ground_pixels(
                 orbit_track[i]
                 - wgs84.latlon(
                     record["geometry"].y, record["geometry"].x, record["geometry"].z
-                ).at(orbit_track.t[i])
+                ).at(orbit_track.t[i]) # type: ignore
             ).altaz()
             for i, record in indexed_records
         ]
-        gdf["sat_alt"] = [altaz[0].degrees for altaz in sat_altaz_data]
-        gdf["sat_az"] = [altaz[1].degrees for altaz in sat_altaz_data]
+        gdf["sat_alt"] = [altaz[0].degrees for altaz in sat_altaz_data] # type: ignore
+        gdf["sat_az"] = [altaz[1].degrees for altaz in sat_altaz_data] # type: ignore
     if solar_altaz:
         # append solar altitude/azimuth columns
         solar_altaz_data = [
@@ -726,14 +711,14 @@ def collect_ground_pixels(
                     record["geometry"].y, record["geometry"].x, record["geometry"].z
                 )
             )
-            .at(orbit_track.t[i])
+            .at(orbit_track.t[i]) # type: ignore
             .observe(de421["sun"])
             .apparent()
             .altaz()
             for i, record in indexed_records
         ]
-        gdf["solar_alt"] = [altaz[0].degrees for altaz in solar_altaz_data]
-        gdf["solar_az"] = [altaz[1].degrees for altaz in solar_altaz_data]
+        gdf["solar_alt"] = [altaz[0].degrees for altaz in solar_altaz_data] # type: ignore
+        gdf["solar_az"] = [altaz[1].degrees for altaz in solar_altaz_data] # type: ignore
 
     if mask is not None:
         gdf = gpd.clip(gdf, mask).reset_index(drop=True)

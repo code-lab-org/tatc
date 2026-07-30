@@ -65,7 +65,7 @@ class SunSynchronousOrbit(CircularOrbitBase):
         epoch_time = constants.timescale.from_datetime(self.epoch)
         sun = constants.de421["sun"]
         earth = constants.de421["earth"]
-        right_ascension, _, _ = earth.at(epoch_time).observe(sun).radec() # type: ignore
+        right_ascension, _, _ = earth.at(epoch_time).observe(sun).radec()  # type: ignore
         # pylint: disable=W0212
         return (
             right_ascension._degrees
@@ -92,8 +92,8 @@ class SunSynchronousOrbit(CircularOrbitBase):
         )
         # every 15 degrees of raan shift ect by 1 hour
         equator_crossing_time = (
-            datetime.combine(date(2000,1,1), self.equator_crossing_time)
-            + timedelta(hours=delta_raan/15)
+            datetime.combine(date(2000, 1, 1), self.equator_crossing_time)
+            + timedelta(hours=delta_raan / 15)
         ).time()
         return SunSynchronousOrbit(
             mean_altitude=self.mean_altitude,
@@ -129,5 +129,5 @@ class SunSynchronousOrbit(CircularOrbitBase):
                 true_anomaly=self.true_anomaly,
                 epoch=self.epoch,
             ).to_gp_orbit()
-            self.__dict__["gp_orbit"] = gp_orbit # type: ignore
+            self.__dict__["gp_orbit"] = gp_orbit  # type: ignore
         return gp_orbit

@@ -3,6 +3,7 @@ Object schema for train constellations.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 import copy

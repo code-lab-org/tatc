@@ -22,10 +22,14 @@ class RuntimeConfiguration(BaseModel):
     """
 
     footprint_points_elliptical: int = Field(
-        default=32, description="Number of points for a SPICE elliptical footprint.", ge=4
+        default=32,
+        description="Number of points for a SPICE elliptical footprint.",
+        ge=4,
     )
     footprint_points_rectangular_side: int = Field(
-        default=8, description="Number of points for a SPICE rectangular footprint side.", ge=1
+        default=8,
+        description="Number of points for a SPICE rectangular footprint side.",
+        ge=1,
     )
     repeat_cycle_delta_position_m: float = Field(
         default=10000,
@@ -41,10 +45,12 @@ class RuntimeConfiguration(BaseModel):
         default=88, description="Minimum elevation angle (degrees) for .", gt=0
     )
     repeat_cycle_search_duration_days: float = Field(
-        default=30, description="Maximum duration for which to search for repeat cycles."
+        default=30,
+        description="Maximum duration for which to search for repeat cycles.",
     )
     repeat_cycle_lazy_load: bool = Field(
-        default=True, description="True, if a previously-computed repeat cycle should be used."
+        default=True,
+        description="True, if a previously-computed repeat cycle should be used.",
     )
     repeat_cycle_for_orbit_track: bool = Field(
         default=True,
@@ -55,7 +61,8 @@ class RuntimeConfiguration(BaseModel):
         description="True, if a repeat cycle should be used to generate observation events.",
     )
     gp_orbit_lazy_load: bool = Field(
-        default=True, description="True, if a previously-computed general perturbations orbit should be used."
+        default=True,
+        description="True, if a previously-computed general perturbations orbit should be used.",
     )
 
 

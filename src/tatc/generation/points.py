@@ -3,6 +3,7 @@ Methods to generate geospatial points to sample data.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 import geopandas as gpd

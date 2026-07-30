@@ -109,10 +109,10 @@ class TestInstrument(unittest.TestCase):
         on sunlit conditions.
         """
         o = Instrument(name="Test Instrument")
-        self.assertTrue(o.is_valid_observation(self.test_sat_1.at(self.test_time)))
-        self.assertTrue(o.is_valid_observation(self.test_sat_2.at(self.test_time)))
-        self.assertTrue(o.is_valid_observation(self.test_sat_3.at(self.test_time)))
-        self.assertTrue(o.is_valid_observation(self.test_sat_4.at(self.test_time)))
+        self.assertTrue(o.is_valid_observation(self.test_sat_1.at(self.test_time)).all()) # type: ignore
+        self.assertTrue(o.is_valid_observation(self.test_sat_2.at(self.test_time)).all()) # type: ignore
+        self.assertTrue(o.is_valid_observation(self.test_sat_3.at(self.test_time)).all()) # type: ignore
+        self.assertTrue(o.is_valid_observation(self.test_sat_4.at(self.test_time)).all()) # type: ignore
 
     def test_valid_observation_self_sunlit(self):
         """
@@ -120,10 +120,10 @@ class TestInstrument(unittest.TestCase):
         self-sunlit conditions.
         """
         o = Instrument(name="Test Instrument", req_self_sunlit=True)
-        self.assertTrue(o.is_valid_observation(self.test_sat_1.at(self.test_time)))
-        self.assertTrue(o.is_valid_observation(self.test_sat_2.at(self.test_time)))
-        self.assertTrue(o.is_valid_observation(self.test_sat_3.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_4.at(self.test_time)))
+        self.assertTrue(o.is_valid_observation(self.test_sat_1.at(self.test_time)).all()) # type: ignore
+        self.assertTrue(o.is_valid_observation(self.test_sat_2.at(self.test_time)).all()) # type: ignore
+        self.assertTrue(o.is_valid_observation(self.test_sat_3.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_4.at(self.test_time)).all()) # type: ignore
 
     def test_valid_observation_self_not_sunlit(self):
         """
@@ -131,10 +131,10 @@ class TestInstrument(unittest.TestCase):
         self-not-sunlit conditions.
         """
         o = Instrument(name="Test Instrument", req_self_sunlit=False)
-        self.assertFalse(o.is_valid_observation(self.test_sat_1.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_2.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_3.at(self.test_time)))
-        self.assertTrue(o.is_valid_observation(self.test_sat_4.at(self.test_time)))
+        self.assertFalse(o.is_valid_observation(self.test_sat_1.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_2.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_3.at(self.test_time)).all()) # type: ignore
+        self.assertTrue(o.is_valid_observation(self.test_sat_4.at(self.test_time)).all()) # type: ignore
 
     def test_valid_observation_target_sunlit(self):
         """
@@ -142,10 +142,10 @@ class TestInstrument(unittest.TestCase):
         target-sunlit conditions.
         """
         o = Instrument(name="Test Instrument", req_target_sunlit=True)
-        self.assertTrue(o.is_valid_observation(self.test_sat_1.at(self.test_time)))
-        self.assertTrue(o.is_valid_observation(self.test_sat_2.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_3.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_4.at(self.test_time)))
+        self.assertTrue(o.is_valid_observation(self.test_sat_1.at(self.test_time)).all()) # type: ignore
+        self.assertTrue(o.is_valid_observation(self.test_sat_2.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_3.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_4.at(self.test_time)).all()) # type: ignore
 
     def test_valid_observation_target_not_sunlit(self):
         """
@@ -153,10 +153,10 @@ class TestInstrument(unittest.TestCase):
         target-not-sunlit conditions.
         """
         o = Instrument(name="Test Instrument", req_target_sunlit=False)
-        self.assertFalse(o.is_valid_observation(self.test_sat_1.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_2.at(self.test_time)))
-        self.assertTrue(o.is_valid_observation(self.test_sat_3.at(self.test_time)))
-        self.assertTrue(o.is_valid_observation(self.test_sat_4.at(self.test_time)))
+        self.assertFalse(o.is_valid_observation(self.test_sat_1.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_2.at(self.test_time)).all()) # type: ignore
+        self.assertTrue(o.is_valid_observation(self.test_sat_3.at(self.test_time)).all()) # type: ignore
+        self.assertTrue(o.is_valid_observation(self.test_sat_4.at(self.test_time)).all()) # type: ignore
 
     def test_valid_observation_self_sunlit_target_sunlit(self):
         """
@@ -165,10 +165,10 @@ class TestInstrument(unittest.TestCase):
         o = Instrument(
             name="Test Instrument", req_self_sunlit=True, req_target_sunlit=True
         )
-        self.assertTrue(o.is_valid_observation(self.test_sat_1.at(self.test_time)))
-        self.assertTrue(o.is_valid_observation(self.test_sat_2.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_3.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_4.at(self.test_time)))
+        self.assertTrue(o.is_valid_observation(self.test_sat_1.at(self.test_time)).all()) # type: ignore
+        self.assertTrue(o.is_valid_observation(self.test_sat_2.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_3.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_4.at(self.test_time)).all()) # type: ignore
 
     def test_valid_observation_self_not_sunlit_target_sunlit(self):
         """
@@ -178,10 +178,10 @@ class TestInstrument(unittest.TestCase):
         o = Instrument(
             name="Test Instrument", req_self_sunlit=False, req_target_sunlit=True
         )
-        self.assertFalse(o.is_valid_observation(self.test_sat_1.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_2.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_3.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_4.at(self.test_time)))
+        self.assertFalse(o.is_valid_observation(self.test_sat_1.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_2.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_3.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_4.at(self.test_time)).all()) # type: ignore
 
     def test_valid_observation_self_sunlit_target_not_sunlit(self):
         """
@@ -191,10 +191,10 @@ class TestInstrument(unittest.TestCase):
         o = Instrument(
             name="Test Instrument", req_self_sunlit=True, req_target_sunlit=False
         )
-        self.assertFalse(o.is_valid_observation(self.test_sat_1.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_2.at(self.test_time)))
-        self.assertTrue(o.is_valid_observation(self.test_sat_3.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_4.at(self.test_time)))
+        self.assertFalse(o.is_valid_observation(self.test_sat_1.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_2.at(self.test_time)).all()) # type: ignore
+        self.assertTrue(o.is_valid_observation(self.test_sat_3.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_4.at(self.test_time)).all()) # type: ignore
 
     def test_valid_observation_self_not_sunlit_target_not_sunlit(self):
         """
@@ -204,10 +204,10 @@ class TestInstrument(unittest.TestCase):
         o = Instrument(
             name="Test Instrument", req_self_sunlit=False, req_target_sunlit=False
         )
-        self.assertFalse(o.is_valid_observation(self.test_sat_1.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_2.at(self.test_time)))
-        self.assertFalse(o.is_valid_observation(self.test_sat_3.at(self.test_time)))
-        self.assertTrue(o.is_valid_observation(self.test_sat_4.at(self.test_time)))
+        self.assertFalse(o.is_valid_observation(self.test_sat_1.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_2.at(self.test_time)).all()) # type: ignore
+        self.assertFalse(o.is_valid_observation(self.test_sat_3.at(self.test_time)).all()) # type: ignore
+        self.assertTrue(o.is_valid_observation(self.test_sat_4.at(self.test_time)).all()) # type: ignore
 
     def test_valid_observation_self_sunlit_vector(self):
         """
@@ -215,8 +215,8 @@ class TestInstrument(unittest.TestCase):
         self-sunlit conditions for a vector of times.
         """
         o = Instrument(name="Test Instrument", req_self_sunlit=True)
-        times = timescale.utc(2020, 3, 20, [11, 12, 13])
-        results = o.is_valid_observation(self.test_sat_1.at(times))
+        times = timescale.utc(2020, 3, 20, [11, 12, 13]) # type: ignore
+        results = o.is_valid_observation(self.test_sat_1.at(times)) # type: ignore
         self.assertEqual(len(results), 3)
         self.assertFalse(results[0])
         self.assertTrue(results[1])
@@ -228,8 +228,8 @@ class TestInstrument(unittest.TestCase):
         target-sunlit conditions for a vector of times.
         """
         o = Instrument(name="Test Instrument", req_target_sunlit=True)
-        times = timescale.utc(2020, 3, 20, [11, 12, 13])
-        results = o.is_valid_observation(self.test_sat_1.at(times))
+        times = timescale.utc(2020, 3, 20, [11, 12, 13]) # type: ignore
+        results = o.is_valid_observation(self.test_sat_1.at(times)) # type: ignore
         self.assertEqual(len(results), 3)
         self.assertFalse(results[0])
         self.assertTrue(results[1])
@@ -240,8 +240,8 @@ class TestInstrument(unittest.TestCase):
         Test that an observation is valid when the instrument requires self-sunlit conditions for a vector of times with an inclined orbit.
         """
         o = Instrument(name="Test Instrument", req_self_sunlit=True)
-        times = timescale.utc(2020, 3, 20, [11, 12, 13])
-        results = o.is_valid_observation(self.test_sat_5.at(times))
+        times = timescale.utc(2020, 3, 20, [11, 12, 13]) # type: ignore
+        results = o.is_valid_observation(self.test_sat_5.at(times)) # type: ignore
         self.assertEqual(len(results), 3)
         self.assertFalse(results[0])
         self.assertTrue(results[1])
@@ -252,8 +252,8 @@ class TestInstrument(unittest.TestCase):
         Test that an observation is valid when the instrument requires target-sunlit conditions for a vector of times with an inclined orbit.
         """
         o = Instrument(name="Test Instrument", req_target_sunlit=True)
-        times = timescale.utc(2020, 3, 20, [11, 12, 13])
-        results = o.is_valid_observation(self.test_sat_5.at(times))
+        times = timescale.utc(2020, 3, 20, [11, 12, 13]) # type: ignore
+        results = o.is_valid_observation(self.test_sat_5.at(times)) # type: ignore
         self.assertEqual(len(results), 3)
         self.assertFalse(results[0])
         self.assertTrue(results[1])

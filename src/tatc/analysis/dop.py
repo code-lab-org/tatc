@@ -4,6 +4,7 @@ Methods to analyze dilusion of precision.
 @author: Michael P. Jones <mpj@mit.edu>
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 import warnings
@@ -56,7 +57,7 @@ def compute_dop(
     """
     # construct skyfield satellites for each satellite
     sk_sats = [
-        satellite.orbit.to_gp_orbit().get_closest_element(times[0]).to_skyfield() # type: ignore
+        satellite.orbit.to_gp_orbit().get_closest_element(times[0]).to_skyfield()  # type: ignore
         for satellite in satellites
     ]
 

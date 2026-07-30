@@ -25,11 +25,11 @@ class CircularOrbit(CircularOrbitBase):
     type: Literal["circular"] = Field(
         default="circular", description="Orbit type discriminator."
     )
-    inclination: float = Field(0, description="Inclination (degrees).", ge=0, lt=180)
+    inclination: float = Field(default=0, description="Inclination (degrees).", ge=0, lt=180)
     right_ascension_ascending_node: float = Field(
-        0, description="Right ascension of ascending node (degrees).", ge=0, lt=360
+        default=0, description="Right ascension of ascending node (degrees).", ge=0, lt=360
     )
-    
+
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float
     ) -> CircularOrbit:
@@ -82,5 +82,5 @@ class CircularOrbit(CircularOrbitBase):
                 eccentricity=0,
                 perigee_argument=0,
             ).to_gp_orbit()
-            self.__dict__["gp_orbit"] = gp_orbit # type: ignore
+            self.__dict__["gp_orbit"] = gp_orbit  # type: ignore
         return gp_orbit

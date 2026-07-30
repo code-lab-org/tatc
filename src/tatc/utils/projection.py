@@ -3,6 +3,7 @@ Projection utility functions.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -201,7 +202,9 @@ def compute_projected_ray_position(
                 geos[:] = limb_geo
     # return resulting geographic position
     if len(np.shape(geos)) > 1:
-        return wgs84.latlon(np.degrees(geos[1, :]), np.degrees(geos[0, :]), np.float64(geos[2, :]))
+        return wgs84.latlon(
+            np.degrees(geos[1, :]), np.degrees(geos[0, :]), geos[2, :] # type: ignore
+        )
     return wgs84.latlon(np.degrees(geos[1]), np.degrees(geos[0]), geos[2])
 
 
@@ -214,7 +217,7 @@ def compute_footprint(
     is_rectangular: bool = False,
     number_points: int | None = None,
     elevation: float = 0,
-) -> Geometry | list[Geometry]:
+) -> list[Polygon | MultiPolygon]:
     """
     Compute the instanteous instrument footprint.
 
@@ -231,7 +234,7 @@ def compute_footprint(
         elevation (float): The elevation (meters) at which project the footprint.
 
     Returns:
-        shapely.Geometry | list[shapely.Geometry]: The instrument footprint(s).
+        list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The instrument footprint(s).
     """
     if number_points is None:
         # default number of points
@@ -268,35 +271,27 @@ def compute_footprint(
         )
         for angle in angles
     ]
-    if np.size(orbit_track.t) > 1: # type: ignore
-        return [
-            project_polygon_to_elevation(
-                split_polygon(
-                    Polygon(
-                        [
-                            (point.longitude.degrees[i], point.latitude.degrees[i])
-                            for point in points
-                        ]
-                    )
-                ),
-                elevation,
-            )
-            for i in range(np.size(orbit_track.t)) # type: ignore
-        ]
-    return project_polygon_to_elevation(
-        split_polygon(
-            Polygon(
-                [(point.longitude.degrees, point.latitude.degrees) for point in points]
-            )
-        ),
-        elevation,
-    )
+    return [
+        project_polygon_to_elevation(
+            split_polygon(
+                Polygon(
+                    [
+                        (point.longitude.degrees[i], point.latitude.degrees[i])
+                        for point in points
+                    ]
+                )
+            ),
+            elevation,
+        )
+        for i in range(np.size(orbit_track.t))  # type: ignore
+    ]
+
 
 def _compute_limb_for_position(
     position: Iterable[float],
     number_points: int = 16,
     elevation: float = 0,
-) -> Geometry:
+) -> Polygon | MultiPolygon:
     limb = edlimb(
         constants.EARTH_EQUATORIAL_RADIUS + elevation,
         constants.EARTH_EQUATORIAL_RADIUS + elevation,
@@ -332,7 +327,7 @@ def compute_limb(
     orbit_track: Geocentric,
     number_points: int = 16,
     elevation: float = 0,
-) -> Geometry | list[Geometry]:
+) -> list[Polygon | MultiPolygon]:
     """
     Compute the instanteous limb.
 
@@ -342,16 +337,15 @@ def compute_limb(
         elevation (float): The elevation (meters) at which project the limb.
 
     Returns:
-        shapely.Geometry | list[shapely.Geometry]: The limb(s).
+        list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The limb(s).
     """
     position, _ = orbit_track.frame_xyz_and_velocity(itrs)
     p_m = np.array(position.m)
-    if p_m.ndim <= 1:
-        return _compute_limb_for_position(p_m, number_points, elevation)
     return [
-        _compute_limb_for_position(p_m[:, i].copy(), number_points, elevation) 
+        _compute_limb_for_position(p_m[:, i].copy(), number_points, elevation)
         for i in range(np.size(p_m, axis=1))
     ]
+
 
 def buffer_footprint(
     geometry: Geometry,
@@ -380,7 +374,7 @@ def buffer_footprint(
         split_polygon(
             transform(
                 from_crs.transform,
-                transform(to_crs.transform, geometry).buffer(swath_width / 2), # type: ignore
+                transform(to_crs.transform, geometry).buffer(swath_width / 2),  # type: ignore
             )
         ),
         elevation,
@@ -418,10 +412,12 @@ def buffer_target(
     to_crs = Transformer.from_crs("EPSG:4326", distance_crs, always_xy=True)
     from_crs = Transformer.from_crs(distance_crs, "EPSG:4326", always_xy=True)
     swath_width = field_of_regard_to_swath_width(altitude, field_of_regard)
-    ground_distance = compute_ground_surface_velocity(altitude, 0, inclination) * time_step
+    ground_distance = (
+        compute_ground_surface_velocity(altitude, 0, inclination) * time_step
+    )
     distance = (ground_distance + swath_width / 2) * distance_scaling
     return split_polygon(
         transform(
-            from_crs.transform, transform(to_crs.transform, geometry).buffer(distance) # type: ignore
+            from_crs.transform, transform(to_crs.transform, geometry).buffer(distance)  # type: ignore
         )
     )

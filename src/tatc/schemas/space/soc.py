@@ -3,6 +3,7 @@ Object schema for streets-of-coverage (SOC) constellations.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 import math
@@ -33,7 +34,9 @@ class SOCConstellation(BaseConstellation):
     pp. 179-193. doi: 10.1016/j.actaastro.2022.05.022
     """
 
-    type: Literal["soc"] = Field(default="soc", description="Space system type discriminator.")
+    type: Literal["soc"] = Field(
+        default="soc", description="Space system type discriminator."
+    )
     orbit: CircularOrbit = Field(
         ..., description="Reference circular orbit for this constellation."
     )

@@ -3,6 +3,7 @@ Object schema for satellites.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 from typing import Literal

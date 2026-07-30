@@ -3,6 +3,7 @@ Object schemas for Walker constellations.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 import copy

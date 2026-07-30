@@ -22,5 +22,7 @@ class SpaceSystem(BaseModel):
         examples=["International Space Station"],
     )
     instruments: list[AllInstruments] = Field(
-        default=[Instrument()], min_length=1, description="List of assigned instruments."
+        default=[Instrument()],
+        min_length=1,
+        description="List of assigned instruments.",
     )

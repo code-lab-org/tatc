@@ -12,7 +12,7 @@ class Point(BaseModel):
     Surface point in the WGS 84 coordinate system.
     """
 
-    id: NonNegativeInt = Field(..., description="Unique point identifier.")
+    id: NonNegativeInt = Field(default=0, description="Unique point identifier.")
     latitude: float = Field(
         ...,
         description="Latitude (decimal degrees) in the WGS 84 coordinate system.",

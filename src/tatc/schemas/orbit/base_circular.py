@@ -20,7 +20,7 @@ class CircularOrbitBase(OrbitBase):
     """
 
     mean_altitude: float = Field(..., description="Mean altitude (meters).")
-    
+
     def get_semimajor_axis(self) -> float:
         """
         Gets the semimajor axis.
@@ -46,4 +46,8 @@ class CircularOrbitBase(OrbitBase):
         Returns:
             timedelta: the orbit period
         """
-        return timedelta(seconds=utils.orbital.semimajor_axis_to_orbit_period(self.get_semimajor_axis()))
+        return timedelta(
+            seconds=utils.orbital.semimajor_axis_to_orbit_period(
+                self.get_semimajor_axis()
+            )
+        )

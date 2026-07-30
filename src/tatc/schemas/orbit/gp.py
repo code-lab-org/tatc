@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal, overload
 
 import numpy as np
+import numpy.typing as npt
 from pydantic import BaseModel, Field
 from sgp4 import exporter, omm
 from sgp4.api import WGS72, Satrec
@@ -51,7 +52,9 @@ class GeneralPerturbationsElements(BaseModel):
         default=0, description="Second derivative of mean motion (degrees/second^3)."
     )
     classification: str = Field(default="U", description="Classification type.")
-    international_designator: str = Field(default="00000A", description="International designator.")
+    international_designator: str = Field(
+        default="00000A", description="International designator."
+    )
     ephemeris_type: int = Field(default=0, description="Ephemeris type.")
     element_set_num: int = Field(default=0, description="Element set number.")
     revolution_num: int = Field(default=0, description="Revolution number at epoch.")
@@ -218,7 +221,7 @@ class GeneralPerturbationsElements(BaseModel):
         for fields in json.loads(omm_json):
             return GeneralPerturbationsElements.from_omm_dict(fields)
         raise ValueError("No OMM JSON lines found.")
-    
+
     def to_skyfield(self):
         """
         Converts this GP elements object to a Skyfield `EarthSatellite`.
@@ -370,12 +373,12 @@ class GeneralPerturbationsOrbit(BaseModel):
             float: the argument of perigee (degrees)
         """
         return self.elements[index].arg_of_pericenter
-    
+
     @classmethod
     def from_tle(cls, tle_lines: list[str]) -> GeneralPerturbationsOrbit:
         """
         Creates a GP orbit from two line element (TLE) lines.
-        
+
         Args:
             tle_lines (list[str]): the two line element lines
 
@@ -466,14 +469,17 @@ class GeneralPerturbationsOrbit(BaseModel):
     @overload
     def get_closest_element_index(self, at_times: list[datetime]) -> list[int]: ...
 
+    @overload
+    def get_closest_element_index(self, at_times: npt.NDArray[np.datetime64]) -> list[int]: ...
+
     def get_closest_element_index(
-        self, at_times: datetime | list[datetime]
+        self, at_times: datetime | list[datetime] | npt.NDArray[np.datetime64]
     ) -> int | list[int]:
         """
         Gets the closest element index to specified time(s).
 
         Args:
-            at_times (datetime | list[datetime]): specified times
+            at_times (datetime | list[datetime] | npt.NDArray[np.datetime64]): specified times
 
         Returns:
             int | list[int]: closest element index or indices
@@ -485,7 +491,9 @@ class GeneralPerturbationsOrbit(BaseModel):
         element_epochs = np.array(self.get_element_epochs(), dtype="datetime64[ns]")
         # handle scalar
         if isinstance(at_times, datetime):
-            idx = np.searchsorted(element_epochs, np.datetime64(at_times, "ns"), side="left")
+            idx = np.searchsorted(
+                element_epochs, np.datetime64(at_times, "ns"), side="left"
+            )
             return (
                 int(idx - 1)
                 if idx > 0
@@ -497,7 +505,9 @@ class GeneralPerturbationsOrbit(BaseModel):
                 else int(idx)
             )
         # handle vector
-        indices = np.searchsorted(element_epochs, np.array(at_times, dtype="datetime64[ns]"), side="left")
+        indices = np.searchsorted(
+            element_epochs, np.array(at_times, dtype="datetime64[ns]"), side="left"
+        )
         return [
             (
                 int(idx - 1)
@@ -513,19 +523,28 @@ class GeneralPerturbationsOrbit(BaseModel):
         ]
 
     @overload
-    def get_closest_element(self, at_times: datetime) -> GeneralPerturbationsElements: ...
-        
+    def get_closest_element(
+        self, at_times: datetime
+    ) -> GeneralPerturbationsElements: ...
+
     @overload
-    def get_closest_element(self, at_times: list[datetime]) -> list[GeneralPerturbationsElements]: ...
+    def get_closest_element(
+        self, at_times: list[datetime]
+    ) -> list[GeneralPerturbationsElements]: ...
+
+    @overload
+    def get_closest_element(
+        self, at_times: npt.NDArray[np.datetime64]
+    ) -> list[GeneralPerturbationsElements]: ...
 
     def get_closest_element(
-        self, at_times: datetime | list[datetime]
+        self, at_times: datetime | list[datetime] | npt.NDArray[np.datetime64]
     ) -> GeneralPerturbationsElements | list[GeneralPerturbationsElements]:
         """
         Gets the closest element to specified time(s).
 
         Args:
-            at_times (datetime | list[datetime]): specified times
+            at_times (datetime | list[datetime] | npt.NDArray[np.datetime64]): specified times
 
         Returns:
             GeneralPerturbationsElements | list[GeneralPerturbationsElements]: closest element or elements
@@ -625,11 +644,15 @@ class GeneralPerturbationsOrbit(BaseModel):
             )
             # compute position and velocity at culmination in Earth-centered Earth-fixed frame
             position, velocity = satellite.at(ts[es == 1]).frame_xyz_and_velocity(itrs)
+            p_m = np.array(position.m)
+            v_m_per_s = np.array(velocity.m_per_s)
+            p_0_m = np.array(position_0.m)
+            v_0_m_per_s = np.array(velocity_0.m_per_s)
             # apply validity conditions on position and velocity error norms
             is_valid = np.logical_and(
-                np.linalg.norm((position.m.T - position_0.m.T).T, axis=0)
+                np.linalg.norm((p_m.T - p_0_m.T).T, axis=0)
                 < max_delta_position,
-                np.linalg.norm((velocity.m_per_s.T - velocity_0.m_per_s.T).T, axis=0)
+                np.linalg.norm((v_m_per_s.T - v_0_m_per_s.T).T, axis=0)
                 < max_delta_velocity,
             )
             if np.any(is_valid):
@@ -638,7 +661,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             else:
                 # assign zero repeat cycle value to avoid recalculation
                 repeat_cycle = timedelta(0)
-            self.__dict__["repeat_cycle"] = repeat_cycle # type: ignore
+            self.__dict__["repeat_cycle"] = repeat_cycle  # type: ignore
         if repeat_cycle is not None and repeat_cycle > timedelta(0):
             return repeat_cycle
         return None
@@ -666,7 +689,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             # try to use multiple TLEs
             nearest_indices = self.get_closest_element_index(t.utc_datetime())
             if isinstance(nearest_indices, int):
-                return self.elements[nearest_indices].to_skyfield().at(t)
+                return self.elements[nearest_indices].to_skyfield().at(t) # type: ignore
             nearest_indices = np.asarray(nearest_indices)
             position_au = np.empty((3,) + t.shape)
             velocity_au_per_d = np.empty((3,) + t.shape)
@@ -679,7 +702,7 @@ class GeneralPerturbationsOrbit(BaseModel):
                 velocity_au_per_d[:, mask] = track.velocity.au_per_d
             return Geocentric(position_au, velocity_au_per_d, t)
         # compute satellite positions directly at the given time(s)
-        return self.elements[0].to_skyfield().at(t)
+        return self.elements[0].to_skyfield().at(t) # type: ignore
 
     def get_orbit_track(self, times: datetime | list[datetime]) -> Geocentric:
         """
@@ -730,8 +753,9 @@ class GeneralPerturbationsOrbit(BaseModel):
             if repeat_cycle is not None:
                 epoch = self.get_epoch()
                 offset = t.utc_datetime() - epoch
-                repeat_offset = np.sign(offset / timedelta(1)) * np.mod(
-                    np.abs(offset), repeat_cycle
+                repeat_offset = np.multiply(
+                    np.sign(offset / timedelta(1)),
+                    np.mod(np.abs(offset / timedelta(1)), repeat_cycle / timedelta(1))
                 )
                 repeat_times = (
                     constants.timescale.from_datetime(epoch + repeat_offset)

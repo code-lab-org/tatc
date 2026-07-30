@@ -3,6 +3,7 @@ Orbital utility functions.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -25,8 +26,11 @@ def compute_orbit_inertial_velocity(mean_altitude: float) -> float:
     """
     return np.sqrt(constants.EARTH_MU / (constants.EARTH_MEAN_RADIUS + mean_altitude))
 
+
 @njit
-def compute_ground_inertial_velocity(mean_altitude: float, elevation: float = 0) -> float:
+def compute_ground_inertial_velocity(
+    mean_altitude: float, elevation: float = 0
+) -> float:
     """
     Fast computation of ground inertial velocity assuming a circular orbit.
 
@@ -38,10 +42,20 @@ def compute_ground_inertial_velocity(mean_altitude: float, elevation: float = 0)
         float: Inertial orbit velocity (meters/second).
     """
     v_orbital = compute_orbit_inertial_velocity(mean_altitude)
-    return v_orbital * (constants.EARTH_MEAN_RADIUS + elevation) / (constants.EARTH_MEAN_RADIUS + mean_altitude)
+    return (
+        v_orbital
+        * (constants.EARTH_MEAN_RADIUS + elevation)
+        / (constants.EARTH_MEAN_RADIUS + mean_altitude)
+    )
+
 
 @njit
-def compute_ground_surface_velocity(mean_altitude: float, elevation: float = 0, inclination: float = 0, latitude: float = 0) -> float:
+def compute_ground_surface_velocity(
+    mean_altitude: float,
+    elevation: float = 0,
+    inclination: float = 0,
+    latitude: float = 0,
+) -> float:
     """
     Fast computation of ground surface velocity assuming a circular orbit.
 
@@ -64,8 +78,15 @@ def compute_ground_surface_velocity(mean_altitude: float, elevation: float = 0, 
         beta = np.pi / 2
     v_surface_east = v_inertial * np.cos(beta)
     v_surface_north = v_inertial * np.sin(beta)
-    v_earth_west = 2 * np.pi / constants.EARTH_SIDEREAL_DAY_S * constants.EARTH_MEAN_RADIUS * np.cos(np.deg2rad(latitude))
-    return np.sqrt((v_surface_east - v_earth_west)**2 + v_surface_north**2)
+    v_earth_west = (
+        2
+        * np.pi
+        / constants.EARTH_SIDEREAL_DAY_S
+        * constants.EARTH_MEAN_RADIUS
+        * np.cos(np.deg2rad(latitude))
+    )
+    return np.sqrt((v_surface_east - v_earth_west) ** 2 + v_surface_north**2)
+
 
 @njit
 def semimajor_axis_to_mean_motion(semimajor_axis: float) -> float:
@@ -80,6 +101,7 @@ def semimajor_axis_to_mean_motion(semimajor_axis: float) -> float:
     """
     return np.degrees(np.sqrt(constants.EARTH_MU / semimajor_axis**3))
 
+
 @njit
 def mean_motion_to_orbit_period(mean_motion: float) -> float:
     """
@@ -92,6 +114,7 @@ def mean_motion_to_orbit_period(mean_motion: float) -> float:
         float: Orbital period (seconds).
     """
     return 360 / mean_motion
+
 
 @njit
 def mean_motion_to_semimajor_axis(mean_motion: float) -> float:
@@ -106,6 +129,7 @@ def mean_motion_to_semimajor_axis(mean_motion: float) -> float:
     """
     return np.cbrt(constants.EARTH_MU / (np.radians(mean_motion) ** 2))
 
+
 @njit
 def semimajor_axis_to_orbit_period(semimajor_axis: float) -> float:
     """
@@ -118,6 +142,7 @@ def semimajor_axis_to_orbit_period(semimajor_axis: float) -> float:
         float: Orbital period (seconds).
     """
     return mean_motion_to_orbit_period(semimajor_axis_to_mean_motion(semimajor_axis))
+
 
 @njit
 def mean_anomaly_to_true_anomaly(mean_anomaly: float, eccentricity: float = 0) -> float:
@@ -166,7 +191,9 @@ def true_anomaly_to_mean_anomaly(true_anomaly: float, eccentricity: float = 0) -
 
 
 @njit
-def compute_j2_raan_rate(semimajor_axis: float, inclination: float, eccentricity: float) -> float:
+def compute_j2_raan_rate(
+    semimajor_axis: float, inclination: float, eccentricity: float
+) -> float:
     """
     Fast computation of right ascension of ascending node precession rate due to J2 perturbations.
 
@@ -179,15 +206,19 @@ def compute_j2_raan_rate(semimajor_axis: float, inclination: float, eccentricity
         float: The right ascension of ascending node precession rate (degrees/second).
     """
     return (
-        -3 / 2
+        -3
+        / 2
         * constants.EARTH_J2
         * semimajor_axis_to_mean_motion(semimajor_axis)
-        * ( constants.EARTH_MEAN_RADIUS / ( semimajor_axis * (1 - eccentricity**2) ) )**2
+        * (constants.EARTH_MEAN_RADIUS / (semimajor_axis * (1 - eccentricity**2))) ** 2
         * np.cos(np.radians(inclination))
     )
 
+
 @njit
-def compute_j2_aop_rate(semimajor_axis: float, inclination: float, eccentricity: float) -> float:
+def compute_j2_aop_rate(
+    semimajor_axis: float, inclination: float, eccentricity: float
+) -> float:
     """
     Fast computation of argument of periapsis rate due to J2 perturbations.
 
@@ -200,9 +231,10 @@ def compute_j2_aop_rate(semimajor_axis: float, inclination: float, eccentricity:
         float: The argument of periapsis rate (degrees/second).
     """
     return (
-        3 / 4
+        3
+        / 4
         * constants.EARTH_J2
         * semimajor_axis_to_mean_motion(semimajor_axis)
-        * ( constants.EARTH_MEAN_RADIUS / ( semimajor_axis * (1 - eccentricity**2) ) )**2
-        * (5*np.cos(np.radians(inclination))**2 - 1)
+        * (constants.EARTH_MEAN_RADIUS / (semimajor_axis * (1 - eccentricity**2))) ** 2
+        * (5 * np.cos(np.radians(inclination)) ** 2 - 1)
     )

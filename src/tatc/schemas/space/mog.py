@@ -29,7 +29,9 @@ class MOGConstellation(BaseConstellation):
     pp. 307-317. doi: 10.1109/JSTARS.2019.2961084
     """
 
-    type: Literal["mog"] = Field(default="mog", description="Space system type discriminator.")
+    type: Literal["mog"] = Field(
+        default="mog", description="Space system type discriminator."
+    )
     orbit: CircularOrbit = Field(
         ..., description="Reference circular orbit for this constellation."
     )
@@ -96,13 +98,13 @@ class MOGConstellation(BaseConstellation):
                 np.dot(l, np.array([1, 0, 0])), np.dot(-l, np.array([0, 1, 0]))
             )
 
-            # direction of mutual orbit ascending node w.r.t. 
+            # direction of mutual orbit ascending node w.r.t.
             # Earth's center of mass [Eq. (25) in Leroy et al. (2020)]
             p_node = np.cos(omega - omega_0) * np.array([1, 0, 0]) + np.sin(
                 omega - omega_0
             ) * np.array([0, 1, 0])
 
-            # direction of mutual and reference orbit intersection 
+            # direction of mutual and reference orbit intersection
             # ([Eq. (26) in Leroy et al. (2020)])
             t = np.cross(l, l_0) / np.sin(delta)
 

@@ -3,6 +3,7 @@ Methods to generate geospatial cells to aggregate data.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 import geopandas as gpd

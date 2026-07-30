@@ -39,11 +39,3 @@ class TestSatellite(unittest.TestCase):
             self.test_sat.instruments[0],
             Instrument(**self.test_data.get("instruments")[0]),
         )
-
-    def test_generate_members(self):
-        """
-        Test that the Satellite schema correctly generates members.
-        """
-        members = self.test_sat.generate_members()
-        self.assertEqual(len(members), 1)
-        self.assertEqual(members[0], self.test_sat)

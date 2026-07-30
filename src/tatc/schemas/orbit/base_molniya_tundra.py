@@ -25,11 +25,15 @@ class MolniyaTundraOrbitBase(OrbitBase):
     """
 
     northern_coverage: bool = Field(
-        default=True, description="True, if the orbit generates northern hemisphere coverage."
+        default=True,
+        description="True, if the orbit generates northern hemisphere coverage.",
     )
     perigee_altitude: float = Field(..., description="Perigee altitude (meters).", ge=0)
     right_ascension_ascending_node: float = Field(
-        default=0, description="Right ascension of ascending node (degrees).", ge=0, lt=360
+        default=0,
+        description="Right ascension of ascending node (degrees).",
+        ge=0,
+        lt=360,
     )
 
     def get_inclination(self) -> float:
@@ -40,7 +44,7 @@ class MolniyaTundraOrbitBase(OrbitBase):
             float: the inclination
         """
         return constants.EARTH_J2_CRITICAL_INCLINATION
-    
+
     def get_perigee_argument(self) -> float:
         """
         Gets the perigee argument (degrees) of the frozen orbit.
@@ -57,7 +61,9 @@ class MolniyaTundraOrbitBase(OrbitBase):
         Returns:
             float: the orbit period
         """
-        raise NotImplementedError("get_orbit_period() must be implemented in subclasses.")
+        raise NotImplementedError(
+            "get_orbit_period() must be implemented in subclasses."
+        )
 
     def get_semimajor_axis(self) -> float:
         """
@@ -67,7 +73,8 @@ class MolniyaTundraOrbitBase(OrbitBase):
             float: the semimajor axis
         """
         return np.cbrt(
-            (constants.EARTH_MU * self.get_orbit_period().total_seconds()**2) / (4 * np.pi**2)
+            (constants.EARTH_MU * self.get_orbit_period().total_seconds() ** 2)
+            / (4 * np.pi**2)
         )
 
     def get_eccentricity(self) -> float:
@@ -77,7 +84,11 @@ class MolniyaTundraOrbitBase(OrbitBase):
         Returns:
             float: the eccentricity
         """
-        return 1 - (constants.EARTH_MEAN_RADIUS + self.perigee_altitude) / self.get_semimajor_axis()
+        return (
+            1
+            - (constants.EARTH_MEAN_RADIUS + self.perigee_altitude)
+            / self.get_semimajor_axis()
+        )
 
     def get_mean_anomaly(self) -> float:
         """
@@ -116,5 +127,5 @@ class MolniyaTundraOrbitBase(OrbitBase):
                 eccentricity=self.get_eccentricity(),
                 perigee_argument=self.get_perigee_argument(),
             ).to_gp_orbit()
-            self.__dict__["gp_orbit"] = gp_orbit # type: ignore
+            self.__dict__["gp_orbit"] = gp_orbit  # type: ignore
         return gp_orbit

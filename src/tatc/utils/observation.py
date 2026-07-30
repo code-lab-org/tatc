@@ -3,6 +3,7 @@ Observation utility functions.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -176,10 +177,16 @@ def compute_max_access_time(mean_altitude: float, min_elevation_angle: float) ->
             constants.EARTH_MEAN_RADIUS
             / (constants.EARTH_MEAN_RADIUS + mean_altitude)
             * np.cos(np.radians(min_elevation_angle))
-        ) - np.radians(min_elevation_angle)
+        )
+        - np.radians(min_elevation_angle)
     )
     # max access time is twice the earth central angle divided by the mean motion of the orbit
-    return 2 * earth_angle / semimajor_axis_to_mean_motion(constants.EARTH_MEAN_RADIUS + mean_altitude)
+    return (
+        2
+        * earth_angle
+        / semimajor_axis_to_mean_motion(constants.EARTH_MEAN_RADIUS + mean_altitude)
+    )
+
 
 @njit
 def compute_max_transit_time(

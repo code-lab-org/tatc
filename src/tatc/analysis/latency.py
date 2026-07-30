@@ -4,6 +4,7 @@ Methods to perform latency analysis.
 @author: Isaac Feldman
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -54,9 +55,9 @@ def collect_downlinks(
         geopandas.GeoDataFrame: The data frame of collected downlink results.
     """
     # compute the initial satellite altitude (shared across all ground stations)
-    init_altitude = satellite.orbit.to_gp_orbit().get_geographic_position(
-        start
-    ).elevation.m
+    init_altitude = (
+        satellite.orbit.to_gp_orbit().get_geographic_position(start).elevation.m
+    )
     # collect the records of ground station overpasses
     records = [
         {
@@ -251,6 +252,7 @@ def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame
     gdf["latency"] = pd.to_timedelta(gdf["latency"], unit="s")
     return gdf
 
+
 def _aggregate_mean_latency(gdf: gpd.GeoDataFrame) -> float:
     """
     Aggregates the mean latency value from a GeoDataFrame of latencies and samples.
@@ -261,7 +263,8 @@ def _aggregate_mean_latency(gdf: gpd.GeoDataFrame) -> float:
     Returns:
         float: The aggregated latency value.
     """
-    return np.average(gdf["latency"], weights=gdf["samples"])
+    return float(np.average(gdf["latency"], weights=gdf["samples"]))
+
 
 def grid_latencies(
     reduced_latencies: gpd.GeoDataFrame, cells: gpd.GeoDataFrame

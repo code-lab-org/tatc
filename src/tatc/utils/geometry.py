@@ -3,6 +3,7 @@ Geometry utility functions.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 from typing import overload
@@ -23,8 +24,12 @@ from shapely.ops import split
 @overload
 def project_polygon_to_elevation(polygon: Polygon, elevation: float) -> Polygon: ...
 
+
 @overload
-def project_polygon_to_elevation(polygon: MultiPolygon, elevation: float) -> MultiPolygon: ...
+def project_polygon_to_elevation(
+    polygon: MultiPolygon, elevation: float
+) -> MultiPolygon: ...
+
 
 def project_polygon_to_elevation(
     polygon: Polygon | MultiPolygon, elevation: float
@@ -48,11 +53,14 @@ def project_polygon_to_elevation(
         [project_polygon_to_elevation(g, elevation) for g in polygon.geoms]
     )
 
+
 @overload
 def _wrap_polygon_over_north_pole(polygon: Polygon) -> Polygon: ...
 
+
 @overload
 def _wrap_polygon_over_north_pole(polygon: MultiPolygon) -> MultiPolygon: ...
+
 
 def _wrap_polygon_over_north_pole(
     polygon: Polygon | MultiPolygon,
@@ -156,11 +164,14 @@ def _split_polygon_north_pole(
         )
     raise ValueError("Unknown geometry: " + str(type(polygon)))
 
+
 @overload
 def _wrap_polygon_over_south_pole(polygon: Polygon) -> Polygon: ...
 
+
 @overload
 def _wrap_polygon_over_south_pole(polygon: MultiPolygon) -> MultiPolygon: ...
+
 
 def _wrap_polygon_over_south_pole(
     polygon: Polygon | MultiPolygon,
@@ -264,11 +275,14 @@ def _split_polygon_south_pole(
         )
     raise ValueError("Unknown geometry: " + str(type(polygon)))
 
+
 @overload
 def _wrap_polygon_over_antimeridian(polygon: Polygon) -> Polygon: ...
 
+
 @overload
 def _wrap_polygon_over_antimeridian(polygon: MultiPolygon) -> MultiPolygon: ...
+
 
 def _wrap_polygon_over_antimeridian(
     polygon: Polygon | MultiPolygon,
@@ -453,7 +467,7 @@ def split_polygon(
     # invalid polygons can arise from narrow sensor geometries in polar regions
     if not polygon.is_valid:
         # try to fix geometry
-        polygon = make_valid(polygon) # type: ignore
+        polygon = make_valid(polygon)  # type: ignore
         if isinstance(polygon, GeometryCollection):
             polygon = _convert_collection_to_polygon(polygon)
     return polygon

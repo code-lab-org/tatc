@@ -21,7 +21,9 @@ class MolniyaOrbit(MolniyaTundraOrbitBase):
     Orbit defined by Molniya parameters.
     """
 
-    type: Literal["molniya"] = Field(default="molniya", description="Orbit type discriminator.")
+    type: Literal["molniya"] = Field(
+        default="molniya", description="Orbit type discriminator."
+    )
 
     def get_orbit_period(self) -> timedelta:
         """

@@ -3,11 +3,12 @@ Methods to perform radio occultation (RO) coverage analysis.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from itertools import chain
-from typing import Callable
 
 import geopandas as gpd
 import numpy as np
@@ -80,16 +81,10 @@ def _tangent_point_geometry(
                 (
                     np.divide(
                         (
-                            np.einsum(
-                                "ij,ij->j", tx_v_m_per_s, rx_tx_p_m
-                            )
-                            + np.einsum(
-                                "ij,ij->j", tx_p_m, rx_tx_v_m_per_s
-                            )
+                            np.einsum("ij,ij->j", tx_v_m_per_s, rx_tx_p_m)
+                            + np.einsum("ij,ij->j", tx_p_m, rx_tx_v_m_per_s)
                         ),
-                        np.einsum(
-                            "ij,ij->j", rx_tx_p_m, rx_tx_p_m
-                        ),
+                        np.einsum("ij,ij->j", rx_tx_p_m, rx_tx_p_m),
                     )
                     - 2
                     * np.divide(
@@ -99,14 +94,10 @@ def _tangent_point_geometry(
                                 rx_tx_v_m_per_s,
                                 rx_tx_p_m,
                             ),
-                            np.einsum(
-                                "ij,ij->j", tx_p_m, rx_tx_p_m
-                            ),
+                            np.einsum("ij,ij->j", tx_p_m, rx_tx_p_m),
                         ),
                         np.power(
-                            np.einsum(
-                                "ij,ij->j", rx_tx_p_m, rx_tx_p_m
-                            ),
+                            np.einsum("ij,ij->j", rx_tx_p_m, rx_tx_p_m),
                             2,
                         ),
                     )
@@ -116,9 +107,7 @@ def _tangent_point_geometry(
     else:
         tp_v = None
     # intersecting (-1) or parallel (+1) view of tangent point
-    tp_sign = np.sign(
-        np.einsum("ij,ij->j", tp_p - tx_p_m, tp_p - rx_p_m)
-    )
+    tp_sign = np.sign(np.einsum("ij,ij->j", tp_p - tx_p_m, tp_p - rx_p_m))
     # relative transmitter position from receiver in plane normal to receiver orbit
     rx_tx_p_rx_n_plane = rx_tx_pv.position.m - np.einsum(
         "ij,j->ij", rx_n_u, np.einsum("ij,ij->j", rx_n_u, rx_tx_p_m)
@@ -144,16 +133,16 @@ def _tangent_point_geometry(
     return tp_p, tp_v, tp_sign, rx_tx_pitch, rx_tx_yaw
 
 
-def _receiver_frame_vectors(rx_pv: Geocentric) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _receiver_frame_vectors(
+    rx_pv: Geocentric,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Computes the receiver body-fixed (VNB) frame unit vectors.
     """
     rx_p_m = np.array(rx_pv.position.m)
     rx_v_m_per_s = np.array(rx_pv.velocity.m_per_s)
     # unit vector tangent to receiver orbit plane (VNB x-axis)
-    rx_v_u = np.divide(
-        rx_v_m_per_s, np.linalg.norm(rx_v_m_per_s, axis=0)
-    )
+    rx_v_u = np.divide(rx_v_m_per_s, np.linalg.norm(rx_v_m_per_s, axis=0))
     # unit vector normal to receiver orbit plane (VNB y-axis)
     rx_n_u = np.cross(rx_p_m, rx_v_m_per_s, 0, 0, -1).T
     rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
@@ -187,7 +176,7 @@ def _make_ro_validity_function(
         )
         return valid.astype(int)
 
-    f.step_days = step_days # type: ignore
+    f.step_days = step_days  # type: ignore
     return f
 
 
@@ -259,7 +248,7 @@ def _sample_ro_arc(
     occ_obs = []
     # occultation arc
     occ_arc = None
-    for j in range(len(times)):
+    for j, time in enumerate(times):
         if in_range[j]:
             if occ_arc is None:
                 # start of new RO observation
@@ -270,7 +259,7 @@ def _sample_ro_arc(
                 }
             occ_arc["points"].append(
                 {
-                    "time": times[j],
+                    "time": time,
                     "longitude": longitude[j],
                     "latitude": latitude[j],
                     "elevation": elevation[j],
@@ -312,7 +301,9 @@ def _collect_ro_series(
         timescale.from_datetime(start), timescale.from_datetime(end), is_valid
     )
     initial_valid = bool(is_valid(timescale.from_datetimes([start]))[0])
-    final_valid = bool(transition_values[-1]) if len(transition_values) else initial_valid
+    final_valid = (
+        bool(transition_values[-1]) if len(transition_values) else initial_valid
+    )
     # boundary times/values delimiting alternating valid/invalid segments
     boundary_times = [start] + list(transition_times.utc_datetime()) + [end]
     boundary_values = (
@@ -425,8 +416,10 @@ def collect_ro_observations(
         time_step (datetime.timedelta): the time step used to sample tangent point
             tracks within each observation period, once its bounds are found.
         sample_elevation: (float): the elevation (m) at which to interpolate observation attributes.
-        max_yaw (float): the maximum transmitter yaw angle (from receiver body-fixed frame) for a valid obsevation.
-        range_elevation: (tuple[float, float]): the lower and upper bound on tangent point elevation (m) for a valid observation.
+        max_yaw (float): the maximum transmitter yaw angle (from receiver body-fixed frame) 
+            for a valid obsevation.
+        range_elevation: (tuple[float, float]): the lower and upper bound on tangent 
+            point elevation (m) for a valid observation.
         min_profile_duration (datetime.timedelta): the shortest RO observation period
             guaranteed to be detected. Sets the coarse scan resolution used to search
             for observation periods (via `skyfield.searchlib.find_discrete`),

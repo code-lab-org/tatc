@@ -22,5 +22,6 @@ class BaseConstellation(SpaceSystem):
         Returns:
             list[SpaceSystem]: The list of generated members.
         """
-        raise NotImplementedError("generate_members() must be implemented in subclasses.")
-
+        raise NotImplementedError(
+            "generate_members() must be implemented in subclasses."
+        )

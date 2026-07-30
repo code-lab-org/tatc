@@ -175,9 +175,9 @@ def collect_observations(
     """
     instrument = satellite.instruments[instrument_index]
     # compute the initial satellite altitude
-    init_altitude = satellite.orbit.to_gp_orbit().get_geographic_position(
-        start
-    ).elevation.m
+    init_altitude = (
+        satellite.orbit.to_gp_orbit().get_geographic_position(start).elevation.m
+    )
     # compute the minimum altitude angle required for observation
     min_elevation_angle = compute_min_elevation_angle(
         init_altitude,
@@ -213,7 +213,7 @@ def collect_observations(
                     )
                 ),
                 wgs84.latlon(point.latitude, point.longitude, point.elevation),
-            )
+            ).all()
             and (
                 not isinstance(instrument, PointedInstrument)
                 or compute_footprint(
@@ -224,7 +224,9 @@ def collect_observations(
                     pitch_angle=instrument.pitch_angle,
                     is_rectangular=instrument.is_rectangular,
                     elevation=point.elevation,
-                ).contains(geo.Point(point.longitude, point.latitude)) # type: ignore
+                )[0].contains(
+                    geo.Point(point.longitude, point.latitude)
+                )
             )
         )
     ]
@@ -237,8 +239,8 @@ def collect_observations(
         orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(gdf.epoch.tolist())
         # append satellite altitude/azimuth columns
         sat_altaz = (orbit_track - topos.at(ts)).altaz()
-        gdf["sat_alt"] = sat_altaz[0].degrees # type: ignore
-        gdf["sat_az"] = sat_altaz[1].degrees # type: ignore
+        gdf["sat_alt"] = sat_altaz[0].degrees  # type: ignore
+        gdf["sat_az"] = sat_altaz[1].degrees  # type: ignore
         if not omit_solar:
             # append satellite sunlit column
             gdf["sat_sunlit"] = orbit_track.is_sunlit(de421)
@@ -279,9 +281,7 @@ def collect_multi_observations(
     """
     gdfs = [
         collect_observations(point, satellite, start, end, instrument_index, omit_solar)
-        for satellite in (
-            satellites if isinstance(satellites, list) else [satellites]
-        )
+        for satellite in (satellites if isinstance(satellites, list) else [satellites])
         for instrument_index in range(len(satellite.instruments))
     ]
     # concatenate into one data frame, sort by start time, and re-index
@@ -333,8 +333,8 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
             "obs",
             aggfunc={
                 "point_id": "first",
-                "satellite": ", ".join, # type: ignore
-                "instrument": ", ".join, # type: ignore
+                "satellite": ", ".join,  # type: ignore
+                "instrument": ", ".join,  # type: ignore
                 "start": "min",
                 "epoch": "mean",
                 "end": "max",
@@ -400,6 +400,7 @@ def reduce_observations(aggregated_observations: gpd.GeoDataFrame) -> gpd.GeoDat
     gdf["revisit"] = pd.to_timedelta(gdf["revisit"], unit="s")
     return gdf
 
+
 def _aggregate_mean_access(gdf: gpd.GeoDataFrame) -> float:
     """
     Aggregates the mean access value from a GeoDataFrame of access times and samples.
@@ -410,7 +411,8 @@ def _aggregate_mean_access(gdf: gpd.GeoDataFrame) -> float:
     Returns:
         float: The aggregated latency value.
     """
-    return np.average(gdf["access"], weights=gdf["samples"])
+    return float(np.average(gdf["access"], weights=gdf["samples"]))
+
 
 def _aggregate_mean_revisit(gdf: gpd.GeoDataFrame) -> float:
     """
@@ -422,7 +424,7 @@ def _aggregate_mean_revisit(gdf: gpd.GeoDataFrame) -> float:
     Returns:
         float: The aggregated revisit value.
     """
-    return np.average(gdf["revisit"], weights=gdf["samples"])
+    return float(np.average(gdf["revisit"], weights=gdf["samples"]))
 
 
 def grid_observations(
