@@ -488,34 +488,32 @@ class GeneralPerturbationsOrbit(BaseModel):
         if at_times is None:
             return 0
         # lazy-load element epochs
-        element_epochs = np.array(self.get_element_epochs(), dtype="datetime64[ns]")
+        element_epochs = utils.to_datetime64_ns(self.get_element_epochs())
         # handle scalar
         if isinstance(at_times, datetime):
-            idx = np.searchsorted(
-                element_epochs, np.datetime64(at_times, "ns"), side="left"
-            )
+            at_time = utils.to_datetime64_ns(at_times)
+            idx = np.searchsorted(element_epochs, at_time, side="left")
             return (
                 int(idx - 1)
                 if idx > 0
                 and (
                     idx == len(element_epochs)
-                    or abs(at_times - element_epochs[idx - 1])
-                    < abs(at_times - element_epochs[idx])
+                    or abs(at_time - element_epochs[idx - 1])
+                    < abs(at_time - element_epochs[idx])
                 )
                 else int(idx)
             )
         # handle vector
-        indices = np.searchsorted(
-            element_epochs, np.array(at_times, dtype="datetime64[ns]"), side="left"
-        )
+        at_time_array = utils.to_datetime64_ns(at_times)
+        indices = np.searchsorted(element_epochs, at_time_array, side="left")
         return [
             (
                 int(idx - 1)
                 if idx > 0
                 and (
                     idx == len(element_epochs)
-                    or abs(at_times[i] - element_epochs[idx - 1])
-                    < abs(at_times[i] - element_epochs[idx])
+                    or abs(at_time_array[i] - element_epochs[idx - 1])
+                    < abs(at_time_array[i] - element_epochs[idx])
                 )
                 else int(idx)
             )

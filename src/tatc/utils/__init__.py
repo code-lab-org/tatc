@@ -37,6 +37,7 @@ from .projection import (
     compute_projected_ray_position,
 )
 from .surface import compute_number_samples
+from .time import to_datetime64_ns
 
 __all__ = [
     "buffer_footprint",
@@ -66,6 +67,7 @@ __all__ = [
     "split_polygon",
     "swath_width_to_field_of_regard",
     "swath_width_to_field_of_view",
+    "to_datetime64_ns",
     "true_anomaly_to_mean_anomaly",
     "zero_pad",
 ]
