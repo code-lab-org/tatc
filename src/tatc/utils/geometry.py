@@ -35,14 +35,16 @@ def project_polygon_to_elevation(
     polygon: Polygon | MultiPolygon, elevation: float
 ) -> Polygon | MultiPolygon:
     """
-    Projects a polygon to a specified elevation (z-coordinate).
+    Assigns a fixed z-coordinate (elevation) to every coordinate of a
+    polygon or multipolygon, including exterior and interior (hole) rings.
+    Any existing z-coordinate is overwritten, not offset.
 
     Args:
         polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to project.
-        elevation (float): The elevation (meters) above the WGS 84 geoid.
+        elevation (float): The elevation (meters) above the WGS 84 geoid to assign to every coordinate.
 
     Returns:
-        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The projected polygon.
+        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The projected polygon, matching the input type.
     """
     if isinstance(polygon, Polygon):
         return Polygon(

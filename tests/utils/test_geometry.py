@@ -8,13 +8,84 @@ import unittest
 import geopandas as gpd
 from shapely.geometry import MultiPolygon, Polygon
 
-from tatc.utils import normalize_geometry, split_polygon
+from tatc.utils import normalize_geometry, project_polygon_to_elevation, split_polygon
 
 
 class TestGeometry(unittest.TestCase):
     """
     Unit tests for the tatc.utils.geometry module.
     """
+    def test_project_polygon_to_elevation_polygon(self):
+        """
+        Test that all exterior coordinates of a polygon are assigned the
+        specified elevation as a z-coordinate, leaving x/y unchanged.
+        """
+        polygon = Polygon([(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)])
+        result = project_polygon_to_elevation(polygon, 500)
+        self.assertIsInstance(result, Polygon)
+        self.assertEqual(
+            list(result.exterior.coords),
+            [(x, y, 500) for x, y in polygon.exterior.coords],
+        )
+
+    def test_project_polygon_to_elevation_polygon_with_hole(self):
+        """
+        Test that both exterior and interior ring coordinates are assigned
+        the specified elevation.
+        """
+        exterior = [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)]
+        interior = [(2, 2), (2, 4), (4, 4), (4, 2), (2, 2)]
+        polygon = Polygon(exterior, [interior])
+        result = project_polygon_to_elevation(polygon, 250)
+        self.assertEqual(
+            list(result.exterior.coords), [(x, y, 250) for x, y in exterior]
+        )
+        self.assertEqual(len(list(result.interiors)), 1)
+        self.assertEqual(
+            list(result.interiors[0].coords), [(x, y, 250) for x, y in interior]
+        )
+
+    def test_project_polygon_to_elevation_overwrites_existing_z(self):
+        """
+        Test that an existing z-coordinate is replaced (not offset) by the
+        specified elevation.
+        """
+        polygon = Polygon(
+            [(0, 0, 100), (10, 0, 100), (10, 10, 100), (0, 10, 100), (0, 0, 100)]
+        )
+        result = project_polygon_to_elevation(polygon, 50)
+        self.assertEqual(
+            list(result.exterior.coords), [(x, y, 50) for x, y, _ in polygon.exterior.coords]
+        )
+
+    def test_project_polygon_to_elevation_negative(self):
+        """
+        Test that a negative elevation (below the WGS 84 geoid) is applied as-is.
+        """
+        polygon = Polygon([(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)])
+        result = project_polygon_to_elevation(polygon, -500)
+        self.assertEqual(
+            list(result.exterior.coords),
+            [(x, y, -500) for x, y in polygon.exterior.coords],
+        )
+
+    def test_project_polygon_to_elevation_multipolygon(self):
+        """
+        Test that a multipolygon projects each constituent polygon to the
+        specified elevation and preserves the number of geometries.
+        """
+        polygon_a = Polygon([(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)])
+        polygon_b = Polygon([(20, 0), (30, 0), (30, 10), (20, 10), (20, 0)])
+        multipolygon = MultiPolygon([polygon_a, polygon_b])
+        result = project_polygon_to_elevation(multipolygon, 1000)
+        self.assertIsInstance(result, MultiPolygon)
+        self.assertEqual(len(result.geoms), 2)
+        for original, projected in zip(multipolygon.geoms, result.geoms):
+            self.assertEqual(
+                list(projected.exterior.coords),
+                [(x, y, 1000) for x, y in original.exterior.coords],
+            )
+
     def test_split_polygon_nominal_small(self):
         """
         Test that a polygon that does not cross the antimeridian or poles is not split.
