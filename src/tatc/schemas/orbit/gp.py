@@ -9,8 +9,10 @@ from __future__ import annotations
 import csv
 import json
 from datetime import datetime, timedelta, timezone
+from typing import Literal, overload
 
 import numpy as np
+import numpy.typing as npt
 from pydantic import BaseModel, Field
 from sgp4 import exporter, omm
 from sgp4.api import WGS72, Satrec
@@ -18,7 +20,7 @@ from sgp4.conveniences import sat_epoch_datetime
 from skyfield.api import EarthSatellite, Time, wgs84
 from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
-from typing_extensions import Literal
+from skyfield.toposlib import GeographicPosition
 
 from ... import config, constants, utils
 from ..surface import Point
@@ -27,7 +29,7 @@ from ..surface import Point
 class GeneralPerturbationsElements(BaseModel):
     """General perturbations orbital elements for a satellite."""
 
-    object_name: str | None = Field(None, description="Object name.")
+    object_name: str | None = Field(default=None, description="Object name.")
     epoch: datetime = Field(..., description="Epoch.")
     mean_motion: float = Field(..., description="Mean motion (degrees/second).", gt=0)
     eccentricity: float = Field(..., description="Eccentricity.", ge=0, le=1)
@@ -41,19 +43,21 @@ class GeneralPerturbationsElements(BaseModel):
     mean_anomaly: float = Field(
         ..., description="Mean anomaly (degrees).", ge=0, lt=360
     )
-    norad_cat_id: int = Field(0, description="NORAD catalog identifier.", ge=0)
-    bstar: float = Field(0, description="Starred ballistic coefficient.")
+    norad_cat_id: int = Field(default=0, description="NORAD catalog identifier.", ge=0)
+    bstar: float = Field(default=0, description="Starred ballistic coefficient.")
     mean_motion_dot: float = Field(
-        0, description="First derivative of mean motion (degrees/second^2)."
+        default=0, description="First derivative of mean motion (degrees/second^2)."
     )
     mean_motion_ddot: float = Field(
-        0, description="Second derivative of mean motion (degrees/second^3)."
+        default=0, description="Second derivative of mean motion (degrees/second^3)."
     )
-    classification: str = Field("U", description="Classification type.")
-    international_designator: str = Field("00000A", description="International designator.")
-    ephemeris_type: int = Field(0, description="Ephemeris type.")
-    element_set_num: int = Field(0, description="Element set number.")
-    revolution_num: int = Field(0, description="Revolution number at epoch.")
+    classification: str = Field(default="U", description="Classification type.")
+    international_designator: str = Field(
+        default="00000A", description="International designator."
+    )
+    ephemeris_type: int = Field(default=0, description="Ephemeris type.")
+    element_set_num: int = Field(default=0, description="Element set number.")
+    revolution_num: int = Field(default=0, description="Revolution number at epoch.")
 
     @classmethod
     def from_satrec(cls, satrec: Satrec) -> GeneralPerturbationsElements:
@@ -153,7 +157,7 @@ class GeneralPerturbationsElements(BaseModel):
         )
 
     @classmethod
-    def from_tle(cls, tle_lines: list[str]) -> GeneralPerturbationsElements:
+    def from_tle(cls, tle_lines: tuple[str, str]) -> GeneralPerturbationsElements:
         """
         Creates a GP elements object from two line element (TLE) lines.
 
@@ -164,12 +168,12 @@ class GeneralPerturbationsElements(BaseModel):
             Satrec.twoline2rv(tle_lines[0], tle_lines[1])
         )
 
-    def to_tle(self) -> list[str]:
+    def to_tle(self) -> tuple[str, str]:
         """
         Converts this GP elements object to a two line element (TLE) representation.
 
         Returns:
-            list[str]: the two line elements
+            tuple[str, str]: the two line elements
         """
         return exporter.export_tle(self.to_satrec())
 
@@ -204,6 +208,7 @@ class GeneralPerturbationsElements(BaseModel):
         """
         for fields in csv.DictReader(omm_csv):
             return GeneralPerturbationsElements.from_omm_dict(fields)
+        raise ValueError("No OMM CSV lines found.")
 
     @classmethod
     def from_omm_json(cls, omm_json: str) -> GeneralPerturbationsElements:
@@ -215,6 +220,7 @@ class GeneralPerturbationsElements(BaseModel):
         """
         for fields in json.loads(omm_json):
             return GeneralPerturbationsElements.from_omm_dict(fields)
+        raise ValueError("No OMM JSON lines found.")
 
     def to_skyfield(self):
         """
@@ -231,7 +237,7 @@ class GeneralPerturbationsOrbit(BaseModel):
     Orbit defined with general perturbations (GP) elements.
     """
 
-    type: Literal["gp"] = Field("gp", description="Orbit type discriminator.")
+    type: Literal["gp"] = Field(default="gp", description="Orbit type discriminator.")
     elements: list[GeneralPerturbationsElements] = Field(
         ..., description="General perturbations elements."
     )
@@ -320,6 +326,18 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         return self.elements[index].mean_anomaly
 
+    def get_orbit_period(self, index: int = 0) -> timedelta:
+        """
+        Gets the approximate orbit period of the specified element.
+
+        Args:
+            index (int): the index of the element
+
+        Returns:
+            timedelta: the orbit period
+        """
+        return self.elements[index].get_orbit_period()
+
     def get_true_anomaly(self, index: int = 0) -> float:
         """
         Gets the true anomaly of the specified element.
@@ -355,18 +373,21 @@ class GeneralPerturbationsOrbit(BaseModel):
             float: the argument of perigee (degrees)
         """
         return self.elements[index].arg_of_pericenter
-    
+
     @classmethod
     def from_tle(cls, tle_lines: list[str]) -> GeneralPerturbationsOrbit:
         """
         Creates a GP orbit from two line element (TLE) lines.
+
+        Args:
+            tle_lines (list[str]): the two line element lines
 
         Returns:
             GeneralPerturbationsOrbit: the GP orbit
         """
         return GeneralPerturbationsOrbit(
             elements=[
-                GeneralPerturbationsElements.from_tle(tle_lines[i : i + 2])
+                GeneralPerturbationsElements.from_tle((tle_lines[i], tle_lines[i + 1]))
                 for i in range(0, len(tle_lines), 2)
             ]
         )
@@ -413,8 +434,8 @@ class GeneralPerturbationsOrbit(BaseModel):
         if element_epochs is None:
             # extract the element epoch times
             element_epochs = np.array([el.epoch for el in self.elements])
-            self.__dict__["element_epochs"] = element_epochs
-        return element_epochs
+            self.__dict__["element_epochs"] = element_epochs  # type: ignore
+        return element_epochs  # type: ignore
 
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float
@@ -442,14 +463,23 @@ class GeneralPerturbationsOrbit(BaseModel):
             derived_elements.append(derived_el)
         return GeneralPerturbationsOrbit(elements=derived_elements)
 
+    @overload
+    def get_closest_element_index(self, at_times: datetime) -> int: ...
+
+    @overload
+    def get_closest_element_index(self, at_times: list[datetime]) -> list[int]: ...
+
+    @overload
+    def get_closest_element_index(self, at_times: npt.NDArray[np.datetime64]) -> list[int]: ...
+
     def get_closest_element_index(
-        self, at_times: datetime | list[datetime]
+        self, at_times: datetime | list[datetime] | npt.NDArray[np.datetime64]
     ) -> int | list[int]:
         """
         Gets the closest element index to specified time(s).
 
         Args:
-            at_times (datetime | list[datetime]): specified times
+            at_times (datetime | list[datetime] | npt.NDArray[np.datetime64]): specified times
 
         Returns:
             int | list[int]: closest element index or indices
@@ -458,10 +488,12 @@ class GeneralPerturbationsOrbit(BaseModel):
         if at_times is None:
             return 0
         # lazy-load element epochs
-        element_epochs = self.get_element_epochs()
+        element_epochs = np.array(self.get_element_epochs(), dtype="datetime64[ns]")
         # handle scalar
         if isinstance(at_times, datetime):
-            idx = np.searchsorted(element_epochs, at_times, side="left")
+            idx = np.searchsorted(
+                element_epochs, np.datetime64(at_times, "ns"), side="left"
+            )
             return (
                 int(idx - 1)
                 if idx > 0
@@ -473,7 +505,9 @@ class GeneralPerturbationsOrbit(BaseModel):
                 else int(idx)
             )
         # handle vector
-        indices = np.searchsorted(element_epochs, at_times, side="left")
+        indices = np.searchsorted(
+            element_epochs, np.array(at_times, dtype="datetime64[ns]"), side="left"
+        )
         return [
             (
                 int(idx - 1)
@@ -488,14 +522,29 @@ class GeneralPerturbationsOrbit(BaseModel):
             for i, idx in enumerate(indices)
         ]
 
+    @overload
     def get_closest_element(
-        self, at_times: datetime | list[datetime]
+        self, at_times: datetime
+    ) -> GeneralPerturbationsElements: ...
+
+    @overload
+    def get_closest_element(
+        self, at_times: list[datetime]
+    ) -> list[GeneralPerturbationsElements]: ...
+
+    @overload
+    def get_closest_element(
+        self, at_times: npt.NDArray[np.datetime64]
+    ) -> list[GeneralPerturbationsElements]: ...
+
+    def get_closest_element(
+        self, at_times: datetime | list[datetime] | npt.NDArray[np.datetime64]
     ) -> GeneralPerturbationsElements | list[GeneralPerturbationsElements]:
         """
         Gets the closest element to specified time(s).
 
         Args:
-            at_times (datetime | list[datetime]): specified times
+            at_times (datetime | list[datetime] | npt.NDArray[np.datetime64]): specified times
 
         Returns:
             GeneralPerturbationsElements | list[GeneralPerturbationsElements]: closest element or elements
@@ -520,7 +569,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         if len(self.elements) <= 1:
             return [start, end], [0, 0]
-        element_epochs = self.get_element_epochs()
+        element_epochs = np.array(self.get_element_epochs(), dtype="datetime64[ns]")
         sorted_epochs = np.sort(element_epochs)
         element_indices = np.argsort(element_epochs)
         epoch_midpoints = (
@@ -543,7 +592,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         min_elevation_angle: float | None = None,
         max_search_duration: timedelta | None = None,
         lazy_load: bool | None = None,
-    ) -> timedelta:
+    ) -> timedelta | None:
         """
         Compute the orbit repeat cycle. Lazy-loads a previously-computed repeat cycle if available.
 
@@ -595,11 +644,15 @@ class GeneralPerturbationsOrbit(BaseModel):
             )
             # compute position and velocity at culmination in Earth-centered Earth-fixed frame
             position, velocity = satellite.at(ts[es == 1]).frame_xyz_and_velocity(itrs)
+            p_m = np.array(position.m)
+            v_m_per_s = np.array(velocity.m_per_s)
+            p_0_m = np.array(position_0.m)
+            v_0_m_per_s = np.array(velocity_0.m_per_s)
             # apply validity conditions on position and velocity error norms
             is_valid = np.logical_and(
-                np.linalg.norm((position.m.T - position_0.m.T).T, axis=0)
+                np.linalg.norm((p_m.T - p_0_m.T).T, axis=0)
                 < max_delta_position,
-                np.linalg.norm((velocity.m_per_s.T - velocity_0.m_per_s.T).T, axis=0)
+                np.linalg.norm((v_m_per_s.T - v_0_m_per_s.T).T, axis=0)
                 < max_delta_velocity,
             )
             if np.any(is_valid):
@@ -608,77 +661,133 @@ class GeneralPerturbationsOrbit(BaseModel):
             else:
                 # assign zero repeat cycle value to avoid recalculation
                 repeat_cycle = timedelta(0)
-            self.__dict__["repeat_cycle"] = repeat_cycle
-        if repeat_cycle > timedelta(0):
+            self.__dict__["repeat_cycle"] = repeat_cycle  # type: ignore
+        if repeat_cycle is not None and repeat_cycle > timedelta(0):
             return repeat_cycle
         return None
 
-    def get_orbit_track(
-        self, times: datetime | list[datetime], try_repeat: bool | None = None
-    ) -> Geocentric:
+    def get_orbit_track_at_time(self, t: Time) -> Geocentric:
         """
-        Gets the orbit track of this orbit using Skyfield.
+        Gets the true (directly propagated) orbit track of this orbit at given
+        Skyfield time(s), in the inertial (GCRS) frame.
+
+        Prefer this method over `get_orbit_track` when a Skyfield `Time` is
+        already in hand (e.g. while iterating a Skyfield search such as
+        `skyfield.searchlib.find_discrete`). Converting a `Time` to Python
+        `datetime` objects and back (as `get_orbit_track` must, since it only
+        accepts `datetime`) builds a new `Time` instance that starts without any
+        of the per-instant quantities Skyfield caches on a `Time` object (such as
+        nutation angles), forcing Skyfield to recompute them from scratch.
 
         Args:
-            times (datetime | list[datetime]): time(s) at which to compute position/velocity.
-            try_repeat (bool | None): True, if a repeat orbit should be used to improve long-term accuracy.
+            t (skyfield.timelib.Time): time(s) at which to compute position/velocity.
 
         Returns:
             skyfield.positionlib.Geocentric: the orbit track position/velocity
         """
-        # load defaults
+        if len(self.elements) > 1:
+            # try to use multiple TLEs
+            nearest_indices = self.get_closest_element_index(t.utc_datetime())
+            if isinstance(nearest_indices, int):
+                return self.elements[nearest_indices].to_skyfield().at(t) # type: ignore
+            nearest_indices = np.asarray(nearest_indices)
+            position_au = np.empty((3,) + t.shape)
+            velocity_au_per_d = np.empty((3,) + t.shape)
+            for element_index in np.unique(nearest_indices):
+                # propagate each distinct nearest TLE across all its assigned
+                # times in one vectorized call, rather than one time at a time
+                mask = nearest_indices == element_index
+                track = self.elements[element_index].to_skyfield().at(t[mask])
+                position_au[:, mask] = track.position.au
+                velocity_au_per_d[:, mask] = track.velocity.au_per_d
+            return Geocentric(position_au, velocity_au_per_d, t)
+        # compute satellite positions directly at the given time(s)
+        return self.elements[0].to_skyfield().at(t) # type: ignore
+
+    def get_orbit_track(self, times: datetime | list[datetime]) -> Geocentric:
+        """
+        Gets the true (directly propagated) orbit track of this orbit using
+        Skyfield, in the inertial (GCRS) frame.
+
+        Args:
+            times (datetime | list[datetime]): time(s) at which to compute position/velocity.
+
+        Returns:
+            skyfield.positionlib.Geocentric: the orbit track position/velocity
+        """
+        t = (
+            constants.timescale.from_datetime(times)
+            if isinstance(times, datetime)
+            else constants.timescale.from_datetimes(times)
+        )
+        return self.get_orbit_track_at_time(t)
+
+    def get_geographic_position_at_time(
+        self, t: Time, try_repeat: bool | None = None
+    ) -> GeographicPosition:
+        """
+        Gets the geodetic (WGS84) position of this orbit at given Skyfield
+        time(s), in an Earth-fixed frame.
+
+        Unlike `get_orbit_track_at_time`, this method may substitute a detected
+        repeat cycle to improve long-term accuracy: rather than directly
+        propagating to a possibly-distant `t`, it propagates near this orbit's
+        epoch (reducing `t`'s offset from epoch modulo the repeat cycle) and
+        relies on the orbit's ground track repeating with that period. Because
+        the result is a `GeographicPosition` -- a location descriptor, not a
+        frozen inertial state vector -- it can be freely reused afterward (e.g.
+        `.at(some_time)` for a look angle or Sun angle at any moment) without
+        carrying forward any inaccuracy from the substitution.
+
+        Args:
+            t (skyfield.timelib.Time): time(s) at which to compute geodetic position.
+            try_repeat (bool | None): True, if a repeat orbit should be used to improve long-term accuracy.
+
+        Returns:
+            skyfield.toposlib.GeographicPosition: the geodetic position
+        """
         if try_repeat is None:
             try_repeat = config.rc.repeat_cycle_for_orbit_track
-
-        if len(self.elements) > 1:
-            # try to use use multiple TLEs
-            if isinstance(times, datetime):
-                nearest_index = self.get_closest_element_index(times)
-                return (
-                    self.elements[nearest_index]
-                    .to_skyfield()
-                    .at(constants.timescale.from_datetime(times))
-                )
-            nearest_indices = self.get_closest_element_index(times)
-            tracks = [
-                self.elements[i].to_skyfield().at(constants.timescale.from_datetime(t))
-                for i, t in zip(nearest_indices, times)
-            ]
-            return Geocentric(
-                np.array([track.position.au for track in tracks]).T,
-                np.array([track.velocity.au_per_d for track in tracks]).T,
-                constants.timescale.from_datetimes(times),
-            )
-        # create skyfield Time
-        if isinstance(times, datetime):
-            ts_times = constants.timescale.from_datetime(times)
-        else:
-            ts_times = constants.timescale.from_datetimes(times)
-        if try_repeat:
-            # try to compute repeat cycle positions
+        if try_repeat and len(self.elements) == 1:
             repeat_cycle = self.get_repeat_cycle()
             if repeat_cycle is not None:
                 epoch = self.get_epoch()
-                if isinstance(times, datetime):
-                    offset = times - epoch
-                    repeat_times = constants.timescale.from_datetime(
-                        epoch
-                        + np.sign(offset / timedelta(1))
-                        * np.mod(np.abs(offset), repeat_cycle)
-                    )
-                else:
-                    offset = np.array(times) - epoch
-                    repeat_times = constants.timescale.from_datetimes(
-                        epoch
-                        + np.sign(offset / timedelta(1))
-                        * np.mod(np.abs(offset), repeat_cycle)
-                    )
-                repeat_track = self.elements[0].to_skyfield().at(repeat_times)
-                return Geocentric(
-                    repeat_track.position.au, repeat_track.velocity.au_per_d, ts_times
+                offset = t.utc_datetime() - epoch
+                repeat_offset = np.multiply(
+                    np.sign(offset / timedelta(1)),
+                    np.mod(np.abs(offset / timedelta(1)), repeat_cycle / timedelta(1))
                 )
-        # compute satellite positions
-        return self.elements[0].to_skyfield().at(ts_times)
+                repeat_times = (
+                    constants.timescale.from_datetime(epoch + repeat_offset)
+                    if t.shape == ()
+                    else constants.timescale.from_datetimes(epoch + repeat_offset)
+                )
+                return wgs84.geographic_position_of(
+                    self.elements[0].to_skyfield().at(repeat_times)
+                )
+        # compute geodetic position from a true, directly propagated orbit track
+        return wgs84.geographic_position_of(self.get_orbit_track_at_time(t))
+
+    def get_geographic_position(
+        self, times: datetime | list[datetime], try_repeat: bool | None = None
+    ) -> GeographicPosition:
+        """
+        Gets the geodetic (WGS84) position of this orbit at given time(s), in
+        an Earth-fixed frame.
+
+        Args:
+            times (datetime | list[datetime]): time(s) at which to compute geodetic position.
+            try_repeat (bool | None): True, if a repeat orbit should be used to improve long-term accuracy.
+
+        Returns:
+            skyfield.toposlib.GeographicPosition: the geodetic position
+        """
+        t = (
+            constants.timescale.from_datetime(times)
+            if isinstance(times, datetime)
+            else constants.timescale.from_datetimes(times)
+        )
+        return self.get_geographic_position_at_time(t, try_repeat)
 
     def get_observation_events(
         self,
@@ -709,7 +818,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             # try to use use multiple TLEs
             part_ts, element_is = self.partition_by_element_index(start, end)
             events = [
-                element_is[i]
+                self.elements[element_is[i]]
                 .to_skyfield()
                 .find_events(
                     topos,
@@ -755,7 +864,6 @@ class GeneralPerturbationsOrbit(BaseModel):
                 )
         # compute observation events
         t_1 = constants.timescale.from_datetime(end)
-        # pylint: disable=E1101
         return (
             self.elements[0]
             .to_skyfield()

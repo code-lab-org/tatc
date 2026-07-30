@@ -3,20 +3,21 @@ Object schemas for Walker constellations.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 import copy
 import math
 from enum import Enum
+from typing import Literal
 
 import numpy as np
 from pydantic import Field, model_validator
-from typing_extensions import Literal
 
 from tatc.utils.formatting import zero_pad
 
 from ..orbit import AllOrbits
-from .base import SpaceSystem
+from .base_constellation import BaseConstellation
 from .satellite import Satellite
 
 
@@ -29,29 +30,29 @@ class WalkerConfiguration(str, Enum):
     STAR = "star"
 
 
-class WalkerConstellation(SpaceSystem):
+class WalkerConstellation(BaseConstellation):
     """
     A constellation that arranges member satellites following the Walker pattern.
     """
 
     type: Literal["walker"] = Field(
-        "walker", description="Space system type discriminator."
+        default="walker", description="Space system type discriminator."
     )
     configuration: WalkerConfiguration = Field(
-        WalkerConfiguration.DELTA, description="Walker configuration."
+        default=WalkerConfiguration.DELTA, description="Walker configuration."
     )
     orbit: AllOrbits = Field(..., description="Lead orbit for this constellation.")
     number_satellites: int = Field(
-        1, description="Number of satellites in the constellation.", ge=1
+        default=1, description="Number of satellites in the constellation.", ge=1
     )
     number_planes: int = Field(
-        1,
+        default=1,
         description="The number of equally-spaced planes in a Walker Delta "
         + "constellation. Ranges from 1 to (number of satellites).",
         ge=1,
     )
     relative_spacing: int = Field(
-        0,
+        default=0,
         description="Relative spacing of satellites between plans for a Walker Delta "
         + "constellation. Ranges from 0 for equal true anomaly to "
         + "(number of planes) - 1. For example, `relative_spacing=1` "
@@ -134,7 +135,6 @@ class WalkerConstellation(SpaceSystem):
         Returns:
             list[Satellite]: the member satellites
         """
-        # pylint: disable=E1101
         return [
             Satellite(
                 name=zero_pad(self.name, self.number_satellites, i + 1),

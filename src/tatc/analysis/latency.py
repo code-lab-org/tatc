@@ -4,9 +4,10 @@ Methods to perform latency analysis.
 @author: Isaac Feldman
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import geopandas as gpd
 import numpy as np
@@ -53,6 +54,10 @@ def collect_downlinks(
     Returns:
         geopandas.GeoDataFrame: The data frame of collected downlink results.
     """
+    # compute the initial satellite altitude (shared across all ground stations)
+    init_altitude = (
+        satellite.orbit.to_gp_orbit().get_geographic_position(start).elevation.m
+    )
     # collect the records of ground station overpasses
     records = [
         {
@@ -65,11 +70,12 @@ def collect_downlinks(
             "end": period.right,
             "epoch": period.mid,
         }
-        for station in (stations if isinstance(stations, list) else [stations])
+        for station in ([stations] if isinstance(stations, GroundStation) else stations)
         for period in _get_visible_interval_series(
             station,
             satellite,
             station.min_elevation_angle,
+            init_altitude,
             start,
             end,
         )
@@ -231,7 +237,7 @@ def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame
     # operate on a copy of the dataframe
     gdf = latency_observations.copy()
     # convert latency to a numeric value before aggregation
-    gdf["latency"] = gdf["latency"] / timedelta(seconds=1)
+    gdf["latency"] = gdf["latency"].dt.total_seconds()
     # assign each record to one observation
     gdf["samples"] = 1
     # perform the aggregation operation
@@ -243,10 +249,21 @@ def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame
         },
     ).reset_index()
     # convert latency from numeric values after aggregation
-    gdf["latency"] = gdf["latency"].apply(
-        lambda t: pd.NaT if pd.isna(t) else timedelta(seconds=t)
-    )
+    gdf["latency"] = pd.to_timedelta(gdf["latency"], unit="s")
     return gdf
+
+
+def _aggregate_mean_latency(gdf: gpd.GeoDataFrame) -> float:
+    """
+    Aggregates the mean latency value from a GeoDataFrame of latencies and samples.
+
+    Args:
+        gdf (geopandas.GeoDataFrame): A GeoDataFrame containing latency and samples.
+
+    Returns:
+        float: The aggregated latency value.
+    """
+    return float(np.average(gdf["latency"], weights=gdf["samples"]))
 
 
 def grid_latencies(
@@ -270,20 +287,18 @@ def grid_latencies(
     # operate on a copy of the data frame
     gdf = reduced_latencies.copy()
     # convert latency to numeric values before aggregation
-    gdf["latency"] = gdf["latency"] / timedelta(seconds=1)
+    gdf["latency"] = gdf["latency"].dt.total_seconds()
     gdf = (
         cells.sjoin(gdf, how="inner", predicate="contains")
         .dissolve(
             by="cell_id",
             aggfunc={
                 "samples": "sum",
-                "latency": lambda r: np.average(r, weights=gdf.loc[r.index, "samples"]),
+                "latency": _aggregate_mean_latency,
             },
         )
         .reset_index()
     )
     # convert latency from numeric values after aggregation
-    gdf["latency"] = gdf["latency"].apply(
-        lambda t: pd.NaT if pd.isna(t) else timedelta(seconds=t)
-    )
+    gdf["latency"] = pd.to_timedelta(gdf["latency"], unit="s")
     return gdf

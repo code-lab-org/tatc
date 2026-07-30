@@ -4,6 +4,7 @@ Methods to analyze dilusion of precision.
 @author: Michael P. Jones <mpj@mit.edu>
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 import warnings
@@ -13,7 +14,7 @@ from enum import Enum
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from skyfield.api import EarthSatellite, wgs84
+from skyfield.api import wgs84
 
 from ..constants import timescale
 from ..schemas import Point, Satellite
@@ -56,7 +57,7 @@ def compute_dop(
     """
     # construct skyfield satellites for each satellite
     sk_sats = [
-        satellite.orbit.to_gp_orbit().get_closest_element(times[0]).to_skyfield()
+        satellite.orbit.to_gp_orbit().get_closest_element(times[0]).to_skyfield()  # type: ignore
         for satellite in satellites
     ]
 

@@ -3,6 +3,7 @@ Object schemas for mission architectures.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 from pydantic import BaseModel, Field

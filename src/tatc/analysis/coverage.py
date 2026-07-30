@@ -27,6 +27,7 @@ def _get_visible_interval_series(
     point: Point,
     satellite: Satellite,
     min_elevation_angle: float,
+    init_altitude: float,
     start: datetime,
     end: datetime,
 ) -> pd.Series:
@@ -37,16 +38,13 @@ def _get_visible_interval_series(
         point (Point): Point to observe.
         satellite (Satellite): Satellite doing the observation.
         min_elevation_angle (float): Minimum elevation angle (degrees) for valid observation.
+        init_altitude (float): Initial satellite altitude (meters), used to filter bad data.
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
 
     Returns:
         pandas.Series: Series of observation intervals.
     """
-    # compute the initial satellite altitude
-    init_altitude = wgs84.geographic_position_of(
-        satellite.orbit.to_gp_orbit().get_orbit_track(start)
-    ).elevation.m
     # compute the maximum access time to filter bad data
     max_access_time = timedelta(
         seconds=compute_max_access_time(init_altitude, min_elevation_angle)
@@ -177,9 +175,9 @@ def collect_observations(
     """
     instrument = satellite.instruments[instrument_index]
     # compute the initial satellite altitude
-    init_altitude = wgs84.geographic_position_of(
-        satellite.orbit.to_gp_orbit().get_orbit_track(start)
-    ).elevation.m
+    init_altitude = (
+        satellite.orbit.to_gp_orbit().get_geographic_position(start).elevation.m
+    )
     # compute the minimum altitude angle required for observation
     min_elevation_angle = compute_min_elevation_angle(
         init_altitude,
@@ -204,25 +202,31 @@ def collect_observations(
             "epoch": period.mid,
         }
         for period in _get_visible_interval_series(
-            point, satellite, min_elevation_angle, start, end
+            point, satellite, min_elevation_angle, init_altitude, start, end
         )
         if (
             instrument.min_access_time <= period.right - period.left
             and instrument.is_valid_observation(
-                satellite.orbit.to_gp_orbit().get_orbit_track(period.mid),
+                (
+                    orbit_track := satellite.orbit.to_gp_orbit().get_orbit_track(
+                        period.mid
+                    )
+                ),
                 wgs84.latlon(point.latitude, point.longitude, point.elevation),
-            )
+            ).all()
             and (
                 not isinstance(instrument, PointedInstrument)
                 or compute_footprint(
-                    orbit_track=satellite.orbit.to_gp_orbit().get_orbit_track(period.mid),
+                    orbit_track=orbit_track,
                     cross_track_field_of_view=instrument.cross_track_field_of_view,
                     along_track_field_of_view=instrument.along_track_field_of_view,
                     roll_angle=instrument.roll_angle,
                     pitch_angle=instrument.pitch_angle,
                     is_rectangular=instrument.is_rectangular,
                     elevation=point.elevation,
-                ).contains(geo.Point(point.longitude, point.latitude))
+                )[0].contains(
+                    geo.Point(point.longitude, point.latitude)
+                )
             )
         )
     ]
@@ -232,11 +236,11 @@ def collect_observations(
         gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
         ts = timescale.from_datetimes(gdf.epoch)
-        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(gdf.epoch)
+        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(gdf.epoch.tolist())
         # append satellite altitude/azimuth columns
         sat_altaz = (orbit_track - topos.at(ts)).altaz()
-        gdf["sat_alt"] = sat_altaz[0].degrees
-        gdf["sat_az"] = sat_altaz[1].degrees
+        gdf["sat_alt"] = sat_altaz[0].degrees  # type: ignore
+        gdf["sat_az"] = sat_altaz[1].degrees  # type: ignore
         if not omit_solar:
             # append satellite sunlit column
             gdf["sat_sunlit"] = orbit_track.is_sunlit(de421)
@@ -277,10 +281,7 @@ def collect_multi_observations(
     """
     gdfs = [
         collect_observations(point, satellite, start, end, instrument_index, omit_solar)
-        for constellation in (
-            satellites if isinstance(satellites, list) else [satellites]
-        )
-        for satellite in (constellation.generate_members())
+        for satellite in (satellites if isinstance(satellites, list) else [satellites])
         for instrument_index in range(len(satellite.instruments))
     ]
     # concatenate into one data frame, sort by start time, and re-index
@@ -332,8 +333,8 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
             "obs",
             aggfunc={
                 "point_id": "first",
-                "satellite": ", ".join,
-                "instrument": ", ".join,
+                "satellite": ", ".join,  # type: ignore
+                "instrument": ", ".join,  # type: ignore
                 "start": "min",
                 "epoch": "mean",
                 "end": "max",
@@ -381,8 +382,8 @@ def reduce_observations(aggregated_observations: gpd.GeoDataFrame) -> gpd.GeoDat
     # operate on a copy of the data frame
     gdf = aggregated_observations.copy()
     # convert access and revisit to numeric values before aggregation
-    gdf["access"] = gdf["access"] / timedelta(seconds=1)
-    gdf["revisit"] = gdf["revisit"] / timedelta(seconds=1)
+    gdf["access"] = gdf["access"].dt.total_seconds()
+    gdf["revisit"] = gdf["revisit"].dt.total_seconds()
     # assign each record to one observation
     gdf["samples"] = 1
     # perform the aggregation operation
@@ -395,11 +396,35 @@ def reduce_observations(aggregated_observations: gpd.GeoDataFrame) -> gpd.GeoDat
         },
     ).reset_index()
     # convert access and revisit from numeric values after aggregation
-    gdf["access"] = gdf["access"].apply(lambda t: timedelta(seconds=t))
-    gdf["revisit"] = gdf["revisit"].apply(
-        lambda t: pd.NaT if pd.isna(t) else timedelta(seconds=t)
-    )
+    gdf["access"] = pd.to_timedelta(gdf["access"], unit="s")
+    gdf["revisit"] = pd.to_timedelta(gdf["revisit"], unit="s")
     return gdf
+
+
+def _aggregate_mean_access(gdf: gpd.GeoDataFrame) -> float:
+    """
+    Aggregates the mean access value from a GeoDataFrame of access times and samples.
+
+    Args:
+        gdf (geopandas.GeoDataFrame): A GeoDataFrame containing latency and samples.
+
+    Returns:
+        float: The aggregated latency value.
+    """
+    return float(np.average(gdf["access"], weights=gdf["samples"]))
+
+
+def _aggregate_mean_revisit(gdf: gpd.GeoDataFrame) -> float:
+    """
+    Aggregates the mean revisit value from a GeoDataFrame of revisit times and samples.
+
+    Args:
+        gdf (geopandas.GeoDataFrame): A GeoDataFrame containing revisit and samples.
+
+    Returns:
+        float: The aggregated revisit value.
+    """
+    return float(np.average(gdf["revisit"], weights=gdf["samples"]))
 
 
 def grid_observations(
@@ -424,23 +449,21 @@ def grid_observations(
     # operate on a copy of the data frame
     gdf = reduced_observations.copy()
     # convert access and revisit to numeric values before aggregation
-    gdf["access"] = gdf["access"] / timedelta(seconds=1)
-    gdf["revisit"] = gdf["revisit"] / timedelta(seconds=1)
+    gdf["access"] = gdf["access"].dt.total_seconds()
+    gdf["revisit"] = gdf["revisit"].dt.total_seconds()
     gdf = (
         cells.sjoin(gdf, how="inner", predicate="contains")
         .dissolve(
             by="cell_id",
             aggfunc={
                 "samples": "sum",
-                "access": lambda r: np.average(r, weights=gdf.loc[r.index, "samples"]),
-                "revisit": lambda r: np.average(r, weights=gdf.loc[r.index, "samples"]),
+                "access": _aggregate_mean_access,
+                "revisit": _aggregate_mean_revisit,
             },
         )
         .reset_index()
     )
     # convert access and revisit from numeric values after aggregation
-    gdf["access"] = gdf["access"].apply(lambda t: timedelta(seconds=t))
-    gdf["revisit"] = gdf["revisit"].apply(
-        lambda t: pd.NaT if pd.isna(t) else timedelta(seconds=t)
-    )
+    gdf["access"] = pd.to_timedelta(gdf["access"], unit="s")
+    gdf["revisit"] = pd.to_timedelta(gdf["revisit"], unit="s")
     return gdf

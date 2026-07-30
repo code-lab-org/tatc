@@ -3,11 +3,12 @@ Object schemas for off-nadir pointing instruments.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 import numpy as np
 from pydantic import Field
-from shapely import Geometry
+from shapely import MultiPolygon, Polygon
 from shapely.geometry import MultiPoint, Point
 from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
@@ -37,31 +38,38 @@ class PointedInstrument(Instrument):
         le=180,
     )
     roll_angle: float = Field(
-        0,
+        default=0,
         description="Left/right look angle (degrees) orthogonal to instrument motion.",
         ge=-180,
         le=180,
     )
     pitch_angle: float = Field(
-        0,
+        default=0,
         description="Fore/aft look angle (degrees) in direction of instrument motion.",
         ge=-180,
         le=180,
     )
     is_rectangular: bool = Field(
-        False, description="True, if this instrument produces a rectangular view."
+        default=False,
+        description="True, if this instrument produces a rectangular view.",
     )
     cross_track_pixels: int = Field(
-        1, description="Number of pixels in cross-track direction.", ge=1
+        default=1, description="Number of pixels in cross-track direction.", ge=1
     )
     along_track_pixels: int = Field(
-        1, description="Number of pixels in along-track direction.", ge=1
+        default=1, description="Number of pixels in along-track direction.", ge=1
     )
     cross_track_oversampling: float = Field(
-        0, description="Fraction of pixel overlap in cross-track diraction.", ge=0, lt=1
+        default=0,
+        description="Fraction of pixel overlap in cross-track diraction.",
+        ge=0,
+        lt=1,
     )
     along_track_oversampling: float = Field(
-        0, description="Fraction of pixel overlap in along-track diraction.", ge=0, lt=1
+        default=0,
+        description="Fraction of pixel overlap in along-track diraction.",
+        ge=0,
+        lt=1,
     )
 
     def get_cross_track_instantaneous_field_of_view(self) -> float:
@@ -95,7 +103,7 @@ class PointedInstrument(Instrument):
         orbit_track: Geocentric,
         number_points: int | None = None,
         elevation: float = 0,
-    ) -> Geometry | list[Geometry]:
+    ) -> list[Polygon | MultiPolygon]:
         """
         Compute the instanteous instrument footprint.
 
@@ -105,7 +113,7 @@ class PointedInstrument(Instrument):
             elevation (float): The elevation (meters) at which project the footprint.
 
         Returns:
-            shapely.Geometry | list[shapely.Geometry]: The instrument footprint(s).
+            list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The instrument footprint(s).
         """
         return compute_footprint(
             orbit_track=orbit_track,
@@ -213,7 +221,7 @@ class PointedInstrument(Instrument):
         self,
         orbit_track: Geocentric,
         elevation: float = 0,
-    ) -> Geometry | list[Geometry]:
+    ) -> list[MultiPoint]:
         """
         Compute the instanteous footprint pixel array.
 
@@ -222,7 +230,7 @@ class PointedInstrument(Instrument):
             elevation (float): The elevation (meters) at which project the footprint.
 
         Returns:
-            shapely.Geometry | list[shapely.Geometry]: The instrument pixel array(s).
+            list[shapely.geometry.MultiPoint]: The instrument pixel array(s).
         """
         points = [
             self.compute_projected_pixel_position(
@@ -234,25 +242,16 @@ class PointedInstrument(Instrument):
             for i in range(self.cross_track_pixels)
             for j in range(self.along_track_pixels)
         ]
-        if np.size(orbit_track.t) > 1:
-            return [
-                MultiPoint(
-                    [
-                        Point(
-                            point.longitude.degrees[i],
-                            point.latitude.degrees[i],
-                            point.elevation.m[i],
-                        )
-                        for point in points
-                    ]
-                )
-                for i in range(np.size(orbit_track.t))
-            ]
-        return MultiPoint(
-            [
-                Point(
-                    point.longitude.degrees, point.latitude.degrees, point.elevation.m
-                )
-                for point in points
-            ]
-        )
+        return [
+            MultiPoint(
+                [
+                    Point(
+                        point.longitude.degrees[i],
+                        point.latitude.degrees[i],
+                        point.elevation.m[i],
+                    )
+                    for point in points
+                ]
+            )
+            for i in range(np.size(orbit_track.t))  # type: ignore
+        ]

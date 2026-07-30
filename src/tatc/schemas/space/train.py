@@ -3,27 +3,28 @@ Object schema for train constellations.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
 
 import copy
 from datetime import timedelta
+from typing import Literal
 
 from pydantic import Field
-from typing_extensions import Literal
 
 from ...utils.formatting import zero_pad
 from ..orbit import AllOrbits
-from .base import SpaceSystem
+from .base_constellation import BaseConstellation
 from .satellite import Satellite
 
 
-class TrainConstellation(SpaceSystem):
+class TrainConstellation(BaseConstellation):
     """
     A constellation that arranges member satellites in sequence.
     """
 
     type: Literal["train"] = Field(
-        "train", description="Space system type discriminator."
+        default="train", description="Space system type discriminator."
     )
     orbit: AllOrbits = Field(..., description="Lead orbit for this constellation.")
     number_satellites: int = Field(
@@ -46,7 +47,6 @@ class TrainConstellation(SpaceSystem):
         Returns:
             float: the difference in mean anomaly
         """
-        # pylint: disable=E1101
         return -360 * self.interval / self.orbit.get_orbit_period()
 
     def get_delta_raan(self) -> float:
@@ -68,7 +68,6 @@ class TrainConstellation(SpaceSystem):
         Returns:
             list[Satellite]: the member satellites
         """
-        # pylint: disable=E1101
         return [
             Satellite(
                 name=zero_pad(self.name, self.number_satellites, i + 1),

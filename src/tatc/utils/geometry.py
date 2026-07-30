@@ -3,7 +3,10 @@ Geometry utility functions.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from __future__ import annotations
+
+from typing import overload
 
 import geopandas as gpd
 import numpy as np
@@ -16,6 +19,16 @@ from shapely.geometry import (
     Polygon,
 )
 from shapely.ops import split
+
+
+@overload
+def project_polygon_to_elevation(polygon: Polygon, elevation: float) -> Polygon: ...
+
+
+@overload
+def project_polygon_to_elevation(
+    polygon: MultiPolygon, elevation: float
+) -> MultiPolygon: ...
 
 
 def project_polygon_to_elevation(
@@ -39,6 +52,14 @@ def project_polygon_to_elevation(
     return MultiPolygon(
         [project_polygon_to_elevation(g, elevation) for g in polygon.geoms]
     )
+
+
+@overload
+def _wrap_polygon_over_north_pole(polygon: Polygon) -> Polygon: ...
+
+
+@overload
+def _wrap_polygon_over_north_pole(polygon: MultiPolygon) -> MultiPolygon: ...
 
 
 def _wrap_polygon_over_north_pole(
@@ -144,6 +165,14 @@ def _split_polygon_north_pole(
     raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
+@overload
+def _wrap_polygon_over_south_pole(polygon: Polygon) -> Polygon: ...
+
+
+@overload
+def _wrap_polygon_over_south_pole(polygon: MultiPolygon) -> MultiPolygon: ...
+
+
 def _wrap_polygon_over_south_pole(
     polygon: Polygon | MultiPolygon,
 ) -> Polygon | MultiPolygon:
@@ -179,7 +208,7 @@ def _wrap_polygon_over_south_pole(
             [
                 [
                     [
-                        (c[0] + lat_shift if c[1] <= -90 else c[0],),
+                        c[0] + lat_shift if c[1] <= -90 else c[0],
                         -180 - c[1] if c[1] <= -90 else c[1],
                     ]
                     for c in i.coords
@@ -247,6 +276,14 @@ def _split_polygon_south_pole(
     raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
+@overload
+def _wrap_polygon_over_antimeridian(polygon: Polygon) -> Polygon: ...
+
+
+@overload
+def _wrap_polygon_over_antimeridian(polygon: MultiPolygon) -> MultiPolygon: ...
+
+
 def _wrap_polygon_over_antimeridian(
     polygon: Polygon | MultiPolygon,
 ) -> Polygon | MultiPolygon:
@@ -267,20 +304,21 @@ def _wrap_polygon_over_antimeridian(
         if all(c[0] >= -180 and c[0] <= 180 for c in polygon.exterior.coords):
             # no wrapping necessary
             return polygon
+        pgon = None
         if all(c[0] <= -180 for c in polygon.exterior.coords):
             # map longitudes from (-540, -180] to (-180, 180]
             pgon = Polygon(
                 [[c[0] + 360, c[1]] for c in polygon.exterior.coords],
                 [[[c[0] + 360, c[1]] for c in i.coords] for i in polygon.interiors],
             )
-        if all(c[0] >= 180 for c in polygon.exterior.coords):
+        elif all(c[0] >= 180 for c in polygon.exterior.coords):
             # map longitudes from [180, 540) to [-180, 180)
             pgon = Polygon(
                 [[c[0] - 360, c[1]] for c in polygon.exterior.coords],
                 [[[c[0] - 360, c[1]] for c in i.coords] for i in polygon.interiors],
             )
         # give up and return original polygon if invalid
-        if not pgon.is_valid:
+        if pgon is None or not pgon.is_valid:
             return polygon
         return pgon
     if isinstance(polygon, MultiPolygon):
@@ -358,7 +396,7 @@ def _split_polygon_antimeridian(
                 [(-180, 90 * n_s), (-180, lat)]
                 + coords
                 + [(180, lat), (180, 90 * n_s), (-180, 90 * n_s)],
-                polygon.interiors,
+                [interior.coords for interior in polygon.interiors],
             )
             # return polygon split down prime meridian to improve handling
             parts = split(pgon, LineString([(0, -180), (0, 180)]))
@@ -429,7 +467,7 @@ def split_polygon(
     # invalid polygons can arise from narrow sensor geometries in polar regions
     if not polygon.is_valid:
         # try to fix geometry
-        polygon = make_valid(polygon)
+        polygon = make_valid(polygon)  # type: ignore
         if isinstance(polygon, GeometryCollection):
             polygon = _convert_collection_to_polygon(polygon)
     return polygon

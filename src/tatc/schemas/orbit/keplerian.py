@@ -7,10 +7,10 @@ Object schemas for Keplerian orbits.
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Literal
 
 import numpy as np
 from pydantic import Field
-from typing_extensions import Literal
 
 from ... import config, utils
 from .base import OrbitBase
@@ -23,7 +23,7 @@ class KeplerianOrbit(OrbitBase):
     """
 
     type: Literal["keplerian"] = Field(
-        "keplerian", description="Orbit type discriminator."
+        default="keplerian", description="Orbit type discriminator."
     )
     semimajor_axis: float = Field(..., description="Semimajor axis (meters).")
     inclination: float = Field(0, description="Inclination (degrees).", ge=0, lt=180)
@@ -42,7 +42,9 @@ class KeplerianOrbit(OrbitBase):
         Returns:
             float: the mean anomaly
         """
-        return utils.orbital.true_anomaly_to_mean_anomaly(self.true_anomaly, self.eccentricity)
+        return utils.orbital.true_anomaly_to_mean_anomaly(
+            self.true_anomaly, self.eccentricity
+        )
 
     def get_mean_motion(self) -> float:
         """
@@ -60,7 +62,9 @@ class KeplerianOrbit(OrbitBase):
         Returns:
             timedelta: the orbit period
         """
-        return timedelta(seconds=utils.orbital.semimajor_axis_to_orbit_period(self.semimajor_axis))
+        return timedelta(
+            seconds=utils.orbital.semimajor_axis_to_orbit_period(self.semimajor_axis)
+        )
 
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float
@@ -102,7 +106,7 @@ class KeplerianOrbit(OrbitBase):
             GeneralPerturbationsOrbit: the general perturbations orbit
         """
         if lazy_load is None:
-            lazy_load = config.rc.orbit_tle_lazy_load
+            lazy_load = config.rc.gp_orbit_lazy_load
         if lazy_load:
             gp_orbit = self.__dict__.get("gp_orbit")
         else:
@@ -121,5 +125,5 @@ class KeplerianOrbit(OrbitBase):
                     )
                 ]
             )
-            self.__dict__["gp_orbit"] = gp_orbit
+            self.__dict__["gp_orbit"] = gp_orbit  # type: ignore
         return gp_orbit
