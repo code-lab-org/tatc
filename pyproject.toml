@@ -48,6 +48,17 @@ where = ["src"]
 [tool.setuptools.package-data]
 "tatc" = ["resources/*.bsp"]
 
+[tool.pylint.main]
+load-plugins = ["pylint_pydantic"]
+extension-pkg-allow-list = ["pydantic"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
+
 [project.optional-dependencies]
 dev = [
     "black[jupyter] >= 24.2",
