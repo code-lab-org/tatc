@@ -26,7 +26,10 @@ EARTH_FLATTENING = 1 / 298.257223563
 EARTH_EQUATORIAL_RADIUS = 6378137.0
 EARTH_POLAR_RADIUS = 6356752.314245179
 EARTH_MU = 3.986004418e14
-EARTH_J2 = 1.0826359e-3
+# derived from the WGS84/EGM96 fully-normalized zonal coefficient C_bar_20 =
+# -0.484165143790e-3 (NIMA TR8350.2, "Department of Defense World Geodetic
+# System 1984"), converted to unnormalized form via J2 = -C_bar_20 * sqrt(5)
+EARTH_J2 = 1.0826261738504e-3
 
 # derived properties based on wgs84 oblate spheroid
 EARTH_ECCENTRICITY = np.sqrt(2 * EARTH_FLATTENING - EARTH_FLATTENING**2)
