@@ -5,7 +5,12 @@ Utility functions for the TATC library.
 """
 
 from .formatting import zero_pad
-from .geometry import normalize_geometry, project_polygon_to_elevation, split_polygon
+from .geometry import (
+    get_planar_bounds,
+    normalize_geometry,
+    project_polygon_to_elevation,
+    split_polygon,
+)
 from .observation import (
     compute_field_of_regard,
     compute_max_access_time,
@@ -57,6 +62,7 @@ __all__ = [
     "compute_orbit_inertial_velocity",
     "compute_projected_ray_position",
     "field_of_regard_to_swath_width",
+    "get_planar_bounds",
     "mean_anomaly_to_true_anomaly",
     "mean_motion_to_orbit_period",
     "mean_motion_to_semimajor_axis",

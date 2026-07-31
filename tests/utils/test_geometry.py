@@ -8,7 +8,12 @@ import unittest
 import geopandas as gpd
 from shapely.geometry import MultiPolygon, Point, Polygon
 
-from tatc.utils import normalize_geometry, project_polygon_to_elevation, split_polygon
+from tatc.utils import (
+    get_planar_bounds,
+    normalize_geometry,
+    project_polygon_to_elevation,
+    split_polygon,
+)
 
 
 class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-methods
@@ -527,6 +532,59 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
             result.iloc[0].geometry,
             split_polygon(polygon),
         )
+
+    def test_get_planar_bounds_no_mask_returns_global_extent(self):
+        """
+        Test that omitting a mask returns the full global longitude/latitude
+        extent.
+        """
+        self.assertEqual(get_planar_bounds(None), (-180, -90, 180, 90))
+
+    def test_get_planar_bounds_polygon_mask_returns_its_bounds(self):
+        """
+        Test that a Polygon mask's bounds are returned directly.
+        """
+        mask = Polygon([[-100, 25], [-50, 25], [-50, -25], [-100, -25], [-100, 25]])
+        self.assertEqual(get_planar_bounds(mask), (-100, -25, -50, 25))
+
+    def test_get_planar_bounds_multipolygon_mask_returns_combined_bounds(self):
+        """
+        Test that a MultiPolygon mask's bounds span all its constituent
+        polygons.
+        """
+        mask = MultiPolygon(
+            [
+                Polygon([[-100, 0], [-90, 0], [-90, 10], [-100, 10], [-100, 0]]),
+                Polygon([[50, -20], [60, -20], [60, -10], [50, -10], [50, -20]]),
+            ]
+        )
+        self.assertEqual(get_planar_bounds(mask), (-100, -20, 60, 10))
+
+    def test_get_planar_bounds_mask_with_max_longitude_exactly_negative_180_expands_to_180(
+        self,
+    ):
+        """
+        Known-limitation regression test (not a full antimeridian fix, see
+        get_planar_bounds's docstring): when a mask's raw bounding box has
+        its maximum longitude exactly -180 (e.g. a mask expressed with
+        unwrapped-negative longitude spanning -190 to -180), max_longitude
+        is expanded to 180. This only patches max_longitude; min_longitude
+        (-190 here) is left as-is, so the resulting bounds do not
+        coherently describe the mask's actual extent.
+        """
+        mask = Polygon([[-190, -10], [-180, -10], [-180, 10], [-190, 10], [-190, -10]])
+        min_longitude, _, max_longitude, _ = get_planar_bounds(mask)
+        self.assertEqual(max_longitude, 180)
+        self.assertEqual(min_longitude, -190)
+
+    def test_get_planar_bounds_invalid_polygon_raises_value_error(self):
+        """
+        Test that a self-intersecting (invalid) Polygon mask raises a
+        ValueError.
+        """
+        mask = Polygon([[-100, 25], [-50, 25], [-100, -25], [-50, -25], [-100, 25]])
+        with self.assertRaises(ValueError):
+            get_planar_bounds(mask)
 
     def test_normalize_geometry_geodataframe(self):
         """

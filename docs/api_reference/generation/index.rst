@@ -10,12 +10,12 @@ Points
 Fibonacci Lattice
 -----------------
 
-.. autofunction:: tatc.generation.generate_fibonacci_lattice_points
+.. autofunction:: tatc.generation.generate_points_fibonacci_lattice
 
 Equally Spaced
 --------------
 
-.. autofunction:: tatc.generation.generate_equally_spaced_points
+.. autofunction:: tatc.generation.generate_points_uniform_spacing
 
 Cells
 =====
@@ -23,4 +23,4 @@ Cells
 Equally Spaced
 --------------
 
-.. autofunction:: tatc.generation.generate_equally_spaced_cells
+.. autofunction:: tatc.generation.generate_cells_uniform_spacing

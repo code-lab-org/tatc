@@ -11,14 +11,11 @@ import numpy as np
 from shapely.geometry import MultiPolygon, Polygon
 
 from ..constants import EARTH_MEAN_RADIUS
-from .points import (
-    _compute_equally_spaced_point_id,
-    _generate_equally_spaced_indices,
-    _get_bounds,
-)
+from ..utils.geometry import get_planar_bounds
+from ._grid import compute_point_id_uniform_spacing, generate_indices_uniform_spacing
 
 
-def generate_equally_spaced_cells(
+def generate_cells_uniform_spacing(
     distance: float,
     elevation: float = 0,
     mask: Polygon | MultiPolygon | None = None,
@@ -82,19 +79,19 @@ def generate_cells_uniform_angular_spacing(
     """
 
     # generate indices of grid cells over the filtered region
-    indices = _generate_equally_spaced_indices(
+    indices = generate_indices_uniform_spacing(
         theta_longitude,
         theta_latitude,
         mask,
         strips,
     )
     # get the bounds of the mask
-    min_longitude, min_latitude, max_longitude, max_latitude = _get_bounds(mask)
+    min_longitude, min_latitude, max_longitude, max_latitude = get_planar_bounds(mask)
     # create a geodataframe in the WGS84 reference frame
     gdf = gpd.GeoDataFrame(
         {
             "cell_id": [
-                _compute_equally_spaced_point_id(i, j, theta_longitude, theta_latitude)
+                compute_point_id_uniform_spacing(i, j, theta_longitude)
                 for (i, j) in indices
             ],
             "geometry": [

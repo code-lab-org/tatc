@@ -390,6 +390,43 @@ def split_polygon(
     return polygon
 
 
+def get_planar_bounds(
+    mask: Polygon | MultiPolygon | None,
+) -> tuple[float, float, float, float]:
+    """
+    Generates a tuple of bounds for a polygon mask.
+
+    Known limitation: this method assumes `mask` lies on the planar 
+    (non-antimeridian-crossing) longitude domain. A mask crossing the 
+    antimeridian with longitude below -180 (e.g. bounds spanning 
+    -190 to -180, representing the same region as 170 to 180) only has 
+    its max_longitude corrected to 180; min_longitude is left unadjusted, 
+    so the resulting bounds do not coherently describe such a mask. 
+    Fully supporting antimeridian-crossing masks can be achieved by 
+    pre-processing the geometry (e.g. via `split_polygon`).
+
+    Args:
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  
+            Geometric shape using WGS84 (EPSG:4326)
+            geodetic coordinates in a Polygon or MultiPolygon.
+
+    Returns:
+        tuple[float, float, float, float]: min longitude (degrees), 
+            min latitude (degrees), max longitude (degrees), max latitude (degrees)
+    """
+    if isinstance(mask, (Polygon, MultiPolygon)):
+        if not mask.is_valid:
+            raise ValueError("Mask is not a valid Polygon or MultiPolygon.")
+        total_bounds = mask.bounds
+    else:
+        total_bounds = [-180, -90, 180, 90]
+    min_longitude = total_bounds[0]
+    min_latitude = total_bounds[1]
+    max_longitude = 180 if total_bounds[2] == -180 else total_bounds[2]
+    max_latitude = total_bounds[3]
+    return (min_longitude, min_latitude, max_longitude, max_latitude)
+
+
 def normalize_geometry(
     geometry: Polygon | MultiPolygon | gpd.GeoDataFrame,
 ) -> gpd.GeoDataFrame:
