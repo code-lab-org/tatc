@@ -4,12 +4,15 @@ Configuration Settings.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import logging
 import os
 import pathlib
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 from yaml.parser import ParserError
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigError(Exception):
@@ -42,7 +45,9 @@ class RuntimeConfiguration(BaseModel):
         gt=0,
     )
     repeat_cycle_search_elevation_deg: float = Field(
-        default=88, description="Minimum elevation angle (degrees) for .", gt=0
+        default=88,
+        description="Minimum elevation angle (degrees) for screening repeats.",
+        gt=0,
     )
     repeat_cycle_search_duration_days: float = Field(
         default=30,
@@ -66,7 +71,7 @@ class RuntimeConfiguration(BaseModel):
     )
 
 
-def load_yaml_config(path: pathlib.Path):
+def load_yaml_config(path: pathlib.Path) -> RuntimeConfiguration:
     """
     Load configuration settings from a YAML file.
 
@@ -92,6 +97,7 @@ def load_yaml_config(path: pathlib.Path):
 try:
     # try to load default config file
     rc = load_yaml_config(pathlib.Path(__file__).parent / "resources" / "defaults.yml")
-except ConfigError:
-    # fall back to default constructor
+except ConfigError as err:
+    # fall back to default constructor, but warn since this masks a broken install
+    logger.warning("Falling back to hard-coded runtime configuration defaults: %s", err)
     rc = RuntimeConfiguration()
