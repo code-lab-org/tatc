@@ -214,7 +214,7 @@ class PointedInstrument(Instrument):
         )
         return (
             np.sqrt(cross_track_offset**2 + along_track_offset**2),
-            np.arctan2(along_track_offset, cross_track_offset),
+            np.degrees(np.arctan2(along_track_offset, cross_track_offset)),
         )
 
     def compute_footprint_pixel_array(

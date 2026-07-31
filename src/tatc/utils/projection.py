@@ -30,7 +30,7 @@ from .observation import field_of_regard_to_swath_width
 from .orbital import compute_ground_surface_velocity
 
 
-def compute_projected_ray_position(
+def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-many-statements
     orbit_track: Geocentric,
     cross_track_field_of_view: float,
     along_track_field_of_view: float,
@@ -41,7 +41,11 @@ def compute_projected_ray_position(
     elevation: float = 0,
 ) -> GeographicPosition:
     """
-    Get the location of a projected ray from an instrument.
+    Get the location of a projected ray from an instrument. The ray is cast
+    from the satellite position toward the WGS 84 geoid at the specified
+    elevation; if it misses the geoid entirely (e.g. an off-nadir angle
+    pointing past the horizon), the projected position instead falls back
+    to the nearest point on the visible Earth limb.
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
@@ -62,6 +66,8 @@ def compute_projected_ray_position(
     Returns:
         (skyfield.toposlib.GeographicPosition): the geographic position of the projected ray
     """
+    # convert to radians for internal use
+    angle = np.radians(angle)
     # extract earth-fixed position and velocity
     position, velocity = orbit_track.frame_xyz_and_velocity(itrs)
     v_m_per_s = np.array(velocity.m_per_s)
@@ -70,11 +76,15 @@ def compute_projected_ray_position(
     v = np.divide(v_m_per_s, np.linalg.norm(v_m_per_s, axis=0))
     # binormal unit vector
     b = np.divide(-p_m, np.linalg.norm(p_m, axis=0))
+    # whether orbit_track represents a single time or a vector of times
+    is_vectorized = len(np.shape(p_m)) > 1
     # normal unit vector
-    if len(np.shape(p_m)) > 1:
+    if is_vectorized:
         n = np.cross(v, b, 0, 0, -1).T
     else:
         n = np.cross(v, b)
+    # ray pointed at the field of view center (before adding the field of view extent)
+    base_ray = b + v * np.tan(np.radians(pitch_angle)) + n * np.tan(np.radians(roll_angle))
     # construct projected ray
     if is_rectangular:
         # find orientation of rectangle corner
@@ -83,68 +93,48 @@ def compute_projected_ray_position(
         tan_a_2 = np.tan(np.radians(along_track_field_of_view / 2))
         # cross track half width
         tan_c_2 = np.tan(np.radians(cross_track_field_of_view / 2))
-        # compose the ray with different equations for each side
-        ray = (
-            b
-            + v * np.tan(np.radians(pitch_angle))
-            + n * np.tan(np.radians(roll_angle))
-            + v
-            * (
-                tan_a_2
-                if theta <= angle <= np.pi - theta
-                else (
-                    -tan_a_2
-                    if np.pi + theta <= angle <= 2 * np.pi - theta
-                    else (
-                        tan_c_2 * np.tan(angle)
-                        if angle < theta
-                        else (
-                            tan_c_2 * np.tan(np.pi - angle)
-                            if angle < np.pi
-                            else (
-                                -tan_c_2 * np.tan(angle - np.pi)
-                                if angle < np.pi + theta
-                                else -tan_c_2 * np.tan(2 * np.pi - angle)
-                            )
-                        )
-                    )
-                )
-            )
-            + n
-            * (
-                tan_c_2
-                if angle <= theta or angle >= 2 * np.pi - theta
-                else (
-                    -tan_c_2
-                    if np.pi - theta <= angle <= np.pi + theta
-                    else (
-                        tan_a_2 * np.tan(np.pi / 2 - angle)
-                        if angle < np.pi / 2
-                        else (
-                            -tan_a_2 * np.tan(angle - np.pi / 2)
-                            if angle < np.pi - theta
-                            else (
-                                -tan_a_2 * np.tan(3 * np.pi / 2 - angle)
-                                if angle < 3 * np.pi / 2
-                                else tan_a_2 * np.tan(angle - 3 * np.pi / 2)
-                            )
-                        )
-                    )
-                )
-            )
-        )
+        # compose the ray by walking around the rectangle boundary: the (v, n)
+        # coefficients are determined together, one segment at a time, rather
+        # than by two independently re-derived branch chains. Corners are at
+        # theta, pi - theta, pi + theta, and 2*pi - theta; the pi/2, pi, and
+        # 3*pi/2 splits are just internal subdivisions of a single flat edge
+        # (each formula is continuous across them) chosen to keep every
+        # tan() argument close to zero.
+        if angle <= theta:
+            # right edge, upper half
+            v_coef, n_coef = tan_c_2 * np.tan(angle), tan_c_2
+        elif angle < np.pi / 2:
+            # top edge, right half
+            v_coef, n_coef = tan_a_2, tan_a_2 * np.tan(np.pi / 2 - angle)
+        elif angle <= np.pi - theta:
+            # top edge, left half
+            v_coef, n_coef = tan_a_2, -tan_a_2 * np.tan(angle - np.pi / 2)
+        elif angle < np.pi:
+            # left edge, upper half
+            v_coef, n_coef = tan_c_2 * np.tan(np.pi - angle), -tan_c_2
+        elif angle < np.pi + theta:
+            # left edge, lower half
+            v_coef, n_coef = -tan_c_2 * np.tan(angle - np.pi), -tan_c_2
+        elif angle < 3 * np.pi / 2:
+            # bottom edge, right half
+            v_coef, n_coef = -tan_a_2, -tan_a_2 * np.tan(3 * np.pi / 2 - angle)
+        elif angle <= 2 * np.pi - theta:
+            # bottom edge, left half
+            v_coef, n_coef = -tan_a_2, tan_a_2 * np.tan(angle - 3 * np.pi / 2)
+        else:
+            # right edge, lower half
+            v_coef, n_coef = -tan_c_2 * np.tan(2 * np.pi - angle), tan_c_2
+        ray = base_ray + v * v_coef + n * n_coef
     else:
         ray = (
-            b
-            + v * np.tan(np.radians(pitch_angle))
-            + n * np.tan(np.radians(roll_angle))
+            base_ray
             + v * np.sin(angle) * np.tan(np.radians(along_track_field_of_view / 2))
             + n * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
         )
     geos = np.zeros_like(p_m)
-    for i in range(np.size(geos, axis=1)) if geos.ndim > 1 else [-1]:
-        _position = p_m[:, i].copy() if i >= 0 else p_m
-        _ray = ray[:, i].copy() if i >= 0 else ray
+    for i in range(np.size(geos, axis=1)) if is_vectorized else [-1]:
+        _position = p_m[:, i].copy() if is_vectorized else p_m
+        _ray = ray[:, i].copy() if is_vectorized else ray
         # find the intersection of the ray and the WGS 84 geoid
         try:
             pt = surfpt(
@@ -159,7 +149,7 @@ def compute_projected_ray_position(
                 constants.EARTH_EQUATORIAL_RADIUS,
                 constants.EARTH_FLATTENING,
             )
-            if i >= 0:
+            if is_vectorized:
                 geos[:, i] = geo
             else:
                 geos[:] = geo
@@ -173,8 +163,8 @@ def compute_projected_ray_position(
                 _position,
             )
             # find the two intersection points between orthogonal plane and limb ellipse
-            _v = v[:, i].copy() if i >= 0 else v
-            _n = n[:, i].copy() if i >= 0 else n
+            _v = v[:, i].copy() if is_vectorized else v
+            _n = n[:, i].copy() if is_vectorized else n
             _, pt_1, pt_2 = inelpl(
                 limb,
                 nvp2pl(
@@ -196,15 +186,11 @@ def compute_projected_ray_position(
                 constants.EARTH_EQUATORIAL_RADIUS,
                 constants.EARTH_FLATTENING,
             )
-            if i >= 0:
+            if is_vectorized:
                 geos[:, i] = limb_geo
             else:
                 geos[:] = limb_geo
     # return resulting geographic position
-    if len(np.shape(geos)) > 1:
-        return wgs84.latlon(
-            np.degrees(geos[1, :]), np.degrees(geos[0, :]), geos[2, :] # type: ignore
-        )
     return wgs84.latlon(np.degrees(geos[1]), np.degrees(geos[0]), geos[2])
 
 
@@ -219,18 +205,23 @@ def compute_footprint(
     elevation: float = 0,
 ) -> list[Polygon | MultiPolygon]:
     """
-    Compute the instanteous instrument footprint.
+    Compute the instantaneous instrument footprint. Supports both a scalar
+    (single-time) and vectorized (multi-time) `orbit_track`; the result is
+    always a list, with one footprint per time (length 1 for a scalar
+    `orbit_track`).
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
         cross_track_field_of_view (float): The angular (degrees) view orthogonal to velocity.
         along_track_field_of_view (float): The angular (degrees) view in direction of velocity.
-        pitch_angle (float): The fore/aft look angle (degrees); right-hand
-            rotation about orbit normal vector.
         roll_angle (float): The left/right look angle (degrees); right-hand
             rotation about orbit velocity vector.
-        is_rectangular (float): True, if this is a rectangular sensor.
-        number_points (int): The required number of polygon points to generate.
+        pitch_angle (float): The fore/aft look angle (degrees); right-hand
+            rotation about orbit normal vector.
+        is_rectangular (bool): True, if this is a rectangular sensor.
+        number_points (int | None): The required number of polygon points to
+            generate: per side for a rectangular sensor, or total for an
+            elliptical sensor. Defaults to the runtime configuration.
         elevation (float): The elevation (meters) at which project the footprint.
 
     Returns:
@@ -243,21 +234,23 @@ def compute_footprint(
         else:
             number_points = config.rc.footprint_points_elliptical
     if is_rectangular:
-        theta = np.arctan(along_track_field_of_view / cross_track_field_of_view)
+        theta = np.degrees(
+            np.arctan(along_track_field_of_view / cross_track_field_of_view)
+        )
         angles = np.concatenate(
             (
                 np.linspace(-theta, theta, number_points, endpoint=False),
-                np.linspace(theta, np.pi - theta, number_points, endpoint=False),
+                np.linspace(theta, 180 - theta, number_points, endpoint=False),
                 np.linspace(
-                    np.pi - theta, np.pi + theta, number_points, endpoint=False
+                    180 - theta, 180 + theta, number_points, endpoint=False
                 ),
                 np.linspace(
-                    np.pi + theta, 2 * np.pi - theta, number_points, endpoint=False
+                    180 + theta, 360 - theta, number_points, endpoint=False
                 ),
             )
         )
     else:
-        angles = np.linspace(0, 2 * np.pi, number_points)
+        angles = np.linspace(0, 360, number_points)
     points = [
         compute_projected_ray_position(
             orbit_track,
@@ -271,19 +264,27 @@ def compute_footprint(
         )
         for angle in angles
     ]
+    is_vectorized = len(np.shape(orbit_track.t)) > 0  # type: ignore
     return [
         project_polygon_to_elevation(
             split_polygon(
                 Polygon(
                     [
-                        (point.longitude.degrees[i], point.latitude.degrees[i])
+                        (
+                            point.longitude.degrees[i]
+                            if is_vectorized
+                            else point.longitude.degrees,
+                            point.latitude.degrees[i]
+                            if is_vectorized
+                            else point.latitude.degrees,
+                        )
                         for point in points
                     ]
                 )
             ),
             elevation,
         )
-        for i in range(np.size(orbit_track.t))  # type: ignore
+        for i in (range(np.size(orbit_track.t)) if is_vectorized else [None])  # type: ignore
     ]
 
 
@@ -292,6 +293,21 @@ def _compute_limb_for_position(
     number_points: int = 16,
     elevation: float = 0,
 ) -> Polygon | MultiPolygon:
+    """
+    Compute the visible Earth limb (the outline of the Earth's disk, at the
+    specified elevation, as seen from a single observer position) as a
+    polygon sampled at evenly spaced angles around the limb ellipse
+    returned by SPICE's `edlimb`.
+
+    Args:
+        position (Iterable[float]): The observer position (meters), in an
+            Earth-fixed frame, from which the limb is visible.
+        number_points (int): The required number of polygon points to generate.
+        elevation (float): The elevation (meters) at which to project the limb.
+
+    Returns:
+        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The limb.
+    """
     limb = edlimb(
         constants.EARTH_EQUATORIAL_RADIUS + elevation,
         constants.EARTH_EQUATORIAL_RADIUS + elevation,
@@ -329,7 +345,10 @@ def compute_limb(
     elevation: float = 0,
 ) -> list[Polygon | MultiPolygon]:
     """
-    Compute the instanteous limb.
+    Compute the instantaneous limb (the outline of the visible Earth disk).
+    Supports both a scalar (single-time) and vectorized (multi-time)
+    `orbit_track`; the result is always a list, with one limb per time
+    (length 1 for a scalar `orbit_track`).
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
@@ -341,10 +360,12 @@ def compute_limb(
     """
     position, _ = orbit_track.frame_xyz_and_velocity(itrs)
     p_m = np.array(position.m)
-    return [
-        _compute_limb_for_position(p_m[:, i].copy(), number_points, elevation)
-        for i in range(np.size(p_m, axis=1))
-    ]
+    if len(np.shape(p_m)) > 1:
+        return [
+            _compute_limb_for_position(p_m[:, i].copy(), number_points, elevation)
+            for i in range(np.size(p_m, axis=1))
+        ]
+    return [_compute_limb_for_position(p_m, number_points, elevation)]
 
 
 def buffer_footprint(
@@ -355,12 +376,16 @@ def buffer_footprint(
     elevation: float,
 ) -> Polygon | MultiPolygon:
     """
-    Buffers a ground track point to create a footprint.
+    Buffers a ground track point (in EPSG:4326 coordinates) to create a
+    footprint, by reprojecting to a distance-preserving CRS, buffering by
+    half the swath width, and reprojecting back.
 
     Args:
-        geometry (shapely.Geometry): The geometry to buffer.
-        origin_crs (str): The origin coordinate reference system (CRS).
-        buffer_crs (str): The buffering coordinate reference system (CRS).
+        geometry (shapely.Geometry): The geometry (with EPSG:4326 coordinates) to buffer.
+        to_crs (pyproj.Transformer): Transformer from EPSG:4326 to the CRS
+            in which to perform the buffer (must use meters).
+        from_crs (pyproj.Transformer): Transformer back from the buffering
+            CRS to EPSG:4326.
         swath_width (float): The swath width (meters) to buffer.
         elevation (float): The elevation (meters) at which project the buffered polygon.
 
@@ -391,9 +416,13 @@ def buffer_target(
     distance_scaling: float = 1.0,
 ) -> Polygon | MultiPolygon:
     """
-    Buffers a target geometry to support culling operations. Selects a buffer distance
-    equal to the distance traveled in one time step plus half of the field of regard
-    swath width. Simplifies geometries to distance tolerances within 5% of the buffer distance.
+    Buffers a target geometry to support culling operations. Selects a
+    buffer distance equal to the distance traveled in one time step plus
+    half of the field of regard swath width, so that no point still
+    reachable within the time step is incorrectly excluded. The ground
+    distance traveled uses the ground velocity at the equator, which is
+    the fastest (most conservative, largest-distance) point for any given
+    inclination.
 
     Args:
         geometry (shapely.Geometry): The target geometry (with EPSG:4326 coordinates) to buffer.

@@ -220,8 +220,8 @@ def compute_max_transit_time(
     """
     Fast computation of the maximum (conservative, worst-case) transit time
     to cover a specified along-track distance, using the slowest ground
-    track velocity attained over the orbit, which (for the orbit's
-    physically valid latitude range) occurs at its equator crossing.
+    track velocity attained over the orbit, which occurs at the orbit's
+    extreme latitude (min(inclination, 180 - inclination)), not the equator.
 
     Args:
         mean_altitude (float): The mean orbit altitude (meters) above WGS 84 datum.
@@ -231,8 +231,11 @@ def compute_max_transit_time(
     Returns:
         float: The maximum access time (seconds) to traverse the along track distance.
     """
-    # slowest velocity occurs at the equator due to Earth rotation
-    v_slowest = compute_ground_surface_velocity(mean_altitude, 0, inclination, 0)
+    # slowest velocity occurs at the orbit's extreme latitude
+    extreme_latitude = min(inclination, 180 - inclination)
+    v_slowest = compute_ground_surface_velocity(
+        mean_altitude, 0, inclination, extreme_latitude
+    )
     return along_track / v_slowest
 
 
@@ -243,9 +246,9 @@ def compute_min_along_track_distance(
     """
     Fast computation of the minimum (conservative, worst-case) along-track
     distance observed in a specified access time, using the slowest ground
-    track velocity attained over the orbit, which (for the orbit's
-    physically valid latitude range) occurs at its equator crossing. This
-    is the inverse of `compute_max_transit_time`.
+    track velocity attained over the orbit, which occurs at the orbit's
+    extreme latitude (min(inclination, 180 - inclination)), not the
+    equator. This is the inverse of `compute_max_transit_time`.
 
     Args:
         mean_altitude (float): The mean orbit altitude (meters) above WGS 84 datum.
@@ -255,6 +258,9 @@ def compute_min_along_track_distance(
     Returns:
         float: The minimum along track distance (meters) observed during the access time.
     """
-    # slowest velocity occurs at the equator due to Earth rotation
-    v_slowest = compute_ground_surface_velocity(mean_altitude, 0, inclination, 0)
+    # slowest velocity occurs at the orbit's extreme latitude
+    extreme_latitude = min(inclination, 180 - inclination)
+    v_slowest = compute_ground_surface_velocity(
+        mean_altitude, 0, inclination, extreme_latitude
+    )
     return access_time * v_slowest
