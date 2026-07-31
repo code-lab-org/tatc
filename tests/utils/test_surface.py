@@ -25,3 +25,47 @@ class TestSurface(unittest.TestCase):
             constants.EARTH_SURFACE_AREA / (np.pi * (sample_distance / 2) ** 2)
         )
         self.assertEqual(compute_number_samples(sample_distance), num_samples)
+
+    def test_compute_number_samples_matches_flat_approximation_at_small_scale(self):
+        """
+        Test that, for sample distances much smaller than the Earth's
+        radius, the spherical-cap-based sample count closely approximates
+        the flat-plane (circular disk area) approximation.
+        """
+        for sample_distance in (1000, 50000, 200000):
+            spherical = compute_number_samples(sample_distance)
+            flat = constants.EARTH_SURFACE_AREA / (np.pi * (sample_distance / 2) ** 2)
+            self.assertAlmostEqual(spherical / flat, 1.0, delta=1e-4)
+
+    def test_compute_number_samples_exceeds_flat_approximation_at_large_scale(self):
+        """
+        Test that, at a sample distance large enough for Earth's curvature
+        to matter, the spherical-cap-based sample count is greater than
+        the flat-plane approximation: a spherical cap covers less area
+        than a flat disk of the same angular radius, so more of them are
+        needed to cover the same total surface area.
+        """
+        sample_distance = 5000000
+        spherical = compute_number_samples(sample_distance)
+        flat = int(
+            constants.EARTH_SURFACE_AREA / (np.pi * (sample_distance / 2) ** 2)
+        )
+        self.assertGreater(spherical, flat)
+
+    def test_compute_number_samples_decreases_with_distance(self):
+        """
+        Test that the number of samples decreases monotonically as the
+        sample distance increases.
+        """
+        counts = [
+            compute_number_samples(d) for d in (1000, 10000, 100000, 1000000)
+        ]
+        self.assertEqual(counts, sorted(counts, reverse=True))
+
+    def test_compute_number_samples_zero_distance_raises(self):
+        """
+        Test that a zero sample distance (a meaningless, infinitely dense
+        request) raises an error rather than returning a misleading value.
+        """
+        with self.assertRaises(OverflowError):
+            compute_number_samples(0)

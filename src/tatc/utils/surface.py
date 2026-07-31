@@ -14,7 +14,12 @@ from .. import constants
 def compute_number_samples(distance: float) -> int:
     """
     Compute the number of global samples required to achieve a typical
-    sample distance (meters) assuming equal spacing.
+    sample distance (meters) assuming equal spacing, by dividing the
+    Earth's surface area (assuming a mean sphere) by the area of a
+    spherical cap whose angular radius corresponds to half the sample
+    distance. The result is truncated (not rounded), so the achieved
+    average sample spacing is always at least the requested distance,
+    never less. Requires distance > 0.
 
     Args:
         distance (float): The typical distance between samples (meters).
