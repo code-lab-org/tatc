@@ -6,6 +6,8 @@ Unit tests for the GroundStation schema.
 import unittest
 from datetime import timedelta
 
+from pydantic import ValidationError
+
 from tatc.schemas import GroundStation
 
 
@@ -51,3 +53,67 @@ class TestGroundStation(unittest.TestCase):
         self.assertEqual(
             o.min_access_time, timedelta(seconds=good_data.get("min_access_time"))
         )
+
+    def test_defaults(self):
+        """
+        Test that min_elevation_angle defaults to 0 and min_access_time
+        defaults to a zero timedelta when omitted.
+        """
+        o = GroundStation(name="test", latitude=40.74259, longitude=-74.02686)
+        self.assertEqual(o.min_elevation_angle, 0)
+        self.assertEqual(o.min_access_time, timedelta(0))
+
+    def test_bad_name_missing(self):
+        """
+        Test that the GroundStation schema raises a ValidationError when
+        the required name field is missing.
+        """
+        bad_data = {"latitude": 40.74259, "longitude": -74.02686}
+        with self.assertRaises(ValidationError):
+            GroundStation(**bad_data)
+
+    def test_bad_min_elevation_angle_negative(self):
+        """
+        Test that a negative min_elevation_angle is rejected.
+        """
+        with self.assertRaises(ValidationError):
+            GroundStation(
+                name="test", latitude=0, longitude=0, min_elevation_angle=-0.1
+            )
+
+    def test_bad_min_elevation_angle_too_large(self):
+        """
+        Test that a min_elevation_angle above 90 degrees is rejected.
+        """
+        with self.assertRaises(ValidationError):
+            GroundStation(
+                name="test", latitude=0, longitude=0, min_elevation_angle=90.1
+            )
+
+    def test_min_elevation_angle_boundary_values(self):
+        """
+        Test that min_elevation_angle values exactly at its bounds (0 and
+        90 degrees) are accepted.
+        """
+        self.assertEqual(
+            GroundStation(
+                name="test", latitude=0, longitude=0, min_elevation_angle=0
+            ).min_elevation_angle,
+            0,
+        )
+        self.assertEqual(
+            GroundStation(
+                name="test", latitude=0, longitude=0, min_elevation_angle=90
+            ).min_elevation_angle,
+            90,
+        )
+
+    def test_inherits_point_latitude_validation(self):
+        """
+        Test that GroundStation inherits Point's latitude validation
+        (out-of-range latitude is still rejected), confirming the
+        inheritance relationship is functionally in effect and not just
+        structural.
+        """
+        with self.assertRaises(ValidationError):
+            GroundStation(name="test", latitude=100, longitude=0)

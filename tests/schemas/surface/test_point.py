@@ -72,3 +72,57 @@ class TestPoint(unittest.TestCase):
         bad_data = {"id": 0, "latitude": 40.74259}
         with self.assertRaises(ValidationError):
             Point(**bad_data)
+
+    def test_latitude_boundary_values(self):
+        """
+        Test that latitude values exactly at the poles (-90, 90 degrees)
+        are accepted rather than rejected by an off-by-one bound.
+        """
+        self.assertEqual(Point(latitude=90, longitude=0).latitude, 90)
+        self.assertEqual(Point(latitude=-90, longitude=0).latitude, -90)
+
+    def test_longitude_boundary_values(self):
+        """
+        Test that longitude values exactly at the antimeridian (-180, 180
+        degrees) are accepted rather than rejected by an off-by-one bound.
+        """
+        self.assertEqual(Point(latitude=0, longitude=180).longitude, 180)
+        self.assertEqual(Point(latitude=0, longitude=-180).longitude, -180)
+
+    def test_id_defaults_to_zero(self):
+        """
+        Test that omitting id defaults to 0.
+        """
+        self.assertEqual(Point(latitude=0, longitude=0).id, 0)
+
+    def test_id_rejects_negative(self):
+        """
+        Test that a negative id is rejected, since id is a
+        NonNegativeInt.
+        """
+        with self.assertRaises(ValidationError):
+            Point(id=-1, latitude=0, longitude=0)
+
+    def test_id_rejects_non_integer(self):
+        """
+        Test that a fractional id (not cleanly convertible to int) is
+        rejected rather than silently truncated.
+        """
+        with self.assertRaises(ValidationError):
+            Point(id=5.5, latitude=0, longitude=0)
+
+    def test_elevation_defaults_to_zero(self):
+        """
+        Test that omitting elevation defaults to 0.
+        """
+        self.assertEqual(Point(latitude=0, longitude=0).elevation, 0)
+
+    def test_elevation_accepts_negative_values(self):
+        """
+        Test that elevation accepts negative values (e.g. below-sea-level
+        locations like Death Valley or the Dead Sea), since it has no
+        lower-bound constraint.
+        """
+        self.assertEqual(
+            Point(latitude=0, longitude=0, elevation=-430.5).elevation, -430.5
+        )
