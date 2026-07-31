@@ -15,11 +15,12 @@ from .. import constants
 @njit
 def compute_orbit_inertial_velocity(mean_altitude: float) -> float:
     """
-    Fast computation of orbit inertial velocity assuming a circular orbit.
+    Fast computation of orbit inertial velocity (the orbital speed relative
+    to a non-rotating, Earth-centered frame) assuming a circular orbit
+    around a spherical Earth (using the mean Earth radius).
 
     Args:
-        mean_altitude (float | None): Orbit mean altitude (meters).
-        current_altitude (float | None): Current orbit altitude (meters).
+        mean_altitude (float): Orbit mean altitude (meters) above the mean Earth radius.
 
     Returns:
         float: Inertial orbit velocity (meters/second).
@@ -32,14 +33,21 @@ def compute_ground_inertial_velocity(
     mean_altitude: float, elevation: float = 0
 ) -> float:
     """
-    Fast computation of ground inertial velocity assuming a circular orbit.
+    Fast computation of the inertial velocity (relative to a non-rotating,
+    Earth-centered frame) of the sub-satellite point projected onto a
+    sphere at the specified elevation, assuming a circular orbit around a
+    spherical Earth (using the mean Earth radius). Since the projected
+    point shares the satellite's angular velocity, its linear velocity
+    scales with its (smaller, or larger if elevation exceeds mean_altitude)
+    radius relative to the orbit's radius.
 
     Args:
-        mean_altitude (float | None): Orbit mean altitude (meters).
-        elevation (float): Surface elevation at which to project (meters).
+        mean_altitude (float): Orbit mean altitude (meters) above the mean Earth radius.
+        elevation (float): Surface elevation (meters) above the mean Earth
+            radius at which to project the ground point.
 
     Returns:
-        float: Inertial orbit velocity (meters/second).
+        float: Ground point inertial velocity (meters/second).
     """
     v_orbital = compute_orbit_inertial_velocity(mean_altitude)
     return (
@@ -57,27 +65,27 @@ def compute_ground_surface_velocity(
     latitude: float = 0,
 ) -> float:
     """
-    Fast computation of ground surface velocity assuming a circular orbit.
+    Fast computation of ground surface velocity (relative to the rotating
+    Earth's surface) assuming a circular orbit around a spherical Earth
+    (using the mean Earth radius).
 
     Args:
-        mean_altitude (float | None): Orbit mean altitude (meters).
+        mean_altitude (float): Orbit mean altitude (meters) above the mean Earth radius.
+        elevation (float): Surface elevation (meters) above the mean Earth
+            radius at which to project the ground point.
         inclination (float): Orbit inclination (degrees).
-        latitude (float): Surface latitude (degrees).
-        elevation (float): Surface elevation at which to project (meters).
+        latitude (float): Surface latitude (degrees) at which to evaluate the ground velocity.
 
     Returns:
-        float: Inertial orbit velocity (meters/second).
+        float: Ground surface velocity (meters/second), relative to the rotating Earth.
     """
     v_inertial = compute_ground_inertial_velocity(mean_altitude, elevation)
-    # compute flight path angle beta relative to due East
-    try:
-        sin_beta = np.cos(np.deg2rad(inclination)) / np.cos(np.deg2rad(latitude))
-        sin_beta = max(-1.0, min(1.0, sin_beta))
-        beta = np.arcsin(sin_beta)
-    except ZeroDivisionError:
-        beta = np.pi / 2
-    v_surface_east = v_inertial * np.cos(beta)
-    v_surface_north = v_inertial * np.sin(beta)
+    # compute flight path angle beta relative to due North
+    sin_beta = np.cos(np.deg2rad(inclination)) / np.cos(np.deg2rad(latitude))
+    sin_beta = max(-1.0, min(1.0, sin_beta))
+    beta = np.arcsin(sin_beta)
+    v_surface_north = v_inertial * np.cos(beta)
+    v_surface_east = v_inertial * np.sin(beta)
     v_earth_west = (
         2
         * np.pi
@@ -91,7 +99,8 @@ def compute_ground_surface_velocity(
 @njit
 def semimajor_axis_to_mean_motion(semimajor_axis: float) -> float:
     """
-    Fast computation of mean motion.
+    Fast computation of mean motion (average angular rate) from Kepler's
+    third law, assuming a circular orbit around a spherical Earth.
 
     Args:
         semimajor_axis (float): Orbit semimajor axis (meters).
@@ -105,7 +114,10 @@ def semimajor_axis_to_mean_motion(semimajor_axis: float) -> float:
 @njit
 def mean_motion_to_orbit_period(mean_motion: float) -> float:
     """
-    Fast computation of orbital period.
+    Fast computation of orbital period: the time (360 degrees of mean
+    motion) to complete one revolution. This function is its own inverse:
+    calling it again on a period (seconds) recovers the mean motion
+    (degrees/second), since both are 360 divided by the other.
 
     Args:
         mean_motion (float): Orbit mean motion (degrees/second).
@@ -119,7 +131,9 @@ def mean_motion_to_orbit_period(mean_motion: float) -> float:
 @njit
 def mean_motion_to_semimajor_axis(mean_motion: float) -> float:
     """
-    Fast computation of semimajor axis.
+    Fast computation of semimajor axis from Kepler's third law, assuming a
+    circular orbit around a spherical Earth. This is the inverse of
+    `semimajor_axis_to_mean_motion`.
 
     Args:
         mean_motion (float): Orbit mean motion (degrees/second).
@@ -133,7 +147,8 @@ def mean_motion_to_semimajor_axis(mean_motion: float) -> float:
 @njit
 def semimajor_axis_to_orbit_period(semimajor_axis: float) -> float:
     """
-    Fast computation of orbital period.
+    Fast computation of orbital period from Kepler's third law, assuming a
+    circular orbit around a spherical Earth.
 
     Args:
         semimajor_axis (float): Orbit semimajor axis (meters).
@@ -195,7 +210,13 @@ def compute_j2_raan_rate(
     semimajor_axis: float, inclination: float, eccentricity: float
 ) -> float:
     """
-    Fast computation of right ascension of ascending node precession rate due to J2 perturbations.
+    Fast computation of the secular precession rate of the right ascension
+    of the ascending node (nodal regression) due to Earth's J2 oblateness
+    perturbation. The rate is negative (westward regression) for prograde
+    orbits (inclination < 90 degrees), zero for polar orbits (cos(90) = 0),
+    and positive for retrograde orbits. Sun-synchronous orbits are defined
+    by choosing an inclination that makes this rate equal to the Earth's
+    mean motion around the Sun (about 360/365.2422 degrees/day).
 
     Args:
         semimajor_axis (float): Orbit semimajor axis (meters).
@@ -220,7 +241,13 @@ def compute_j2_aop_rate(
     semimajor_axis: float, inclination: float, eccentricity: float
 ) -> float:
     """
-    Fast computation of argument of periapsis rate due to J2 perturbations.
+    Fast computation of the secular precession rate of the argument of
+    periapsis due to Earth's J2 oblateness perturbation. The rate is
+    positive below the critical inclination (~63.43 degrees, where
+    5*cos^2(inclination) - 1 = 0), negative above it, and exactly zero at
+    the critical inclination itself. Molniya-type orbits use this
+    critical inclination specifically so their periapsis (and apoapsis)
+    location does not drift over time.
 
     Args:
         semimajor_axis (float): Orbit semimajor axis (meters).

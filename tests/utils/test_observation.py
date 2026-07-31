@@ -252,7 +252,7 @@ class TestObservation(unittest.TestCase):  # pylint: disable=too-many-public-met
         """
         self.assertAlmostEqual(
             compute_max_transit_time(705000, 51.6, 100000),
-            15.624873,
+            15.433775,
             delta=1e-5,
         )
 
@@ -273,15 +273,18 @@ class TestObservation(unittest.TestCase):  # pylint: disable=too-many-public-met
             delta=1e-9,
         )
 
-    def test_compute_max_transit_time_polar_slower_than_equatorial(self):
+    def test_compute_max_transit_time_equatorial_slower_than_polar(self):
         """
-        Test that, for the same along track distance and altitude, a polar
-        orbit requires more transit time than an equatorial orbit (its
-        equator-crossing ground velocity is slower).
+        Test that, for the same along track distance and altitude, an
+        equatorial orbit requires more transit time than a polar orbit: at
+        the equator, Earth's eastward rotation partially cancels an
+        equatorial orbit's ground-relative velocity, while it only adds in
+        quadrature (a smaller effect) to a polar orbit's ground track,
+        which crosses the equator moving due north/south.
         """
         self.assertGreater(
-            compute_max_transit_time(705000, 90, 100000),
             compute_max_transit_time(705000, 0, 100000),
+            compute_max_transit_time(705000, 90, 100000),
         )
 
     def test_compute_min_along_track_distance(self):
@@ -291,7 +294,7 @@ class TestObservation(unittest.TestCase):  # pylint: disable=too-many-public-met
         """
         self.assertAlmostEqual(
             compute_min_along_track_distance(705000, 51.6, 20),
-            128001.038,
+            129585.923,
             delta=1e-3,
         )
 
