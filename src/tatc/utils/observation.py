@@ -99,15 +99,23 @@ def field_of_regard_to_swath_width(
     altitude: float, field_of_regard: float, elevation: float = 0
 ) -> float:
     """
-    Fast conversion from field of regard to swath width.
+    Fast computation of the ground swath width observable for a specified
+    field of regard, assuming a spherical Earth (using the mean Earth
+    radius) and a circular orbit at constant altitude. This is the inverse
+    of `swath_width_to_field_of_regard`. A `field_of_regard` at or beyond
+    the horizon-limited maximum (i.e. pointing to the horizon) saturates
+    to the maximum observable swath width rather than growing without bound.
 
     Args:
-        altitude (float): Altitude (meters) above WGS 84 datum for the observing instrument.
-        field_of_regard (float): Angular width (degrees) of observation.
-        elevation (float): Elevation (meters) above WGS 84 datum to observe.
+        altitude (float): Altitude (meters) above the mean Earth radius for the
+            observing instrument.
+        field_of_regard (float): The full angular width (degrees), centered on
+            nadir, that the instrument points or scans across.
+        elevation (float): Elevation (meters) above the mean Earth radius of the observed swath.
 
     Returns:
-        float: The observation diameter (meters) at the specified elevation.
+        float: The ground swath width (meters): the cross-track distance,
+        measured along the Earth's surface, at the specified elevation.
     """
     # rho is the angular radius of the earth viewed by the satellite
     sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
@@ -210,7 +218,10 @@ def compute_max_transit_time(
     mean_altitude: float, inclination: float, along_track: float
 ) -> float:
     """
-    Fast computation of maximum transit time to cover a specified along track distance.
+    Fast computation of the maximum (conservative, worst-case) transit time
+    to cover a specified along-track distance, using the slowest ground
+    track velocity attained over the orbit, which (for the orbit's
+    physically valid latitude range) occurs at its equator crossing.
 
     Args:
         mean_altitude (float): The mean orbit altitude (meters) above WGS 84 datum.
@@ -218,7 +229,7 @@ def compute_max_transit_time(
         along_track (float): The along track distance (meters) observed during access.
 
     Returns:
-        float: The access time (seconds) for observation.
+        float: The maximum access time (seconds) to traverse the along track distance.
     """
     # slowest velocity occurs at the equator due to Earth rotation
     v_slowest = compute_ground_surface_velocity(mean_altitude, 0, inclination, 0)
@@ -230,7 +241,11 @@ def compute_min_along_track_distance(
     mean_altitude: float, inclination: float, access_time: float
 ) -> float:
     """
-    Fast computation of minimum along track distance for a specified access time.
+    Fast computation of the minimum (conservative, worst-case) along-track
+    distance observed in a specified access time, using the slowest ground
+    track velocity attained over the orbit, which (for the orbit's
+    physically valid latitude range) occurs at its equator crossing. This
+    is the inverse of `compute_max_transit_time`.
 
     Args:
         mean_altitude (float): The mean orbit altitude (meters) above WGS 84 datum.
@@ -238,7 +253,7 @@ def compute_min_along_track_distance(
         access_time (float): The access time (seconds) during observation.
 
     Returns:
-        float: The observation along track distance (meters).
+        float: The minimum along track distance (meters) observed during the access time.
     """
     # slowest velocity occurs at the equator due to Earth rotation
     v_slowest = compute_ground_surface_velocity(mean_altitude, 0, inclination, 0)

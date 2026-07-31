@@ -11,7 +11,7 @@ from shapely.geometry import MultiPolygon, Point, Polygon
 from tatc.utils import normalize_geometry, project_polygon_to_elevation, split_polygon
 
 
-class TestGeometry(unittest.TestCase):
+class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-methods
     """
     Unit tests for the tatc.utils.geometry module.
     """
@@ -317,7 +317,8 @@ class TestGeometry(unittest.TestCase):
 
     def test_split_polygon_antimeridian_short_ccw(self):
         """
-        Test that a polygon that crosses the antimeridian in a counter-clockwise direction is split into two polygons.
+        Test that a polygon that crosses the antimeridian in a
+        counter-clockwise direction is split into two polygons.
         """
         polygon = Polygon([(-170, 10), (170, 10), (170, -10), (-170, -10), (-170, 10)])
         result = MultiPolygon(
@@ -330,7 +331,8 @@ class TestGeometry(unittest.TestCase):
 
     def test_split_polygon_antimeridian_long(self):
         """
-        Test that a polygon that crosses the antimeridian multiple times is split into multiple polygons.
+        Test that a polygon that crosses the antimeridian multiple times is
+        split into multiple polygons.
         """
         polygon = Polygon(
             [

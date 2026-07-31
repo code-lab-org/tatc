@@ -8,6 +8,8 @@ import unittest
 from tatc.utils import (
     compute_field_of_regard,
     compute_max_access_time,
+    compute_max_transit_time,
+    compute_min_along_track_distance,
     compute_min_elevation_angle,
     field_of_regard_to_swath_width,
     swath_width_to_field_of_regard,
@@ -15,7 +17,7 @@ from tatc.utils import (
 )
 
 
-class TestObservation(unittest.TestCase):
+class TestObservation(unittest.TestCase):  # pylint: disable=too-many-public-methods
     """
     Unit tests for the tatc.utils.observation module.
     """
@@ -128,6 +130,64 @@ class TestObservation(unittest.TestCase):
             field_of_regard_to_swath_width(705000, 15.0), 185815, delta=1.0
         )
 
+    def test_field_of_regard_to_swath_width_modis(self):
+        """
+        Test against the published MODIS instrument specification (Terra/
+        Aqua, 705 km altitude, +/-55 degree scan angle for a 110 degree
+        field of regard, 2330 km swath width).
+        """
+        self.assertAlmostEqual(
+            field_of_regard_to_swath_width(705000, 110.0),
+            2330000,
+            delta=100,
+        )
+
+    def test_field_of_regard_to_swath_width_zero(self):
+        """
+        Test that a zero field of regard (nadir-only observation) yields a
+        zero-width swath.
+        """
+        self.assertEqual(field_of_regard_to_swath_width(705000, 0), 0.0)
+
+    def test_field_of_regard_to_swath_width_elevation(self):
+        """
+        Test that a positive elevation (observing a point above the mean
+        Earth radius) changes the swath width for the same field of regard
+        and altitude.
+        """
+        self.assertAlmostEqual(
+            field_of_regard_to_swath_width(705000, 15.0, 5000),
+            184495.638,
+            delta=1e-3,
+        )
+
+    def test_field_of_regard_to_swath_width_increases_with_field_of_regard(self):
+        """
+        Test that, for a fixed altitude, the swath width increases
+        monotonically with the field of regard.
+        """
+        swath_widths = [
+            field_of_regard_to_swath_width(705000, field_of_regard)
+            for field_of_regard in (1, 5, 10, 15, 20, 30, 50)
+        ]
+        self.assertEqual(swath_widths, sorted(swath_widths))
+
+    def test_field_of_regard_to_swath_width_saturates_beyond_horizon(self):
+        """
+        Test that a field of regard at or beyond the horizon-limited
+        maximum saturates to the maximum observable swath width rather
+        than raising an error or growing without bound.
+        """
+        max_field_of_regard = compute_field_of_regard(705000, 0)
+        self.assertEqual(
+            field_of_regard_to_swath_width(705000, max_field_of_regard),
+            field_of_regard_to_swath_width(705000, max_field_of_regard + 50),
+        )
+        self.assertEqual(
+            field_of_regard_to_swath_width(705000, max_field_of_regard),
+            field_of_regard_to_swath_width(705000, 180),
+        )
+
     def test_compute_field_of_regard(self):
         """
         Test that the field of regard can be computed for a given altitude
@@ -146,6 +206,18 @@ class TestObservation(unittest.TestCase):
             compute_min_elevation_angle(705000, 15.0), 81.66446, delta=0.001
         )
 
+    def test_compute_min_elevation_angle_modis(self):
+        """
+        Test against the published MODIS instrument specification
+        (Terra/Aqua, 705 km altitude, 110 degree field of regard). The
+        elevation angle at the swath edge should be roughly consistent
+        with MODIS's documented maximum view zenith angle of about 65
+        degrees (elevation = 90 - view zenith angle = ~25 degrees).
+        """
+        self.assertAlmostEqual(
+            compute_min_elevation_angle(705000, 110.0), 25.0, delta=1.0
+        )
+
     def test_compute_min_elevation_angle_saturated(self):
         """
         Test that the minimum elevation angle is saturated at 0 degrees for
@@ -161,3 +233,101 @@ class TestObservation(unittest.TestCase):
         self.assertAlmostEqual(
             compute_max_access_time(705000, 81.66446), 28, delta=1
         )
+
+    def test_compute_max_access_time_iss(self):
+        """
+        Test against the commonly cited maximum ISS visibility duration:
+        at its typical ~408 km altitude, a directly overhead pass (0
+        degree minimum elevation, horizon-to-horizon) lasts up to about
+        10 minutes (per NASA's Spot The Station and similar references).
+        """
+        self.assertAlmostEqual(
+            compute_max_access_time(408000, 0), 600, delta=30
+        )
+
+    def test_compute_max_transit_time(self):
+        """
+        Test that the maximum transit time can be computed for a given
+        altitude, inclination, and along track distance.
+        """
+        self.assertAlmostEqual(
+            compute_max_transit_time(705000, 51.6, 100000),
+            15.624873,
+            delta=1e-5,
+        )
+
+    def test_compute_max_transit_time_zero_along_track(self):
+        """
+        Test that a zero along track distance requires zero transit time.
+        """
+        self.assertEqual(compute_max_transit_time(705000, 51.6, 0), 0.0)
+
+    def test_compute_max_transit_time_linear_in_along_track(self):
+        """
+        Test that the maximum transit time scales linearly with the along
+        track distance, for a fixed altitude and inclination.
+        """
+        self.assertAlmostEqual(
+            compute_max_transit_time(705000, 51.6, 200000),
+            2 * compute_max_transit_time(705000, 51.6, 100000),
+            delta=1e-9,
+        )
+
+    def test_compute_max_transit_time_polar_slower_than_equatorial(self):
+        """
+        Test that, for the same along track distance and altitude, a polar
+        orbit requires more transit time than an equatorial orbit (its
+        equator-crossing ground velocity is slower).
+        """
+        self.assertGreater(
+            compute_max_transit_time(705000, 90, 100000),
+            compute_max_transit_time(705000, 0, 100000),
+        )
+
+    def test_compute_min_along_track_distance(self):
+        """
+        Test that the minimum along track distance can be computed for a
+        given altitude, inclination, and access time.
+        """
+        self.assertAlmostEqual(
+            compute_min_along_track_distance(705000, 51.6, 20),
+            128001.038,
+            delta=1e-3,
+        )
+
+    def test_compute_min_along_track_distance_zero_access_time(self):
+        """
+        Test that a zero access time yields zero along track distance.
+        """
+        self.assertEqual(compute_min_along_track_distance(705000, 51.6, 0), 0.0)
+
+    def test_compute_min_along_track_distance_linear_in_access_time(self):
+        """
+        Test that the minimum along track distance scales linearly with
+        the access time, for a fixed altitude and inclination.
+        """
+        self.assertAlmostEqual(
+            compute_min_along_track_distance(705000, 51.6, 40),
+            2 * compute_min_along_track_distance(705000, 51.6, 20),
+            delta=1e-9,
+        )
+
+    def test_compute_min_along_track_distance_inverts_compute_max_transit_time(self):
+        """
+        Test that compute_min_along_track_distance is the exact inverse of
+        compute_max_transit_time across a range of altitudes, inclinations,
+        and along track distances.
+        """
+        for altitude in (500000, 705000, 800000):
+            for inclination in (0, 30, 51.6, 90, 98):
+                for along_track in (1000, 50000, 200000):
+                    transit_time = compute_max_transit_time(
+                        altitude, inclination, along_track
+                    )
+                    self.assertAlmostEqual(
+                        compute_min_along_track_distance(
+                            altitude, inclination, transit_time
+                        ),
+                        along_track,
+                        delta=1e-6,
+                    )
