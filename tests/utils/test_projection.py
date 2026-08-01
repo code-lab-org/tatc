@@ -534,6 +534,60 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
             distance = _great_circle_distance(0, 0, y, x)
             self.assertAlmostEqual(distance, expected_distance, delta=1000)
 
+    def test_buffer_target_is_conservative_at_high_latitude(self):
+        """
+        Test that the default `distance_crs` (an equidistant cylindrical
+        projection whose standard parallel tracks the target's own
+        latitude) keeps the buffer close to the intended distance in every
+        direction, even far from the equator -- unlike a fixed low-latitude
+        standard parallel (e.g. `EPSG:4087`), whose east-west ground
+        distance for a fixed buffer shrinks by `cos(latitude)` away from
+        the equator (see
+        `test_buffer_target_fixed_low_latitude_crs_under_buffers_at_high_latitude`).
+        """
+        altitude, inclination, field_of_regard, time_step = 705000, 51.6, 20, 60
+        swath_width = field_of_regard_to_swath_width(altitude, field_of_regard)
+        extreme_latitude = min(inclination, 180 - inclination)
+        ground_velocity = compute_ground_surface_velocity(
+            altitude, 0, inclination, extreme_latitude
+        )
+        expected_distance = ground_velocity * time_step + swath_width / 2
+        point = Point(0, 51.6)
+        result = buffer_target(point, altitude, inclination, field_of_regard, time_step)
+        distances = [
+            _great_circle_distance(51.6, 0, y, x) for x, y, *_ in result.exterior.coords
+        ]
+        # every direction (including the worst-case, most-compressed one)
+        # should still reach at least the intended distance
+        self.assertGreater(min(distances), expected_distance * 0.95)
+
+    def test_buffer_target_fixed_low_latitude_crs_under_buffers_at_high_latitude(self):
+        """
+        Regression test documenting why `distance_crs` now defaults to a
+        latitude-tracking projection instead of a fixed `EPSG:4087` (true
+        scale only at the equator): forcing `EPSG:4087` at a high latitude
+        under-buffers in the east-west direction by roughly `cos(latitude)`,
+        which could silently exclude a target that is still within reach.
+        """
+        altitude, inclination, field_of_regard, time_step = 705000, 51.6, 20, 60
+        swath_width = field_of_regard_to_swath_width(altitude, field_of_regard)
+        extreme_latitude = min(inclination, 180 - inclination)
+        ground_velocity = compute_ground_surface_velocity(
+            altitude, 0, inclination, extreme_latitude
+        )
+        expected_distance = ground_velocity * time_step + swath_width / 2
+        point = Point(0, 51.6)
+        result = buffer_target(
+            point, altitude, inclination, field_of_regard, time_step,
+            distance_crs="EPSG:4087",
+        )
+        distances = [
+            _great_circle_distance(51.6, 0, y, x) for x, y, *_ in result.exterior.coords
+        ]
+        # the east-west (worst-case) direction falls well short of the
+        # intended distance -- roughly cos(51.6 deg) = 0.62x
+        self.assertLess(min(distances), expected_distance * 0.7)
+
     def test_buffer_target_increases_with_time_step(self):
         """
         Test that the buffered target's area increases monotonically with

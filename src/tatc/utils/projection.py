@@ -426,7 +426,7 @@ def buffer_target(
     inclination: float,
     field_of_regard: float,
     time_step: float,
-    distance_crs: str = "EPSG:4087",
+    distance_crs: str | None = None,
     distance_scaling: float = 1.0,
 ) -> Polygon | MultiPolygon:
     """
@@ -444,14 +444,22 @@ def buffer_target(
         inclination (float): The spacecraft orbit inclination (degrees).
         field_of_regard (float): The spacecraft instrument field of regard (degrees).
         time_step (float): The simulation time step (seconds).
-        distance_crs (str): The coordinate reference system in which to perform
-            distance calculations (default: EPSG:4087).
+        distance_crs (str | None): The coordinate reference system in which to
+            perform distance calculations. Defaults to `None`, which builds an
+            equidistant cylindrical projection whose true-scale parallel
+            (`lat_ts`) is set to `geometry`'s own most poleward latitude. This
+            keeps the buffer conservative (true ground distance >= the
+            requested distance) at every latitude within `geometry`.
         distance_scaling (float): A multiplicative scaling factor to adjust the buffer
             distance (default: 1.0).
 
     Returns:
         shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The buffered geometry.
     """
+    if distance_crs is None:
+        _, min_lat, _, max_lat = geometry.bounds
+        lat_ts = min(max(abs(min_lat), abs(max_lat)), 89.9)
+        distance_crs = f"+proj=eqc +lat_ts={lat_ts} +datum=WGS84 +units=m"
     to_crs = Transformer.from_crs("EPSG:4326", distance_crs, always_xy=True)
     from_crs = Transformer.from_crs(distance_crs, "EPSG:4326", always_xy=True)
     swath_width = field_of_regard_to_swath_width(altitude, field_of_regard)
