@@ -10,6 +10,7 @@ from typing import overload
 
 import geopandas as gpd
 import numpy as np
+from pyproj import Geod
 from shapely import make_valid
 from shapely.geometry import (
     GeometryCollection,
@@ -19,6 +20,36 @@ from shapely.geometry import (
     Polygon,
 )
 from shapely.ops import split
+
+# WGS 84 ellipsoid geodesic solver, shared across calls
+_WGS84_GEOD = Geod(ellps="WGS84")
+
+
+def geodesic_distance(
+    longitude_1: float, latitude_1: float, longitude_2: float, latitude_2: float
+) -> float:
+    """
+    Computes the geodesic surface distance between two longitude/latitude
+    points on the WGS 84 ellipsoid: the length of the shortest path
+    between them that stays on the ellipsoid surface. Unlike a
+    longitude/latitude-based (planar) distance, this accounts for the
+    Earth's oblateness and the convergence of meridians toward the poles,
+    so it remains accurate at any latitude or longitude separation
+    (including antipodal-ish or antimeridian-spanning point pairs).
+
+    Args:
+        longitude_1 (float): Longitude (degrees) of the first point.
+        latitude_1 (float): Latitude (degrees) of the first point.
+        longitude_2 (float): Longitude (degrees) of the second point.
+        latitude_2 (float): Latitude (degrees) of the second point.
+
+    Returns:
+        float: The geodesic distance (meters) between the two points.
+    """
+    _, _, distance = _WGS84_GEOD.inv(
+        longitude_1, latitude_1, longitude_2, latitude_2
+    )
+    return distance
 
 
 @overload

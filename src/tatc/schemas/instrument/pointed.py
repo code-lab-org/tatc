@@ -17,12 +17,13 @@ from ...utils.projection import (
     compute_footprint,
     compute_projected_ray_position,
 )
-from .nadir import Instrument
+from .simple import Instrument
 
 
 class PointedInstrument(Instrument):
     """
-    Remote sensing instrument with optional off-nadir orientation.
+    Remote sensing instrument with an optional off-nadir (roll/pitch)
+    pointing offset and a rectangular or elliptical pixel array.
     """
 
     cross_track_field_of_view: float = Field(
@@ -61,13 +62,13 @@ class PointedInstrument(Instrument):
     )
     cross_track_oversampling: float = Field(
         default=0,
-        description="Fraction of pixel overlap in cross-track diraction.",
+        description="Fraction of pixel overlap in cross-track direction.",
         ge=0,
         lt=1,
     )
     along_track_oversampling: float = Field(
         default=0,
-        description="Fraction of pixel overlap in along-track diraction.",
+        description="Fraction of pixel overlap in along-track direction.",
         ge=0,
         lt=1,
     )
@@ -177,8 +178,13 @@ class PointedInstrument(Instrument):
 
         return compute_projected_ray_position(
             orbit_track=orbit_track,
-            cross_track_field_of_view=cone,
-            along_track_field_of_view=cone,
+            # `cone` is the pixel's angular offset from boresight (not a
+            # field of view), but compute_projected_ray_position's
+            # elliptical ray offsets by half of the field of view it is
+            # given; doubling `cone` here cancels that halving so the
+            # pixel lands at its true cone-angle offset.
+            cross_track_field_of_view=2 * cone,
+            along_track_field_of_view=2 * cone,
             roll_angle=self.roll_angle,
             pitch_angle=self.pitch_angle,
             is_rectangular=False,
@@ -190,15 +196,18 @@ class PointedInstrument(Instrument):
         self, cross_track_index: int, along_track_index: int
     ) -> tuple[float, float]:
         """
-        Gets the cone () and clock angles (degrees) for given pixel.
+        Gets the cone and clock angles (degrees) for a given pixel: its
+        angular offset from the instrument boresight (after roll/pitch),
+        expressed in polar form.
 
         Args:
             cross_track_index (int): pixel index in cross-track dimension (left to right).
             along_track_index (int): pixel index in along-track dimension (fore to aft).
 
         Returns:
-            tuple[float, float]: cone (from nadir-looking) and clock
-                (counter-clockwise from right-looking) angles (degrees).
+            tuple[float, float]: cone (the pixel's total angular
+                displacement from boresight) and clock (counter-clockwise
+                from right-looking, about the boresight) angles (degrees).
         """
         cross_track_offset = (
             (0.5 + cross_track_index - self.cross_track_pixels / 2)

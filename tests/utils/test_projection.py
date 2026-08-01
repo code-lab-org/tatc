@@ -60,7 +60,14 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         """
         Test that a pure nadir ray (zero field of view, roll, and pitch)
         lands at essentially the same location as Skyfield's own
-        independently-computed sub-satellite point.
+        independently-computed sub-satellite point. The nadir ray must
+        follow the geodetic vertical (the WGS 84 ellipsoid surface normal),
+        not the geocentric direction (straight toward the Earth's center):
+        those two only coincide at the equator and poles, and this test
+        point (true_anomaly=0, near the ascending node) sits close to the
+        equator, where the two would be hard to tell apart. See
+        `test_compute_projected_ray_position_nadir_matches_subpoint_off_equator`
+        for a test point where the distinction actually matters.
         """
         position = compute_projected_ray_position(
             self.orbit_track, 0, 0, 0, 0, False, 0, 0
@@ -71,7 +78,45 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
             position.latitude.degrees,
             position.longitude.degrees,
         )
-        self.assertLess(distance, 100)
+        self.assertLess(distance, 1)
+
+    def test_compute_projected_ray_position_nadir_matches_subpoint_off_equator(self):
+        """
+        Test that a pure nadir ray still matches Skyfield's sub-satellite
+        point away from the equator (near maximum latitude for this
+        orbit's inclination), where the geocentric and geodetic nadir
+        directions diverge by kilometers if conflated. This is the
+        regression test for a bug where the nadir ray pointed toward the
+        Earth's center (geocentric) instead of along the local WGS 84
+        ellipsoid normal (geodetic), which agreed with Skyfield's subpoint
+        only near the equator/poles and was off by ~2 km at 45 degrees
+        latitude for a 700 km altitude orbit.
+        """
+        noon_utc = datetime(2020, 3, 20, 12, tzinfo=timezone.utc)
+        orbit = CircularOrbit(
+            mean_altitude=705000,
+            true_anomaly=90,
+            epoch=noon_utc,
+            inclination=51.6,
+            right_ascension_ascending_node=0.0,
+        )
+        satellite = EarthSatellite.from_satrec(
+            orbit.to_gp_orbit().elements[0].to_satrec(), timescale
+        )
+        orbit_track = satellite.at(timescale.from_datetime(noon_utc))
+        subpoint = orbit_track.subpoint()
+        position = compute_projected_ray_position(
+            orbit_track, 0, 0, 0, 0, False, 0, 0
+        )
+        # confirm this test point is actually away from the equator
+        self.assertGreater(abs(subpoint.latitude.degrees), 45)
+        distance = _great_circle_distance(
+            subpoint.latitude.degrees,
+            subpoint.longitude.degrees,
+            position.latitude.degrees,
+            position.longitude.degrees,
+        )
+        self.assertLess(distance, 1)
 
     def test_compute_projected_ray_position_elevation(self):
         """

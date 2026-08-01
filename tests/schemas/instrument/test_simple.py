@@ -7,10 +7,12 @@ Unit tests for the Instrument schema.
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from skyfield.api import EarthSatellite
+from pydantic import ValidationError
+from skyfield.api import EarthSatellite, wgs84
 
 from tatc.constants import timescale
 from tatc.schemas import CircularOrbit, Instrument
+from tatc.utils import geodesic_distance
 
 
 class TestInstrument(unittest.TestCase):
@@ -88,6 +90,27 @@ class TestInstrument(unittest.TestCase):
         self.assertEqual(o.min_access_time, good_data.get("min_access_time"))
         self.assertEqual(o.req_self_sunlit, good_data.get("req_self_sunlit"))
         self.assertEqual(o.req_target_sunlit, good_data.get("req_target_sunlit"))
+
+    def test_field_of_regard_bounds(self):
+        """
+        Test that field_of_regard must be in the interval (0, 360].
+        """
+        Instrument(name="Test Instrument", field_of_regard=360.0)
+        with self.assertRaises(ValidationError):
+            Instrument(name="Test Instrument", field_of_regard=0.0)
+        with self.assertRaises(ValidationError):
+            Instrument(name="Test Instrument", field_of_regard=360.1)
+        with self.assertRaises(ValidationError):
+            Instrument(name="Test Instrument", field_of_regard=-10.0)
+
+    def test_access_time_fixed_default(self):
+        """
+        Test that access_time_fixed defaults to False.
+        """
+        o = Instrument(name="Test Instrument")
+        self.assertFalse(o.access_time_fixed)
+        o = Instrument(name="Test Instrument", access_time_fixed=True)
+        self.assertTrue(o.access_time_fixed)
 
     def test_get_swath_width(self):
         """
@@ -258,3 +281,56 @@ class TestInstrument(unittest.TestCase):
         self.assertFalse(results[0])
         self.assertTrue(results[1])
         self.assertFalse(results[2])
+
+    def test_compute_footprint_center_matches_subpoint(self):
+        """
+        Test that the footprint center of a nadir-pointing instrument
+        (zero field of view, roll, and pitch) coincides with Skyfield's
+        own WGS 84 sub-satellite point, for both equatorial and inclined
+        orbits.
+        """
+        o = Instrument(name="Test Instrument")
+        for sat in (self.test_sat_1, self.test_sat_2, self.test_sat_5):
+            orbit_track = sat.at(self.test_time) # type: ignore
+            center = o.compute_footprint_center(orbit_track)
+            subpoint = wgs84.subpoint_of(orbit_track)
+            self.assertAlmostEqual(
+                geodesic_distance(
+                    center.longitude.degrees,
+                    center.latitude.degrees,
+                    subpoint.longitude.degrees,
+                    subpoint.latitude.degrees,
+                ),
+                0,
+                delta=1e-3,
+            )
+            self.assertAlmostEqual(center.elevation.m, subpoint.elevation.m, delta=1e-3)
+
+    def test_compute_footprint_cross_track_extent_matches_swath_width(self):
+        """
+        Test that the cross-track extent of a computed footprint (the
+        geodesic distance between the footprint edge points directly
+        left and right of nadir) matches `get_swath_width`, evaluated at
+        the satellite's actual height above the WGS 84 ellipsoid (which,
+        due to Earth's oblateness, differs slightly from the orbit's
+        nominal mean altitude away from the equator). This cross-checks
+        the closed-form swath width formula (assumes a spherical Earth)
+        against the WGS 84 ellipsoid footprint geometry.
+        """
+        o = Instrument(name="Test Instrument", field_of_regard=30.0)
+        for sat in (self.test_sat_1, self.test_sat_5):
+            orbit_track = sat.at(self.test_time) # type: ignore
+            height = wgs84.geographic_position_of(orbit_track).elevation.m
+            expected_swath_width = o.get_swath_width(height)
+            # request 5 points so the polygon samples exactly the
+            # cross-track edges (angle=0 and angle=180 degrees)
+            footprint = o.compute_footprint(orbit_track, number_points=5)
+            coords = list(footprint[0].exterior.coords)
+            # coords are sampled at angle = [0, 90, 180, 270, 360] degrees;
+            # index 0 (angle=0) and index 2 (angle=180) are the cross-track edges
+            cross_track_extent = geodesic_distance(
+                coords[0][0], coords[0][1], coords[2][0], coords[2][1]
+            )
+            self.assertAlmostEqual(
+                cross_track_extent, expected_swath_width, delta=50.0
+            )

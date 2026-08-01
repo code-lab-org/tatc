@@ -45,7 +45,10 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     from the satellite position toward the WGS 84 geoid at the specified
     elevation; if it misses the geoid entirely (e.g. an off-nadir angle
     pointing past the horizon), the projected position instead falls back
-    to the nearest point on the visible Earth limb.
+    to the nearest point on the visible Earth limb. Zero roll, pitch, and
+    field of view center on the geodetic nadir (the WGS 84 ellipsoid
+    surface normal through the satellite), matching Skyfield's
+    `wgs84.subpoint_of`/`wgs84.geographic_position_of`.
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
@@ -74,17 +77,28 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     p_m = np.array(position.m)
     # velocity unit vector
     v = np.divide(v_m_per_s, np.linalg.norm(v_m_per_s, axis=0))
-    # binormal unit vector
-    b = np.divide(-p_m, np.linalg.norm(p_m, axis=0))
+    # nadir unit vector: the geodetic vertical, i.e. the WGS 84
+    # ellipsoid surface normal at the sub-satellite point, pointed inward
+    # (toward the Earth). This is NOT simply the geocentric direction
+    # (-position, toward the Earth's center): the two coincide only at the
+    # equator and poles, and otherwise differ by up to the WGS 84
+    # geodetic/geocentric latitude discrepancy (~0.19 degrees), which can
+    # shift a projected nadir point by kilometers at typical LEO altitudes.
+    subpoint = wgs84.geographic_position_of(orbit_track)
+    lat = np.array(subpoint.latitude.radians)
+    lon = np.array(subpoint.longitude.radians)
+    n = -np.array(
+        [np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)]
+    )
     # whether orbit_track represents a single time or a vector of times
     is_vectorized = len(np.shape(p_m)) > 1
-    # normal unit vector
+    # cross-track unit vector
     if is_vectorized:
-        n = np.cross(v, b, 0, 0, -1).T
+        c = np.cross(v, n, 0, 0, -1).T
     else:
-        n = np.cross(v, b)
+        c = np.cross(v, n)
     # ray pointed at the field of view center (before adding the field of view extent)
-    base_ray = b + v * np.tan(np.radians(pitch_angle)) + n * np.tan(np.radians(roll_angle))
+    base_ray = n + v * np.tan(np.radians(pitch_angle)) + c * np.tan(np.radians(roll_angle))
     # construct projected ray
     if is_rectangular:
         # find orientation of rectangle corner
@@ -93,7 +107,7 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
         tan_a_2 = np.tan(np.radians(along_track_field_of_view / 2))
         # cross track half width
         tan_c_2 = np.tan(np.radians(cross_track_field_of_view / 2))
-        # compose the ray by walking around the rectangle boundary: the (v, n)
+        # compose the ray by walking around the rectangle boundary: the (v, c)
         # coefficients are determined together, one segment at a time, rather
         # than by two independently re-derived branch chains. Corners are at
         # theta, pi - theta, pi + theta, and 2*pi - theta; the pi/2, pi, and
@@ -102,34 +116,34 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
         # tan() argument close to zero.
         if angle <= theta:
             # right edge, upper half
-            v_coef, n_coef = tan_c_2 * np.tan(angle), tan_c_2
+            v_coef, c_coef = tan_c_2 * np.tan(angle), tan_c_2
         elif angle < np.pi / 2:
             # top edge, right half
-            v_coef, n_coef = tan_a_2, tan_a_2 * np.tan(np.pi / 2 - angle)
+            v_coef, c_coef = tan_a_2, tan_a_2 * np.tan(np.pi / 2 - angle)
         elif angle <= np.pi - theta:
             # top edge, left half
-            v_coef, n_coef = tan_a_2, -tan_a_2 * np.tan(angle - np.pi / 2)
+            v_coef, c_coef = tan_a_2, -tan_a_2 * np.tan(angle - np.pi / 2)
         elif angle < np.pi:
             # left edge, upper half
-            v_coef, n_coef = tan_c_2 * np.tan(np.pi - angle), -tan_c_2
+            v_coef, c_coef = tan_c_2 * np.tan(np.pi - angle), -tan_c_2
         elif angle < np.pi + theta:
             # left edge, lower half
-            v_coef, n_coef = -tan_c_2 * np.tan(angle - np.pi), -tan_c_2
+            v_coef, c_coef = -tan_c_2 * np.tan(angle - np.pi), -tan_c_2
         elif angle < 3 * np.pi / 2:
             # bottom edge, right half
-            v_coef, n_coef = -tan_a_2, -tan_a_2 * np.tan(3 * np.pi / 2 - angle)
+            v_coef, c_coef = -tan_a_2, -tan_a_2 * np.tan(3 * np.pi / 2 - angle)
         elif angle <= 2 * np.pi - theta:
             # bottom edge, left half
-            v_coef, n_coef = -tan_a_2, tan_a_2 * np.tan(angle - 3 * np.pi / 2)
+            v_coef, c_coef = -tan_a_2, tan_a_2 * np.tan(angle - 3 * np.pi / 2)
         else:
             # right edge, lower half
-            v_coef, n_coef = -tan_c_2 * np.tan(2 * np.pi - angle), tan_c_2
-        ray = base_ray + v * v_coef + n * n_coef
+            v_coef, c_coef = -tan_c_2 * np.tan(2 * np.pi - angle), tan_c_2
+        ray = base_ray + v * v_coef + c * c_coef
     else:
         ray = (
             base_ray
             + v * np.sin(angle) * np.tan(np.radians(along_track_field_of_view / 2))
-            + n * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
+            + c * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
         )
     geos = np.zeros_like(p_m)
     for i in range(np.size(geos, axis=1)) if is_vectorized else [-1]:
@@ -164,11 +178,11 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
             )
             # find the two intersection points between orthogonal plane and limb ellipse
             _v = v[:, i].copy() if is_vectorized else v
-            _n = n[:, i].copy() if is_vectorized else n
+            _c = c[:, i].copy() if is_vectorized else c
             _, pt_1, pt_2 = inelpl(
                 limb,
                 nvp2pl(
-                    _v * np.sin(np.pi / 2 + angle) + _n * np.cos(np.pi / 2 + angle),
+                    _v * np.sin(np.pi / 2 + angle) + _c * np.cos(np.pi / 2 + angle),
                     _position,
                 ),
             )

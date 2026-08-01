@@ -9,6 +9,7 @@ import geopandas as gpd
 from shapely.geometry import MultiPolygon, Point, Polygon
 
 from tatc.utils import (
+    geodesic_distance,
     get_planar_bounds,
     normalize_geometry,
     project_polygon_to_elevation,
@@ -20,6 +21,54 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
     """
     Unit tests for the tatc.utils.geometry module.
     """
+    def test_geodesic_distance_same_point(self):
+        """
+        Test that the geodesic distance between a point and itself is zero.
+        """
+        self.assertAlmostEqual(geodesic_distance(10, 20, 10, 20), 0, delta=1e-6)
+
+    def test_geodesic_distance_one_degree_at_equator(self):
+        """
+        Test the geodesic distance for one degree of longitude along the
+        equator against the known WGS 84 equatorial circumference (the
+        equator is itself a geodesic, so this distance is exact):
+        2 * pi * EARTH_EQUATORIAL_RADIUS / 360 = 111319.4908 meters.
+        """
+        self.assertAlmostEqual(
+            geodesic_distance(0, 0, 1, 0), 111319.4908, delta=0.01
+        )
+
+    def test_geodesic_distance_pole_to_equator(self):
+        """
+        Test the geodesic distance from the North pole to the equator
+        against the published WGS 84 meridian quadrant length (a meridian
+        is itself a geodesic, so this distance is exact): 10001965.7293
+        meters.
+        """
+        self.assertAlmostEqual(
+            geodesic_distance(0, 90, 0, 0), 10001965.7293, delta=0.01
+        )
+
+    def test_geodesic_distance_is_symmetric(self):
+        """
+        Test that the geodesic distance does not depend on point order.
+        """
+        self.assertAlmostEqual(
+            geodesic_distance(-73.9857, 40.7484, -0.1278, 51.5074),
+            geodesic_distance(-0.1278, 51.5074, -73.9857, 40.7484),
+            delta=1e-6,
+        )
+
+    def test_geodesic_distance_across_antimeridian(self):
+        """
+        Test that the geodesic distance between points on either side of
+        the antimeridian takes the short way across it, rather than the
+        long way around through the prime meridian.
+        """
+        self.assertAlmostEqual(
+            geodesic_distance(179, 0, -179, 0), 222638.9816, delta=0.01
+        )
+
     def test_project_polygon_to_elevation_polygon(self):
         """
         Test that all exterior coordinates of a polygon are assigned the
