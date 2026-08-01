@@ -6,6 +6,9 @@ Unit tests for the TrainConstellation schema.
 import unittest
 from datetime import timedelta
 
+from pydantic import ValidationError
+
+from tatc import constants
 from tatc.schemas import CircularOrbit, Instrument, TrainConstellation
 
 
@@ -79,10 +82,31 @@ class TestTrainConstellation(unittest.TestCase):
         Test that the delta right ascension of ascending node can be retrieved from the
         TrainConstellation object for a repeat ground track TLE orbit.
         """
-        self.assertEqual(
+        self.assertAlmostEqual(
             self.test_con_rgt.get_delta_raan(),
-            360 * self.test_con_rgt.interval / timedelta(days=1),
+            360
+            * self.test_con_rgt.interval.total_seconds()
+            / constants.EARTH_SIDEREAL_DAY_S,
+            delta=1e-9,
         )
+
+    def test_get_delta_raan_repeat_ground_track_uses_sidereal_day(self):
+        """
+        Test that the repeat ground track RAAN correction is based on the
+        sidereal day (Earth's rotation relative to inertial space), not
+        the 24-hour solar day: the two differ by about 0.27%, which would
+        otherwise leave each trailing satellite's ascending node at a
+        slightly different Earth-fixed longitude than the one ahead of it
+        rather than truly repeating the ground track. This is a regression
+        test for a bug where `timedelta(days=1)` (the solar day) was used
+        instead of `constants.EARTH_SIDEREAL_DAY_S`.
+        """
+        con = TrainConstellation(
+            **{**self.test_data, "interval": timedelta(hours=1)},
+            repeat_ground_track=True,
+        )
+        solar_day_raan = 360 * (con.interval / timedelta(days=1))
+        self.assertNotAlmostEqual(con.get_delta_raan(), solar_day_raan, delta=1e-4)
 
     def test_get_delta_raan_no_repeat_ground_track_tle(self):
         """
@@ -139,3 +163,57 @@ class TestTrainConstellation(unittest.TestCase):
         for a non-repeat ground track TLE orbit.
         """
         self.helper_test_generate_members(self.test_con_nrgt)
+
+    def test_generate_members_first_satellite_matches_lead_orbit(self):
+        """
+        Test that the first generated member (index 0, zero mean anomaly
+        and RAAN offset) matches the constellation's own lead orbit.
+        """
+        members = self.test_con_rgt.generate_members()
+        self.assertEqual(members[0].orbit, self.test_orbit)
+
+    def test_generate_members_instruments_independent_per_satellite(self):
+        """
+        Test that each generated member gets its own deep-copied
+        instruments list, not one shared (aliased) across members or with
+        the constellation itself: mutating one member's instrument must
+        not affect another member's or the constellation's.
+        """
+        members = self.test_con_rgt.generate_members()
+        self.assertIsNot(members[0].instruments, members[1].instruments)
+        self.assertIsNot(members[0].instruments, self.test_con_rgt.instruments)
+        members[0].instruments[0].name = "Renamed"
+        self.assertEqual(members[1].instruments[0].name, "Test Instrument")
+        self.assertEqual(self.test_con_rgt.instruments[0].name, "Test Instrument")
+
+    def test_type_defaults_to_train(self):
+        """
+        Test that omitting type defaults to the "train" discriminator.
+        """
+        self.assertEqual(self.test_con_rgt.type, "train")
+
+    def test_type_rejects_other_values(self):
+        """
+        Test that type only accepts the "train" literal, rejecting other
+        space system type discriminators.
+        """
+        with self.assertRaises(ValidationError):
+            TrainConstellation(**self.test_data, type="walker")
+
+    def test_number_satellites_default(self):
+        """
+        Test that omitting number_satellites defaults to a single satellite.
+        """
+        con = TrainConstellation(
+            name="Test Constellation",
+            orbit=self.test_data["orbit"],
+            interval=timedelta(minutes=10),
+        )
+        self.assertEqual(con.number_satellites, 1)
+
+    def test_number_satellites_must_be_at_least_one(self):
+        """
+        Test that number_satellites must be at least 1.
+        """
+        with self.assertRaises(ValidationError):
+            TrainConstellation(**{**self.test_data, "number_satellites": 0})

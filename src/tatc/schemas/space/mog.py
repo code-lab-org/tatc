@@ -121,12 +121,22 @@ class MOGConstellation(BaseConstellation):
                 s * np.dot(t, np.cross(l_0, np.array([1, 0, 0]))),
             )
 
+            # mean anomaly (radians) of the mutual orbiter at the reference
+            # orbit's actual epoch. `n` above [Eq. (31)] is only the mutual
+            # orbiter's mean anomaly at the instant the reference orbiter
+            # crosses its ascending node; since both orbits share the same
+            # semimajor axis (and thus mean motion, independent of
+            # eccentricity), advancing by the reference orbiter's own mean
+            # anomaly at epoch gives the mutual orbiter's mean anomaly at
+            # that same epoch.
+            m = n + np.radians(self.orbit.get_mean_anomaly())
+
             # eccentric anomaly (radians) implicit equation [Eq. (32) in Leroy et al. (2020)]
             psi_ = 0
             psi = 0.1  # initial guess
             while np.abs(psi - psi_) > 1e-6:  # convergence criterion
                 psi_ = psi
-                psi = n + e * np.sin(psi_)
+                psi = m + e * np.sin(psi_)
 
             # true anomaly (radians) [Eq. (33a) in Leroy et al. (2020)]
             nu = np.arctan2(np.sin(psi) * np.sqrt(1 - e**2), np.cos(psi) - e)

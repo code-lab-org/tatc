@@ -73,22 +73,22 @@ class SOCConstellation(BaseConstellation):
         # compute gamma (earth central angle) [Eq. (20) in Anderson et al. (2022)]
         gamma = 90 - e - eta
 
-        # satellite footprint radius (km) [Eq. (21) in Anderson et al. (2022)]
+        # satellite footprint radius (m) [Eq. (21) in Anderson et al. (2022)]
         r_foot = EARTH_MEAN_RADIUS * math.sin(math.radians(gamma))
 
-        # distance between adjacent footprint centers (km) [Eq. (23) in Anderson et al. (2022)]
+        # distance between adjacent footprint centers (m) [Eq. (23) in Anderson et al. (2022)]
         d_f = 2 * r_foot * self.packing_distance
 
-        # distance between adjacent planes (km) [Eq. (24) in Anderson et al. (2022)]
+        # distance between adjacent planes (m) [Eq. (24) in Anderson et al. (2022)]
         d_p = math.sqrt(3) * r_foot * self.packing_distance
 
-        # angle (degrees) between footprint centers [Eq. (25) in Anderson et al. (2022)]
+        # angle (radians) between footprint centers [Eq. (25) in Anderson et al. (2022)]
         gamma_f = 2 * math.asin((0.5 * d_f) / (EARTH_MEAN_RADIUS))
 
         # number of satellites per plane [Eq. (26) in Anderson et al. (2022)]
         satellites_per_plane = math.ceil((2 * math.pi) / gamma_f)
 
-        # angle (degrees) between adjacent planes [Eq. (27) in Anderson et al. (2022)]
+        # angle (radians) between adjacent planes [Eq. (27) in Anderson et al. (2022)]
         gamma_p = 2 * math.asin((0.5 * d_p) / (EARTH_MEAN_RADIUS))
 
         # number of planes [Eq. (28) in Anderson et al. (2022)]
@@ -102,6 +102,12 @@ class SOCConstellation(BaseConstellation):
             instruments=self.instruments,
             number_satellites=number_satellites,
             number_planes=number_planes,
+            # offset adjacent planes by half a within-plane satellite
+            # spacing, so the d_p row spacing (derived above via the
+            # hexagonal-packing sqrt(3) factor) actually yields a
+            # staggered hex/brick layout rather than a plain rectangular
+            # grid of planes
+            relative_spacing=number_planes // 2,
         )
 
     def generate_members(self) -> list[Satellite]:

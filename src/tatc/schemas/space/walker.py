@@ -53,10 +53,10 @@ class WalkerConstellation(BaseConstellation):
     )
     relative_spacing: int = Field(
         default=0,
-        description="Relative spacing of satellites between plans for a Walker Delta "
-        + "constellation. Ranges from 0 for equal true anomaly to "
+        description="Relative spacing of satellites between planes for a Walker Delta "
+        + "constellation. Ranges from 0 for equal mean anomaly to "
         + "(number of planes) - 1. For example, `relative_spacing=1` "
-        + "means the true anomaly is shifted by `360/number_satellites` "
+        + "means the mean anomaly is shifted by `360/number_satellites` "
         + "between adjacent planes.",
         ge=0,
     )

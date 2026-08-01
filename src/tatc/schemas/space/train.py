@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from ... import constants
 from ...utils.formatting import zero_pad
 from ..orbit import AllOrbits
 from .base_constellation import BaseConstellation
@@ -52,13 +53,17 @@ class TrainConstellation(BaseConstellation):
     def get_delta_raan(self) -> float:
         """
         Gets the difference in right ascension of ascending node (decimal
-        degrees) for adjacent member satellites.
+        degrees) for adjacent member satellites. When repeating the ground
+        track, this compensates for the Earth's rotation (relative to
+        inertial space, i.e. the sidereal day, not the 24-hour solar day)
+        during the trailing interval, so each satellite's ascending node
+        lands at the same Earth-fixed longitude as the one ahead of it.
 
         Returns:
             float: the difference in right ascension of ascending node
         """
         if self.repeat_ground_track:
-            return 360 * (self.interval / timedelta(days=1))
+            return 360 * (self.interval.total_seconds() / constants.EARTH_SIDEREAL_DAY_S)
         return 0
 
     def generate_members(self) -> list[Satellite]:

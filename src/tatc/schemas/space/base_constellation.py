@@ -20,7 +20,7 @@ class BaseConstellation(SpaceSystem):
         Generates the members of the constellation.
 
         Returns:
-            list[SpaceSystem]: The list of generated members.
+            list[Satellite]: The list of generated members.
         """
         raise NotImplementedError(
             "generate_members() must be implemented in subclasses."
