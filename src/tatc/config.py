@@ -41,18 +41,22 @@ class RuntimeConfiguration(BaseModel):
         gt=0,
     )
     repeat_cycle_delta_velocity_m_per_s: float = Field(
-        default=10,
+        default=3,
         description="Maximum difference in velocity (meters/second) for a valid repeat.",
-        gt=0,
-    )
-    repeat_cycle_search_elevation_deg: float = Field(
-        default=88,
-        description="Minimum elevation angle (degrees) for screening repeats.",
         gt=0,
     )
     repeat_cycle_search_duration_days: float = Field(
         default=30,
         description="Maximum duration for which to search for repeat cycles.",
+    )
+    repeat_cycle_consistency_threshold_s: float = Field(
+        default=3600,
+        description=(
+            "Maximum allowed difference (seconds) between elements' "
+            "independently-computed repeat cycles for a multi-element "
+            "orbit to report one consistent repeat cycle."
+        ),
+        gt=0,
     )
     repeat_cycle_lazy_load: bool = Field(
         default=True,

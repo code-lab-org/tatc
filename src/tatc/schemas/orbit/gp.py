@@ -1,5 +1,5 @@
 """
-Object schemas for general perturbations orbits.
+Object schema for general perturbations orbits.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -8,253 +8,19 @@ from __future__ import annotations
 
 import csv
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Literal, overload
 
 import numpy as np
 import numpy.typing as npt
 from pydantic import BaseModel, Field, model_validator
-from sgp4 import exporter, omm
-from sgp4.api import WGS72, Satrec
-from sgp4.conveniences import sat_epoch_datetime
-from skyfield.api import EarthSatellite, Time, wgs84
-from skyfield.framelib import itrs
+from skyfield.api import Time, wgs84
 from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
 from ... import config, constants, utils
 from ..surface import Point
-
-
-class GeneralPerturbationsElements(BaseModel):
-    """General perturbations orbital elements for a satellite."""
-
-    object_name: str | None = Field(default=None, description="Object name.")
-    epoch: datetime = Field(..., description="Epoch.")
-    mean_motion: float = Field(..., description="Mean motion (degrees/second).", gt=0)
-    eccentricity: float = Field(..., description="Eccentricity.", ge=0, le=1)
-    inclination: float = Field(..., description="Inclination (degrees).", ge=0, le=180)
-    ra_of_asc_node: float = Field(
-        ..., description="Right ascension of ascending node (degrees).", ge=0, lt=360
-    )
-    arg_of_pericenter: float = Field(
-        ..., description="Argument of pericenter (degrees).", ge=0, lt=360
-    )
-    mean_anomaly: float = Field(
-        ..., description="Mean anomaly (degrees).", ge=0, lt=360
-    )
-    norad_cat_id: int = Field(default=0, description="NORAD catalog identifier.", ge=0)
-    bstar: float = Field(default=0, description="Starred ballistic coefficient.")
-    mean_motion_dot: float = Field(
-        default=0, description="First derivative of mean motion (degrees/second^2)."
-    )
-    mean_motion_ddot: float = Field(
-        default=0, description="Second derivative of mean motion (degrees/second^3)."
-    )
-    classification: str = Field(default="U", description="Classification type.")
-    international_designator: str = Field(
-        default="00000A", description="International designator."
-    )
-    ephemeris_type: int = Field(default=0, description="Ephemeris type.")
-    element_set_num: int = Field(default=0, description="Element set number.")
-    revolution_num: int = Field(default=0, description="Revolution number at epoch.")
-
-    @classmethod
-    def from_satrec(cls, satrec: Satrec) -> GeneralPerturbationsElements:
-        """
-        Creates a GP elements object from a Satrec object.
-
-        Args:
-            satrec (Satrec): The Satrec object.
-
-        Returns:
-            GeneralPerturbationsElements: the GP elements
-        """
-        return GeneralPerturbationsElements(
-            epoch=sat_epoch_datetime(satrec),
-            mean_motion=np.degrees(satrec.no_kozai) / 60,
-            eccentricity=satrec.ecco,
-            inclination=np.degrees(satrec.inclo),
-            ra_of_asc_node=np.degrees(satrec.nodeo),
-            arg_of_pericenter=np.degrees(satrec.argpo),
-            mean_anomaly=np.degrees(satrec.mo),
-            norad_cat_id=satrec.satnum,
-            bstar=satrec.bstar,
-            mean_motion_dot=np.degrees(satrec.ndot) / 60**2,
-            mean_motion_ddot=np.degrees(satrec.nddot) / 60**3,
-            classification=satrec.classification,
-            international_designator=satrec.intldesg,
-            ephemeris_type=satrec.ephtype,
-            element_set_num=satrec.elnum,
-            revolution_num=satrec.revnum,
-        )
-
-    def to_satrec(self) -> Satrec:
-        """
-        Converts this GP elements object to a Satrec object.
-
-        Returns:
-            Satrec: the Satrec object
-        """
-        satrec = Satrec()
-        satrec.classification = self.classification
-        satrec.intldesg = self.international_designator
-        satrec.ephtype = self.ephemeris_type
-        satrec.elnum = self.element_set_num
-        satrec.revnum = self.revolution_num
-        satrec.sgp4init(
-            WGS72,
-            "i",
-            self.norad_cat_id,
-            (self.epoch - datetime(1949, 12, 31, tzinfo=timezone.utc))
-            / timedelta(days=1),
-            self.bstar,
-            np.radians(self.mean_motion_dot) * 60**2,
-            np.radians(self.mean_motion_ddot) * 60**3,
-            self.eccentricity,
-            np.radians(self.arg_of_pericenter),
-            np.radians(self.inclination),
-            np.radians(self.mean_anomaly),
-            np.radians(self.mean_motion) * 60,
-            np.radians(self.ra_of_asc_node),
-        )
-        return satrec
-
-    def get_orbit_period(self) -> timedelta:
-        """
-        Gets the approximate orbit period.
-
-        Returns:
-            timedelta: the orbit period
-        """
-        return timedelta(
-            seconds=utils.orbital.mean_motion_to_orbit_period(self.mean_motion)
-        )
-
-    def get_semimajor_axis(self) -> float:
-        """
-        Gets the semimajor axis.
-
-        Returns:
-            float: the semimajor axis (meters)
-        """
-
-        return utils.orbital.mean_motion_to_semimajor_axis(self.mean_motion)
-
-    def get_mean_altitude(self) -> float:
-        """
-        Gets the mean altitude.
-
-        Returns:
-            float: the mean altitude (meters)
-        """
-        return self.get_semimajor_axis() - constants.EARTH_MEAN_RADIUS
-
-    def get_true_anomaly(self) -> float:
-        """
-        Gets the true anomaly.
-
-        Returns:
-            float: the true anomaly (degrees)
-        """
-        return utils.orbital.mean_anomaly_to_true_anomaly(
-            self.mean_anomaly, self.eccentricity
-        )
-
-    @classmethod
-    def from_tle(cls, tle_lines: tuple[str, str]) -> GeneralPerturbationsElements:
-        """
-        Creates a GP elements object from two line element (TLE) lines.
-
-        Args:
-            tle_lines (tuple[str, str]): The two TLE lines.
-
-        Returns:
-            GeneralPerturbationsElements: the GP elements
-        """
-        return GeneralPerturbationsElements.from_satrec(
-            Satrec.twoline2rv(tle_lines[0], tle_lines[1])
-        )
-
-    def to_tle(self) -> tuple[str, str]:
-        """
-        Converts this GP elements object to a two line element (TLE) representation.
-
-        Returns:
-            tuple[str, str]: the two line elements
-        """
-        return exporter.export_tle(self.to_satrec())
-
-    @classmethod
-    def from_omm_dict(cls, omm_dict: dict) -> GeneralPerturbationsElements:
-        """
-        Creates a GP elements object from an OMM dictionary.
-
-        Args:
-            omm_dict (dict): The OMM dictionary.
-
-        Returns:
-            GeneralPerturbationsElements: the GP elements
-        """
-        satrec = Satrec()
-        omm.initialize(satrec, omm_dict)
-        elements = GeneralPerturbationsElements.from_satrec(satrec)
-        # object_name has no equivalent on Satrec, so from_satrec can never
-        # recover it; restore it directly from the OMM dictionary
-        return elements.model_copy(update={"object_name": omm_dict.get("OBJECT_NAME")})
-
-    def to_omm_dict(self) -> dict:
-        """
-        Converts this GP elements object to an OMM dictionary.
-
-        Returns:
-            dict: the OMM dictionary
-        """
-        return exporter.export_omm(self.to_satrec(), self.object_name)
-
-    @classmethod
-    def from_omm_csv(cls, omm_csv: list[str]) -> GeneralPerturbationsElements:
-        """
-        Creates a GP elements object from OMM CSV lines. Only the first
-        data row is used; all subsequent rows are ignored.
-
-        Args:
-            omm_csv (list[str]): The OMM CSV lines, including a header row.
-
-        Returns:
-            GeneralPerturbationsElements: the GP elements
-        """
-        for fields in csv.DictReader(omm_csv):
-            return GeneralPerturbationsElements.from_omm_dict(fields)
-        raise ValueError("No OMM CSV lines found.")
-
-    @classmethod
-    def from_omm_json(cls, omm_json: str) -> GeneralPerturbationsElements:
-        """
-        Creates a GP elements object from an OMM JSON string. Only the
-        first entry in the JSON array is used; all subsequent entries
-        are ignored.
-
-        Args:
-            omm_json (str): The OMM JSON string, encoding a list of OMM
-                records.
-
-        Returns:
-            GeneralPerturbationsElements: the GP elements
-        """
-        for fields in json.loads(omm_json):
-            return GeneralPerturbationsElements.from_omm_dict(fields)
-        raise ValueError("No OMM JSON lines found.")
-
-    def to_skyfield(self) -> EarthSatellite:
-        """
-        Converts this GP elements object to a Skyfield `EarthSatellite`,
-        which can be used to propagate this orbital state via SGP4.
-
-        Returns:
-            skyfield.api.EarthSatellite: the Skyfield EarthSatellite
-        """
-        return EarthSatellite.from_omm(constants.timescale, self.to_omm_dict())
+from .gp_elements import GeneralPerturbationsElements
 
 
 class GeneralPerturbationsOrbit(BaseModel):
@@ -724,77 +490,68 @@ class GeneralPerturbationsOrbit(BaseModel):
         self,
         max_delta_position: float | None = None,
         max_delta_velocity: float | None = None,
-        min_elevation_angle: float | None = None,
         max_search_duration: timedelta | None = None,
         lazy_load: bool | None = None,
+        consistency_threshold: timedelta | None = None,
     ) -> timedelta | None:
         """
-        Compute the orbit repeat cycle. Lazy-loads a previously-computed repeat cycle if available.
+        Compute the orbit's repeat cycle, if every element agrees on one.
+        Lazy-loads a previously-computed repeat cycle if available.
+
+        Each element's own repeat cycle is computed independently (see
+        `GeneralPerturbationsElements.get_repeat_cycle` for how), since a
+        `GeneralPerturbationsOrbit` with multiple elements may span a
+        significant maneuver (altitude change, plane change, etc.)
+        partway through its history -- in which case there may be no
+        single repeat cycle that legitimately describes the whole orbit.
+        This method reports a repeat cycle for the orbit only if every
+        element has one and they all agree within `consistency_threshold`
+        of each other; otherwise it returns None. For a single-element
+        orbit (the common case) this is equivalent to just asking that
+        one element, since there is nothing to compare against.
 
         Args:
             max_delta_position (float | None): the maximum difference in position (m) allowed for a repeat.
             max_delta_velocity (float | None): the maximum difference in velocity (m/s) allowed for a repeat.
-            min_elevation_angle (float | None): the minimum elevation angle (deg) for screening repeats.
             max_search_duration (timedelta | None): the maximum period of time to search for repeats.
             lazy_load (bool | None): True, if the previously-computed repeat cycle should be loaded.
+            consistency_threshold (timedelta | None): the maximum allowed spread between elements' repeat cycles.
 
         Returns:
-            timedelta: the repeat cycle duration (if it exists)
+            timedelta: the repeat cycle duration (if every element agrees on one)
         """
-        # load defaults
-        if max_delta_position is None:
-            max_delta_position = config.get_rc().repeat_cycle_delta_position_m
-        if max_delta_velocity is None:
-            max_delta_velocity = config.get_rc().repeat_cycle_delta_velocity_m_per_s
-        if min_elevation_angle is None:
-            min_elevation_angle = config.get_rc().repeat_cycle_search_elevation_deg
-        if max_search_duration is None:
-            max_search_duration = timedelta(
-                days=config.get_rc().repeat_cycle_search_duration_days
-            )
         if lazy_load is None:
             lazy_load = config.get_rc().repeat_cycle_lazy_load
+        if consistency_threshold is None:
+            consistency_threshold = timedelta(
+                seconds=config.get_rc().repeat_cycle_consistency_threshold_s
+            )
 
         if lazy_load:
             repeat_cycle = self.__dict__.get("repeat_cycle")
         else:
             repeat_cycle = None
-        if repeat_cycle is None and len(self.elements) > 0:
-            # extract the orbit epoch time from the first element
-            epoch = self.elements[0].epoch
-            satellite = self.elements[0].to_skyfield()
-            # record the initial position and velocity in Earth-centered Earth-fixed frame
-            datum = wgs84.subpoint_of(
-                satellite.at(constants.timescale.from_datetime(epoch))
-            )
-            position_0, velocity_0 = satellite.at(
-                constants.timescale.from_datetime(epoch)
-            ).frame_xyz_and_velocity(itrs)
-            # find candidate repeat events
-            ts, es = satellite.find_events(
-                datum,
-                constants.timescale.from_datetime(epoch + timedelta(minutes=10)),
-                constants.timescale.from_datetime(epoch + max_search_duration),
-                min_elevation_angle,
-            )
-            # compute position and velocity at culmination in Earth-centered Earth-fixed frame
-            position, velocity = satellite.at(ts[es == 1]).frame_xyz_and_velocity(itrs)
-            p_m = np.array(position.m)
-            v_m_per_s = np.array(velocity.m_per_s)
-            p_0_m = np.array(position_0.m)
-            v_0_m_per_s = np.array(velocity_0.m_per_s)
-            # apply validity conditions on position and velocity error norms
-            is_valid = np.logical_and(
-                np.linalg.norm((p_m.T - p_0_m.T).T, axis=0) < max_delta_position,
-                np.linalg.norm((v_m_per_s.T - v_0_m_per_s.T).T, axis=0)
-                < max_delta_velocity,
-            )
-            if np.any(is_valid):
-                # assign repeat cycle
-                repeat_cycle = ts[es == 1][is_valid][0].utc_datetime() - epoch
-            else:
-                # assign zero repeat cycle value to avoid recalculation
-                repeat_cycle = timedelta(0)
+        if repeat_cycle is None:
+            repeat_cycle = timedelta(0)
+            min_cycle = max_cycle = None
+            for element in self.elements:
+                cycle = element.get_repeat_cycle(
+                    max_delta_position,
+                    max_delta_velocity,
+                    max_search_duration,
+                    lazy_load,
+                )
+                if cycle is None:
+                    repeat_cycle = timedelta(0)
+                    break
+                min_cycle = cycle if min_cycle is None else min(min_cycle, cycle)
+                max_cycle = cycle if max_cycle is None else max(max_cycle, cycle)
+                if max_cycle - min_cycle > consistency_threshold:
+                    repeat_cycle = timedelta(0)
+                    break
+                # keep the most recent element's cycle as the orbit's
+                # representative value, once every element seen so far agrees
+                repeat_cycle = cycle
             self.__dict__["repeat_cycle"] = repeat_cycle  # type: ignore
         if repeat_cycle is not None and repeat_cycle > timedelta(0):
             return repeat_cycle
@@ -812,6 +569,13 @@ class GeneralPerturbationsOrbit(BaseModel):
         accepts `datetime`) builds a new `Time` instance that starts without any
         of the per-instant quantities Skyfield caches on a `Time` object (such as
         nutation angles), forcing Skyfield to recompute them from scratch.
+
+        If this orbit has multiple elements (e.g. built from a historical
+        archive of TLEs via `from_tle` with multiple pairs), each query time
+        is independently propagated using whichever element's epoch is
+        closest to it (see `get_closest_element_index`), not always the
+        first or most recent element. A vectorized `t` may therefore draw
+        from different elements for different entries.
 
         Args:
             t (skyfield.timelib.Time): time(s) at which to compute position/velocity.
@@ -842,6 +606,13 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         Gets the true (directly propagated) orbit track of this orbit using
         Skyfield, in the inertial (GCRS) frame.
+
+        Accepts plain Python `datetime`(s) for convenience; builds a Skyfield
+        `Time` and delegates to `get_orbit_track_at_time`, which documents
+        the multi-element selection behavior that also applies here. Prefer
+        calling `get_orbit_track_at_time` directly when a Skyfield `Time` is
+        already in hand, to avoid rebuilding one (see that method's
+        docstring for why that matters).
 
         Args:
             times (datetime | list[datetime]): time(s) at which to compute position/velocity.
@@ -890,7 +661,7 @@ class GeneralPerturbationsOrbit(BaseModel):
                 repeat_offset = np.multiply(
                     np.sign(offset / timedelta(1)),
                     np.mod(np.abs(offset / timedelta(1)), repeat_cycle / timedelta(1)),
-                )
+                ) * timedelta(1)
                 repeat_times = (
                     constants.timescale.from_datetime(epoch + repeat_offset)
                     if t.shape == ()
@@ -932,7 +703,31 @@ class GeneralPerturbationsOrbit(BaseModel):
         try_repeat: bool | None = None,
     ) -> tuple:
         """
-        Gets the observation events of this orbit using Skyfield.
+        Gets the observation events (rise/culminate/set) of this orbit
+        with respect to a ground point, between `start` and `end`, using
+        Skyfield's `find_events`.
+
+        Tries three strategies, in order, and uses the first that applies:
+
+        1. If `try_repeat` and this orbit has a repeat cycle shorter than
+           `end - start` (see `get_repeat_cycle`, which validates that
+           *every* element agrees on the same cycle if there are several),
+           events are computed once over a single repeat cycle starting at
+           `start` and then copy-pasted forward for as many cycles as
+           needed to cover the full period, rather than propagating the
+           whole span directly. Because a validated repeat cycle means the
+           whole orbit -- not just one element -- repeats identically,
+           this does not need to consider which element is closest to
+           each time the way strategy 2 does; the single element closest
+           to `start` is enough to compute the one cycle's worth of events
+           that every subsequent cycle repeats.
+        2. Otherwise, if this orbit has multiple elements, the requested
+           period is partitioned by whichever element's epoch is closest
+           at each point in time (`partition_by_element_index`), and
+           events are computed separately over each segment using its
+           assigned element.
+        3. Otherwise (a single element with no usable repeat cycle),
+           events are computed directly over the whole period.
 
         Args:
             point (Point): Target location to observe.
@@ -942,33 +737,12 @@ class GeneralPerturbationsOrbit(BaseModel):
             try_repeat (bool | None): True, if a repeat orbit should be used to improve long-term accuracy.
 
         Returns:
-            skyfield.positionlib.Geocentric: the orbit track position/velocity
+            tuple[skyfield.timelib.Time, numpy.ndarray]: event times and their rise (0) / culminate (1) / set (2) codes
         """
         # load defaults
         if try_repeat is None:
             try_repeat = config.get_rc().repeat_cycle_for_observation_events
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
-        if len(self.elements) > 1:
-            # try to use use multiple TLEs
-            part_ts, element_is = self.partition_by_element_index(start, end)
-            events = [
-                self.elements[element_is[i]]
-                .to_skyfield()
-                .find_events(
-                    topos,
-                    constants.timescale.from_datetime(part_ts[i]),
-                    constants.timescale.from_datetime(part_ts[i + 1]),
-                    min_elevation_angle,
-                )
-                for i in range(len(part_ts) - 1)
-            ]
-            return (
-                constants.timescale.from_datetimes(
-                    [t.utc_datetime() for e in events for t in e[0]]
-                ),
-                np.array([v for e in events for v in e[1]]),
-            )
-        # create skyfield Time
         t_0 = constants.timescale.from_datetime(start)
         if try_repeat:
             # try to compute repeat cycle events
@@ -976,7 +750,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             if repeat_cycle is not None and repeat_cycle < end - start:
                 repeat_t_1 = constants.timescale.from_datetime(start + repeat_cycle)
                 times, events = (
-                    self.elements[0]
+                    self.get_closest_element(start)
                     .to_skyfield()
                     .find_events(topos, t_0, repeat_t_1, min_elevation_angle)
                 )
@@ -996,7 +770,27 @@ class GeneralPerturbationsOrbit(BaseModel):
                     constants.timescale.from_datetimes(times_py[times_py <= end]),
                     events_py[times_py <= end],
                 )
-        # compute observation events
+        if len(self.elements) > 1:
+            # partition the period by whichever element is closest at each time
+            part_ts, element_is = self.partition_by_element_index(start, end)
+            events = [
+                self.elements[element_is[i]]
+                .to_skyfield()
+                .find_events(
+                    topos,
+                    constants.timescale.from_datetime(part_ts[i]),
+                    constants.timescale.from_datetime(part_ts[i + 1]),
+                    min_elevation_angle,
+                )
+                for i in range(len(part_ts) - 1)
+            ]
+            return (
+                constants.timescale.from_datetimes(
+                    [t.utc_datetime() for e in events for t in e[0]]
+                ),
+                np.array([v for e in events for v in e[1]]),
+            )
+        # compute observation events directly, over the whole period
         t_1 = constants.timescale.from_datetime(end)
         return (
             self.elements[0]
@@ -1004,11 +798,23 @@ class GeneralPerturbationsOrbit(BaseModel):
             .find_events(topos, t_0, t_1, min_elevation_angle)
         )
 
-    def to_gp_orbit(self) -> GeneralPerturbationsOrbit:
+    def to_gp_orbit(self, lazy_load: bool | None = None) -> GeneralPerturbationsOrbit:
         """
         Converts this orbit to a general perturbations orbit representation.
+        Since this orbit already is one, this is always just `self` -- no
+        computation or caching is needed, unlike `OrbitBase.to_gp_orbit`,
+        which fits a `GeneralPerturbationsOrbit` from other orbit
+        representations (e.g. via SGP4 fitting) and so benefits from
+        lazy-loading a previously-computed result.
+
+        Args:
+            lazy_load (bool | None): accepted, but has no effect, for
+                interface parity with `OrbitBase.to_gp_orbit`: callers
+                that only know an orbit as `AllOrbits` (e.g.
+                `Satellite.orbit`) can call `to_gp_orbit(lazy_load=...)`
+                uniformly without checking which concrete type it is.
 
         Returns:
-            GeneralPerturbationsOrbit: the general perturbations orbit
+            GeneralPerturbationsOrbit: this orbit, unchanged
         """
         return self

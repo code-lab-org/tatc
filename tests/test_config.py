@@ -30,9 +30,9 @@ class TestRuntimeConfiguration(unittest.TestCase):
         self.assertEqual(rc.footprint_points_elliptical, 32)
         self.assertEqual(rc.footprint_points_rectangular_side, 8)
         self.assertEqual(rc.repeat_cycle_delta_position_m, 10000)
-        self.assertEqual(rc.repeat_cycle_delta_velocity_m_per_s, 10)
-        self.assertEqual(rc.repeat_cycle_search_elevation_deg, 88)
+        self.assertEqual(rc.repeat_cycle_delta_velocity_m_per_s, 3)
         self.assertEqual(rc.repeat_cycle_search_duration_days, 30)
+        self.assertEqual(rc.repeat_cycle_consistency_threshold_s, 3600)
         self.assertTrue(rc.repeat_cycle_lazy_load)
         self.assertTrue(rc.repeat_cycle_for_orbit_track)
         self.assertTrue(rc.repeat_cycle_for_observation_events)
@@ -91,15 +91,16 @@ class TestRuntimeConfiguration(unittest.TestCase):
         with self.assertRaises(ValidationError):
             RuntimeConfiguration(repeat_cycle_delta_velocity_m_per_s=-1)
 
-    def test_repeat_cycle_search_elevation_deg_rejects_non_positive(self):
+    def test_repeat_cycle_consistency_threshold_s_rejects_non_positive(self):
         """
-        Test that a zero or negative minimum search elevation angle is
-        rejected.
+        Test that a zero or negative consistency threshold is rejected,
+        since a non-positive threshold could never treat any two distinct
+        repeat cycle values as consistent.
         """
         with self.assertRaises(ValidationError):
-            RuntimeConfiguration(repeat_cycle_search_elevation_deg=0)
+            RuntimeConfiguration(repeat_cycle_consistency_threshold_s=0)
         with self.assertRaises(ValidationError):
-            RuntimeConfiguration(repeat_cycle_search_elevation_deg=-1)
+            RuntimeConfiguration(repeat_cycle_consistency_threshold_s=-1)
 
 
 class TestLoadYamlConfig(unittest.TestCase):
@@ -138,8 +139,8 @@ class TestLoadYamlConfig(unittest.TestCase):
             footprint_points_rectangular_side: 4
             repeat_cycle_delta_position_m: 500
             repeat_cycle_delta_velocity_m_per_s: 1
-            repeat_cycle_search_elevation_deg: 45
             repeat_cycle_search_duration_days: 7
+            repeat_cycle_consistency_threshold_s: 60
             repeat_cycle_lazy_load: false
             repeat_cycle_for_orbit_track: false
             repeat_cycle_for_observation_events: false
@@ -152,8 +153,8 @@ class TestLoadYamlConfig(unittest.TestCase):
         self.assertEqual(rc.footprint_points_rectangular_side, 4)
         self.assertEqual(rc.repeat_cycle_delta_position_m, 500)
         self.assertEqual(rc.repeat_cycle_delta_velocity_m_per_s, 1)
-        self.assertEqual(rc.repeat_cycle_search_elevation_deg, 45)
         self.assertEqual(rc.repeat_cycle_search_duration_days, 7)
+        self.assertEqual(rc.repeat_cycle_consistency_threshold_s, 60)
         self.assertFalse(rc.repeat_cycle_lazy_load)
         self.assertFalse(rc.repeat_cycle_for_orbit_track)
         self.assertFalse(rc.repeat_cycle_for_observation_events)
@@ -268,9 +269,9 @@ class TestPackagedDefaults(unittest.TestCase):
                 "footprint_points_elliptical": 32,
                 "footprint_points_rectangular_side": 8,
                 "repeat_cycle_delta_position_m": 10000,
-                "repeat_cycle_delta_velocity_m_per_s": 10,
-                "repeat_cycle_search_elevation_deg": 88,
+                "repeat_cycle_delta_velocity_m_per_s": 3,
                 "repeat_cycle_search_duration_days": 30,
+                "repeat_cycle_consistency_threshold_s": 3600,
                 "repeat_cycle_lazy_load": True,
                 "repeat_cycle_for_orbit_track": True,
                 "repeat_cycle_for_observation_events": True,

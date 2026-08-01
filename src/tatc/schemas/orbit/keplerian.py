@@ -13,7 +13,8 @@ from pydantic import Field
 
 from ... import utils
 from .base import OrbitBase
-from .gp import GeneralPerturbationsElements, GeneralPerturbationsOrbit
+from .gp import GeneralPerturbationsOrbit
+from .gp_elements import GeneralPerturbationsElements
 
 
 class KeplerianOrbit(OrbitBase):
