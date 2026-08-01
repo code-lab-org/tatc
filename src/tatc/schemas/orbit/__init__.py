@@ -5,6 +5,7 @@ Object schemas for orbits.
 """
 
 from .circular import CircularOrbit
+from .geostationary import GeostationaryOrbit
 from .gp import GeneralPerturbationsOrbit
 from .keplerian import KeplerianOrbit
 from .molniya import MolniyaOrbit
@@ -14,6 +15,7 @@ from .tundra import TundraOrbit
 AllOrbits = (
     CircularOrbit
     | GeneralPerturbationsOrbit
+    | GeostationaryOrbit
     | KeplerianOrbit
     | MolniyaOrbit
     | SunSynchronousOrbit
@@ -24,6 +26,7 @@ __all__ = [
     "AllOrbits",
     "CircularOrbit",
     "GeneralPerturbationsOrbit",
+    "GeostationaryOrbit",
     "KeplerianOrbit",
     "MolniyaOrbit",
     "SunSynchronousOrbit",

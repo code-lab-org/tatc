@@ -13,7 +13,7 @@ from typing import Literal, overload
 
 import numpy as np
 import numpy.typing as npt
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sgp4 import exporter, omm
 from sgp4.api import WGS72, Satrec
 from sgp4.conveniences import sat_epoch_datetime
@@ -63,6 +63,9 @@ class GeneralPerturbationsElements(BaseModel):
     def from_satrec(cls, satrec: Satrec) -> GeneralPerturbationsElements:
         """
         Creates a GP elements object from a Satrec object.
+
+        Args:
+            satrec (Satrec): The Satrec object.
 
         Returns:
             GeneralPerturbationsElements: the GP elements
@@ -124,7 +127,9 @@ class GeneralPerturbationsElements(BaseModel):
         Returns:
             timedelta: the orbit period
         """
-        return timedelta(days=1 / self.mean_motion)
+        return timedelta(
+            seconds=utils.orbital.mean_motion_to_orbit_period(self.mean_motion)
+        )
 
     def get_semimajor_axis(self) -> float:
         """
@@ -161,6 +166,9 @@ class GeneralPerturbationsElements(BaseModel):
         """
         Creates a GP elements object from two line element (TLE) lines.
 
+        Args:
+            tle_lines (tuple[str, str]): The two TLE lines.
+
         Returns:
             GeneralPerturbationsElements: the GP elements
         """
@@ -182,12 +190,18 @@ class GeneralPerturbationsElements(BaseModel):
         """
         Creates a GP elements object from an OMM dictionary.
 
+        Args:
+            omm_dict (dict): The OMM dictionary.
+
         Returns:
             GeneralPerturbationsElements: the GP elements
         """
         satrec = Satrec()
         omm.initialize(satrec, omm_dict)
-        return GeneralPerturbationsElements.from_satrec(satrec)
+        elements = GeneralPerturbationsElements.from_satrec(satrec)
+        # object_name has no equivalent on Satrec, so from_satrec can never
+        # recover it; restore it directly from the OMM dictionary
+        return elements.model_copy(update={"object_name": omm_dict.get("OBJECT_NAME")})
 
     def to_omm_dict(self) -> dict:
         """
@@ -201,7 +215,11 @@ class GeneralPerturbationsElements(BaseModel):
     @classmethod
     def from_omm_csv(cls, omm_csv: list[str]) -> GeneralPerturbationsElements:
         """
-        Creates a GP elements object from OMM CSV lines.
+        Creates a GP elements object from OMM CSV lines. Only the first
+        data row is used; all subsequent rows are ignored.
+
+        Args:
+            omm_csv (list[str]): The OMM CSV lines, including a header row.
 
         Returns:
             GeneralPerturbationsElements: the GP elements
@@ -213,7 +231,13 @@ class GeneralPerturbationsElements(BaseModel):
     @classmethod
     def from_omm_json(cls, omm_json: str) -> GeneralPerturbationsElements:
         """
-        Creates a GP elements object from OMM JSON lines.
+        Creates a GP elements object from an OMM JSON string. Only the
+        first entry in the JSON array is used; all subsequent entries
+        are ignored.
+
+        Args:
+            omm_json (str): The OMM JSON string, encoding a list of OMM
+                records.
 
         Returns:
             GeneralPerturbationsElements: the GP elements
@@ -222,9 +246,10 @@ class GeneralPerturbationsElements(BaseModel):
             return GeneralPerturbationsElements.from_omm_dict(fields)
         raise ValueError("No OMM JSON lines found.")
 
-    def to_skyfield(self):
+    def to_skyfield(self) -> EarthSatellite:
         """
-        Converts this GP elements object to a Skyfield `EarthSatellite`.
+        Converts this GP elements object to a Skyfield `EarthSatellite`,
+        which can be used to propagate this orbital state via SGP4.
 
         Returns:
             skyfield.api.EarthSatellite: the Skyfield EarthSatellite
@@ -239,8 +264,23 @@ class GeneralPerturbationsOrbit(BaseModel):
 
     type: Literal["gp"] = Field(default="gp", description="Orbit type discriminator.")
     elements: list[GeneralPerturbationsElements] = Field(
-        ..., description="General perturbations elements."
+        ..., description="General perturbations elements.", min_length=1
     )
+
+    @model_validator(mode="after")
+    def _sort_elements_by_epoch(self) -> GeneralPerturbationsOrbit:
+        """
+        Sorts elements by epoch (ascending) after construction.
+        get_closest_element_index relies on np.searchsorted, which
+        silently returns incorrect results if its input is not sorted, so
+        this guarantees that precondition holds regardless of the order
+        elements were provided in. This only covers elements provided at
+        construction time; directly mutating self.elements in place
+        afterward (e.g. via .append()) bypasses this validator and can
+        reintroduce unsorted order.
+        """
+        self.elements.sort(key=lambda el: el.epoch)
+        return self
 
     def get_semimajor_axis(self, index: int = 0) -> float:
         """
@@ -374,10 +414,61 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         return self.elements[index].arg_of_pericenter
 
+    def get_catalog_number(self, index: int = 0) -> int:
+        """
+        Gets the NORAD catalog number of the specified element.
+
+        Args:
+            index (int): the index of the element
+
+        Returns:
+            int: the NORAD catalog number
+        """
+        return self.elements[index].norad_cat_id
+
+    def get_bstar(self, index: int = 0) -> float:
+        """
+        Gets the starred ballistic coefficient of the specified element.
+
+        Args:
+            index (int): the index of the element
+
+        Returns:
+            float: the starred ballistic coefficient
+        """
+        return self.elements[index].bstar
+
+    def get_mean_motion_dot(self, index: int = 0) -> float:
+        """
+        Gets the first derivative of mean motion of the specified element.
+
+        Args:
+            index (int): the index of the element
+
+        Returns:
+            float: the first derivative of mean motion (degrees/second^2)
+        """
+        return self.elements[index].mean_motion_dot
+
+    def get_mean_motion_ddot(self, index: int = 0) -> float:
+        """
+        Gets the second derivative of mean motion of the specified element.
+
+        Args:
+            index (int): the index of the element
+
+        Returns:
+            float: the second derivative of mean motion (degrees/second^3)
+        """
+        return self.elements[index].mean_motion_ddot
+
     @classmethod
     def from_tle(cls, tle_lines: list[str]) -> GeneralPerturbationsOrbit:
         """
-        Creates a GP orbit from two line element (TLE) lines.
+        Creates a GP orbit from two line element (TLE) lines. Multiple
+        TLEs (e.g. a history of element sets for one satellite) may be
+        concatenated into a single flat list of lines, two per element
+        set, to construct an orbit with multiple elements.
 
         Args:
             tle_lines (list[str]): the two line element lines
@@ -385,6 +476,11 @@ class GeneralPerturbationsOrbit(BaseModel):
         Returns:
             GeneralPerturbationsOrbit: the GP orbit
         """
+        if len(tle_lines) % 2 != 0:
+            raise ValueError(
+                f"Expected an even number of TLE lines (two per element set), "
+                f"got {len(tle_lines)}."
+            )
         return GeneralPerturbationsOrbit(
             elements=[
                 GeneralPerturbationsElements.from_tle((tle_lines[i], tle_lines[i + 1]))
@@ -395,7 +491,12 @@ class GeneralPerturbationsOrbit(BaseModel):
     @classmethod
     def from_omm_csv(cls, omm_csv: list[str]) -> GeneralPerturbationsOrbit:
         """
-        Creates a GP orbit from a OMM CSV lines.
+        Creates a GP orbit from OMM CSV lines, using every data row
+        (unlike GeneralPerturbationsElements.from_omm_csv, which only
+        uses the first) to build one element per row.
+
+        Args:
+            omm_csv (list[str]): The OMM CSV lines, including a header row.
 
         Returns:
             GeneralPerturbationsOrbit: the GP orbit
@@ -410,7 +511,13 @@ class GeneralPerturbationsOrbit(BaseModel):
     @classmethod
     def from_omm_json(cls, omm_json: str) -> GeneralPerturbationsOrbit:
         """
-        Creates a GP orbit from OMM JSON lines.
+        Creates a GP orbit from an OMM JSON string, using every entry
+        (unlike GeneralPerturbationsElements.from_omm_json, which only
+        uses the first) to build one element per entry.
+
+        Args:
+            omm_json (str): The OMM JSON string, encoding a list of OMM
+                records.
 
         Returns:
             GeneralPerturbationsOrbit: the GP orbit
@@ -424,16 +531,24 @@ class GeneralPerturbationsOrbit(BaseModel):
 
     def get_element_epochs(self) -> list[datetime]:
         """
-        Lazy-loads the epoch times for all elements in this orbit.
+        Lazy-loads the epoch times for all elements in this orbit. The
+        cache is invalidated (and recomputed) if the number of elements
+        has changed since it was last computed (e.g. after appending or
+        removing an element), but not if an element is replaced in place
+        at the same list position with a different epoch -- such a
+        same-length in-place replacement is unusual/unsupported usage
+        that this lightweight invalidation check cannot detect without
+        recomputing on every call, which would defeat the purpose of
+        caching.
 
         Returns:
             list[datetime]: the epoch times
         """
-        # lazy-load epochs
+        # lazy-load epochs, invalidating the cache if the element count changed
         element_epochs = self.__dict__.get("element_epochs")
-        if element_epochs is None:
+        if element_epochs is None or len(element_epochs) != len(self.elements):
             # extract the element epoch times
-            element_epochs = np.array([el.epoch for el in self.elements])
+            element_epochs = [el.epoch for el in self.elements]
             self.__dict__["element_epochs"] = element_epochs  # type: ignore
         return element_epochs  # type: ignore
 
@@ -464,22 +579,31 @@ class GeneralPerturbationsOrbit(BaseModel):
         return GeneralPerturbationsOrbit(elements=derived_elements)
 
     @overload
+    def get_closest_element_index(self, at_times: None) -> int: ...
+
+    @overload
     def get_closest_element_index(self, at_times: datetime) -> int: ...
 
     @overload
     def get_closest_element_index(self, at_times: list[datetime]) -> list[int]: ...
 
     @overload
-    def get_closest_element_index(self, at_times: npt.NDArray[np.datetime64]) -> list[int]: ...
+    def get_closest_element_index(
+        self, at_times: npt.NDArray[np.datetime64]
+    ) -> list[int]: ...
 
     def get_closest_element_index(
-        self, at_times: datetime | list[datetime] | npt.NDArray[np.datetime64]
+        self, at_times: datetime | list[datetime] | npt.NDArray[np.datetime64] | None
     ) -> int | list[int]:
         """
-        Gets the closest element index to specified time(s).
+        Gets the closest element index to specified time(s), assuming
+        elements are sorted by epoch (guaranteed for any orbit built
+        through the constructor, since elements are sorted at
+        construction time; see _sort_elements_by_epoch).
 
         Args:
-            at_times (datetime | list[datetime] | npt.NDArray[np.datetime64]): specified times
+            at_times (datetime | list[datetime] | npt.NDArray[np.datetime64] | None):
+                specified times, or None to always select the first element (index 0)
 
         Returns:
             int | list[int]: closest element index or indices
@@ -521,6 +645,9 @@ class GeneralPerturbationsOrbit(BaseModel):
         ]
 
     @overload
+    def get_closest_element(self, at_times: None) -> GeneralPerturbationsElements: ...
+
+    @overload
     def get_closest_element(
         self, at_times: datetime
     ) -> GeneralPerturbationsElements: ...
@@ -536,13 +663,14 @@ class GeneralPerturbationsOrbit(BaseModel):
     ) -> list[GeneralPerturbationsElements]: ...
 
     def get_closest_element(
-        self, at_times: datetime | list[datetime] | npt.NDArray[np.datetime64]
+        self, at_times: datetime | list[datetime] | npt.NDArray[np.datetime64] | None
     ) -> GeneralPerturbationsElements | list[GeneralPerturbationsElements]:
         """
         Gets the closest element to specified time(s).
 
         Args:
-            at_times (datetime | list[datetime] | npt.NDArray[np.datetime64]): specified times
+            at_times (datetime | list[datetime] | npt.NDArray[np.datetime64] | None):
+                specified times, or None to always select the first element (index 0)
 
         Returns:
             GeneralPerturbationsElements | list[GeneralPerturbationsElements]: closest element or elements
@@ -556,32 +684,41 @@ class GeneralPerturbationsOrbit(BaseModel):
         self, start: datetime, end: datetime
     ) -> tuple[list[datetime], list[int]]:
         """
-        Partition a timeline based on closest element index.
+        Partitions the time range [start, end] into consecutive segments,
+        each assigned the index of whichever element is closest
+        throughout that segment. Uses get_element_epochs() (benefiting
+        from its lazy-load cache) rather than re-reading each element's
+        epoch directly. The midpoint between each pair of consecutive
+        elements' epochs is where the closest element switches from one
+        to the next (elements are guaranteed sorted by epoch by the
+        constructor's _sort_elements_by_epoch validator), so only
+        midpoints strictly inside (start, end) become segment boundaries.
+        Each segment's element index is determined by querying
+        get_closest_element_index at that segment's own midpoint, so it
+        is correct by construction rather than tracked separately.
 
         Args:
             start (datetime): Start time.
             end (datetime): End time.
 
         Returns:
-            tuple[list[datetime], list[int]]: list of partitioned times and assigned element indices
+            tuple[list[datetime], list[int]]: segment boundary times
+                (length N+1, including start and end) and the element
+                index for each of the N segments between consecutive
+                boundaries (length N).
         """
-        if len(self.elements) <= 1:
-            return [start, end], [0, 0]
-        element_epochs = np.array(self.get_element_epochs(), dtype="datetime64[ns]")
-        sorted_epochs = np.sort(element_epochs)
-        element_indices = np.argsort(element_epochs)
-        epoch_midpoints = (
-            sorted_epochs[1:] + (sorted_epochs[:-1] - sorted_epochs[1:]) / 2
+        epochs = self.get_element_epochs()
+        epoch_midpoints = [
+            epochs[i] + (epochs[i + 1] - epochs[i]) / 2 for i in range(len(epochs) - 1)
+        ]
+        boundary_times = (
+            [start] + [t for t in epoch_midpoints if start < t < end] + [end]
         )
-        midpoint_indices = [i for i, t in enumerate(epoch_midpoints) if start < t < end]
-        return (
-            [start] + list(epoch_midpoints[midpoint_indices]) + [end],
-            (
-                [self.get_closest_element_index(start)]
-                + list(map(int, element_indices[midpoint_indices]))
-                + [self.get_closest_element_index(end)]
-            ),
-        )
+        segment_midpoints = [
+            boundary_times[i] + (boundary_times[i + 1] - boundary_times[i]) / 2
+            for i in range(len(boundary_times) - 1)
+        ]
+        return boundary_times, self.get_closest_element_index(segment_midpoints)
 
     def get_repeat_cycle(
         self,
@@ -648,8 +785,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             v_0_m_per_s = np.array(velocity_0.m_per_s)
             # apply validity conditions on position and velocity error norms
             is_valid = np.logical_and(
-                np.linalg.norm((p_m.T - p_0_m.T).T, axis=0)
-                < max_delta_position,
+                np.linalg.norm((p_m.T - p_0_m.T).T, axis=0) < max_delta_position,
                 np.linalg.norm((v_m_per_s.T - v_0_m_per_s.T).T, axis=0)
                 < max_delta_velocity,
             )
@@ -687,7 +823,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             # try to use multiple TLEs
             nearest_indices = self.get_closest_element_index(t.utc_datetime())
             if isinstance(nearest_indices, int):
-                return self.elements[nearest_indices].to_skyfield().at(t) # type: ignore
+                return self.elements[nearest_indices].to_skyfield().at(t)  # type: ignore
             nearest_indices = np.asarray(nearest_indices)
             position_au = np.empty((3,) + t.shape)
             velocity_au_per_d = np.empty((3,) + t.shape)
@@ -700,7 +836,7 @@ class GeneralPerturbationsOrbit(BaseModel):
                 velocity_au_per_d[:, mask] = track.velocity.au_per_d
             return Geocentric(position_au, velocity_au_per_d, t)
         # compute satellite positions directly at the given time(s)
-        return self.elements[0].to_skyfield().at(t) # type: ignore
+        return self.elements[0].to_skyfield().at(t)  # type: ignore
 
     def get_orbit_track(self, times: datetime | list[datetime]) -> Geocentric:
         """
@@ -753,7 +889,7 @@ class GeneralPerturbationsOrbit(BaseModel):
                 offset = t.utc_datetime() - epoch
                 repeat_offset = np.multiply(
                     np.sign(offset / timedelta(1)),
-                    np.mod(np.abs(offset / timedelta(1)), repeat_cycle / timedelta(1))
+                    np.mod(np.abs(offset / timedelta(1)), repeat_cycle / timedelta(1)),
                 )
                 repeat_times = (
                     constants.timescale.from_datetime(epoch + repeat_offset)

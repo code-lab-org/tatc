@@ -6,11 +6,9 @@ Base object schemas for circular orbits.
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 from pydantic import Field
 
-from ... import constants, utils
+from ... import constants
 from .base import OrbitBase
 
 
@@ -19,7 +17,7 @@ class CircularOrbitBase(OrbitBase):
     Base class for circular orbits.
     """
 
-    mean_altitude: float = Field(..., description="Mean altitude (meters).")
+    mean_altitude: float = Field(..., description="Mean altitude (meters).", ge=0)
 
     def get_semimajor_axis(self) -> float:
         """
@@ -30,24 +28,30 @@ class CircularOrbitBase(OrbitBase):
         """
         return constants.EARTH_MEAN_RADIUS + self.mean_altitude
 
-    def get_mean_motion(self) -> float:
+    def get_mean_altitude(self) -> float:
         """
-        Gets the mean motion.
+        Gets the mean altitude.
 
         Returns:
-            float: the mean motion (revolutions per day)
+            float: the mean altitude (meters)
         """
-        return utils.orbital.semimajor_axis_to_mean_motion(self.get_semimajor_axis())
+        return self.mean_altitude
 
-    def get_orbit_period(self) -> timedelta:
+    def get_eccentricity(self) -> float:
         """
-        Gets the approximate orbit period.
+        Gets the eccentricity, always 0 for a circular orbit.
 
         Returns:
-            timedelta: the orbit period
+            float: the eccentricity
         """
-        return timedelta(
-            seconds=utils.orbital.semimajor_axis_to_orbit_period(
-                self.get_semimajor_axis()
-            )
-        )
+        return 0
+
+    def get_perigee_argument(self) -> float:
+        """
+        Gets the perigee argument, always 0 for a circular orbit (there is
+        no perigee to reference).
+
+        Returns:
+            float: the perigee argument
+        """
+        return 0

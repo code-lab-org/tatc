@@ -27,13 +27,14 @@ class MolniyaOrbit(MolniyaTundraOrbitBase):
 
     def get_orbit_period(self) -> timedelta:
         """
-        Gets the orbit period defined to be approximately half a sidereal day.
+        Gets the orbit period, targeting half a sidereal day (so the
+        ground track repeats twice daily) and corrected for Earth's J2
+        oblateness perturbation to the true rate of mean anomaly advance.
 
         Returns:
             timedelta: the orbit period
         """
-        # TODO this needs to be corrected to account for J2 effects
-        return timedelta(seconds=constants.EARTH_SIDEREAL_DAY_S / 2)
+        return self._compute_j2_corrected_orbit_period(constants.EARTH_SIDEREAL_DAY_S / 2)
 
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float

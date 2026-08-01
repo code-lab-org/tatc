@@ -9,14 +9,10 @@ from __future__ import annotations
 from datetime import timedelta
 
 import numpy as np
-from pydantic import Field
+from pydantic import Field, model_validator
 
-from tatc import config, constants
-
-from ... import utils
+from ... import constants, utils
 from .base import OrbitBase
-from .gp import GeneralPerturbationsOrbit
-from .keplerian import KeplerianOrbit
 
 
 class MolniyaTundraOrbitBase(OrbitBase):
@@ -45,6 +41,15 @@ class MolniyaTundraOrbitBase(OrbitBase):
         """
         return constants.EARTH_J2_CRITICAL_INCLINATION
 
+    def get_right_ascension_ascending_node(self) -> float:
+        """
+        Gets the right ascension of ascending node.
+
+        Returns:
+            float: the right ascension of ascending node (degrees)
+        """
+        return self.right_ascension_ascending_node
+
     def get_perigee_argument(self) -> float:
         """
         Gets the perigee argument (degrees) of the frozen orbit.
@@ -64,6 +69,49 @@ class MolniyaTundraOrbitBase(OrbitBase):
         raise NotImplementedError(
             "get_orbit_period() must be implemented in subclasses."
         )
+
+    def _compute_j2_corrected_orbit_period(self, target_period_s: float) -> timedelta:
+        """
+        Corrects a nominal repeat-ground-track target period (e.g. exactly
+        half or one full sidereal day, ignoring perturbations) to account
+        for Earth's J2 oblateness perturbation to the true rate at which
+        mean anomaly advances. Subclasses call this from get_orbit_period()
+        with their own target (half a sidereal day for Molniya, one
+        sidereal day for Tundra).
+
+        The correction is computed in a single pass (not iteratively):
+        the target period first implies a "naive" semimajor axis and
+        eccentricity via simple two-body Kepler's third law, which are
+        then used to evaluate the J2 mean anomaly rate correction
+        (compute_j2_mean_motion_rate). Since that correction is itself
+        tiny (on the order of 1e-4 relative to the mean motion), using
+        the naive semimajor axis/eccentricity to evaluate it introduces
+        only a negligible (second-order, ~1e-8 relative) residual error,
+        rather than requiring a full iterative solve.
+
+        The returned period, when passed through get_semimajor_axis()'s
+        existing (unmodified) two-body Kepler's third law formula,
+        yields a semimajor axis whose true (J2-corrected) mean anomaly
+        rate matches the target repeat-ground-track requirement.
+
+        Args:
+            target_period_s (float): The nominal, uncorrected target orbit
+                period (seconds), ignoring J2 perturbation.
+
+        Returns:
+            timedelta: The J2-corrected orbit period.
+        """
+        naive_semimajor_axis = np.cbrt(
+            constants.EARTH_MU * target_period_s**2 / (4 * np.pi**2)
+        )
+        naive_eccentricity = 1 - (
+            constants.EARTH_MEAN_RADIUS + self.perigee_altitude
+        ) / naive_semimajor_axis
+        mean_motion_correction = utils.orbital.compute_j2_mean_motion_rate(
+            naive_semimajor_axis, self.get_inclination(), naive_eccentricity
+        )
+        target_mean_motion = 360 / target_period_s
+        return timedelta(seconds=360 / (target_mean_motion - mean_motion_correction))
 
     def get_semimajor_axis(self) -> float:
         """
@@ -101,31 +149,25 @@ class MolniyaTundraOrbitBase(OrbitBase):
             self.true_anomaly, self.get_eccentricity()
         )
 
-    def to_gp_orbit(self, lazy_load: bool | None = None) -> GeneralPerturbationsOrbit:
+    @model_validator(mode="after")
+    def _validate_eccentricity(self) -> MolniyaTundraOrbitBase:
         """
-        Converts this orbit to a general perturbations orbit representation.
-
-        Args:
-            lazy_load (bool | None): True, if this gp orbit should be lazy-loaded.
-
-        Returns:
-            GeneralPerturbationsOrbit: the general perturbations orbit
+        Validates that perigee_altitude, combined with this orbit's fixed
+        orbit period, yields a physically valid elliptical eccentricity in
+        [0, 1). A perigee_altitude above the Kepler-derived ceiling
+        implied by the fixed period would otherwise silently produce a
+        negative eccentricity. Not implemented on the bare
+        MolniyaTundraOrbitBase class (get_orbit_period is abstract there),
+        so this is a no-op until a concrete subclass defines the period.
         """
-        if lazy_load is None:
-            lazy_load = config.rc.gp_orbit_lazy_load
-        if lazy_load:
-            gp_orbit = self.__dict__.get("gp_orbit")
-        else:
-            gp_orbit = None
-        if gp_orbit is None:
-            gp_orbit = KeplerianOrbit(
-                semimajor_axis=self.get_semimajor_axis(),
-                inclination=self.get_inclination(),
-                right_ascension_ascending_node=self.right_ascension_ascending_node,
-                true_anomaly=self.true_anomaly,
-                epoch=self.epoch,
-                eccentricity=self.get_eccentricity(),
-                perigee_argument=self.get_perigee_argument(),
-            ).to_gp_orbit()
-            self.__dict__["gp_orbit"] = gp_orbit  # type: ignore
-        return gp_orbit
+        try:
+            eccentricity = self.get_eccentricity()
+        except NotImplementedError:
+            return self
+        if not 0 <= eccentricity < 1:
+            raise ValueError(
+                f"perigee_altitude={self.perigee_altitude} is invalid for this "
+                f"orbit's fixed period: implies eccentricity={eccentricity}, "
+                "which is outside the valid elliptical range [0, 1)."
+            )
+        return self

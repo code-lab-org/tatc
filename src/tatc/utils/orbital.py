@@ -265,3 +265,38 @@ def compute_j2_aop_rate(
         * (constants.EARTH_MEAN_RADIUS / (semimajor_axis * (1 - eccentricity**2))) ** 2
         * (5 * np.cos(np.radians(inclination)) ** 2 - 1)
     )
+
+
+@njit
+def compute_j2_mean_motion_rate(
+    semimajor_axis: float, inclination: float, eccentricity: float
+) -> float:
+    """
+    Fast computation of the secular correction to mean anomaly's rate of
+    advance (beyond the unperturbed two-body mean motion) due to Earth's
+    J2 oblateness perturbation. Unlike the argument of periapsis rate,
+    this correction is generally nonzero even at the critical inclination
+    (~63.43 degrees), since its trigonometric factor
+    (3*cos^2(inclination) - 1) only vanishes near ~54.7 degrees, not
+    ~63.43 degrees. The true ("anomalistic") mean motion is the
+    unperturbed mean motion plus this correction; the anomalistic period
+    (time from periapsis to periapsis) is 360 degrees divided by that
+    sum, rather than by the unperturbed mean motion alone.
+
+    Args:
+        semimajor_axis (float): Orbit semimajor axis (meters).
+        inclination (float): Orbit inclination (degrees).
+        eccentricity (float): Orbit eccentricity.
+
+    Returns:
+        float: The correction to the mean anomaly rate (degrees/second).
+    """
+    return (
+        3
+        / 4
+        * constants.EARTH_J2
+        * semimajor_axis_to_mean_motion(semimajor_axis)
+        * (constants.EARTH_MEAN_RADIUS / (semimajor_axis * (1 - eccentricity**2))) ** 2
+        * np.sqrt(1 - eccentricity**2)
+        * (3 * np.cos(np.radians(inclination)) ** 2 - 1)
+    )

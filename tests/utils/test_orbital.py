@@ -13,6 +13,7 @@ from tatc.utils.orbital import (
     compute_ground_inertial_velocity,
     compute_ground_surface_velocity,
     compute_j2_aop_rate,
+    compute_j2_mean_motion_rate,
     compute_j2_raan_rate,
     compute_orbit_inertial_velocity,
     mean_motion_to_orbit_period,
@@ -323,6 +324,48 @@ class TestOrbital(unittest.TestCase):  # pylint: disable=too-many-public-methods
         semimajor_axis = constants.EARTH_MEAN_RADIUS + 705000
         self.assertGreater(compute_j2_aop_rate(semimajor_axis, 45, 0), 0.0)
         self.assertLess(compute_j2_aop_rate(semimajor_axis, 90, 0), 0.0)
+
+    def test_compute_j2_mean_motion_rate_nonzero_at_critical_inclination(self):
+        """
+        Test that, unlike compute_j2_aop_rate, the correction to mean
+        anomaly's rate of advance is NOT zero at the critical inclination
+        (~63.43 degrees). This is the key distinction that makes this
+        correction (not the argument of periapsis rate) the correct one
+        for computing a J2-corrected orbital period for Molniya/Tundra
+        orbits, which always use the critical inclination.
+        """
+        critical_inclination = np.degrees(np.arccos(1 / np.sqrt(5)))
+        semimajor_axis = 26600000
+        self.assertNotAlmostEqual(
+            compute_j2_mean_motion_rate(semimajor_axis, critical_inclination, 0.74),
+            0.0,
+            delta=1e-8,
+        )
+
+    def test_compute_j2_mean_motion_rate_zero_crossing(self):
+        """
+        Test that the correction vanishes at its own zero-crossing
+        inclination (~54.74 degrees, arccos(1/sqrt(3)), where
+        3*cos^2(inclination) - 1 = 0) -- a different inclination than
+        compute_j2_aop_rate's zero crossing, confirming this is a
+        genuinely distinct correction term.
+        """
+        zero_crossing_inclination = np.degrees(np.arccos(1 / np.sqrt(3)))
+        semimajor_axis = constants.EARTH_MEAN_RADIUS + 705000
+        self.assertAlmostEqual(
+            compute_j2_mean_motion_rate(semimajor_axis, zero_crossing_inclination, 0),
+            0.0,
+            delta=1e-9,
+        )
+
+    def test_compute_j2_mean_motion_rate_sign_by_inclination(self):
+        """
+        Test that the correction is positive below the ~54.74 degree
+        zero-crossing inclination, and negative above it.
+        """
+        semimajor_axis = constants.EARTH_MEAN_RADIUS + 705000
+        self.assertGreater(compute_j2_mean_motion_rate(semimajor_axis, 0, 0), 0.0)
+        self.assertLess(compute_j2_mean_motion_rate(semimajor_axis, 90, 0), 0.0)
 
     def test_mean_anomaly_to_true_anomaly(self):
         """

@@ -6,13 +6,12 @@ Object schemas for Keplerian orbits.
 
 from __future__ import annotations
 
-from datetime import timedelta
 from typing import Literal
 
 import numpy as np
 from pydantic import Field
 
-from ... import config, utils
+from ... import utils
 from .base import OrbitBase
 from .gp import GeneralPerturbationsElements, GeneralPerturbationsOrbit
 
@@ -25,15 +24,60 @@ class KeplerianOrbit(OrbitBase):
     type: Literal["keplerian"] = Field(
         default="keplerian", description="Orbit type discriminator."
     )
-    semimajor_axis: float = Field(..., description="Semimajor axis (meters).")
+    semimajor_axis: float = Field(..., description="Semimajor axis (meters).", gt=0)
     inclination: float = Field(0, description="Inclination (degrees).", ge=0, lt=180)
     right_ascension_ascending_node: float = Field(
         0, description="Right ascension of ascending node (degrees).", ge=0, lt=360
     )
-    eccentricity: float = Field(0, description="Eccentricity.", ge=0)
+    eccentricity: float = Field(0, description="Eccentricity.", ge=0, lt=1)
     perigee_argument: float = Field(
         0, description="Perigee argument (degrees).", ge=0, lt=360
     )
+
+    def get_semimajor_axis(self) -> float:
+        """
+        Gets the semimajor axis.
+
+        Returns:
+            float: the semimajor axis (meters)
+        """
+        return self.semimajor_axis
+
+    def get_inclination(self) -> float:
+        """
+        Gets the inclination.
+
+        Returns:
+            float: the inclination (degrees)
+        """
+        return self.inclination
+
+    def get_right_ascension_ascending_node(self) -> float:
+        """
+        Gets the right ascension of ascending node.
+
+        Returns:
+            float: the right ascension of ascending node (degrees)
+        """
+        return self.right_ascension_ascending_node
+
+    def get_eccentricity(self) -> float:
+        """
+        Gets the eccentricity.
+
+        Returns:
+            float: the eccentricity
+        """
+        return self.eccentricity
+
+    def get_perigee_argument(self) -> float:
+        """
+        Gets the perigee argument.
+
+        Returns:
+            float: the perigee argument (degrees)
+        """
+        return self.perigee_argument
 
     def get_mean_anomaly(self) -> float:
         """
@@ -44,26 +88,6 @@ class KeplerianOrbit(OrbitBase):
         """
         return utils.orbital.true_anomaly_to_mean_anomaly(
             self.true_anomaly, self.eccentricity
-        )
-
-    def get_mean_motion(self) -> float:
-        """
-        Gets the mean motion (degrees/second).
-
-        Returns:
-            float: the mean motion
-        """
-        return utils.orbital.semimajor_axis_to_mean_motion(self.semimajor_axis)
-
-    def get_orbit_period(self) -> timedelta:
-        """
-        Gets the approximate orbit period.
-
-        Returns:
-            timedelta: the orbit period
-        """
-        return timedelta(
-            seconds=utils.orbital.semimajor_axis_to_orbit_period(self.semimajor_axis)
         )
 
     def get_derived_orbit(
@@ -95,35 +119,24 @@ class KeplerianOrbit(OrbitBase):
             perigee_argument=self.perigee_argument,
         )
 
-    def to_gp_orbit(self, lazy_load: bool | None = None) -> GeneralPerturbationsOrbit:
+    def _compute_gp_orbit(self) -> GeneralPerturbationsOrbit:
         """
-        Converts this orbit to a general perturbations orbit representation.
-
-        Args:
-            lazy_load (bool | None): True, if this gp orbit should be lazy-loaded.
+        Computes a general perturbations orbit representation of this
+        orbit.
 
         Returns:
             GeneralPerturbationsOrbit: the general perturbations orbit
         """
-        if lazy_load is None:
-            lazy_load = config.rc.gp_orbit_lazy_load
-        if lazy_load:
-            gp_orbit = self.__dict__.get("gp_orbit")
-        else:
-            gp_orbit = None
-        if gp_orbit is None:
-            gp_orbit = GeneralPerturbationsOrbit(
-                elements=[
-                    GeneralPerturbationsElements(
-                        epoch=self.epoch,
-                        mean_motion=self.get_mean_motion(),
-                        eccentricity=self.eccentricity,
-                        inclination=self.inclination,
-                        ra_of_asc_node=self.right_ascension_ascending_node,
-                        arg_of_pericenter=self.perigee_argument,
-                        mean_anomaly=self.get_mean_anomaly(),
-                    )
-                ]
-            )
-            self.__dict__["gp_orbit"] = gp_orbit  # type: ignore
-        return gp_orbit
+        return GeneralPerturbationsOrbit(
+            elements=[
+                GeneralPerturbationsElements(
+                    epoch=self.get_epoch(),
+                    mean_motion=self.get_mean_motion(),
+                    eccentricity=self.get_eccentricity(),
+                    inclination=self.get_inclination(),
+                    ra_of_asc_node=self.get_right_ascension_ascending_node(),
+                    arg_of_pericenter=self.get_perigee_argument(),
+                    mean_anomaly=self.get_mean_anomaly(),
+                )
+            ]
+        )
