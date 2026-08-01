@@ -169,7 +169,7 @@ class OrbitBase(BaseModel):
             GeneralPerturbationsOrbit: the general perturbations orbit
         """
         if lazy_load is None:
-            lazy_load = config.rc.gp_orbit_lazy_load
+            lazy_load = config.get_rc().gp_orbit_lazy_load
         if lazy_load:
             gp_orbit = self.__dict__.get("gp_orbit")
         else:

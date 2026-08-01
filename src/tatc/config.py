@@ -4,6 +4,7 @@ Configuration Settings.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import functools
 import logging
 import os
 import pathlib
@@ -94,10 +95,36 @@ def load_yaml_config(path: pathlib.Path) -> RuntimeConfiguration:
         raise ConfigError(f"Couldn't validate config file - {err}") from err
 
 
-try:
-    # try to load default config file
-    rc = load_yaml_config(pathlib.Path(__file__).parent / "resources" / "defaults.yml")
-except ConfigError as err:
-    # fall back to default constructor, but warn since this masks a broken install
-    logger.warning("Falling back to hard-coded runtime configuration defaults: %s", err)
-    rc = RuntimeConfiguration()
+@functools.lru_cache(maxsize=1)
+def get_rc() -> RuntimeConfiguration:
+    """
+    Return the process-wide runtime configuration, loading it from the
+    packaged defaults file on first access and caching it thereafter.
+
+    Returns:
+      RuntimeConfiguration: The runtime configuration settings.
+    """
+    try:
+        return load_yaml_config(pathlib.Path(__file__).parent / "resources" / "defaults.yml")
+    except ConfigError as err:
+        # fall back to default constructor, but warn since this masks a broken install
+        logger.warning("Falling back to hard-coded runtime configuration defaults: %s", err)
+        return RuntimeConfiguration()
+
+
+def reset_rc() -> None:
+    """
+    Clear the cached runtime configuration so the next call to get_rc()
+    reloads it from disk. Intended for tests that need to exercise
+    load-time behavior (e.g. a missing packaged defaults file); not
+    needed in normal use.
+    """
+    get_rc.cache_clear()
+
+
+def __getattr__(name: str):
+    # Preserve `tatc.config.rc` as a read path onto the lazy singleton, for
+    # backward compatibility with code written against the old eager global.
+    if name == "rc":
+        return get_rc()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

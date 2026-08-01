@@ -230,9 +230,9 @@ def compute_footprint(
     if number_points is None:
         # default number of points
         if is_rectangular:
-            number_points = config.rc.footprint_points_rectangular_side
+            number_points = config.get_rc().footprint_points_rectangular_side
         else:
-            number_points = config.rc.footprint_points_elliptical
+            number_points = config.get_rc().footprint_points_elliptical
     if is_rectangular:
         theta = np.degrees(
             np.arctan(along_track_field_of_view / cross_track_field_of_view)

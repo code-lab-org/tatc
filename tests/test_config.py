@@ -3,7 +3,6 @@ Unit tests for the tatc.config module.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
-import importlib
 import shutil
 import tempfile
 import textwrap
@@ -234,7 +233,7 @@ class TestLoadYamlConfig(unittest.TestCase):
 class TestPackagedDefaults(unittest.TestCase):
     """
     Unit tests for the packaged resources/defaults.yml file and the
-    module-level `rc` singleton it populates at import time.
+    lazily-cached singleton get_rc() populates from it.
     """
 
     def test_defaults_yaml_ships_with_the_package(self):
@@ -281,17 +280,19 @@ class TestPackagedDefaults(unittest.TestCase):
 
     def test_module_level_rc_is_a_runtime_configuration(self):
         """
-        Test that the module-level `rc` singleton (consumed elsewhere in
-        the codebase as tatc.config.rc) is a valid RuntimeConfiguration
-        instance matching the packaged defaults.
+        Test that get_rc() (consumed elsewhere in the codebase as
+        tatc.config.get_rc(), and via the tatc.config.rc backward-compat
+        accessor) returns a valid RuntimeConfiguration instance matching
+        the packaged defaults.
         """
+        self.assertIsInstance(tatc_config.get_rc(), RuntimeConfiguration)
+        self.assertEqual(tatc_config.get_rc(), RuntimeConfiguration())
         self.assertIsInstance(tatc_config.rc, RuntimeConfiguration)
-        self.assertEqual(tatc_config.rc, RuntimeConfiguration())
 
 
 class TestImportTimeFallback(unittest.TestCase):
     """
-    Unit tests for the import-time fallback behavior when the packaged
+    Unit tests for the fallback behavior of get_rc() when the packaged
     resources/defaults.yml cannot be loaded.
     """
 
@@ -299,26 +300,30 @@ class TestImportTimeFallback(unittest.TestCase):
         """
         Test that if the packaged resources/defaults.yml is missing (e.g.
         the packaging regression this module was patched to fix),
-        importing tatc.config still succeeds by falling back to
-        hard-coded defaults, and now logs a warning rather than failing
-        silently.
+        get_rc() still succeeds by falling back to hard-coded defaults,
+        and now logs a warning rather than failing silently.
         """
         resources_path = Path(tatc_config.__file__).parent / "resources" / "defaults.yml"
         backup_dir = Path(tempfile.mkdtemp())
         backup_path = backup_dir / "defaults.yml"
         shutil.copy2(resources_path, backup_path)
+        # get_rc() is cached, so force it to reload from disk within this
+        # test, and again afterward to pick the real file back up. This
+        # only busts the cache, it does not touch class/module identity,
+        # so it's safe regardless of test execution order.
+        tatc_config.reset_rc()
         try:
             resources_path.unlink()
             with self.assertLogs("tatc.config", level="WARNING") as ctx:
-                importlib.reload(tatc_config)
+                rc = tatc_config.get_rc()
             self.assertTrue(
                 any("hard-coded" in message for message in ctx.output)
             )
-            self.assertEqual(tatc_config.rc, tatc_config.RuntimeConfiguration())
+            self.assertEqual(rc, RuntimeConfiguration())
         finally:
             shutil.copy2(backup_path, resources_path)
             shutil.rmtree(backup_dir, ignore_errors=True)
-            importlib.reload(tatc_config)
+            tatc_config.reset_rc()
 
 
 if __name__ == "__main__":

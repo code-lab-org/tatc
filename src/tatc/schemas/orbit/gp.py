@@ -743,17 +743,17 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         # load defaults
         if max_delta_position is None:
-            max_delta_position = config.rc.repeat_cycle_delta_position_m
+            max_delta_position = config.get_rc().repeat_cycle_delta_position_m
         if max_delta_velocity is None:
-            max_delta_velocity = config.rc.repeat_cycle_delta_velocity_m_per_s
+            max_delta_velocity = config.get_rc().repeat_cycle_delta_velocity_m_per_s
         if min_elevation_angle is None:
-            min_elevation_angle = config.rc.repeat_cycle_search_elevation_deg
+            min_elevation_angle = config.get_rc().repeat_cycle_search_elevation_deg
         if max_search_duration is None:
             max_search_duration = timedelta(
-                days=config.rc.repeat_cycle_search_duration_days
+                days=config.get_rc().repeat_cycle_search_duration_days
             )
         if lazy_load is None:
-            lazy_load = config.rc.repeat_cycle_lazy_load
+            lazy_load = config.get_rc().repeat_cycle_lazy_load
 
         if lazy_load:
             repeat_cycle = self.__dict__.get("repeat_cycle")
@@ -881,7 +881,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             skyfield.toposlib.GeographicPosition: the geodetic position
         """
         if try_repeat is None:
-            try_repeat = config.rc.repeat_cycle_for_orbit_track
+            try_repeat = config.get_rc().repeat_cycle_for_orbit_track
         if try_repeat and len(self.elements) == 1:
             repeat_cycle = self.get_repeat_cycle()
             if repeat_cycle is not None:
@@ -946,7 +946,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         # load defaults
         if try_repeat is None:
-            try_repeat = config.rc.repeat_cycle_for_observation_events
+            try_repeat = config.get_rc().repeat_cycle_for_observation_events
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
         if len(self.elements) > 1:
             # try to use use multiple TLEs
