@@ -27,6 +27,8 @@ def compute_number_samples(distance: float) -> int:
     Returns:
         int: The number of global samples.
     """
+    if distance <= 0:
+        raise ValueError("distance must be positive, got " + str(distance))
     # compute the angular distance of each sample (assuming mean sphere)
     theta = distance / constants.EARTH_MEAN_RADIUS
     # compute the distance from the center of earth to conic plane (assuming sphere)

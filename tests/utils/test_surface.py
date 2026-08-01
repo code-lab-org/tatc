@@ -65,7 +65,24 @@ class TestSurface(unittest.TestCase):
     def test_compute_number_samples_zero_distance_raises(self):
         """
         Test that a zero sample distance (a meaningless, infinitely dense
-        request) raises an error rather than returning a misleading value.
+        request) raises a clear ValueError rather than returning a
+        misleading value. (Previously this reached an unguarded division
+        by zero deep in the geometry, which happened to raise
+        OverflowError -- via a RuntimeWarning-then-inf-then-int(inf)
+        chain -- purely by numeric coincidence, and did not extend to
+        negative distances at all; see
+        test_compute_number_samples_negative_distance_raises.)
         """
-        with self.assertRaises(OverflowError):
+        with self.assertRaises(ValueError):
             compute_number_samples(0)
+
+    def test_compute_number_samples_negative_distance_raises(self):
+        """
+        Regression test: a negative sample distance must also be
+        rejected. Previously this was silently accepted and treated as
+        if it were the corresponding positive distance, since the
+        geometry's cos(theta/2) term is an even function of distance and
+        so cannot distinguish the sign on its own.
+        """
+        with self.assertRaises(ValueError):
+            compute_number_samples(-2000000)
