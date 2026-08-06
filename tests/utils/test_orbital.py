@@ -10,6 +10,7 @@ import numpy as np
 from tatc import constants
 from tatc.utils import mean_anomaly_to_true_anomaly, true_anomaly_to_mean_anomaly
 from tatc.utils.orbital import (
+    compute_apoapsis_radius,
     compute_ground_inertial_velocity,
     compute_ground_surface_velocity,
     compute_j2_aop_rate,
@@ -251,6 +252,44 @@ class TestOrbital(unittest.TestCase):  # pylint: disable=too-many-public-methods
             for semimajor_axis in (6779008, 7076008, 8071008, 42164000)
         ]
         self.assertEqual(periods, sorted(periods))
+
+    def test_compute_apoapsis_radius_circular_orbit(self):
+        """
+        Test that a circular orbit's (zero eccentricity) apoapsis radius
+        equals its semimajor axis exactly.
+        """
+        semimajor_axis = constants.EARTH_MEAN_RADIUS + 705000
+        self.assertEqual(compute_apoapsis_radius(semimajor_axis, 0), semimajor_axis)
+
+    def test_compute_apoapsis_radius_matches_perigee_apogee_definition(self):
+        """
+        Test that compute_apoapsis_radius recovers the apogee radius that
+        defines the semimajor axis and eccentricity in the first place:
+        semimajor axis is the mean of the perigee/apogee radii, and
+        eccentricity is their normalized difference.
+        """
+        perigee_radius = constants.EARTH_MEAN_RADIUS + 550000
+        apogee_radius = constants.EARTH_MEAN_RADIUS + 39900000
+        semimajor_axis = (perigee_radius + apogee_radius) / 2
+        eccentricity = (apogee_radius - perigee_radius) / (apogee_radius + perigee_radius)
+        self.assertAlmostEqual(
+            compute_apoapsis_radius(semimajor_axis, eccentricity),
+            apogee_radius,
+            delta=1e-6,
+        )
+
+    def test_compute_apoapsis_radius_molniya_orbit(self):
+        """
+        Test against the published classic Molniya orbit: a semimajor axis
+        of approximately 26,600 km and eccentricity of approximately 0.74
+        yields an apogee altitude of approximately 40,000 km.
+
+        See: https://en.wikipedia.org/wiki/Molniya_orbit
+        """
+        apogee_altitude = (
+            compute_apoapsis_radius(26600000, 0.74) - constants.EARTH_MEAN_RADIUS
+        )
+        self.assertAlmostEqual(apogee_altitude, 40000000, delta=500000)
 
     def test_compute_j2_raan_rate_sun_synchronous(self):
         """

@@ -185,12 +185,12 @@ def compute_min_elevation_angle(
 
 
 @njit
-def compute_max_access_time(mean_altitude: float, min_elevation_angle: float) -> float:
+def compute_max_access_time(altitude: float, min_elevation_angle: float) -> float:
     """
     Fast computation of maximum access time to observe a point.
 
     Args:
-        mean_altitude (float): Orbit mean altitude (meters).
+        altitude (float): Orbit altitude (meters).
         min_elevation_angle (float): Minimum elevation angle (degrees) for observation.
 
     Returns:
@@ -200,7 +200,7 @@ def compute_max_access_time(mean_altitude: float, min_elevation_angle: float) ->
     earth_angle = np.degrees(
         np.arccos(
             constants.EARTH_MEAN_RADIUS
-            / (constants.EARTH_MEAN_RADIUS + mean_altitude)
+            / (constants.EARTH_MEAN_RADIUS + altitude)
             * np.cos(np.radians(min_elevation_angle))
         )
         - np.radians(min_elevation_angle)
@@ -209,7 +209,7 @@ def compute_max_access_time(mean_altitude: float, min_elevation_angle: float) ->
     return (
         2
         * earth_angle
-        / semimajor_axis_to_mean_motion(constants.EARTH_MEAN_RADIUS + mean_altitude)
+        / semimajor_axis_to_mean_motion(constants.EARTH_MEAN_RADIUS + altitude)
     )
 
 

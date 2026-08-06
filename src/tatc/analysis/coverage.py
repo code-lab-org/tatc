@@ -14,12 +14,13 @@ import pandas as pd
 from shapely import geometry as geo
 from skyfield.api import wgs84
 
-from ..constants import de421, timescale
+from ..constants import EARTH_MEAN_RADIUS, de421, timescale
 from ..schemas import Point, PointedInstrument, Satellite
 from ..utils.observation import (
     compute_max_access_time,
     compute_min_elevation_angle,
 )
+from ..utils.orbital import compute_apoapsis_radius
 from ..utils.projection import compute_footprint
 
 
@@ -27,7 +28,7 @@ def _get_visible_interval_series(
     point: Point,
     satellite: Satellite,
     min_elevation_angle: float,
-    init_altitude: float,
+    max_altitude: float,
     start: datetime,
     end: datetime,
 ) -> pd.Series:
@@ -38,7 +39,10 @@ def _get_visible_interval_series(
         point (Point): Point to observe.
         satellite (Satellite): Satellite doing the observation.
         min_elevation_angle (float): Minimum elevation angle (degrees) for valid observation.
-        init_altitude (float): Initial satellite altitude (meters), used to filter bad data.
+        max_altitude (float): A conservative upper-bound satellite altitude
+                (meters, e.g. the orbit's apogee altitude), used only to
+                compute a generously large `max_access_time` bound for
+                matching rise events to their corresponding set events.
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
 
@@ -47,7 +51,7 @@ def _get_visible_interval_series(
     """
     # compute the maximum access time to filter bad data
     max_access_time = timedelta(
-        seconds=compute_max_access_time(init_altitude, min_elevation_angle)
+        seconds=compute_max_access_time(max_altitude, min_elevation_angle)
     )
     # find the set of observation events
     times, events = satellite.orbit.to_gp_orbit().get_observation_events(
@@ -56,7 +60,30 @@ def _get_visible_interval_series(
 
     # build the observation periods
     obs_periods = []
-    if len(events) > 0 and np.all(events == 1):
+    if len(events) == 0:
+        # no rise, culminate, or set event was captured in [start, end]. This
+        # means the elevation angle never crossed min_elevation_angle and had
+        # no interior local maximum in this window -- which happens both
+        # when the point is never visible, and when [start, end] falls
+        # entirely within a longer visible pass (no rise/set inside the
+        # window, and the window is too narrow, or off-center, to contain
+        # the pass's culmination). Disambiguate by sampling the true
+        # elevation angle at the window's midpoint.
+        mid = start + (end - start) / 2
+        topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
+        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(mid)
+        elevation_angle = (
+            orbit_track - topos.at(timescale.from_datetime(mid))
+        ).altaz()[0].degrees
+        if elevation_angle > min_elevation_angle:
+            # continuously visible for the entire window
+            obs_periods += [
+                pd.Interval(
+                    left=pd.Timestamp(start.astimezone(tz=timezone.utc)),
+                    right=pd.Timestamp(end.astimezone(tz=timezone.utc)),
+                )
+            ]
+    elif np.all(events == 1):
         # if all events are type 1 (culminate), create a period from start to end
         obs_periods += [
             pd.Interval(
@@ -64,7 +91,7 @@ def _get_visible_interval_series(
                 right=pd.Timestamp(end.astimezone(tz=timezone.utc)),
             )
         ]
-    elif len(events) > 0:
+    else:
         # otherwise, match rise/set events
         rises = times[events == 0]
         sets = times[events == 2]
@@ -164,7 +191,6 @@ def collect_observations(
     Args:
         point (Point): The ground point of interest.
         satellite (Satellite): The observing satellite.
-        instrument (Instrument): The observing instrument.
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
         instrument_index (int): The index of the observing instrument in satellite.
@@ -174,13 +200,16 @@ def collect_observations(
         geopandas.GeoDataFrame: The data frame with recorded observations.
     """
     instrument = satellite.instruments[instrument_index]
-    # compute the initial satellite altitude
-    init_altitude = (
-        satellite.orbit.to_gp_orbit().get_geographic_position(start).elevation.m
+    # use the apogee altitude as a conservative upper bound for computing access times
+    max_altitude = (
+        compute_apoapsis_radius(
+            satellite.orbit.get_semimajor_axis(), satellite.orbit.get_eccentricity()
+        )
+        - EARTH_MEAN_RADIUS
     )
     # compute the minimum altitude angle required for observation
     min_elevation_angle = compute_min_elevation_angle(
-        init_altitude,
+        max_altitude,
         instrument.field_of_regard,
     )
     records = [
@@ -202,8 +231,14 @@ def collect_observations(
             "epoch": period.mid,
         }
         for period in _get_visible_interval_series(
-            point, satellite, min_elevation_angle, init_altitude, start, end
+            point, satellite, min_elevation_angle, max_altitude, start, end
         )
+        # instrument validity (illumination, footprint containment) below is
+        # only checked at each coarse period's midpoint, as an approximation
+        # of the whole interval; a more general approach would refine the
+        # exact observation period boundaries with Skyfield's find_discrete
+        # using the instrument's own validity condition, but that is out of
+        # scope for now
         if (
             instrument.min_access_time <= period.right - period.left
             and instrument.is_valid_observation(
@@ -267,11 +302,14 @@ def collect_multi_observations(
     omit_solar: bool = True,
 ) -> gpd.GeoDataFrame:
     """
-    Collect multiple satellite observations of a geodetic point of interest.
+    Collect multiple satellite observations of a geodetic point of interest:
+    calls `collect_observations` for every instrument on every satellite in
+    `satellites`, and concatenates the results into one data frame.
 
     Args:
         point (Point): The ground point of interest.
-        satellites (Satellite | list[Satellite]): The observing satellite(s).
+        satellites (Satellite | list[Satellite]): The observing satellite(s),
+                each contributing an observation per instrument it carries.
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
         omit_solar (bool): `True`, to omit solar angles to improve performance.
@@ -284,6 +322,9 @@ def collect_multi_observations(
         for satellite in (satellites if isinstance(satellites, list) else [satellites])
         for instrument_index in range(len(satellite.instruments))
     ]
+    if len(gdfs) == 0:
+        # an empty `satellites` list leaves nothing to concatenate
+        return _get_empty_coverage_frame(omit_solar)
     # concatenate into one data frame, sort by start time, and re-index
     return pd.concat(gdfs).sort_values("start").reset_index(drop=True)
 
@@ -312,6 +353,16 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     Aggregate constellation observations. Interleaves observations by multiple
     satellites to compute aggregate performance metrics including access
     (observation duration) and revisit (duration between observations).
+    Overlapping (including fully nested) observations for the same point,
+    possibly from different satellites/instruments, are merged into a single
+    continuous coverage period; `satellite`/`instrument` record every
+    contributor to that period, comma-separated. `epoch` is reassigned to
+    the midpoint of the merged period's `start`/`end` (a representative
+    instant), not the mean of the constituent observations' own epochs.
+    Per-observation columns that lose their meaning once merged across
+    satellites and over a potentially much longer period -- e.g. `sat_alt`,
+    `sat_az`, `sat_sunlit`, `solar_alt`, `solar_az`, `solar_time` -- are
+    intentionally dropped, even if present on `observations`.
 
     Args:
         observations (geopandas.GeoDataFrame): The collected observations.
@@ -336,10 +387,13 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
                 "satellite": ", ".join,  # type: ignore
                 "instrument": ", ".join,  # type: ignore
                 "start": "min",
-                "epoch": "mean",
                 "end": "max",
             },
         )
+        # reassign epoch to the midpoint of the merged period, as a single
+        # representative instant, rather than the mean of the constituent
+        # observations' own (pre-merge) epochs
+        gdf["epoch"] = gdf["start"] + (gdf["end"] - gdf["start"]) / 2
         # compute access and revisit metrics
         gdf["access"] = gdf["end"] - gdf["start"]
         gdf["revisit"] = gdf["start"] - gdf["end"].shift()
@@ -368,8 +422,14 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
 
 def reduce_observations(aggregated_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
-    Reduce constellation observations. Computes descriptive statistics for each
-    geodetic point of interest contained in aggregated observations.
+    Reduce constellation observations: for each unique point_id in
+    `aggregated_observations`, computes the mean access period, the mean
+    revisit period, and the total number of samples (aggregated periods)
+    over the analysis period. The first sample's revisit is undefined (no
+    prior observation to measure a gap from) and is excluded from the mean
+    rather than counted as zero, which would otherwise bias the mean
+    downward; a point with only one sample accordingly has an undefined
+    (NaT) mean revisit.
 
     Args:
         aggregated_observations (geopandas.GeoDataFrame): The aggregated observations.
@@ -401,37 +461,21 @@ def reduce_observations(aggregated_observations: gpd.GeoDataFrame) -> gpd.GeoDat
     return gdf
 
 
-def _aggregate_mean_access(gdf: gpd.GeoDataFrame) -> float:
-    """
-    Aggregates the mean access value from a GeoDataFrame of access times and samples.
-
-    Args:
-        gdf (geopandas.GeoDataFrame): A GeoDataFrame containing latency and samples.
-
-    Returns:
-        float: The aggregated latency value.
-    """
-    return float(np.average(gdf["access"], weights=gdf["samples"]))
-
-
-def _aggregate_mean_revisit(gdf: gpd.GeoDataFrame) -> float:
-    """
-    Aggregates the mean revisit value from a GeoDataFrame of revisit times and samples.
-
-    Args:
-        gdf (geopandas.GeoDataFrame): A GeoDataFrame containing revisit and samples.
-
-    Returns:
-        float: The aggregated revisit value.
-    """
-    return float(np.average(gdf["revisit"], weights=gdf["samples"]))
-
-
 def grid_observations(
     reduced_observations: gpd.GeoDataFrame, cells: gpd.GeoDataFrame
 ) -> gpd.GeoDataFrame:
     """
-    Grid reduced observations to cells.
+    Grid reduced observations to cells: for every cell, sums the number of
+    samples across every point it contains, and combines those points'
+    access/revisit statistics into a single representative value per cell.
+    Access (a per-event duration) uses a sample-weighted arithmetic mean.
+    Revisit (a time-between-events duration, i.e. the reciprocal of a
+    sampling rate) is combined as the reciprocal of the summed per-point
+    rates (1/revisit): since each point's own revisit approximates
+    (shared mission duration) / samples, this specific combination is the
+    one that keeps the cell's revisit exactly consistent with its summed
+    sample count under that shared duration -- unlike a raw or
+    sample-weighted mean of revisit times, which is not.
 
     Args:
         reduced_observations (geopandas.GeoDataFrame): The reduced observations.
@@ -451,18 +495,29 @@ def grid_observations(
     # convert access and revisit to numeric values before aggregation
     gdf["access"] = gdf["access"].dt.total_seconds()
     gdf["revisit"] = gdf["revisit"].dt.total_seconds()
+    # pre-transform so the means below reduce to plain sums: groupby().agg()
+    # with a dict of {column: function} only ever hands a custom callable
+    # its own column's Series, never a sibling column like "samples" needed
+    # to compute a weighted statistic within the callable
+    gdf["access_x_samples"] = gdf["access"] * gdf["samples"]
+    gdf["revisit_rate"] = 1 / gdf["revisit"]
     gdf = (
         cells.sjoin(gdf, how="inner", predicate="contains")
         .dissolve(
             by="cell_id",
             aggfunc={
                 "samples": "sum",
-                "access": _aggregate_mean_access,
-                "revisit": _aggregate_mean_revisit,
+                "access_x_samples": "sum",
+                "revisit_rate": "sum",
             },
         )
         .reset_index()
     )
+    # finish the aggregation: sample-weighted arithmetic mean for access,
+    # reciprocal of the summed rate for revisit
+    gdf["access"] = gdf["access_x_samples"] / gdf["samples"]
+    gdf["revisit"] = 1 / gdf["revisit_rate"]
+    gdf = gdf.drop(columns=["access_x_samples", "revisit_rate"])
     # convert access and revisit from numeric values after aggregation
     gdf["access"] = pd.to_timedelta(gdf["access"], unit="s")
     gdf["revisit"] = pd.to_timedelta(gdf["revisit"], unit="s")

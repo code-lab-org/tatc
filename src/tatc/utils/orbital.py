@@ -206,6 +206,22 @@ def true_anomaly_to_mean_anomaly(true_anomaly: float, eccentricity: float = 0) -
 
 
 @njit
+def compute_apoapsis_radius(semimajor_axis: float, eccentricity: float) -> float:
+    """
+    Fast computation of the apoapsis radius: the maximum orbit-to-Earth's-
+    center distance, at the far point of the ellipse from the focus.
+
+    Args:
+        semimajor_axis (float): Orbit semimajor axis (meters).
+        eccentricity (float): Orbit eccentricity.
+
+    Returns:
+        float: The apoapsis radius (meters).
+    """
+    return semimajor_axis * (1 + eccentricity)
+
+
+@njit
 def compute_j2_raan_rate(
     semimajor_axis: float, inclination: float, eccentricity: float
 ) -> float:

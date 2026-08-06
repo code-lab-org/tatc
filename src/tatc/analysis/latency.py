@@ -14,7 +14,9 @@ import numpy as np
 import pandas as pd
 from shapely import geometry as geo
 
+from ..constants import EARTH_MEAN_RADIUS
 from ..schemas import GroundStation, Satellite
+from ..utils.orbital import compute_apoapsis_radius
 from .coverage import _get_visible_interval_series
 
 
@@ -54,9 +56,12 @@ def collect_downlinks(
     Returns:
         geopandas.GeoDataFrame: The data frame of collected downlink results.
     """
-    # compute the initial satellite altitude (shared across all ground stations)
-    init_altitude = (
-        satellite.orbit.to_gp_orbit().get_geographic_position(start).elevation.m
+    # use the orbit's apogee altitude as a conservative upper bound
+    max_altitude = (
+        compute_apoapsis_radius(
+            satellite.orbit.get_semimajor_axis(), satellite.orbit.get_eccentricity()
+        )
+        - EARTH_MEAN_RADIUS
     )
     # collect the records of ground station overpasses
     records = [
@@ -75,7 +80,7 @@ def collect_downlinks(
             station,
             satellite,
             station.min_elevation_angle,
-            init_altitude,
+            max_altitude,
             start,
             end,
         )
