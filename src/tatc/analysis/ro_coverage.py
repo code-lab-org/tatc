@@ -146,8 +146,11 @@ def _receiver_frame_vectors(
     # unit vector normal to receiver orbit plane (VNB y-axis)
     rx_n_u = np.cross(rx_p_m, rx_v_m_per_s, 0, 0, -1).T
     rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
-    # unit vector orthogonal to receiver orbit plane (VNB z-axis)
-    rx_b_u = np.divide(rx_p_m, np.linalg.norm(rx_p_m, axis=0))
+    # unit vector completing the right-handed VNB frame (V x N), 
+    # perpendicular to both V and N by construction. This is NOT the same
+    # as the position unit vector (r-hat): the two coincide only for a
+    # circular orbit.
+    rx_b_u = np.cross(rx_v_u, rx_n_u, 0, 0, -1).T
     return rx_v_u, rx_n_u, rx_b_u
 
 
@@ -251,7 +254,16 @@ def _sample_ro_arc(
     for j, time in enumerate(times):
         if in_range[j]:
             if occ_arc is None:
-                # start of new RO observation
+                # start of new RO observation. rx_tx_pitch is the
+                # transmitter's pitch angle relative to the receiver, where
+                # -90 deg points at the geocenter (never actually reached by a
+                # real RO profile, since the signal must pass through the
+                # atmosphere); pitch above -90 deg means the transmitter is
+                # "ahead" of the receiver (a rising/emersion occultation),
+                # below -90 deg means "behind" (a setting/immersion one).
+                # This is an approximation of the more direct (but more
+                # expensive) definition -- the sign of the tangent point's
+                # own elevation rate -- using this arc's first sample only.
                 occ_arc = {
                     "tx": transmitter.name,
                     "is_rising": rx_tx_pitch[j] > -90,
@@ -301,14 +313,13 @@ def _collect_ro_series(
         timescale.from_datetime(start), timescale.from_datetime(end), is_valid
     )
     initial_valid = bool(is_valid(timescale.from_datetimes([start]))[0])
-    final_valid = (
-        bool(transition_values[-1]) if len(transition_values) else initial_valid
-    )
-    # boundary times/values delimiting alternating valid/invalid segments
+    # boundary times delimiting N+1 alternating valid/invalid segments (N =
+    # number of transitions); each segment's validity is the value that
+    # becomes active at its start (initial_valid for the first segment,
+    # else the corresponding transition value) -- the final boundary time
+    # (`end`) is a pure endpoint with no segment-start value of its own
     boundary_times = [start] + list(transition_times.utc_datetime()) + [end]
-    boundary_values = (
-        [initial_valid] + [bool(value) for value in transition_values] + [final_valid]
-    )
+    boundary_values = [initial_valid] + [bool(value) for value in transition_values]
     # keep only the segments where validity holds
     arcs = [
         (boundary_times[i], boundary_times[i + 1])
