@@ -146,7 +146,7 @@ def _receiver_frame_vectors(
     # unit vector normal to receiver orbit plane (VNB y-axis)
     rx_n_u = np.cross(rx_p_m, rx_v_m_per_s, 0, 0, -1).T
     rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
-    # unit vector completing the right-handed VNB frame (V x N), 
+    # unit vector completing the right-handed VNB frame (V x N),
     # perpendicular to both V and N by construction. This is NOT the same
     # as the position unit vector (r-hat): the two coincide only for a
     # circular orbit.

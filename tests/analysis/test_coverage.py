@@ -569,21 +569,14 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             result.iloc[0].access.total_seconds(), expected_access, places=6
         )
 
-    def test_grid_observations_uses_reciprocal_of_summed_rate_for_revisit(self):
+    def test_grid_observations_uses_weighted_harmonic_mean_for_revisit(self):
         """
-        Test that revisit is combined across points in the same cell as the
-        reciprocal of the summed per-point rates (1/revisit), not an
-        arithmetic mean, nor the standard sample-weighted harmonic mean:
-        revisit is a time-between-events (reciprocal-of-rate) quantity, and
-        this specific combination is the one that keeps the cell's revisit
-        exactly consistent with its summed sample count (100+10=110) under
-        a shared mission duration -- e.g. duration/samples ~= revisit holds
-        for point 0 (1000/100=10) and point 1 (1000/10=100) alike, and only
-        this formula preserves that relationship at the cell level
-        (1000/110 ~= 9.09s). The three candidate formulas all give clearly
-        different results here (~9.09s reciprocal-of-summed-rate vs. ~10.89s
-        standard weighted harmonic mean vs. 55s arithmetic mean), so this
-        distinguishes all three concretely.
+        Test that revisit is combined across points in the same cell using
+        a sample-weighted harmonic mean, not an arithmetic mean: revisit is
+        a time-between-events (reciprocal-of-rate) quantity, so a naive
+        arithmetic mean would under-weight the more frequently sampled
+        point. The two means give clearly different results here (~10.9s
+        harmonic vs. 55s arithmetic), so this distinguishes them concretely.
         """
         cells = gpd.GeoDataFrame([self._make_cell(0, 0, 0, 1, 1)], crs="EPSG:4326")
         reduced = gpd.GeoDataFrame(
@@ -594,19 +587,45 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             crs="EPSG:4326",
         )
         result = grid_observations(reduced, cells)
-        expected_revisit = 1 / (1 / 10 + 1 / 100)
-        weighted_harmonic_mean_revisit = (100 + 10) / (100 / 10 + 10 / 100)
+        expected_harmonic_revisit = (100 + 10) / (100 / 10 + 10 / 100)
         naive_arithmetic_revisit = (10 * 100 + 100 * 10) / 110
         self.assertAlmostEqual(
-            result.iloc[0].revisit.total_seconds(), expected_revisit, places=6
-        )
-        self.assertNotAlmostEqual(
-            result.iloc[0].revisit.total_seconds(),
-            weighted_harmonic_mean_revisit,
-            places=1,
+            result.iloc[0].revisit.total_seconds(), expected_harmonic_revisit, places=6
         )
         self.assertNotAlmostEqual(
             result.iloc[0].revisit.total_seconds(), naive_arithmetic_revisit, places=1
+        )
+
+    def test_grid_observations_revisit_is_invariant_to_point_density(self):
+        """
+        Regression test: a cell's gridded revisit must not depend on how
+        many (near-identical) points happen to fall inside it -- it should
+        represent a typical point's revisit, not shrink just because the
+        input point grid happened to be sampled more finely there. This
+        specifically distinguishes the (correct) sample-weighted harmonic
+        mean from summing raw per-point rates (1/revisit) unweighted by
+        sample count, which would make revisit shrink roughly in
+        proportion to the number of pooled points instead of staying
+        constant.
+        """
+        cells = gpd.GeoDataFrame([self._make_cell(0, 0, 0, 1, 1)], crs="EPSG:4326")
+        sparse = gpd.GeoDataFrame(
+            [self._make_reduced_observation(0, 0.5, 0.5, 5, 100, 20)],
+            crs="EPSG:4326",
+        )
+        dense = gpd.GeoDataFrame(
+            [
+                self._make_reduced_observation(i, 0.1 * i, 0.1 * i, 5, 100, 20)
+                for i in range(1, 10)
+            ],
+            crs="EPSG:4326",
+        )
+        sparse_result = grid_observations(sparse, cells)
+        dense_result = grid_observations(dense, cells)
+        self.assertAlmostEqual(
+            sparse_result.iloc[0].revisit.total_seconds(),
+            dense_result.iloc[0].revisit.total_seconds(),
+            places=6,
         )
 
     def test_grid_observations_cell_without_points_is_omitted(self):

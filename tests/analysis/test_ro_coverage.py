@@ -17,6 +17,7 @@ from tatc.analysis import collect_ro_observations
 from tatc.analysis.ro_coverage import (
     _interpolate_ro_point,
     _receiver_frame_vectors,
+    _sample_ro_arc,
     _tangent_point_geometry,
 )
 from tatc.constants import timescale
@@ -140,6 +141,45 @@ class TestTangentPointGeometry(unittest.TestCase):
         expected_tp = tx_p - d * np.dot(tx_p, d) / np.dot(d, d)
         np.testing.assert_allclose(tp_p.ravel(), expected_tp, rtol=1e-9)
 
+    def test_tangent_point_velocity_matches_finite_difference(self):
+        """
+        Cross-checks the analytic tangent point velocity
+        (`compute_velocity=True`, otherwise unused by any caller in the
+        codebase) against a central finite difference of the tangent point
+        position, using synthetic constant-velocity (straight-line) motion
+        so the finite difference is essentially exact for a small enough
+        time step.
+        """
+        dt = 0.001  # seconds
+        rx_p = np.array([7000e3, 500e3, 0.0])
+        rx_v = np.array([0.0, 7.5e3, 1e3])
+        tx_p = np.array([-6000e3, -1000e3, 3000e3])
+        tx_v = np.array([1e3, -3.0e3, 0.0])
+
+        def tangent_point_position(offset):
+            rx = _make_geocentric(
+                (rx_p + rx_v * offset).reshape(3, 1), rx_v.reshape(3, 1), self.t
+            )
+            tx = _make_geocentric(
+                (tx_p + tx_v * offset).reshape(3, 1), tx_v.reshape(3, 1), self.t
+            )
+            v_u, n_u, b_u = _receiver_frame_vectors(rx)
+            return _tangent_point_geometry(tx, rx, v_u, n_u, b_u)[0]
+
+        finite_diff_velocity = (
+            tangent_point_position(dt) - tangent_point_position(-dt)
+        ) / (2 * dt)
+
+        rx0 = _make_geocentric(rx_p.reshape(3, 1), rx_v.reshape(3, 1), self.t)
+        tx0 = _make_geocentric(tx_p.reshape(3, 1), tx_v.reshape(3, 1), self.t)
+        v_u, n_u, b_u = _receiver_frame_vectors(rx0)
+        _, tp_v, _, _, _ = _tangent_point_geometry(
+            tx0, rx0, v_u, n_u, b_u, compute_velocity=True
+        )
+        np.testing.assert_allclose(
+            tp_v.ravel(), finite_diff_velocity.ravel(), rtol=1e-6
+        )
+
 
 class TestInterpolateRoPoint(unittest.TestCase):
     """
@@ -206,9 +246,14 @@ class TestInterpolateRoPoint(unittest.TestCase):
                 "tp_tx_azimuth": 10.0,
             },
         ]
-        # sample_elevation=80 is closer to the second point (diff=0) than
-        # the first (diff=20), so it should clamp to the second point
-        result = _interpolate_ro_point(points, 80.0)
+        # both elevations (100, 80) are above sample_elevation=50, so the
+        # sign of (elevation - sample_elevation) never changes -- a
+        # genuine non-crossing case (unlike sample_elevation=80, which
+        # would exactly touch the second point's elevation and register as
+        # a crossing via the sign-based diff detection, not exercising
+        # this fallback at all). 50 is closer to the second point's diff
+        # (30) than the first's (50), so it should clamp to the second.
+        result = _interpolate_ro_point(points, 50.0)
         self.assertEqual(result["longitude"], 10.0)
         self.assertEqual(result["elevation"], 80.0)
 
@@ -376,6 +421,25 @@ class TestCollectRoObservations(unittest.TestCase):
         )
         self.assertGreater(len(results), 0)
         self.assertTrue(results.is_rising.isin([True, False]).all())
+
+    def test_sample_ro_arc_closes_at_arc_boundary_when_still_in_range(self):
+        """
+        Test that an observation correctly closes at the sampled arc's own
+        boundary, not just via exiting the elevation range -- using an
+        effectively unbounded elevation range to guarantee the tangent
+        point never leaves it, so the only way the sampled window's single
+        observation can end is by reaching the last sample.
+        """
+        observations = _sample_ro_arc(
+            self.transmitter,
+            self.receiver,
+            self.start,
+            self.start + timedelta(minutes=5),
+            timedelta(seconds=30),
+            (-1e9, 1e9),
+        )
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(len(observations[0]["points"]), 11)
 
 
 if __name__ == "__main__":

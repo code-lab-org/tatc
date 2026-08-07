@@ -468,14 +468,15 @@ def grid_observations(
     Grid reduced observations to cells: for every cell, sums the number of
     samples across every point it contains, and combines those points'
     access/revisit statistics into a single representative value per cell.
-    Access (a per-event duration) uses a sample-weighted arithmetic mean.
-    Revisit (a time-between-events duration, i.e. the reciprocal of a
-    sampling rate) is combined as the reciprocal of the summed per-point
-    rates (1/revisit): since each point's own revisit approximates
-    (shared mission duration) / samples, this specific combination is the
-    one that keeps the cell's revisit exactly consistent with its summed
-    sample count under that shared duration -- unlike a raw or
-    sample-weighted mean of revisit times, which is not.
+    Both access (a per-event duration) and revisit (a time-between-events
+    duration, i.e. the reciprocal of a sampling rate) use a sample-weighted
+    mean -- arithmetic for access, harmonic for revisit, since revisit
+    needs to be averaged as a rate to stay a representative statistic for
+    a typical point in the cell: unlike the harmonic mean, summing
+    reciprocal rates directly (without normalizing by sample count) would
+    make a cell's reported revisit shrink simply because more (possibly
+    near-identical) points happen to fall inside it, which is a property
+    of the input point density, not of the underlying coverage geometry.
 
     Args:
         reduced_observations (geopandas.GeoDataFrame): The reduced observations.
@@ -498,9 +499,10 @@ def grid_observations(
     # pre-transform so the means below reduce to plain sums: groupby().agg()
     # with a dict of {column: function} only ever hands a custom callable
     # its own column's Series, never a sibling column like "samples" needed
-    # to compute a weighted statistic within the callable
+    # to compute a weighted statistic within the callable. The weighted
+    # harmonic mean of revisit is sum(samples) / sum(samples/revisit).
     gdf["access_x_samples"] = gdf["access"] * gdf["samples"]
-    gdf["revisit_rate"] = 1 / gdf["revisit"]
+    gdf["samples_over_revisit"] = gdf["samples"] / gdf["revisit"]
     gdf = (
         cells.sjoin(gdf, how="inner", predicate="contains")
         .dissolve(
@@ -508,16 +510,16 @@ def grid_observations(
             aggfunc={
                 "samples": "sum",
                 "access_x_samples": "sum",
-                "revisit_rate": "sum",
+                "samples_over_revisit": "sum",
             },
         )
         .reset_index()
     )
     # finish the aggregation: sample-weighted arithmetic mean for access,
-    # reciprocal of the summed rate for revisit
+    # sample-weighted harmonic mean for revisit
     gdf["access"] = gdf["access_x_samples"] / gdf["samples"]
-    gdf["revisit"] = 1 / gdf["revisit_rate"]
-    gdf = gdf.drop(columns=["access_x_samples", "revisit_rate"])
+    gdf["revisit"] = gdf["samples"] / gdf["samples_over_revisit"]
+    gdf = gdf.drop(columns=["access_x_samples", "samples_over_revisit"])
     # convert access and revisit from numeric values after aggregation
     gdf["access"] = pd.to_timedelta(gdf["access"], unit="s")
     gdf["revisit"] = pd.to_timedelta(gdf["revisit"], unit="s")

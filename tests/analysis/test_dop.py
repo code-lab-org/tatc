@@ -265,3 +265,40 @@ class TestDopAnalysis(unittest.TestCase):
         self.assertAlmostEqual(
             multi_result.dop.iloc[1], single_result.dop.iloc[1], places=6
         )
+
+    def test_compute_dop_singular_matrix_returns_nan_with_warning(self):
+        """
+        Test that a degenerate geometry (satellites sharing the exact same
+        position/velocity, making the DOP design matrix singular) returns
+        NaN with a warning, rather than raising.
+        """
+        instrument = Instrument(name="I", field_of_regard=180.0)
+        satellites = [
+            Satellite(name=f"S{i}", orbit=self.orbit, instruments=[instrument])
+            for i in range(4)
+        ]
+        with self.assertWarns(UserWarning):
+            results = compute_dop(
+                [self.times[0]],
+                self.null_island,
+                satellites,
+                -90,
+                DopMethod.GDOP,
+                min_count_visible=1,
+            )
+        self.assertTrue(np.isnan(results.dop.iloc[0]))
+
+    def test_compute_dop_invalid_method_raises(self):
+        """
+        Test that an unrecognized `dop_method` value raises a ValueError,
+        for a geometry with enough visible satellites to actually reach
+        the dop_method dispatch.
+        """
+        with self.assertRaises(ValueError):
+            compute_dop(
+                [self.times[0]],
+                self.null_island,
+                self.gps_constellation.generate_members(),
+                10,
+                "not_a_real_method",
+            )

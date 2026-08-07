@@ -6,6 +6,7 @@ Unit tests for the track analysis functions.
 
 from datetime import datetime, timedelta, timezone
 
+import geopandas as gpd
 import numpy as np
 from pyproj import Transformer
 from shapely.geometry import MultiPolygon, Point as ShapelyPoint, Polygon
@@ -289,6 +290,77 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
         np.testing.assert_allclose(wgs84_widths, ecef_widths)
         np.testing.assert_allclose(wgs84_widths, eci_widths)
 
+    def test_collect_orbit_track_mask_excludes_all_points_returns_empty(self):
+        """
+        Test that a mask entirely disjoint from the orbit track returns an
+        empty DataFrame, rather than one with zero rows but a different
+        schema.
+        """
+        mask = Polygon([[10, 89], [11, 89], [11, 89.5], [10, 89.5]])
+        results = collect_orbit_track(
+            self.satellite,
+            [
+                datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
+                for i in range(10)
+            ],
+            mask=mask,
+        )
+        self.assertTrue(results.empty)
+
+    def test_collect_orbit_track_sat_sunlit(self):
+        """
+        Test that `sat_sunlit` appends a boolean column.
+        """
+        results = collect_orbit_track(
+            self.satellite,
+            [
+                datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
+                for i in range(10)
+            ],
+            sat_sunlit=True,
+        )
+        self.assertIn("sat_sunlit", results.columns)
+        self.assertTrue(results.sat_sunlit.isin([True, False]).all())
+
+    def test_collect_orbit_track_solar_altaz_valid_range(self):
+        """
+        Test that `solar_altaz` appends solar altitude/azimuth columns
+        within their valid ranges.
+        """
+        results = collect_orbit_track(
+            self.satellite,
+            [
+                datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
+                for i in range(10)
+            ],
+            solar_altaz=True,
+        )
+        self.assertIn("solar_alt", results.columns)
+        self.assertIn("solar_az", results.columns)
+        for solar_alt, solar_az in zip(results.solar_alt, results.solar_az):
+            self.assertGreaterEqual(solar_alt, -90.0)
+            self.assertLessEqual(solar_alt, 90.0)
+            self.assertGreaterEqual(solar_az, 0.0)
+            self.assertLess(solar_az, 360.0)
+
+    def test_collect_orbit_track_solar_beta_valid_range(self):
+        """
+        Test that `solar_beta` appends a column within its valid range
+        (+/- 90 deg).
+        """
+        results = collect_orbit_track(
+            self.satellite,
+            [
+                datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
+                for i in range(10)
+            ],
+            solar_beta=True,
+        )
+        self.assertIn("solar_beta", results.columns)
+        for solar_beta in results.solar_beta:
+            self.assertGreaterEqual(solar_beta, -90.0)
+            self.assertLessEqual(solar_beta, 90.0)
+
     def test_collect_ground_track(self):
         """
         Test that ground track collection works for a single satellite and a list of times.
@@ -442,6 +514,72 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
         self.assertTrue(0 < len(results.index) < len(times))
         for geometry in results.geometry:
             self.assertTrue(mask.intersects(geometry))
+
+    def test_collect_ground_track_mask_as_geodataframe(self):
+        """
+        Test that a mask passed as a GeoDataFrame (rather than a bare
+        Polygon) works the same way.
+        """
+        times = [
+            datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
+            for i in range(10)
+        ]
+        polygon = Polygon([[-90, 45], [90, 45], [90, -45], [-90, -45]])
+        mask = gpd.GeoDataFrame(geometry=[polygon], crs="EPSG:4326")
+        results = collect_ground_track(self.satellite, times, mask=mask)
+        self.assertTrue(0 < len(results.index) < len(times))
+        for geometry in results.geometry:
+            self.assertTrue(polygon.intersects(geometry))
+
+    def test_collect_ground_track_mask_as_geoseries(self):
+        """
+        Test that a mask passed as a GeoSeries (rather than a bare
+        Polygon) works the same way.
+        """
+        times = [
+            datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
+            for i in range(10)
+        ]
+        polygon = Polygon([[-90, 45], [90, 45], [90, -45], [-90, -45]])
+        mask = gpd.GeoSeries([polygon], crs="EPSG:4326")
+        results = collect_ground_track(self.satellite, times, mask=mask)
+        self.assertTrue(0 < len(results.index) < len(times))
+        for geometry in results.geometry:
+            self.assertTrue(polygon.intersects(geometry))
+
+    def test_collect_ground_track_mask_excludes_everything_at_coarse_stage(self):
+        """
+        Test that a mask far enough away to exclude every point even at
+        the coarse, buffer-tolerant culling stage returns an empty result.
+        """
+        times = [
+            datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(seconds=i)
+            for i in range(10)
+        ]
+        mask = Polygon([[10, 89], [11, 89], [11, 89.5], [10, 89.5]])
+        results = collect_ground_track(self.satellite, times, mask=mask)
+        self.assertTrue(results.empty)
+
+    def test_collect_ground_track_mask_excludes_everything_at_footprint_stage(self):
+        """
+        Test that a mask close enough to pass the coarse, buffer-tolerant
+        culling stage, but too far for any actual instrument footprint to
+        intersect, still returns an empty result (rather than incorrectly
+        returning the coarsely-culled, unfiltered points).
+        """
+        instrument = Instrument(name="Narrow", field_of_regard=10.0)
+        satellite = Satellite(name="Narrow", orbit=self.orbit, instruments=[instrument])
+        times = [
+            datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(seconds=i)
+            for i in range(10)
+        ]
+        subpoint = collect_orbit_track(satellite, [times[0]]).geometry.iloc[0]
+        # 0.5 deg (~55 km) away: within the coarse buffer's tolerance
+        # (ground distance traveled in one second, plus half the narrow
+        # instrument's swath width), but well beyond the true footprint
+        mask = ShapelyPoint(subpoint.x + 0.5, subpoint.y).buffer(0.01)
+        results = collect_ground_track(satellite, times, mask=mask)
+        self.assertTrue(results.empty)
 
     def test_compute_ground_track(self):
         """
@@ -621,6 +759,102 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
         self.assertTrue(0 < results.time.nunique() < len(times))
         for geometry in results.geometry:
             self.assertTrue(mask.contains(geometry))
+
+    def test_collect_ground_pixels_mask_as_geodataframe(self):
+        """
+        Test that a mask passed as a GeoDataFrame (rather than a bare
+        Polygon) works the same way.
+        """
+        instrument = PointedInstrument(
+            name="Pixels",
+            cross_track_field_of_view=10.0,
+            along_track_field_of_view=10.0,
+            is_rectangular=True,
+            cross_track_pixels=3,
+            along_track_pixels=3,
+        )
+        satellite = Satellite(name="Pixels", orbit=self.orbit, instruments=[instrument])
+        times = [
+            datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
+            for i in range(10)
+        ]
+        polygon = Polygon([[-90, 45], [90, 45], [90, -45], [-90, -45]])
+        mask = gpd.GeoDataFrame(geometry=[polygon], crs="EPSG:4326")
+        results = collect_ground_pixels(satellite, times, mask=mask)
+        self.assertTrue(0 < results.time.nunique() < len(times))
+        for geometry in results.geometry:
+            self.assertTrue(polygon.contains(geometry))
+
+    def test_collect_ground_pixels_mask_as_geoseries(self):
+        """
+        Test that a mask passed as a GeoSeries (rather than a bare
+        Polygon) works the same way.
+        """
+        instrument = PointedInstrument(
+            name="Pixels",
+            cross_track_field_of_view=10.0,
+            along_track_field_of_view=10.0,
+            is_rectangular=True,
+            cross_track_pixels=3,
+            along_track_pixels=3,
+        )
+        satellite = Satellite(name="Pixels", orbit=self.orbit, instruments=[instrument])
+        times = [
+            datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
+            for i in range(10)
+        ]
+        polygon = Polygon([[-90, 45], [90, 45], [90, -45], [-90, -45]])
+        mask = gpd.GeoSeries([polygon], crs="EPSG:4326")
+        results = collect_ground_pixels(satellite, times, mask=mask)
+        self.assertTrue(0 < results.time.nunique() < len(times))
+        for geometry in results.geometry:
+            self.assertTrue(polygon.contains(geometry))
+
+    def test_collect_ground_pixels_mask_excludes_everything_at_coarse_stage(self):
+        """
+        Test that a mask far enough away to exclude every point even at
+        the coarse, buffer-tolerant culling stage returns an empty result.
+        """
+        instrument = PointedInstrument(
+            name="Pixels",
+            cross_track_field_of_view=10.0,
+            along_track_field_of_view=10.0,
+            is_rectangular=True,
+            cross_track_pixels=3,
+            along_track_pixels=3,
+        )
+        satellite = Satellite(name="Pixels", orbit=self.orbit, instruments=[instrument])
+        times = [
+            datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(seconds=i)
+            for i in range(10)
+        ]
+        mask = Polygon([[10, 89], [11, 89], [11, 89.5], [10, 89.5]])
+        results = collect_ground_pixels(satellite, times, mask=mask)
+        self.assertTrue(results.empty)
+
+    def test_collect_ground_pixels_mask_excludes_everything_at_footprint_stage(self):
+        """
+        Test that a mask close enough to pass the coarse, buffer-tolerant
+        culling stage, but too far for any actual pixel footprint to
+        intersect, still returns an empty result.
+        """
+        instrument = PointedInstrument(
+            name="Pixels",
+            cross_track_field_of_view=10.0,
+            along_track_field_of_view=10.0,
+            is_rectangular=True,
+            cross_track_pixels=3,
+            along_track_pixels=3,
+        )
+        satellite = Satellite(name="Pixels", orbit=self.orbit, instruments=[instrument])
+        times = [
+            datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(seconds=i)
+            for i in range(10)
+        ]
+        subpoint = collect_orbit_track(satellite, [times[0]]).geometry.iloc[0]
+        mask = ShapelyPoint(subpoint.x + 0.5, subpoint.y).buffer(0.01)
+        results = collect_ground_pixels(satellite, times, mask=mask)
+        self.assertTrue(results.empty)
 
     def test_collect_ground_pixels_empty(self):
         """
