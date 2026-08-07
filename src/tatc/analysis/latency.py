@@ -10,7 +10,6 @@ from __future__ import annotations
 from datetime import datetime
 
 import geopandas as gpd
-import numpy as np
 import pandas as pd
 from shapely import geometry as geo
 
@@ -158,15 +157,15 @@ def compute_latencies(
     # compute latency
     obs["latency"] = obs["epoch_y"] - obs["epoch_x"]
 
-    # rename and select relevant columns
+    # rename and select relevant columns. Only "epoch" and "geometry" exist
+    # in both `observations` and `downlinks`, so merge_asof only suffixes
+    # those two with "_x"/"_y"; "station", "sat_alt", and "sat_az" exist in
+    # just one of the two frames each and so are never suffixed at all.
     obs.rename(
         columns={
-            "station_y": "station",
             "epoch_y": "downlinked",
             "epoch_x": "observed",
             "geometry_x": "geometry",
-            "sat_alt_x": "sat_alt",
-            "sat_az_x": "sat_az",
         },
         inplace=True,
     )
@@ -228,8 +227,12 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
 
 def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
-    Reduce observation latencies. Computes descriptive statistics for each
-    pair of observation and first downlink opportunities.
+    Reduce observation latencies: for each unique point_id in
+    `latency_observations`, computes the mean latency and the total number
+    of samples (observation/downlink pairs). An observation with no
+    matching downlink has an undefined (NaT) latency (see
+    `compute_latencies`), which is excluded from the mean rather than
+    counted as zero, while still counting toward `samples`.
 
     Args:
         latency_observations (geopandas.GeoDataFrame): The latency observations.
@@ -237,7 +240,7 @@ def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame
     Returns:
         geopandas.GeoDataFrame: The data frame with reduced latencies.
     """
-    if latency_observations.notna().empty:
+    if latency_observations.empty:
         return _get_empty_reduce_frame()
     # operate on a copy of the dataframe
     gdf = latency_observations.copy()
@@ -258,24 +261,16 @@ def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame
     return gdf
 
 
-def _aggregate_mean_latency(gdf: gpd.GeoDataFrame) -> float:
-    """
-    Aggregates the mean latency value from a GeoDataFrame of latencies and samples.
-
-    Args:
-        gdf (geopandas.GeoDataFrame): A GeoDataFrame containing latency and samples.
-
-    Returns:
-        float: The aggregated latency value.
-    """
-    return float(np.average(gdf["latency"], weights=gdf["samples"]))
-
-
 def grid_latencies(
     reduced_latencies: gpd.GeoDataFrame, cells: gpd.GeoDataFrame
 ) -> gpd.GeoDataFrame:
     """
-    Grid reduced latencies to cells.
+    Grid reduced latencies to cells: for every cell, sums the number of
+    samples across every point it contains, and combines those points'
+    latency into a single sample-weighted arithmetic mean per cell. Latency
+    (a per-observation duration, like `access` in `grid_observations`, not
+    a time-between-events/rate quantity like `revisit`) does not need a
+    harmonic-mean treatment.
 
     Args:
         reduced_latencies (geopandas.GeoDataFrame): The reduced latencies.
@@ -293,17 +288,25 @@ def grid_latencies(
     gdf = reduced_latencies.copy()
     # convert latency to numeric values before aggregation
     gdf["latency"] = gdf["latency"].dt.total_seconds()
+    # pre-multiply so the sample-weighted mean below reduces to a plain sum:
+    # groupby().agg() with a dict of {column: function} only ever hands a
+    # custom callable its own column's Series, never a sibling column like
+    # "samples" needed to compute a weighted statistic within the callable
+    gdf["latency_x_samples"] = gdf["latency"] * gdf["samples"]
     gdf = (
         cells.sjoin(gdf, how="inner", predicate="contains")
         .dissolve(
             by="cell_id",
             aggfunc={
                 "samples": "sum",
-                "latency": _aggregate_mean_latency,
+                "latency_x_samples": "sum",
             },
         )
         .reset_index()
     )
+    # finish the weighted mean
+    gdf["latency"] = gdf["latency_x_samples"] / gdf["samples"]
+    gdf = gdf.drop(columns=["latency_x_samples"])
     # convert latency from numeric values after aggregation
     gdf["latency"] = pd.to_timedelta(gdf["latency"], unit="s")
     return gdf
