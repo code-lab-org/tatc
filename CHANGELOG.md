@@ -1,5 +1,34 @@
 # TAT-C Change Log
 
+## 3.5.0
+
+Major refactoring that focused on completing unit tests to approach full code coverage. Also supports other general perturbations (GP) orbit specifications including OMM CSV and JSON. During refactoring, a few bug fixes and breaking changes were also made.
+
+Added:
+ - Added `GeostationaryOrbit` orbit schema.
+
+Changed:
+ - Changed the default orbit epoch from `datetime.now()` to `2020-01-01T00:00:00Z`
+ - Refactored all orbit schemas to inherit uniform getters from `OrbitBase`
+ - Dropped `TwoLineElements` in favor of `GeneralPerturbationsOrbit` to accommodate post-TLE GP data formats.
+ - Fixed a bug where instrument footprints were projected around the geocentric, rather than geodetic, pointing vector, leading to ~2 km positioning errors.
+ - Fixed `TrainConstellation` member right ascension of ascending node spacing to be based on a sidereal day, rather than a solar day.
+ - Fixed `SOCConstellation` member generation to use hexagonal spacing with a non-zero `relative_spacing` value.
+ - Fixed `MOGConstellation` member generation to use the mean anomaly of the reference orbit.
+ - Fixed a bug in `config.py` where default configurations (`defaults.yml`) where never provided in wheels.
+ - Fixed `collect_orbit_track` to only use tag outputs with EPSG:4326 when requesting WGS84 coordinates.
+ - Fixed `collect_orbit_track` to use a proper East/North/Up velocity when requesting WGS84 coordinates.
+ - Removed the legacy `crs` and `method` parameters from `collect_ground_track` and all instrument projection uses the SPICE library.
+ - Fixed a bug where `collect_multi_observations` could crash on an empty satellite list.
+ - Fixed a bug in `grid_observations` where spatial aggregation never actually worked.
+ - Improved an assumption to `collect_observations` and where the apogee altitude is used to determine the maximum access duration, rather than the initial altitude.
+ - Fixed a bug in `compute_dop` where the latitude and longitude were reversed in output geometry.
+ - Improved `compute_dop` to use the nearest GP element to each time rather than the first one specified for an orbit.
+ - Fixed a bug in `grid_latencies` where spatial aggregation never actually worked.
+ - Fixed the definition of binormal unit vector in `ro_coverage.py` to accommodate eccentric orbits.
+ - Added utility methods: `compute_apoapsis_radius` and `geodesic_distance`.
+
+
 ## 3.4.10
 
 Added:
