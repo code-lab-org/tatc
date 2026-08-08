@@ -17,6 +17,11 @@ Equally Spaced
 
 .. autofunction:: tatc.generation.generate_points_uniform_spacing
 
+Equal Angular Distance
+----------------------
+
+.. autofunction:: tatc.generation.generate_points_uniform_angular_distance
+
 Cells
 =====
 
@@ -24,3 +29,8 @@ Equally Spaced
 --------------
 
 .. autofunction:: tatc.generation.generate_cells_uniform_spacing
+
+Equal Angular Spacing
+---------------------
+
+.. autofunction:: tatc.generation.generate_cells_uniform_angular_spacing

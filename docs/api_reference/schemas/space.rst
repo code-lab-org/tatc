@@ -27,6 +27,13 @@ Train Constellation
   :members:
   :inherited-members: BaseModel
 
+Walker Configuration
+--------------------
+
+.. autoclass:: tatc.schemas.WalkerConfiguration
+  :members:
+  :undoc-members:
+
 Walker Constellation
 --------------------
 
