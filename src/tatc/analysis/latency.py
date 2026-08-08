@@ -267,10 +267,7 @@ def grid_latencies(
     """
     Grid reduced latencies to cells: for every cell, sums the number of
     samples across every point it contains, and combines those points'
-    latency into a single sample-weighted arithmetic mean per cell. Latency
-    (a per-observation duration, like `access` in `grid_observations`, not
-    a time-between-events/rate quantity like `revisit`) does not need a
-    harmonic-mean treatment.
+    latency into a single sample-weighted arithmetic mean per cell.
 
     Args:
         reduced_latencies (geopandas.GeoDataFrame): The reduced latencies.

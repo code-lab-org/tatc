@@ -75,7 +75,7 @@ def _get_visible_interval_series(
         elevation_angle = (
             orbit_track - topos.at(timescale.from_datetime(mid))
         ).altaz()[0].degrees
-        if elevation_angle > min_elevation_angle:
+        if elevation_angle > min_elevation_angle: # type: ignore
             # continuously visible for the entire window
             obs_periods += [
                 pd.Interval(
@@ -471,12 +471,7 @@ def grid_observations(
     Both access (a per-event duration) and revisit (a time-between-events
     duration, i.e. the reciprocal of a sampling rate) use a sample-weighted
     mean -- arithmetic for access, harmonic for revisit, since revisit
-    needs to be averaged as a rate to stay a representative statistic for
-    a typical point in the cell: unlike the harmonic mean, summing
-    reciprocal rates directly (without normalizing by sample count) would
-    make a cell's reported revisit shrink simply because more (possibly
-    near-identical) points happen to fall inside it, which is a property
-    of the input point density, not of the underlying coverage geometry.
+    needs to be averaged as a rate to stay a representative statistic.
 
     Args:
         reduced_observations (geopandas.GeoDataFrame): The reduced observations.
