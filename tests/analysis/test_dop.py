@@ -24,6 +24,7 @@ class TestDopAnalysis(unittest.TestCase):
     """
     Unit tests for the DOP analysis functions in the tatc.analysis module.
     """
+
     def setUp(self):
         self.null_island = Point(id=0, latitude=0, longitude=0)
         self.orbit = CircularOrbit(

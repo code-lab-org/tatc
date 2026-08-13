@@ -46,9 +46,7 @@ def geodesic_distance(
     Returns:
         float: The geodesic distance (meters) between the two points.
     """
-    _, _, distance = _WGS84_GEOD.inv(
-        longitude_1, latitude_1, longitude_2, latitude_2
-    )
+    _, _, distance = _WGS84_GEOD.inv(longitude_1, latitude_1, longitude_2, latitude_2)
     return distance
 
 
@@ -383,9 +381,7 @@ def _split_polygon_antimeridian(
     if isinstance(polygon, MultiPolygon):
         # recursive call for each polygon
         return MultiPolygon(
-            _flatten_polygons(
-                [_split_polygon_antimeridian(p) for p in polygon.geoms]
-            )
+            _flatten_polygons([_split_polygon_antimeridian(p) for p in polygon.geoms])
         )
     raise ValueError("Unknown geometry: " + str(type(polygon)))
 
@@ -427,22 +423,22 @@ def get_planar_bounds(
     """
     Generates a tuple of bounds for a polygon mask.
 
-    Known limitation: this method assumes `mask` lies on the planar 
-    (non-antimeridian-crossing) longitude domain. A mask crossing the 
-    antimeridian with longitude below -180 (e.g. bounds spanning 
-    -190 to -180, representing the same region as 170 to 180) only has 
-    its max_longitude corrected to 180; min_longitude is left unadjusted, 
-    so the resulting bounds do not coherently describe such a mask. 
-    Fully supporting antimeridian-crossing masks can be achieved by 
+    Known limitation: this method assumes `mask` lies on the planar
+    (non-antimeridian-crossing) longitude domain. A mask crossing the
+    antimeridian with longitude below -180 (e.g. bounds spanning
+    -190 to -180, representing the same region as 170 to 180) only has
+    its max_longitude corrected to 180; min_longitude is left unadjusted,
+    so the resulting bounds do not coherently describe such a mask.
+    Fully supporting antimeridian-crossing masks can be achieved by
     pre-processing the geometry (e.g. via `split_polygon`).
 
     Args:
-        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):
             Geometric shape using WGS84 (EPSG:4326)
             geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
-        tuple[float, float, float, float]: min longitude (degrees), 
+        tuple[float, float, float, float]: min longitude (degrees),
             min latitude (degrees), max longitude (degrees), max latitude (degrees)
     """
     if isinstance(mask, (Polygon, MultiPolygon)):

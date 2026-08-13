@@ -20,6 +20,7 @@ class TestPointedInstrument(unittest.TestCase):
     """
     Unit tests for the PointedInstrument schema.
     """
+
     def setUp(self):
         noon_utc = datetime(2020, 3, 20, 12, tzinfo=timezone.utc)
         self.test_time = timescale.from_datetime(noon_utc)
@@ -30,10 +31,13 @@ class TestPointedInstrument(unittest.TestCase):
                 epoch=noon_utc,
                 inclination=0.0,
                 right_ascension_ascending_node=0.0,
-            ).to_gp_orbit().elements[0].to_satrec(),
+            )
+            .to_gp_orbit()
+            .elements[0]
+            .to_satrec(),
             timescale,
         )
-        self.orbit_track = self.test_sat.at(self.test_time) # type: ignore
+        self.orbit_track = self.test_sat.at(self.test_time)  # type: ignore
 
     def test_good_data(self):
         """
@@ -52,8 +56,12 @@ class TestPointedInstrument(unittest.TestCase):
             "along_track_oversampling": 0.2,
         }
         o = PointedInstrument(**good_data)
-        self.assertEqual(o.cross_track_field_of_view, good_data["cross_track_field_of_view"])
-        self.assertEqual(o.along_track_field_of_view, good_data["along_track_field_of_view"])
+        self.assertEqual(
+            o.cross_track_field_of_view, good_data["cross_track_field_of_view"]
+        )
+        self.assertEqual(
+            o.along_track_field_of_view, good_data["along_track_field_of_view"]
+        )
         self.assertEqual(o.roll_angle, good_data["roll_angle"])
         self.assertEqual(o.pitch_angle, good_data["pitch_angle"])
         self.assertEqual(o.is_rectangular, good_data["is_rectangular"])
@@ -97,7 +105,9 @@ class TestPointedInstrument(unittest.TestCase):
             )
         with self.assertRaises(ValidationError):
             PointedInstrument(
-                name="t", cross_track_field_of_view=10.0, along_track_field_of_view=180.1
+                name="t",
+                cross_track_field_of_view=10.0,
+                along_track_field_of_view=180.1,
             )
 
     def test_angle_bounds(self):
@@ -358,8 +368,8 @@ class TestPointedInstrument(unittest.TestCase):
             cross_track_pixels=3,
             along_track_pixels=2,
         )
-        times = timescale.utc(2020, 3, 20, 12, 0, [0, 1, 2]) # type: ignore
-        orbit_track = self.test_sat.at(times) # type: ignore
+        times = timescale.utc(2020, 3, 20, 12, 0, [0, 1, 2])  # type: ignore
+        orbit_track = self.test_sat.at(times)  # type: ignore
         pixel_arrays = o.compute_footprint_pixel_array(orbit_track)
         self.assertEqual(len(pixel_arrays), 3)
         for pixel_array in pixel_arrays:

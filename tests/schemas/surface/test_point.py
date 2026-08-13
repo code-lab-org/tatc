@@ -15,6 +15,7 @@ class TestPoint(unittest.TestCase):
     """
     Unit tests for the Point schema.
     """
+
     def test_good_data(self):
         """
         Test that the Point schema correctly initializes with valid data.

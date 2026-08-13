@@ -3,6 +3,7 @@ Unit tests for the tatc.utils.geometry module.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 
 import geopandas as gpd
@@ -21,6 +22,7 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
     """
     Unit tests for the tatc.utils.geometry module.
     """
+
     def test_geodesic_distance_same_point(self):
         """
         Test that the geodesic distance between a point and itself is zero.
@@ -34,9 +36,7 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
         equator is itself a geodesic, so this distance is exact):
         2 * pi * EARTH_EQUATORIAL_RADIUS / 360 = 111319.4908 meters.
         """
-        self.assertAlmostEqual(
-            geodesic_distance(0, 0, 1, 0), 111319.4908, delta=0.01
-        )
+        self.assertAlmostEqual(geodesic_distance(0, 0, 1, 0), 111319.4908, delta=0.01)
 
     def test_geodesic_distance_pole_to_equator(self):
         """
@@ -109,7 +109,8 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
         )
         result = project_polygon_to_elevation(polygon, 50)
         self.assertEqual(
-            list(result.exterior.coords), [(x, y, 50) for x, y, _ in polygon.exterior.coords]
+            list(result.exterior.coords),
+            [(x, y, 50) for x, y, _ in polygon.exterior.coords],
         )
 
     def test_project_polygon_to_elevation_negative(self):
@@ -186,9 +187,7 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
             [
                 Polygon([(10, 90), (10, 85), (-10, 85), (-10, 90), (10, 90)]),
                 Polygon([(170, 85), (180, 85), (180, 90), (170, 90), (170, 85)]),
-                Polygon(
-                    [(-180, 85), (-170, 85), (-170, 90), (-180, 90), (-180, 85)]
-                ),
+                Polygon([(-180, 85), (-170, 85), (-170, 90), (-180, 90), (-180, 85)]),
             ]
         )
         self.assertTrue(split_polygon(polygon).equals(result))

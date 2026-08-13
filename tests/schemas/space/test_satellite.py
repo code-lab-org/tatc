@@ -15,6 +15,7 @@ class TestSatellite(unittest.TestCase):
     """
     Unit tests for the Satellite schema.
     """
+
     def setUp(self):
         self.test_data = {
             "name": "Test Satellite",

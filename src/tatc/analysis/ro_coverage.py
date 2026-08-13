@@ -427,9 +427,9 @@ def collect_ro_observations(
         time_step (datetime.timedelta): the time step used to sample tangent point
             tracks within each observation period, once its bounds are found.
         sample_elevation: (float): the elevation (m) at which to interpolate observation attributes.
-        max_yaw (float): the maximum transmitter yaw angle (from receiver body-fixed frame) 
+        max_yaw (float): the maximum transmitter yaw angle (from receiver body-fixed frame)
             for a valid obsevation.
-        range_elevation: (tuple[float, float]): the lower and upper bound on tangent 
+        range_elevation: (tuple[float, float]): the lower and upper bound on tangent
             point elevation (m) for a valid observation.
         min_profile_duration (datetime.timedelta): the shortest RO observation period
             guaranteed to be detected. Sets the coarse scan resolution used to search

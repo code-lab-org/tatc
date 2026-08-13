@@ -73,9 +73,9 @@ def _get_visible_interval_series(
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
         orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(mid)
         elevation_angle = (
-            orbit_track - topos.at(timescale.from_datetime(mid))
-        ).altaz()[0].degrees
-        if elevation_angle > min_elevation_angle: # type: ignore
+            (orbit_track - topos.at(timescale.from_datetime(mid))).altaz()[0].degrees
+        )
+        if elevation_angle > min_elevation_angle:  # type: ignore
             # continuously visible for the entire window
             obs_periods += [
                 pd.Interval(
@@ -259,9 +259,7 @@ def collect_observations(
                     pitch_angle=instrument.pitch_angle,
                     is_rectangular=instrument.is_rectangular,
                     elevation=point.elevation,
-                )[0].contains(
-                    geo.Point(point.longitude, point.latitude)
-                )
+                )[0].contains(geo.Point(point.longitude, point.latitude))
             )
         )
     ]

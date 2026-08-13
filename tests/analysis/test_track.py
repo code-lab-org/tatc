@@ -125,7 +125,9 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
             self.satellite, times, coordinates=OrbitCoordinate.ECEF
         )
         to_wgs84 = Transformer.from_crs("EPSG:4978", "EPSG:4326", always_xy=True)
-        for wgs84_point, ecef_point in zip(wgs84_results.geometry, ecef_results.geometry):
+        for wgs84_point, ecef_point in zip(
+            wgs84_results.geometry, ecef_results.geometry
+        ):
             lon, lat, height = to_wgs84.transform(
                 ecef_point.x, ecef_point.y, ecef_point.z
             )
@@ -230,7 +232,9 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
             coordinates=OrbitCoordinate.ECEF,
             orbit_output=OrbitOutput.POSITION_VELOCITY,
         )
-        for eci_velocity, ecef_velocity in zip(eci_results.velocity, ecef_results.velocity):
+        for eci_velocity, ecef_velocity in zip(
+            eci_results.velocity, ecef_results.velocity
+        ):
             eci_speed = np.linalg.norm([eci_velocity.x, eci_velocity.y, eci_velocity.z])
             ecef_speed = np.linalg.norm(
                 [ecef_velocity.x, ecef_velocity.y, ecef_velocity.z]
@@ -441,9 +445,7 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
         (which keeps the footprint a single, near-circular polygon).
         """
         instrument = Instrument(name="Narrow", field_of_regard=10.0)
-        satellite = Satellite(
-            name="Narrow", orbit=self.orbit, instruments=[instrument]
-        )
+        satellite = Satellite(name="Narrow", orbit=self.orbit, instruments=[instrument])
         times = [
             datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
             for i in range(5)

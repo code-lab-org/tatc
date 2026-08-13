@@ -3,6 +3,7 @@ Unit tests for the tatc.utils.surface module.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 
 import numpy as np
@@ -15,6 +16,7 @@ class TestSurface(unittest.TestCase):
     """
     Unit tests for the tatc.utils.surface module.
     """
+
     def test_compute_number_samples(self):
         """
         Test that the number of samples can be computed for a given sample distance.
@@ -47,9 +49,7 @@ class TestSurface(unittest.TestCase):
         """
         sample_distance = 5000000
         spherical = compute_number_samples(sample_distance)
-        flat = int(
-            constants.EARTH_SURFACE_AREA / (np.pi * (sample_distance / 2) ** 2)
-        )
+        flat = int(constants.EARTH_SURFACE_AREA / (np.pi * (sample_distance / 2) ** 2))
         self.assertGreater(spherical, flat)
 
     def test_compute_number_samples_decreases_with_distance(self):
@@ -57,9 +57,7 @@ class TestSurface(unittest.TestCase):
         Test that the number of samples decreases monotonically as the
         sample distance increases.
         """
-        counts = [
-            compute_number_samples(d) for d in (1000, 10000, 100000, 1000000)
-        ]
+        counts = [compute_number_samples(d) for d in (1000, 10000, 100000, 1000000)]
         self.assertEqual(counts, sorted(counts, reverse=True))
 
     def test_compute_number_samples_zero_distance_raises(self):

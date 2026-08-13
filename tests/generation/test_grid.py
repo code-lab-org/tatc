@@ -3,6 +3,7 @@ Unit tests for the tatc.generation._grid module.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 
 from shapely.geometry import Polygon

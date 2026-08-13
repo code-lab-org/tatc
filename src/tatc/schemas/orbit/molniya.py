@@ -34,7 +34,9 @@ class MolniyaOrbit(MolniyaTundraOrbitBase):
         Returns:
             timedelta: the orbit period
         """
-        return self._compute_j2_corrected_orbit_period(constants.EARTH_SIDEREAL_DAY_S / 2)
+        return self._compute_j2_corrected_orbit_period(
+            constants.EARTH_SIDEREAL_DAY_S / 2
+        )
 
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float

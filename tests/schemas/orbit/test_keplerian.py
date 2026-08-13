@@ -15,9 +15,10 @@ class TestKeplerianOrbit(unittest.TestCase):
     """
     Unit tests for the KeplerianOrbit schema.
     """
+
     def setUp(self):
         self.test_data = {
-            "semimajor_axis": 400000 + 6371000, # 400 km mean altitude
+            "semimajor_axis": 400000 + 6371000,  # 400 km mean altitude
             "true_anomaly": 10.0,
             "epoch": datetime(2022, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             "inclination": 45.0,
@@ -31,7 +32,9 @@ class TestKeplerianOrbit(unittest.TestCase):
         """
         Test that the KeplerianOrbit schema correctly initializes with valid data.
         """
-        self.assertEqual(self.test_orbit.semimajor_axis, self.test_data.get("semimajor_axis"))
+        self.assertEqual(
+            self.test_orbit.semimajor_axis, self.test_data.get("semimajor_axis")
+        )
         self.assertEqual(
             self.test_orbit.true_anomaly, self.test_data.get("true_anomaly")
         )
@@ -192,12 +195,10 @@ class TestKeplerianOrbit(unittest.TestCase):
         self.assertAlmostEqual(
             gp_orbit.get_mean_altitude(),
             self.test_data.get("semimajor_axis") - 6371000,
-            delta=10
+            delta=10,
         )
         self.assertAlmostEqual(
-            gp_orbit.get_true_anomaly(),
-            self.test_data.get("true_anomaly"),
-            delta=0.001
+            gp_orbit.get_true_anomaly(), self.test_data.get("true_anomaly"), delta=0.001
         )
         self.assertAlmostEqual(
             gp_orbit.get_epoch().timestamp(),

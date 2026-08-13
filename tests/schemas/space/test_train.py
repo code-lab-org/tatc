@@ -3,6 +3,7 @@ Unit tests for the TrainConstellation schema.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 from datetime import timedelta
 
@@ -16,6 +17,7 @@ class TestTrainConstellation(unittest.TestCase):
     """
     Unit tests for the TrainConstellation schema.
     """
+
     def setUp(self):
         self.test_data = {
             "name": "Test Constellation",
@@ -30,17 +32,19 @@ class TestTrainConstellation(unittest.TestCase):
             "interval": timedelta(minutes=10),
         }
         self.test_orbit = CircularOrbit(**self.test_data.get("orbit"))
-        self.test_con_rgt = TrainConstellation(**self.test_data, repeat_ground_track=True)
-        self.test_con_nrgt = TrainConstellation(**self.test_data, repeat_ground_track=False)
+        self.test_con_rgt = TrainConstellation(
+            **self.test_data, repeat_ground_track=True
+        )
+        self.test_con_nrgt = TrainConstellation(
+            **self.test_data, repeat_ground_track=False
+        )
 
     def test_good_data(self):
         """
         Test that the TrainConstellation object can be created from valid data.
         """
         self.assertEqual(self.test_con_rgt.name, self.test_data.get("name"))
-        self.assertEqual(
-            self.test_con_rgt.orbit, self.test_orbit
-        )
+        self.assertEqual(self.test_con_rgt.orbit, self.test_orbit)
         self.assertEqual(len(self.test_con_rgt.instruments), 1)
         self.assertEqual(
             self.test_con_rgt.instruments[0],
@@ -57,7 +61,7 @@ class TestTrainConstellation(unittest.TestCase):
 
     def test_get_delta_mean_anomaly_repeat_ground_track_tle(self):
         """
-        Test that the delta mean anomaly can be retrieved from the TrainConstellation 
+        Test that the delta mean anomaly can be retrieved from the TrainConstellation
         object for a repeat ground track TLE orbit.
         """
         self.assertAlmostEqual(

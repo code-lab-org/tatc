@@ -3,6 +3,7 @@ Unit tests for the tatc.utils.time module.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -15,6 +16,7 @@ class TestTime(unittest.TestCase):
     """
     Unit tests for the tatc.utils.time module.
     """
+
     def test_to_datetime64_ns_scalar_utc(self):
         """
         Test that a UTC datetime is converted to a naive datetime64[ns].

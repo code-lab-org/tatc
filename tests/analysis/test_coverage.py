@@ -3,6 +3,7 @@ Unit tests for the coverage analysis functions in tatc.analysis.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 from datetime import datetime, timedelta, timezone
 
 import geopandas as gpd
@@ -26,6 +27,7 @@ class TestCoverageAnalysis(IssConstellationTestCase):
     """
     Unit tests for the coverage analysis functions in tatc.analysis.
     """
+
     def setUp(self):
         super().setUp()
         self.point = Point(id=0, latitude=0, longitude=0)
@@ -58,7 +60,7 @@ class TestCoverageAnalysis(IssConstellationTestCase):
 
     def test_collect_observations_all_culminate(self):
         """
-        Test that observations can be collected for a single satellite 
+        Test that observations can be collected for a single satellite
         and point when all observations culminate.
         """
         start = datetime(2022, 6, 1, 0, 43, tzinfo=timezone.utc)
@@ -248,7 +250,8 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             "satellite": satellite,
             "instrument": instrument,
             "start": pd.Timestamp(start),
-            "epoch": pd.Timestamp(start) + (pd.Timestamp(end) - pd.Timestamp(start)) / 2,
+            "epoch": pd.Timestamp(start)
+            + (pd.Timestamp(end) - pd.Timestamp(start)) / 2,
             "end": pd.Timestamp(end),
         }
 
@@ -270,10 +273,18 @@ class TestCoverageAnalysis(IssConstellationTestCase):
                     0, "B", "Test", t0 + timedelta(minutes=2), t0 + timedelta(minutes=4)
                 ),
                 self._make_observation(
-                    0, "C", "Test", t0 + timedelta(minutes=9), t0 + timedelta(minutes=15)
+                    0,
+                    "C",
+                    "Test",
+                    t0 + timedelta(minutes=9),
+                    t0 + timedelta(minutes=15),
                 ),
                 self._make_observation(
-                    0, "D", "Test", t0 + timedelta(minutes=20), t0 + timedelta(minutes=25)
+                    0,
+                    "D",
+                    "Test",
+                    t0 + timedelta(minutes=20),
+                    t0 + timedelta(minutes=25),
                 ),
             ],
             crs="EPSG:4326",
@@ -301,7 +312,11 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             [
                 self._make_observation(0, "A", "Test", t0, t0 + timedelta(minutes=10)),
                 self._make_observation(
-                    1, "B", "Test", t0 + timedelta(minutes=5), t0 + timedelta(minutes=15)
+                    1,
+                    "B",
+                    "Test",
+                    t0 + timedelta(minutes=5),
+                    t0 + timedelta(minutes=15),
                 ),
             ],
             crs="EPSG:4326",
@@ -395,7 +410,9 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             "geometry": ShapelyPoint(0, 0),
             "access": pd.Timedelta(minutes=access_minutes),
             "revisit": (
-                pd.NaT if revisit_minutes is None else pd.Timedelta(minutes=revisit_minutes)
+                pd.NaT
+                if revisit_minutes is None
+                else pd.Timedelta(minutes=revisit_minutes)
             ),
         }
 
@@ -497,7 +514,9 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         return {"cell_id": cell_id, "geometry": box(min_lon, min_lat, max_lon, max_lat)}
 
     @staticmethod
-    def _make_reduced_observation(point_id, lon, lat, access_seconds, revisit_seconds, samples):
+    def _make_reduced_observation(
+        point_id, lon, lat, access_seconds, revisit_seconds, samples
+    ):
         """
         Build a synthetic reduced-observation record (matching
         `reduce_observations`'s output schema) for direct, deterministic

@@ -3,6 +3,7 @@ Unit tests for the tatc.config module.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import shutil
 import tempfile
 import textwrap
@@ -246,7 +247,9 @@ class TestPackagedDefaults(unittest.TestCase):
         built wheels/sdists and every real (non-editable) install fell
         back to hard-coded defaults regardless of this file's contents.
         """
-        resources_path = Path(tatc_config.__file__).parent / "resources" / "defaults.yml"
+        resources_path = (
+            Path(tatc_config.__file__).parent / "resources" / "defaults.yml"
+        )
         self.assertTrue(
             resources_path.exists(),
             "resources/defaults.yml must ship with the package (see "
@@ -260,7 +263,9 @@ class TestPackagedDefaults(unittest.TestCase):
         between the shipped defaults file and RuntimeConfiguration's own
         hard-coded defaults.
         """
-        resources_path = Path(tatc_config.__file__).parent / "resources" / "defaults.yml"
+        resources_path = (
+            Path(tatc_config.__file__).parent / "resources" / "defaults.yml"
+        )
         with open(resources_path, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f)
         self.assertEqual(
@@ -304,7 +309,9 @@ class TestImportTimeFallback(unittest.TestCase):
         get_rc() still succeeds by falling back to hard-coded defaults,
         and now logs a warning rather than failing silently.
         """
-        resources_path = Path(tatc_config.__file__).parent / "resources" / "defaults.yml"
+        resources_path = (
+            Path(tatc_config.__file__).parent / "resources" / "defaults.yml"
+        )
         backup_dir = Path(tempfile.mkdtemp())
         backup_path = backup_dir / "defaults.yml"
         shutil.copy2(resources_path, backup_path)
@@ -317,9 +324,7 @@ class TestImportTimeFallback(unittest.TestCase):
             resources_path.unlink()
             with self.assertLogs("tatc.config", level="WARNING") as ctx:
                 rc = tatc_config.get_rc()
-            self.assertTrue(
-                any("hard-coded" in message for message in ctx.output)
-            )
+            self.assertTrue(any("hard-coded" in message for message in ctx.output))
             self.assertEqual(rc, RuntimeConfiguration())
         finally:
             shutil.copy2(backup_path, resources_path)

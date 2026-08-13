@@ -593,9 +593,7 @@ class TestGetOrbitTrackAtTime(unittest.TestCase):
         self.multi_element_orbit = GeneralPerturbationsOrbit(
             elements=[self.element_0, self.element_1, self.element_2]
         )
-        self.single_element_orbit = GeneralPerturbationsOrbit(
-            elements=[self.element_0]
-        )
+        self.single_element_orbit = GeneralPerturbationsOrbit(elements=[self.element_0])
 
     def test_single_element_scalar_time_matches_direct_propagation(self):
         """
@@ -659,9 +657,7 @@ class TestGetOrbitTrackAtTime(unittest.TestCase):
         t = constants.timescale.from_datetimes(times)
         actual = self.multi_element_orbit.get_orbit_track_at_time(t)
         for i, (time, element) in enumerate(zip(times, expected_elements)):
-            expected = element.to_skyfield().at(
-                constants.timescale.from_datetime(time)
-            )
+            expected = element.to_skyfield().at(constants.timescale.from_datetime(time))
             self.assertTrue(
                 np.array_equal(actual.position.km[:, i], expected.position.km),
                 f"time index {i} did not match its nearest element",
@@ -795,9 +791,7 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
         propagated position, even for an orbit with a known repeat cycle.
         """
         t = constants.timescale.from_datetime(self.epoch + self.repeat_cycle * 3)
-        actual = self.repeat_orbit.get_geographic_position_at_time(
-            t, try_repeat=False
-        )
+        actual = self.repeat_orbit.get_geographic_position_at_time(t, try_repeat=False)
         expected = wgs84.geographic_position_of(
             self.repeat_orbit.get_orbit_track_at_time(t)
         )
@@ -814,9 +808,7 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
         with_repeat = self.repeat_orbit.get_geographic_position_at_time(
             t, try_repeat=True
         )
-        direct = self.repeat_orbit.get_geographic_position_at_time(
-            t, try_repeat=False
-        )
+        direct = self.repeat_orbit.get_geographic_position_at_time(t, try_repeat=False)
         self.assertEqual(with_repeat.latitude.degrees, direct.latitude.degrees)
         self.assertEqual(with_repeat.longitude.degrees, direct.longitude.degrees)
 
@@ -831,9 +823,7 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
         """
         far_future = self.epoch + self.repeat_cycle * 3 + timedelta(hours=5)
         t = constants.timescale.from_datetime(far_future)
-        actual = self.repeat_orbit.get_geographic_position_at_time(
-            t, try_repeat=True
-        )
+        actual = self.repeat_orbit.get_geographic_position_at_time(t, try_repeat=True)
 
         offset_days = (far_future - self.epoch) / timedelta(days=1)
         cycle_days = self.repeat_cycle / timedelta(days=1)
@@ -866,27 +856,17 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
         """
         query_time = self.epoch - self.repeat_cycle * 2.5
         t = constants.timescale.from_datetime(query_time)
-        actual = self.repeat_orbit.get_geographic_position_at_time(
-            t, try_repeat=True
-        )
+        actual = self.repeat_orbit.get_geographic_position_at_time(t, try_repeat=True)
 
         correct = wgs84.geographic_position_of(
             self.repeat_orbit.elements[0]
             .to_skyfield()
-            .at(
-                constants.timescale.from_datetime(
-                    self.epoch - self.repeat_cycle * 0.5
-                )
-            )
+            .at(constants.timescale.from_datetime(self.epoch - self.repeat_cycle * 0.5))
         )
         wrong = wgs84.geographic_position_of(
             self.repeat_orbit.elements[0]
             .to_skyfield()
-            .at(
-                constants.timescale.from_datetime(
-                    self.epoch + self.repeat_cycle * 0.5
-                )
-            )
+            .at(constants.timescale.from_datetime(self.epoch + self.repeat_cycle * 0.5))
         )
         self.assertAlmostEqual(
             actual.latitude.degrees, correct.latitude.degrees, places=9
@@ -1357,9 +1337,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         check from the tolerance itself.
         """
         base = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle).elements[0]
-        maneuvered = base.model_copy(
-            update={"mean_motion": base.mean_motion * 1.0005}
-        )
+        maneuvered = base.model_copy(update={"mean_motion": base.mean_motion * 1.0005})
         orbit = GeneralPerturbationsOrbit(elements=[base, maneuvered])
         max_delta_position = 40000
         max_delta_velocity = 5
@@ -1497,12 +1475,8 @@ class TestGetObservationEvents(unittest.TestCase):
         )
         t_0 = constants.timescale.from_datetime(start)
         repeat_t_1 = constants.timescale.from_datetime(start + repeat_cycle)
-        expected_times, _ = second.to_skyfield().find_events(
-            topos, t_0, repeat_t_1, 10
-        )
-        wrong_times, _ = self.base.to_skyfield().find_events(
-            topos, t_0, repeat_t_1, 10
-        )
+        expected_times, _ = second.to_skyfield().find_events(topos, t_0, repeat_t_1, 10)
+        wrong_times, _ = self.base.to_skyfield().find_events(topos, t_0, repeat_t_1, 10)
         # sanity check that using the wrong (first) element would actually
         # have given a different answer, so this test is a meaningful
         # discriminator, not a coincidence

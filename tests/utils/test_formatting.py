@@ -3,6 +3,7 @@ Unit tests for the tatc.utils.formatting module.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 
 from tatc.utils import zero_pad
@@ -12,6 +13,7 @@ class TestFormatting(unittest.TestCase):
     """
     Unit tests for the tatc.utils.formatting module.
     """
+
     def test_zero_pad_pads_to_max_number_width(self):
         """
         Test that the current number is zero-padded to the digit width of the max number.

@@ -104,9 +104,11 @@ class MolniyaTundraOrbitBase(OrbitBase):
         naive_semimajor_axis = np.cbrt(
             constants.EARTH_MU * target_period_s**2 / (4 * np.pi**2)
         )
-        naive_eccentricity = 1 - (
-            constants.EARTH_MEAN_RADIUS + self.perigee_altitude
-        ) / naive_semimajor_axis
+        naive_eccentricity = (
+            1
+            - (constants.EARTH_MEAN_RADIUS + self.perigee_altitude)
+            / naive_semimajor_axis
+        )
         mean_motion_correction = utils.orbital.compute_j2_mean_motion_rate(
             naive_semimajor_axis, self.get_inclination(), naive_eccentricity
         )

@@ -3,6 +3,7 @@ Unit tests for the GroundStation schema.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 from datetime import timedelta
 
@@ -15,6 +16,7 @@ class TestGroundStation(unittest.TestCase):
     """
     Unit tests for the GroundStation schema.
     """
+
     def test_good_data(self):
         """
         Test that the GroundStation schema correctly initializes with valid data.

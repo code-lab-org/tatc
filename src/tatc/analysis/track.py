@@ -180,7 +180,7 @@ def collect_orbit_track(
                 "valid_obs": valid_obs[i],
                 "geometry": points[i],
             }
-            for i, time in enumerate(orbit_track.t.utc_datetime()) # type: ignore
+            for i, time in enumerate(orbit_track.t.utc_datetime())  # type: ignore
         ]
     else:
         # compute satellite velocity
@@ -192,12 +192,16 @@ def collect_orbit_track(
         elif coordinates == OrbitCoordinate.ECEF:
             velocities = [
                 Point(velocity[0], velocity[1], velocity[2])
-                for velocity in np.array(orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s).T
+                for velocity in np.array(
+                    orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s
+                ).T
             ]
         else:
             # rotate ECEF velocity into local East/North/Up components at the
             # satellite's geodetic longitude/latitude
-            ecef_velocity = np.array(orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s)
+            ecef_velocity = np.array(
+                orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s
+            )
             lon = np.radians(np.array(sat_pos.longitude.degrees))
             lat = np.radians(np.array(sat_pos.latitude.degrees))
             east = -np.sin(lon) * ecef_velocity[0] + np.cos(lon) * ecef_velocity[1]
@@ -211,9 +215,7 @@ def collect_orbit_track(
                 + np.cos(lat) * np.sin(lon) * ecef_velocity[1]
                 + np.sin(lat) * ecef_velocity[2]
             )
-            velocities = [
-                Point(e, n, u) for e, n, u in zip(east, north, up)
-            ]
+            velocities = [Point(e, n, u) for e, n, u in zip(east, north, up)]
 
         records = [
             {
@@ -229,7 +231,7 @@ def collect_orbit_track(
                 "geometry": points[i],
                 "velocity": velocities[i],
             }
-            for i, time in enumerate(orbit_track.t.utc_datetime()) # type: ignore
+            for i, time in enumerate(orbit_track.t.utc_datetime())  # type: ignore
         ]
 
     # tag the CRS to match the requested output coordinates: WGS84 is
@@ -315,9 +317,9 @@ def collect_ground_track(
                 coordinates, to constrain results. Providing a mask limits
                 the propagated orbit to the (buffered) region of interest,
                 improving performance for small areas.
-        sat_altaz (bool): `True` to include satellite altitude/azimuth angles 
+        sat_altaz (bool): `True` to include satellite altitude/azimuth angles
                 for the sub-satellite point.
-        solar_altaz (bool): `True` to include solar altitude/azimuth angles 
+        solar_altaz (bool): `True` to include solar altitude/azimuth angles
                 for the sub-satellite point.
 
     Returns:
@@ -390,14 +392,14 @@ def collect_ground_track(
             "valid_obs": valid_obs[i],
             "geometry": geometries[i],
         }
-        for i, time in enumerate(orbit_track.t.utc_datetime()) # type: ignore
+        for i, time in enumerate(orbit_track.t.utc_datetime())  # type: ignore
     ]
     track = gpd.GeoDataFrame(records, crs="EPSG:4326")
     if sat_altaz:
         # append satellite altitude/azimuth columns
         sat_altaz_data = (orbit_track - target.at(orbit_track.t)).altaz()
-        track["sat_alt"] = sat_altaz_data[0].degrees # type: ignore
-        track["sat_az"] = sat_altaz_data[1].degrees # type: ignore
+        track["sat_alt"] = sat_altaz_data[0].degrees  # type: ignore
+        track["sat_az"] = sat_altaz_data[1].degrees  # type: ignore
     if solar_altaz:
         # append solar altitude/azimuth columns
         solar_altaz_data = (
@@ -407,8 +409,8 @@ def collect_ground_track(
             .apparent()
             .altaz()
         )
-        track["solar_alt"] = solar_altaz_data[0].degrees # type: ignore
-        track["solar_az"] = solar_altaz_data[1].degrees # type: ignore
+        track["solar_alt"] = solar_altaz_data[0].degrees  # type: ignore
+        track["solar_az"] = solar_altaz_data[1].degrees  # type: ignore
 
     if mask is not None:
         track = gpd.clip(track, mask).reset_index(drop=True)
@@ -454,9 +456,7 @@ def compute_ground_track(
             for time in track.time
         ]
         # filter to valid observations and dissolve
-        track = (
-            track[track.valid_obs].dissolve(by="orbit_id").reset_index(drop=True)
-        )
+        track = track[track.valid_obs].dissolve(by="orbit_id").reset_index(drop=True)
     if dissolve_orbits:
         track = track.dissolve()
     return track
@@ -569,7 +569,7 @@ def collect_ground_pixels(
                 "geometry": point,
             },
         )
-        for i, time in enumerate(orbit_track.t.utc_datetime()) # type: ignore
+        for i, time in enumerate(orbit_track.t.utc_datetime())  # type: ignore
         for point in geometries[i].geoms
     ]
     records = [record for _, record in indexed_records]
@@ -582,12 +582,14 @@ def collect_ground_pixels(
                 orbit_track[i]
                 - wgs84.latlon(
                     record["geometry"].y, record["geometry"].x, record["geometry"].z
-                ).at(orbit_track.t[i]) # type: ignore
+                ).at(
+                    orbit_track.t[i]
+                )  # type: ignore
             ).altaz()
             for i, record in indexed_records
         ]
-        gdf["sat_alt"] = [altaz[0].degrees for altaz in sat_altaz_data] # type: ignore
-        gdf["sat_az"] = [altaz[1].degrees for altaz in sat_altaz_data] # type: ignore
+        gdf["sat_alt"] = [altaz[0].degrees for altaz in sat_altaz_data]  # type: ignore
+        gdf["sat_az"] = [altaz[1].degrees for altaz in sat_altaz_data]  # type: ignore
     if solar_altaz:
         # append solar altitude/azimuth columns
         solar_altaz_data = [
@@ -597,14 +599,14 @@ def collect_ground_pixels(
                     record["geometry"].y, record["geometry"].x, record["geometry"].z
                 )
             )
-            .at(orbit_track.t[i]) # type: ignore
+            .at(orbit_track.t[i])  # type: ignore
             .observe(de421["sun"])
             .apparent()
             .altaz()
             for i, record in indexed_records
         ]
-        gdf["solar_alt"] = [altaz[0].degrees for altaz in solar_altaz_data] # type: ignore
-        gdf["solar_az"] = [altaz[1].degrees for altaz in solar_altaz_data] # type: ignore
+        gdf["solar_alt"] = [altaz[0].degrees for altaz in solar_altaz_data]  # type: ignore
+        gdf["solar_az"] = [altaz[1].degrees for altaz in solar_altaz_data]  # type: ignore
 
     if mask is not None:
         gdf = gpd.clip(gdf, mask).reset_index(drop=True)

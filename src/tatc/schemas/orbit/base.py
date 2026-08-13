@@ -19,7 +19,9 @@ class OrbitBase(BaseModel):
     Base class for orbits.
     """
 
-    true_anomaly: float = Field(default=0, description="True anomaly (degrees).", ge=0, lt=360)
+    true_anomaly: float = Field(
+        default=0, description="True anomaly (degrees).", ge=0, lt=360
+    )
     epoch: datetime = Field(
         default=datetime(2020, 1, 1, tzinfo=timezone.utc),
         description="Timestamp (epoch) of the initial orbital state.",
