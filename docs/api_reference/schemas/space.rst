@@ -27,6 +27,13 @@ Train Constellation
   :members:
   :inherited-members: BaseModel
 
+Walker Configuration
+--------------------
+
+.. autoclass:: tatc.schemas.WalkerConfiguration
+  :members:
+  :undoc-members:
+
 Walker Constellation
 --------------------
 
@@ -35,14 +42,14 @@ Walker Constellation
   :inherited-members: BaseModel
 
 MOG Constellation
---------------------
+-----------------
 
 .. autopydantic_model:: tatc.schemas.MOGConstellation
   :members:
   :inherited-members: BaseModel
 
 SOC Constellation
---------------------
+-----------------
 
 .. autopydantic_model:: tatc.schemas.SOCConstellation
   :members:

@@ -1,6 +1,6 @@
 [build-system]
 requires = [
-    "setuptools >= 57.0.0",
+    "setuptools >= 77.0.0",
     "wheel"
 ]
 build-backend = "setuptools.build_meta"
@@ -12,8 +12,9 @@ authors = [
     {name = "Paul T. Grogan", email = "paul.grogan@asu.edu"}
 ]
 readme = "README.md"
-requires-python = ">=3.8, <3.14"
-license = {text = "BSD License"}
+requires-python = ">=3.10, <3.15"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -45,8 +46,22 @@ Issues = "https://github.com/code-lab-org/tatc/issues"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.black]
+target-version = ["py310"]
+
 [tool.setuptools.package-data]
-"tatc" = ["resources/*.bsp"]
+"tatc" = ["resources/*.bsp", "resources/*.yml"]
+
+[tool.pylint.main]
+load-plugins = ["pylint_pydantic"]
+extension-pkg-allow-list = ["pydantic"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
 
 [project.optional-dependencies]
 dev = [

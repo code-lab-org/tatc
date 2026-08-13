@@ -1,19 +1,20 @@
-# -*- coding: utf-8 -*-
 """
 Methods to analyze dilusion of precision.
 
 @author: Michael P. Jones <mpj@mit.edu>
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
+from __future__ import annotations
+
 import warnings
 from datetime import datetime
 from enum import Enum
-from typing import List
 
-import pandas as pd
-import numpy as np
 import geopandas as gpd
-from skyfield.api import wgs84, EarthSatellite
+import numpy as np
+import pandas as pd
+from skyfield.api import wgs84
 
 from ..constants import timescale
 from ..schemas import Point, Satellite
@@ -32,12 +33,12 @@ class DopMethod(str, Enum):
 
 
 def compute_dop(
-    times: List[datetime],
+    times: list[datetime],
     point: Point,
-    satellites: List[Satellite],
+    satellites: list[Satellite],
     min_elevation: float,
     dop_method: DopMethod,
-    min_count_visible: int = 3,
+    min_count_visible: int = 4,
 ) -> gpd.GeoDataFrame:
     """
     Calculate the specified dilusion of precision value based on inputs.
@@ -48,33 +49,39 @@ def compute_dop(
         satellites: the list of satellites to be viewed by the ground point
         min_elevation: the minimum elevation angle (deg) to consider a satellite visible
         dop_method: dilusion of precision calculation method
-        min_count_visible: minimum number of visible satellites for a valid measurement
+        min_count_visible: minimum number of visible satellites, inclusive,
+                required for a valid measurement (must be at least 4, since
+                the calculation solves a 4-unknown system: 3D position plus
+                clock bias); times with fewer visible satellites return NaN
 
     Outputs:
     - geopandas.GeoDataFrame: the dop for the given user location and satellite.
 
     """
-    # construct skyfield satellites for each satellite
-    sk_sats = [
-        EarthSatellite(
-            satellite.orbit.to_tle().tle[0],
-            satellite.orbit.to_tle().tle[1],
-            satellite.name,
-        )
-        for satellite in satellites
-    ]
-
     # construct skyfield times for each datetime
     sk_times = timescale.from_datetimes(times)
 
     # construct skyfield geodetic position for user
-    sk_position = wgs84.latlon(point.latitude, point.longitude)
+    sk_position = wgs84.latlon(point.latitude, point.longitude, point.elevation)
+
+    # propagate each satellite's orbit at every requested time, using
+    # per-time nearest-element selection for multi-element orbits (matching
+    # get_orbit_track_at_time's handling used throughout the rest of the
+    # codebase), rather than a single element (closest to times[0]) whose
+    # own propagation is reused for the whole time span regardless of how
+    # far later times drift from that element's epoch
+    orbit_tracks = [
+        satellite.orbit.to_gp_orbit().get_orbit_track_at_time(sk_times)
+        for satellite in satellites
+    ]
 
     # compute elevation/azimuth angles and range
-    altazs = [(sk_sat - sk_position).at(sk_times).altaz() for sk_sat in sk_sats]
-    el = np.array(list(map(lambda i: i[0].radians, altazs)))
-    az = np.array(list(map(lambda i: i[1].radians, altazs)))
-    r = np.array(list(map(lambda i: i[2].m, altazs)))
+    altazs = [
+        (orbit_track - sk_position.at(sk_times)).altaz() for orbit_track in orbit_tracks
+    ]
+    el = np.array([i[0].radians for i in altazs])
+    az = np.array([i[1].radians for i in altazs])
+    r = np.array([i[2].m for i in altazs])
 
     # compute number of visible satellites
     n = np.sum(el >= np.deg2rad(min_elevation), axis=0)
@@ -88,7 +95,7 @@ def compute_dop(
         """
         Compute the dilution of precision value for time index i.
         """
-        if n[i] <= min_count_visible:
+        if n[i] < min_count_visible:
             return np.nan
         mask = el[:, i] >= np.deg2rad(min_elevation)
         # H is a nx4 matrix where n is the number of visible satellites
@@ -126,7 +133,7 @@ def compute_dop(
         "dop": pd.Series(dop, dtype="float", index=times),
         "geometry": pd.Series(
             gpd.points_from_xy(
-                [point.latitude] * len(dop), [point.longitude] * len(dop)
+                [point.longitude] * len(dop), [point.latitude] * len(dop)
             ),
             dtype="object",
             index=times,

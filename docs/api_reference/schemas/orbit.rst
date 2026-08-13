@@ -1,11 +1,12 @@
 Orbit Models
 ============
 
-Two Line Elements
------------------
+General Perturbations Orbit
+---------------------------
 
-.. autopydantic_model:: tatc.schemas.TwoLineElements
+.. autopydantic_model:: tatc.schemas.GeneralPerturbationsOrbit
   :members:
+  :inherited-members: BaseModel
 
 Circular Orbit
 --------------
@@ -18,6 +19,13 @@ Sun-synchronous Orbit
 ---------------------
 
 .. autopydantic_model:: tatc.schemas.SunSynchronousOrbit
+  :members:
+  :inherited-members: BaseModel
+
+Geosynchronous Orbit
+---------------------
+
+.. autopydantic_model:: tatc.schemas.GeosynchronousOrbit
   :members:
   :inherited-members: BaseModel
 

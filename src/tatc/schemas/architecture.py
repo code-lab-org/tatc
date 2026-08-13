@@ -1,21 +1,15 @@
-# -*- coding: utf-8 -*-
 """
-Object schemas for architectures.
+Object schemas for mission architectures.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import List, Union
+from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from .satellite import (
-    Satellite,
-    TrainConstellation,
-    WalkerConstellation,
-    MOGConstellation,
-)
-from .point import GroundStation
+from .space import Satellite
+from .surface import GroundStation
 
 
 class Architecture(BaseModel):
@@ -24,9 +18,7 @@ class Architecture(BaseModel):
     """
 
     name: str = Field(..., description="Name of this mission.")
-    satellites: List[
-        Union[Satellite, TrainConstellation, WalkerConstellation, MOGConstellation]
-    ] = Field([], description="List of member space systems.")
-    stations: List[GroundStation] = Field(
+    satellites: list[Satellite] = Field([], description="List of member satellites.")
+    stations: list[GroundStation] = Field(
         [], description="List of member ground stations."
     )

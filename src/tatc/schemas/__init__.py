@@ -3,21 +3,49 @@ Defines object schemas.
 """
 
 from .architecture import Architecture
-from .instrument import Instrument, PointedInstrument
+from .instrument import AllInstruments, Instrument, PointedInstrument
 from .orbit import (
-    TwoLineElements,
+    AllOrbits,
     CircularOrbit,
-    SunSynchronousOrbit,
+    GeneralPerturbationsOrbit,
+    GeosynchronousOrbit,
     KeplerianOrbit,
     MolniyaOrbit,
+    SunSynchronousOrbit,
     TundraOrbit,
 )
-from .point import Point, GroundStation
-from .satellite import (
+from .space import (
+    AllSpaceObjects,
+    MOGConstellation,
     Satellite,
+    SOCConstellation,
     TrainConstellation,
     WalkerConfiguration,
     WalkerConstellation,
-    MOGConstellation,
-    SOCConstellation,
 )
+from .surface import AllSurfaceObjects, GroundStation, Point
+
+__all__ = [
+    "AllInstruments",
+    "AllOrbits",
+    "AllSpaceObjects",
+    "AllSurfaceObjects",
+    "Architecture",
+    "CircularOrbit",
+    "GeneralPerturbationsOrbit",
+    "GeosynchronousOrbit",
+    "GroundStation",
+    "Instrument",
+    "KeplerianOrbit",
+    "MOGConstellation",
+    "MolniyaOrbit",
+    "Point",
+    "PointedInstrument",
+    "SOCConstellation",
+    "Satellite",
+    "SunSynchronousOrbit",
+    "TrainConstellation",
+    "TundraOrbit",
+    "WalkerConfiguration",
+    "WalkerConstellation",
+]

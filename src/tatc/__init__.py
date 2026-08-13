@@ -2,12 +2,16 @@
 Tradespace Analysis Toolkit for Constellations (TAT-C)
 """
 
-from . import analysis
-from . import generation
-from . import schemas
-from . import config
-from . import constants
-from . import utils
-from . import resources
+from . import analysis, config, constants, generation, resources, schemas, utils
 
-__version__ = "3.4.10"
+__version__ = "3.5.0"
+
+__all__ = [
+    "analysis",
+    "config",
+    "constants",
+    "generation",
+    "resources",
+    "schemas",
+    "utils",
+]

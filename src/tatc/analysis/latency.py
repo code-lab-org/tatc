@@ -1,21 +1,21 @@
-# -*- coding: utf-8 -*-
 """
 Methods to perform latency analysis.
 
-@author: Isaac Feldman, Paul T. Grogan <paul.grogan@asu.edu>
+@author: Isaac Feldman
+@author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import List, Union
-from datetime import datetime, timedelta
+from __future__ import annotations
 
-import numpy as np
-import pandas as pd
+from datetime import datetime
+
 import geopandas as gpd
+import pandas as pd
 from shapely import geometry as geo
 
-from ..schemas.point import GroundStation
-from ..schemas.satellite import Satellite
-
+from ..constants import EARTH_MEAN_RADIUS
+from ..schemas import GroundStation, Satellite
+from ..utils.orbital import compute_apoapsis_radius
 from .coverage import _get_visible_interval_series
 
 
@@ -38,7 +38,7 @@ def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
 
 
 def collect_downlinks(
-    stations: Union[GroundStation, List[GroundStation]],
+    stations: GroundStation | list[GroundStation],
     satellite: Satellite,
     start: datetime,
     end: datetime,
@@ -47,7 +47,7 @@ def collect_downlinks(
     Collect satellite downlink opportunities to ground station(s) of interest.
 
     Args:
-        stations (GroundStation or typing.List[GroundStation]): The ground stations.
+        stations (GroundStation | list[GroundStation]): The ground stations.
         satellite (Satellite): The observing satellite.
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
@@ -55,6 +55,13 @@ def collect_downlinks(
     Returns:
         geopandas.GeoDataFrame: The data frame of collected downlink results.
     """
+    # use the orbit's apogee altitude as a conservative upper bound
+    max_altitude = (
+        compute_apoapsis_radius(
+            satellite.orbit.get_semimajor_axis(), satellite.orbit.get_eccentricity()
+        )
+        - EARTH_MEAN_RADIUS
+    )
     # collect the records of ground station overpasses
     records = [
         {
@@ -67,11 +74,12 @@ def collect_downlinks(
             "end": period.right,
             "epoch": period.mid,
         }
-        for station in (stations if isinstance(stations, list) else [stations])
+        for station in ([stations] if isinstance(stations, GroundStation) else stations)
         for period in _get_visible_interval_series(
             station,
             satellite,
             station.min_elevation_angle,
+            max_altitude,
             start,
             end,
         )
@@ -149,15 +157,15 @@ def compute_latencies(
     # compute latency
     obs["latency"] = obs["epoch_y"] - obs["epoch_x"]
 
-    # rename and select relevant columns
+    # rename and select relevant columns. Only "epoch" and "geometry" exist
+    # in both `observations` and `downlinks`, so merge_asof only suffixes
+    # those two with "_x"/"_y"; "station", "sat_alt", and "sat_az" exist in
+    # just one of the two frames each and so are never suffixed at all.
     obs.rename(
         columns={
-            "station_y": "station",
             "epoch_y": "downlinked",
             "epoch_x": "observed",
             "geometry_x": "geometry",
-            "sat_alt_x": "sat_alt",
-            "sat_az_x": "sat_az",
         },
         inplace=True,
     )
@@ -219,8 +227,12 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
 
 def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
-    Reduce observation latencies. Computes descriptive statistics for each
-    pair of observation and first downlink opportunities.
+    Reduce observation latencies: for each unique point_id in
+    `latency_observations`, computes the mean latency and the total number
+    of samples (observation/downlink pairs). An observation with no
+    matching downlink has an undefined (NaT) latency (see
+    `compute_latencies`), which is excluded from the mean rather than
+    counted as zero, while still counting toward `samples`.
 
     Args:
         latency_observations (geopandas.GeoDataFrame): The latency observations.
@@ -228,12 +240,12 @@ def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame
     Returns:
         geopandas.GeoDataFrame: The data frame with reduced latencies.
     """
-    if latency_observations.notna().empty:
+    if latency_observations.empty:
         return _get_empty_reduce_frame()
     # operate on a copy of the dataframe
     gdf = latency_observations.copy()
     # convert latency to a numeric value before aggregation
-    gdf["latency"] = gdf["latency"] / timedelta(seconds=1)
+    gdf["latency"] = gdf["latency"].dt.total_seconds()
     # assign each record to one observation
     gdf["samples"] = 1
     # perform the aggregation operation
@@ -245,9 +257,7 @@ def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame
         },
     ).reset_index()
     # convert latency from numeric values after aggregation
-    gdf["latency"] = gdf["latency"].apply(
-        lambda t: pd.NaT if pd.isna(t) else timedelta(seconds=t)
-    )
+    gdf["latency"] = pd.to_timedelta(gdf["latency"], unit="s")
     return gdf
 
 
@@ -255,7 +265,9 @@ def grid_latencies(
     reduced_latencies: gpd.GeoDataFrame, cells: gpd.GeoDataFrame
 ) -> gpd.GeoDataFrame:
     """
-    Grid reduced latencies to cells.
+    Grid reduced latencies to cells: for every cell, sums the number of
+    samples across every point it contains, and combines those points'
+    latency into a single sample-weighted arithmetic mean per cell.
 
     Args:
         reduced_latencies (geopandas.GeoDataFrame): The reduced latencies.
@@ -272,20 +284,26 @@ def grid_latencies(
     # operate on a copy of the data frame
     gdf = reduced_latencies.copy()
     # convert latency to numeric values before aggregation
-    gdf["latency"] = gdf["latency"] / timedelta(seconds=1)
+    gdf["latency"] = gdf["latency"].dt.total_seconds()
+    # pre-multiply so the sample-weighted mean below reduces to a plain sum:
+    # groupby().agg() with a dict of {column: function} only ever hands a
+    # custom callable its own column's Series, never a sibling column like
+    # "samples" needed to compute a weighted statistic within the callable
+    gdf["latency_x_samples"] = gdf["latency"] * gdf["samples"]
     gdf = (
         cells.sjoin(gdf, how="inner", predicate="contains")
         .dissolve(
             by="cell_id",
             aggfunc={
                 "samples": "sum",
-                "latency": lambda r: np.average(r, weights=gdf.loc[r.index, "samples"]),
+                "latency_x_samples": "sum",
             },
         )
         .reset_index()
     )
+    # finish the weighted mean
+    gdf["latency"] = gdf["latency_x_samples"] / gdf["samples"]
+    gdf = gdf.drop(columns=["latency_x_samples"])
     # convert latency from numeric values after aggregation
-    gdf["latency"] = gdf["latency"].apply(
-        lambda t: pd.NaT if pd.isna(t) else timedelta(seconds=t)
-    )
+    gdf["latency"] = pd.to_timedelta(gdf["latency"], unit="s")
     return gdf

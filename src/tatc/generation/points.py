@@ -1,19 +1,19 @@
-# -*- coding: utf-8 -*-
 """
 Methods to generate geospatial points to sample data.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import Optional, Union
+from __future__ import annotations
 
-import numpy as np
 import geopandas as gpd
+import numpy as np
 from numba import njit
-from shapely.geometry import Point, Polygon, MultiPolygon
+from shapely.geometry import MultiPolygon, Point, Polygon
 
 from ..constants import EARTH_MEAN_RADIUS
-from ..utils import compute_number_samples
+from ..utils.surface import compute_number_samples
+from ._grid import compute_point_id_uniform_spacing, generate_indices_uniform_spacing
 
 
 @njit
@@ -52,10 +52,10 @@ def _compute_fibonacci_lattice_point_longitude(index: int) -> float:
     return longitude
 
 
-def generate_fibonacci_lattice_points(
+def generate_points_fibonacci_lattice(
     distance: float,
     elevation: float = 0,
-    mask: Optional[Union[Polygon, MultiPolygon]] = None,
+    mask: Polygon | MultiPolygon | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Generates geodetic points following a Fibonacci lattice.
@@ -72,7 +72,7 @@ def generate_fibonacci_lattice_points(
         distance (float): The typical surface distance (meters) between points.
         elevation (float): The elevation (meters) above the datum in the WGS 84
             coordinate system.
-        mask (Polygon or MultiPolygon):  An optional mask to constrain points
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  An optional mask to constrain points
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
@@ -145,10 +145,10 @@ def generate_fibonacci_lattice_points(
     return gdf
 
 
-def generate_equally_spaced_points(
+def generate_points_uniform_spacing(
     distance: float,
     elevation: float = 0,
-    mask: Optional[Union[Polygon, MultiPolygon]] = None,
+    mask: Polygon | MultiPolygon | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Generates geodetic points at the centroid of regular equally spaced grid
@@ -162,7 +162,7 @@ def generate_equally_spaced_points(
         distance (float):  The typical surface distance (meters) between points.
         elevation (float): The elevation (meters) above the datum in the WGS 84
             coordinate system.
-        mask (Polygon or MultiPolygon):  An optional mask to constrain points
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  An optional mask to constrain points
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
@@ -171,118 +171,16 @@ def generate_equally_spaced_points(
     # compute the angular disance of each sample (assuming sphere)
     theta_longitude = np.degrees(distance / EARTH_MEAN_RADIUS)
     theta_latitude = np.degrees(distance / EARTH_MEAN_RADIUS)
-    return _generate_equally_spaced_points(
+    return generate_points_uniform_angular_distance(
         theta_longitude, theta_latitude, elevation, mask
     )
 
 
-@njit
-def _compute_equally_spaced_point_id(
-    i: int, j: int, theta_i: float, theta_j: float
-) -> int:
-    """
-    Fast method to compute the flattened id for an equally spaced grid point.
-    Indices increment west-to-east followed by south-to-north with a first
-    point at -180 degrees latitude and close to -90 degrees latitude.
-
-    Args:
-        i (int): The zero-based longitude index.
-        j (int): The zero-based latitude index.
-        theta_i (float): The angular step in longitude (degrees).
-        theta_j (float): The angular step in latitude (degrees).
-
-    Returns:
-        int: The id of this point.
-    """
-    return int(j * int(360 / theta_j) + np.mod(i, int(360 / theta_i)))
-
-
-def _get_bounds(mask: Union[Polygon, MultiPolygon]) -> tuple:
-    """
-    Generates a tuple of bounds for a polygon mask.
-
-    Args:
-        mask (Polygon or MultiPolygon):  Geometric shape using WGS84 (EPSG:4326)
-            geodetic coordinates in a Polygon or MultiPolygon.
-
-    Returns:
-        tuple: min longitude/latitude, max longitude/latitude (degrees)
-    """
-    if isinstance(mask, (Polygon, MultiPolygon)):
-        if not mask.is_valid:
-            raise ValueError("Mask is not a valid Polygon or MultiPolygon.")
-        total_bounds = mask.bounds
-    else:
-        total_bounds = [-180, -90, 180, 90]
-    min_longitude = total_bounds[0]
-    min_latitude = total_bounds[1]
-    max_longitude = 180 if total_bounds[2] == -180 else total_bounds[2]
-    max_latitude = total_bounds[3]
-    return (min_longitude, min_latitude, max_longitude, max_latitude)
-
-
-def _generate_equally_spaced_indices(
-    theta_longitude: float,
-    theta_latitude: float,
-    mask: Union[Polygon, MultiPolygon] = None,
-    strips: str = None,
-) -> list:
-    """
-    Generates a list of indices for an equally spaced grid.
-
-    Args:
-        theta_longitude (float): The angular difference in longitude (degrees)
-            between points.
-        theta_latitude (float): The angular difference in latitude (degrees)
-            between points.
-        mask (Polygon or MultiPolygon):  An optional mask to constrain points
-            using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
-        strips (str): Option to generate one-dimensional strips along latitude
-            (`"lat"`), longitude (`"lon"`), or none (`None`).
-
-    Returns:
-        list: list of indices
-    """
-    # get the bounds of the mask
-    min_longitude, min_latitude, max_longitude, max_latitude = _get_bounds(mask)
-
-    if strips == "lat":
-        # if latitude strips, only generate indices for variable latitude
-        return [
-            (0, j)
-            for j in range(
-                int(np.round((min_latitude + 90) / theta_latitude)),
-                int(np.round((max_latitude + 90) / theta_latitude)),
-            )
-        ]
-    if strips == "lon":
-        # if longitude strips, only generate indices for variable longitude
-        return [
-            (i, 0)
-            for i in range(
-                int(np.round((min_longitude + 180) / theta_longitude)),
-                int(np.round((max_longitude + 180) / theta_longitude)),
-            )
-        ]
-    # generate indices over the two-dimensional latitude/longitude range
-    return [
-        (i, j)
-        for j in range(
-            int(np.round((min_latitude + 90) / theta_latitude)),
-            int(np.round((max_latitude + 90) / theta_latitude)),
-        )
-        for i in range(
-            int(np.round((min_longitude + 180) / theta_longitude)),
-            int(np.round((max_longitude + 180) / theta_longitude)),
-        )
-    ]
-
-
-def _generate_equally_spaced_points(
+def generate_points_uniform_angular_distance(
     theta_longitude: float,
     theta_latitude: float,
     elevation: float = 0,
-    mask: Optional[Union[Polygon, MultiPolygon]] = None,
+    mask: Polygon | MultiPolygon | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Generates geodetic cells following regular equally spaced grid.
@@ -298,7 +196,7 @@ def _generate_equally_spaced_points(
             between points.
         elevation (float): The elevation (meters) above the datum in the WGS 84
             coordinate system.
-        mask (Polygon or MultiPolygon):  An optional mask to constrain points
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  An optional mask to constrain points
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
@@ -306,7 +204,7 @@ def _generate_equally_spaced_points(
     """
 
     # generate grid cells over the filtered region
-    indices = _generate_equally_spaced_indices(
+    indices = generate_indices_uniform_spacing(
         theta_longitude,
         theta_latitude,
         mask,
@@ -315,7 +213,7 @@ def _generate_equally_spaced_points(
     gdf = gpd.GeoDataFrame(
         {
             "point_id": [
-                _compute_equally_spaced_point_id(i, j, theta_longitude, theta_latitude)
+                compute_point_id_uniform_spacing(i, j, theta_longitude)
                 for (i, j) in indices
             ],
             "geometry": [
