@@ -6,9 +6,9 @@ Major refactoring that focused on completing unit tests to approach full code co
 
 Added:
  - Added `GeosynchronousOrbit` orbit schema.
+ - Support for Python 3.14.
 
 Changed:
- - Dropped support for Python < 3.10.
  - Changed the default orbit epoch from `datetime.now()` to `2020-01-01T00:00:00Z`.
  - Refactored all orbit schemas to inherit uniform getters from `OrbitBase`.
  - Replaced `TwoLineElements` with a more general `GeneralPerturbationsOrbit` to accommodate post-TLE GP data formats.
@@ -17,21 +17,25 @@ Changed:
  - Fixed `TrainConstellation` member right ascension of ascending node spacing to be based on a sidereal day, rather than a solar day.
  - Fixed `SOCConstellation` member generation to use hexagonal spacing with a non-zero `relative_spacing` value.
  - Fixed `MOGConstellation` member generation to use the mean anomaly of the reference orbit.
- - Fixed a bug in `config.py` where default configurations (`defaults.yml`) where never provided in wheels.
- - Fixed `collect_orbit_track` to only use tag outputs with EPSG:4326 when requesting WGS84 coordinates.
+ - Fixed a bug in `config.py` where default configurations (`defaults.yml`) were never provided in wheels.
+ - Fixed `collect_orbit_track` to only assign the `EPSG:4326` CRS to output when requesting WGS84 coordinates, rather than for all coordinate systems.
  - Fixed `collect_orbit_track` to use a proper East/North/Up velocity when requesting WGS84 coordinates.
- - Removed the legacy `crs` and `method` parameters from `collect_ground_track` and all instrument projection uses the SPICE library.
- - Improved an assumption to `collect_observations` and where the apogee altitude is used to determine the maximum access duration, rather than the initial altitude.
+ - Improved `collect_observations` to use the apogee altitude, rather than the initial altitude, to determine the maximum access duration.
  - Fixed a bug where `collect_multi_observations` could crash on an empty satellite list.
  - Fixed a bug in `grid_observations` and `grid_latencies` where spatial aggregation never actually worked.
  - Fixed a bug in `compute_dop` where the latitude and longitude were reversed in output geometry.
  - Improved `compute_dop` to use the nearest GP element to each time rather than the first one specified for an orbit.
  - Fixed the definition of binormal unit vector in `ro_coverage.py` to accommodate eccentric orbits.
  - Improved `collect_ro_observations` to interpolate among samples closest to target elevation.
- - Improved performance of `collect_ro_observations` through vectorized profile sampling, adding a more direct interface to Skyfield for orbit track computation, and making tangent point velocity calculation options.
- - Fixed a bug where `collect_ro_observations` could use incorrect intertial positions for repeat track orbits more than 1 cycle after epoch.
+ - Improved performance of `collect_ro_observations` through vectorized profile sampling, a more direct interface to Skyfield for orbit track computation, and making tangent point velocity calculation optional.
+ - Fixed a bug where `collect_ro_observations` could use incorrect inertial positions for repeat track orbits more than 1 cycle after epoch.
  - Added utility methods: `compute_apoapsis_radius` and `geodesic_distance`.
  - Requires `setuptools >= 77.0.0` and switches `project.license` to an SPDX expression string to resolve a build metadata deprecation warning (issue #124).
+
+Removed
+ - Support for Python < 3.10.
+ - Removed the `TwoLineElements` orbit schema.
+ - Removed the legacy `crs` and `method` parameters from `collect_ground_track` and `compute_ground_track`; all instrument projection now uses the SPICE library.
 
 ## 3.4.10
 
