@@ -1,0 +1,134 @@
+name: Update Zenodo DOI
+
+# Zenodo's GitHub webhook integration automatically archives every published
+# GitHub Release and mints a new DOI, but it does not touch this repo. This
+# workflow polls Zenodo for that new deposit and opens a PR with the
+# resulting version/date/DOI update to CITATION.cff (main is branch
+# protected, so it cannot push directly).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to look up (defaults to the latest release)"
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-citation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Determine release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          elif [ -n "${{ github.event.release.tag_name }}" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG=$(gh release view --json tagName -q .tagName)
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Poll Zenodo for the matching deposit
+        id: zenodo
+        env:
+          ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          REPO_URL: https://github.com/${{ github.repository }}/tree/${{ steps.tag.outputs.tag }}
+        run: |
+          set +e
+          for i in $(seq 1 20); do
+            RESPONSE=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer ${ZENODO_TOKEN}" \
+              "https://zenodo.org/api/deposit/depositions?status=published&sort=mostrecent&size=10")
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+
+            if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+              echo "Zenodo rejected the request (HTTP $HTTP_CODE) - check the ZENODO_TOKEN secret." >&2
+              exit 1
+            fi
+
+            IS_ARRAY=$(echo "$BODY" | jq -e 'type == "array"' 2>/dev/null)
+            if [ "$HTTP_CODE" = "200" ] && [ "$IS_ARRAY" = "true" ]; then
+              MATCH=$(echo "$BODY" | jq -c --arg url "$REPO_URL" --arg tag "$TAG" '
+                [.[] | select(
+                  (.metadata.related_identifiers // [] | any(.identifier == $url))
+                  or (.title // "" | contains($tag))
+                )][0]')
+              if [ "$MATCH" != "null" ] && [ -n "$MATCH" ]; then
+                echo "Found matching Zenodo deposit for $TAG"
+                echo "doi=$(echo "$MATCH" | jq -r '.doi')" >> "$GITHUB_OUTPUT"
+                echo "date=$(echo "$MATCH" | jq -r '.metadata.publication_date')" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            else
+              echo "Unexpected response from Zenodo (HTTP $HTTP_CODE), retrying..." >&2
+            fi
+
+            echo "No matching Zenodo deposit yet for $TAG, retrying in 30s ($i/20)..."
+            sleep 30
+          done
+          echo "Timed out waiting for Zenodo to archive $TAG" >&2
+          exit 1
+
+      - name: Update CITATION.cff
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+          DOI: ${{ steps.zenodo.outputs.doi }}
+          DATE: ${{ steps.zenodo.outputs.date }}
+        run: |
+          sed -i \
+            -e "s/^version: .*/version: ${VERSION}/" \
+            -e "s/^date-released: .*/date-released: ${DATE}/" \
+            -e "s#^doi: .*#doi: ${DOI}#" \
+            CITATION.cff
+          if ! grep -q "^doi:" CITATION.cff; then
+            echo "doi: ${DOI}" >> CITATION.cff
+          fi
+          cat CITATION.cff
+
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          DOI: ${{ steps.zenodo.outputs.doi }}
+        run: |
+          if git diff --quiet -- CITATION.cff; then
+            echo "CITATION.cff already up to date."
+            exit 0
+          fi
+
+          BRANCH="zenodo-doi-${TAG}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add CITATION.cff
+          git commit -m "chore: update CITATION.cff DOI for ${TAG}"
+          git push -f origin "$BRANCH"
+
+          EXISTING_PR=$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number')
+          if [ -n "$EXISTING_PR" ]; then
+            echo "Updated existing PR #${EXISTING_PR}"
+          else
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "Update CITATION.cff DOI for ${TAG}" \
+              --body "Automated update from the Zenodo deposit created for release ${TAG}: DOI \`${DOI}\`, version \`${VERSION}\`."
+          fi
