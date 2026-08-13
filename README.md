@@ -73,10 +73,10 @@ Financial support is acknowledged under NASA grant numbers: NNX17AE06G,
 
 Current Project Team
  * PI: Paul T. Grogan <paul.grogan@asu.edu>
- * I. Josue Tapia-Tamayo <josue.tapia@asu.edu>
- * Suvan Kumar <skuma208@asu.edu>
 
 Project Alumni
+ * I. Josue Tapia-Tamayo
+ * Suvan Kumar
  * Isaac Feldman
  * Hayden Daly
  * Lindsay Portelli
