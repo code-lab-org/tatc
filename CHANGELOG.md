@@ -2,7 +2,7 @@
 
 ## 3.5.0
 
-Major refactoring that focused on completing unit tests to approach full code coverage. Drops support for Python < 3.10 to improve compatibility with modern libraries. Also supports other general perturbations (GP) orbit specifications including OMM CSV and JSON. During refactoring, a few bug fixes and breaking changes were also made.
+Major refactoring that focused on completing unit tests to approach full code coverage. Drops support for Python < 3.10 to improve compatibility with modern libraries. Replaces the `TwoLineElements` schema with `GeneralPerturbationsOrbit` to support modern orbit specifications including OMM CSV and JSON. Drops the CRS-based buffering approach to determine ground track in favor of geometric projections using the SPICE library. During refactoring, a few bug fixes and breaking changes were also made.
 
 Added:
  - Added `GeosynchronousOrbit` orbit schema.
@@ -12,7 +12,8 @@ Changed:
  - Changed the default orbit epoch from `datetime.now()` to `2020-01-01T00:00:00Z`.
  - Refactored all orbit schemas to inherit uniform getters from `OrbitBase`.
  - Replaced `TwoLineElements` with a more general `GeneralPerturbationsOrbit` to accommodate post-TLE GP data formats.
- - Fixed a bug where instrument footprints were projected around the geocentric, rather than geodetic, pointing vector, leading to ~2 km positioning errors.
+ - Improved `TundraOrbit` and `MolniyaOrbit` schemas to consider J2 perturbations when calculating orbit period.
+ - Fixed a bug where SPICE projected instrument footprints around the geocentric, rather than geodetic, pointing vector, leading to ~2 km positioning errors.
  - Fixed `TrainConstellation` member right ascension of ascending node spacing to be based on a sidereal day, rather than a solar day.
  - Fixed `SOCConstellation` member generation to use hexagonal spacing with a non-zero `relative_spacing` value.
  - Fixed `MOGConstellation` member generation to use the mean anomaly of the reference orbit.
