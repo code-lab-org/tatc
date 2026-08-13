@@ -31,6 +31,7 @@ Changed:
  - Improved performance of `collect_ro_observations` through vectorized profile sampling, adding a more direct interface to Skyfield for orbit track computation, and making tangent point velocity calculation options.
  - Fixed a bug where `collect_ro_observations` could use incorrect intertial positions for repeat track orbits more than 1 cycle after epoch.
  - Added utility methods: `compute_apoapsis_radius` and `geodesic_distance`.
+ - Requires `setuptools >= 77.0.0` and switches `project.license` to an SPDX expression string to resolve a build metadata deprecation warning (issue #124).
 
 ## 3.4.10
 
