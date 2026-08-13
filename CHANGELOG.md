@@ -5,7 +5,7 @@
 Major refactoring that focused on completing unit tests to approach full code coverage. Drops support for Python < 3.10 to improve compatibility with modern libraries. Also supports other general perturbations (GP) orbit specifications including OMM CSV and JSON. During refactoring, a few bug fixes and breaking changes were also made.
 
 Added:
- - Added `GeostationaryOrbit` orbit schema.
+ - Added `GeosynchronousOrbit` orbit schema.
 
 Changed:
  - Dropped support for Python < 3.10.

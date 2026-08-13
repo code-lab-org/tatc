@@ -1,5 +1,5 @@
 """
-Unit tests for the GeostationaryOrbit schema.
+Unit tests for the GeosynchronousOrbit schema.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -11,12 +11,12 @@ from pydantic import ValidationError
 
 from tatc import constants
 from tatc.constants import EARTH_SIDEREAL_DAY_S
-from tatc.schemas import GeostationaryOrbit
+from tatc.schemas import GeosynchronousOrbit
 
 
-class TestGeostationaryOrbit(unittest.TestCase):
+class TestGeosynchronousOrbit(unittest.TestCase):
     """
-    Unit tests for the GeostationaryOrbit schema.
+    Unit tests for the GeosynchronousOrbit schema.
     """
 
     def setUp(self):
@@ -24,84 +24,84 @@ class TestGeostationaryOrbit(unittest.TestCase):
             "longitude": -75.0,
             "epoch": datetime(2022, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         }
-        self.test_orbit = GeostationaryOrbit(**self.test_data)
+        self.test_orbit = GeosynchronousOrbit(**self.test_data)
 
     def test_good_data(self):
         """
-        Test that the GeostationaryOrbit schema correctly initializes
+        Test that the GeosynchronousOrbit schema correctly initializes
         with valid data.
         """
         self.assertEqual(self.test_orbit.longitude, self.test_data.get("longitude"))
         self.assertEqual(self.test_orbit.epoch, self.test_data.get("epoch"))
-        self.assertEqual(self.test_orbit.type, "geostationary")
+        self.assertEqual(self.test_orbit.type, "geosynchronous")
 
     def test_defaults(self):
         """
-        Test that mean_altitude defaults to the geostationary altitude
+        Test that mean_altitude defaults to the geosynchronous altitude
         (the value yielding an orbit period of exactly one sidereal day)
         and inclination defaults to 0, when omitted.
         """
-        o = GeostationaryOrbit(longitude=0)
+        o = GeosynchronousOrbit(longitude=0)
         self.assertAlmostEqual(o.mean_altitude, 35786000, delta=10000)
         self.assertEqual(o.inclination, 0)
 
     def test_bad_longitude_missing(self):
         """
-        Test that the GeostationaryOrbit schema raises a ValidationError
+        Test that the GeosynchronousOrbit schema raises a ValidationError
         when the required longitude field is missing.
         """
         with self.assertRaises(ValidationError):
-            GeostationaryOrbit()
+            GeosynchronousOrbit()
 
     def test_bad_longitude_too_large(self):
         """
         Test that a longitude above 180 degrees is rejected.
         """
         with self.assertRaises(ValidationError):
-            GeostationaryOrbit(longitude=180.1)
+            GeosynchronousOrbit(longitude=180.1)
 
     def test_bad_longitude_too_small(self):
         """
         Test that a longitude below -180 degrees is rejected.
         """
         with self.assertRaises(ValidationError):
-            GeostationaryOrbit(longitude=-180.1)
+            GeosynchronousOrbit(longitude=-180.1)
 
     def test_longitude_boundary_values(self):
         """
         Test that longitude values exactly at the antimeridian (-180, 180
         degrees) are accepted.
         """
-        self.assertEqual(GeostationaryOrbit(longitude=180).longitude, 180)
-        self.assertEqual(GeostationaryOrbit(longitude=-180).longitude, -180)
+        self.assertEqual(GeosynchronousOrbit(longitude=180).longitude, 180)
+        self.assertEqual(GeosynchronousOrbit(longitude=-180).longitude, -180)
 
     def test_bad_inclination_negative(self):
         """
         Test that a negative inclination is rejected.
         """
         with self.assertRaises(ValidationError):
-            GeostationaryOrbit(longitude=0, inclination=-0.1)
+            GeosynchronousOrbit(longitude=0, inclination=-0.1)
 
     def test_bad_inclination_too_large(self):
         """
         Test that an inclination of 180 degrees or more is rejected.
         """
         with self.assertRaises(ValidationError):
-            GeostationaryOrbit(longitude=0, inclination=180)
+            GeosynchronousOrbit(longitude=0, inclination=180)
 
     def test_get_eccentricity_and_perigee_argument_inherited_from_circular_base(self):
         """
         Test that get_eccentricity and get_perigee_argument are inherited
-        from CircularOrbitBase (both 0, since a geostationary orbit is
+        from CircularOrbitBase (both 0, since a geosynchronous orbit is
         circular).
         """
         self.assertEqual(self.test_orbit.get_eccentricity(), 0)
         self.assertEqual(self.test_orbit.get_perigee_argument(), 0)
 
-    def test_get_semimajor_axis_matches_published_geostationary_altitude(self):
+    def test_get_semimajor_axis_matches_published_geosynchronous_altitude(self):
         """
         Test get_semimajor_axis against the well-known published
-        geostationary altitude of ~35,786 km (semimajor axis ~42,164 km).
+        geosynchronous altitude of ~35,786 km (semimajor axis ~42,164 km).
         """
         self.assertAlmostEqual(
             self.test_orbit.get_semimajor_axis(), 42164000, delta=10000
@@ -110,7 +110,7 @@ class TestGeostationaryOrbit(unittest.TestCase):
     def test_get_orbit_period_is_one_sidereal_day(self):
         """
         Test that get_orbit_period matches Earth's sidereal day, the
-        defining property of a geostationary orbit.
+        defining property of a geosynchronous orbit.
         """
         self.assertAlmostEqual(
             self.test_orbit.get_orbit_period().total_seconds(),
@@ -127,7 +127,7 @@ class TestGeostationaryOrbit(unittest.TestCase):
         right ascension.
         """
         epoch = datetime(2022, 6, 15, 6, 0, 0, tzinfo=timezone.utc)
-        o = GeostationaryOrbit(longitude=0, epoch=epoch)
+        o = GeosynchronousOrbit(longitude=0, epoch=epoch)
         expected_raan = constants.timescale.from_datetime(epoch).gast * 15 % 360
         self.assertAlmostEqual(
             o.get_right_ascension_ascending_node(), expected_raan, delta=1e-6
@@ -148,9 +148,9 @@ class TestGeostationaryOrbit(unittest.TestCase):
         Test that a satellite parked at a fixed longitude has nearly the
         same right ascension of ascending node exactly one sidereal day
         later, since it remains above the same Earth-fixed point (the
-        defining behavior of a geostationary orbit).
+        defining behavior of a geosynchronous orbit).
         """
-        later_orbit = GeostationaryOrbit(
+        later_orbit = GeosynchronousOrbit(
             longitude=self.test_orbit.longitude,
             epoch=self.test_orbit.epoch + timedelta(seconds=EARTH_SIDEREAL_DAY_S),
         )
@@ -174,7 +174,7 @@ class TestGeostationaryOrbit(unittest.TestCase):
         Test that get_derived_orbit wraps longitude correctly when the
         shift crosses the +/-180 degree antimeridian.
         """
-        o = GeostationaryOrbit(longitude=170)
+        o = GeosynchronousOrbit(longitude=170)
         derived_orbit = o.get_derived_orbit(0, 20)
         self.assertAlmostEqual(derived_orbit.longitude, -170.0, delta=1e-9)
 
@@ -190,7 +190,7 @@ class TestGeostationaryOrbit(unittest.TestCase):
 
     def test_to_gp_orbit(self):
         """
-        Test that the GeostationaryOrbit schema correctly converts to a
+        Test that the GeosynchronousOrbit schema correctly converts to a
         general perturbations orbit.
         """
         gp_orbit = self.test_orbit.to_gp_orbit()

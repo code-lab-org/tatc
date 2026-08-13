@@ -1,5 +1,5 @@
 """
-Object schemas for geostationary orbits.
+Object schemas for geosynchronous orbits.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -16,23 +16,23 @@ from .base_circular import CircularOrbitBase
 
 # mean altitude (meters) yielding an orbit period of exactly one sidereal
 # day, via Kepler's third law
-_GEOSTATIONARY_MEAN_ALTITUDE = (
+_GEOSYNCHRONOUS_MEAN_ALTITUDE = (
     utils.orbital.mean_motion_to_semimajor_axis(360 / constants.EARTH_SIDEREAL_DAY_S)
     - constants.EARTH_MEAN_RADIUS
 )
 
 
-class GeostationaryOrbit(CircularOrbitBase):
+class GeosynchronousOrbit(CircularOrbitBase):
     """
-    Orbit defined by geostationary parameters: a fixed longitude rather
+    Orbit defined by geosynchronous parameters: a fixed longitude rather
     than a right ascension of ascending node.
     """
 
-    type: Literal["geostationary"] = Field(
-        default="geostationary", description="Orbit type discriminator."
+    type: Literal["geosynchronous"] = Field(
+        default="geosynchronous", description="Orbit type discriminator."
     )
     mean_altitude: float = Field(
-        default=_GEOSTATIONARY_MEAN_ALTITUDE,
+        default=_GEOSYNCHRONOUS_MEAN_ALTITUDE,
         description="Mean altitude (meters).",
         ge=0,
     )
@@ -60,7 +60,7 @@ class GeostationaryOrbit(CircularOrbitBase):
         """
         Gets the right ascension of ascending node, derived from this
         orbit's fixed longitude and Earth's rotation angle (Greenwich
-        Apparent Sidereal Time) at epoch, since a geostationary satellite
+        Apparent Sidereal Time) at epoch, since a geosynchronous satellite
         remains above a fixed Earth-relative longitude rather than a
         fixed inertial-frame RAAN. As with SunSynchronousOrbit's
         equator-crossing-time convention, this is computed independently
@@ -75,10 +75,10 @@ class GeostationaryOrbit(CircularOrbitBase):
 
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float
-    ) -> GeostationaryOrbit:
+    ) -> GeosynchronousOrbit:
         """
         Gets a derived orbit with perturbations to the mean anomaly and
-        longitude (equivalent, for a geostationary orbit, to a right
+        longitude (equivalent, for a geosynchronous orbit, to a right
         ascension of ascending node perturbation, since both epoch and
         Earth's rotation angle stay fixed).
 
@@ -87,13 +87,13 @@ class GeostationaryOrbit(CircularOrbitBase):
             delta_raan (float):  Delta right ascension of ascending node (degrees).
 
         Returns:
-            GeostationaryOrbit: the derived orbit
+            GeosynchronousOrbit: the derived orbit
         """
         true_anomaly = utils.orbital.mean_anomaly_to_true_anomaly(
             np.mod(self.get_mean_anomaly() + delta_mean_anomaly, 360)
         )
         longitude = ((self.longitude + delta_raan + 180) % 360) - 180
-        return GeostationaryOrbit(
+        return GeosynchronousOrbit(
             mean_altitude=self.mean_altitude,
             inclination=self.inclination,
             longitude=longitude,

@@ -22,10 +22,10 @@ Sun-synchronous Orbit
   :members:
   :inherited-members: BaseModel
 
-Geostationary Orbit
---------------------
+Geosynchronous Orbit
+---------------------
 
-.. autopydantic_model:: tatc.schemas.GeostationaryOrbit
+.. autopydantic_model:: tatc.schemas.GeosynchronousOrbit
   :members:
   :inherited-members: BaseModel
 
