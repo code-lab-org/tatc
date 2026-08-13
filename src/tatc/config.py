@@ -109,10 +109,14 @@ def get_rc() -> RuntimeConfiguration:
       RuntimeConfiguration: The runtime configuration settings.
     """
     try:
-        return load_yaml_config(pathlib.Path(__file__).parent / "resources" / "defaults.yml")
+        return load_yaml_config(
+            pathlib.Path(__file__).parent / "resources" / "defaults.yml"
+        )
     except ConfigError as err:
         # fall back to default constructor, but warn since this masks a broken install
-        logger.warning("Falling back to hard-coded runtime configuration defaults: %s", err)
+        logger.warning(
+            "Falling back to hard-coded runtime configuration defaults: %s", err
+        )
         return RuntimeConfiguration()
 
 

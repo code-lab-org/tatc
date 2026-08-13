@@ -16,6 +16,7 @@ class TestWalkerConstellation(unittest.TestCase):
     """
     Unit tests for the WalkerConstellation schema.
     """
+
     def setUp(self):
         self.d420_data = {
             "name": "Test Constellation",
@@ -225,7 +226,7 @@ class TestWalkerConstellation(unittest.TestCase):
 
     def helper_test_generate_members(self, constellation):
         """
-        Helper function to test that the WalkerConstellation schema correctly 
+        Helper function to test that the WalkerConstellation schema correctly
         generates constellation members with the specified parameters
         """
         members = constellation.generate_members()
@@ -284,7 +285,7 @@ class TestWalkerConstellation(unittest.TestCase):
 
     def test_generate_members_delta(self):
         """
-        Test that the WalkerConstellation schema correctly generates 
+        Test that the WalkerConstellation schema correctly generates
         constellation members for delta configuration with TLE orbit.
         """
         self.helper_test_generate_members(self.d420_con)

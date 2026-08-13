@@ -3,6 +3,7 @@ Unit tests for the CircularOrbit schema.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -18,6 +19,7 @@ class TestCircularOrbit(unittest.TestCase):
     """
     Unit tests for the CircularOrbit schema.
     """
+
     def setUp(self):
         self.test_data = {
             "mean_altitude": 400000,
@@ -32,7 +34,9 @@ class TestCircularOrbit(unittest.TestCase):
         """
         Test that the CircularOrbit schema correctly initializes with valid data.
         """
-        self.assertEqual(self.test_orbit.mean_altitude, self.test_data.get("mean_altitude"))
+        self.assertEqual(
+            self.test_orbit.mean_altitude, self.test_data.get("mean_altitude")
+        )
         self.assertEqual(
             self.test_orbit.true_anomaly, self.test_data.get("true_anomaly")
         )
@@ -200,9 +204,11 @@ class TestCircularOrbit(unittest.TestCase):
         Test that the CircularOrbit class correctly calculates the mean motion.
         """
         self.assertAlmostEqual(
-            self.test_orbit.get_mean_motion(), 
-            semimajor_axis_to_mean_motion(EARTH_MEAN_RADIUS + self.test_orbit.mean_altitude),
-            delta=0.001
+            self.test_orbit.get_mean_motion(),
+            semimajor_axis_to_mean_motion(
+                EARTH_MEAN_RADIUS + self.test_orbit.mean_altitude
+            ),
+            delta=0.001,
         )
 
     def test_get_orbit_period(self):
@@ -213,7 +219,8 @@ class TestCircularOrbit(unittest.TestCase):
             2
             * np.pi
             * np.sqrt(
-                np.power(EARTH_MEAN_RADIUS + self.test_orbit.mean_altitude, 3) / EARTH_MU
+                np.power(EARTH_MEAN_RADIUS + self.test_orbit.mean_altitude, 3)
+                / EARTH_MU
             )
         )
         self.assertAlmostEqual(

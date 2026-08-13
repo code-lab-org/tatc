@@ -23,9 +23,14 @@ class CircularOrbit(CircularOrbitBase):
     type: Literal["circular"] = Field(
         default="circular", description="Orbit type discriminator."
     )
-    inclination: float = Field(default=0, description="Inclination (degrees).", ge=0, lt=180)
+    inclination: float = Field(
+        default=0, description="Inclination (degrees).", ge=0, lt=180
+    )
     right_ascension_ascending_node: float = Field(
-        default=0, description="Right ascension of ascending node (degrees).", ge=0, lt=360
+        default=0,
+        description="Right ascension of ascending node (degrees).",
+        ge=0,
+        lt=360,
     )
 
     def get_inclination(self) -> float:

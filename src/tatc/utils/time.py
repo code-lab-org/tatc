@@ -38,14 +38,16 @@ def to_datetime64_ns(
         np.datetime64 | npt.NDArray[np.datetime64]: the converted datetime64 value(s)
     """
     if isinstance(value, datetime):
-        return np.datetime64(
-            value.astimezone(timezone.utc).replace(tzinfo=None), "ns"
-        )
+        return np.datetime64(value.astimezone(timezone.utc).replace(tzinfo=None), "ns")
     if isinstance(value, np.ndarray) and np.issubdtype(value.dtype, np.datetime64):
         return value.astype("datetime64[ns]")
     return np.array(
         [
-            v.astimezone(timezone.utc).replace(tzinfo=None) if isinstance(v, datetime) else v
+            (
+                v.astimezone(timezone.utc).replace(tzinfo=None)
+                if isinstance(v, datetime)
+                else v
+            )
             for v in value
         ],
         dtype="datetime64[ns]",

@@ -14,6 +14,7 @@ class TestBaseConstellation(unittest.TestCase):
     """
     Unit tests for the BaseConstellation schema.
     """
+
     def test_generate_members_not_implemented_on_base(self):
         """
         Test that generate_members raises NotImplementedError on the bare

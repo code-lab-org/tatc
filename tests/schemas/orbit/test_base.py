@@ -3,6 +3,7 @@ Unit tests for the tatc.schemas.orbit.base module.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 from datetime import datetime, timezone
 
@@ -10,7 +11,10 @@ from tatc import config
 from tatc.constants import EARTH_MEAN_RADIUS
 from tatc.schemas import CircularOrbit
 from tatc.schemas.orbit.base import OrbitBase
-from tatc.utils.orbital import semimajor_axis_to_mean_motion, semimajor_axis_to_orbit_period
+from tatc.utils.orbital import (
+    semimajor_axis_to_mean_motion,
+    semimajor_axis_to_orbit_period,
+)
 
 
 class TestOrbitBase(unittest.TestCase):

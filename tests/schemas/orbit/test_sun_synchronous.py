@@ -195,7 +195,7 @@ class TestSunSynchronousOrbit(unittest.TestCase):
 
     def test_to_gp_orbit(self):
         """
-        Test that the SunSynchronousOrbit schema correctly converts 
+        Test that the SunSynchronousOrbit schema correctly converts
         to a general perturbations orbit.
         """
         gp_orbit = self.test_orbit.to_gp_orbit()
@@ -214,7 +214,7 @@ class TestSunSynchronousOrbit(unittest.TestCase):
 
     def test_to_gp_orbit_raan_ascending_equinox(self):
         """
-        Test that the SunSynchronousOrbit schema correctly converts 
+        Test that the SunSynchronousOrbit schema correctly converts
         to a general perturbations orbit with RAAN at ascending equinox.
         """
         data = {
@@ -236,7 +236,7 @@ class TestSunSynchronousOrbit(unittest.TestCase):
 
     def test_to_gp_orbit_raan_descending_equinox(self):
         """
-        Test that the SunSynchronousOrbit schema correctly converts 
+        Test that the SunSynchronousOrbit schema correctly converts
         to a general perturbations orbit with RAAN at descending equinox.
         """
         data = {
@@ -253,7 +253,7 @@ class TestSunSynchronousOrbit(unittest.TestCase):
 
     def test_to_gp_orbit_raan_ascending_solstice(self):
         """
-        Test that the SunSynchronousOrbit schema correctly converts 
+        Test that the SunSynchronousOrbit schema correctly converts
         to a general perturbations orbit with RAAN at ascending solstice.
         """
         data = {
@@ -270,7 +270,7 @@ class TestSunSynchronousOrbit(unittest.TestCase):
 
     def test_to_gp_orbit_raan_descending_solstice(self):
         """
-        Test that the SunSynchronousOrbit schema correctly converts 
+        Test that the SunSynchronousOrbit schema correctly converts
         to a general perturbations orbit with RAAN at descending solstice.
         """
         data = {

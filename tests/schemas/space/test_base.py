@@ -16,6 +16,7 @@ class TestSpaceSystem(unittest.TestCase):
     """
     Unit tests for the SpaceSystem schema.
     """
+
     def test_good_data(self):
         """
         Test that a SpaceSystem can be created with explicit instruments.

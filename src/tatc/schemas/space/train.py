@@ -63,7 +63,9 @@ class TrainConstellation(BaseConstellation):
             float: the difference in right ascension of ascending node
         """
         if self.repeat_ground_track:
-            return 360 * (self.interval.total_seconds() / constants.EARTH_SIDEREAL_DAY_S)
+            return 360 * (
+                self.interval.total_seconds() / constants.EARTH_SIDEREAL_DAY_S
+            )
         return 0
 
     def generate_members(self) -> list[Satellite]:

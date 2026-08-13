@@ -3,6 +3,7 @@ Unit tests for the tatc.utils.orbital module.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 
 import numpy as np
@@ -28,24 +29,21 @@ class TestOrbital(unittest.TestCase):  # pylint: disable=too-many-public-methods
     """
     Unit tests for the tatc.utils.orbital module.
     """
+
     def test_compute_orbit_inertial_velocity_iss(self):
         """
         Test against the commonly cited ISS orbital speed of
         approximately 7.66 km/s at its typical ~408 km altitude
         (per NASA ISS fact sheets).
         """
-        self.assertAlmostEqual(
-            compute_orbit_inertial_velocity(408000), 7660, delta=10
-        )
+        self.assertAlmostEqual(compute_orbit_inertial_velocity(408000), 7660, delta=10)
 
     def test_compute_orbit_inertial_velocity_geo(self):
         """
         Test against the well-known geostationary orbital speed of
         approximately 3.07 km/s at ~35,786 km altitude.
         """
-        self.assertAlmostEqual(
-            compute_orbit_inertial_velocity(35786000), 3075, delta=5
-        )
+        self.assertAlmostEqual(compute_orbit_inertial_velocity(35786000), 3075, delta=5)
 
     def test_compute_orbit_inertial_velocity_surface(self):
         """
@@ -53,9 +51,7 @@ class TestOrbital(unittest.TestCase):  # pylint: disable=too-many-public-methods
         approximately 7.9 km/s for a circular orbit at the Earth's
         surface (zero altitude).
         """
-        self.assertAlmostEqual(
-            compute_orbit_inertial_velocity(0), 7910, delta=5
-        )
+        self.assertAlmostEqual(compute_orbit_inertial_velocity(0), 7910, delta=5)
 
     def test_compute_orbit_inertial_velocity_decreases_with_altitude(self):
         """
@@ -271,7 +267,9 @@ class TestOrbital(unittest.TestCase):  # pylint: disable=too-many-public-methods
         perigee_radius = constants.EARTH_MEAN_RADIUS + 550000
         apogee_radius = constants.EARTH_MEAN_RADIUS + 39900000
         semimajor_axis = (perigee_radius + apogee_radius) / 2
-        eccentricity = (apogee_radius - perigee_radius) / (apogee_radius + perigee_radius)
+        eccentricity = (apogee_radius - perigee_radius) / (
+            apogee_radius + perigee_radius
+        )
         self.assertAlmostEqual(
             compute_apoapsis_radius(semimajor_axis, eccentricity),
             apogee_radius,

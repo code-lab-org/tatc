@@ -87,9 +87,7 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     subpoint = wgs84.geographic_position_of(orbit_track)
     lat = np.array(subpoint.latitude.radians)
     lon = np.array(subpoint.longitude.radians)
-    n = -np.array(
-        [np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)]
-    )
+    n = -np.array([np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)])
     # whether orbit_track represents a single time or a vector of times
     is_vectorized = len(np.shape(p_m)) > 1
     # cross-track unit vector
@@ -98,7 +96,9 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     else:
         c = np.cross(v, n)
     # ray pointed at the field of view center (before adding the field of view extent)
-    base_ray = n + v * np.tan(np.radians(pitch_angle)) + c * np.tan(np.radians(roll_angle))
+    base_ray = (
+        n + v * np.tan(np.radians(pitch_angle)) + c * np.tan(np.radians(roll_angle))
+    )
     # construct projected ray
     if is_rectangular:
         # find orientation of rectangle corner
@@ -255,12 +255,8 @@ def compute_footprint(
             (
                 np.linspace(-theta, theta, number_points, endpoint=False),
                 np.linspace(theta, 180 - theta, number_points, endpoint=False),
-                np.linspace(
-                    180 - theta, 180 + theta, number_points, endpoint=False
-                ),
-                np.linspace(
-                    180 + theta, 360 - theta, number_points, endpoint=False
-                ),
+                np.linspace(180 - theta, 180 + theta, number_points, endpoint=False),
+                np.linspace(180 + theta, 360 - theta, number_points, endpoint=False),
             )
         )
     else:
@@ -285,12 +281,16 @@ def compute_footprint(
                 Polygon(
                     [
                         (
-                            point.longitude.degrees[i]
-                            if is_vectorized
-                            else point.longitude.degrees,
-                            point.latitude.degrees[i]
-                            if is_vectorized
-                            else point.latitude.degrees,
+                            (
+                                point.longitude.degrees[i]
+                                if is_vectorized
+                                else point.longitude.degrees
+                            ),
+                            (
+                                point.latitude.degrees[i]
+                                if is_vectorized
+                                else point.latitude.degrees
+                            ),
                         )
                         for point in points
                     ]

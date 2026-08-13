@@ -3,6 +3,7 @@ Unit tests for the tatc.schemas.orbit.base_molniya_tundra module.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 
 from tatc.constants import EARTH_J2_CRITICAL_INCLINATION
@@ -47,7 +48,9 @@ class TestMolniyaTundraOrbitBase(unittest.TestCase):
         Test that get_right_ascension_ascending_node returns the
         right_ascension_ascending_node field directly.
         """
-        o = MolniyaTundraOrbitBase(perigee_altitude=1000000, right_ascension_ascending_node=123.4)
+        o = MolniyaTundraOrbitBase(
+            perigee_altitude=1000000, right_ascension_ascending_node=123.4
+        )
         self.assertEqual(o.get_right_ascension_ascending_node(), 123.4)
 
     def test_get_orbit_period_not_implemented_on_base(self):

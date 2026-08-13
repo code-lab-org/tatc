@@ -3,6 +3,7 @@ Unit tests for the TundraOrbit schema.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 
 from pydantic import ValidationError
@@ -15,6 +16,7 @@ class TestTundraOrbit(unittest.TestCase):
     """
     Unit tests for the TundraOrbit schema.
     """
+
     def setUp(self):
         self.test_data = {
             "perigee_altitude": 24480000,
@@ -35,17 +37,10 @@ class TestTundraOrbit(unittest.TestCase):
         )
         self.assertAlmostEqual(self.test_orbit.get_inclination(), 63.4, delta=0.1)
         self.assertAlmostEqual(
-            self.test_orbit.get_orbit_period().total_seconds(),
-            1436*60, delta=60
+            self.test_orbit.get_orbit_period().total_seconds(), 1436 * 60, delta=60
         )
-        self.assertEqual(
-            self.test_orbit.get_perigee_argument(),
-            270
-        )
-        self.assertAlmostEqual(
-            self.test_orbit.get_eccentricity(),
-            0.24, delta=0.03
-        )
+        self.assertEqual(self.test_orbit.get_perigee_argument(), 270)
+        self.assertAlmostEqual(self.test_orbit.get_eccentricity(), 0.24, delta=0.03)
 
     def test_defaults(self):
         """
@@ -171,7 +166,7 @@ class TestTundraOrbit(unittest.TestCase):
         self.assertAlmostEqual(
             gp_orbit.get_right_ascension_ascending_node(),
             self.test_data.get("right_ascension_ascending_node"),
-            delta=0.1
+            delta=0.1,
         )
         self.assertAlmostEqual(
             gp_orbit.get_inclination(), self.test_orbit.get_inclination(), delta=0.01

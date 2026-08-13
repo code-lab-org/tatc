@@ -3,6 +3,7 @@ Unit tests for the tatc.utils.projection module.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 from datetime import datetime, timezone
 
@@ -41,6 +42,7 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
     """
     Unit tests for the tatc.utils.projection module.
     """
+
     def setUp(self):
         noon_utc = datetime(2020, 3, 20, 12, tzinfo=timezone.utc)
         self.orbit = CircularOrbit(
@@ -105,9 +107,7 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         )
         orbit_track = satellite.at(timescale.from_datetime(noon_utc))
         subpoint = orbit_track.subpoint()
-        position = compute_projected_ray_position(
-            orbit_track, 0, 0, 0, 0, False, 0, 0
-        )
+        position = compute_projected_ray_position(orbit_track, 0, 0, 0, 0, False, 0, 0)
         # confirm this test point is actually away from the equator
         self.assertGreater(abs(subpoint.latitude.degrees), 45)
         distance = _great_circle_distance(
@@ -261,7 +261,9 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
             beyond_horizon.latitude.degrees, further_beyond.latitude.degrees, delta=1e-9
         )
         self.assertAlmostEqual(
-            beyond_horizon.longitude.degrees, further_beyond.longitude.degrees, delta=1e-9
+            beyond_horizon.longitude.degrees,
+            further_beyond.longitude.degrees,
+            delta=1e-9,
         )
 
     def test_compute_projected_ray_position_vectorized_matches_scalar(self):
@@ -490,9 +492,7 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         to_crs = Transformer.from_crs("EPSG:4326", "EPSG:4087", always_xy=True)
         from_crs = Transformer.from_crs("EPSG:4087", "EPSG:4326", always_xy=True)
         result = buffer_footprint(point, to_crs, from_crs, 100000, 500)
-        self.assertAlmostEqual(
-            next(iter(result.exterior.coords))[2], 500, delta=1e-6
-        )
+        self.assertAlmostEqual(next(iter(result.exterior.coords))[2], 500, delta=1e-6)
 
     def test_buffer_footprint_zero_swath_width_is_empty(self):
         """
@@ -578,7 +578,11 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         expected_distance = ground_velocity * time_step + swath_width / 2
         point = Point(0, 51.6)
         result = buffer_target(
-            point, altitude, inclination, field_of_regard, time_step,
+            point,
+            altitude,
+            inclination,
+            field_of_regard,
+            time_step,
             distance_crs="EPSG:4087",
         )
         distances = [

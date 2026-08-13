@@ -3,6 +3,7 @@ Unit tests for the SOCConstellation schema.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 
 from pydantic import ValidationError
@@ -15,6 +16,7 @@ class TestSOCConstellation(unittest.TestCase):
     """
     Unit tests for the SOCConstellation schema.
     """
+
     def setUp(self):
         self.d420_data = {
             "name": "Test Constellation",

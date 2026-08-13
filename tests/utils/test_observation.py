@@ -3,6 +3,7 @@ Unit tests for the tatc.utils.observation module.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
+
 import unittest
 
 from tatc.utils import (
@@ -21,6 +22,7 @@ class TestObservation(unittest.TestCase):  # pylint: disable=too-many-public-met
     """
     Unit tests for the tatc.utils.observation module.
     """
+
     def test_swath_width_to_field_of_regard(self):
         """
         Test that the swath width can be converted to field of regard.
@@ -230,9 +232,7 @@ class TestObservation(unittest.TestCase):  # pylint: disable=too-many-public-met
         Test that the maximum access time can be computed for a given
         altitude and minimum elevation angle.
         """
-        self.assertAlmostEqual(
-            compute_max_access_time(705000, 81.66446), 28, delta=1
-        )
+        self.assertAlmostEqual(compute_max_access_time(705000, 81.66446), 28, delta=1)
 
     def test_compute_max_access_time_iss(self):
         """
@@ -241,9 +241,7 @@ class TestObservation(unittest.TestCase):  # pylint: disable=too-many-public-met
         degree minimum elevation, horizon-to-horizon) lasts up to about
         10 minutes (per NASA's Spot The Station and similar references).
         """
-        self.assertAlmostEqual(
-            compute_max_access_time(408000, 0), 600, delta=30
-        )
+        self.assertAlmostEqual(compute_max_access_time(408000, 0), 600, delta=30)
 
     def test_compute_max_transit_time(self):
         """

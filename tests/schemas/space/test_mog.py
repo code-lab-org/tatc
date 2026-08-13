@@ -18,6 +18,7 @@ class TestMOGConstellation(unittest.TestCase):
     """
     Unit tests for the MOGConstellation schema.
     """
+
     def setUp(self):
         self.epoch = datetime(2020, 1, 1, tzinfo=timezone.utc)
         self.reference_orbit = CircularOrbit(

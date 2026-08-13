@@ -37,17 +37,10 @@ class TestMolniyaOrbit(unittest.TestCase):
         )
         self.assertAlmostEqual(self.test_orbit.get_inclination(), 63.4, delta=0.1)
         self.assertAlmostEqual(
-            self.test_orbit.get_orbit_period().total_seconds(),
-            718*60, delta=60
+            self.test_orbit.get_orbit_period().total_seconds(), 718 * 60, delta=60
         )
-        self.assertEqual(
-            self.test_orbit.get_perigee_argument(),
-            270
-        )
-        self.assertAlmostEqual(
-            self.test_orbit.get_eccentricity(),
-            0.74, delta=0.1
-        )
+        self.assertEqual(self.test_orbit.get_perigee_argument(), 270)
+        self.assertAlmostEqual(self.test_orbit.get_eccentricity(), 0.74, delta=0.1)
 
     def test_defaults(self):
         """
@@ -167,7 +160,7 @@ class TestMolniyaOrbit(unittest.TestCase):
         self.assertAlmostEqual(
             gp_orbit.get_right_ascension_ascending_node(),
             self.test_data.get("right_ascension_ascending_node"),
-            delta=0.1
+            delta=0.1,
         )
         self.assertAlmostEqual(
             gp_orbit.get_inclination(), self.test_orbit.get_inclination(), delta=0.01
