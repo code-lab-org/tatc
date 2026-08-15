@@ -35,6 +35,18 @@ def _tangent_point_geometry(
     receiver-frame pitch/yaw angles of the transmitter, as seen from the
     receiver, at one or more times.
 
+    The tangent point is defined geocentrically: the point along the
+    receiver-transmitter line with minimum distance to the Earth's center
+    (`x_tp` below), not the point where the line is exactly tangent to the
+    WGS 84 reference ellipsoid's surface (which would use the local
+    ellipsoid surface normal rather than the geocentric radius vector, and
+    generally falls at a slightly different point away from the equator).
+    The geodetic position/elevation reported by callers is simply the
+    WGS 84 conversion of this geocentric point, not a re-derived
+    ellipsoidal tangency point -- consistent with the coarse,
+    early-stage-analysis scope of this module (see also
+    `collect_ro_observations`).
+
     Tangent point velocity is not needed for geodetic position or azimuth
     computations (Skyfield ignores it there), so it is skipped by default;
     pass `compute_velocity=True` to compute it anyway.
@@ -418,6 +430,15 @@ def collect_ro_observations(
 ) -> gpd.GeoDataFrame:
     """
     Collects Radio Occultation (RO) observations.
+
+    The tangent point (the geometric basis for every reported position,
+    elevation, and pitch/yaw angle) is defined geocentrically -- the
+    receiver-transmitter line's point of minimum distance to the Earth's
+    center -- rather than as the point where that line is exactly tangent
+    to the WGS 84 reference ellipsoid's surface. The two definitions
+    coincide at the equator and poles but diverge slightly elsewhere,
+    since the ellipsoid's surface normal is not generally parallel to the
+    geocentric radius vector. See `_tangent_point_geometry` for details.
 
     Args:
         receiver (Satellite): the satellite with a RO receiver.
