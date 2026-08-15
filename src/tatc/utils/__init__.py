@@ -4,6 +4,7 @@ Utility functions for the TATC library.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+from .atmosphere import altitude_to_pressure, pressure_to_altitude
 from .formatting import zero_pad
 from .geometry import (
     geodesic_distance,
@@ -48,6 +49,7 @@ from .surface import compute_number_samples
 from .time import to_datetime64_ns
 
 __all__ = [
+    "altitude_to_pressure",
     "buffer_footprint",
     "buffer_target",
     "compute_apoapsis_radius",
@@ -73,6 +75,7 @@ __all__ = [
     "mean_motion_to_orbit_period",
     "mean_motion_to_semimajor_axis",
     "normalize_geometry",
+    "pressure_to_altitude",
     "project_polygon_to_elevation",
     "semimajor_axis_to_mean_motion",
     "semimajor_axis_to_orbit_period",
