@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Literal
 
 import numpy as np
-from pydantic import Field
+from pydantic import AliasChoices, Field
 
 from ... import constants, utils
 from .base_circular import CircularOrbitBase
@@ -35,6 +35,7 @@ class GeosynchronousOrbit(CircularOrbitBase):
         default=_GEOSYNCHRONOUS_MEAN_ALTITUDE,
         description="Mean altitude (meters).",
         ge=0,
+        validation_alias=AliasChoices("mean_altitude", "altitude"),
     )
     inclination: float = Field(
         default=0, description="Inclination (degrees).", ge=0, lt=180

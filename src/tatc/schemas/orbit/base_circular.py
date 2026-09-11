@@ -6,7 +6,7 @@ Base object schemas for circular orbits.
 
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import AliasChoices, ConfigDict, Field
 
 from ... import constants
 from .base import OrbitBase
@@ -17,7 +17,14 @@ class CircularOrbitBase(OrbitBase):
     Base class for circular orbits.
     """
 
-    mean_altitude: float = Field(..., description="Mean altitude (meters).", ge=0)
+    model_config = ConfigDict(populate_by_name=True)
+
+    mean_altitude: float = Field(
+        ...,
+        description="Mean altitude (meters).",
+        ge=0,
+        validation_alias=AliasChoices("mean_altitude", "altitude"),
+    )
 
     def get_semimajor_axis(self) -> float:
         """

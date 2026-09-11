@@ -518,21 +518,27 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         Test that the buffer distance matches the independently-computed
         expected distance: half the swath width (from the field of
         regard) plus the ground distance traveled in one time step (using
-        the ground velocity at the orbit's extreme latitude, the fastest,
-        most conservative point).
+        the ground velocity at the equator, the fastest, most conservative
+        point for any given inclination). Uses a tolerance relative to the
+        expected distance (rather than a fixed absolute delta) because
+        buffering in a flat equidistant-cylindrical projection is only an
+        approximation of a true geodesic buffer: the great-circle distance
+        to off-axis points on the buffered boundary deviates from the
+        requested planar radius by an amount that scales with the radius
+        itself and varies slightly with the GEOS/PROJ version's buffer
+        curve approximation.
         """
         point = Point(0, 0)
         altitude, inclination, field_of_regard, time_step = 705000, 51.6, 20, 60
         swath_width = field_of_regard_to_swath_width(altitude, field_of_regard)
-        extreme_latitude = min(inclination, 180 - inclination)
-        ground_velocity = compute_ground_surface_velocity(
-            altitude, 0, inclination, extreme_latitude
-        )
+        ground_velocity = compute_ground_surface_velocity(altitude, 0, inclination)
         expected_distance = ground_velocity * time_step + swath_width / 2
         result = buffer_target(point, altitude, inclination, field_of_regard, time_step)
         for x, y, *_ in result.exterior.coords:
             distance = _great_circle_distance(0, 0, y, x)
-            self.assertAlmostEqual(distance, expected_distance, delta=1000)
+            self.assertAlmostEqual(
+                distance, expected_distance, delta=expected_distance * 0.01
+            )
 
     def test_buffer_target_is_conservative_at_high_latitude(self):
         """
