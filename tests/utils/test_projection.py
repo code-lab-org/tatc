@@ -518,16 +518,13 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         Test that the buffer distance matches the independently-computed
         expected distance: half the swath width (from the field of
         regard) plus the ground distance traveled in one time step (using
-        the ground velocity at the orbit's extreme latitude, the fastest,
-        most conservative point).
+        the ground velocity at the equator, the fastest, most conservative
+        point for any given inclination).
         """
         point = Point(0, 0)
         altitude, inclination, field_of_regard, time_step = 705000, 51.6, 20, 60
         swath_width = field_of_regard_to_swath_width(altitude, field_of_regard)
-        extreme_latitude = min(inclination, 180 - inclination)
-        ground_velocity = compute_ground_surface_velocity(
-            altitude, 0, inclination, extreme_latitude
-        )
+        ground_velocity = compute_ground_surface_velocity(altitude, 0, inclination)
         expected_distance = ground_velocity * time_step + swath_width / 2
         result = buffer_target(point, altitude, inclination, field_of_regard, time_step)
         for x, y, *_ in result.exterior.coords:
