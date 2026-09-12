@@ -178,6 +178,25 @@ class TwoLineElements(OrbitBase):
         """
         return self.to_gp_orbit().get_mean_motion_ddot()
 
+    def get_derived_orbit(
+        self, delta_mean_anomaly: float, delta_raan: float
+    ) -> TwoLineElements:
+        """
+        Gets a derived orbit with perturbations to the mean anomaly and right
+        ascension of ascending node.
+
+        Args:
+            delta_mean_anomaly (float):  Delta mean anomaly (degrees).
+            delta_raan (float):  Delta right ascension of ascending node (degrees).
+
+        Returns:
+            TwoLineElements: the derived orbit
+        """
+        derived_element = self.to_gp_orbit().get_derived_orbit(
+            delta_mean_anomaly, delta_raan
+        ).elements[0]
+        return TwoLineElements(tle=derived_element.to_tle())
+
     def _compute_gp_orbit(self) -> GeneralPerturbationsOrbit:
         """
         Computes a general perturbations orbit representation of this
