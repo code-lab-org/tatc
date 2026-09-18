@@ -192,9 +192,11 @@ class TwoLineElements(OrbitBase):
         Returns:
             TwoLineElements: the derived orbit
         """
-        derived_element = self.to_gp_orbit().get_derived_orbit(
-            delta_mean_anomaly, delta_raan
-        ).elements[0]
+        derived_element = (
+            self.to_gp_orbit()
+            .get_derived_orbit(delta_mean_anomaly, delta_raan)
+            .elements[0]
+        )
         return TwoLineElements(tle=derived_element.to_tle())
 
     def _compute_gp_orbit(self) -> GeneralPerturbationsOrbit:
