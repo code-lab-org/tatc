@@ -5,8 +5,8 @@ authors:
   given-names: "Paul T."
   orcid: "https://orcid.org/0000-0001-8986-4806"
 title: "Tradespace Analysis Toolkit for Constellations (TAT-C)"
-version: 3.5.0
-date-released: 2026-08-13
-doi: 10.5281/zenodo.21923370
+version: 3.5.1
+date-released: 2026-09-18
+doi: 10.5281/zenodo.22837697
 url: "https://github.com/code-lab-org/tatc"
 license: "BSD-3-Clause"
