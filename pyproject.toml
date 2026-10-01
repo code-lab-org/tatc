@@ -96,6 +96,9 @@ osse = [
     "scikit-learn",
     "seaborn"
 ]
+preprocess = [
+    "rasterio"
+]
 
 [tool.setuptools.dynamic]
 version = {attr = "tatc.__version__"}

@@ -52,6 +52,7 @@ from .radar import (
     compute_radar_ground_range,
     compute_radar_ground_range_bounds,
     compute_radar_slant_range,
+    compute_terrain_elevation_angle,
 )
 from .surface import compute_number_samples
 from .time import to_datetime64_ns
@@ -81,6 +82,7 @@ __all__ = [
     "compute_radar_ground_range",
     "compute_radar_ground_range_bounds",
     "compute_radar_slant_range",
+    "compute_terrain_elevation_angle",
     "field_of_regard_to_swath_width",
     "geodesic_destination",
     "geodesic_distance",

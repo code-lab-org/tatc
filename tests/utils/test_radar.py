@@ -12,6 +12,7 @@ from tatc.utils import (
     compute_radar_ground_range,
     compute_radar_ground_range_bounds,
     compute_radar_slant_range,
+    compute_terrain_elevation_angle,
 )
 
 
@@ -175,3 +176,49 @@ class TestRadar(unittest.TestCase):
         height = compute_radar_beam_height(230000, 0.5)
         self.assertGreater(height, 3500)
         self.assertLess(height, 6500)
+
+    def test_compute_terrain_elevation_angle_zero_at_station_height(self):
+        """
+        Test that a terrain point at exactly the station's own elevation
+        and nonzero distance reads slightly below zero, due to the
+        curvature-drop correction (a flat horizon appears to dip below
+        local level at any positive distance).
+        """
+        angle = compute_terrain_elevation_angle(10000, 0, 0)
+        self.assertLess(angle, 0)
+        self.assertGreater(angle, -1)
+
+    def test_compute_terrain_elevation_angle_zero_distance(self):
+        """
+        Test that a terrain point at zero distance but above the station
+        elevation reads a 90 degree (straight up) elevation angle.
+        """
+        self.assertAlmostEqual(
+            compute_terrain_elevation_angle(0, 100, 0), 90.0, delta=1e-6
+        )
+
+    def test_compute_terrain_elevation_angle_increases_with_height(self):
+        """
+        Test that, for a fixed ground distance, the elevation angle
+        increases monotonically with terrain height.
+        """
+        angles = [
+            compute_terrain_elevation_angle(50000, height, 0)
+            for height in (0, 500, 1000, 2000, 5000)
+        ]
+        self.assertEqual(angles, sorted(angles))
+
+    def test_compute_terrain_elevation_angle_consistent_with_beam_height(self):
+        """
+        Test that compute_terrain_elevation_angle agrees (to within the
+        small-angle approximation it uses) with the exact beam-height
+        model: for a beam at a shallow elevation angle, the height it
+        reaches at a given range should be recovered as approximately the
+        same elevation angle when fed back through the terrain-angle
+        formula.
+        """
+        for elevation_angle in (0.1, 0.5, 1.0, 2.0):
+            slant_range = 50000
+            height = compute_radar_beam_height(slant_range, elevation_angle, 0)
+            recovered = compute_terrain_elevation_angle(slant_range, height, 0)
+            self.assertAlmostEqual(recovered, elevation_angle, delta=0.01)

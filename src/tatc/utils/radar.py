@@ -193,3 +193,43 @@ def compute_radar_ground_range_bounds(
     if inner_ground_range >= outer_ground_range:
         return None
     return (inner_ground_range, outer_ground_range)
+
+
+@njit
+def compute_terrain_elevation_angle(
+    ground_distance: float, terrain_elevation: float, station_elevation: float = 0
+) -> float:
+    """
+    Fast computation of the curvature-corrected elevation angle, as seen
+    from a ground-based station, to a terrain point at a specified ground
+    distance and elevation. Uses the standard-atmosphere "4/3 Earth
+    radius" refraction approximation (the same effective-Earth-radius
+    model used elsewhere in this module) to account for both the Earth's
+    curvature and atmospheric refraction bending the line of sight: this
+    is the small-angle "curvature drop" correction standard to radio/radar
+    line-of-sight terrain analysis, distinct from (and simpler than) the
+    exact beam-height geometry used by `compute_radar_beam_height`, since
+    here the target (a terrain point) is given directly by its ground
+    distance and elevation, not by a slant range and elevation angle.
+
+    Args:
+        ground_distance (float): Ground (surface) distance (meters) to
+            the terrain point.
+        terrain_elevation (float): Elevation (meters) of the terrain point
+            above the WGS 84 datum.
+        station_elevation (float): Elevation (meters) of the station
+            (antenna) above the WGS 84 datum.
+
+    Returns:
+        float: The elevation angle (degrees) to the terrain point, as seen
+        from the station; positive above local horizontal, negative below.
+    """
+    effective_radius = (
+        constants.EFFECTIVE_EARTH_RADIUS_FACTOR * constants.EARTH_MEAN_RADIUS
+    )
+    curvature_drop = ground_distance**2 / (2 * effective_radius)
+    return np.degrees(
+        np.arctan2(
+            (terrain_elevation - station_elevation) - curvature_drop, ground_distance
+        )
+    )
