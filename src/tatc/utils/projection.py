@@ -10,8 +10,9 @@ from collections.abc import Iterable
 
 import numpy as np
 from pyproj import Transformer
-from shapely import Geometry
+from shapely import Geometry, make_valid
 from shapely.geometry import (
+    GeometryCollection,
     MultiPolygon,
     Point,
     Polygon,
@@ -25,7 +26,11 @@ from spiceypy.spiceypy import edlimb, inelpl, nvp2pl, recgeo, surfpt
 from spiceypy.utils.exceptions import NotFoundError
 
 from .. import config, constants
-from .geometry import project_polygon_to_elevation, split_polygon
+from .geometry import (
+    geodesic_destination,
+    project_polygon_to_elevation,
+    split_polygon,
+)
 from .observation import field_of_regard_to_swath_width
 from .orbital import compute_ground_surface_velocity
 
@@ -472,3 +477,103 @@ def buffer_target(
             from_crs.transform, transform(to_crs.transform, geometry).buffer(distance)  # type: ignore
         )
     )
+
+
+def compute_radar_footprint(
+    longitude: float,
+    latitude: float,
+    inner_ground_range: float,
+    outer_ground_range: float,
+    elevation: float = 0,
+) -> Polygon | MultiPolygon:
+    """
+    Builds a ground-based radar coverage footprint (a disk, or an annulus
+    if `inner_ground_range` is positive) centered on the specified
+    longitude/latitude, by reprojecting to a distance-preserving CRS,
+    buffering by the ground ranges, and reprojecting back.
+
+    Args:
+        longitude (float): Longitude (degrees) of the radar station.
+        latitude (float): Latitude (degrees) of the radar station.
+        inner_ground_range (float): The inner ground range (meters) of the
+            footprint annulus; `0` for a full disk.
+        outer_ground_range (float): The outer ground range (meters) of the
+            footprint.
+        elevation (float): The elevation (meters) at which to project the footprint.
+
+    Returns:
+        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The radar footprint.
+    """
+    distance_crs = f"+proj=eqc +lat_ts={latitude} +datum=WGS84 +units=m"
+    to_crs = Transformer.from_crs("EPSG:4326", distance_crs, always_xy=True)
+    from_crs = Transformer.from_crs(distance_crs, "EPSG:4326", always_xy=True)
+    center = transform(to_crs.transform, Point(longitude, latitude))  # type: ignore
+    outer = center.buffer(outer_ground_range)
+    footprint = (
+        outer.difference(center.buffer(inner_ground_range))
+        if inner_ground_range > 0
+        else outer
+    )
+    return project_polygon_to_elevation(
+        split_polygon(transform(from_crs.transform, footprint)),  # type: ignore
+        elevation,
+    )
+
+
+def compute_radar_footprint_profile(
+    longitude: float,
+    latitude: float,
+    azimuths: Iterable[float],
+    outer_ground_ranges: Iterable[float],
+    inner_ground_range: float,
+    elevation: float = 0,
+) -> Polygon | MultiPolygon:
+    """
+    Builds an azimuthally irregular ground-based radar coverage footprint
+    from a sampled outer-boundary profile (e.g. reflecting per-azimuth
+    terrain blockage), optionally subtracting a uniform circular inner
+    hole (the overhead "cone of silence", which does not vary with
+    terrain since it is governed by the antenna's maximum scan elevation
+    angle rather than line of sight to the horizon).
+
+    Args:
+        longitude (float): Longitude (degrees) of the radar station.
+        latitude (float): Latitude (degrees) of the radar station.
+        azimuths (Iterable[float]): Azimuth samples (degrees, clockwise
+            from north), in increasing order, spanning one full revolution.
+        outer_ground_ranges (Iterable[float]): The outer ground range
+            (meters) of the footprint at each corresponding azimuth.
+        inner_ground_range (float): The uniform inner ground range
+            (meters) of the footprint annulus; `0` for no hole.
+        elevation (float): The elevation (meters) at which to project the footprint.
+
+    Returns:
+        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The radar footprint.
+    """
+    outer = Polygon(
+        [
+            geodesic_destination(longitude, latitude, azimuth, ground_range)
+            for azimuth, ground_range in zip(azimuths, outer_ground_ranges)
+        ]
+    )
+    if not outer.is_valid:
+        # repair self-intersections that can arise from zero-width
+        # (fully blocked) azimuth samples before further processing
+        outer = make_valid(outer)
+        if isinstance(outer, GeometryCollection):
+            polygons = [g for g in outer.geoms if isinstance(g, Polygon)] + [
+                p for g in outer.geoms if isinstance(g, MultiPolygon) for p in g.geoms
+            ]
+            outer = polygons[0] if len(polygons) == 1 else MultiPolygon(polygons)
+    if inner_ground_range > 0:
+        distance_crs = f"+proj=eqc +lat_ts={latitude} +datum=WGS84 +units=m"
+        to_crs = Transformer.from_crs("EPSG:4326", distance_crs, always_xy=True)
+        from_crs = Transformer.from_crs(distance_crs, "EPSG:4326", always_xy=True)
+        center = transform(to_crs.transform, Point(longitude, latitude))  # type: ignore
+        inner_circle = transform(
+            from_crs.transform, center.buffer(inner_ground_range)  # type: ignore
+        )
+        footprint = outer.difference(inner_circle)
+    else:
+        footprint = outer
+    return project_polygon_to_elevation(split_polygon(footprint), elevation)

@@ -50,6 +50,30 @@ def geodesic_distance(
     return distance
 
 
+def geodesic_destination(
+    longitude: float, latitude: float, azimuth: float, distance: float
+) -> tuple[float, float]:
+    """
+    Computes the longitude/latitude reached by traveling a specified
+    geodesic distance from a starting point at a specified initial
+    azimuth, on the WGS 84 ellipsoid.
+
+    Args:
+        longitude (float): Longitude (degrees) of the starting point.
+        latitude (float): Latitude (degrees) of the starting point.
+        azimuth (float): Initial azimuth (degrees, clockwise from north)
+            of travel.
+        distance (float): Geodesic distance (meters) to travel.
+
+    Returns:
+        tuple[float, float]: The destination (longitude, latitude), in degrees.
+    """
+    destination_longitude, destination_latitude, _ = _WGS84_GEOD.fwd(
+        longitude, latitude, azimuth, distance
+    )
+    return destination_longitude, destination_latitude
+
+
 @overload
 def project_polygon_to_elevation(polygon: Polygon, elevation: float) -> Polygon: ...
 

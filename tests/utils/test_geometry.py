@@ -7,9 +7,11 @@ Unit tests for the tatc.utils.geometry module.
 import unittest
 
 import geopandas as gpd
+from pyproj import Geod
 from shapely.geometry import MultiPolygon, Point, Polygon
 
 from tatc.utils import (
+    geodesic_destination,
     geodesic_distance,
     get_planar_bounds,
     normalize_geometry,
@@ -68,6 +70,39 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
         self.assertAlmostEqual(
             geodesic_distance(179, 0, -179, 0), 222638.9816, delta=0.01
         )
+
+    def test_geodesic_destination_zero_distance(self):
+        """
+        Test that traveling zero distance returns the starting point.
+        """
+        lon, lat = geodesic_destination(10, 20, 45, 0)
+        self.assertAlmostEqual(lon, 10, delta=1e-9)
+        self.assertAlmostEqual(lat, 20, delta=1e-9)
+
+    def test_geodesic_destination_one_degree_at_equator(self):
+        """
+        Test traveling due east along the equator for the known WGS 84
+        equatorial circumference fraction (the equator is itself a
+        geodesic, so this distance is exact): one degree of longitude
+        is 111319.4908 meters.
+        """
+        lon, lat = geodesic_destination(0, 0, 90, 111319.4908)
+        self.assertAlmostEqual(lon, 1, delta=1e-6)
+        self.assertAlmostEqual(lat, 0, delta=1e-6)
+
+    def test_geodesic_destination_inverts_geodesic_distance(self):
+        """
+        Test that geodesic_destination is consistent with geodesic_distance:
+        traveling the geodesic distance between two points, at the initial
+        azimuth toward the second point, arrives at that second point.
+        """
+        lon1, lat1 = -73.9857, 40.7484
+        lon2, lat2 = -0.1278, 51.5074
+        geod = Geod(ellps="WGS84")
+        azimuth, _, distance = geod.inv(lon1, lat1, lon2, lat2)
+        dest_lon, dest_lat = geodesic_destination(lon1, lat1, azimuth, distance)
+        self.assertAlmostEqual(dest_lon, lon2, delta=1e-6)
+        self.assertAlmostEqual(dest_lat, lat2, delta=1e-6)
 
     def test_project_polygon_to_elevation_polygon(self):
         """

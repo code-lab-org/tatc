@@ -24,7 +24,7 @@ from .space import (
     WalkerConfiguration,
     WalkerConstellation,
 )
-from .surface import AllSurfaceObjects, GroundStation, Point
+from .surface import AllSurfaceObjects, GroundStation, Point, RadarStation, TerrainMask
 
 __all__ = [
     "AllInstruments",
@@ -42,9 +42,11 @@ __all__ = [
     "MolniyaOrbit",
     "Point",
     "PointedInstrument",
+    "RadarStation",
     "SOCConstellation",
     "Satellite",
     "SunSynchronousOrbit",
+    "TerrainMask",
     "TrainConstellation",
     "TundraOrbit",
     "TwoLineElements",

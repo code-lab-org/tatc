@@ -1,0 +1,387 @@
+"""
+Unit tests for the RadarStation schema.
+
+@author Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
+import math
+import unittest
+
+from pydantic import ValidationError
+from shapely.geometry import MultiPolygon, Polygon
+
+from tatc.schemas import RadarStation, TerrainMask
+
+
+class TestRadarStation(unittest.TestCase):
+    """
+    Unit tests for the RadarStation schema.
+    """
+
+    def test_good_data(self):
+        """
+        Test that the RadarStation schema correctly initializes with valid data.
+        """
+        good_data = {
+            "name": "KOUN",
+            "latitude": 35.236,
+            "longitude": -97.463,
+            "elevation": 370,
+            "max_range": 230000,
+            "min_elevation_angle": 0.5,
+            "max_elevation_angle": 19.5,
+        }
+        o = RadarStation(**good_data)
+        self.assertEqual(o.name, good_data.get("name"))
+        self.assertEqual(o.latitude, good_data.get("latitude"))
+        self.assertEqual(o.longitude, good_data.get("longitude"))
+        self.assertEqual(o.max_range, good_data.get("max_range"))
+        self.assertEqual(o.min_elevation_angle, good_data.get("min_elevation_angle"))
+        self.assertEqual(o.max_elevation_angle, good_data.get("max_elevation_angle"))
+
+    def test_defaults(self):
+        """
+        Test that max_range, min_elevation_angle, and max_elevation_angle
+        default to conventional NEXRAD WSR-88D values when omitted.
+        """
+        o = RadarStation(name="test", latitude=35.236, longitude=-97.463)
+        self.assertEqual(o.max_range, 230000)
+        self.assertEqual(o.min_elevation_angle, 0.5)
+        self.assertEqual(o.max_elevation_angle, 19.5)
+
+    def test_bad_name_missing(self):
+        """
+        Test that the RadarStation schema raises a ValidationError when the
+        required name field is missing.
+        """
+        bad_data = {"latitude": 35.236, "longitude": -97.463}
+        with self.assertRaises(ValidationError):
+            RadarStation(**bad_data)
+
+    def test_bad_max_range_not_positive(self):
+        """
+        Test that a non-positive max_range is rejected.
+        """
+        with self.assertRaises(ValidationError):
+            RadarStation(name="test", latitude=0, longitude=0, max_range=0)
+
+    def test_bad_elevation_angle_out_of_range(self):
+        """
+        Test that elevation angles outside [0, 90] are rejected.
+        """
+        with self.assertRaises(ValidationError):
+            RadarStation(name="test", latitude=0, longitude=0, min_elevation_angle=-0.1)
+        with self.assertRaises(ValidationError):
+            RadarStation(name="test", latitude=0, longitude=0, max_elevation_angle=90.1)
+
+    def test_elevation_angle_boundary_values(self):
+        """
+        Test that elevation angle values exactly at bounds (0 and 90) are accepted.
+        """
+        o = RadarStation(
+            name="test",
+            latitude=0,
+            longitude=0,
+            min_elevation_angle=0,
+            max_elevation_angle=90,
+        )
+        self.assertEqual(o.min_elevation_angle, 0)
+        self.assertEqual(o.max_elevation_angle, 90)
+
+    def test_bad_max_elevation_angle_less_than_min(self):
+        """
+        Test that a max_elevation_angle below min_elevation_angle is rejected.
+        """
+        with self.assertRaises(ValidationError):
+            RadarStation(
+                name="test",
+                latitude=0,
+                longitude=0,
+                min_elevation_angle=10,
+                max_elevation_angle=5,
+            )
+
+    def test_inherits_point_latitude_validation(self):
+        """
+        Test that RadarStation inherits Point's latitude validation.
+        """
+        with self.assertRaises(ValidationError):
+            RadarStation(name="test", latitude=100, longitude=0)
+
+    def test_compute_footprint_full_disk_at_station_elevation(self):
+        """
+        Test that a target at the station's own elevation produces a full
+        disk (no interior "cone of silence" ring).
+        """
+        station = RadarStation(name="test", latitude=0, longitude=0, elevation=0)
+        footprint = station.compute_footprint(elevation=0)
+        self.assertIsInstance(footprint, Polygon)
+        self.assertFalse(footprint.is_empty)
+        self.assertEqual(len(footprint.interiors), 0)
+
+    def test_compute_footprint_annulus_above_station(self):
+        """
+        Test that a target well above the station's elevation produces an
+        annulus (one interior "cone of silence" ring).
+        """
+        station = RadarStation(name="test", latitude=0, longitude=0, elevation=0)
+        footprint = station.compute_footprint(elevation=3048)
+        self.assertIsInstance(footprint, Polygon)
+        self.assertFalse(footprint.is_empty)
+        self.assertEqual(len(footprint.interiors), 1)
+
+    def test_compute_footprint_empty_when_unreachable(self):
+        """
+        Test that a target too high to be reached within max_range yields
+        an empty footprint.
+        """
+        station = RadarStation(
+            name="test", latitude=0, longitude=0, elevation=0, max_range=1000
+        )
+        footprint = station.compute_footprint(elevation=100000)
+        self.assertTrue(footprint.is_empty)
+
+    def test_compute_footprint_annulus_area_matches_ground_ranges(self):
+        """
+        Test that the computed footprint's area (in a local equal-distance
+        projection, approximated here via the planar area near the
+        equator) is consistent with the analytic annulus area
+        pi * (outer^2 - inner^2), within a tolerance that accounts for
+        oblate-Earth/projection distortion.
+        """
+        station = RadarStation(name="test", latitude=0, longitude=0, elevation=0)
+        inner, outer = station.compute_ground_ranges(elevation=3048)
+        footprint = station.compute_footprint(elevation=3048)
+        # reproject to the same local equidistant CRS used internally to
+        # compare areas on a comparable (meters) basis
+        import pyproj
+        from shapely.ops import transform
+
+        to_crs = pyproj.Transformer.from_crs(
+            "EPSG:4326", "+proj=eqc +lat_ts=0 +datum=WGS84 +units=m", always_xy=True
+        )
+        projected = transform(to_crs.transform, footprint)
+        expected_area = math.pi * (outer**2 - inner**2)
+        self.assertAlmostEqual(projected.area / expected_area, 1.0, delta=0.05)
+
+
+class TestTerrainMask(unittest.TestCase):
+    """
+    Unit tests for the TerrainMask schema.
+    """
+
+    def test_good_data(self):
+        """
+        Test that the TerrainMask schema correctly initializes with valid data.
+        """
+        mask = TerrainMask(
+            azimuth=[0, 90, 180, 270], min_elevation_angle=[0.5, 5, 0.5, 2]
+        )
+        self.assertEqual(mask.azimuth, [0, 90, 180, 270])
+        self.assertEqual(mask.min_elevation_angle, [0.5, 5, 0.5, 2])
+
+    def test_bad_mismatched_lengths(self):
+        """
+        Test that mismatched azimuth/min_elevation_angle lengths are rejected.
+        """
+        with self.assertRaises(ValidationError):
+            TerrainMask(azimuth=[0, 90, 180], min_elevation_angle=[0.5, 5])
+
+    def test_bad_azimuth_out_of_range(self):
+        """
+        Test that azimuth values outside [0, 360) are rejected.
+        """
+        with self.assertRaises(ValidationError):
+            TerrainMask(azimuth=[-1, 90], min_elevation_angle=[0.5, 5])
+        with self.assertRaises(ValidationError):
+            TerrainMask(azimuth=[0, 360], min_elevation_angle=[0.5, 5])
+
+    def test_bad_azimuth_not_increasing(self):
+        """
+        Test that non-strictly-increasing azimuth values are rejected.
+        """
+        with self.assertRaises(ValidationError):
+            TerrainMask(azimuth=[90, 0], min_elevation_angle=[0.5, 5])
+        with self.assertRaises(ValidationError):
+            TerrainMask(azimuth=[0, 0], min_elevation_angle=[0.5, 5])
+
+    def test_bad_too_few_samples(self):
+        """
+        Test that a single-sample mask is rejected (at least two required).
+        """
+        with self.assertRaises(ValidationError):
+            TerrainMask(azimuth=[0], min_elevation_angle=[0.5])
+
+    def test_get_min_elevation_angle_at_samples(self):
+        """
+        Test that the interpolated value exactly at a sample azimuth
+        matches that sample.
+        """
+        mask = TerrainMask(
+            azimuth=[0, 90, 180, 270], min_elevation_angle=[0.5, 5, 0.5, 2]
+        )
+        for azimuth, expected in zip([0, 90, 180, 270], [0.5, 5, 0.5, 2]):
+            self.assertAlmostEqual(
+                mask.get_min_elevation_angle(azimuth), expected, delta=1e-9
+            )
+
+    def test_get_min_elevation_angle_interpolates_between_samples(self):
+        """
+        Test that the interpolated value midway between two samples is the
+        linear average.
+        """
+        mask = TerrainMask(azimuth=[0, 90], min_elevation_angle=[0, 10])
+        self.assertAlmostEqual(mask.get_min_elevation_angle(45), 5, delta=1e-9)
+
+    def test_get_min_elevation_angle_wraps_around_zero(self):
+        """
+        Test that interpolation wraps around the 0/360 degree boundary
+        (e.g. between the last sample and the first).
+        """
+        mask = TerrainMask(azimuth=[0, 270], min_elevation_angle=[0, 10])
+        # halfway from 270 to 360 (0), wrapping, should be ~5
+        self.assertAlmostEqual(mask.get_min_elevation_angle(315), 5, delta=1e-9)
+
+    def test_get_min_elevation_angle_accepts_azimuth_outside_0_360(self):
+        """
+        Test that an azimuth outside [0, 360) is wrapped before lookup.
+        """
+        mask = TerrainMask(
+            azimuth=[0, 90, 180, 270], min_elevation_angle=[0.5, 5, 0.5, 2]
+        )
+        self.assertAlmostEqual(
+            mask.get_min_elevation_angle(90),
+            mask.get_min_elevation_angle(450),
+            delta=1e-9,
+        )
+        self.assertAlmostEqual(
+            mask.get_min_elevation_angle(0),
+            mask.get_min_elevation_angle(-360),
+            delta=1e-9,
+        )
+
+
+class TestRadarStationTerrainMask(unittest.TestCase):
+    """
+    Unit tests for RadarStation's terrain_mask-aware behavior.
+    """
+
+    def setUp(self):
+        self.mask = TerrainMask(
+            azimuth=[0, 45, 90, 180, 270, 315],
+            min_elevation_angle=[0.5, 5, 0.5, 0.5, 0.5, 5],
+        )
+        self.station = RadarStation(
+            name="test", latitude=0, longitude=0, elevation=0, terrain_mask=self.mask
+        )
+        self.unmasked = RadarStation(name="test", latitude=0, longitude=0, elevation=0)
+
+    def test_get_effective_min_elevation_angle_uses_terrain(self):
+        """
+        Test that the effective minimum elevation angle is raised at a
+        blocked azimuth and matches the nominal value at a clear azimuth.
+        """
+        self.assertAlmostEqual(
+            self.station.get_effective_min_elevation_angle(45), 5, delta=1e-6
+        )
+        self.assertAlmostEqual(
+            self.station.get_effective_min_elevation_angle(180),
+            self.station.min_elevation_angle,
+            delta=1e-6,
+        )
+
+    def test_get_effective_min_elevation_angle_capped_at_max(self):
+        """
+        Test that the effective minimum elevation angle never exceeds
+        max_elevation_angle, even if terrain blockage would otherwise be higher.
+        """
+        mask = TerrainMask(azimuth=[0, 180], min_elevation_angle=[0.5, 50])
+        station = RadarStation(
+            name="test",
+            latitude=0,
+            longitude=0,
+            max_elevation_angle=19.5,
+            terrain_mask=mask,
+        )
+        self.assertAlmostEqual(
+            station.get_effective_min_elevation_angle(180), 19.5, delta=1e-9
+        )
+
+    def test_get_effective_min_elevation_angle_no_mask(self):
+        """
+        Test that, without a terrain_mask, the effective minimum elevation
+        angle always equals the nominal min_elevation_angle.
+        """
+        self.assertEqual(
+            self.unmasked.get_effective_min_elevation_angle(45),
+            self.unmasked.min_elevation_angle,
+        )
+
+    def test_compute_ground_range_profile_shape(self):
+        """
+        Test that the ground range profile returns the requested number of
+        azimuth samples, evenly spaced.
+        """
+        profile = self.station.compute_ground_range_profile(
+            elevation=3048, number_points=36
+        )
+        self.assertEqual(len(profile), 36)
+        azimuths = [azimuth for azimuth, _, _ in profile]
+        self.assertEqual(azimuths, sorted(azimuths))
+        self.assertAlmostEqual(azimuths[1] - azimuths[0], 10, delta=1e-9)
+
+    def test_compute_ground_range_profile_shrinks_outer_at_blocked_azimuth(self):
+        """
+        Test that, for a target elevation well above the station, the outer
+        ground range is smaller at a terrain-blocked azimuth than at a
+        clear one.
+        """
+        profile = {
+            azimuth: (inner, outer)
+            for azimuth, inner, outer in self.station.compute_ground_range_profile(
+                elevation=3048, number_points=360
+            )
+        }
+        self.assertLess(profile[45][1], profile[180][1])
+
+    def test_compute_ground_range_profile_inner_unaffected_by_terrain(self):
+        """
+        Test that the inner (cone of silence) ground range is the same at
+        every non-blocked azimuth, since it depends only on
+        max_elevation_angle, not terrain.
+        """
+        profile = self.station.compute_ground_range_profile(
+            elevation=3048, number_points=360
+        )
+        inner_values = {round(inner, 3) for _, inner, outer in profile if outer > 0}
+        self.assertEqual(len(inner_values), 1)
+
+    def test_compute_footprint_with_terrain_mask_smaller_than_symmetric(self):
+        """
+        Test that a terrain-masked footprint at an elevated target is
+        smaller in area than the azimuthally symmetric (unmasked) footprint.
+        """
+        masked = self.station.compute_footprint(elevation=3048)
+        unmasked = self.unmasked.compute_footprint(elevation=3048)
+        self.assertLess(masked.area, unmasked.area)
+
+    def test_compute_footprint_with_terrain_mask_is_valid(self):
+        """
+        Test that a terrain-masked footprint is a valid, non-empty geometry.
+        """
+        footprint = self.station.compute_footprint(elevation=3048, number_points=72)
+        self.assertIsInstance(footprint, (Polygon, MultiPolygon))
+        self.assertTrue(footprint.is_valid)
+        self.assertFalse(footprint.is_empty)
+
+    def test_compute_footprint_fully_blocked_is_empty(self):
+        """
+        Test that a station with every azimuth blocked beyond what the
+        target elevation requires returns an empty footprint.
+        """
+        mask = TerrainMask(azimuth=[0, 180], min_elevation_angle=[19.5, 19.5])
+        station = RadarStation(
+            name="test", latitude=0, longitude=0, max_range=1000, terrain_mask=mask
+        )
+        footprint = station.compute_footprint(elevation=100000, number_points=36)
+        self.assertTrue(footprint.is_empty)
