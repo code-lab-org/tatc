@@ -13,6 +13,7 @@ from .orbit import (
     MolniyaOrbit,
     SunSynchronousOrbit,
     TundraOrbit,
+    TwoLineElements,
 )
 from .space import (
     AllSpaceObjects,
@@ -46,6 +47,7 @@ __all__ = [
     "SunSynchronousOrbit",
     "TrainConstellation",
     "TundraOrbit",
+    "TwoLineElements",
     "WalkerConfiguration",
     "WalkerConstellation",
 ]

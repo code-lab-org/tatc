@@ -11,6 +11,7 @@ from .keplerian import KeplerianOrbit
 from .molniya import MolniyaOrbit
 from .sun_synchronous import SunSynchronousOrbit
 from .tundra import TundraOrbit
+from .two_line_elements import TwoLineElements
 
 AllOrbits = (
     CircularOrbit
@@ -20,6 +21,7 @@ AllOrbits = (
     | MolniyaOrbit
     | SunSynchronousOrbit
     | TundraOrbit
+    | TwoLineElements
 )
 
 __all__ = [
@@ -31,4 +33,5 @@ __all__ = [
     "MolniyaOrbit",
     "SunSynchronousOrbit",
     "TundraOrbit",
+    "TwoLineElements",
 ]
