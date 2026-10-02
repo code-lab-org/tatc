@@ -358,57 +358,47 @@ class GeneralPerturbationsOrbit(BaseModel):
         self, at_times: npt.NDArray[np.datetime64]
     ) -> list[int]: ...
 
+    @overload
+    def get_closest_element_index(self, at_times: Time) -> int | list[int]: ...
+
     def get_closest_element_index(
-        self, at_times: datetime | list[datetime] | npt.NDArray[np.datetime64] | None
+        self,
+        at_times: datetime | list[datetime] | npt.NDArray[np.datetime64] | Time | None,
     ) -> int | list[int]:
         """
         Gets the closest element index to specified time(s), assuming
         elements are sorted by epoch (guaranteed for any orbit built
         through the constructor, since elements are sorted at
-        construction time; see _sort_elements_by_epoch).
+        construction time; see _sort_elements_by_epoch). A time exactly
+        halfway between two epochs selects the later element.
 
         Args:
-            at_times (datetime | list[datetime] | npt.NDArray[np.datetime64] | None):
-                specified times, or None to always select the first element (index 0)
+            at_times (datetime | list[datetime] | npt.NDArray[np.datetime64] | Time | None):
+                specified times (a Skyfield `Time` may be a scalar or an array),
+                or None to always select the first element (index 0)
 
         Returns:
-            int | list[int]: closest element index or indices
+            int | list[int]: closest element index (for a scalar time) or indices
         """
 
         if at_times is None:
             return 0
         # lazy-load element epochs
         element_epochs = utils.to_datetime64_ns(self.get_element_epochs())
-        # handle scalar
-        if isinstance(at_times, datetime):
-            at_time = utils.to_datetime64_ns(at_times)
-            idx = np.searchsorted(element_epochs, at_time, side="left")
-            return (
-                int(idx - 1)
-                if idx > 0
-                and (
-                    idx == len(element_epochs)
-                    or abs(at_time - element_epochs[idx - 1])
-                    < abs(at_time - element_epochs[idx])
-                )
-                else int(idx)
-            )
-        # handle vector
         at_time_array = utils.to_datetime64_ns(at_times)
+        is_scalar = np.ndim(at_time_array) == 0
+        at_time_array = np.atleast_1d(at_time_array)
         indices = np.searchsorted(element_epochs, at_time_array, side="left")
-        return [
-            (
-                int(idx - 1)
-                if idx > 0
-                and (
-                    idx == len(element_epochs)
-                    or abs(at_time_array[i] - element_epochs[idx - 1])
-                    < abs(at_time_array[i] - element_epochs[idx])
-                )
-                else int(idx)
-            )
-            for i, idx in enumerate(indices)
-        ]
+        # select the preceding epoch when it is strictly closer than the
+        # following one (or when there is no following epoch)
+        preceding = element_epochs[np.maximum(indices - 1, 0)]
+        following = element_epochs[np.minimum(indices, len(element_epochs) - 1)]
+        use_preceding = (indices > 0) & (
+            (indices == len(element_epochs))
+            | (np.abs(at_time_array - preceding) < np.abs(at_time_array - following))
+        )
+        closest = np.where(use_preceding, indices - 1, indices)
+        return int(closest[0]) if is_scalar else closest.tolist()
 
     @overload
     def get_closest_element(self, at_times: None) -> GeneralPerturbationsElements: ...
@@ -585,7 +575,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         if len(self.elements) > 1:
             # try to use multiple TLEs
-            nearest_indices = self.get_closest_element_index(t.utc_datetime())
+            nearest_indices = self.get_closest_element_index(t)
             if isinstance(nearest_indices, int):
                 return self.elements[nearest_indices].to_skyfield().at(t)  # type: ignore
             nearest_indices = np.asarray(nearest_indices)

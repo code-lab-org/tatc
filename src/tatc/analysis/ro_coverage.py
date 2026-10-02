@@ -17,10 +17,11 @@ from shapely.geometry import MultiPoint, Point
 from skyfield.api import Distance, wgs84
 from skyfield.positionlib import Geocentric
 from skyfield.searchlib import find_discrete
+from skyfield.timelib import Time
 
 from ..constants import timescale
 from ..schemas import Satellite
-from .tangent_point import _ellipsoidal_tangent_point
+from .tangent_point import _ellipsoidal_tangent_point, _itrs_rotation
 
 
 def _tangent_point_geometry(
@@ -127,30 +128,33 @@ def _make_ro_validity_function(
 
 
 def _tangent_point_tx_azimuth(
-    transmitter: Satellite,
-    times: list[datetime],
-    t,
     tp_p: np.ndarray,
+    tx_p: np.ndarray,
+    t: Time,
+    latitude: np.ndarray,
+    longitude: np.ndarray,
 ) -> np.ndarray:
     """
     Computes the transmitter azimuth (deg, clockwise from North) as viewed from
-    each point of a tangent point track, vectorized per distinct TLE element used
-    across the track (almost always a single element, given how short RO arcs are).
+    each point of a tangent point track, in the local horizontal (east, north)
+    frame of the geodetic tangent point (as Skyfield's
+    `(satellite - geographic_position).at(t).altaz()` would).
 
-    Only the tangent point position (not velocity) is needed: Skyfield's
-    geodetic and azimuth computations do not use it.
+    Works directly from the tangent point and transmitter positions (m, shape
+    (3, N), GCRS) already computed for the track, rotated to the Earth-fixed
+    frame, rather than re-propagating the transmitter: the rotation reuses the
+    Earth orientation quantities cached on `t` by that propagation, which
+    Skyfield would otherwise recompute for every new (sliced) time object.
     """
-    orbit = transmitter.orbit.to_gp_orbit()
-    element_indices = np.asarray(orbit.get_closest_element_index(times))
-    azimuth = np.empty(len(times))
-    for element_index in np.unique(element_indices):
-        mask = element_indices == element_index
-        sat = orbit.elements[element_index].to_skyfield()
-        tpp_geo = wgs84.geographic_position_of(
-            Geocentric(Distance(m=tp_p[:, mask]).au, None, t[mask])
-        )
-        azimuth[mask] = (sat - tpp_geo).at(t[mask]).altaz()[1].degrees
-    return azimuth
+    tp_tx = np.einsum("ij...,j...->i...", _itrs_rotation(t), tx_p - tp_p)
+    lat, lon = np.radians(latitude), np.radians(longitude)
+    east = -np.sin(lon) * tp_tx[0] + np.cos(lon) * tp_tx[1]
+    north = (
+        -np.sin(lat) * np.cos(lon) * tp_tx[0]
+        - np.sin(lat) * np.sin(lon) * tp_tx[1]
+        + np.cos(lat) * tp_tx[2]
+    )
+    return np.degrees(np.arctan2(east, north)) % 360
 
 
 def _sample_ro_arc(
@@ -184,7 +188,9 @@ def _sample_ro_arc(
     latitude = np.array(tpp_geo.latitude.degrees)
     elevation = np.array(tpp_geo.elevation.m)
     # azimuth of transmitter from geodetic tangent point (clockwise from North)
-    tp_tx_azimuth = _tangent_point_tx_azimuth(transmitter, times, t, tp_p)
+    tp_tx_azimuth = _tangent_point_tx_azimuth(
+        tp_p, np.array(tx_pv.position.m), t, latitude, longitude
+    )
     # tangent point height within elevation range
     in_range = np.logical_and(
         elevation > range_elevation[0], elevation < range_elevation[1]
