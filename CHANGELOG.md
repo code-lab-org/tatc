@@ -1,5 +1,16 @@
 # TAT-C Change Log
 
+## 3.5.1
+
+Minor refactoring to improve backwards compatibility.
+
+Added:
+ - Added a simplified `TwoLineElements` object schema as a thin wrapper around the new `GeneralPerturbationsOrbit`.
+ - Added `altitude` as an alias for `mean_altitude` for circular orbits.
+
+Changed:
+ - Fixed an overly-sensitive unit test that failed on different platforms due to numerical differences.
+
 ## 3.5.0
 
 Major refactoring that focused on completing unit tests to approach full code coverage. Drops support for Python < 3.10 to improve compatibility with modern libraries. Replaces the `TwoLineElements` schema with `GeneralPerturbationsOrbit` to support modern orbit specifications including OMM CSV and JSON. Drops the CRS-based buffering approach to determine ground track in favor of geometric projections using the SPICE library. During refactoring, a few bug fixes and breaking changes were also made.

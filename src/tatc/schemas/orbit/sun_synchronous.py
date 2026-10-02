@@ -10,7 +10,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Literal
 
 import numpy as np
-from pydantic import Field
+from pydantic import AliasChoices, Field
 
 from ... import constants, utils
 from .base_circular import CircularOrbitBase
@@ -27,6 +27,7 @@ class SunSynchronousOrbit(CircularOrbitBase):
         description="Mean altitude (meters).",
         ge=0,
         lt=12352000 - constants.EARTH_MEAN_RADIUS,
+        validation_alias=AliasChoices("mean_altitude", "altitude"),
     )
     equator_crossing_time: time = Field(
         ..., description="Equator crossing time (local solar time)."

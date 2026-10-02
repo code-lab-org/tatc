@@ -62,6 +62,11 @@ addopts = "-ra -q"
 testpaths = [
     "tests",
 ]
+filterwarnings = [
+    # upstream bug: skyfield sets ndarray.dtype in place, deprecated since numpy 2.5
+    # https://github.com/skyfielders/python-skyfield/blob/master/skyfield/searchlib.py
+    "ignore:Setting the dtype on a NumPy array has been deprecated:DeprecationWarning:skyfield.searchlib",
+]
 
 [project.optional-dependencies]
 dev = [
