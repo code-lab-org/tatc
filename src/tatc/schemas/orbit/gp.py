@@ -591,11 +591,21 @@ class GeneralPerturbationsOrbit(BaseModel):
             nearest_indices = np.asarray(nearest_indices)
             position_au = np.empty((3,) + t.shape)
             velocity_au_per_d = np.empty((3,) + t.shape)
+            # Skyfield caches per-instant quantities on a `Time` object, but
+            # slicing a `Time` does not carry them over. Compute the costly
+            # ones used to rotate SGP4 (TEME) results into GCRS (sidereal
+            # time and the precession-nutation matrix) once for all of `t`
+            # and share them with each slice, which also leaves them cached
+            # on `t` for later frame conversions (e.g. to ITRS).
+            gast, precession_nutation = t.gast, t.M
             for element_index in np.unique(nearest_indices):
                 # propagate each distinct nearest TLE across all its assigned
                 # times in one vectorized call, rather than one time at a time
                 mask = nearest_indices == element_index
-                track = self.elements[element_index].to_skyfield().at(t[mask])
+                t_mask = t[mask]
+                t_mask.gast = gast[mask]
+                t_mask.M = precession_nutation[:, :, mask]
+                track = self.elements[element_index].to_skyfield().at(t_mask)
                 position_au[:, mask] = track.position.au
                 velocity_au_per_d[:, mask] = track.velocity.au_per_d
             return Geocentric(position_au, velocity_au_per_d, t)
