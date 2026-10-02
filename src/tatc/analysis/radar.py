@@ -22,6 +22,7 @@ def _get_empty_radar_track() -> gpd.GeoDataFrame:
     """
     columns = {
         "station": pd.Series([], dtype="str"),
+        "band": pd.Series([], dtype="str"),
         "elevation": pd.Series([], dtype="float"),
         "inner_ground_range": pd.Series([], dtype="float"),
         "outer_ground_range": pd.Series([], dtype="float"),
@@ -58,6 +59,7 @@ def collect_radar_track(
     records = [
         {
             "station": station.name,
+            "band": station.band.value if station.band is not None else None,
             "elevation": elevation,
             "inner_ground_range": ranges[0] if ranges is not None else None,
             "outer_ground_range": ranges[1] if ranges is not None else None,

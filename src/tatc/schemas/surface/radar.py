@@ -6,6 +6,8 @@ Object schemas for ground-based radar stations.
 
 from __future__ import annotations
 
+from enum import Enum
+
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
 from shapely.geometry import MultiPolygon, Polygon
@@ -91,6 +93,38 @@ class TerrainMask(BaseModel):
         return float(np.interp(wrapped_azimuth, azimuths, angles))
 
 
+class RadarBand(str, Enum):
+    """
+    Common weather radar frequency bands. This is an informational tag
+    only: TAT-C does not model transient, weather-dependent propagation
+    effects (e.g. rain attenuation), which is the dominant practical
+    difference between bands in reality -- a heavy storm can attenuate an
+    X-band signal to the point of near-total extinction a short distance
+    behind it, a C-band signal moderately, and an S-band signal barely at
+    all. The static effect this schema does represent is a shorter
+    typical maximum range at shorter wavelengths, reflecting that overall
+    attenuation/sensitivity tradeoff in clear-to-moderate conditions; see
+    `RadarStation.from_band`.
+    """
+
+    S = "S"
+    C = "C"
+    X = "X"
+
+
+# illustrative, order-of-magnitude nominal maximum range (meters) by band,
+# NOT a model of any specific radar: S-band mirrors NEXRAD WSR-88D (negligible
+# rain attenuation, long range); C-band and X-band are shortened to loosely
+# reflect their greater susceptibility to rain attenuation, consistent with
+# the shorter ranges typical of real C-band national networks and X-band
+# short-range/gap-filling/mobile radars, respectively
+_RADAR_BAND_NOMINAL_MAX_RANGE = {
+    RadarBand.S: 230000,
+    RadarBand.C: 150000,
+    RadarBand.X: 60000,
+}
+
+
 class RadarStation(Point):
     """
     Ground-based radar station (e.g. a NOAA NEXRAD WSR-88D weather radar)
@@ -152,6 +186,14 @@ class RadarStation(Point):
         + "the station, e.g. a storm-top or flight-level height, where a "
         + "raised scan angle climbs away from that height much sooner.",
     )
+    band: RadarBand | None = Field(
+        default=None,
+        description="Optional informational tag for this station's "
+        + "nominal operating frequency band (S, C, or X). It does not "
+        + "affect any coverage computation directly -- set `max_range` "
+        + "(and other fields) explicitly to represent a band's practical "
+        + "effect; see `from_band` for illustrative nominal defaults.",
+    )
 
     @model_validator(mode="after")
     def max_elevation_angle_ge_min_elevation_angle(self) -> RadarStation:
@@ -164,6 +206,36 @@ class RadarStation(Point):
                 "max_elevation_angle must be greater than or equal to min_elevation_angle"
             )
         return self
+
+    @classmethod
+    def from_band(cls, band: RadarBand, **kwargs) -> RadarStation:
+        """
+        Constructs a `RadarStation` with an illustrative nominal
+        `max_range` typical of a given weather radar frequency band, for
+        a reasonable starting point without needing to know specific
+        hardware numbers.
+
+        These are representative orders of magnitude, not a model of any
+        particular radar, and the real driver of a band's practical range
+        -- precipitation attenuation, which TAT-C does not model as a
+        transient, weather-dependent effect -- is only indirectly
+        represented by this static shortening: negligible (effectively no
+        shortening) at S-band, moderate at C-band, and severe (so a much
+        shorter nominal range) at X-band. Pass `max_range` as a keyword
+        argument to override the band default.
+
+        Args:
+            band (RadarBand): The nominal operating frequency band.
+            **kwargs: Other `RadarStation` fields (e.g. `name`,
+                `latitude`, `longitude`, `elevation`), including an
+                optional `max_range` override.
+
+        Returns:
+            RadarStation: A station with the band tagged and its nominal
+            `max_range` applied (unless overridden).
+        """
+        defaults = {"band": band, "max_range": _RADAR_BAND_NOMINAL_MAX_RANGE[band]}
+        return cls(**{**defaults, **kwargs})
 
     def get_effective_min_elevation_angle(self, azimuth: float) -> float:
         """

@@ -10,7 +10,7 @@ import unittest
 from pydantic import ValidationError
 from shapely.geometry import MultiPolygon, Polygon
 
-from tatc.schemas import RadarStation, TerrainMask
+from tatc.schemas import RadarBand, RadarStation, TerrainMask
 
 
 class TestRadarStation(unittest.TestCase):
@@ -385,3 +385,85 @@ class TestRadarStationTerrainMask(unittest.TestCase):
         )
         footprint = station.compute_footprint(elevation=100000, number_points=36)
         self.assertTrue(footprint.is_empty)
+
+
+class TestRadarBand(unittest.TestCase):
+    """
+    Unit tests for the RadarBand enum and RadarStation.from_band.
+    """
+
+    def test_band_defaults_to_none(self):
+        """
+        Test that a plain RadarStation has no band tagged by default.
+        """
+        station = RadarStation(name="test", latitude=0, longitude=0)
+        self.assertIsNone(station.band)
+
+    def test_from_band_tags_band(self):
+        """
+        Test that from_band tags the constructed station with the
+        requested band.
+        """
+        for band in (RadarBand.S, RadarBand.C, RadarBand.X):
+            station = RadarStation.from_band(band, name="test", latitude=0, longitude=0)
+            self.assertEqual(station.band, band)
+
+    def test_from_band_max_range_decreases_s_to_x(self):
+        """
+        Test that the nominal max_range decreases from S-band to C-band to
+        X-band, reflecting greater susceptibility to attenuation at
+        shorter wavelengths.
+        """
+        s = RadarStation.from_band(RadarBand.S, name="s", latitude=0, longitude=0)
+        c = RadarStation.from_band(RadarBand.C, name="c", latitude=0, longitude=0)
+        x = RadarStation.from_band(RadarBand.X, name="x", latitude=0, longitude=0)
+        self.assertGreater(s.max_range, c.max_range)
+        self.assertGreater(c.max_range, x.max_range)
+
+    def test_from_band_s_matches_default_max_range(self):
+        """
+        Test that the S-band nominal max_range matches RadarStation's own
+        default (both represent the same NEXRAD WSR-88D convention).
+        """
+        s = RadarStation.from_band(RadarBand.S, name="s", latitude=0, longitude=0)
+        default = RadarStation(name="default", latitude=0, longitude=0)
+        self.assertEqual(s.max_range, default.max_range)
+
+    def test_from_band_max_range_override(self):
+        """
+        Test that an explicit max_range keyword argument overrides the
+        band's nominal default.
+        """
+        station = RadarStation.from_band(
+            RadarBand.X, name="test", latitude=0, longitude=0, max_range=12345
+        )
+        self.assertEqual(station.max_range, 12345)
+
+    def test_from_band_passes_through_other_fields(self):
+        """
+        Test that other RadarStation fields (e.g. location) pass through
+        from_band's keyword arguments unchanged.
+        """
+        station = RadarStation.from_band(
+            RadarBand.C, name="test", latitude=12.5, longitude=-34.5, elevation=100
+        )
+        self.assertEqual(station.latitude, 12.5)
+        self.assertEqual(station.longitude, -34.5)
+        self.assertEqual(station.elevation, 100)
+
+    def test_band_does_not_affect_footprint_geometry(self):
+        """
+        Test that tagging a band (beyond its effect on max_range) does not
+        change footprint computation: a plain RadarStation and one built
+        via from_band with an identical, explicit max_range produce the
+        same footprint.
+        """
+        plain = RadarStation(name="plain", latitude=0, longitude=0, max_range=60000)
+        tagged = RadarStation.from_band(
+            RadarBand.X, name="tagged", latitude=0, longitude=0, max_range=60000
+        )
+        self.assertTrue(
+            plain.compute_footprint(elevation=0).equals(
+                tagged.compute_footprint(elevation=0)
+            )
+        )

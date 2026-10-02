@@ -9,7 +9,7 @@ import unittest
 from shapely.geometry import box
 
 from tatc.analysis import collect_radar_track, compute_radar_track
-from tatc.schemas import RadarStation
+from tatc.schemas import RadarBand, RadarStation
 
 
 class TestRadarAnalysis(unittest.TestCase):
@@ -34,6 +34,7 @@ class TestRadarAnalysis(unittest.TestCase):
             list(track.columns),
             [
                 "station",
+                "band",
                 "elevation",
                 "inner_ground_range",
                 "outer_ground_range",
@@ -63,6 +64,18 @@ class TestRadarAnalysis(unittest.TestCase):
             inner, outer = station.compute_ground_ranges(3048)
             self.assertAlmostEqual(track.inner_ground_range.iloc[i], inner, delta=1e-6)
             self.assertAlmostEqual(track.outer_ground_range.iloc[i], outer, delta=1e-6)
+
+    def test_collect_radar_track_reports_band(self):
+        """
+        Test that the band column reports each station's tagged band (or
+        None if untagged).
+        """
+        tagged = RadarStation.from_band(
+            RadarBand.X, name="X1", latitude=10, longitude=10
+        )
+        track = collect_radar_track([self.station, tagged])
+        self.assertIsNone(track.band.iloc[0])
+        self.assertEqual(track.band.iloc[1], RadarBand.X)
 
     def test_collect_radar_track_mask(self):
         """
