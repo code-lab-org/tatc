@@ -20,6 +20,7 @@ from skyfield.searchlib import find_discrete
 
 from ..constants import timescale
 from ..schemas import Satellite
+from .tangent_point import _ellipsoidal_tangent_point
 
 
 def _tangent_point_geometry(
@@ -28,96 +29,26 @@ def _tangent_point_geometry(
     rx_v_u: np.ndarray,
     rx_n_u: np.ndarray,
     rx_b_u: np.ndarray,
-    compute_velocity: bool = False,
-) -> tuple[np.ndarray, np.ndarray | None, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Computes tangent point position (and, optionally, velocity) and
-    receiver-frame pitch/yaw angles of the transmitter, as seen from the
-    receiver, at one or more times.
+    Computes tangent point position and receiver-frame pitch/yaw angles of
+    the transmitter, as seen from the receiver, at one or more times.
 
-    The tangent point is defined geocentrically: the point along the
-    receiver-transmitter line with minimum distance to the Earth's center
-    (`x_tp` below), not the point where the line is exactly tangent to the
-    WGS 84 reference ellipsoid's surface (which would use the local
-    ellipsoid surface normal rather than the geocentric radius vector, and
-    generally falls at a slightly different point away from the equator).
-    The geodetic position/elevation reported by callers is simply the
-    WGS 84 conversion of this geocentric point, not a re-derived
-    ellipsoidal tangency point -- consistent with the coarse,
-    early-stage-analysis scope of this module (see also
-    `collect_ro_observations`).
-
-    Tangent point velocity is not needed for geodetic position or azimuth
-    computations (Skyfield ignores it there), so it is skipped by default;
-    pass `compute_velocity=True` to compute it anyway.
+    The tangent point is the point on the receiver-transmitter line with
+    minimum WGS 84 geodetic altitude (see
+    `tatc.analysis.tangent_point._ellipsoidal_tangent_point`), the
+    convention used to geolocate operationally processed RO profiles. It
+    differs from the line's closest approach to the Earth's center by up to
+    about 20 km horizontally at middle latitudes (the two coincide at the
+    equator and poles), but by only meters in altitude.
     """
-    # relative position, velocity of transmitter from receiver
-    # x_(rx,tx) = x_tx - x_rx; v_(rx,tx) = v_tx - v_rx
+    # relative position of transmitter from receiver: x_(rx,tx) = x_tx - x_rx
     rx_tx_pv = tx_pv - rx_pv
-    # tangent point position (m)
-    # x_tp = x_tx - x_(rx,tx) . [ x_tx . x_(rx,tx) ] / || x_(rx,tx) ||
     rx_tx_p_m = np.array(rx_tx_pv.position.m)
     rx_p_m = np.array(rx_pv.position.m)
     tx_p_m = np.array(tx_pv.position.m)
-    tp_p = tx_pv.position.m - np.einsum(
-        "ij,j->ij",
-        rx_tx_p_m,
-        np.divide(
-            np.einsum("ij,ij->j", tx_p_m, rx_tx_p_m),
-            np.einsum("ij,ij->j", rx_tx_p_m, rx_tx_p_m),
-        ),
-    )
-    if compute_velocity:
-        # tangent point velocity (m/s) - derived using chain rule
-        # v_tp = v_tx - v_(rx,tx) . [ x_tx . x_(rx,tx) ] / || x_(rx,tx) ||
-        #        - x_(rx,tx) . [
-        #           [ v_tx . x_(rx,tx) ] + [ x_tx . v_(rx,tx) ] ] / || x_(rx,tx) || ]
-        #           - 2 * [ v_(rx,tx) . x_(rx,tx) ] * [ x_tx . x_(rx,tx) ] / || x_(rx,tx) ||^2
-        #        ]
-        tx_p_m = np.array(tx_pv.position.m)
-        tx_v_m_per_s = np.array(tx_pv.velocity.m_per_s)
-        rx_tx_v_m_per_s = np.array(rx_tx_pv.velocity.m_per_s)
-        tp_v = (
-            tx_v_m_per_s
-            - np.einsum(
-                "ij,j->ij",
-                rx_tx_v_m_per_s,
-                np.divide(
-                    np.einsum("ij,ij->j", tx_p_m, rx_tx_p_m),
-                    np.einsum("ij,ij->j", rx_tx_p_m, rx_tx_p_m),
-                ),
-            )
-            - np.einsum(
-                "ij,j->ij",
-                rx_tx_p_m,
-                (
-                    np.divide(
-                        (
-                            np.einsum("ij,ij->j", tx_v_m_per_s, rx_tx_p_m)
-                            + np.einsum("ij,ij->j", tx_p_m, rx_tx_v_m_per_s)
-                        ),
-                        np.einsum("ij,ij->j", rx_tx_p_m, rx_tx_p_m),
-                    )
-                    - 2
-                    * np.divide(
-                        np.multiply(
-                            np.einsum(
-                                "ij,ij->j",
-                                rx_tx_v_m_per_s,
-                                rx_tx_p_m,
-                            ),
-                            np.einsum("ij,ij->j", tx_p_m, rx_tx_p_m),
-                        ),
-                        np.power(
-                            np.einsum("ij,ij->j", rx_tx_p_m, rx_tx_p_m),
-                            2,
-                        ),
-                    )
-                ),
-            )
-        )
-    else:
-        tp_v = None
+    # tangent point position (m)
+    tp_p = _ellipsoidal_tangent_point(rx_p_m, rx_tx_p_m, rx_pv.t)
     # intersecting (-1) or parallel (+1) view of tangent point
     tp_sign = np.sign(np.einsum("ij,ij->j", tp_p - tx_p_m, tp_p - rx_p_m))
     # relative transmitter position from receiver in plane normal to receiver orbit
@@ -142,7 +73,7 @@ def _tangent_point_geometry(
             np.einsum("ij,ij->j", rx_tx_p_rx_t_plane, rx_v_u),
         )
     )
-    return tp_p, tp_v, tp_sign, rx_tx_pitch, rx_tx_yaw
+    return tp_p, tp_sign, rx_tx_pitch, rx_tx_yaw
 
 
 def _receiver_frame_vectors(
@@ -182,7 +113,7 @@ def _make_ro_validity_function(
         rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track_at_time(t)
         tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track_at_time(t)
         rx_v_u, rx_n_u, rx_b_u = _receiver_frame_vectors(rx_pv)
-        _, _, tp_sign, _, rx_tx_yaw = _tangent_point_geometry(
+        _, tp_sign, _, rx_tx_yaw = _tangent_point_geometry(
             tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u
         )
         # valid if tangent point intersects and yaw angle below maximum
@@ -243,7 +174,7 @@ def _sample_ro_arc(
     rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track_at_time(t)
     rx_v_u, rx_n_u, rx_b_u = _receiver_frame_vectors(rx_pv)
     tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track_at_time(t)
-    tp_p, _, _, rx_tx_pitch, rx_tx_yaw = _tangent_point_geometry(
+    tp_p, _, rx_tx_pitch, rx_tx_yaw = _tangent_point_geometry(
         tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u
     )
 
@@ -431,14 +362,14 @@ def collect_ro_observations(
     """
     Collects Radio Occultation (RO) observations.
 
-    The tangent point (the geometric basis for every reported position,
-    elevation, and pitch/yaw angle) is defined geocentrically -- the
-    receiver-transmitter line's point of minimum distance to the Earth's
-    center -- rather than as the point where that line is exactly tangent
-    to the WGS 84 reference ellipsoid's surface. The two definitions
-    coincide at the equator and poles but diverge slightly elsewhere,
-    since the ellipsoid's surface normal is not generally parallel to the
-    geocentric radius vector. See `_tangent_point_geometry` for details.
+    The tangent point (the geometric basis for every reported position and
+    elevation) is the point on the straight receiver-transmitter line with
+    minimum WGS 84 geodetic altitude, the convention used to geolocate
+    operationally processed RO profiles. Atmospheric refraction is not
+    modeled, so tangent point elevations are those of the straight line,
+    well below those of the refracted signal in the lower atmosphere (hence
+    the negative default `sample_elevation`). See `_tangent_point_geometry`
+    for details.
 
     Args:
         receiver (Satellite): the satellite with a RO receiver.

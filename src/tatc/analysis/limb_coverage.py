@@ -19,6 +19,11 @@ from skyfield.positionlib import Geocentric
 from ..constants import EARTH_MEAN_RADIUS, timescale
 from ..schemas import Satellite
 from .ro_coverage import _receiver_frame_vectors
+from .tangent_point import (
+    _ellipsoidal_tangent_distance,
+    _geodetic_altitude,
+    _itrs_rotation,
+)
 
 
 class ScanDirection(str, Enum):
@@ -56,24 +61,25 @@ def _limb_tangent_point(
     sat_pv: Geocentric,
     scan_azimuth: float,
     scan_elevations: list[float],
+    tolerance: float = 1e-3,
+    max_iterations: int = 10,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Computes the limb sounder's tangent point position and per-sample
     viewing-domain validity, given the satellite's position/velocity at
     each sample (one `scan_elevations` entry per sample/column of `sat_pv`).
 
-    As in `tatc.analysis.ro_coverage._tangent_point_geometry`, the tangent
-    point is defined geocentrically -- the point along the look direction
-    `d` with minimum distance to the Earth's center -- rather than as the
-    point where `d` is exactly tangent to the WGS 84 reference ellipsoid's
-    surface. The two definitions coincide at the equator and poles but
-    diverge slightly elsewhere, since the ellipsoid's surface normal is
-    not generally parallel to the geocentric radius vector.
+    The tangent point is defined with respect to the WGS 84 reference
+    ellipsoid -- the point along the look direction `d` with minimum
+    geodetic altitude (see `_ellipsoidal_tangent_distance`) -- and the
+    viewing (depression) angle is solved iteratively so that this point's
+    geodetic altitude matches the requested elevation (to within
+    `tolerance` meters).
 
     Returns:
         tuple[numpy.ndarray, numpy.ndarray]: tangent point positions (m,
-            shape (3, N)) and a boolean mask (shape (N,)) that is `False`
-            wherever the requested elevation is at or above the
+            shape (3, N), GCRS) and a boolean mask (shape (N,)) that is
+            `False` wherever the requested elevation is above the
             satellite's own altitude at that sample (no valid viewing
             angle exists).
     """
@@ -82,27 +88,41 @@ def _limb_tangent_point(
     # satellite position and geocentric radius at each sample
     sat_p = np.array(sat_pv.position.m)
     r_sat = np.linalg.norm(sat_p, axis=0)
-
-    # approximate viewing (depression) angle needed to reach each target
-    # tangent point elevation, from that sample's own satellite radius
-    # (spherical-Earth approximation; the tangent point itself, below, is
-    # computed exactly as a geocentric closest-approach point, not
-    # re-derived from an ellipsoidal tangency condition -- see docstring)
     target_elevations = np.asarray(scan_elevations, dtype=float)
-    cos_el = (EARTH_MEAN_RADIUS + target_elevations) / r_sat
-    in_domain = np.abs(cos_el) <= 1
-    el = np.arccos(np.clip(cos_el, -1, 1))
+
+    # GCRS -> ITRS rotation at each sample, to express rays relative to the
+    # Earth-fixed WGS 84 ellipsoid (a single matrix for a scalar time)
+    rotation = _itrs_rotation(sat_pv.t)
+    sat_p_itrs = np.einsum("ij...,j...->i...", rotation, sat_p)
+
+    # a valid viewing angle exists only for elevations up to the
+    # satellite's own geodetic altitude
+    in_domain = target_elevations <= _geodetic_altitude(sat_p_itrs) + tolerance
 
     # look direction: rotate from the velocity direction toward the
     # orbit-normal by scan_azimuth (staying in the local horizontal
     # plane), then tilt down toward the quasi-nadir direction by el
     az = np.radians(scan_azimuth)
     horizontal = np.cos(az) * v_u + np.sin(az) * n_u
-    d = np.cos(el) * horizontal - np.sin(el) * b_u
 
-    # tangent point: closest approach of the ray (sat_p + s*d) to Earth's
-    # center, i.e. the foot of the perpendicular from the origin
-    tp_p = sat_p - d * np.einsum("ij,ij->j", sat_p, d)
+    # solve for the viewing angle el: a spherical-Earth relationship
+    # cos(el) = (R + h) / r_sat, with an effective reference radius R per
+    # sample, iteratively corrected by the achieved geodetic altitude error
+    # (starting from the mean Earth radius; converges in a few iterations)
+    reference_radius = np.full(target_elevations.shape, EARTH_MEAN_RADIUS)
+    for _ in range(max_iterations):
+        cos_el = (reference_radius + target_elevations) / r_sat
+        el = np.arccos(np.clip(cos_el, -1, 1))
+        d = np.cos(el) * horizontal - np.sin(el) * b_u
+        d_itrs = np.einsum("ij...,j...->i...", rotation, d)
+        s = _ellipsoidal_tangent_distance(sat_p_itrs, d_itrs, target_elevations)
+        error = _geodetic_altitude(sat_p_itrs + s * d_itrs) - target_elevations
+        if not np.any(np.abs(error[in_domain]) > tolerance):
+            break
+        reference_radius = reference_radius - error
+
+    # tangent point: the same distance s along the (inertial) ray
+    tp_p = sat_p + s * d
     return tp_p, in_domain
 
 
@@ -250,13 +270,10 @@ def collect_limb_observations(
     Collects limb sounding observations.
 
     The tangent point (the geometric basis for every reported position and
-    elevation) is defined geocentrically -- the sensor's look direction's
-    point of minimum distance to the Earth's center -- rather than as the
-    point where that direction is exactly tangent to the WGS 84 reference
-    ellipsoid's surface. The two definitions coincide at the equator and
-    poles but diverge slightly elsewhere, since the ellipsoid's surface
-    normal is not generally parallel to the geocentric radius vector. See
-    `_limb_tangent_point` for details.
+    elevation) is the point along the sensor's look direction with minimum
+    WGS 84 geodetic altitude, and the viewing angle is solved so that this
+    altitude matches each requested elevation. See `_limb_tangent_point`
+    for details.
 
     Args:
         satellite (Satellite): the satellite carrying the limb-sounding instrument.
@@ -280,8 +297,10 @@ def collect_limb_observations(
             through `scan_elevations`, starting at each requested time.
         scan_direction (ScanDirection | None): whether the scan sweeps
             from the lowest to the highest requested elevation (`UPWARD`,
-            e.g. MLS) or the reverse (`DOWNWARD`, e.g. SABER) -- the two
-            broad classes of real limb sounder vertical scans. Defaults to
+            e.g. MLS) or the reverse (`DOWNWARD`) -- the two broad classes
+            of real limb sounder vertical scans. Instruments that alternate
+            between them (e.g. SABER) can be modeled with one call per
+            direction. Defaults to
             `UPWARD` for a forward-looking sensor (`scan_azimuth` closer
             to 0 deg than 180 deg) and `DOWNWARD` for a rearward-looking
             one, when `None` (see `_default_scan_direction`).

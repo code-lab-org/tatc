@@ -10,6 +10,8 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 from shapely.geometry import MultiPoint
 from shapely.geometry import Point as ShapelyPoint
+from skyfield.api import wgs84
+from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 from skyfield.units import Distance, Velocity
 
@@ -21,6 +23,7 @@ from tatc.analysis.limb_coverage import (
     _limb_tangent_point,
     _sample_limb_scan,
 )
+from tatc.analysis.tangent_point import _geodetic_altitude
 from tatc.constants import EARTH_MEAN_RADIUS, timescale
 
 from .common import IssConstellationTestCase
@@ -60,34 +63,81 @@ class TestLimbTangentPoint(unittest.TestCase):
     def test_zero_elevation_azimuth_looks_along_velocity(self):
         """
         Test that scanning for a target elevation equal to the satellite's
-        own altitude (a purely horizontal view, el=0) with scan_azimuth=0
-        (looking along velocity) yields a tangent point at the satellite's
-        own position -- the degenerate case where the ray is tangent to
-        the sphere of the satellite's own radius exactly at the satellite.
+        own geodetic altitude (a purely horizontal view, el=0) with
+        scan_azimuth=0 (looking along velocity) yields a tangent point at
+        the satellite's own position -- the degenerate case where the ray
+        is tangent to the surface of constant geodetic altitude exactly at
+        the satellite. (Altitude varies only quadratically with distance
+        along a near-horizontal ray, so the position tolerance is loose.)
         """
-        tp_p, in_domain = _limb_tangent_point(self.sat, 0.0, [self.sat_altitude])
-        self.assertTrue(in_domain[0])
-        np.testing.assert_allclose(
-            tp_p.ravel(), [self.r_sat, 0, 0], atol=1e-6
+        sat_geodetic_altitude = _geodetic_altitude(
+            itrs.rotation_at(self.t) @ np.array([self.r_sat, 0, 0])
         )
+        tp_p, in_domain = _limb_tangent_point(self.sat, 0.0, [sat_geodetic_altitude])
+        self.assertTrue(in_domain[0])
+        np.testing.assert_allclose(tp_p.ravel(), [self.r_sat, 0, 0], atol=500)
 
-    def test_tangent_point_radius_matches_analytic_formula(self):
+    def test_achieved_geodetic_altitude_matches_target(self):
         """
-        Cross-checks the tangent point's geocentric radius against the
-        analytic spherical-Earth relationship r_tp = R_sat * cos(el) for
-        several target elevations, independent of scan_azimuth.
+        Test that the tangent point's WGS 84 geodetic altitude (computed
+        independently by Skyfield) matches each requested elevation, for
+        several viewing azimuths and for satellites over the equator and
+        at mid-latitude -- where a spherical mean-radius approximation
+        would be off by several kilometers.
         """
-        for azimuth in [0.0, 45.0, 90.0, 180.0, 270.0]:
-            for target_elevation in [0.0, 100e3, 300e3]:
-                with self.subTest(azimuth=azimuth, target_elevation=target_elevation):
-                    tp_p, in_domain = _limb_tangent_point(
-                        self.sat, azimuth, [target_elevation]
-                    )
-                    self.assertTrue(in_domain[0])
-                    expected_radius = (EARTH_MEAN_RADIUS + target_elevation)
-                    np.testing.assert_allclose(
-                        np.linalg.norm(tp_p.ravel()), expected_radius, rtol=1e-9
-                    )
+        r = self.r_sat
+        mid_latitude_sat = _make_geocentric(
+            [[r * np.cos(np.radians(45))], [0], [r * np.sin(np.radians(45))]],
+            [[0], [7.5e3], [0]],
+            self.t,
+        )
+        for name, sat in [("equator", self.sat), ("mid-latitude", mid_latitude_sat)]:
+            for azimuth in [0.0, 45.0, 90.0, 180.0, 270.0]:
+                for target_elevation in [0.0, 50e3, 100e3, 300e3]:
+                    with self.subTest(
+                        sat=name, azimuth=azimuth, target_elevation=target_elevation
+                    ):
+                        tp_p, in_domain = _limb_tangent_point(
+                            sat, azimuth, [target_elevation]
+                        )
+                        self.assertTrue(in_domain[0])
+                        achieved = wgs84.geographic_position_of(
+                            Geocentric(Distance(m=tp_p).au, None, self.t)
+                        ).elevation.m
+                        np.testing.assert_allclose(
+                            achieved, target_elevation, atol=1e-2
+                        )
+
+    def test_tangent_point_is_minimum_geodetic_altitude_along_ray(self):
+        """
+        Test that the tangent point is the point of minimum WGS 84 geodetic
+        altitude along the viewing ray (not merely the point closest to the
+        Earth's center), by densely sampling the ray on either side of it.
+        """
+        r = self.r_sat
+        sat = _make_geocentric(
+            [[r * np.cos(np.radians(40))], [0], [r * np.sin(np.radians(40))]],
+            [[0], [7.5e3], [0]],
+            self.t,
+        )
+        sat_p = np.array(sat.position.m).ravel()
+        rotation = itrs.rotation_at(self.t)
+        for azimuth in [0.0, 90.0, 180.0]:
+            with self.subTest(azimuth=azimuth):
+                tp_p, _ = _limb_tangent_point(sat, azimuth, [30e3])
+                tp_p = tp_p.ravel()
+                d = (tp_p - sat_p) / np.linalg.norm(tp_p - sat_p)
+                offsets = np.linspace(-50e3, 50e3, 20001)
+                ray = tp_p[:, np.newaxis] + offsets * d[:, np.newaxis]
+                altitudes = _geodetic_altitude(rotation @ ray)
+                # minimum sits at the reported tangent point (5 m sampling)
+                self.assertLess(abs(offsets[np.argmin(altitudes)]), 100.0)
+                self.assertLess(
+                    _geodetic_altitude(rotation @ tp_p) - altitudes.min(), 1e-3
+                )
+                # whereas the geocentric closest approach is well off it
+                geocentric_offset = -np.dot(tp_p, d)
+                self.assertGreater(abs(geocentric_offset), 5e3)
 
     def test_target_above_satellite_altitude_is_out_of_domain(self):
         """
