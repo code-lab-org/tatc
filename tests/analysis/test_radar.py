@@ -28,7 +28,7 @@ class TestRadarAnalysis(unittest.TestCase):
         """
         Test that an empty station list produces an empty data frame.
         """
-        track = collect_radar_track([])
+        track = collect_radar_track([], elevation=3048)
         self.assertTrue(track.empty)
         self.assertListEqual(
             list(track.columns),
@@ -47,8 +47,8 @@ class TestRadarAnalysis(unittest.TestCase):
         Test that passing a single RadarStation produces the same result as
         passing a list containing that one station.
         """
-        singular = collect_radar_track(self.station)
-        as_list = collect_radar_track([self.station])
+        singular = collect_radar_track(self.station, elevation=3048)
+        as_list = collect_radar_track([self.station], elevation=3048)
         self.assertEqual(len(singular), 1)
         self.assertTrue(singular.geometry.iloc[0].equals(as_list.geometry.iloc[0]))
 
@@ -73,7 +73,7 @@ class TestRadarAnalysis(unittest.TestCase):
         tagged = RadarStation.from_band(
             RadarBand.X, name="X1", latitude=10, longitude=10
         )
-        track = collect_radar_track([self.station, tagged])
+        track = collect_radar_track([self.station, tagged], elevation=3048)
         self.assertIsNone(track.band.iloc[0])
         self.assertEqual(track.band.iloc[1], RadarBand.X)
 
@@ -82,7 +82,7 @@ class TestRadarAnalysis(unittest.TestCase):
         Test that a mask clips results to the intersecting station(s) only.
         """
         mask = box(-1, -1, 1, 1)
-        track = collect_radar_track(self.stations, mask=mask)
+        track = collect_radar_track(self.stations, elevation=3048, mask=mask)
         # only "Station 1" at (0, 0) falls within the mask's footprint overlap
         self.assertTrue((track.station == "Station 1").any())
 
@@ -92,9 +92,9 @@ class TestRadarAnalysis(unittest.TestCase):
         single geometry smaller than the sum of the individual footprints.
         """
         local_crs = "+proj=eqc +lat_ts=0 +datum=WGS84"
-        individual = collect_radar_track(self.stations)
+        individual = collect_radar_track(self.stations, elevation=3048)
         total_area = individual.to_crs(local_crs).geometry.area.sum()
-        merged = compute_radar_track(self.stations)
+        merged = compute_radar_track(self.stations, elevation=3048)
         self.assertEqual(len(merged), 1)
         self.assertListEqual(list(merged.columns), ["geometry"])
         self.assertLess(merged.to_crs(local_crs).geometry.iloc[0].area, total_area)
@@ -103,5 +103,15 @@ class TestRadarAnalysis(unittest.TestCase):
         """
         Test that an empty station list produces an empty data frame.
         """
-        merged = compute_radar_track([])
+        merged = compute_radar_track([], elevation=3048)
         self.assertTrue(merged.empty)
+
+    def test_collect_radar_track_requires_elevation(self):
+        """
+        Test that the target elevation must be specified (there is no
+        meaningful default common to all stations).
+        """
+        with self.assertRaises(TypeError):
+            collect_radar_track(self.stations)  # pylint: disable=no-value-for-parameter
+        with self.assertRaises(TypeError):
+            compute_radar_track(self.stations)  # pylint: disable=no-value-for-parameter

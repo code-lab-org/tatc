@@ -203,6 +203,77 @@ class TestComputeTerrainMask(unittest.TestCase):
         clear_azimuth = min(angles, key=lambda az: abs(az - 270))
         self.assertLess(angles[clear_azimuth], 1.0)
 
+    def test_linear_and_geometric_range_spacing_find_ridge(self):
+        """
+        Test that both range spacings identify the ridge, with the same
+        blocking angle to within the sampling of its crest.
+        """
+        masks = {
+            range_spacing: compute_terrain_mask(
+                self.dem_path,
+                0.0,
+                0.0,
+                station_elevation=0,
+                search_radius=50000,
+                number_azimuths=36,
+                range_spacing=range_spacing,
+            )
+            for range_spacing in ("linear", "geometric")
+        }
+        angles = {
+            key: dict(zip(m.azimuth, m.min_elevation_angle)) for key, m in masks.items()
+        }
+        self.assertGreater(angles["geometric"][90.0], 2.0)
+        self.assertAlmostEqual(
+            angles["linear"][90.0], angles["geometric"][90.0], delta=0.5
+        )
+
+    def test_geometric_range_spacing_samples_densely_near_station(self):
+        """
+        Test that geometric range spacing captures a narrow obstruction
+        close to the station that sparse, evenly spaced samples skip.
+        """
+        resolution = 0.0001  # ~11 m/pixel
+        data = np.zeros((400, 400), dtype=np.float32)
+        # a 50 m tall wall due east, from about 1.40 to 1.48 km
+        data[195:205, 326:333] = 50.0
+        path = str(Path(self.tmpdir.name) / "wall.tif")
+        with rasterio.open(
+            path,
+            "w",
+            driver="GTiff",
+            height=400,
+            width=400,
+            count=1,
+            dtype="float32",
+            crs="EPSG:4326",
+            transform=from_origin(-0.02, 0.02, resolution, resolution),
+        ) as dst:
+            dst.write(data, 1)
+        # evenly spaced samples (every 192 m) fall at 1.38 and 1.58 km,
+        # on either side of the wall; geometric samples are ~43 m apart there
+        kwargs = {
+            "search_radius": 20000,
+            "number_azimuths": 4,
+            "number_range_samples": 100,
+        }
+        linear = compute_terrain_mask(
+            path, 0.0, 0.0, 0, range_spacing="linear", **kwargs
+        )
+        geometric = compute_terrain_mask(path, 0.0, 0.0, 0, **kwargs)
+        self.assertLess(linear.min_elevation_angle[1], 1.0)
+        self.assertGreater(geometric.min_elevation_angle[1], 1.0)
+
+    def test_bad_range_spacing(self):
+        """
+        Test that an unknown range spacing, or geometric spacing starting
+        at zero range, raises a ValueError.
+        """
+        with self.assertRaises(ValueError):
+            compute_terrain_mask(self.dem_path, 0.0, 0.0, 0, range_spacing="log")
+        with self.assertRaises(ValueError):
+            compute_terrain_mask(self.dem_path, 0.0, 0.0, 0, min_range=0)
+
     def test_result_is_valid_terrain_mask(self):
         """
         Test that the result is a usable TerrainMask with matching-length

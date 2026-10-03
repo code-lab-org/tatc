@@ -100,6 +100,25 @@ class TestRadar(unittest.TestCase):
                 math.isnan(compute_radar_slant_range(elevation_angle, 0, 370))
             )
 
+    def test_compute_radar_slant_range_negative_elevation_angle(self):
+        """
+        Test that a beam below local horizontal returns the farther
+        (climbing) crossing of a height, which inverts the beam height and
+        lies beyond the crossing of a horizontal beam.
+        """
+        for target_height in (2280, 2290, 3048):
+            slant_range = compute_radar_slant_range(-0.2, target_height, 2290)
+            self.assertAlmostEqual(
+                compute_radar_beam_height(slant_range, -0.2, 2290),
+                target_height,
+                delta=1e-3,
+            )
+        for target_height in (2290, 3048):
+            self.assertGreater(
+                compute_radar_slant_range(-0.2, target_height, 2290),
+                compute_radar_slant_range(0, target_height, 2290),
+            )
+
     def test_compute_radar_slant_range_zero_at_station_height(self):
         """
         Test that a target exactly at the station height is trivially
@@ -111,17 +130,49 @@ class TestRadar(unittest.TestCase):
                 compute_radar_slant_range(elevation_angle, 370, 370), 0, delta=1e-6
             )
 
-    def test_compute_radar_ground_range_bounds_target_at_station_height(self):
+    def test_compute_radar_ground_range_bounds_below_station_not_observable(self):
         """
-        Test that a target at or below the station elevation yields a full
-        disk (zero inner ground range) out to the ground range reached by
-        max_range at the minimum elevation angle.
+        Test that a target at or below the station elevation is not
+        observable when the lowest beam departs at or above local horizontal.
         """
-        bounds = compute_radar_ground_range_bounds(0.5, 19.5, 230000, 0, 0)
-        self.assertIsNotNone(bounds)
-        self.assertEqual(bounds[0], 0.0)
+        for min_elevation_angle in (0, 0.5):
+            self.assertIsNone(
+                compute_radar_ground_range_bounds(
+                    min_elevation_angle, 19.5, 230000, 0, 0
+                )
+            )
+            self.assertIsNone(
+                compute_radar_ground_range_bounds(
+                    min_elevation_angle, 19.5, 230000, 0, 370
+                )
+            )
+
+    def test_compute_radar_ground_range_bounds_below_station_negative_tilt(self):
+        """
+        Test that a beam below local horizontal observes a target below the
+        station between the beam's descending and climbing crossings of the
+        target height, from zero range for a target at the station height.
+        """
+        inner, outer = compute_radar_ground_range_bounds(
+            -0.675, 19.5, 230000, 2000, 2290
+        )
+        far = compute_radar_slant_range(-0.675, 2000, 2290)
         self.assertAlmostEqual(
-            bounds[1], compute_radar_ground_range(230000, 0.5, 0), delta=1e-6
+            outer, compute_radar_ground_range(far, -0.675, 2290), delta=1e-6
+        )
+        self.assertGreater(inner, 0)
+        self.assertLess(inner, outer)
+        at_station = compute_radar_ground_range_bounds(-0.675, 19.5, 230000, 2290, 2290)
+        self.assertEqual(at_station[0], 0.0)
+        self.assertGreater(at_station[1], outer)
+
+    def test_compute_radar_ground_range_bounds_below_lowest_beam(self):
+        """
+        Test that a target below the lowest point of a beam departing below
+        local horizontal is not observable.
+        """
+        self.assertIsNone(
+            compute_radar_ground_range_bounds(-0.675, 19.5, 230000, 1500, 2290)
         )
 
     def test_compute_radar_ground_range_bounds_annulus(self):

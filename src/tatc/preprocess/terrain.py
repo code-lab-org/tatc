@@ -189,34 +189,46 @@ def _read_windowed_tile(
     return array, transform, nodata
 
 
-def _lookup_elevation(
+def _lookup_elevations(
     tiles: list[tuple[np.ndarray, rasterio.Affine, float | None]],
-    longitude: float,
-    latitude: float,
-) -> float | None:
+    longitudes: np.ndarray,
+    latitudes: np.ndarray,
+) -> np.ndarray:
     """
-    Looks up terrain elevation at a specified longitude/latitude from the
-    first windowed tile array (as returned by `_read_windowed_tile`) whose
-    extent contains it with valid (non-nodata) data.
+    Looks up terrain elevations at specified longitudes/latitudes, each
+    from the first windowed tile array (as returned by
+    `_read_windowed_tile`) whose extent contains it with valid
+    (non-nodata) data.
 
     Args:
         tiles (list[tuple[numpy.ndarray, rasterio.Affine, float | None]]):
             Windowed elevation arrays, as returned by `_read_windowed_tile`.
-        longitude (float): Longitude (decimal degrees) of the sample point.
-        latitude (float): Latitude (decimal degrees) of the sample point.
+        longitudes (numpy.ndarray): Longitudes (decimal degrees) of the
+            sample points.
+        latitudes (numpy.ndarray): Latitudes (decimal degrees) of the
+            sample points, with the same shape as `longitudes`.
 
     Returns:
-        float | None: The sampled elevation (meters), or `None` if no tile
-        covers the point with valid data.
+        numpy.ndarray: The sampled elevations (meters), with the same
+        shape as `longitudes`; `numpy.nan` where no tile covers a point
+        with valid data.
     """
+    elevations = np.full(np.shape(longitudes), np.nan)
     for array, transform, nodata in tiles:
-        col, row = ~transform * (longitude, latitude)
-        row_index, col_index = int(row), int(col)
-        if 0 <= row_index < array.shape[0] and 0 <= col_index < array.shape[1]:
-            value = array[row_index, col_index]
-            if nodata is None or value != nodata:
-                return float(value)
-    return None
+        cols, rows = ~transform * (longitudes, latitudes)
+        rows, cols = np.floor(rows).astype(int), np.floor(cols).astype(int)
+        candidates = (
+            np.isnan(elevations)
+            & (rows >= 0)
+            & (rows < array.shape[0])
+            & (cols >= 0)
+            & (cols < array.shape[1])
+        )
+        values = array[rows[candidates], cols[candidates]].astype(float)
+        if nodata is not None:
+            values[values == nodata] = np.nan
+        elevations[candidates] = values
+    return elevations
 
 
 def compute_terrain_mask(
@@ -227,7 +239,8 @@ def compute_terrain_mask(
     search_radius: float = 100000,
     min_range: float = 1000,
     number_azimuths: int = 360,
-    number_range_samples: int = 100,
+    number_range_samples: int = 400,
+    range_spacing: str = "geometric",
 ) -> TerrainMask:
     """
     Computes a `TerrainMask` for a ground-based radar station by ray-
@@ -241,13 +254,19 @@ def compute_terrain_mask(
     assumption that a single nearest/highest ridge along each azimuth
     dominates (see `tatc.schemas.surface.radar.TerrainMask`).
 
-    `search_radius` defaults to a much shorter distance than a typical
-    radar's full hardware range: because the curvature-drop correction
-    grows with the square of distance, only unrealistically tall terrain
-    far away can ever produce the same blocking angle as modest terrain
-    nearby, so nearby terrain dominates in practice. This also keeps the
-    DEM read volume (and, for a remote source, the download size) modest.
-    Override it if distant, very tall terrain is a specific concern.
+    `search_radius` defaults to a shorter distance than a typical radar's
+    full hardware range, which keeps the DEM read volume (and, for a
+    remote source, the download size) modest. The curvature-drop
+    correction grows with the square of distance (about 0.3 degrees of
+    angle at 75 km), so distant terrain must be much taller than nearby
+    terrain to block the same angle; in mountainous regions, however,
+    ranges 50 to 100 km away commonly set the blocking angle (validation
+    against NEXRAD radars in Arizona found differences of up to about
+    1.4 degrees between 50 and 100 km search radii). Choose a radius that
+    reaches the significant relief around the station, and a range
+    sampling (`number_range_samples`) fine enough not to skip narrow
+    ridge crests close to the station, where small sampling errors
+    produce the largest angle errors.
 
     Args:
         dem_paths (str | list[str]): One or more DEM raster sources, each
@@ -272,8 +291,12 @@ def compute_terrain_mask(
         number_azimuths (int): The number of evenly-spaced azimuth samples
             (one terrain profile per azimuth) spanning a full revolution.
         number_range_samples (int): The number of range samples per
-            azimuthal profile, evenly spaced between `min_range` and
-            `search_radius`.
+            azimuthal profile, between `min_range` and `search_radius`.
+        range_spacing (str): The spacing of range samples: `"geometric"`
+            (the default) spaces samples in proportion to their range,
+            densely near the station and sparsely far away, so a missed
+            ridge crest causes a similar angle error at every range;
+            `"linear"` spaces samples evenly.
 
     Returns:
         TerrainMask: The resulting azimuthal terrain blockage mask. An
@@ -282,9 +305,20 @@ def compute_terrain_mask(
         minimum elevation angle of `-90` degrees (no blockage assumed).
 
     Raises:
-        ValueError: If none of the provided DEM sources overlap the
-            search region at all.
+        ValueError: If `range_spacing` is not `"geometric"` or `"linear"`,
+            if `min_range` is not positive for geometric spacing, or if
+            none of the provided DEM sources overlap the search region.
     """
+    if range_spacing == "geometric":
+        if min_range <= 0:
+            raise ValueError("min_range must be positive for geometric range spacing.")
+        ranges = np.geomspace(min_range, search_radius, number_range_samples)
+    elif range_spacing == "linear":
+        ranges = np.linspace(min_range, search_radius, number_range_samples)
+    else:
+        raise ValueError(
+            f"range_spacing must be 'geometric' or 'linear', not '{range_spacing}'."
+        )
     paths = [dem_paths] if isinstance(dem_paths, str) else list(dem_paths)
     lat_buffer = math.degrees(search_radius / constants.EARTH_MEAN_RADIUS)
     lon_buffer = lat_buffer / max(math.cos(math.radians(latitude)), 0.01)
@@ -308,26 +342,22 @@ def compute_terrain_mask(
             f"around ({longitude}, {latitude})."
         )
     azimuths = np.linspace(0, 360, number_azimuths, endpoint=False)
-    ranges = np.linspace(min_range, search_radius, number_range_samples)
-    min_elevation_angles = []
-    for azimuth in azimuths:
-        max_angle = -90.0
-        for distance in ranges:
-            sample_longitude, sample_latitude = geodesic_destination(
-                longitude, latitude, float(azimuth), float(distance)
-            )
-            terrain_elevation = _lookup_elevation(
-                tiles, sample_longitude, sample_latitude
-            )
-            if terrain_elevation is None:
-                continue
-            angle = compute_terrain_elevation_angle(
-                distance, terrain_elevation, station_elevation
-            )
-            max_angle = max(max_angle, angle)
-        min_elevation_angles.append(max_angle)
+    azimuth_grid, range_grid = np.meshgrid(azimuths, ranges, indexing="ij")
+    sample_longitudes, sample_latitudes = geodesic_destination(
+        np.full(azimuth_grid.shape, longitude),
+        np.full(azimuth_grid.shape, latitude),
+        azimuth_grid,
+        range_grid,
+    )
+    terrain_elevations = _lookup_elevations(tiles, sample_longitudes, sample_latitudes)
+    angles = compute_terrain_elevation_angle(
+        range_grid, terrain_elevations, station_elevation
+    )
+    # the highest obstruction along each azimuth (-90 if no valid DEM data)
+    min_elevation_angles = np.max(np.where(np.isnan(angles), -90.0, angles), axis=1)
     return TerrainMask(
-        azimuth=[float(a) for a in azimuths], min_elevation_angle=min_elevation_angles
+        azimuth=[float(a) for a in azimuths],
+        min_elevation_angle=[float(a) for a in min_elevation_angles],
     )
 
 
@@ -337,7 +367,8 @@ def compute_terrain_mask_for_station(
     search_radius: float = 100000,
     min_range: float = 1000,
     number_azimuths: int = 360,
-    number_range_samples: int = 100,
+    number_range_samples: int = 400,
+    range_spacing: str = "geometric",
 ) -> TerrainMask:
     """
     Convenience wrapper around `compute_terrain_mask` that reads station
@@ -351,6 +382,7 @@ def compute_terrain_mask_for_station(
         min_range (float): See `compute_terrain_mask`.
         number_azimuths (int): See `compute_terrain_mask`.
         number_range_samples (int): See `compute_terrain_mask`.
+        range_spacing (str): See `compute_terrain_mask`.
 
     Returns:
         TerrainMask: The resulting azimuthal terrain blockage mask.
@@ -364,4 +396,5 @@ def compute_terrain_mask_for_station(
         min_range=min_range,
         number_azimuths=number_azimuths,
         number_range_samples=number_range_samples,
+        range_spacing=range_spacing,
     )

@@ -135,7 +135,10 @@ class RadarStation(Point):
     line of sight in every direction. Supplying a `terrain_mask` (e.g.
     derived from a digital elevation model) relaxes that assumption by
     raising the effective minimum elevation angle in blocked directions.
-    In all cases, this schema uses the standard-atmosphere "4/3 Earth
+    Coverage extends half the `beam_width` beyond the lowest and highest
+    scanned beam centers, treating the elevation angles in between as
+    continuously sampled (gaps between widely spaced tilts are not
+    represented). In all cases, this schema uses the standard-atmosphere "4/3 Earth
     radius" refraction approximation, which does not capture anomalous
     propagation (ducting/sub-refraction) under non-standard weather
     conditions, and reports a 2-D ground-range profile bounding where a
@@ -161,8 +164,12 @@ class RadarStation(Point):
         + "Defaults to 0.5 degrees, the lowest elevation cut in most "
         + "NEXRAD volume coverage patterns. The effective minimum "
         + "elevation angle at a given azimuth is never below this value, "
-        + "but may be raised locally by `terrain_mask`.",
-        ge=0,
+        + "but may be raised locally by `terrain_mask`. Negative values "
+        + "represent scanning below local horizontal, as at some elevated "
+        + "sites (e.g. NEXRAD KFSX scans at about -0.2 degrees); "
+        + "intersection of such a beam with the terrain is represented "
+        + "only through `terrain_mask`.",
+        ge=-90,
         le=90,
     )
     max_elevation_angle: float = Field(
@@ -178,13 +185,22 @@ class RadarStation(Point):
         description="Optional azimuthal terrain blockage mask (e.g. "
         + "derived from a digital elevation model), raising the effective "
         + "minimum elevation angle in specific directions. When omitted, "
-        + "coverage is assumed azimuthally symmetric. Note: blockage has "
-        + "little visible effect on a footprint queried at or below this "
-        + "station's own `elevation` (both branches of that case project "
-        + "`max_range` at a shallow angle, which varies only mildly with "
-        + "angle); it is most apparent for target elevations well above "
-        + "the station, e.g. a storm-top or flight-level height, where a "
-        + "raised scan angle climbs away from that height much sooner.",
+        + "coverage is assumed azimuthally symmetric. A raised scan angle "
+        + "shortens the outer range at which a target above the station is "
+        + "observable, and removes coverage of a target below the station "
+        + "wherever it lifts the lowest usable angle to or above local "
+        + "horizontal.",
+    )
+    beam_width: float = Field(
+        default=0.95,
+        description="Half-power (-3 dB) beam width (decimal degrees). "
+        + "Defaults to 0.95 degrees, the NEXRAD WSR-88D beam width. Half "
+        + "of this width extends the observed elevation angles below the "
+        + "lowest scanned beam center (`min_elevation_angle`) and above "
+        + "the highest (`max_elevation_angle`); set to 0 to bound coverage "
+        + "by the beam centers alone.",
+        ge=0,
+        le=180,
     )
     band: RadarBand | None = Field(
         default=None,
@@ -237,35 +253,50 @@ class RadarStation(Point):
         defaults = {"band": band, "max_range": _RADAR_BAND_NOMINAL_MAX_RANGE[band]}
         return cls(**{**defaults, **kwargs})
 
+    def get_effective_max_elevation_angle(self) -> float:
+        """
+        Gets the highest observed elevation angle: the upper half-power
+        edge of the highest scanned beam.
+
+        Returns:
+            float: The effective maximum elevation angle (degrees),
+            `max_elevation_angle` plus half the `beam_width`, capped at 90.
+        """
+        return min(self.max_elevation_angle + self.beam_width / 2, 90)
+
     def get_effective_min_elevation_angle(self, azimuth: float) -> float:
         """
-        Gets the effective minimum elevation angle at a specified azimuth,
-        accounting for this station's `terrain_mask` (if any).
+        Gets the lowest observed elevation angle at a specified azimuth,
+        accounting for this station's `beam_width` and `terrain_mask` (if
+        any).
 
         Args:
             azimuth (float): Azimuth (decimal degrees, clockwise from north).
 
         Returns:
             float: The effective minimum elevation angle (degrees): the
-            greater of the nominal `min_elevation_angle` and any terrain
-            blockage at that azimuth, capped at `max_elevation_angle`
-            (an azimuth blocked beyond `max_elevation_angle` is simply
+            lower half-power edge of the lowest scanned beam
+            (`min_elevation_angle` minus half the `beam_width`), raised to
+            any terrain blockage at that azimuth (terrain hides the part
+            of the beam below it), and capped at the effective maximum
+            elevation angle (an azimuth blocked beyond it is simply
             unobservable, not scannable at a steeper angle still).
         """
-        effective = self.min_elevation_angle
+        effective = max(self.min_elevation_angle - self.beam_width / 2, -90)
         if self.terrain_mask is not None:
             effective = max(
                 effective, self.terrain_mask.get_min_elevation_angle(azimuth)
             )
-        return min(effective, self.max_elevation_angle)
+        return min(effective, self.get_effective_max_elevation_angle())
 
-    def compute_ground_ranges(self, elevation: float = 0) -> tuple[float, float] | None:
+    def compute_ground_ranges(self, elevation: float) -> tuple[float, float] | None:
         """
         Computes the idealized, azimuthally symmetric ground-range annulus
         (meters) within which this station can detect a target at a
-        specified elevation, using the nominal `min_elevation_angle` (this
-        does not account for `terrain_mask`; see
-        `compute_ground_range_profile` for the azimuth-resolved bounds).
+        specified elevation, between the lower half-power edge of the
+        lowest scanned beam and the upper edge of the highest (this does
+        not account for `terrain_mask`; see `compute_ground_range_profile`
+        for the azimuth-resolved bounds).
 
         Args:
             elevation (float): The elevation (meters) above the WGS 84
@@ -277,15 +308,15 @@ class RadarStation(Point):
             is not observable at any ground range.
         """
         return compute_radar_ground_range_bounds(
-            self.min_elevation_angle,
-            self.max_elevation_angle,
+            max(self.min_elevation_angle - self.beam_width / 2, -90),
+            self.get_effective_max_elevation_angle(),
             self.max_range,
             elevation,
             self.elevation,
         )
 
     def compute_ground_range_profile(
-        self, elevation: float = 0, number_points: int | None = None
+        self, elevation: float, number_points: int | None = None
     ) -> list[tuple[float, float, float]]:
         """
         Computes the ground-range annulus bounds at a sampled set of
@@ -309,7 +340,7 @@ class RadarStation(Point):
         for azimuth in np.linspace(0, 360, number_points, endpoint=False):
             bounds = compute_radar_ground_range_bounds(
                 self.get_effective_min_elevation_angle(azimuth),
-                self.max_elevation_angle,
+                self.get_effective_max_elevation_angle(),
                 self.max_range,
                 elevation,
                 self.elevation,
@@ -319,12 +350,13 @@ class RadarStation(Point):
         return profile
 
     def compute_footprint(
-        self, elevation: float = 0, number_points: int | None = None
+        self, elevation: float, number_points: int | None = None
     ) -> Polygon | MultiPolygon:
         """
         Computes this station's static ground coverage footprint (a disk,
-        or an annulus if an overhead "cone of silence" applies) at a
-        specified target elevation. When `terrain_mask` is set, the
+        or an annulus if an overhead "cone of silence" applies or, for a
+        target below the station, the lowest beam only descends to the
+        target some distance out) at a specified target elevation. When `terrain_mask` is set, the
         footprint is azimuthally irregular, reflecting blocked directions.
 
         Args:
@@ -355,16 +387,21 @@ class RadarStation(Point):
         profile = self.compute_ground_range_profile(elevation, number_points)
         if all(outer_ground_range <= 0 for _, _, outer_ground_range in profile):
             return Polygon()
-        # the inner ground range is governed only by max_elevation_angle
-        # (not terrain), so it is azimuth-independent across non-blocked samples
-        inner_ground_range = next(inner for _, inner, outer in profile if outer > 0)
-        azimuths = [azimuth for azimuth, _, _ in profile]
-        outer_ground_ranges = [outer for _, _, outer in profile]
+        # for a target above the station, the inner ground range is governed
+        # only by the effective maximum elevation angle (not terrain), so it
+        # is uniform across non-blocked samples and subtracted as a circle;
+        # for a target below the station, it depends on the (terrain-raised)
+        # lowest usable angle, so it is subtracted as a sampled profile
+        inner_ground_ranges = [inner for _, inner, outer in profile if outer > 0]
+        if max(inner_ground_ranges) - min(inner_ground_ranges) < 1e-6:
+            inner_ground_range = inner_ground_ranges[0]
+        else:
+            inner_ground_range = [inner for _, inner, _ in profile]
         return compute_radar_footprint_profile(
             self.longitude,
             self.latitude,
-            azimuths,
-            outer_ground_ranges,
+            [azimuth for azimuth, _, _ in profile],
+            [outer for _, _, outer in profile],
             inner_ground_range,
             elevation,
         )

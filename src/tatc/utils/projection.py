@@ -520,21 +520,51 @@ def compute_radar_footprint(
     )
 
 
+def _profile_polygon(
+    longitude: float,
+    latitude: float,
+    azimuths: list[float],
+    ground_ranges: Iterable[float],
+) -> Polygon | MultiPolygon:
+    """
+    Builds a polygon through the points at sampled ground ranges along
+    sampled azimuths from a center point, repairing any self-intersections
+    that can arise from zero-width (e.g. fully blocked) azimuth samples.
+    """
+    polygon = Polygon(
+        [
+            geodesic_destination(longitude, latitude, azimuth, ground_range)
+            for azimuth, ground_range in zip(azimuths, ground_ranges)
+        ]
+    )
+    if polygon.is_valid:
+        return polygon
+    polygon = make_valid(polygon)
+    if isinstance(polygon, GeometryCollection):
+        polygons = [g for g in polygon.geoms if isinstance(g, Polygon)] + [
+            p for g in polygon.geoms if isinstance(g, MultiPolygon) for p in g.geoms
+        ]
+        polygon = polygons[0] if len(polygons) == 1 else MultiPolygon(polygons)
+    return polygon
+
+
 def compute_radar_footprint_profile(
     longitude: float,
     latitude: float,
     azimuths: Iterable[float],
     outer_ground_ranges: Iterable[float],
-    inner_ground_range: float,
+    inner_ground_range: float | Iterable[float],
     elevation: float = 0,
 ) -> Polygon | MultiPolygon:
     """
     Builds an azimuthally irregular ground-based radar coverage footprint
     from a sampled outer-boundary profile (e.g. reflecting per-azimuth
-    terrain blockage), optionally subtracting a uniform circular inner
-    hole (the overhead "cone of silence", which does not vary with
-    terrain since it is governed by the antenna's maximum scan elevation
-    angle rather than line of sight to the horizon).
+    terrain blockage), optionally subtracting an inner hole: either a
+    uniform circle (e.g. the overhead "cone of silence" for a target above
+    the antenna, governed by the antenna's maximum scan elevation angle
+    rather than terrain) or a sampled inner-boundary profile (e.g. for a
+    target below the antenna, where the inner bound depends on the lowest
+    usable elevation angle and therefore on terrain).
 
     Args:
         longitude (float): Longitude (degrees) of the radar station.
@@ -543,29 +573,20 @@ def compute_radar_footprint_profile(
             from north), in increasing order, spanning one full revolution.
         outer_ground_ranges (Iterable[float]): The outer ground range
             (meters) of the footprint at each corresponding azimuth.
-        inner_ground_range (float): The uniform inner ground range
-            (meters) of the footprint annulus; `0` for no hole.
+        inner_ground_range (float | Iterable[float]): The inner ground
+            range (meters) of the footprint annulus, either uniform (`0`
+            for no hole) or at each corresponding azimuth.
         elevation (float): The elevation (meters) at which to project the footprint.
 
     Returns:
         shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The radar footprint.
     """
-    outer = Polygon(
-        [
-            geodesic_destination(longitude, latitude, azimuth, ground_range)
-            for azimuth, ground_range in zip(azimuths, outer_ground_ranges)
-        ]
-    )
-    if not outer.is_valid:
-        # repair self-intersections that can arise from zero-width
-        # (fully blocked) azimuth samples before further processing
-        outer = make_valid(outer)
-        if isinstance(outer, GeometryCollection):
-            polygons = [g for g in outer.geoms if isinstance(g, Polygon)] + [
-                p for g in outer.geoms if isinstance(g, MultiPolygon) for p in g.geoms
-            ]
-            outer = polygons[0] if len(polygons) == 1 else MultiPolygon(polygons)
-    if inner_ground_range > 0:
+    azimuths = list(azimuths)
+    footprint = _profile_polygon(longitude, latitude, azimuths, outer_ground_ranges)
+    if not isinstance(inner_ground_range, (int, float)):
+        inner = _profile_polygon(longitude, latitude, azimuths, inner_ground_range)
+        footprint = footprint.difference(inner)
+    elif inner_ground_range > 0:
         distance_crs = f"+proj=eqc +lat_ts={latitude} +datum=WGS84 +units=m"
         to_crs = Transformer.from_crs("EPSG:4326", distance_crs, always_xy=True)
         from_crs = Transformer.from_crs(distance_crs, "EPSG:4326", always_xy=True)
@@ -573,7 +594,5 @@ def compute_radar_footprint_profile(
         inner_circle = transform(
             from_crs.transform, center.buffer(inner_ground_range)  # type: ignore
         )
-        footprint = outer.difference(inner_circle)
-    else:
-        footprint = outer
+        footprint = footprint.difference(inner_circle)
     return project_polygon_to_elevation(split_polygon(footprint), elevation)

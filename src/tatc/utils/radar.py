@@ -103,7 +103,10 @@ def compute_radar_slant_range(
         solution. A beam departing at or above local horizontal
         (`elevation_angle >= 0`) only climbs with increasing range under
         this model, so `target_height < station_height` always yields
-        `numpy.nan`; `target_height == station_height` yields `0`.
+        `numpy.nan`; `target_height == station_height` yields `0`. A beam
+        departing below local horizontal (`elevation_angle < 0`) first
+        descends and then climbs, so it can cross a height twice; this
+        returns the farther (climbing) crossing.
     """
     effective_radius = (
         constants.EFFECTIVE_EARTH_RADIUS_FACTOR * constants.EARTH_MEAN_RADIUS
@@ -145,9 +148,13 @@ def compute_radar_ground_range_bounds(
     `max_range`, the beam has overshot the target height before running
     out of range.
 
-    A target at or below `station_elevation` is treated as a full disk out
-    to `max_range` (zero inner bound), since the elevation-angle geometry
-    used otherwise is not meaningful for a target at/below the antenna.
+    A target at or below `station_elevation` is observable only if the
+    lowest elevation angle is below local horizontal: such a beam first
+    descends and then climbs, so it passes below the target between its
+    descending and climbing crossings of `target_elevation`, which become
+    the inner and outer bounds (higher beams, assumed at or above local
+    horizontal, always pass above the target). Otherwise, every beam
+    stays above the antenna and the target is not observable.
 
     Args:
         min_elevation_angle (float): Lowest scanned elevation angle (degrees).
@@ -164,12 +171,35 @@ def compute_radar_ground_range_bounds(
         degenerate case `min_elevation_angle == max_elevation_angle`).
     """
     if target_elevation <= station_elevation:
-        return (
-            0.0,
-            compute_radar_ground_range(
-                max_range, min_elevation_angle, station_elevation
-            ),
+        if min_elevation_angle >= 0:
+            return None
+        outer_slant_range = compute_radar_slant_range(
+            min_elevation_angle, target_elevation, station_elevation
         )
+        if np.isnan(outer_slant_range):
+            # the lowest beam never descends as low as the target
+            return None
+        # the descending and climbing crossings are symmetric about the
+        # beam's lowest point, at a slant range of -R sin(theta)
+        effective_radius = (
+            constants.EFFECTIVE_EARTH_RADIUS_FACTOR * constants.EARTH_MEAN_RADIUS
+        )
+        inner_slant_range = max(
+            -2 * effective_radius * np.sin(np.radians(min_elevation_angle))
+            - outer_slant_range,
+            0.0,
+        )
+        if inner_slant_range >= max_range:
+            return None
+        inner_ground_range = compute_radar_ground_range(
+            inner_slant_range, min_elevation_angle, station_elevation
+        )
+        outer_ground_range = compute_radar_ground_range(
+            min(outer_slant_range, max_range), min_elevation_angle, station_elevation
+        )
+        if inner_ground_range >= outer_ground_range:
+            return None
+        return (inner_ground_range, outer_ground_range)
     inner_slant_range = compute_radar_slant_range(
         max_elevation_angle, target_elevation, station_elevation
     )

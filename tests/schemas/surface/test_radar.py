@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from shapely.geometry import MultiPolygon, Polygon
 
 from tatc.schemas import RadarBand, RadarStation, TerrainMask
+from tatc.utils import compute_radar_ground_range_bounds
 
 
 class TestRadarStation(unittest.TestCase):
@@ -41,13 +42,64 @@ class TestRadarStation(unittest.TestCase):
 
     def test_defaults(self):
         """
-        Test that max_range, min_elevation_angle, and max_elevation_angle
-        default to conventional NEXRAD WSR-88D values when omitted.
+        Test that max_range, min_elevation_angle, max_elevation_angle, and
+        beam_width default to conventional NEXRAD WSR-88D values when omitted.
         """
         o = RadarStation(name="test", latitude=35.236, longitude=-97.463)
         self.assertEqual(o.max_range, 230000)
         self.assertEqual(o.min_elevation_angle, 0.5)
         self.assertEqual(o.max_elevation_angle, 19.5)
+        self.assertEqual(o.beam_width, 0.95)
+
+    def test_bad_beam_width_negative(self):
+        """
+        Test that a negative beam_width is rejected.
+        """
+        with self.assertRaises(ValidationError):
+            RadarStation(name="test", latitude=0, longitude=0, beam_width=-0.1)
+
+    def test_zero_beam_width_bounds_beam_centers(self):
+        """
+        Test that a zero beam_width bounds coverage by the lowest and
+        highest beam centers.
+        """
+        o = RadarStation(
+            name="test", latitude=0, longitude=0, elevation=400, beam_width=0
+        )
+        self.assertEqual(
+            o.compute_ground_ranges(3048),
+            compute_radar_ground_range_bounds(0.5, 19.5, 230000, 3048, 400),
+        )
+
+    def test_beam_width_extends_ground_ranges(self):
+        """
+        Test that half the beam_width extends the observed elevation angles
+        beyond the lowest and highest beam centers, widening the annulus
+        at both edges.
+        """
+        o = RadarStation(name="test", latitude=0, longitude=0, elevation=400)
+        centers = RadarStation(
+            name="test", latitude=0, longitude=0, elevation=400, beam_width=0
+        )
+        self.assertEqual(
+            o.compute_ground_ranges(3048),
+            compute_radar_ground_range_bounds(0.025, 19.975, 230000, 3048, 400),
+        )
+        inner, outer = o.compute_ground_ranges(3048)
+        self.assertLess(inner, centers.compute_ground_ranges(3048)[0])
+        self.assertGreater(outer, centers.compute_ground_ranges(3048)[1])
+
+    def test_get_effective_max_elevation_angle(self):
+        """
+        Test that the effective maximum elevation angle adds half the beam
+        width and is capped at 90 degrees.
+        """
+        o = RadarStation(name="test", latitude=0, longitude=0)
+        self.assertAlmostEqual(
+            o.get_effective_max_elevation_angle(), 19.975, delta=1e-9
+        )
+        o = RadarStation(name="test", latitude=0, longitude=0, max_elevation_angle=90)
+        self.assertEqual(o.get_effective_max_elevation_angle(), 90)
 
     def test_bad_name_missing(self):
         """
@@ -67,12 +119,36 @@ class TestRadarStation(unittest.TestCase):
 
     def test_bad_elevation_angle_out_of_range(self):
         """
-        Test that elevation angles outside [0, 90] are rejected.
+        Test that elevation angles outside [-90, 90] (minimum) or [0, 90]
+        (maximum) are rejected.
         """
         with self.assertRaises(ValidationError):
-            RadarStation(name="test", latitude=0, longitude=0, min_elevation_angle=-0.1)
+            RadarStation(
+                name="test", latitude=0, longitude=0, min_elevation_angle=-90.1
+            )
+        with self.assertRaises(ValidationError):
+            RadarStation(name="test", latitude=0, longitude=0, max_elevation_angle=-0.1)
         with self.assertRaises(ValidationError):
             RadarStation(name="test", latitude=0, longitude=0, max_elevation_angle=90.1)
+
+    def test_negative_min_elevation_angle(self):
+        """
+        Test that a negative minimum elevation angle (scanning below local
+        horizontal from an elevated site) is accepted and extends coverage
+        at a target height above the station.
+        """
+        o = RadarStation(
+            name="test",
+            latitude=0,
+            longitude=0,
+            elevation=2290,
+            min_elevation_angle=-0.2,
+        )
+        self.assertEqual(o.min_elevation_angle, -0.2)
+        nominal = RadarStation(name="test", latitude=0, longitude=0, elevation=2290)
+        self.assertGreater(
+            o.compute_ground_ranges(3048)[1], nominal.compute_ground_ranges(3048)[1]
+        )
 
     def test_elevation_angle_boundary_values(self):
         """
@@ -108,16 +184,32 @@ class TestRadarStation(unittest.TestCase):
         with self.assertRaises(ValidationError):
             RadarStation(name="test", latitude=100, longitude=0)
 
-    def test_compute_footprint_full_disk_at_station_elevation(self):
+    def test_compute_footprint_empty_at_and_below_station_elevation(self):
         """
-        Test that a target at the station's own elevation produces a full
-        disk (no interior "cone of silence" ring).
+        Test that a target at or below the station's own elevation is not
+        observable when every beam departs above local horizontal.
         """
-        station = RadarStation(name="test", latitude=0, longitude=0, elevation=0)
-        footprint = station.compute_footprint(elevation=0)
+        station = RadarStation(name="test", latitude=0, longitude=0, elevation=2000)
+        self.assertTrue(station.compute_footprint(elevation=2000).is_empty)
+        self.assertTrue(station.compute_footprint(elevation=1500).is_empty)
+
+    def test_compute_footprint_below_station_negative_tilt(self):
+        """
+        Test that a beam departing below local horizontal observes a target
+        below the station in an annulus between its descending and climbing
+        crossings, and nothing below the beam's lowest point.
+        """
+        station = RadarStation(
+            name="test",
+            latitude=0,
+            longitude=0,
+            elevation=2290,
+            min_elevation_angle=-0.2,
+        )
+        footprint = station.compute_footprint(elevation=2000)
         self.assertIsInstance(footprint, Polygon)
-        self.assertFalse(footprint.is_empty)
-        self.assertEqual(len(footprint.interiors), 0)
+        self.assertEqual(len(footprint.interiors), 1)
+        self.assertTrue(station.compute_footprint(elevation=1500).is_empty)
 
     def test_compute_footprint_annulus_above_station(self):
         """
@@ -292,8 +384,9 @@ class TestRadarStationTerrainMask(unittest.TestCase):
 
     def test_get_effective_min_elevation_angle_capped_at_max(self):
         """
-        Test that the effective minimum elevation angle never exceeds
-        max_elevation_angle, even if terrain blockage would otherwise be higher.
+        Test that the effective minimum elevation angle never exceeds the
+        effective maximum elevation angle, even if terrain blockage would
+        otherwise be higher.
         """
         mask = TerrainMask(azimuth=[0, 180], min_elevation_angle=[0.5, 50])
         station = RadarStation(
@@ -304,17 +397,30 @@ class TestRadarStationTerrainMask(unittest.TestCase):
             terrain_mask=mask,
         )
         self.assertAlmostEqual(
-            station.get_effective_min_elevation_angle(180), 19.5, delta=1e-9
+            station.get_effective_min_elevation_angle(180), 19.975, delta=1e-9
         )
 
     def test_get_effective_min_elevation_angle_no_mask(self):
         """
         Test that, without a terrain_mask, the effective minimum elevation
-        angle always equals the nominal min_elevation_angle.
+        angle is the lower half-power edge of the lowest beam.
         """
-        self.assertEqual(
+        self.assertAlmostEqual(
             self.unmasked.get_effective_min_elevation_angle(45),
-            self.unmasked.min_elevation_angle,
+            self.unmasked.min_elevation_angle - self.unmasked.beam_width / 2,
+            delta=1e-9,
+        )
+
+    def test_get_effective_min_elevation_angle_terrain_within_beam(self):
+        """
+        Test that terrain below the lowest beam center but above its lower
+        half-power edge raises the effective minimum elevation angle to the
+        terrain angle.
+        """
+        mask = TerrainMask(azimuth=[0, 180], min_elevation_angle=[0.3, 0.3])
+        station = RadarStation(name="test", latitude=0, longitude=0, terrain_mask=mask)
+        self.assertAlmostEqual(
+            station.get_effective_min_elevation_angle(90), 0.3, delta=1e-9
         )
 
     def test_compute_ground_range_profile_shape(self):
@@ -373,6 +479,35 @@ class TestRadarStationTerrainMask(unittest.TestCase):
         self.assertIsInstance(footprint, (Polygon, MultiPolygon))
         self.assertTrue(footprint.is_valid)
         self.assertFalse(footprint.is_empty)
+
+    def test_compute_footprint_with_terrain_mask_below_station(self):
+        """
+        Test that a terrain-masked footprint of a target below the station,
+        whose inner bound varies with the terrain-raised lowest angle, is
+        valid, non-empty, and smaller than the unmasked footprint.
+        """
+        mask = TerrainMask(
+            azimuth=[0, 90, 180, 270], min_elevation_angle=[-1, -0.3, 0.5, -1]
+        )
+        masked = RadarStation(
+            name="test",
+            latitude=0,
+            longitude=0,
+            elevation=2290,
+            min_elevation_angle=-0.2,
+            terrain_mask=mask,
+        )
+        unmasked = RadarStation(
+            name="test",
+            latitude=0,
+            longitude=0,
+            elevation=2290,
+            min_elevation_angle=-0.2,
+        )
+        footprint = masked.compute_footprint(elevation=2000, number_points=72)
+        self.assertTrue(footprint.is_valid)
+        self.assertFalse(footprint.is_empty)
+        self.assertLess(footprint.area, unmasked.compute_footprint(elevation=2000).area)
 
     def test_compute_footprint_fully_blocked_is_empty(self):
         """
@@ -463,7 +598,7 @@ class TestRadarBand(unittest.TestCase):
             RadarBand.X, name="tagged", latitude=0, longitude=0, max_range=60000
         )
         self.assertTrue(
-            plain.compute_footprint(elevation=0).equals(
-                tagged.compute_footprint(elevation=0)
+            plain.compute_footprint(elevation=3048).equals(
+                tagged.compute_footprint(elevation=3048)
             )
         )
