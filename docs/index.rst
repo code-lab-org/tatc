@@ -8,6 +8,7 @@ TAT-C Documentation
 
     installation.rst
     examples/index.rst
+    validation/index.rst
     api_reference/index.rst
 
 .. include:: ../README.md
