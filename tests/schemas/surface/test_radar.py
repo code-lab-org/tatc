@@ -46,7 +46,7 @@ class TestRadarStation(unittest.TestCase):
         beam_width default to conventional NEXRAD WSR-88D values when omitted.
         """
         o = RadarStation(name="test", latitude=35.236, longitude=-97.463)
-        self.assertEqual(o.max_range, 230000)
+        self.assertEqual(o.max_range, 460000)
         self.assertEqual(o.min_elevation_angle, 0.5)
         self.assertEqual(o.max_elevation_angle, 19.5)
         self.assertEqual(o.beam_width, 0.95)
@@ -68,7 +68,7 @@ class TestRadarStation(unittest.TestCase):
         )
         self.assertEqual(
             o.compute_ground_ranges(3048),
-            compute_radar_ground_range_bounds(0.5, 19.5, 230000, 3048, 400),
+            compute_radar_ground_range_bounds(0.5, 19.5, 460000, 3048, 400),
         )
 
     def test_beam_width_extends_ground_ranges(self):
@@ -83,7 +83,7 @@ class TestRadarStation(unittest.TestCase):
         )
         self.assertEqual(
             o.compute_ground_ranges(3048),
-            compute_radar_ground_range_bounds(0.025, 19.975, 230000, 3048, 400),
+            compute_radar_ground_range_bounds(0.025, 19.975, 460000, 3048, 400),
         )
         inner, outer = o.compute_ground_ranges(3048)
         self.assertLess(inner, centers.compute_ground_ranges(3048)[0])

@@ -44,10 +44,11 @@ def collect_radar_track(
 
     Args:
         stations (RadarStation | list[RadarStation]): The radar station(s).
-        elevation (float): The elevation (meters) above the WGS 84 datum
-                of the observed target for which to compute coverage (an
-                absolute elevation, common to all stations, not a height
-                relative to each station).
+        elevation (float): The elevation (meters) of the observed target
+                for which to compute coverage, in the same vertical
+                reference as the stations' elevations (e.g. mean sea
+                level): an absolute elevation, common to all stations, not
+                a height relative to each station.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
                 An optional mask, always interpreted in WGS84 (lon/lat)
                 coordinates, to constrain results.
@@ -89,10 +90,11 @@ def compute_radar_track(
 
     Args:
         stations (RadarStation | list[RadarStation]): The radar station(s).
-        elevation (float): The elevation (meters) above the WGS 84 datum
-                of the observed target for which to compute coverage (an
-                absolute elevation, common to all stations, not a height
-                relative to each station).
+        elevation (float): The elevation (meters) of the observed target
+                for which to compute coverage, in the same vertical
+                reference as the stations' elevations (e.g. mean sea
+                level): an absolute elevation, common to all stations, not
+                a height relative to each station.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
                 An optional mask, always interpreted in WGS84 (lon/lat)
                 coordinates, to constrain results.

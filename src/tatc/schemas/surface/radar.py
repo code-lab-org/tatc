@@ -113,13 +113,13 @@ class RadarBand(str, Enum):
 
 
 # illustrative, order-of-magnitude nominal maximum range (meters) by band,
-# NOT a model of any specific radar: S-band mirrors NEXRAD WSR-88D (negligible
-# rain attenuation, long range); C-band and X-band are shortened to loosely
+# NOT a model of any specific radar: S-band mirrors the NEXRAD WSR-88D Level II
+# reflectivity range (negligible rain attenuation, long range); C-band and X-band are shortened to loosely
 # reflect their greater susceptibility to rain attenuation, consistent with
 # the shorter ranges typical of real C-band national networks and X-band
 # short-range/gap-filling/mobile radars, respectively
 _RADAR_BAND_NOMINAL_MAX_RANGE = {
-    RadarBand.S: 230000,
+    RadarBand.S: 460000,
     RadarBand.C: 150000,
     RadarBand.X: 60000,
 }
@@ -147,15 +147,27 @@ class RadarStation(Point):
     """
 
     name: str = Field(..., description="Radar station name", examples=["KOUN"])
+    elevation: float = Field(
+        default=0,
+        description="Elevation (meters) of the radar antenna, including "
+        + "tower height. Coverage depends only on target elevations "
+        + "relative to this value, so it must use the same vertical "
+        + "reference as target elevations and any terrain mask: heights "
+        + "above mean sea level (as in NOAA's NEXRAD station tables and "
+        + "digital elevation models such as Copernicus DEM GLO-30) are "
+        + "recommended, noting that they differ from heights above the "
+        + "WGS 84 ellipsoid by the local geoid undulation.",
+    )
     max_range: float = Field(
-        default=230000,
+        default=460000,
         description="Maximum unambiguous slant range (meters) for radar "
         + "detection, limited by the pulse repetition frequency (PRF) and "
-        + "receiver hardware. Defaults to 230,000 m (230 km), the "
-        + "conventional NEXRAD WSR-88D base reflectivity product range; "
-        + "some composite reflectivity-only products extend to 460,000 m.",
+        + "receiver hardware. Defaults to 460,000 m (460 km), the range of "
+        + "NEXRAD WSR-88D Level II reflectivity on its lowest (surveillance) "
+        + "tilts; the conventional base reflectivity product is displayed "
+        + "to 230,000 m.",
         gt=0,
-        examples=[230000],
+        examples=[460000],
     )
     min_elevation_angle: float = Field(
         default=0.5,
@@ -299,8 +311,9 @@ class RadarStation(Point):
         for the azimuth-resolved bounds).
 
         Args:
-            elevation (float): The elevation (meters) above the WGS 84
-                datum of the observed target.
+            elevation (float): The elevation (meters) of the observed
+                target, in the same vertical reference as this station's
+                `elevation`.
 
         Returns:
             tuple[float, float] | None: The `(inner_ground_range,
@@ -323,8 +336,9 @@ class RadarStation(Point):
         azimuths, accounting for this station's `terrain_mask` (if any).
 
         Args:
-            elevation (float): The elevation (meters) above the WGS 84
-                datum of the observed target.
+            elevation (float): The elevation (meters) of the observed
+                target, in the same vertical reference as this station's
+                `elevation`.
             number_points (int | None): The number of azimuth samples to
                 generate (evenly spaced over one full revolution).
                 Defaults to the runtime configuration.
@@ -360,8 +374,9 @@ class RadarStation(Point):
         footprint is azimuthally irregular, reflecting blocked directions.
 
         Args:
-            elevation (float): The elevation (meters) above the WGS 84
-                datum of the observed target.
+            elevation (float): The elevation (meters) of the observed
+                target, in the same vertical reference as this station's
+                `elevation`.
             number_points (int | None): The number of azimuth samples used
                 when this station has a `terrain_mask` (ignored otherwise,
                 since the symmetric case uses a faster closed-form circle/

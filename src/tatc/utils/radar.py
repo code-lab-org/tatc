@@ -1,6 +1,11 @@
 """
 Ground-based radar utility functions.
 
+Heights in this module may use any vertical reference (e.g. mean sea
+level or the WGS 84 ellipsoid), as long as station, target, and terrain
+heights all use the same one: the geometry depends only on height
+differences.
+
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
@@ -17,7 +22,7 @@ def compute_radar_beam_height(
     slant_range: float, elevation_angle: float, station_height: float = 0
 ) -> float:
     """
-    Fast computation of the radar beam height above the WGS 84 datum at a
+    Fast computation of the radar beam height at a
     specified slant range along a beam at a specified elevation angle,
     using the standard-atmosphere "4/3 Earth radius" refraction
     approximation (a spherical Earth with an effective radius scaled by
@@ -27,11 +32,11 @@ def compute_radar_beam_height(
         slant_range (float): Slant range (meters) along the radar beam.
         elevation_angle (float): Radar beam elevation angle (degrees)
             above local horizontal.
-        station_height (float): Radar antenna height (meters) above the
-            WGS 84 datum.
+        station_height (float): Radar antenna height (meters).
 
     Returns:
-        float: The beam height (meters) above the WGS 84 datum.
+        float: The beam height (meters), in the same vertical reference as
+        `station_height`.
     """
     effective_radius = (
         constants.EFFECTIVE_EARTH_RADIUS_FACTOR * constants.EARTH_MEAN_RADIUS
@@ -62,8 +67,7 @@ def compute_radar_ground_range(
         slant_range (float): Slant range (meters) along the radar beam.
         elevation_angle (float): Radar beam elevation angle (degrees)
             above local horizontal.
-        station_height (float): Radar antenna height (meters) above the
-            WGS 84 datum.
+        station_height (float): Radar antenna height (meters).
 
     Returns:
         float: The ground range (meters), measured along the Earth's
@@ -93,9 +97,9 @@ def compute_radar_slant_range(
     Args:
         elevation_angle (float): Radar beam elevation angle (degrees)
             above local horizontal.
-        target_height (float): Target height (meters) above the WGS 84 datum.
-        station_height (float): Radar antenna height (meters) above the
-            WGS 84 datum.
+        target_height (float): Target height (meters), in the same vertical
+            reference as `station_height`.
+        station_height (float): Radar antenna height (meters).
 
     Returns:
         float: The slant range (meters) at which the beam reaches
@@ -160,9 +164,9 @@ def compute_radar_ground_range_bounds(
         min_elevation_angle (float): Lowest scanned elevation angle (degrees).
         max_elevation_angle (float): Highest scanned elevation angle (degrees).
         max_range (float): Maximum unambiguous slant range (meters).
-        target_elevation (float): Target height (meters) above the WGS 84 datum.
-        station_elevation (float): Radar antenna height (meters) above the
-            WGS 84 datum.
+        target_elevation (float): Target height (meters), in the same
+            vertical reference as `station_elevation`.
+        station_elevation (float): Radar antenna height (meters).
 
     Returns:
         tuple[float, float] | None: The `(inner_ground_range,
@@ -245,10 +249,10 @@ def compute_terrain_elevation_angle(
     Args:
         ground_distance (float): Ground (surface) distance (meters) to
             the terrain point.
-        terrain_elevation (float): Elevation (meters) of the terrain point
-            above the WGS 84 datum.
+        terrain_elevation (float): Elevation (meters) of the terrain point,
+            in the same vertical reference as `station_elevation`.
         station_elevation (float): Elevation (meters) of the station
-            (antenna) above the WGS 84 datum.
+            (antenna).
 
     Returns:
         float: The elevation angle (degrees) to the terrain point, as seen

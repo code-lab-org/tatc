@@ -113,9 +113,10 @@ def sample_dem_elevation(
     Samples terrain elevation at a specified longitude/latitude, from the
     first of one or more DEM raster sources whose extent contains the
     point and reports valid (non-nodata) data. Elevation is reported in
-    whatever vertical datum the DEM uses (for most public global DEMs,
-    including Copernicus DEM GLO-30, this is close to the EGM2008 geoid,
-    a reasonable proxy for the WGS 84 datum used elsewhere in TAT-C).
+    whatever vertical datum the DEM uses: for most public global DEMs,
+    including Copernicus DEM GLO-30, this is mean sea level (the EGM2008
+    geoid), which differs from the WGS 84 ellipsoid by the local geoid
+    undulation (up to about 100 m in magnitude).
 
     Args:
         dem_paths (str | list[str]): One or more DEM raster sources, each
@@ -280,8 +281,10 @@ def compute_terrain_mask(
         latitude (float): Latitude (decimal degrees) of the radar station.
         station_elevation (float): Elevation (meters) of the radar
             station's antenna, above the same vertical datum as the DEM
-            (typically close to the WGS 84 datum for most public global
-            DEMs). This should include antenna tower height, not just
+            (mean sea level for Copernicus DEM GLO-30 and most public
+            global DEMs, not the WGS 84 ellipsoid; NOAA's NEXRAD station
+            tables report antenna heights above mean sea level). This
+            should include antenna tower height, not just
             bare-ground elevation; see `sample_dem_elevation` to determine
             the ground elevation at the station's location.
         search_radius (float): The maximum ground distance (meters) to
