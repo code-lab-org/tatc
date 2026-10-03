@@ -69,3 +69,7 @@ Utility Functions
 .. autofunction:: tatc.utils.to_datetime64_ns
 
 .. autofunction:: tatc.utils.zero_pad
+
+.. autofunction:: tatc.utils.altitude_to_pressure
+
+.. autofunction:: tatc.utils.pressure_to_altitude
