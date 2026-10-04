@@ -511,9 +511,7 @@ class TestGetClosestElementIndex(unittest.TestCase):
             o.get_closest_element_index(queries),
         )
         self.assertEqual(
-            o.get_closest_element_index(
-                constants.timescale.from_datetime(queries[3])
-            ),
+            o.get_closest_element_index(constants.timescale.from_datetime(queries[3])),
             1,
         )
 

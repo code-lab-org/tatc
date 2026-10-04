@@ -60,9 +60,7 @@ class TestAtmosphere(unittest.TestCase):
         Test that altitudes above the model's 86 km upper bound saturate
         to the pressure at that bound rather than extrapolating.
         """
-        self.assertEqual(
-            altitude_to_pressure(200000.0), altitude_to_pressure(86000.0)
-        )
+        self.assertEqual(altitude_to_pressure(200000.0), altitude_to_pressure(86000.0))
 
     def test_pressure_to_altitude_saturates_above_sea_level_pressure(self):
         """

@@ -144,9 +144,7 @@ class TestLimbTangentPoint(unittest.TestCase):
         Test that a requested elevation at or above the satellite's own
         altitude has no valid viewing angle and is flagged out of domain.
         """
-        _, in_domain = _limb_tangent_point(
-            self.sat, 90.0, [self.sat_altitude + 1e3]
-        )
+        _, in_domain = _limb_tangent_point(self.sat, 90.0, [self.sat_altitude + 1e3])
         self.assertFalse(in_domain[0])
 
     def test_cross_track_azimuth_stays_perpendicular_to_velocity(self):
@@ -244,9 +242,7 @@ class TestDefaultScanDirection(unittest.TestCase):
         """
         for azimuth in [0.0, 1.0, 45.0, 89.0, -45.0, 271.0]:
             with self.subTest(azimuth=azimuth):
-                self.assertEqual(
-                    _default_scan_direction(azimuth), ScanDirection.UPWARD
-                )
+                self.assertEqual(_default_scan_direction(azimuth), ScanDirection.UPWARD)
 
     def test_rearward_azimuth_defaults_downward(self):
         """
