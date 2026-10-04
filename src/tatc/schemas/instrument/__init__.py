@@ -6,7 +6,8 @@ Object schemas for instruments.
 
 from .simple import Instrument
 from .pointed import PointedInstrument
+from .conical import ConicalInstrument
 
-AllInstruments = Instrument | PointedInstrument
+AllInstruments = Instrument | PointedInstrument | ConicalInstrument
 
-__all__ = ["AllInstruments", "Instrument", "PointedInstrument"]
+__all__ = ["AllInstruments", "ConicalInstrument", "Instrument", "PointedInstrument"]

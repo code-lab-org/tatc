@@ -22,9 +22,31 @@ from skyfield.framelib import itrs
 from skyfield.functions import angle_between
 
 from ..constants import de421
-from ..schemas import PointedInstrument, Satellite
+from ..schemas import AllInstruments, ConicalInstrument, PointedInstrument, Satellite
 from ..utils.observation import field_of_regard_to_swath_width
 from ..utils.projection import buffer_target
+
+
+def _swath_width(
+    instrument: AllInstruments, altitude: float, elevation: float
+) -> float:
+    """
+    Gets an instrument's swath width: from its field of regard or, for a
+    conical instrument, from its cone angle and scan sector.
+
+    Args:
+        instrument (AllInstruments): The observing instrument.
+        altitude (float): The satellite altitude (meters).
+        elevation (float): The elevation (meters) at which to project the swath.
+
+    Returns:
+        float: The swath width (meters).
+    """
+    if isinstance(instrument, ConicalInstrument):
+        return instrument.get_swath_width(altitude - elevation)
+    return field_of_regard_to_swath_width(
+        altitude, instrument.field_of_regard, elevation
+    )
 
 
 def _get_empty_orbit_track() -> gpd.GeoDataFrame:
@@ -172,10 +194,8 @@ def collect_orbit_track(
                 "time": time,
                 "satellite": satellite.name,
                 "instrument": instrument.name,
-                "swath_width": field_of_regard_to_swath_width(
-                    np.array(sat_pos.elevation.m)[i],
-                    instrument.field_of_regard,
-                    elevation,
+                "swath_width": _swath_width(
+                    instrument, np.array(sat_pos.elevation.m)[i], elevation
                 ),
                 "valid_obs": valid_obs[i],
                 "geometry": points[i],
@@ -222,10 +242,8 @@ def collect_orbit_track(
                 "time": time,
                 "satellite": satellite.name,
                 "instrument": instrument.name,
-                "swath_width": field_of_regard_to_swath_width(
-                    np.array(sat_pos.elevation.m)[i],
-                    instrument.field_of_regard,
-                    elevation,
+                "swath_width": _swath_width(
+                    instrument, np.array(sat_pos.elevation.m)[i], elevation
                 ),
                 "valid_obs": valid_obs[i],
                 "geometry": points[i],

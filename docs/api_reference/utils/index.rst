@@ -24,6 +24,13 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_projected_ray_position
 
+.. autofunction:: tatc.utils.compute_view_tangents
+
+.. autofunction:: tatc.utils.compute_cone_and_azimuth
+
+.. autoclass:: tatc.utils.VelocityFrame
+  :members:
+
 .. autofunction:: tatc.utils.compute_field_of_regard
 
 .. autofunction:: tatc.utils.compute_min_elevation_angle

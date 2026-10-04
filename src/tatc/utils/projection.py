@@ -193,6 +193,41 @@ def compute_view_tangents(
         return np.sum(los * along, axis=0) / scale, np.sum(los * cross, axis=0) / scale
 
 
+def compute_cone_and_azimuth(
+    orbit_track: Geocentric,
+    target: GeographicPosition,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+) -> tuple[npt.NDArray, npt.NDArray]:
+    """
+    Compute the cone angle (from the geodetic nadir) and the scan azimuth
+    (about the nadir, from the along-track direction, positive to the left of
+    the direction of motion) of the line of sight from a satellite to a
+    target, as used to describe a conically scanning instrument. Does not
+    check whether the target is above the satellite's horizon.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        target (skyfield.toposlib.GeographicPosition): the target position.
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
+
+    Returns:
+        tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the cone angle
+            (degrees, from 0 to 180) and scan azimuth (degrees, from -180 to
+            180).
+    """
+    p_m, nadir, along, cross = _compute_view_frame(orbit_track, 0, 0, velocity_frame)
+    # line of sight from the satellite to the target
+    los = np.reshape(np.array(target.itrs_xyz.m), (3,) + (1,) * (p_m.ndim - 1)) - p_m
+    down = np.sum(los * nadir, axis=0)
+    forward = np.sum(los * along, axis=0)
+    left = np.sum(los * cross, axis=0)
+    return (
+        np.degrees(np.arctan2(np.hypot(forward, left), down)),
+        np.degrees(np.arctan2(left, forward)),
+    )
+
+
 def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-many-statements
     orbit_track: Geocentric,
     cross_track_field_of_view: float,

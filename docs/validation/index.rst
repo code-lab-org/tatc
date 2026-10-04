@@ -16,8 +16,9 @@ The following compare TAT-C analysis results with reference data from operationa
   ValidateImagerVIIRS.ipynb
   ValidateSARSentinel1.ipynb
   ValidateSARNISAR.ipynb
+  ValidateConicalAMSR2.ipynb
 
-These notebooks download reference data on first run (the MLS and NISAR data require a free `NASA Earthdata Login <https://urs.earthdata.nasa.gov/>`_ account) and require additional dependencies, which can be installed via::
+These notebooks download reference data on first run (the MLS, NISAR, and AMSR2 data require a free `NASA Earthdata Login <https://urs.earthdata.nasa.gov/>`_ account) and require additional dependencies, which can be installed via::
 
   pip install tatc[validation]
 

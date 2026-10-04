@@ -20,8 +20,8 @@ from tatc.analysis import (
     grid_observations,
     reduce_observations,
 )
-from tatc.schemas import Instrument, Point, PointedInstrument
-from tatc.utils import compute_view_tangents
+from tatc.schemas import ConicalInstrument, Instrument, Point, PointedInstrument
+from tatc.utils import compute_cone_and_azimuth, compute_view_tangents
 
 from .common import IssConstellationTestCase
 
@@ -263,6 +263,29 @@ class TestCoverageAnalysis(IssConstellationTestCase):
                 sign * (pointed.epoch - nadir.epoch).dt.total_seconds(), 22, atol=2
             )
 
+    def test_collect_observations_pointed_forward_wide_field_of_regard(self):
+        """
+        Test that a strongly pitched view with a field of regard reaching the
+        horizon (so the target is behind the view at the ends of each access
+        period) observes points at its view crossings, at least on every pass
+        observed by a narrower nadir instrument.
+        """
+        satellite, (pointed, nadir) = self._collect_pointed_observations(
+            field_of_regard=180, pitch_angle=45
+        )
+        self.assertGreaterEqual(len(pointed), len(nadir))
+        instrument = satellite.instruments[0]
+        for _, observation in pointed.iterrows():
+            orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(
+                observation.epoch
+            )
+            target = wgs84.latlon(observation.geometry.y, observation.geometry.x)
+            along, _ = compute_view_tangents(
+                orbit_track, target, instrument.velocity_frame, 0, 45
+            )
+            self.assertAlmostEqual(float(along), 0, delta=1e-5)
+            self.assertTrue(instrument.is_in_field_of_view(orbit_track, target).all())
+
     def test_collect_observations_pointed_access_time_fixed(self):
         """
         Test that a fixed access time is centered on a pointed instrument's
@@ -275,6 +298,98 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         self.assertTrue(
             (pointed.epoch - pointed.start == timedelta(seconds=5)).all()
             and (pointed.end - pointed.epoch == timedelta(seconds=5)).all()
+        )
+
+    def _collect_conical_observations(self, **kwargs):
+        """
+        Collects one day of observations of a set of points by a conical
+        instrument with a 45 deg cone, together with those of a nadir
+        instrument with a 90 deg field of regard.
+        """
+        instrument = ConicalInstrument(
+            name="Conical", cone_angle=45, along_track_field_of_view=1, **kwargs
+        )
+        satellite = self.satellite.model_copy(
+            update={"instruments": [instrument, Instrument(field_of_regard=90)]}
+        )
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        points = [
+            Point(id=i, latitude=latitude, longitude=longitude)
+            for i, (latitude, longitude) in enumerate(
+                [(0, 0), (20, 45), (-35, -100), (45, 170)]
+            )
+        ]
+        return satellite, [
+            pd.concat(
+                [
+                    collect_observations(
+                        point, satellite, start, start + timedelta(days=1), index
+                    )
+                    for point in points
+                ]
+            ).reset_index(drop=True)
+            for index in (0, 1)
+        ]
+
+    def test_collect_observations_conical_epoch_on_cone(self):
+        """
+        Test that a conical instrument's observation epochs are times when
+        the point lies on the cone within the scan sector.
+        """
+        for kwargs in [
+            {},
+            {"scan_half_width": 60},
+            {"scan_center_azimuth": 180, "scan_half_width": 60},
+        ]:
+            satellite, (conical, _) = self._collect_conical_observations(**kwargs)
+            self.assertGreater(len(conical), 0)
+            instrument = satellite.instruments[0]
+            for _, observation in conical.iterrows():
+                orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(
+                    observation.epoch
+                )
+                target = wgs84.latlon(observation.geometry.y, observation.geometry.x)
+                cone, azimuth = compute_cone_and_azimuth(orbit_track, target)
+                self.assertAlmostEqual(float(cone), 45, delta=1e-4)
+                offset = (
+                    float(azimuth) - instrument.scan_center_azimuth + 180
+                ) % 360 - 180
+                self.assertLessEqual(abs(offset), instrument.scan_half_width)
+
+    def test_collect_observations_conical_fore_and_aft(self):
+        """
+        Test that a full rotation observes points twice per pass (entering
+        and leaving the cone), a forward sector at the start of the nadir
+        instrument's access period, and an aft sector at its end.
+        """
+        _, (full, nadir) = self._collect_conical_observations()
+        self.assertEqual(len(full), 2 * len(nadir))
+        _, (forward, nadir) = self._collect_conical_observations(scan_half_width=89)
+        self.assertGreater(len(forward), 0)
+        merged = pd.merge_asof(
+            forward.sort_values("epoch"),
+            nadir[["point_id", "start", "end"]].sort_values("start"),
+            left_on="epoch",
+            right_on="start",
+            by="point_id",
+            direction="nearest",
+        )
+        np.testing.assert_array_less(
+            np.abs((merged.epoch - merged.start_y).dt.total_seconds()), 10
+        )
+        _, (aft, nadir) = self._collect_conical_observations(
+            scan_center_azimuth=180, scan_half_width=89
+        )
+        merged = pd.merge_asof(
+            aft.sort_values("epoch"),
+            nadir[["point_id", "start", "end"]].sort_values("end"),
+            left_on="epoch",
+            right_on="end",
+            by="point_id",
+            direction="nearest",
+        )
+        np.testing.assert_array_less(
+            np.abs((merged.epoch - merged.end_y).dt.total_seconds()), 10
         )
 
     def test_collect_observations_null(self):

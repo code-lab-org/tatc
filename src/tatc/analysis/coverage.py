@@ -6,6 +6,7 @@ Methods to perform coverage analysis.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 import geopandas as gpd
@@ -16,13 +17,13 @@ from skyfield.api import wgs84
 from skyfield.toposlib import GeographicPosition
 
 from ..constants import EARTH_MEAN_RADIUS, de421, timescale
-from ..schemas import Point, PointedInstrument, Satellite
+from ..schemas import ConicalInstrument, Point, PointedInstrument, Satellite
 from ..utils.observation import (
     compute_max_access_time,
     compute_min_elevation_angle,
 )
 from ..utils.orbital import compute_apoapsis_radius
-from ..utils.projection import compute_view_tangents
+from ..utils.projection import _compute_view_frame, compute_cone_and_azimuth
 
 
 def _get_visible_interval_series(
@@ -178,6 +179,58 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
+def _find_crossings(
+    residual: Callable[[np.ndarray], np.ndarray],
+    lower: np.ndarray,
+    upper: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Find a zero of a residual function within each of a set of intervals by
+    the Illinois variant of the regula falsi method, vectorized across the
+    intervals.
+
+    Args:
+        residual (Callable[[numpy.ndarray], numpy.ndarray]): The residual
+                function, evaluated at an array of times (seconds).
+        lower (numpy.ndarray): The lower ends of the intervals (seconds).
+        upper (numpy.ndarray): The upper ends of the intervals (seconds).
+
+    Returns:
+        tuple[numpy.ndarray, numpy.ndarray]: The zero in each interval (or,
+            if the residual does not change sign, the end with the smaller
+            residual) and whether the interval brackets a zero.
+    """
+    lower, upper = np.array(lower, dtype=float), np.array(upper, dtype=float)
+    f_lower, f_upper = residual(lower), residual(upper)
+    # without a sign change, use the end with the smaller residual
+    crossing = np.where(np.abs(f_lower) <= np.abs(f_upper), lower, upper)
+    bracketed = np.sign(f_lower) * np.sign(f_upper) < 0
+    # side of the bracket replaced in the previous iteration (-1: lower, 1: upper)
+    side = np.zeros(len(lower))
+    for _ in range(50):
+        active = bracketed & (upper - lower > 1e-3)
+        if not np.any(active):
+            break
+        with np.errstate(divide="ignore", invalid="ignore"):
+            x = np.where(
+                active, (lower * f_upper - upper * f_lower) / (f_upper - f_lower), lower
+            )
+        f_x = np.zeros(len(lower))
+        f_x[active] = residual(x[active])
+        replace_lower = active & (np.sign(f_x) == np.sign(f_lower))
+        replace_upper = active & ~replace_lower
+        # Illinois modification: halve the residual of an end retained twice
+        f_upper = np.where(replace_lower & (side == -1), f_upper / 2, f_upper)
+        f_lower = np.where(replace_upper & (side == 1), f_lower / 2, f_lower)
+        lower = np.where(replace_lower, x, lower)
+        f_lower = np.where(replace_lower, f_x, f_lower)
+        upper = np.where(replace_upper, x, upper)
+        f_upper = np.where(replace_upper, f_x, f_upper)
+        side = np.where(replace_lower, -1, np.where(replace_upper, 1, side))
+        crossing = np.where(active, x, crossing)
+    return crossing, bracketed
+
+
 def _get_view_crossing_times(
     target: GeographicPosition,
     satellite: Satellite,
@@ -186,10 +239,11 @@ def _get_view_crossing_times(
 ) -> list[pd.Timestamp]:
     """
     Get the time in each visible period when a pointed instrument's view
-    sweeps over a target: when the target's along-track view angle, relative
-    to the (rolled and pitched) view center, is zero. This angle decreases
-    monotonically as the satellite passes the target, so the crossing is
-    found by the Illinois variant of the regula falsi method. If a period
+    sweeps over a target: when the target crosses the plane of the view's
+    boresight and cross-track axis (where its along-track view angle is
+    zero). The along-track component of the unit line of sight to the
+    target, which is defined even when the target is behind the view,
+    decreases through zero as the satellite passes the target. If a period
     does not contain a crossing (for example, a period truncated by the
     analysis window), uses the period's end closest to the crossing.
 
@@ -208,45 +262,85 @@ def _get_view_crossing_times(
     reference = periods[0].left
 
     def residual(seconds: np.ndarray) -> np.ndarray:
-        # along-track view angle tangent, relative to the view center
-        along, _ = compute_view_tangents(
+        # along-track component of the unit line of sight in the view frame
+        position, _, along, _ = _compute_view_frame(
+            orbit.get_orbit_track(
+                [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
+            ),
+            instrument.roll_angle,
+            instrument.pitch_angle,
+            instrument.velocity_frame,
+        )
+        los = np.reshape(np.array(target.itrs_xyz.m), (3, 1)) - position
+        return np.sum(los * along, axis=0) / np.linalg.norm(los, axis=0)
+
+    crossing, _ = _find_crossings(
+        residual,
+        np.array([(period.left - reference).total_seconds() for period in periods]),
+        np.array([(period.right - reference).total_seconds() for period in periods]),
+    )
+    return [reference + pd.Timedelta(seconds=float(x)) for x in crossing]
+
+
+def _get_cone_crossing_times(
+    target: GeographicPosition,
+    satellite: Satellite,
+    instrument: ConicalInstrument,
+    periods: list[pd.Interval],
+) -> list[list[pd.Timestamp]]:
+    """
+    Get the times in each visible period when a target crosses a conical
+    instrument's cone: when the target's angle from nadir equals the cone
+    angle. During a pass, this angle decreases to a minimum near the closest
+    approach and then increases, so there are up to two crossings: entering
+    the cone (ahead of the satellite) and leaving it (behind).
+
+    Args:
+        target (skyfield.toposlib.GeographicPosition): The target position.
+        satellite (Satellite): The observing satellite.
+        instrument (ConicalInstrument): The observing instrument.
+        periods (list[pandas.Interval]): The visible periods.
+
+    Returns:
+        list[list[pandas.Timestamp]]: The cone crossing times in each period.
+    """
+    if len(periods) == 0:
+        return []
+    orbit = satellite.orbit.to_gp_orbit()
+    reference = periods[0].left
+
+    def cone_angle(seconds: np.ndarray) -> np.ndarray:
+        cone, _ = compute_cone_and_azimuth(
             orbit.get_orbit_track(
                 [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
             ),
             target,
             instrument.velocity_frame,
-            instrument.roll_angle,
-            instrument.pitch_angle,
         )
-        return np.reshape(along, -1)
+        return np.reshape(cone, -1)
 
     lower = np.array([(period.left - reference).total_seconds() for period in periods])
     upper = np.array([(period.right - reference).total_seconds() for period in periods])
-    f_lower, f_upper = residual(lower), residual(upper)
-    # without a sign change, use the end with the smaller residual
-    crossing = np.where(np.abs(f_lower) <= np.abs(f_upper), lower, upper)
-    bracketed = np.sign(f_lower) * np.sign(f_upper) < 0
-    # side of the bracket replaced in the previous iteration (-1: lower, 1: upper)
-    side = np.zeros(len(periods))
-    for _ in range(50):
-        active = bracketed & (upper - lower > 1e-3)
-        if not np.any(active):
-            break
-        x = (lower * f_upper - upper * f_lower) / (f_upper - f_lower)
-        f_x = np.zeros(len(periods))
-        f_x[active] = residual(x[active])
-        replace_lower = active & (np.sign(f_x) == np.sign(f_lower))
-        replace_upper = active & ~replace_lower
-        # Illinois modification: halve the residual of an end retained twice
-        f_upper = np.where(replace_lower & (side == -1), f_upper / 2, f_upper)
-        f_lower = np.where(replace_upper & (side == 1), f_lower / 2, f_lower)
-        lower = np.where(replace_lower, x, lower)
-        f_lower = np.where(replace_lower, f_x, f_lower)
-        upper = np.where(replace_upper, x, upper)
-        f_upper = np.where(replace_upper, f_x, f_upper)
-        side = np.where(replace_lower, -1, np.where(replace_upper, 1, side))
-        crossing = np.where(active, x, crossing)
-    return [reference + pd.Timedelta(seconds=float(x)) for x in crossing]
+    # time of the minimum angle from nadir in each period, from sampled times
+    samples = lower[:, None] + (upper - lower)[:, None] * np.linspace(0, 1, 21)
+    closest = samples[
+        np.arange(len(periods)),
+        np.argmin(cone_angle(samples.ravel()).reshape(samples.shape), axis=1),
+    ]
+    crossing, bracketed = _find_crossings(
+        lambda seconds: cone_angle(seconds) - instrument.cone_angle,
+        np.concatenate([lower, closest]),
+        np.concatenate([closest, upper]),
+    )
+    n = len(periods)
+    return [
+        [
+            reference + pd.Timedelta(seconds=float(crossing[i + k * n]))
+            for k in range(2)
+            if bracketed[i + k * n]
+        ]
+        for i in range(n)
+    ]
 
 
 def collect_observations(
@@ -263,8 +357,9 @@ def collect_observations(
     instrument's field of regard. Its epoch is the period's midpoint or, for
     a `PointedInstrument`, the time when the instrument's view sweeps over
     the point (when the point's along-track view angle relative to the view
-    center is zero), at which time the point must lie within the field of
-    view.
+    center is zero), or, for a `ConicalInstrument`, a time when the point
+    crosses the scanned cone (up to two per period, entering and leaving the
+    cone); at that time, the point must lie within the field of view.
 
     Args:
         point (Point): The ground point of interest.
@@ -297,12 +392,19 @@ def collect_observations(
         )
     )
     # observation epochs: the time a pointed instrument's view sweeps over
-    # the point, otherwise the midpoint of the visible period
-    epochs = (
-        _get_view_crossing_times(target, satellite, instrument, periods)
-        if isinstance(instrument, PointedInstrument)
-        else [period.mid for period in periods]
-    )
+    # the point, the times the point crosses a conical instrument's cone, or
+    # otherwise the midpoint of each visible period
+    if isinstance(instrument, PointedInstrument):
+        epochs = [
+            [epoch]
+            for epoch in _get_view_crossing_times(
+                target, satellite, instrument, periods
+            )
+        ]
+    elif isinstance(instrument, ConicalInstrument):
+        epochs = _get_cone_crossing_times(target, satellite, instrument, periods)
+    else:
+        epochs = [[period.mid] for period in periods]
     records = [
         {
             "point_id": point.id,
@@ -321,7 +423,8 @@ def collect_observations(
             ),
             "epoch": epoch,
         }
-        for period, epoch in zip(periods, epochs)
+        for period, period_epochs in zip(periods, epochs)
+        for epoch in period_epochs
         # instrument validity (illumination, field of view) below is only
         # checked at each period's epoch, as an approximation of the whole
         # interval; a more general approach would refine the exact
@@ -335,7 +438,7 @@ def collect_observations(
                 target,
             ).all()
             and (
-                not isinstance(instrument, PointedInstrument)
+                not isinstance(instrument, (PointedInstrument, ConicalInstrument))
                 or instrument.is_in_field_of_view(orbit_track, target).all()
             )
         )
