@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
+from tatc.constants import timescale
 from tatc.utils import to_datetime64_ns
 
 
@@ -59,3 +60,31 @@ class TestTime(unittest.TestCase):
         result = to_datetime64_ns(values)
         expected = values.astype("datetime64[ns]")
         np.testing.assert_array_equal(result, expected)
+
+    def test_to_datetime64_ns_skyfield_time_scalar(self):
+        """
+        Test that a scalar Skyfield time is converted to a scalar
+        datetime64[ns].
+        """
+        value = timescale.from_datetime(
+            datetime(2022, 6, 1, 12, 30, 15, 250000, tzinfo=timezone.utc)
+        )
+        result = to_datetime64_ns(value)
+        self.assertIsInstance(result, np.datetime64)
+        self.assertEqual(result, np.datetime64("2022-06-01T12:30:15.25", "ns"))
+
+    def test_to_datetime64_ns_skyfield_time_array(self):
+        """
+        Test that a Skyfield time array is converted to the same
+        datetime64[ns] values as its Python datetimes, across month, year,
+        and leap-day boundaries.
+        """
+        values = [
+            datetime(2020, 2, 29, 23, 59, 59, 999999, tzinfo=timezone.utc),
+            datetime(2021, 12, 31, 23, 59, 59, tzinfo=timezone.utc),
+            datetime(2022, 1, 1, tzinfo=timezone.utc),
+            datetime(2022, 6, 1, 12, 30, 15, 123456, tzinfo=timezone.utc),
+        ]
+        t = timescale.from_datetimes(values)
+        result = to_datetime64_ns(t)
+        np.testing.assert_array_equal(result, to_datetime64_ns(values))

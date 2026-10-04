@@ -16,6 +16,10 @@ from .latency import (
     grid_latencies,
     reduce_latencies,
 )
+from .limb_coverage import (
+    ScanDirection,
+    collect_limb_observations,
+)
 from .radar import (
     collect_radar_track,
     compute_radar_track,
@@ -36,10 +40,12 @@ __all__ = [
     "DopMethod",
     "OrbitCoordinate",
     "OrbitOutput",
+    "ScanDirection",
     "aggregate_observations",
     "collect_downlinks",
     "collect_ground_pixels",
     "collect_ground_track",
+    "collect_limb_observations",
     "collect_multi_observations",
     "collect_observations",
     "collect_orbit_track",

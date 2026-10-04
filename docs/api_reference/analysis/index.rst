@@ -12,3 +12,4 @@ Analysis functions simulate mission operation to compute key performance metrics
   latency
   dop
   ro_coverage
+  limb_coverage

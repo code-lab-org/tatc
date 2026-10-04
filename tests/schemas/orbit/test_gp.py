@@ -492,6 +492,29 @@ class TestGetClosestElementIndex(unittest.TestCase):
         """
         self.assertEqual(self.multi_element_orbit.get_closest_element_index([]), [])
 
+    def test_skyfield_time_input_matches_datetime_input(self):
+        """
+        Test that a Skyfield time (array or scalar) is accepted and
+        selects the same indices as the equivalent datetimes, including
+        the tie-breaking convention at a midpoint.
+        """
+        queries = [
+            self.epoch_0 - timedelta(days=365),
+            self.epoch_0 + timedelta(hours=1),
+            self.epoch_0 + (self.epoch_1 - self.epoch_0) / 2,
+            self.epoch_1 - timedelta(hours=1),
+            self.epoch_2 + timedelta(days=365),
+        ]
+        o = self.multi_element_orbit
+        self.assertEqual(
+            o.get_closest_element_index(constants.timescale.from_datetimes(queries)),
+            o.get_closest_element_index(queries),
+        )
+        self.assertEqual(
+            o.get_closest_element_index(constants.timescale.from_datetime(queries[3])),
+            1,
+        )
+
 
 class TestGetClosestElement(unittest.TestCase):
     """
