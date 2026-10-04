@@ -39,7 +39,9 @@ Note: the following optional dependencies are available with bracket notation:
  * :console:`pip install -e ".[dev]"`: for development functions (unit testing, coverage, and linting)
  * :console:`pip install -e ".[docs]"`: for generating documentation in :console:`docs/`
  * :console:`pip install -e ".[examples]"`: for running optional examples in :console:`docs/examples`
- * :console:`pip install -e ".[app]"`: for running the `web application <https://github.com/code-lab-org/tatc-app>`_
+ * :console:`pip install -e ".[osse]"`: for running optional observing system simulation experiment (OSSE) examples
+ * :console:`pip install -e ".[preprocess]"`: for preprocessing functions (e.g., terrain masks)
+ * :console:`pip install -e ".[validation]"`: for running validation notebooks in :console:`docs/validation` (includes :console:`examples` and :console:`preprocess`)
 
 Multiple optional dependencies can be installed with a comma-separated list (e.g., :console:`pip install -e ".[dev,examples]"`)
 

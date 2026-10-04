@@ -7,6 +7,7 @@ Utility functions for the TATC library.
 from .atmosphere import altitude_to_pressure, pressure_to_altitude
 from .formatting import zero_pad
 from .geometry import (
+    geodesic_destination,
     geodesic_distance,
     get_planar_bounds,
     normalize_geometry,
@@ -44,6 +45,15 @@ from .projection import (
     compute_footprint,
     compute_limb,
     compute_projected_ray_position,
+    compute_radar_footprint,
+    compute_radar_footprint_profile,
+)
+from .radar import (
+    compute_radar_beam_height,
+    compute_radar_ground_range,
+    compute_radar_ground_range_bounds,
+    compute_radar_slant_range,
+    compute_terrain_elevation_angle,
 )
 from .surface import compute_number_samples
 from .time import to_datetime64_ns
@@ -68,7 +78,15 @@ __all__ = [
     "compute_number_samples",
     "compute_orbit_inertial_velocity",
     "compute_projected_ray_position",
+    "compute_radar_beam_height",
+    "compute_radar_footprint",
+    "compute_radar_footprint_profile",
+    "compute_radar_ground_range",
+    "compute_radar_ground_range_bounds",
+    "compute_radar_slant_range",
+    "compute_terrain_elevation_angle",
     "field_of_regard_to_swath_width",
+    "geodesic_destination",
     "geodesic_distance",
     "get_planar_bounds",
     "mean_anomaly_to_true_anomaly",

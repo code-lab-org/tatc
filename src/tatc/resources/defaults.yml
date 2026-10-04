@@ -2,6 +2,9 @@
 footprint_points_elliptical: 32
 footprint_points_rectangular_side: 8
 
+# radar-related footprint settings
+footprint_points_radar_azimuthal: 360
+
 # orbit repeat cycle-related settings
 repeat_cycle_delta_position_m: 10000
 repeat_cycle_delta_velocity_m_per_s: 3

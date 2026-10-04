@@ -35,6 +35,13 @@ class RuntimeConfiguration(BaseModel):
         description="Number of points for a SPICE rectangular footprint side.",
         ge=1,
     )
+    footprint_points_radar_azimuthal: int = Field(
+        default=360,
+        description="Number of azimuth samples used to build a terrain-"
+        + "masked radar footprint (ignored when a RadarStation has no "
+        + "terrain_mask, which uses a faster closed-form circle/annulus).",
+        ge=4,
+    )
     repeat_cycle_delta_position_m: float = Field(
         default=10000,
         description="Maximum difference in position (meters) for a valid repeat.",

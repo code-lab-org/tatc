@@ -30,6 +30,7 @@ class TestRuntimeConfiguration(unittest.TestCase):
         rc = RuntimeConfiguration()
         self.assertEqual(rc.footprint_points_elliptical, 32)
         self.assertEqual(rc.footprint_points_rectangular_side, 8)
+        self.assertEqual(rc.footprint_points_radar_azimuthal, 360)
         self.assertEqual(rc.repeat_cycle_delta_position_m, 10000)
         self.assertEqual(rc.repeat_cycle_delta_velocity_m_per_s, 3)
         self.assertEqual(rc.repeat_cycle_search_duration_days, 30)
@@ -273,6 +274,7 @@ class TestPackagedDefaults(unittest.TestCase):
             {
                 "footprint_points_elliptical": 32,
                 "footprint_points_rectangular_side": 8,
+                "footprint_points_radar_azimuthal": 360,
                 "repeat_cycle_delta_position_m": 10000,
                 "repeat_cycle_delta_velocity_m_per_s": 3,
                 "repeat_cycle_search_duration_days": 30,

@@ -20,6 +20,10 @@ from .limb_coverage import (
     ScanDirection,
     collect_limb_observations,
 )
+from .radar import (
+    collect_radar_track,
+    compute_radar_track,
+)
 from .ro_coverage import (
     collect_ro_observations,
 )
@@ -45,10 +49,12 @@ __all__ = [
     "collect_multi_observations",
     "collect_observations",
     "collect_orbit_track",
+    "collect_radar_track",
     "collect_ro_observations",
     "compute_dop",
     "compute_ground_track",
     "compute_latencies",
+    "compute_radar_track",
     "grid_latencies",
     "grid_observations",
     "reduce_latencies",

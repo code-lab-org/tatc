@@ -44,3 +44,8 @@ EARTH_SURFACE_AREA = (
 )
 EARTH_MEAN_RADIUS = (2 * EARTH_EQUATORIAL_RADIUS + EARTH_POLAR_RADIUS) / 3
 EARTH_J2_CRITICAL_INCLINATION = np.degrees(np.arccos(np.sqrt(1 / 5)))
+
+# standard-atmosphere refraction approximation ("4/3 Earth radius" model) used
+# to compute radar beam propagation; see Doviak & Zrnic, "Doppler Radar and
+# Weather Observations" (1993)
+EFFECTIVE_EARTH_RADIUS_FACTOR = 4 / 3
