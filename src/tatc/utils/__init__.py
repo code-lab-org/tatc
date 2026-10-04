@@ -15,6 +15,7 @@ from .geometry import (
     split_polygon,
 )
 from .observation import (
+    compute_along_track_field_of_view,
     compute_field_of_regard,
     compute_max_access_time,
     compute_max_transit_time,
@@ -63,6 +64,7 @@ from .surface import compute_number_samples
 from .time import to_datetime64_ns
 
 __all__ = [
+    "compute_along_track_field_of_view",
     "NadirReference",
     "VelocityFrame",
     "altitude_to_pressure",

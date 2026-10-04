@@ -14,10 +14,19 @@ import numpy as np
 import pandas as pd
 from shapely import geometry as geo
 from skyfield.api import wgs84
+from skyfield.framelib import itrs
+from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
-from ..constants import EARTH_MEAN_RADIUS, de421, timescale
-from ..schemas import ConicalInstrument, Point, PointedInstrument, Satellite
+from ..constants import EARTH_POLAR_RADIUS, de421, timescale
+from ..schemas import (
+    ConicalInstrument,
+    GeneralPerturbationsOrbit,
+    Instrument,
+    Point,
+    PointedInstrument,
+    Satellite,
+)
 from ..utils.observation import (
     compute_max_access_time,
     compute_min_elevation_angle,
@@ -180,7 +189,7 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
 
 
 def _find_crossings(
-    residual: Callable[[np.ndarray], np.ndarray],
+    residual: Callable[[np.ndarray, np.ndarray], np.ndarray],
     lower: np.ndarray,
     upper: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -190,8 +199,9 @@ def _find_crossings(
     intervals.
 
     Args:
-        residual (Callable[[numpy.ndarray], numpy.ndarray]): The residual
-                function, evaluated at an array of times (seconds).
+        residual (Callable[[numpy.ndarray, numpy.ndarray], numpy.ndarray]):
+                The residual function, evaluated at an array of times
+                (seconds) within the intervals with the given indices.
         lower (numpy.ndarray): The lower ends of the intervals (seconds).
         upper (numpy.ndarray): The upper ends of the intervals (seconds).
 
@@ -201,7 +211,8 @@ def _find_crossings(
             residual) and whether the interval brackets a zero.
     """
     lower, upper = np.array(lower, dtype=float), np.array(upper, dtype=float)
-    f_lower, f_upper = residual(lower), residual(upper)
+    index = np.arange(len(lower))
+    f_lower, f_upper = residual(lower, index), residual(upper, index)
     # without a sign change, use the end with the smaller residual
     crossing = np.where(np.abs(f_lower) <= np.abs(f_upper), lower, upper)
     bracketed = np.sign(f_lower) * np.sign(f_upper) < 0
@@ -216,7 +227,7 @@ def _find_crossings(
                 active, (lower * f_upper - upper * f_lower) / (f_upper - f_lower), lower
             )
         f_x = np.zeros(len(lower))
-        f_x[active] = residual(x[active])
+        f_x[active] = residual(x[active], index[active])
         replace_lower = active & (np.sign(f_x) == np.sign(f_lower))
         replace_upper = active & ~replace_lower
         # Illinois modification: halve the residual of an end retained twice
@@ -231,11 +242,155 @@ def _find_crossings(
     return crossing, bracketed
 
 
+def _get_orbit_track(
+    orbit: GeneralPerturbationsOrbit,
+    times: list[datetime],
+    shifts: list[timedelta] | None = None,
+) -> Geocentric:
+    """
+    Get the orbit track at a list of times. With nonzero shifts, the
+    satellite's Earth-fixed position and velocity at each time are those
+    propagated to the time minus the shift, a whole number of repeat cycles,
+    as for an orbit maintained on its repeat ground track; they are
+    expressed in the inertial (GCRS) frame at the time itself, so that
+    quantities that depend on the time (such as the Sun's position) are
+    unaffected.
+
+    Args:
+        orbit (GeneralPerturbationsOrbit): The orbit.
+        times (list[datetime.datetime]): The times.
+        shifts (list[datetime.timedelta] | None): The shift at each time.
+
+    Returns:
+        skyfield.positionlib.Geocentric: The orbit track.
+    """
+    if shifts is None or not any(shifts):
+        return orbit.get_orbit_track(times)
+    shifted = orbit.get_orbit_track([t - shift for t, shift in zip(times, shifts)])
+    position, velocity = shifted.frame_xyz_and_velocity(itrs)
+    t = timescale.from_datetimes(times)
+    # invert the Earth-fixed transformation (r_itrs = R r, v_itrs = R v + V r_itrs)
+    rotation = itrs.rotation_at(t)
+    rate = itrs._dRdt_times_RT_at(t)  # pylint: disable=protected-access
+    v_rotating = velocity.au_per_d - np.einsum("ij...,j...->i...", rate, position.au)
+    return Geocentric(
+        np.einsum("ji...,j...->i...", rotation, position.au),
+        np.einsum("ji...,j...->i...", rotation, v_rotating),
+        t,
+        center=399,
+    )
+
+
+def _get_repeat_shifts(
+    orbit: GeneralPerturbationsOrbit,
+    start: datetime,
+    end: datetime,
+    periods: list[pd.Interval],
+) -> list[timedelta]:
+    """
+    Get the shift of each visible period, a whole number of repeat cycles,
+    if `get_observation_events` repeats the events of the first cycle to
+    cover the analysis period (otherwise zero).
+
+    Args:
+        orbit (GeneralPerturbationsOrbit): The orbit.
+        start (datetime.datetime): Start of analysis period.
+        end (datetime.datetime): End of analysis period.
+        periods (list[pandas.Interval]): The visible periods.
+
+    Returns:
+        list[datetime.timedelta]: The shift of each period.
+    """
+    repeat_cycle = orbit.get_observation_repeat_cycle(start, end)
+    if repeat_cycle is None:
+        return [timedelta(0) for _ in periods]
+    reference = pd.Timestamp(start.astimezone(tz=timezone.utc))
+    return [
+        int(np.floor((period.mid - reference) / repeat_cycle)) * repeat_cycle
+        for period in periods
+    ]
+
+
+def _refine_access_periods(
+    target: GeographicPosition,
+    orbit: GeneralPerturbationsOrbit,
+    instrument: Instrument,
+    periods: list[pd.Interval],
+    shifts: list[timedelta],
+) -> tuple[list[pd.Interval], list[timedelta]]:
+    """
+    Refine visible periods to the times when a target lies within an
+    instrument's field of regard: when its angle from nadir (using the
+    instrument's nadir reference) is at most half the field of regard. The
+    visible periods, from a conservative minimum elevation angle, bracket
+    these times. Periods during which the target does not enter the field
+    of regard are removed; period ends at which it is already inside (for
+    example, at the ends of the analysis period) are kept.
+
+    Args:
+        target (skyfield.toposlib.GeographicPosition): The target position.
+        orbit (GeneralPerturbationsOrbit): The orbit.
+        instrument (Instrument): The observing instrument.
+        periods (list[pandas.Interval]): The visible periods.
+        shifts (list[datetime.timedelta]): The repeat-cycle shift of each period.
+
+    Returns:
+        tuple[list[pandas.Interval], list[datetime.timedelta]]: The refined
+            periods and their shifts.
+    """
+    half_angle = instrument.field_of_regard / 2
+    if len(periods) == 0 or half_angle >= 90:
+        return periods, shifts
+    reference = periods[0].left
+    n = len(periods)
+
+    def angle_from_nadir(seconds: np.ndarray, index: np.ndarray) -> np.ndarray:
+        angle, _ = compute_cone_and_azimuth(
+            _get_orbit_track(
+                orbit,
+                [reference + pd.Timedelta(seconds=float(x)) for x in seconds],
+                [shifts[i % n] for i in index],
+            ),
+            target,
+            nadir_reference=instrument.nadir_reference,
+        )
+        return np.reshape(angle, -1)
+
+    lower = np.array([(period.left - reference).total_seconds() for period in periods])
+    upper = np.array([(period.right - reference).total_seconds() for period in periods])
+    # time of the minimum angle from nadir in each period, from sampled times
+    samples = lower[:, None] + (upper - lower)[:, None] * np.linspace(0, 1, 21)
+    angles = angle_from_nadir(samples.ravel(), np.repeat(np.arange(n), 21)).reshape(
+        samples.shape
+    )
+    closest = samples[np.arange(n), np.argmin(angles, axis=1)]
+    crossing, bracketed = _find_crossings(
+        lambda seconds, index: angle_from_nadir(seconds, index) - half_angle,
+        np.concatenate([lower, closest]),
+        np.concatenate([closest, upper]),
+    )
+    refined, refined_shifts = [], []
+    for i in range(n):
+        if np.min(angles[i]) > half_angle:
+            continue
+        left = crossing[i] if bracketed[i] else lower[i]
+        right = crossing[i + n] if bracketed[i + n] else upper[i]
+        refined.append(
+            pd.Interval(
+                left=reference + pd.Timedelta(seconds=float(left)),
+                right=reference + pd.Timedelta(seconds=float(right)),
+            )
+        )
+        refined_shifts.append(shifts[i])
+    return refined, refined_shifts
+
+
 def _get_view_crossing_times(
     target: GeographicPosition,
     satellite: Satellite,
     instrument: PointedInstrument,
     periods: list[pd.Interval],
+    shifts: list[timedelta] | None = None,
 ) -> list[pd.Timestamp]:
     """
     Get the time in each visible period when a pointed instrument's view
@@ -252,6 +407,8 @@ def _get_view_crossing_times(
         satellite (Satellite): The observing satellite.
         instrument (PointedInstrument): The observing instrument.
         periods (list[pandas.Interval]): The visible periods.
+        shifts (list[datetime.timedelta] | None): The repeat-cycle shift of
+                each period (see `_get_orbit_track`).
 
     Returns:
         list[pandas.Timestamp]: The view crossing time in each period.
@@ -260,12 +417,15 @@ def _get_view_crossing_times(
         return []
     orbit = satellite.orbit.to_gp_orbit()
     reference = periods[0].left
+    shifts = shifts or [timedelta(0) for _ in periods]
 
-    def residual(seconds: np.ndarray) -> np.ndarray:
+    def residual(seconds: np.ndarray, index: np.ndarray) -> np.ndarray:
         # along-track component of the unit line of sight in the view frame
         position, _, along, _ = _compute_view_frame(
-            orbit.get_orbit_track(
-                [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
+            _get_orbit_track(
+                orbit,
+                [reference + pd.Timedelta(seconds=float(x)) for x in seconds],
+                [shifts[i] for i in index],
             ),
             instrument.roll_angle,
             instrument.pitch_angle,
@@ -288,6 +448,7 @@ def _get_cone_crossing_times(
     satellite: Satellite,
     instrument: ConicalInstrument,
     periods: list[pd.Interval],
+    shifts: list[timedelta] | None = None,
 ) -> list[list[pd.Timestamp]]:
     """
     Get the times in each visible period when a target crosses a conical
@@ -301,6 +462,8 @@ def _get_cone_crossing_times(
         satellite (Satellite): The observing satellite.
         instrument (ConicalInstrument): The observing instrument.
         periods (list[pandas.Interval]): The visible periods.
+        shifts (list[datetime.timedelta] | None): The repeat-cycle shift of
+                each period (see `_get_orbit_track`).
 
     Returns:
         list[list[pandas.Timestamp]]: The cone crossing times in each period.
@@ -309,11 +472,15 @@ def _get_cone_crossing_times(
         return []
     orbit = satellite.orbit.to_gp_orbit()
     reference = periods[0].left
+    shifts = shifts or [timedelta(0) for _ in periods]
+    n = len(periods)
 
-    def cone_angle(seconds: np.ndarray) -> np.ndarray:
+    def cone_angle(seconds: np.ndarray, index: np.ndarray) -> np.ndarray:
         cone, _ = compute_cone_and_azimuth(
-            orbit.get_orbit_track(
-                [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
+            _get_orbit_track(
+                orbit,
+                [reference + pd.Timedelta(seconds=float(x)) for x in seconds],
+                [shifts[i % n] for i in index],
             ),
             target,
             instrument.velocity_frame,
@@ -326,15 +493,19 @@ def _get_cone_crossing_times(
     # time of the minimum angle from nadir in each period, from sampled times
     samples = lower[:, None] + (upper - lower)[:, None] * np.linspace(0, 1, 21)
     closest = samples[
-        np.arange(len(periods)),
-        np.argmin(cone_angle(samples.ravel()).reshape(samples.shape), axis=1),
+        np.arange(n),
+        np.argmin(
+            cone_angle(samples.ravel(), np.repeat(np.arange(n), 21)).reshape(
+                samples.shape
+            ),
+            axis=1,
+        ),
     ]
     crossing, bracketed = _find_crossings(
-        lambda seconds: cone_angle(seconds) - instrument.cone_angle,
+        lambda seconds, index: cone_angle(seconds, index) - instrument.cone_angle,
         np.concatenate([lower, closest]),
         np.concatenate([closest, upper]),
     )
-    n = len(periods)
     return [
         [
             reference + pd.Timedelta(seconds=float(crossing[i + k * n]))
@@ -356,12 +527,20 @@ def collect_observations(
     """
     Collect single satellite observations of a geodetic point of interest.
     Each observation spans a period when the point lies within the
-    instrument's field of regard. Its epoch is the period's midpoint or, for
+    instrument's field of regard (when its angle from nadir is at most half
+    the field of regard). Its epoch is the period's midpoint or, for
     a `PointedInstrument`, the time when the instrument's view sweeps over
     the point (when the point's along-track view angle relative to the view
     center is zero), or, for a `ConicalInstrument`, a time when the point
     crosses the scanned cone (up to two per period, entering and leaving the
     cone); at that time, the point must lie within the field of view.
+
+    If the orbit's observation events are repeated with its repeat cycle
+    (see `GeneralPerturbationsOrbit.get_observation_repeat_cycle`), the
+    orbit is modeled as maintained on its repeat ground track: within each
+    repeated cycle, epochs and field of view are evaluated with the
+    satellite's Earth-fixed position and velocity propagated to the
+    corresponding time in the first cycle.
 
     Args:
         point (Point): The ground point of interest.
@@ -375,17 +554,22 @@ def collect_observations(
         geopandas.GeoDataFrame: The data frame with recorded observations.
     """
     instrument = satellite.instruments[instrument_index]
-    # use the apogee altitude as a conservative upper bound for computing access times
+    orbit = satellite.orbit.to_gp_orbit()
+    # use the apogee altitude above the polar radius (and above the point,
+    # if below the ellipsoid) as a conservative upper bound for computing
+    # access times, which are then refined to the field of regard
     max_altitude = (
         compute_apoapsis_radius(
             satellite.orbit.get_semimajor_axis(), satellite.orbit.get_eccentricity()
         )
-        - EARTH_MEAN_RADIUS
+        - EARTH_POLAR_RADIUS
+        - min(point.elevation, 0)
     )
-    # compute the minimum altitude angle required for observation
-    min_elevation_angle = compute_min_elevation_angle(
-        max_altitude,
-        instrument.field_of_regard,
+    # compute the minimum altitude angle required for observation, less a
+    # margin for the spherical approximation (but not below the horizon)
+    min_elevation_angle = max(
+        0.0,
+        compute_min_elevation_angle(max_altitude, instrument.field_of_regard) - 1.0,
     )
     target = wgs84.latlon(point.latitude, point.longitude, point.elevation)
     periods = list(
@@ -393,6 +577,10 @@ def collect_observations(
             point, satellite, min_elevation_angle, max_altitude, start, end
         )
     )
+    # whole repeat cycles by which repeated periods are shifted
+    shifts = _get_repeat_shifts(orbit, start, end, periods)
+    # refine the periods to the field of regard
+    periods, shifts = _refine_access_periods(target, orbit, instrument, periods, shifts)
     # observation epochs: the time a pointed instrument's view sweeps over
     # the point, the times the point crosses a conical instrument's cone, or
     # otherwise the midpoint of each visible period
@@ -400,58 +588,63 @@ def collect_observations(
         epochs = [
             [epoch]
             for epoch in _get_view_crossing_times(
-                target, satellite, instrument, periods
+                target, satellite, instrument, periods, shifts
             )
         ]
     elif isinstance(instrument, ConicalInstrument):
-        epochs = _get_cone_crossing_times(target, satellite, instrument, periods)
+        epochs = _get_cone_crossing_times(
+            target, satellite, instrument, periods, shifts
+        )
     else:
         epochs = [[period.mid] for period in periods]
-    records = [
-        {
-            "point_id": point.id,
-            "geometry": geo.Point(point.longitude, point.latitude, point.elevation),
-            "satellite": satellite.name,
-            "instrument": instrument.name,
-            "start": (
-                period.left
-                if not instrument.access_time_fixed
-                else epoch - instrument.min_access_time / 2
-            ),
-            "end": (
-                period.right
-                if not instrument.access_time_fixed
-                else epoch + instrument.min_access_time / 2
-            ),
-            "epoch": epoch,
-        }
-        for period, period_epochs in zip(periods, epochs)
-        for epoch in period_epochs
-        # instrument validity (illumination, field of view) below is only
-        # checked at each period's epoch, as an approximation of the whole
-        # interval; a more general approach would refine the exact
-        # observation period boundaries with Skyfield's find_discrete using
-        # the instrument's own validity condition, but that is out of scope
-        # for now
-        if (
-            instrument.min_access_time <= period.right - period.left
-            and instrument.is_valid_observation(
-                (orbit_track := satellite.orbit.to_gp_orbit().get_orbit_track(epoch)),
-                target,
-            ).all()
-            and (
-                not isinstance(instrument, (PointedInstrument, ConicalInstrument))
-                or instrument.is_in_field_of_view(orbit_track, target).all()
+    records, record_shifts = [], []
+    for period, period_epochs, shift in zip(periods, epochs, shifts):
+        for epoch in period_epochs:
+            # instrument validity (illumination, field of view) is only
+            # checked at each period's epoch, as an approximation of the
+            # whole interval; a more general approach would refine the exact
+            # observation period boundaries with Skyfield's find_discrete
+            # using the instrument's own validity condition, but that is out
+            # of scope for now
+            orbit_track = _get_orbit_track(orbit, [epoch], [shift])
+            if not (
+                instrument.min_access_time <= period.right - period.left
+                and instrument.is_valid_observation(orbit_track, target).all()
+                and (
+                    not isinstance(instrument, (PointedInstrument, ConicalInstrument))
+                    or instrument.is_in_field_of_view(orbit_track, target).all()
+                )
+            ):
+                continue
+            records.append(
+                {
+                    "point_id": point.id,
+                    "geometry": geo.Point(
+                        point.longitude, point.latitude, point.elevation
+                    ),
+                    "satellite": satellite.name,
+                    "instrument": instrument.name,
+                    "start": (
+                        period.left
+                        if not instrument.access_time_fixed
+                        else epoch - instrument.min_access_time / 2
+                    ),
+                    "end": (
+                        period.right
+                        if not instrument.access_time_fixed
+                        else epoch + instrument.min_access_time / 2
+                    ),
+                    "epoch": epoch,
+                }
             )
-        )
-    ]
+            record_shifts.append(shift)
 
     # build the dataframe
     if len(records) > 0:
         gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
         ts = timescale.from_datetimes(gdf.epoch)
-        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(gdf.epoch.tolist())
+        orbit_track = _get_orbit_track(orbit, gdf.epoch.tolist(), record_shifts)
         # append satellite altitude/azimuth columns
         sat_altaz = (orbit_track - topos.at(ts)).altaz()
         gdf["sat_alt"] = sat_altaz[0].degrees  # type: ignore

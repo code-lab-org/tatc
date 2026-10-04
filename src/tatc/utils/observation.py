@@ -264,3 +264,60 @@ def compute_min_along_track_distance(
         mean_altitude, 0, inclination, extreme_latitude
     )
     return access_time * v_slowest
+
+
+def compute_along_track_field_of_view(
+    mean_altitude: float,
+    time_step: float,
+    inclination: float,
+    latitude: float | None = None,
+    eccentricity: float = 0,
+) -> float:
+    """
+    Compute an along-track field of view tailored to a time step: the angle
+    subtended at nadir (from the mean altitude) by the distance the ground
+    track advances, relative to the rotating Earth, in one time step. The
+    footprints of an instrument with this along-track field of view, at
+    consecutive time steps, tile the ground track, so that the field of view
+    represents the integration over the time step.
+
+    The ground track velocity varies with latitude by a few percent, as the
+    Earth's rotation adds to the motion of a retrograde orbit (such as a
+    sun-synchronous orbit) and subtracts from that of a prograde orbit. By
+    default, the fastest ground track velocity over the orbit is used. For an
+    eccentric orbit, the angle and velocity are evaluated at perigee, where
+    the footprint is shortest relative to the ground track's advance. Together,
+    these make footprints tile without gaps over the whole orbit.
+
+    Args:
+        mean_altitude (float): The mean orbit altitude (meters) above the mean
+            Earth radius.
+        time_step (float): The time step (seconds).
+        inclination (float): The orbit inclination (degrees).
+        latitude (float | None): The latitude (degrees) at which to evaluate
+            the ground track velocity, or `None` to use the fastest ground
+            track velocity over the orbit.
+        eccentricity (float): The orbit eccentricity.
+
+    Returns:
+        float: The along-track field of view (degrees).
+    """
+    # perigee altitude and the factor by which the orbital velocity at perigee
+    # exceeds that of a circular orbit of the same radius (conservatively
+    # applied to the ground track velocity)
+    altitude = (constants.EARTH_MEAN_RADIUS + mean_altitude) * (
+        1 - eccentricity
+    ) - constants.EARTH_MEAN_RADIUS
+    factor = np.sqrt(1 + eccentricity)
+    if latitude is None:
+        # sample the latitudes reached by the orbit
+        extreme_latitude = min(inclination, 180 - inclination)
+        velocity = max(
+            compute_ground_surface_velocity(altitude, 0, inclination, lat)
+            for lat in np.linspace(-extreme_latitude, extreme_latitude, 181)
+        )
+    else:
+        velocity = compute_ground_surface_velocity(altitude, 0, inclination, latitude)
+    return float(
+        np.degrees(2 * np.arctan(factor * velocity * time_step / 2 / altitude))
+    )

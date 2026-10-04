@@ -66,6 +66,8 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_min_along_track_distance
 
+.. autofunction:: tatc.utils.compute_along_track_field_of_view
+
 .. autofunction:: tatc.utils.project_polygon_to_elevation
 
 .. autofunction:: tatc.utils.split_polygon

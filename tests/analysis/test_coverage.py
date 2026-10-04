@@ -10,6 +10,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from skyfield.api import wgs84
+from skyfield.framelib import itrs
 from shapely.geometry import Point as ShapelyPoint
 from shapely.geometry import box
 
@@ -20,7 +21,16 @@ from tatc.analysis import (
     grid_observations,
     reduce_observations,
 )
-from tatc.schemas import ConicalInstrument, Instrument, Point, PointedInstrument
+from tatc import config
+from tatc.analysis.coverage import _get_orbit_track
+from tatc.schemas import (
+    ConicalInstrument,
+    GeneralPerturbationsOrbit,
+    Instrument,
+    Point,
+    PointedInstrument,
+    Satellite,
+)
 from tatc.utils import compute_cone_and_azimuth, compute_view_tangents
 
 from .common import IssConstellationTestCase
@@ -174,15 +184,14 @@ class TestCoverageAnalysis(IssConstellationTestCase):
     def _collect_pointed_observations(self, field_of_regard=100, **kwargs):
         """
         Collects one day of observations of a set of points by a pointed
-        instrument with a wide, thin rectangular view, together with those of
-        a nadir instrument with a 100 deg field of regard. The pointed view
-        is slightly wider (101 deg) because the nadir instrument's minimum
-        elevation angle assumes a conservative (apogee) altitude.
+        instrument with a wide, thin rectangular view (100 deg across track),
+        together with those of a nadir instrument with a 100 deg field of
+        regard.
         """
         instrument = PointedInstrument(
             name="Pointed",
             field_of_regard=field_of_regard,
-            cross_track_field_of_view=101,
+            cross_track_field_of_view=100,
             along_track_field_of_view=1,
             is_rectangular=True,
             **kwargs,
@@ -247,7 +256,9 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             nadir_reference="geocentric"
         )
         _, (geodetic, _) = self._collect_pointed_observations()
-        self.assertEqual(len(geocentric), len(geodetic))
+        # the field of regard is also measured from the nadir reference, so
+        # marginal passes can differ
+        self.assertLessEqual(abs(len(geocentric) - len(geodetic)), 1)
         for _, observation in geocentric.iterrows():
             orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(
                 observation.epoch
@@ -257,11 +268,118 @@ class TestCoverageAnalysis(IssConstellationTestCase):
                 orbit_track, target, nadir_reference="geocentric"
             )
             self.assertAlmostEqual(float(along), 0, delta=1e-5)
+        matched = pd.merge_asof(
+            geocentric.sort_values("epoch"),
+            geodetic[["point_id", "epoch"]]
+            .rename(columns={"epoch": "epoch_geodetic"})
+            .sort_values("epoch_geodetic"),
+            left_on="epoch",
+            right_on="epoch_geodetic",
+            by="point_id",
+            direction="nearest",
+            tolerance=pd.Timedelta(seconds=10),
+        ).dropna(subset=["epoch_geodetic"])
+        self.assertGreaterEqual(len(matched), min(len(geocentric), len(geodetic)) - 1)
         difference = np.abs(
-            (geocentric.epoch - geodetic.epoch).dt.total_seconds().to_numpy()
+            (matched.epoch - matched.epoch_geodetic).dt.total_seconds().to_numpy()
         )
         self.assertLess(difference.max(), 1)
-        self.assertGreater(difference[geodetic.geometry.y.abs() > 30].max(), 0.05)
+        self.assertGreater(
+            difference[matched.geometry.y.abs().to_numpy() > 30].max(), 0.05
+        )
+
+    def test_collect_observations_access_period_at_field_of_regard(self):
+        """
+        Test that the access period of a nadir instrument starts and ends
+        when the point's angle from nadir equals half the field of regard,
+        for points at low and high latitudes and both nadir references.
+        """
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        for reference in ("geodetic", "geocentric"):
+            instrument = Instrument(
+                name="Nadir", field_of_regard=100, nadir_reference=reference
+            )
+            satellite = self.satellite.model_copy(update={"instruments": [instrument]})
+            for latitude in (0, 50):
+                point = Point(id=0, latitude=latitude, longitude=30)
+                observations = collect_observations(
+                    point, satellite, start, start + timedelta(days=1)
+                )
+                self.assertGreater(len(observations), 0)
+                target = wgs84.latlon(latitude, 30)
+                for column in ("start", "end"):
+                    times = observations[column].tolist()
+                    angle, _ = compute_cone_and_azimuth(
+                        self.satellite.orbit.to_gp_orbit().get_orbit_track(times),
+                        target,
+                        nadir_reference=reference,
+                    )
+                    np.testing.assert_allclose(angle, 50, atol=1e-3)
+
+    def test_get_orbit_track_shifted(self):
+        """
+        Test that a shifted orbit track has the Earth-fixed position and
+        velocity of the orbit at the shifted times, expressed at the
+        unshifted times.
+        """
+        orbit = self.satellite.orbit.to_gp_orbit()
+        times = [
+            datetime(2022, 6, 1, 12, minute, tzinfo=timezone.utc) for minute in (0, 7)
+        ]
+        shifts = [timedelta(days=3), timedelta(days=-2)]
+        shifted = _get_orbit_track(orbit, times, shifts)
+        direct = orbit.get_orbit_track([t - d for t, d in zip(times, shifts)])
+        self.assertEqual(shifted.t.utc_datetime().tolist(), times)
+        shifted_position, shifted_velocity = shifted.frame_xyz_and_velocity(itrs)
+        direct_position, direct_velocity = direct.frame_xyz_and_velocity(itrs)
+        np.testing.assert_allclose(shifted_position.m, direct_position.m, atol=1e-3)
+        np.testing.assert_allclose(
+            shifted_velocity.m_per_s, direct_velocity.m_per_s, atol=1e-6
+        )
+
+    def test_collect_observations_repeat_cycle_maintained_orbit(self):
+        """
+        Test that, when observation events are repeated with the orbit's
+        repeat cycle, the observations of each repeated cycle are those of
+        the first cycle shifted by whole repeat cycles (a maintained orbit),
+        for a pointed instrument whose epochs are solved within the access
+        periods.
+        """
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            [
+                "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
+                "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
+            ]
+        )
+        repeat_cycle = orbit.get_repeat_cycle()
+        self.assertIsNotNone(repeat_cycle)
+        satellite = Satellite(
+            name="Landsat 8",
+            orbit=orbit,
+            instruments=[
+                PointedInstrument(
+                    name="Imager",
+                    field_of_regard=30,
+                    cross_track_field_of_view=15,
+                    along_track_field_of_view=0.1,
+                    is_rectangular=True,
+                )
+            ],
+        )
+        start = orbit.get_epoch()
+        end = start + 4 * repeat_cycle
+        self.assertEqual(orbit.get_observation_repeat_cycle(start, end), repeat_cycle)
+        point = Point(id=0, latitude=40, longitude=-105)
+        observations = collect_observations(point, satellite, start, end)
+        cycle = ((observations.epoch - start) // repeat_cycle).to_numpy()
+        first = observations.epoch[cycle == 0].reset_index(drop=True)
+        self.assertGreater(len(first), 0)
+        for k in range(1, 4):
+            repeated = observations.epoch[cycle == k].reset_index(drop=True)
+            self.assertEqual(len(repeated), len(first))
+            np.testing.assert_allclose(
+                (repeated - first - k * repeat_cycle).dt.total_seconds(), 0, atol=1e-2
+            )
 
     def test_collect_observations_pointed_matches_field_of_regard(self):
         """
@@ -279,15 +397,31 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         """
         Test that a forward (aft) pitched view observes a point before
         (after) the time of closest approach, by about the time to travel
-        420 km * tan(20 deg) = 153 km (22 s).
+        420 km * tan(20 deg) = 153 km (22 s). The pitched view reaches
+        slightly farther from nadir across track than the nadir instrument's
+        field of regard, so it may observe additional passes.
         """
         for pitch_angle, sign in [(20, -1), (-20, 1)]:
             _, (pointed, nadir) = self._collect_pointed_observations(
                 field_of_regard=140, pitch_angle=pitch_angle
             )
-            self.assertEqual(len(pointed), len(nadir))
+            matched = pd.merge_asof(
+                nadir.sort_values("epoch"),
+                pointed[["point_id", "epoch"]]
+                .rename(columns={"epoch": "epoch_pointed"})
+                .sort_values("epoch_pointed"),
+                left_on="epoch",
+                right_on="epoch_pointed",
+                by="point_id",
+                direction="nearest",
+                tolerance=pd.Timedelta(minutes=1),
+            )
+            self.assertFalse(matched.epoch_pointed.isna().any())
+            self.assertLessEqual(len(pointed) - len(nadir), 1)
             np.testing.assert_allclose(
-                sign * (pointed.epoch - nadir.epoch).dt.total_seconds(), 22, atol=2
+                sign * (matched.epoch_pointed - matched.epoch).dt.total_seconds(),
+                22,
+                atol=2,
             )
 
     def test_collect_observations_pointed_forward_wide_field_of_regard(self):

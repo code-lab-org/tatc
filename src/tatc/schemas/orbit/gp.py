@@ -755,6 +755,34 @@ class GeneralPerturbationsOrbit(BaseModel):
         )
         return self.get_geographic_position_at_time(t, try_repeat)
 
+    def get_observation_repeat_cycle(
+        self, start: datetime, end: datetime, try_repeat: bool | None = None
+    ) -> timedelta | None:
+        """
+        Gets the repeat cycle with which `get_observation_events` repeats the
+        events of the first cycle (starting at `start`) to cover the period
+        from `start` to `end`, if it does: when `try_repeat` (by default, the
+        `repeat_cycle_for_observation_events` setting) and this orbit has a
+        repeat cycle shorter than the period. The repeated events model an
+        orbit maintained on its repeat ground track.
+
+        Args:
+            start (datetime): Start time of the observation period.
+            end (datetime): End time of the observation period.
+            try_repeat (bool | None): True, if a repeat orbit should be used to improve long-term accuracy.
+
+        Returns:
+            timedelta | None: the repeat cycle, or `None` if events are not repeated.
+        """
+        if try_repeat is None:
+            try_repeat = config.get_rc().repeat_cycle_for_observation_events
+        if not try_repeat:
+            return None
+        repeat_cycle = self.get_repeat_cycle()
+        if repeat_cycle is not None and repeat_cycle < end - start:
+            return repeat_cycle
+        return None
+
     def get_observation_events(
         self,
         point: Point,
@@ -800,39 +828,32 @@ class GeneralPerturbationsOrbit(BaseModel):
         Returns:
             tuple[skyfield.timelib.Time, numpy.ndarray]: event times and their rise (0) / culminate (1) / set (2) codes
         """
-        # load defaults
-        if try_repeat is None:
-            try_repeat = config.get_rc().repeat_cycle_for_observation_events
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
         t_0 = constants.timescale.from_datetime(start)
-        if try_repeat:
-            # try to compute repeat cycle events
-            repeat_cycle = self.get_repeat_cycle()
-            if repeat_cycle is not None and repeat_cycle < end - start:
-                repeat_t_1 = constants.timescale.from_datetime(start + repeat_cycle)
-                times, events = _find_events(
-                    self.get_closest_element(start).to_skyfield(),
-                    topos,
-                    t_0,
-                    repeat_t_1,
-                    min_elevation_angle,
-                )
-                number_cycles = int(np.ceil((end - start) / repeat_cycle))
-                if len(times) == 0:
-                    return (Time([], []), np.array([], dtype=int))
-                times_py = np.concatenate(
-                    [
-                        times.utc_datetime() + i * repeat_cycle
-                        for i in range(number_cycles)
-                    ]
-                )
-                events_py = np.concatenate([events for _ in range(number_cycles)])
-                if len(times_py) == 0:
-                    return Time([], []), np.array([], dtype=int)
-                return (
-                    constants.timescale.from_datetimes(times_py[times_py <= end]),
-                    events_py[times_py <= end],
-                )
+        repeat_cycle = self.get_observation_repeat_cycle(start, end, try_repeat)
+        if repeat_cycle is not None:
+            # compute the events of one repeat cycle and repeat them
+            repeat_t_1 = constants.timescale.from_datetime(start + repeat_cycle)
+            times, events = _find_events(
+                self.get_closest_element(start).to_skyfield(),
+                topos,
+                t_0,
+                repeat_t_1,
+                min_elevation_angle,
+            )
+            number_cycles = int(np.ceil((end - start) / repeat_cycle))
+            if len(times) == 0:
+                return (Time([], []), np.array([], dtype=int))
+            times_py = np.concatenate(
+                [times.utc_datetime() + i * repeat_cycle for i in range(number_cycles)]
+            )
+            events_py = np.concatenate([events for _ in range(number_cycles)])
+            if len(times_py) == 0:
+                return Time([], []), np.array([], dtype=int)
+            return (
+                constants.timescale.from_datetimes(times_py[times_py <= end]),
+                events_py[times_py <= end],
+            )
         if len(self.elements) > 1:
             # partition the period by whichever element is closest at each time
             part_ts, element_is = self.partition_by_element_index(start, end)
