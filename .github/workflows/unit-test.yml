@@ -31,7 +31,7 @@ jobs:
 
     - name: Install project in editable mode
       run: |
-        pip install -e .
+        pip install -e ".[preprocess]"
 
     - name: Run unit tests
       run: python -m unittest

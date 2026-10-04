@@ -99,6 +99,14 @@ osse = [
 preprocess = [
     "rasterio"
 ]
+validation = [
+    "tatc[examples,preprocess]",
+    "awsgnssroutils",
+    "earthaccess",
+    "metpy",
+    "netcdf4",
+    "requests"
+]
 
 [tool.setuptools.dynamic]
 version = {attr = "tatc.__version__"}
