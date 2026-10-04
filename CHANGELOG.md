@@ -1,5 +1,28 @@
 # TAT-C Change Log
 
+## 3.6.0
+
+Added new observing capabilities for limb sounding and ground-based radar. Also changed the tangent point definition for GNSS radio occultation (RO) and limb sounding from the line's closest approach to Earth's center to its minimum WGS 84 geodetic altitude.
+
+Added:
+ - Analysis method `collect_limb_observations` to identify limb sounding observations based on periodic scans at a constant angular rate, with a `ScanDirection` enumeration to specify scan direction.
+ - Object schema `RadarStation` to model ground-based radar, including beam width and an optional `RadarBand` with `RadarStation.from_band` to apply a nominal maximum range typical of the band. `AllSurfaceObjects` now includes `RadarStation`.
+ - Object schema `TerrainMask` to model terrain features that impede radar observation.
+ - Analysis methods `collect_radar_track` and `compute_radar_track` to determine observable radar geometries.
+ - Module `preprocess` with methods that derive TAT-C inputs from external datasets. For example, `compute_terrain_mask` (and `compute_terrain_mask_for_station`) creates a `TerrainMask` from Digital Elevation Model (DEM) data, `get_copernicus_dem_tile_urls` locates Copernicus DEM GLO-30 tiles, and `sample_dem_elevation` samples DEM elevation at a point.
+ - Utility methods `pressure_to_altitude` and `altitude_to_pressure` based on the US Standard Atmosphere (1976).
+ - Utility methods for radar geometry: `compute_radar_beam_height`, `compute_radar_ground_range`, `compute_radar_ground_range_bounds`, `compute_radar_slant_range`, `compute_terrain_elevation_angle`, `compute_radar_footprint`, and `compute_radar_footprint_profile`.
+ - Utility method `geodesic_destination`.
+ - Runtime configuration `footprint_points_radar_azimuthal` and constant `EFFECTIVE_EARTH_RADIUS_FACTOR` (4/3 Earth radius refraction model).
+ - Validation notebooks in `docs/validation` for the MLS and SABER limb sounders, COSMIC-2 and PlanetiQ GNSS RO, and NEXRAD radar.
+ - Optional dependencies `preprocess` (for the `preprocess` module) and `validation` (for validation notebooks; includes `examples` and `preprocess`).
+
+Changed:
+ - Changed the tangent point in `collect_ro_observations` to the point of minimum WGS 84 geodetic altitude on the receiver-transmitter line, matching operational RO geolocation. Tangent point locations shift by up to about 20 km horizontally at middle latitudes relative to 3.5.x; altitudes change by only meters.
+ - Improved `GeneralPerturbationsOrbit` multi-TLE propagation by sharing expensive Skyfield quantities across time slices.
+ - Improved `collect_ro_observations` performance by computing transmitter azimuth from existing positions rather than re-propagating.
+ - `to_datetime64_ns` and `GeneralPerturbationsOrbit.get_closest_element_index` accept Skyfield `Time` objects using a vectorized conversion.
+
 ## 3.5.1
 
 Minor refactoring to improve backwards compatibility.
