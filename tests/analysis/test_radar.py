@@ -6,6 +6,8 @@ Unit tests for radar analysis functions.
 
 import unittest
 
+import pandas as pd
+
 from shapely.geometry import box
 
 from tatc.analysis import collect_radar_track, compute_radar_track
@@ -68,13 +70,13 @@ class TestRadarAnalysis(unittest.TestCase):
     def test_collect_radar_track_reports_band(self):
         """
         Test that the band column reports each station's tagged band (or
-        None if untagged).
+        missing if untagged).
         """
         tagged = RadarStation.from_band(
             RadarBand.X, name="X1", latitude=10, longitude=10
         )
         track = collect_radar_track([self.station, tagged], elevation=3048)
-        self.assertIsNone(track.band.iloc[0])
+        self.assertTrue(pd.isna(track.band.iloc[0]))
         self.assertEqual(track.band.iloc[1], RadarBand.X)
 
     def test_collect_radar_track_mask(self):
