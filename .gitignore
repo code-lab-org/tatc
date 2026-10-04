@@ -71,6 +71,9 @@ instance/
 # Sphinx documentation
 docs/_build/
 
+# Reference data downloaded by validation notebooks
+docs/validation/data/
+
 # PyBuilder
 .pybuilder/
 target/

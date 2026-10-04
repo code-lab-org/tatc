@@ -20,6 +20,7 @@ from tatc.analysis.ro_coverage import (
     _sample_ro_arc,
     _tangent_point_geometry,
 )
+from tatc.analysis.tangent_point import _geodetic_altitude, _itrs_rotation
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Instrument, Satellite
 
@@ -105,10 +106,9 @@ class TestTangentPointGeometry(unittest.TestCase):
         rx = _make_geocentric([[7000e3], [0], [0]], [[0], [7.5e3], [0]], self.t)
         tx = _make_geocentric([[-7000e3], [0], [0]], [[0], [-3.0e3], [0]], self.t)
         v_u, n_u, b_u = _receiver_frame_vectors(rx)
-        tp_p, tp_v, tp_sign, _, _ = _tangent_point_geometry(tx, rx, v_u, n_u, b_u)
+        tp_p, tp_sign, _, _ = _tangent_point_geometry(tx, rx, v_u, n_u, b_u)
         np.testing.assert_allclose(tp_p.ravel(), [0, 0, 0], atol=1e-6)
         self.assertEqual(tp_sign[0], -1)
-        self.assertIsNone(tp_v)
 
     def test_same_side_is_not_intersecting(self):
         """
@@ -119,66 +119,45 @@ class TestTangentPointGeometry(unittest.TestCase):
         rx = _make_geocentric([[7000e3], [0], [0]], [[0], [7.5e3], [0]], self.t)
         tx = _make_geocentric([[8000e3], [2000e3], [0]], [[0], [3.0e3], [0]], self.t)
         v_u, n_u, b_u = _receiver_frame_vectors(rx)
-        _, _, tp_sign, _, _ = _tangent_point_geometry(tx, rx, v_u, n_u, b_u)
+        _, tp_sign, _, _ = _tangent_point_geometry(tx, rx, v_u, n_u, b_u)
         self.assertEqual(tp_sign[0], 1)
 
-    def test_tangent_point_matches_independent_closest_point_formula(self):
+    def test_tangent_point_is_minimum_geodetic_altitude_on_line(self):
         """
-        Cross-checks the tangent point position against an independently
-        (re-)implemented closest-point-on-a-line-to-the-origin formula:
-        for the line through the transmitter with direction d = tx - rx,
-        the point closest to the origin is tx - d*(tx.d)/(d.d).
+        Test that the tangent point is the point of minimum WGS 84 geodetic
+        altitude on the receiver-transmitter line (checked by densely
+        sampling the line on either side of it), for a realistic LEO-GNSS
+        geometry with a mid-latitude tangent point below the surface (a
+        straight-line height of about -50 km), and that it differs by
+        kilometers from the line's closest approach to the Earth's center.
         """
-        rx = _make_geocentric([[7000e3], [500e3], [0]], [[0], [7.5e3], [1e3]], self.t)
-        tx = _make_geocentric(
-            [[-6000e3], [-1000e3], [3000e3]], [[1e3], [-3.0e3], [0]], self.t
+        rotation = _itrs_rotation(self.t)[:, :, 0]
+        lat, lon = np.radians(40.0), np.radians(30.0)
+        up = rotation.T @ np.array(
+            [np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)]
         )
+        north = rotation.T @ np.array(
+            [-np.sin(lat) * np.cos(lon), -np.sin(lat) * np.sin(lon), np.cos(lat)]
+        )
+        tp_guess = up * (6371e3 - 50e3)
+        rx_p, tx_p = tp_guess - north * 2800e3, tp_guess + north * 25500e3
+        rx = _make_geocentric(rx_p.reshape(3, 1), [[0], [7.5e3], [1e3]], self.t)
+        tx = _make_geocentric(tx_p.reshape(3, 1), [[1e3], [-3.0e3], [0]], self.t)
         v_u, n_u, b_u = _receiver_frame_vectors(rx)
-        tp_p, _, _, _, _ = _tangent_point_geometry(tx, rx, v_u, n_u, b_u)
-        tx_p = np.array(tx.position.m).ravel()
-        rx_p = np.array(rx.position.m).ravel()
-        d = tx_p - rx_p
-        expected_tp = tx_p - d * np.dot(tx_p, d) / np.dot(d, d)
-        np.testing.assert_allclose(tp_p.ravel(), expected_tp, rtol=1e-9)
+        tp_p, tp_sign, _, _ = _tangent_point_geometry(tx, rx, v_u, n_u, b_u)
+        tp_p = tp_p.ravel()
+        self.assertEqual(tp_sign[0], -1)
 
-    def test_tangent_point_velocity_matches_finite_difference(self):
-        """
-        Cross-checks the analytic tangent point velocity
-        (`compute_velocity=True`, otherwise unused by any caller in the
-        codebase) against a central finite difference of the tangent point
-        position, using synthetic constant-velocity (straight-line) motion
-        so the finite difference is essentially exact for a small enough
-        time step.
-        """
-        dt = 0.001  # seconds
-        rx_p = np.array([7000e3, 500e3, 0.0])
-        rx_v = np.array([0.0, 7.5e3, 1e3])
-        tx_p = np.array([-6000e3, -1000e3, 3000e3])
-        tx_v = np.array([1e3, -3.0e3, 0.0])
-
-        def tangent_point_position(offset):
-            rx = _make_geocentric(
-                (rx_p + rx_v * offset).reshape(3, 1), rx_v.reshape(3, 1), self.t
-            )
-            tx = _make_geocentric(
-                (tx_p + tx_v * offset).reshape(3, 1), tx_v.reshape(3, 1), self.t
-            )
-            v_u, n_u, b_u = _receiver_frame_vectors(rx)
-            return _tangent_point_geometry(tx, rx, v_u, n_u, b_u)[0]
-
-        finite_diff_velocity = (
-            tangent_point_position(dt) - tangent_point_position(-dt)
-        ) / (2 * dt)
-
-        rx0 = _make_geocentric(rx_p.reshape(3, 1), rx_v.reshape(3, 1), self.t)
-        tx0 = _make_geocentric(tx_p.reshape(3, 1), tx_v.reshape(3, 1), self.t)
-        v_u, n_u, b_u = _receiver_frame_vectors(rx0)
-        _, tp_v, _, _, _ = _tangent_point_geometry(
-            tx0, rx0, v_u, n_u, b_u, compute_velocity=True
-        )
-        np.testing.assert_allclose(
-            tp_v.ravel(), finite_diff_velocity.ravel(), rtol=1e-6
-        )
+        d = (tx_p - rx_p) / np.linalg.norm(tx_p - rx_p)
+        offsets = np.linspace(-50e3, 50e3, 10001)
+        line = tp_p[:, np.newaxis] + offsets * d[:, np.newaxis]
+        altitudes = _geodetic_altitude(rotation @ line)
+        # minimum sits at the reported tangent point (10 m sampling)
+        self.assertLess(abs(offsets[np.argmin(altitudes)]), 100.0)
+        self.assertLess(_geodetic_altitude(rotation @ tp_p) - altitudes.min(), 1e-3)
+        # whereas the geocentric closest approach is kilometers away
+        geocentric_tp = rx_p - d * np.dot(rx_p, d)
+        self.assertGreater(np.linalg.norm(geocentric_tp - tp_p), 5e3)
 
 
 class TestInterpolateRoPoint(unittest.TestCase):
