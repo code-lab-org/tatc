@@ -7,10 +7,12 @@ Unit tests for the Instrument schema.
 import unittest
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
 from pydantic import ValidationError
 from skyfield.api import EarthSatellite, wgs84
+from skyfield.framelib import itrs
 
-from tatc.constants import timescale
+from tatc.constants import de421, timescale
 from tatc.schemas import CircularOrbit, Instrument
 from tatc.utils import geodesic_distance
 
@@ -297,6 +299,97 @@ class TestInstrument(unittest.TestCase):
         self.assertFalse(results[0])
         self.assertTrue(results[1])
         self.assertFalse(results[2])
+
+    def test_target_solar_elevation_bounds(self):
+        """
+        Test that target solar elevation angles are bounded and that the
+        minimum cannot exceed the maximum.
+        """
+        for kwargs in [
+            {"min_target_solar_elevation": -91},
+            {"max_target_solar_elevation": 91},
+            {"min_target_solar_elevation": 10, "max_target_solar_elevation": 5},
+        ]:
+            with self.assertRaises(ValidationError):
+                Instrument(name="Test Instrument", **kwargs)
+        o = Instrument(
+            name="Test Instrument",
+            min_target_solar_elevation=5,
+            max_target_solar_elevation=5,
+        )
+        self.assertEqual(o.min_target_solar_elevation, 5)
+
+    def test_valid_observation_target_solar_elevation(self):
+        """
+        Test that an observation is valid when the target's solar elevation
+        angle lies within the required range, for a vector of times over
+        half a day with an inclined orbit, alone and combined with the
+        target-sunlit requirement.
+        """
+        times = timescale.utc(2020, 3, 20, 6, range(0, 720, 5))  # type: ignore
+        orbit_track = self.test_sat_5.at(times)  # type: ignore
+        subpoint = wgs84.subpoint_of(orbit_track)
+        solar_alt = (
+            (de421["earth"] + subpoint)
+            .at(times)
+            .observe(de421["sun"])
+            .apparent()
+            .altaz()[0]
+            .degrees
+        )
+        # the sample spans day and night, including low solar elevations
+        self.assertTrue(np.any((solar_alt > 0) & (solar_alt < 10)))
+        self.assertTrue(np.any(solar_alt < -12))
+        for kwargs, expected in [
+            ({"min_target_solar_elevation": 10}, solar_alt >= 10),
+            ({"max_target_solar_elevation": -12}, solar_alt <= -12),
+            (
+                {"min_target_solar_elevation": 0, "max_target_solar_elevation": 30},
+                (solar_alt >= 0) & (solar_alt <= 30),
+            ),
+            (
+                {"req_target_sunlit": True, "max_target_solar_elevation": 30},
+                (solar_alt > 0) & (solar_alt <= 30),
+            ),
+            (
+                {"req_target_sunlit": False, "min_target_solar_elevation": 10},
+                np.zeros_like(solar_alt, dtype=bool),
+            ),
+        ]:
+            o = Instrument(name="Test Instrument", **kwargs)
+            np.testing.assert_array_equal(
+                o.is_valid_observation(orbit_track, subpoint), expected, str(kwargs)
+            )
+
+    def test_compute_footprint_center_geocentric_nadir(self):
+        """
+        Test that the footprint center of an instrument with a geocentric
+        nadir reference lies on the line from the satellite to the Earth's
+        center, away from the geodetic sub-satellite point for an inclined
+        orbit off the equator.
+        """
+        o = Instrument(name="Test Instrument", nadir_reference="geocentric")
+        orbit_track = self.test_sat_5.at(timescale.utc(2020, 3, 20, 12, 20))  # type: ignore
+        center = o.compute_footprint_center(orbit_track)
+        position = np.array(orbit_track.frame_xyz(itrs).m)
+        ground = np.array(center.itrs_xyz.m)
+        self.assertLess(
+            np.linalg.norm(np.cross(position, ground))
+            / np.linalg.norm(position)
+            / np.linalg.norm(ground),
+            1e-9,
+        )
+        subpoint = wgs84.subpoint_of(orbit_track)
+        self.assertGreater(abs(subpoint.latitude.degrees), 20)
+        self.assertGreater(
+            geodesic_distance(
+                center.longitude.degrees,
+                center.latitude.degrees,
+                subpoint.longitude.degrees,
+                subpoint.latitude.degrees,
+            ),
+            500,
+        )
 
     def test_compute_footprint_center_matches_subpoint(self):
         """

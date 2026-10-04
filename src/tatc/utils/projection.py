@@ -59,9 +59,30 @@ class VelocityFrame(str, Enum):
     """
 
 
+class NadirReference(str, Enum):
+    """
+    Enumeration of definitions of the nadir direction, from which an
+    instrument's view is rotated. The two coincide over the equator and the
+    poles and otherwise differ by up to about 0.19 degrees (at middle
+    latitudes), which shifts a projected view by up to about 2.7 km from
+    800 km altitude.
+    """
+
+    GEODETIC = "geodetic"
+    """
+    The geodetic vertical: the WGS 84 ellipsoid surface normal through the
+    satellite, toward the Earth (matching Skyfield's sub-satellite point).
+    """
+    GEOCENTRIC = "geocentric"
+    """
+    The geocentric direction: from the satellite toward the Earth's center.
+    """
+
+
 def _compute_instrument_frame(
     orbit_track: Geocentric,
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
 ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
     """
     Compute the Earth-fixed position and the unit vectors that orient an
@@ -73,6 +94,8 @@ def _compute_instrument_frame(
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
         velocity_frame (VelocityFrame): The reference frame of the velocity
             vector that defines the along-track direction.
+        nadir_reference (NadirReference): The definition of the nadir
+            direction.
 
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
@@ -92,17 +115,23 @@ def _compute_instrument_frame(
         )
     # velocity unit vector
     v = np.divide(v_m_per_s, np.linalg.norm(v_m_per_s, axis=0))
-    # nadir unit vector: the geodetic vertical, i.e. the WGS 84
-    # ellipsoid surface normal at the sub-satellite point, pointed inward
-    # (toward the Earth). This is NOT simply the geocentric direction
-    # (-position, toward the Earth's center): the two coincide only at the
-    # equator and poles, and otherwise differ by up to the WGS 84
-    # geodetic/geocentric latitude discrepancy (~0.19 degrees), which can
-    # shift a projected nadir point by kilometers at typical LEO altitudes.
-    subpoint = wgs84.geographic_position_of(orbit_track)
-    lat = np.array(subpoint.latitude.radians)
-    lon = np.array(subpoint.longitude.radians)
-    n = -np.array([np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)])
+    if nadir_reference == NadirReference.GEOCENTRIC:
+        # nadir unit vector: toward the Earth's center
+        n = -np.divide(p_m, np.linalg.norm(p_m, axis=0))
+    else:
+        # nadir unit vector: the geodetic vertical, i.e. the WGS 84
+        # ellipsoid surface normal at the sub-satellite point, pointed inward
+        # (toward the Earth). This is NOT simply the geocentric direction
+        # (-position, toward the Earth's center): the two coincide only at the
+        # equator and poles, and otherwise differ by up to the WGS 84
+        # geodetic/geocentric latitude discrepancy (~0.19 degrees), which can
+        # shift a projected nadir point by kilometers at typical LEO altitudes.
+        subpoint = wgs84.geographic_position_of(orbit_track)
+        lat = np.array(subpoint.latitude.radians)
+        lon = np.array(subpoint.longitude.radians)
+        n = -np.array(
+            [np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)]
+        )
     # cross-track unit vector
     c = np.cross(v, n, axis=0)
     return p_m, v, n, c
@@ -113,6 +142,7 @@ def _compute_view_frame(
     roll_angle: float = 0,
     pitch_angle: float = 0,
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
 ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
     """
     Compute the Earth-fixed position and the orthonormal unit vectors that
@@ -128,6 +158,8 @@ def _compute_view_frame(
         pitch_angle (float): the instrument pitch angle (degrees).
         velocity_frame (VelocityFrame): The reference frame of the velocity
             vector that defines the along-track direction.
+        nadir_reference (NadirReference): The definition of the nadir
+            direction from which the view is rotated.
 
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
@@ -135,7 +167,9 @@ def _compute_view_frame(
             cross-track unit vectors, each with shape (3,) or (3, N) in
             Earth-fixed coordinates.
     """
-    p_m, _, n, c = _compute_instrument_frame(orbit_track, velocity_frame)
+    p_m, _, n, c = _compute_instrument_frame(
+        orbit_track, velocity_frame, nadir_reference
+    )
     # orthonormal cross-track (left) and along-track (forward) axes at nadir
     c = c / np.linalg.norm(c, axis=0)
     a = np.cross(n, c, axis=0)
@@ -157,6 +191,7 @@ def compute_view_tangents(
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
     roll_angle: float = 0,
     pitch_angle: float = 0,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
 ) -> tuple[npt.NDArray, npt.NDArray]:
     """
     Compute the tangents of the along-track and cross-track view angles of a
@@ -176,6 +211,8 @@ def compute_view_tangents(
             vector that defines the along-track direction.
         roll_angle (float): the instrument roll angle (degrees).
         pitch_angle (float): the instrument pitch angle (degrees).
+        nadir_reference (NadirReference): The definition of the nadir
+            direction from which the view is rotated.
 
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track and
@@ -183,7 +220,7 @@ def compute_view_tangents(
             target is not in front of the view).
     """
     p_m, boresight, along, cross = _compute_view_frame(
-        orbit_track, roll_angle, pitch_angle, velocity_frame
+        orbit_track, roll_angle, pitch_angle, velocity_frame, nadir_reference
     )
     # line of sight from the satellite to the target
     los = np.reshape(np.array(target.itrs_xyz.m), (3,) + (1,) * (p_m.ndim - 1)) - p_m
@@ -197,9 +234,10 @@ def compute_cone_and_azimuth(
     orbit_track: Geocentric,
     target: GeographicPosition,
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
 ) -> tuple[npt.NDArray, npt.NDArray]:
     """
-    Compute the cone angle (from the geodetic nadir) and the scan azimuth
+    Compute the cone angle (from nadir) and the scan azimuth
     (about the nadir, from the along-track direction, positive to the left of
     the direction of motion) of the line of sight from a satellite to a
     target, as used to describe a conically scanning instrument. Does not
@@ -210,13 +248,17 @@ def compute_cone_and_azimuth(
         target (skyfield.toposlib.GeographicPosition): the target position.
         velocity_frame (VelocityFrame): The reference frame of the velocity
             vector that defines the along-track direction.
+        nadir_reference (NadirReference): The definition of the nadir
+            direction.
 
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the cone angle
             (degrees, from 0 to 180) and scan azimuth (degrees, from -180 to
             180).
     """
-    p_m, nadir, along, cross = _compute_view_frame(orbit_track, 0, 0, velocity_frame)
+    p_m, nadir, along, cross = _compute_view_frame(
+        orbit_track, 0, 0, velocity_frame, nadir_reference
+    )
     # line of sight from the satellite to the target
     los = np.reshape(np.array(target.itrs_xyz.m), (3,) + (1,) * (p_m.ndim - 1)) - p_m
     down = np.sum(los * nadir, axis=0)
@@ -238,6 +280,7 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     angle: float = 0,
     elevation: float = 0,
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
 ) -> GeographicPosition:
     """
     Get the location of a projected ray from an instrument. The ray is cast
@@ -245,8 +288,8 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     elevation; if it misses the geoid entirely (e.g. an off-nadir angle
     pointing past the horizon), the projected position instead falls back
     to the nearest point on the visible Earth limb. Zero roll, pitch, and
-    field of view center on the geodetic nadir (the WGS 84 ellipsoid
-    surface normal through the satellite), matching Skyfield's
+    field of view center on nadir: by default, the geodetic nadir (the WGS 84
+    ellipsoid surface normal through the satellite), matching Skyfield's
     `wgs84.subpoint_of`/`wgs84.geographic_position_of`.
 
     The view is rotated rigidly from nadir, first by the roll angle about
@@ -276,6 +319,8 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
         elevation (float): The elevation (meters) at which project the footprint.
         velocity_frame (VelocityFrame): The reference frame of the velocity
             vector that defines the along-track direction.
+        nadir_reference (NadirReference): The definition of the nadir
+            direction from which the view is rotated.
 
     Returns:
         (skyfield.toposlib.GeographicPosition): the geographic position of the projected ray
@@ -285,7 +330,7 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     # ray pointed at the field of view center (before adding the field of
     # view extent) and the along-track (v) and cross-track (c) axes of the view
     p_m, base_ray, v, c = _compute_view_frame(
-        orbit_track, roll_angle, pitch_angle, velocity_frame
+        orbit_track, roll_angle, pitch_angle, velocity_frame, nadir_reference
     )
     # whether orbit_track represents a single time or a vector of times
     is_vectorized = len(np.shape(p_m)) > 1
@@ -409,6 +454,7 @@ def compute_footprint(
     number_points: int | None = None,
     elevation: float = 0,
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
 ) -> list[Polygon | MultiPolygon]:
     """
     Compute the instantaneous instrument footprint. Supports both a scalar
@@ -432,6 +478,8 @@ def compute_footprint(
         elevation (float): The elevation (meters) at which project the footprint.
         velocity_frame (VelocityFrame): The reference frame of the velocity
             vector that defines the along-track direction.
+        nadir_reference (NadirReference): The definition of the nadir
+            direction from which the view is rotated.
 
     Returns:
         list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The instrument footprint(s).
@@ -476,6 +524,7 @@ def compute_footprint(
             angle,
             elevation,
             velocity_frame,
+            nadir_reference,
         )
         for angle in angles
     ]

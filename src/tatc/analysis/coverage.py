@@ -270,6 +270,7 @@ def _get_view_crossing_times(
             instrument.roll_angle,
             instrument.pitch_angle,
             instrument.velocity_frame,
+            instrument.nadir_reference,
         )
         los = np.reshape(np.array(target.itrs_xyz.m), (3, 1)) - position
         return np.sum(los * along, axis=0) / np.linalg.norm(los, axis=0)
@@ -316,6 +317,7 @@ def _get_cone_crossing_times(
             ),
             target,
             instrument.velocity_frame,
+            instrument.nadir_reference,
         )
         return np.reshape(cone, -1)
 

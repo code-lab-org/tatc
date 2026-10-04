@@ -16,6 +16,7 @@ from skyfield.api import wgs84
 
 from tatc import config, constants
 from tatc.schemas import GeneralPerturbationsOrbit, Point
+from tatc.schemas.orbit.gp import _find_events
 
 
 class TestGPOrbit(unittest.TestCase):
@@ -1498,8 +1499,12 @@ class TestGetObservationEvents(unittest.TestCase):
         )
         t_0 = constants.timescale.from_datetime(start)
         repeat_t_1 = constants.timescale.from_datetime(start + repeat_cycle)
-        expected_times, _ = second.to_skyfield().find_events(topos, t_0, repeat_t_1, 10)
-        wrong_times, _ = self.base.to_skyfield().find_events(topos, t_0, repeat_t_1, 10)
+        expected_times, _ = _find_events(
+            second.to_skyfield(), topos, t_0, repeat_t_1, 10
+        )
+        wrong_times, _ = _find_events(
+            self.base.to_skyfield(), topos, t_0, repeat_t_1, 10
+        )
         # sanity check that using the wrong (first) element would actually
         # have given a different answer, so this test is a meaningful
         # discriminator, not a coincidence
@@ -1604,3 +1609,41 @@ class TestToGpOrbit(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_rise_and_set_times_are_refined(self):
+        """
+        Test that rise and set times are where the elevation angle equals
+        the minimum, to within a millisecond, and do not depend on the
+        length of the requested period: Skyfield's `find_events` alone
+        returns some of them seconds early or late over long periods,
+        because it stops refining once the first of its unequal brackets
+        converges.
+        """
+        orbit = GeneralPerturbationsOrbit(elements=[self.base])
+        topos = wgs84.latlon(self.point.latitude, self.point.longitude)
+        start = self.base.epoch
+        times, events = orbit.get_observation_events(
+            self.point, start, start + timedelta(days=2), 35, try_repeat=False
+        )
+        self.assertGreater(np.sum(events == 0), 1)
+        satellite = self.base.to_skyfield()
+        for time, event in zip(times.utc_datetime(), events):
+            if event == 1:
+                continue
+            ts = constants.timescale.from_datetimes(
+                [time - timedelta(milliseconds=1), time + timedelta(milliseconds=1)]
+            )
+            elevation = (satellite - topos).at(ts).altaz()[0].degrees
+            # the elevation angle crosses the minimum within the millisecond
+            self.assertLess((elevation[0] - 35) * (elevation[1] - 35), 0)
+            short_times, short_events = orbit.get_observation_events(
+                self.point,
+                time - timedelta(minutes=10),
+                time + timedelta(minutes=10),
+                35,
+                try_repeat=False,
+            )
+            matching = short_times.utc_datetime()[short_events == event]
+            self.assertLess(
+                min(abs((t - time).total_seconds()) for t in matching), 1e-3
+            )

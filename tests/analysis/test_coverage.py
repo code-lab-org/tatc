@@ -236,6 +236,33 @@ class TestCoverageAnalysis(IssConstellationTestCase):
                     observation.start <= observation.epoch <= observation.end
                 )
 
+    def test_collect_observations_pointed_geocentric_nadir(self):
+        """
+        Test that, with a geocentric nadir reference, a pointed instrument's
+        observation epochs are the times its geocentric view sweeps over the
+        point, which differ from those of a geodetic view by a fraction of a
+        second away from the equator.
+        """
+        satellite, (geocentric, _) = self._collect_pointed_observations(
+            nadir_reference="geocentric"
+        )
+        _, (geodetic, _) = self._collect_pointed_observations()
+        self.assertEqual(len(geocentric), len(geodetic))
+        for _, observation in geocentric.iterrows():
+            orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(
+                observation.epoch
+            )
+            target = wgs84.latlon(observation.geometry.y, observation.geometry.x)
+            along, _ = compute_view_tangents(
+                orbit_track, target, nadir_reference="geocentric"
+            )
+            self.assertAlmostEqual(float(along), 0, delta=1e-5)
+        difference = np.abs(
+            (geocentric.epoch - geodetic.epoch).dt.total_seconds().to_numpy()
+        )
+        self.assertLess(difference.max(), 1)
+        self.assertGreater(difference[geodetic.geometry.y.abs() > 30].max(), 0.05)
+
     def test_collect_observations_pointed_matches_field_of_regard(self):
         """
         Test that a wide, thin pointed view observes the same passes as a

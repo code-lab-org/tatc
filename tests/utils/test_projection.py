@@ -22,10 +22,12 @@ from tatc.utils.observation import (
 )
 from tatc.utils.orbital import compute_ground_surface_velocity
 from tatc.utils.projection import (
+    NadirReference,
     VelocityFrame,
     buffer_footprint,
     buffer_target,
     compute_footprint,
+    compute_cone_and_azimuth,
     compute_limb,
     compute_projected_ray_position,
     compute_view_tangents,
@@ -345,6 +347,94 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
             orbit_track, VelocityFrame.INERTIAL
         )
         np.testing.assert_allclose(inertial, 0, atol=1e-9)
+
+    def test_compute_projected_ray_position_geocentric_nadir(self):
+        """
+        Test that a geocentric nadir ray lands on the line from the satellite
+        to the Earth's center, which coincides with the geodetic sub-satellite
+        point near the equator but is kilometers away from it at middle
+        latitudes, while a geodetic nadir ray matches the sub-satellite point
+        everywhere.
+        """
+        # near the ascending node (equator) and about 45 degrees north
+        for seconds, min_km, max_km in [(0, 0, 0.1), (1100, 1.5, 3.5)]:
+            orbit_track = self.satellite.at(timescale.utc(2020, 3, 20, 12, 0, seconds))
+            subpoint = wgs84.subpoint_of(orbit_track)
+            geocentric = compute_projected_ray_position(
+                orbit_track, 0, 0, nadir_reference=NadirReference.GEOCENTRIC
+            )
+            geodetic = compute_projected_ray_position(
+                orbit_track, 0, 0, nadir_reference=NadirReference.GEODETIC
+            )
+            position = np.array(orbit_track.frame_xyz(itrs).m)
+            ground = np.array(geocentric.itrs_xyz.m)
+            # the geocentric nadir point is parallel to the satellite position
+            self.assertLess(
+                np.linalg.norm(np.cross(position, ground))
+                / np.linalg.norm(position)
+                / np.linalg.norm(ground),
+                1e-9,
+            )
+            offset = _great_circle_distance(
+                geocentric.latitude.degrees,
+                geocentric.longitude.degrees,
+                subpoint.latitude.degrees,
+                subpoint.longitude.degrees,
+            )
+            self.assertGreaterEqual(offset / 1e3, min_km, seconds)
+            self.assertLessEqual(offset / 1e3, max_km, seconds)
+            self.assertLess(
+                _great_circle_distance(
+                    geodetic.latitude.degrees,
+                    geodetic.longitude.degrees,
+                    subpoint.latitude.degrees,
+                    subpoint.longitude.degrees,
+                ),
+                1,
+            )
+
+    def test_compute_view_frames_geocentric_nadir(self):
+        """
+        Test that view angles and cone angles are measured from the chosen
+        nadir: a target on the geocentric nadir ray has zero geocentric view
+        angles and cone angle, and nonzero geodetic ones (about 0.17 degrees
+        at 46 degrees latitude).
+        """
+        orbit_track = self.satellite.at(timescale.utc(2020, 3, 20, 12, 0, 1100))
+        target = compute_projected_ray_position(
+            orbit_track, 0, 0, nadir_reference=NadirReference.GEOCENTRIC
+        )
+        for reference, expected_min, expected_max in [
+            (NadirReference.GEOCENTRIC, 0, 1e-6),
+            (NadirReference.GEODETIC, 0.1, 0.25),
+        ]:
+            along, cross = compute_view_tangents(
+                orbit_track, target, nadir_reference=reference
+            )
+            angle = np.degrees(np.arctan(np.hypot(along, cross)))
+            cone, _ = compute_cone_and_azimuth(
+                orbit_track, target, nadir_reference=reference
+            )
+            for value in (float(angle), float(cone)):
+                self.assertGreaterEqual(value, expected_min, reference)
+                self.assertLessEqual(value, expected_max, reference)
+
+    def test_compute_footprint_geocentric_nadir_shifts_footprint(self):
+        """
+        Test that a geocentric nadir reference shifts a footprint without
+        changing its size.
+        """
+        orbit_track = self.satellite.at(timescale.utc(2020, 3, 20, 12, 0, 1100))
+        geodetic = compute_footprint(orbit_track, 20, 1, is_rectangular=True)[0]
+        geocentric = compute_footprint(
+            orbit_track,
+            20,
+            1,
+            is_rectangular=True,
+            nadir_reference=NadirReference.GEOCENTRIC,
+        )[0]
+        self.assertAlmostEqual(geocentric.area / geodetic.area, 1, delta=1e-2)
+        self.assertGreater(geocentric.centroid.distance(geodetic.centroid), 0.01)
 
     def test_compute_projected_ray_position_velocity_frame_nadir_unchanged(self):
         """

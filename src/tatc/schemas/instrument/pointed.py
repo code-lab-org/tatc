@@ -138,6 +138,7 @@ class PointedInstrument(Instrument):
             number_points=number_points,
             elevation=elevation,
             velocity_frame=self.velocity_frame,
+            nadir_reference=self.nadir_reference,
         )
 
     def is_in_field_of_view(
@@ -157,7 +158,12 @@ class PointedInstrument(Instrument):
             numpy.typing.NDArray: Array of indicators: `True` if the target is in the field of view.
         """
         along, cross = compute_view_tangents(
-            orbit_track, target, self.velocity_frame, self.roll_angle, self.pitch_angle
+            orbit_track,
+            target,
+            self.velocity_frame,
+            self.roll_angle,
+            self.pitch_angle,
+            self.nadir_reference,
         )
         # offsets from the view center, normalized by the view half widths
         along_offset = along / np.tan(np.radians(self.along_track_field_of_view / 2))
@@ -194,6 +200,7 @@ class PointedInstrument(Instrument):
             angle=0,
             elevation=elevation,
             velocity_frame=self.velocity_frame,
+            nadir_reference=self.nadir_reference,
         )
 
     def compute_projected_pixel_position(
@@ -235,6 +242,7 @@ class PointedInstrument(Instrument):
             angle=clock,
             elevation=elevation,
             velocity_frame=self.velocity_frame,
+            nadir_reference=self.nadir_reference,
         )
 
     def get_pixel_cone_and_clock_angle(

@@ -249,6 +249,7 @@ class ConicalInstrument(Instrument):
                     *_cone_ray(self.cone_angle, azimuth),
                     elevation=elevation,
                     velocity_frame=self.velocity_frame,
+                    nadir_reference=self.nadir_reference,
                 )
                 for f, azimuth in rays
             ]
@@ -309,6 +310,7 @@ class ConicalInstrument(Instrument):
             pitch,
             elevation=elevation,
             velocity_frame=self.velocity_frame,
+            nadir_reference=self.nadir_reference,
         )
 
     def is_in_field_of_view(
@@ -334,7 +336,10 @@ class ConicalInstrument(Instrument):
         sweep = self._sweep_time(orbit_track)
         angles = [
             compute_cone_and_azimuth(
-                _shift_along_track(orbit_track, f * sweep), target, self.velocity_frame
+                _shift_along_track(orbit_track, f * sweep),
+                target,
+                self.velocity_frame,
+                self.nadir_reference,
             )
             for f in (-1, 0, 1)
         ]

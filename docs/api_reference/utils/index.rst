@@ -31,6 +31,9 @@ Utility Functions
 .. autoclass:: tatc.utils.VelocityFrame
   :members:
 
+.. autoclass:: tatc.utils.NadirReference
+  :members:
+
 .. autofunction:: tatc.utils.compute_field_of_regard
 
 .. autofunction:: tatc.utils.compute_min_elevation_angle

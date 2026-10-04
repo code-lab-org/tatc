@@ -40,6 +40,7 @@ from .orbital import (
     true_anomaly_to_mean_anomaly,
 )
 from .projection import (
+    NadirReference,
     VelocityFrame,
     buffer_footprint,
     buffer_target,
@@ -62,6 +63,7 @@ from .surface import compute_number_samples
 from .time import to_datetime64_ns
 
 __all__ = [
+    "NadirReference",
     "VelocityFrame",
     "altitude_to_pressure",
     "buffer_footprint",

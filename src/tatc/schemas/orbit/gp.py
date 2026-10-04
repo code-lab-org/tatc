@@ -16,11 +16,72 @@ import numpy.typing as npt
 from pydantic import BaseModel, Field, model_validator
 from skyfield.api import Time, wgs84
 from skyfield.positionlib import Geocentric
+from skyfield.sgp4lib import EarthSatellite
 from skyfield.toposlib import GeographicPosition
 
 from ... import config, constants, utils
 from ..surface import Point
 from .gp_elements import GeneralPerturbationsElements
+
+
+def _find_events(
+    satellite: EarthSatellite,
+    topos: GeographicPosition,
+    t_0: Time,
+    t_1: Time,
+    min_elevation_angle: float,
+) -> tuple[Time, npt.NDArray]:
+    """
+    Find the rise, culminate, and set events of a satellite with respect to a
+    ground position using Skyfield's `find_events`, with the rise and set
+    times refined by bisection.
+
+    Skyfield's search stops refining all rise and set brackets once the first
+    one converges, which assumes they start with equal widths; over long
+    periods they do not, so some rise and set times can be several seconds
+    early or late. Each rise or set event lies between the preceding event
+    (or `t_0`) and the reported time, where the elevation angle crosses the
+    minimum, so that bracket is bisected to a millisecond.
+
+    Args:
+        satellite (skyfield.sgp4lib.EarthSatellite): The satellite.
+        topos (skyfield.toposlib.GeographicPosition): The ground position.
+        t_0 (skyfield.timelib.Time): The start time.
+        t_1 (skyfield.timelib.Time): The end time.
+        min_elevation_angle (float): The minimum elevation angle (degrees).
+
+    Returns:
+        tuple[skyfield.timelib.Time, numpy.ndarray]: event times and their
+            rise (0) / culminate (1) / set (2) codes
+    """
+    times, events = satellite.find_events(topos, t_0, t_1, min_elevation_angle)
+    jd = np.array(times.tt, dtype=float, ndmin=1)
+    refine = np.flatnonzero(events != 1)
+    if len(refine) == 0:
+        return times, events
+    relative = satellite - topos
+
+    def excess(x: npt.NDArray) -> npt.NDArray:
+        t = constants.timescale.tt_jd(x)
+        return relative.at(t).altaz()[0].degrees - min_elevation_angle
+
+    lower = np.concatenate(([t_0.tt], jd))[refine]
+    upper = jd[refine]
+    f_lower, f_upper = excess(lower), excess(upper)
+    bracketed = np.sign(f_lower) != np.sign(f_upper)
+    lower, upper, f_lower = lower[bracketed], upper[bracketed], f_lower[bracketed]
+    if len(lower) > 0:
+        for _ in range(64):
+            if np.max(upper - lower) < 1e-3 / 86400:
+                break
+            middle = (lower + upper) / 2
+            f_middle = excess(middle)
+            same = np.sign(f_middle) == np.sign(f_lower)
+            lower = np.where(same, middle, lower)
+            f_lower = np.where(same, f_middle, f_lower)
+            upper = np.where(same, upper, middle)
+        jd[refine[bracketed]] = (lower + upper) / 2
+    return constants.timescale.tt_jd(jd), events
 
 
 class GeneralPerturbationsOrbit(BaseModel):
@@ -705,7 +766,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         Gets the observation events (rise/culminate/set) of this orbit
         with respect to a ground point, between `start` and `end`, using
-        Skyfield's `find_events`.
+        Skyfield's `find_events` with refined rise and set times.
 
         Tries three strategies, in order, and uses the first that applies:
 
@@ -749,10 +810,12 @@ class GeneralPerturbationsOrbit(BaseModel):
             repeat_cycle = self.get_repeat_cycle()
             if repeat_cycle is not None and repeat_cycle < end - start:
                 repeat_t_1 = constants.timescale.from_datetime(start + repeat_cycle)
-                times, events = (
-                    self.get_closest_element(start)
-                    .to_skyfield()
-                    .find_events(topos, t_0, repeat_t_1, min_elevation_angle)
+                times, events = _find_events(
+                    self.get_closest_element(start).to_skyfield(),
+                    topos,
+                    t_0,
+                    repeat_t_1,
+                    min_elevation_angle,
                 )
                 number_cycles = int(np.ceil((end - start) / repeat_cycle))
                 if len(times) == 0:
@@ -774,9 +837,8 @@ class GeneralPerturbationsOrbit(BaseModel):
             # partition the period by whichever element is closest at each time
             part_ts, element_is = self.partition_by_element_index(start, end)
             events = [
-                self.elements[element_is[i]]
-                .to_skyfield()
-                .find_events(
+                _find_events(
+                    self.elements[element_is[i]].to_skyfield(),
                     topos,
                     constants.timescale.from_datetime(part_ts[i]),
                     constants.timescale.from_datetime(part_ts[i + 1]),
@@ -792,10 +854,8 @@ class GeneralPerturbationsOrbit(BaseModel):
             )
         # compute observation events directly, over the whole period
         t_1 = constants.timescale.from_datetime(end)
-        return (
-            self.elements[0]
-            .to_skyfield()
-            .find_events(topos, t_0, t_1, min_elevation_angle)
+        return _find_events(
+            self.elements[0].to_skyfield(), topos, t_0, t_1, min_elevation_angle
         )
 
     def to_gp_orbit(self, lazy_load: bool | None = None) -> GeneralPerturbationsOrbit:
