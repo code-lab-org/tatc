@@ -93,9 +93,9 @@ def pressure_to_altitude(pressure: float) -> float:
     l_b = _LAYER_LAPSE_RATE[layer]
     p_b = _LAYER_BASE_PRESSURE[layer]
     if l_b == 0.0:
-        return h_b - (_GAS_CONSTANT * t_b) / (_STANDARD_GRAVITY * _MOLAR_MASS_AIR) * np.log(
-            p / p_b
-        )
+        return h_b - (_GAS_CONSTANT * t_b) / (
+            _STANDARD_GRAVITY * _MOLAR_MASS_AIR
+        ) * np.log(p / p_b)
     return h_b + (t_b / l_b) * (
         (p / p_b) ** (-_GAS_CONSTANT * l_b / (_STANDARD_GRAVITY * _MOLAR_MASS_AIR)) - 1
     )

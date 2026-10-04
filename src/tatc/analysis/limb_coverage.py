@@ -167,9 +167,7 @@ def _sample_limb_scan(
     # (altitude changes negligibly over one scan's duration; the tangent
     # points actually reported are still computed exactly, per sample,
     # below)
-    r_sat0 = np.linalg.norm(
-        np.array(orbit.get_orbit_track([start]).position.m).ravel()
-    )
+    r_sat0 = np.linalg.norm(np.array(orbit.get_orbit_track([start]).position.m).ravel())
     target_elevations = np.asarray(scan_elevations, dtype=float)
     angle0 = np.arccos(np.clip((EARTH_MEAN_RADIUS + target_elevations) / r_sat0, -1, 1))
     fractions = _constant_rate_scan_fractions(angle0)
