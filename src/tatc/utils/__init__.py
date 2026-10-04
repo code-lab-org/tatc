@@ -40,6 +40,7 @@ from .orbital import (
     true_anomaly_to_mean_anomaly,
 )
 from .projection import (
+    VelocityFrame,
     buffer_footprint,
     buffer_target,
     compute_footprint,
@@ -47,6 +48,7 @@ from .projection import (
     compute_projected_ray_position,
     compute_radar_footprint,
     compute_radar_footprint_profile,
+    compute_view_tangents,
 )
 from .radar import (
     compute_radar_beam_height,
@@ -59,6 +61,7 @@ from .surface import compute_number_samples
 from .time import to_datetime64_ns
 
 __all__ = [
+    "VelocityFrame",
     "altitude_to_pressure",
     "buffer_footprint",
     "buffer_target",
@@ -85,6 +88,7 @@ __all__ = [
     "compute_radar_ground_range_bounds",
     "compute_radar_slant_range",
     "compute_terrain_elevation_angle",
+    "compute_view_tangents",
     "field_of_regard_to_swath_width",
     "geodesic_destination",
     "geodesic_distance",

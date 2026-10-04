@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 import numpy as np
 from pyproj import Transformer
 from shapely.geometry import Point
-from skyfield.api import EarthSatellite
+from skyfield.api import EarthSatellite, wgs84
+from skyfield.framelib import itrs
 
 from tatc import config, constants
 from tatc.constants import timescale
@@ -21,11 +22,13 @@ from tatc.utils.observation import (
 )
 from tatc.utils.orbital import compute_ground_surface_velocity
 from tatc.utils.projection import (
+    VelocityFrame,
     buffer_footprint,
     buffer_target,
     compute_footprint,
     compute_limb,
     compute_projected_ray_position,
+    compute_view_tangents,
 )
 
 
@@ -286,6 +289,233 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
             self.assertAlmostEqual(
                 vectorized.longitude.degrees[i], scalar.longitude.degrees, delta=1e-9
             )
+
+    def _line_of_sight_dot_velocity(self, orbit_track, velocity_frame):
+        """
+        Cosines between the cross-track direction of a roll-pointed (20 deg)
+        ray (its line of sight less the nadir component) and the Earth-fixed
+        and inertial velocity vectors (both in Earth-fixed coordinates).
+        """
+        p, v = orbit_track.frame_xyz_and_velocity(itrs)
+        p_m, v_m_per_s = np.array(p.m), np.array(v.m_per_s)
+        v_inertial = v_m_per_s + constants.EARTH_ROTATION_RATE * np.array(
+            [-p_m[1], p_m[0], np.zeros_like(p_m[2])]
+        )
+
+        def line_of_sight(roll_angle):
+            position = compute_projected_ray_position(
+                orbit_track, 0, 0, roll_angle, 0, False, 0, 0, velocity_frame
+            )
+            los = np.array(position.itrs_xyz.m) - p_m
+            return los / np.linalg.norm(los, axis=0)
+
+        nadir, los = line_of_sight(0), line_of_sight(20)
+        cross_track = los / np.sum(los * nadir, axis=0) - nadir
+        cross_track = cross_track / np.linalg.norm(cross_track, axis=0)
+        return (
+            np.sum(cross_track * v_m_per_s, axis=0) / np.linalg.norm(v_m_per_s, axis=0),
+            np.sum(cross_track * v_inertial, axis=0)
+            / np.linalg.norm(v_inertial, axis=0),
+        )
+
+    def test_compute_projected_ray_position_earth_fixed_velocity_frame(self):
+        """
+        Test that by default a cross-track (roll) ray is orthogonal to the
+        Earth-fixed velocity but not to the inertial velocity.
+        """
+        earth_fixed, inertial = self._line_of_sight_dot_velocity(
+            self.orbit_track, VelocityFrame.EARTH_FIXED
+        )
+        self.assertAlmostEqual(earth_fixed, 0, delta=1e-9)
+        self.assertGreater(abs(inertial), 0.01)
+
+    def test_compute_projected_ray_position_inertial_velocity_frame(self):
+        """
+        Test that with an inertial velocity frame a cross-track (roll) ray is
+        orthogonal to the inertial velocity but not to the Earth-fixed
+        velocity, for both scalar and vectorized orbit tracks.
+        """
+        earth_fixed, inertial = self._line_of_sight_dot_velocity(
+            self.orbit_track, VelocityFrame.INERTIAL
+        )
+        self.assertAlmostEqual(inertial, 0, delta=1e-9)
+        self.assertGreater(abs(earth_fixed), 0.01)
+        orbit_track = self.satellite.at(timescale.utc(2020, 3, 20, 12, [0, 600, 1200]))
+        _, inertial = self._line_of_sight_dot_velocity(
+            orbit_track, VelocityFrame.INERTIAL
+        )
+        np.testing.assert_allclose(inertial, 0, atol=1e-9)
+
+    def test_compute_projected_ray_position_velocity_frame_nadir_unchanged(self):
+        """
+        Test that the velocity frame does not affect a nadir ray.
+        """
+        earth_fixed = compute_projected_ray_position(
+            self.orbit_track, 0, 0, velocity_frame=VelocityFrame.EARTH_FIXED
+        )
+        inertial = compute_projected_ray_position(
+            self.orbit_track, 0, 0, velocity_frame=VelocityFrame.INERTIAL
+        )
+        self.assertAlmostEqual(
+            earth_fixed.latitude.degrees, inertial.latitude.degrees, delta=1e-9
+        )
+        self.assertAlmostEqual(
+            earth_fixed.longitude.degrees, inertial.longitude.degrees, delta=1e-9
+        )
+
+    def test_compute_footprint_velocity_frame_rotates_footprint(self):
+        """
+        Test that an inertial velocity frame rotates a rectangular footprint
+        about nadir: same area and center, different shape.
+        """
+        earth_fixed = compute_footprint(self.orbit_track, 40, 1, is_rectangular=True)[0]
+        inertial = compute_footprint(
+            self.orbit_track,
+            40,
+            1,
+            is_rectangular=True,
+            velocity_frame=VelocityFrame.INERTIAL,
+        )[0]
+        self.assertAlmostEqual(inertial.area / earth_fixed.area, 1, delta=1e-3)
+        self.assertLess(inertial.centroid.distance(earth_fixed.centroid), 1e-3)
+        self.assertLess(inertial.intersection(earth_fixed).area / earth_fixed.area, 0.5)
+
+    def test_compute_projected_ray_position_rectangular_continuous_at_corners(self):
+        """
+        Test that the rectangular boundary is continuous at its corners for a
+        wide, elongated view (where the field of view ratio and the ratio of
+        half-width tangents differ).
+        """
+        cross, along = 105, 2
+        # check the true corner angle and the field of view ratio angle
+        for corner in (
+            np.degrees(
+                np.arctan2(np.tan(np.radians(along / 2)), np.tan(np.radians(cross / 2)))
+            ),
+            np.degrees(np.arctan(along / cross)),
+        ):
+            self._assert_continuous_at(cross, along, corner)
+
+    def _assert_continuous_at(self, cross, along, corner):
+        """
+        Asserts that the rectangular boundary is continuous at the four
+        clock angles symmetric to an angle.
+        """
+        for base in (corner, 180 - corner, 180 + corner, 360 - corner):
+            before, after = (
+                compute_projected_ray_position(
+                    self.orbit_track, cross, along, 0, 0, True, angle, 0
+                )
+                for angle in (base - 1e-6, base + 1e-6)
+            )
+            self.assertLess(
+                _great_circle_distance(
+                    before.latitude.degrees,
+                    before.longitude.degrees,
+                    after.latitude.degrees,
+                    after.longitude.degrees,
+                ),
+                100,
+            )
+
+    def test_compute_footprint_elongated_rectangle_contains_center_line(self):
+        """
+        Test that a wide, thin rectangular footprint contains points along
+        its cross-track center line out to near its edges, at a middle
+        latitude where the edges curve in longitude/latitude coordinates.
+        """
+        orbit_track = self.satellite.at(timescale.utc(2020, 3, 20, 12, 12))
+        footprint = compute_footprint(orbit_track, 105, 1.2, is_rectangular=True)[0]
+        for roll in (-52, -45, -30, -15, 0, 15, 30, 45, 52):
+            position = compute_projected_ray_position(
+                orbit_track, 0, 0, roll_angle=roll
+            )
+            self.assertTrue(
+                footprint.contains(
+                    Point(position.longitude.degrees, position.latitude.degrees)
+                ),
+                f"roll angle {roll}",
+            )
+
+    def test_compute_view_tangents_inverts_projected_ray_position(self):
+        """
+        Test that a rolled and pitched view's center has zero view angle
+        tangents relative to that view, and the expected tangents relative to
+        nadir (roll in the cross-track tangent, pitch in the along-track
+        tangent scaled by the roll's secant), for both velocity frames and
+        for scalar and vectorized orbit tracks.
+        """
+        orbit_track = self.satellite.at(timescale.utc(2020, 3, 20, 12, [0, 600]))
+        roll, pitch = 30, -10
+        for velocity_frame in VelocityFrame:
+            position = compute_projected_ray_position(
+                orbit_track, 0, 0, roll, pitch, velocity_frame=velocity_frame
+            )
+            for i in range(2):
+                target = wgs84.latlon(
+                    position.latitude.degrees[i], position.longitude.degrees[i]
+                )
+                along, cross = compute_view_tangents(
+                    orbit_track[i], target, velocity_frame, roll, pitch
+                )
+                self.assertAlmostEqual(along, 0, delta=1e-8)
+                self.assertAlmostEqual(cross, 0, delta=1e-8)
+                along, cross = compute_view_tangents(
+                    orbit_track[i], target, velocity_frame
+                )
+                self.assertAlmostEqual(
+                    along,
+                    np.tan(np.radians(pitch)) / np.cos(np.radians(roll)),
+                    delta=1e-8,
+                )
+                self.assertAlmostEqual(cross, np.tan(np.radians(roll)), delta=1e-8)
+            along, cross = compute_view_tangents(
+                orbit_track,
+                wgs84.latlon(
+                    position.latitude.degrees[0], position.longitude.degrees[0]
+                ),
+                velocity_frame,
+            )
+            self.assertEqual(np.shape(along), (2,))
+            self.assertAlmostEqual(cross[0], np.tan(np.radians(roll)), delta=1e-8)
+
+    def test_compute_projected_ray_position_rigid_rotation(self):
+        """
+        Test that roll rotates a view rigidly: a ray at the edge of a 40 deg
+        view rolled by 10 deg lands at the same place as a nadir-centered
+        ray rolled by 30 deg.
+        """
+        for velocity_frame in VelocityFrame:
+            edge = compute_projected_ray_position(
+                self.orbit_track, 40, 10, 10, 0, True, 0, 0, velocity_frame
+            )
+            rolled = compute_projected_ray_position(
+                self.orbit_track, 0, 0, 30, 0, velocity_frame=velocity_frame
+            )
+            self.assertLess(
+                _great_circle_distance(
+                    edge.latitude.degrees,
+                    edge.longitude.degrees,
+                    rolled.latitude.degrees,
+                    rolled.longitude.degrees,
+                ),
+                1,
+            )
+
+    def test_compute_view_tangents_above_satellite_is_nan(self):
+        """
+        Test that a target above the satellite (outside the nadir
+        hemisphere) has undefined view angle tangents.
+        """
+        along, cross = compute_view_tangents(
+            self.orbit_track,
+            wgs84.latlon(
+                self.subpoint.latitude.degrees,
+                self.subpoint.longitude.degrees,
+                2 * self.subpoint.elevation.m,
+            ),
+        )
+        self.assertTrue(np.isnan(along) and np.isnan(cross))
 
     def test_compute_footprint_scalar_orbit_track(self):
         """

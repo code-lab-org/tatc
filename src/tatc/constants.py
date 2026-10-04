@@ -20,6 +20,8 @@ timescale = load.timescale()
 # time properties
 EARTH_SOLAR_DAY_S = 86400
 EARTH_SIDEREAL_DAY_S = 86164.0905
+# mean angular velocity (rad/s) of the Earth relative to inertial space
+EARTH_ROTATION_RATE = 2 * np.pi / EARTH_SIDEREAL_DAY_S
 
 # wgs84 oblate spheroid parameters
 EARTH_FLATTENING = 1 / 298.257223563

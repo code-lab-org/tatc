@@ -103,9 +103,11 @@ validation = [
     "tatc[examples,preprocess]",
     "awsgnssroutils",
     "earthaccess",
+    "h5py",
     "metpy",
     "netcdf4",
-    "requests"
+    "requests",
+    "scipy"
 ]
 
 [tool.setuptools.dynamic]

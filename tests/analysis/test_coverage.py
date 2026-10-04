@@ -7,7 +7,9 @@ Unit tests for the coverage analysis functions in tatc.analysis.
 from datetime import datetime, timedelta, timezone
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
+from skyfield.api import wgs84
 from shapely.geometry import Point as ShapelyPoint
 from shapely.geometry import box
 
@@ -18,7 +20,8 @@ from tatc.analysis import (
     grid_observations,
     reduce_observations,
 )
-from tatc.schemas import Point
+from tatc.schemas import Instrument, Point, PointedInstrument
+from tatc.utils import compute_view_tangents
 
 from .common import IssConstellationTestCase
 
@@ -167,6 +170,112 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             instrument_index=0,
         )
         self.assertTrue(results.empty)
+
+    def _collect_pointed_observations(self, field_of_regard=100, **kwargs):
+        """
+        Collects one day of observations of a set of points by a pointed
+        instrument with a wide, thin rectangular view, together with those of
+        a nadir instrument with a 100 deg field of regard. The pointed view
+        is slightly wider (101 deg) because the nadir instrument's minimum
+        elevation angle assumes a conservative (apogee) altitude.
+        """
+        instrument = PointedInstrument(
+            name="Pointed",
+            field_of_regard=field_of_regard,
+            cross_track_field_of_view=101,
+            along_track_field_of_view=1,
+            is_rectangular=True,
+            **kwargs,
+        )
+        satellite = self.satellite.model_copy(
+            update={"instruments": [instrument, Instrument(field_of_regard=100)]}
+        )
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        points = [
+            Point(id=i, latitude=latitude, longitude=longitude)
+            for i, (latitude, longitude) in enumerate(
+                [(0, 0), (20, 45), (-35, -100), (45, 170)]
+            )
+        ]
+        return satellite, [
+            pd.concat(
+                [
+                    collect_observations(
+                        point, satellite, start, start + timedelta(days=1), index
+                    )
+                    for point in points
+                ]
+            ).reset_index(drop=True)
+            for index in (0, 1)
+        ]
+
+    def test_collect_observations_pointed_epoch_at_view_crossing(self):
+        """
+        Test that a pointed instrument's observation epochs are the times
+        its view sweeps over the point, for both velocity frames: the
+        point's along-track view angle is zero and it lies in the field of
+        view.
+        """
+        for velocity_frame in ("earth_fixed", "inertial"):
+            satellite, (pointed, _) = self._collect_pointed_observations(
+                velocity_frame=velocity_frame
+            )
+            self.assertGreater(len(pointed), 0)
+            instrument = satellite.instruments[0]
+            for _, observation in pointed.iterrows():
+                orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(
+                    observation.epoch
+                )
+                target = wgs84.latlon(observation.geometry.y, observation.geometry.x)
+                along, _ = compute_view_tangents(orbit_track, target, velocity_frame)
+                self.assertAlmostEqual(float(along), 0, delta=1e-5)
+                self.assertTrue(
+                    instrument.is_in_field_of_view(orbit_track, target).all()
+                )
+                self.assertTrue(
+                    observation.start <= observation.epoch <= observation.end
+                )
+
+    def test_collect_observations_pointed_matches_field_of_regard(self):
+        """
+        Test that a wide, thin pointed view observes the same passes as a
+        nadir instrument with (about) the same field of regard, within
+        seconds of the time of closest approach.
+        """
+        _, (pointed, nadir) = self._collect_pointed_observations()
+        self.assertEqual(len(pointed), len(nadir))
+        np.testing.assert_array_less(
+            np.abs((pointed.epoch - nadir.epoch).dt.total_seconds()), 5
+        )
+
+    def test_collect_observations_pointed_pitch(self):
+        """
+        Test that a forward (aft) pitched view observes a point before
+        (after) the time of closest approach, by about the time to travel
+        420 km * tan(20 deg) = 153 km (22 s).
+        """
+        for pitch_angle, sign in [(20, -1), (-20, 1)]:
+            _, (pointed, nadir) = self._collect_pointed_observations(
+                field_of_regard=140, pitch_angle=pitch_angle
+            )
+            self.assertEqual(len(pointed), len(nadir))
+            np.testing.assert_allclose(
+                sign * (pointed.epoch - nadir.epoch).dt.total_seconds(), 22, atol=2
+            )
+
+    def test_collect_observations_pointed_access_time_fixed(self):
+        """
+        Test that a fixed access time is centered on a pointed instrument's
+        view crossing time.
+        """
+        _, (pointed, _) = self._collect_pointed_observations(
+            min_access_time=timedelta(seconds=10), access_time_fixed=True
+        )
+        self.assertGreater(len(pointed), 0)
+        self.assertTrue(
+            (pointed.epoch - pointed.start == timedelta(seconds=5)).all()
+            and (pointed.end - pointed.epoch == timedelta(seconds=5)).all()
+        )
 
     def test_collect_observations_null(self):
         """

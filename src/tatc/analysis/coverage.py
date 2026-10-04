@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from shapely import geometry as geo
 from skyfield.api import wgs84
+from skyfield.toposlib import GeographicPosition
 
 from ..constants import EARTH_MEAN_RADIUS, de421, timescale
 from ..schemas import Point, PointedInstrument, Satellite
@@ -21,7 +22,7 @@ from ..utils.observation import (
     compute_min_elevation_angle,
 )
 from ..utils.orbital import compute_apoapsis_radius
-from ..utils.projection import compute_footprint
+from ..utils.projection import compute_view_tangents
 
 
 def _get_visible_interval_series(
@@ -177,6 +178,77 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
+def _get_view_crossing_times(
+    target: GeographicPosition,
+    satellite: Satellite,
+    instrument: PointedInstrument,
+    periods: list[pd.Interval],
+) -> list[pd.Timestamp]:
+    """
+    Get the time in each visible period when a pointed instrument's view
+    sweeps over a target: when the target's along-track view angle, relative
+    to the (rolled and pitched) view center, is zero. This angle decreases
+    monotonically as the satellite passes the target, so the crossing is
+    found by the Illinois variant of the regula falsi method. If a period
+    does not contain a crossing (for example, a period truncated by the
+    analysis window), uses the period's end closest to the crossing.
+
+    Args:
+        target (skyfield.toposlib.GeographicPosition): The target position.
+        satellite (Satellite): The observing satellite.
+        instrument (PointedInstrument): The observing instrument.
+        periods (list[pandas.Interval]): The visible periods.
+
+    Returns:
+        list[pandas.Timestamp]: The view crossing time in each period.
+    """
+    if len(periods) == 0:
+        return []
+    orbit = satellite.orbit.to_gp_orbit()
+    reference = periods[0].left
+
+    def residual(seconds: np.ndarray) -> np.ndarray:
+        # along-track view angle tangent, relative to the view center
+        along, _ = compute_view_tangents(
+            orbit.get_orbit_track(
+                [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
+            ),
+            target,
+            instrument.velocity_frame,
+            instrument.roll_angle,
+            instrument.pitch_angle,
+        )
+        return np.reshape(along, -1)
+
+    lower = np.array([(period.left - reference).total_seconds() for period in periods])
+    upper = np.array([(period.right - reference).total_seconds() for period in periods])
+    f_lower, f_upper = residual(lower), residual(upper)
+    # without a sign change, use the end with the smaller residual
+    crossing = np.where(np.abs(f_lower) <= np.abs(f_upper), lower, upper)
+    bracketed = np.sign(f_lower) * np.sign(f_upper) < 0
+    # side of the bracket replaced in the previous iteration (-1: lower, 1: upper)
+    side = np.zeros(len(periods))
+    for _ in range(50):
+        active = bracketed & (upper - lower > 1e-3)
+        if not np.any(active):
+            break
+        x = (lower * f_upper - upper * f_lower) / (f_upper - f_lower)
+        f_x = np.zeros(len(periods))
+        f_x[active] = residual(x[active])
+        replace_lower = active & (np.sign(f_x) == np.sign(f_lower))
+        replace_upper = active & ~replace_lower
+        # Illinois modification: halve the residual of an end retained twice
+        f_upper = np.where(replace_lower & (side == -1), f_upper / 2, f_upper)
+        f_lower = np.where(replace_upper & (side == 1), f_lower / 2, f_lower)
+        lower = np.where(replace_lower, x, lower)
+        f_lower = np.where(replace_lower, f_x, f_lower)
+        upper = np.where(replace_upper, x, upper)
+        f_upper = np.where(replace_upper, f_x, f_upper)
+        side = np.where(replace_lower, -1, np.where(replace_upper, 1, side))
+        crossing = np.where(active, x, crossing)
+    return [reference + pd.Timedelta(seconds=float(x)) for x in crossing]
+
+
 def collect_observations(
     point: Point,
     satellite: Satellite,
@@ -187,6 +259,12 @@ def collect_observations(
 ) -> gpd.GeoDataFrame:
     """
     Collect single satellite observations of a geodetic point of interest.
+    Each observation spans a period when the point lies within the
+    instrument's field of regard. Its epoch is the period's midpoint or, for
+    a `PointedInstrument`, the time when the instrument's view sweeps over
+    the point (when the point's along-track view angle relative to the view
+    center is zero), at which time the point must lie within the field of
+    view.
 
     Args:
         point (Point): The ground point of interest.
@@ -212,6 +290,19 @@ def collect_observations(
         max_altitude,
         instrument.field_of_regard,
     )
+    target = wgs84.latlon(point.latitude, point.longitude, point.elevation)
+    periods = list(
+        _get_visible_interval_series(
+            point, satellite, min_elevation_angle, max_altitude, start, end
+        )
+    )
+    # observation epochs: the time a pointed instrument's view sweeps over
+    # the point, otherwise the midpoint of the visible period
+    epochs = (
+        _get_view_crossing_times(target, satellite, instrument, periods)
+        if isinstance(instrument, PointedInstrument)
+        else [period.mid for period in periods]
+    )
     records = [
         {
             "point_id": point.id,
@@ -221,45 +312,31 @@ def collect_observations(
             "start": (
                 period.left
                 if not instrument.access_time_fixed
-                else period.mid - instrument.min_access_time / 2
+                else epoch - instrument.min_access_time / 2
             ),
             "end": (
                 period.right
                 if not instrument.access_time_fixed
-                else period.mid + instrument.min_access_time / 2
+                else epoch + instrument.min_access_time / 2
             ),
-            "epoch": period.mid,
+            "epoch": epoch,
         }
-        for period in _get_visible_interval_series(
-            point, satellite, min_elevation_angle, max_altitude, start, end
-        )
-        # instrument validity (illumination, footprint containment) below is
-        # only checked at each coarse period's midpoint, as an approximation
-        # of the whole interval; a more general approach would refine the
-        # exact observation period boundaries with Skyfield's find_discrete
-        # using the instrument's own validity condition, but that is out of
-        # scope for now
+        for period, epoch in zip(periods, epochs)
+        # instrument validity (illumination, field of view) below is only
+        # checked at each period's epoch, as an approximation of the whole
+        # interval; a more general approach would refine the exact
+        # observation period boundaries with Skyfield's find_discrete using
+        # the instrument's own validity condition, but that is out of scope
+        # for now
         if (
             instrument.min_access_time <= period.right - period.left
             and instrument.is_valid_observation(
-                (
-                    orbit_track := satellite.orbit.to_gp_orbit().get_orbit_track(
-                        period.mid
-                    )
-                ),
-                wgs84.latlon(point.latitude, point.longitude, point.elevation),
+                (orbit_track := satellite.orbit.to_gp_orbit().get_orbit_track(epoch)),
+                target,
             ).all()
             and (
                 not isinstance(instrument, PointedInstrument)
-                or compute_footprint(
-                    orbit_track=orbit_track,
-                    cross_track_field_of_view=instrument.cross_track_field_of_view,
-                    along_track_field_of_view=instrument.along_track_field_of_view,
-                    roll_angle=instrument.roll_angle,
-                    pitch_angle=instrument.pitch_angle,
-                    is_rectangular=instrument.is_rectangular,
-                    elevation=point.elevation,
-                )[0].contains(geo.Point(point.longitude, point.latitude))
+                or instrument.is_in_field_of_view(orbit_track, target).all()
             )
         )
     ]

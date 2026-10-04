@@ -7,13 +7,14 @@ Unit tests for the PointedInstrument schema.
 import unittest
 from datetime import datetime, timezone
 
+import numpy as np
 from pydantic import ValidationError
 from skyfield.api import EarthSatellite, wgs84
 
 from tatc.constants import timescale
 from tatc.schemas import CircularOrbit, PointedInstrument
 from tatc.utils import field_of_regard_to_swath_width, geodesic_distance
-from tatc.utils.projection import compute_projected_ray_position
+from tatc.utils.projection import VelocityFrame, compute_projected_ray_position
 
 
 class TestPointedInstrument(unittest.TestCase):
@@ -91,6 +92,7 @@ class TestPointedInstrument(unittest.TestCase):
         self.assertEqual(o.along_track_pixels, 1)
         self.assertEqual(o.cross_track_oversampling, 0)
         self.assertEqual(o.along_track_oversampling, 0)
+        self.assertEqual(o.velocity_frame, VelocityFrame.EARTH_FIXED)
 
     def test_field_of_view_bounds(self):
         """
@@ -314,6 +316,116 @@ class TestPointedInstrument(unittest.TestCase):
         self.assertEqual(distances, sorted(distances))
         distances_negative = [distance_for_roll(r) for r in (0, -5, -10, -20)]
         self.assertEqual(distances_negative, sorted(distances_negative))
+
+    def test_compute_footprint_center_velocity_frame(self):
+        """
+        Test that the velocity frame passes through to projections: in an
+        inclined orbit, a pitched footprint center moves with an inertial
+        velocity frame, while an unpointed center does not.
+        """
+        orbit_track = EarthSatellite.from_satrec(
+            CircularOrbit(
+                mean_altitude=500000,
+                true_anomaly=0,
+                epoch=self.test_time.utc_datetime(),
+                inclination=51.6,
+                right_ascension_ascending_node=0.0,
+            )
+            .to_gp_orbit()
+            .elements[0]
+            .to_satrec(),
+            timescale,
+        ).at(self.test_time)
+
+        def center(velocity_frame, pitch):
+            o = PointedInstrument(
+                name="t",
+                cross_track_field_of_view=1.0,
+                along_track_field_of_view=1.0,
+                pitch_angle=pitch,
+                velocity_frame=velocity_frame,
+            )
+            return o.compute_footprint_center(orbit_track)
+
+        for pitch, moves in [(0, False), (20, True)]:
+            earth_fixed = center(VelocityFrame.EARTH_FIXED, pitch)
+            inertial = center("inertial", pitch)
+            distance = geodesic_distance(
+                earth_fixed.longitude.degrees,
+                earth_fixed.latitude.degrees,
+                inertial.longitude.degrees,
+                inertial.latitude.degrees,
+            )
+            if moves:
+                self.assertGreater(distance, 1e3)
+            else:
+                self.assertAlmostEqual(distance, 0, delta=1e-3)
+
+    def test_is_in_field_of_view_rolled_edges(self):
+        """
+        Test that a rolled view is rotated rigidly: a 40 deg view rolled by 10
+        deg spans scan angles from -10 to 30 deg.
+        """
+        o = PointedInstrument(
+            name="t",
+            cross_track_field_of_view=40.0,
+            along_track_field_of_view=10.0,
+            roll_angle=10,
+            is_rectangular=True,
+        )
+        for roll, expected in [
+            (29.9, True),
+            (30.1, False),
+            (-9.9, True),
+            (-10.1, False),
+        ]:
+            target = compute_projected_ray_position(self.orbit_track, 0, 0, roll)
+            self.assertEqual(
+                o.is_in_field_of_view(self.orbit_track, target).tolist(),
+                [expected],
+                f"roll {roll}",
+            )
+
+    def test_is_in_field_of_view(self):
+        """
+        Test that targets just inside (outside) the edges of rectangular and
+        elliptical rolled and pitched views are (are not) in the field of
+        view, with targets placed relative to the view center.
+        """
+        for is_rectangular in (True, False):
+            o = PointedInstrument(
+                name="t",
+                cross_track_field_of_view=40.0,
+                along_track_field_of_view=10.0,
+                roll_angle=10,
+                pitch_angle=-5,
+                is_rectangular=is_rectangular,
+            )
+
+            def target(cross, along, rectangular=False, angle=0):
+                # a ray offset from the view center by the given half widths
+                return compute_projected_ray_position(
+                    self.orbit_track, 2 * cross, 2 * along, 10, -5, rectangular, angle
+                )
+
+            for position, expected in [
+                (target(0, 0), True),
+                (target(19.9, 0), True),
+                (target(20.1, 0), False),
+                (target(19.9, 0, angle=180), True),
+                (target(20.1, 0, angle=180), False),
+                (target(0, 4.9, angle=90), True),
+                (target(0, 5.1, angle=90), False),
+                (target(0, 4.9, angle=270), True),
+                (target(0, 5.1, angle=270), False),
+                # near a corner: inside the rectangle, outside the ellipse
+                (target(19.5, 4.8, True, 15), is_rectangular),
+            ]:
+                self.assertEqual(
+                    o.is_in_field_of_view(self.orbit_track, position).tolist(),
+                    [expected],
+                    f"rectangular {is_rectangular}",
+                )
 
     def test_compute_projected_pixel_position_matches_direct_cone_offset(self):
         """

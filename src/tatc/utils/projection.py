@@ -7,8 +7,10 @@ Projection utility functions.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from enum import Enum
 
 import numpy as np
+import numpy.typing as npt
 from pyproj import Transformer
 from shapely import Geometry, make_valid
 from shapely.geometry import (
@@ -35,51 +37,59 @@ from .observation import field_of_regard_to_swath_width
 from .orbital import compute_ground_surface_velocity
 
 
-def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-many-statements
-    orbit_track: Geocentric,
-    cross_track_field_of_view: float,
-    along_track_field_of_view: float,
-    roll_angle: float = 0,
-    pitch_angle: float = 0,
-    is_rectangular: bool = False,
-    angle: float = 0,
-    elevation: float = 0,
-) -> GeographicPosition:
+class VelocityFrame(str, Enum):
     """
-    Get the location of a projected ray from an instrument. The ray is cast
-    from the satellite position toward the WGS 84 geoid at the specified
-    elevation; if it misses the geoid entirely (e.g. an off-nadir angle
-    pointing past the horizon), the projected position instead falls back
-    to the nearest point on the visible Earth limb. Zero roll, pitch, and
-    field of view center on the geodetic nadir (the WGS 84 ellipsoid
-    surface normal through the satellite), matching Skyfield's
-    `wgs84.subpoint_of`/`wgs84.geographic_position_of`.
+    Enumeration of reference frames for the velocity vector that defines an
+    instrument's along-track direction (and hence its cross-track direction,
+    orthogonal to velocity and nadir).
+    """
+
+    EARTH_FIXED = "earth_fixed"
+    """
+    Velocity relative to the rotating Earth: the field of view is aligned
+    with the ground track, as for a yaw-steered spacecraft (for example,
+    zero-Doppler steering for synthetic aperture radar).
+    """
+    INERTIAL = "inertial"
+    """
+    Inertial (orbital) velocity: the field of view is aligned with the orbit
+    plane, as for a spacecraft without yaw steering. Near the equator, the
+    field of view is rotated by up to about 4 degrees (in low Earth orbit)
+    relative to the ground track.
+    """
+
+
+def _compute_instrument_frame(
+    orbit_track: Geocentric,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
+    """
+    Compute the Earth-fixed position and the unit vectors that orient an
+    instrument's view: nadir, velocity (along-track), and cross-track
+    (velocity cross nadir, which points to the left of the direction of
+    motion).
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
-        cross_track_field_of_view (float): the instrument cross-track
-            (orthogonal to velocity vector) field of view (degrees).
-        along_track_field_of_view (float): the instrument along-track
-            (parallel to velocity vector) field of view (degrees).
-        roll_angle (float): the instrument roll (right-hand about
-            velocity vector) angle (degrees).
-        pitch_angle (float): the instrument pitch (right-hand about
-            orbit normal vector) angle (degrees).
-        is_rectangular (bool): `True` if the instrument view has a rectangular
-            shape (otherwise elliptical).
-        angle (float): ray angle (degrees) counterclockwise from right-hand cross-track
-            direction about the instrument field of view.
-        elevation (float): The elevation (meters) at which project the footprint.
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
 
     Returns:
-        (skyfield.toposlib.GeographicPosition): the geographic position of the projected ray
+        tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
+            the position (meters) and the nadir, velocity, and cross-track unit
+            vectors, each with shape (3,) or (3, N) in Earth-fixed coordinates.
     """
-    # convert to radians for internal use
-    angle = np.radians(angle)
     # extract earth-fixed position and velocity
     position, velocity = orbit_track.frame_xyz_and_velocity(itrs)
     v_m_per_s = np.array(velocity.m_per_s)
     p_m = np.array(position.m)
+    if velocity_frame == VelocityFrame.INERTIAL:
+        # add the velocity of the rotating frame (omega x r, with omega along
+        # the Earth-fixed z-axis) to express the inertial velocity in
+        # Earth-fixed coordinates
+        v_m_per_s = v_m_per_s + constants.EARTH_ROTATION_RATE * np.array(
+            [-p_m[1], p_m[0], np.zeros_like(p_m[2])]
+        )
     # velocity unit vector
     v = np.divide(v_m_per_s, np.linalg.norm(v_m_per_s, axis=0))
     # nadir unit vector: the geodetic vertical, i.e. the WGS 84
@@ -93,25 +103,166 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     lat = np.array(subpoint.latitude.radians)
     lon = np.array(subpoint.longitude.radians)
     n = -np.array([np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)])
+    # cross-track unit vector
+    c = np.cross(v, n, axis=0)
+    return p_m, v, n, c
+
+
+def _compute_view_frame(
+    orbit_track: Geocentric,
+    roll_angle: float = 0,
+    pitch_angle: float = 0,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
+    """
+    Compute the Earth-fixed position and the orthonormal unit vectors that
+    orient a pointed instrument's view: the boresight (view center), the
+    along-track axis, and the cross-track axis (to the left of the direction
+    of motion). The view is rotated rigidly from nadir: first by the roll
+    angle about the along-track axis (positive to the left), then by the
+    pitch angle about the rolled cross-track axis (positive forward).
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        roll_angle (float): the instrument roll angle (degrees).
+        pitch_angle (float): the instrument pitch angle (degrees).
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
+
+    Returns:
+        tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
+            the position (meters) and the boresight, along-track, and
+            cross-track unit vectors, each with shape (3,) or (3, N) in
+            Earth-fixed coordinates.
+    """
+    p_m, _, n, c = _compute_instrument_frame(orbit_track, velocity_frame)
+    # orthonormal cross-track (left) and along-track (forward) axes at nadir
+    c = c / np.linalg.norm(c, axis=0)
+    a = np.cross(n, c, axis=0)
+    # roll about the along-track axis
+    roll, pitch = np.radians(roll_angle), np.radians(pitch_angle)
+    boresight = np.cos(roll) * n + np.sin(roll) * c
+    cross = np.cos(roll) * c - np.sin(roll) * n
+    # pitch about the rolled cross-track axis
+    boresight, along = (
+        np.cos(pitch) * boresight + np.sin(pitch) * a,
+        np.cos(pitch) * a - np.sin(pitch) * boresight,
+    )
+    return p_m, boresight, along, cross
+
+
+def compute_view_tangents(
+    orbit_track: Geocentric,
+    target: GeographicPosition,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    roll_angle: float = 0,
+    pitch_angle: float = 0,
+) -> tuple[npt.NDArray, npt.NDArray]:
+    """
+    Compute the tangents of the along-track and cross-track view angles of a
+    target relative to the center of an instrument's view, using the same
+    frame as `compute_projected_ray_position`: the line of sight to the
+    target is parallel to `boresight + along * along_axis + cross *
+    cross_axis`, where the boresight and axes are rotated from nadir by the
+    roll and pitch angles. With zero roll and pitch, a target with tangents
+    `(along, cross)` lies at the center of a view with roll angle
+    `arctan(cross)` and pitch angle `arctan(along / sqrt(1 + cross**2))`.
+    Does not check whether the target is above the satellite's horizon.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        target (skyfield.toposlib.GeographicPosition): the target position.
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
+        roll_angle (float): the instrument roll angle (degrees).
+        pitch_angle (float): the instrument pitch angle (degrees).
+
+    Returns:
+        tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track and
+            cross-track (positive left) view angle tangents (`NaN` if the
+            target is not in front of the view).
+    """
+    p_m, boresight, along, cross = _compute_view_frame(
+        orbit_track, roll_angle, pitch_angle, velocity_frame
+    )
+    # line of sight from the satellite to the target
+    los = np.reshape(np.array(target.itrs_xyz.m), (3,) + (1,) * (p_m.ndim - 1)) - p_m
+    with np.errstate(divide="ignore", invalid="ignore"):
+        scale = np.sum(los * boresight, axis=0)
+        scale = np.where(scale > 0, scale, np.nan)
+        return np.sum(los * along, axis=0) / scale, np.sum(los * cross, axis=0) / scale
+
+
+def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-many-statements
+    orbit_track: Geocentric,
+    cross_track_field_of_view: float,
+    along_track_field_of_view: float,
+    roll_angle: float = 0,
+    pitch_angle: float = 0,
+    is_rectangular: bool = False,
+    angle: float = 0,
+    elevation: float = 0,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+) -> GeographicPosition:
+    """
+    Get the location of a projected ray from an instrument. The ray is cast
+    from the satellite position toward the WGS 84 geoid at the specified
+    elevation; if it misses the geoid entirely (e.g. an off-nadir angle
+    pointing past the horizon), the projected position instead falls back
+    to the nearest point on the visible Earth limb. Zero roll, pitch, and
+    field of view center on the geodetic nadir (the WGS 84 ellipsoid
+    surface normal through the satellite), matching Skyfield's
+    `wgs84.subpoint_of`/`wgs84.geographic_position_of`.
+
+    The view is rotated rigidly from nadir, first by the roll angle about
+    the along-track axis, then by the pitch angle about the rolled
+    cross-track axis. Its shape is defined in the plane perpendicular to the
+    boresight at unit distance (as for the focal plane of a camera): a
+    rectangle with half widths `tan(field_of_view / 2)`, or an ellipse
+    inscribed in it.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        cross_track_field_of_view (float): the instrument cross-track
+            (orthogonal to velocity vector) field of view (degrees).
+        along_track_field_of_view (float): the instrument along-track
+            (parallel to velocity vector) field of view (degrees).
+        roll_angle (float): the instrument roll angle (degrees), a rotation
+            about the along-track axis, positive to the left of the
+            direction of motion (right-hand about the velocity vector).
+        pitch_angle (float): the instrument pitch angle (degrees), a rotation
+            about the rolled cross-track axis, positive forward (in the
+            direction of motion).
+        is_rectangular (bool): `True` if the instrument view has a rectangular
+            shape (otherwise elliptical).
+        angle (float): ray angle (degrees) about the view center, measured
+            from the cross-track axis on the left of the direction of motion
+            (0 degrees) toward the along-track axis forward (90 degrees).
+        elevation (float): The elevation (meters) at which project the footprint.
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
+
+    Returns:
+        (skyfield.toposlib.GeographicPosition): the geographic position of the projected ray
+    """
+    # convert to radians for internal use
+    angle = np.radians(angle)
+    # ray pointed at the field of view center (before adding the field of
+    # view extent) and the along-track (v) and cross-track (c) axes of the view
+    p_m, base_ray, v, c = _compute_view_frame(
+        orbit_track, roll_angle, pitch_angle, velocity_frame
+    )
     # whether orbit_track represents a single time or a vector of times
     is_vectorized = len(np.shape(p_m)) > 1
-    # cross-track unit vector
-    if is_vectorized:
-        c = np.cross(v, n, 0, 0, -1).T
-    else:
-        c = np.cross(v, n)
-    # ray pointed at the field of view center (before adding the field of view extent)
-    base_ray = (
-        n + v * np.tan(np.radians(pitch_angle)) + c * np.tan(np.radians(roll_angle))
-    )
     # construct projected ray
     if is_rectangular:
-        # find orientation of rectangle corner
-        theta = np.arctan(along_track_field_of_view / cross_track_field_of_view)
         # along track half width
         tan_a_2 = np.tan(np.radians(along_track_field_of_view / 2))
         # cross track half width
         tan_c_2 = np.tan(np.radians(cross_track_field_of_view / 2))
+        # find orientation of rectangle corner (the ratio of the half-width
+        # tangents, not of the fields of view, which differ for wide views)
+        theta = np.arctan2(tan_a_2, tan_c_2)
         # compose the ray by walking around the rectangle boundary: the (v, c)
         # coefficients are determined together, one segment at a time, rather
         # than by two independently re-derived branch chains. Corners are at
@@ -222,6 +373,7 @@ def compute_footprint(
     is_rectangular: bool = False,
     number_points: int | None = None,
     elevation: float = 0,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
 ) -> list[Polygon | MultiPolygon]:
     """
     Compute the instantaneous instrument footprint. Supports both a scalar
@@ -233,15 +385,18 @@ def compute_footprint(
         orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
         cross_track_field_of_view (float): The angular (degrees) view orthogonal to velocity.
         along_track_field_of_view (float): The angular (degrees) view in direction of velocity.
-        roll_angle (float): The left/right look angle (degrees); right-hand
-            rotation about orbit velocity vector.
-        pitch_angle (float): The fore/aft look angle (degrees); right-hand
-            rotation about orbit normal vector.
+        roll_angle (float): The left/right look angle (degrees), a rotation
+            about the along-track axis, positive to the left of the direction
+            of motion.
+        pitch_angle (float): The fore/aft look angle (degrees), a rotation
+            about the rolled cross-track axis, positive forward.
         is_rectangular (bool): True, if this is a rectangular sensor.
         number_points (int | None): The required number of polygon points to
             generate: per side for a rectangular sensor, or total for an
             elliptical sensor. Defaults to the runtime configuration.
         elevation (float): The elevation (meters) at which project the footprint.
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
 
     Returns:
         list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The instrument footprint(s).
@@ -253,17 +408,26 @@ def compute_footprint(
         else:
             number_points = config.get_rc().footprint_points_elliptical
     if is_rectangular:
-        theta = np.degrees(
-            np.arctan(along_track_field_of_view / cross_track_field_of_view)
-        )
-        angles = np.concatenate(
-            (
-                np.linspace(-theta, theta, number_points, endpoint=False),
-                np.linspace(theta, 180 - theta, number_points, endpoint=False),
-                np.linspace(180 - theta, 180 + theta, number_points, endpoint=False),
-                np.linspace(180 + theta, 360 - theta, number_points, endpoint=False),
+        # space points evenly along each side of the rectangle (in the plane
+        # one unit from the instrument), starting from the lower right corner;
+        # evenly spaced clock angles would instead cluster points near the
+        # middle of the long sides of an elongated view
+        tan_a_2 = np.tan(np.radians(along_track_field_of_view / 2))
+        tan_c_2 = np.tan(np.radians(cross_track_field_of_view / 2))
+        s = np.linspace(-1, 1, number_points, endpoint=False)
+        theta = np.degrees(np.arctan2(tan_a_2, tan_c_2))
+        angles = np.degrees(
+            np.concatenate(
+                (
+                    np.arctan2(s * tan_a_2, tan_c_2),  # right side
+                    np.arctan2(tan_a_2, -s * tan_c_2),  # top side
+                    np.arctan2(-s * tan_a_2, -tan_c_2),  # left side
+                    np.arctan2(-tan_a_2, s * tan_c_2),  # bottom side
+                )
             )
         )
+        # wrap to the range [-theta, 360 - theta) expected for clock angles
+        angles = np.where(angles < -theta, angles + 360, angles)
     else:
         angles = np.linspace(0, 360, number_points)
     points = [
@@ -276,6 +440,7 @@ def compute_footprint(
             is_rectangular,
             angle,
             elevation,
+            velocity_frame,
         )
         for angle in angles
     ]

@@ -7,6 +7,7 @@ Object schemas for off-nadir pointing instruments.
 from __future__ import annotations
 
 import numpy as np
+import numpy.typing as npt
 from pydantic import Field
 from shapely import MultiPolygon, Polygon
 from shapely.geometry import MultiPoint, Point
@@ -14,8 +15,10 @@ from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
 from ...utils.projection import (
+    VelocityFrame,
     compute_footprint,
     compute_projected_ray_position,
+    compute_view_tangents,
 )
 from .simple import Instrument
 
@@ -40,13 +43,15 @@ class PointedInstrument(Instrument):
     )
     roll_angle: float = Field(
         default=0,
-        description="Left/right look angle (degrees) orthogonal to instrument motion.",
+        description="Left/right look angle (degrees): a rotation of the view about the "
+        + "along-track axis, positive to the left of the direction of motion.",
         ge=-180,
         le=180,
     )
     pitch_angle: float = Field(
         default=0,
-        description="Fore/aft look angle (degrees) in direction of instrument motion.",
+        description="Fore/aft look angle (degrees): a rotation of the view about the "
+        + "rolled cross-track axis (after roll), positive forward.",
         ge=-180,
         le=180,
     )
@@ -71,6 +76,13 @@ class PointedInstrument(Instrument):
         description="Fraction of pixel overlap in along-track direction.",
         ge=0,
         lt=1,
+    )
+    velocity_frame: VelocityFrame = Field(
+        default=VelocityFrame.EARTH_FIXED,
+        description="Reference frame of the velocity vector that defines the "
+        + "along-track direction (`earth_fixed`: aligned with the ground track, "
+        + "as for a yaw-steered spacecraft; `inertial`: aligned with the orbit "
+        + "plane, as for a spacecraft without yaw steering).",
     )
 
     def get_cross_track_instantaneous_field_of_view(self) -> float:
@@ -125,7 +137,37 @@ class PointedInstrument(Instrument):
             is_rectangular=self.is_rectangular,
             number_points=number_points,
             elevation=elevation,
+            velocity_frame=self.velocity_frame,
         )
+
+    def is_in_field_of_view(
+        self,
+        orbit_track: Geocentric,
+        target: GeographicPosition,
+    ) -> npt.NDArray[np.bool_]:
+        """
+        Determines if a target lies within the instantaneous field of view.
+        Does not check whether the target is above the satellite's horizon.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+            target (skyfield.toposlib.GeographicPosition): The target position.
+
+        Returns:
+            numpy.typing.NDArray: Array of indicators: `True` if the target is in the field of view.
+        """
+        along, cross = compute_view_tangents(
+            orbit_track, target, self.velocity_frame, self.roll_angle, self.pitch_angle
+        )
+        # offsets from the view center, normalized by the view half widths
+        along_offset = along / np.tan(np.radians(self.along_track_field_of_view / 2))
+        cross_offset = cross / np.tan(np.radians(self.cross_track_field_of_view / 2))
+        with np.errstate(invalid="ignore"):
+            if self.is_rectangular:
+                inside = (np.abs(along_offset) <= 1) & (np.abs(cross_offset) <= 1)
+            else:
+                inside = along_offset**2 + cross_offset**2 <= 1
+        return np.atleast_1d(inside)
 
     def compute_footprint_center(
         self,
@@ -151,6 +193,7 @@ class PointedInstrument(Instrument):
             is_rectangular=False,
             angle=0,
             elevation=elevation,
+            velocity_frame=self.velocity_frame,
         )
 
     def compute_projected_pixel_position(
@@ -165,7 +208,8 @@ class PointedInstrument(Instrument):
 
         Args:
             orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
-            cross_track_index (int): cross-track pixel index (left-to-right).
+            cross_track_index (int): cross-track pixel index (right to left:
+                index 0 is on the right of the direction of motion).
             along_track_index (int): along-track pixel index (fore-to-aft).
             elevation (float): The elevation (meters) at which project the pixel.
 
@@ -190,6 +234,7 @@ class PointedInstrument(Instrument):
             is_rectangular=False,
             angle=clock,
             elevation=elevation,
+            velocity_frame=self.velocity_frame,
         )
 
     def get_pixel_cone_and_clock_angle(
@@ -201,13 +246,15 @@ class PointedInstrument(Instrument):
         expressed in polar form.
 
         Args:
-            cross_track_index (int): pixel index in cross-track dimension (left to right).
+            cross_track_index (int): pixel index in cross-track dimension
+                (right to left: index 0 is on the right of the direction of motion).
             along_track_index (int): pixel index in along-track dimension (fore to aft).
 
         Returns:
             tuple[float, float]: cone (the pixel's total angular
-                displacement from boresight) and clock (counter-clockwise
-                from right-looking, about the boresight) angles (degrees).
+                displacement from boresight) and clock (about the boresight,
+                from the cross-track axis on the left of the direction of
+                motion toward the along-track axis forward) angles (degrees).
         """
         cross_track_offset = (
             (0.5 + cross_track_index - self.cross_track_pixels / 2)
