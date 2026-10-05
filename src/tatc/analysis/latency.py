@@ -8,6 +8,7 @@ Methods to perform latency analysis.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 import geopandas as gpd
 import pandas as pd
@@ -99,7 +100,7 @@ def collect_downlinks(
 
 def _get_empty_latency_frame() -> gpd.GeoDataFrame:
     """
-    Gets an empty data frame for downlink results.
+    Gets an empty data frame for latency results.
 
     Returns:
         geopandas.GeoDataFrame: Empty data frame.
@@ -109,23 +110,40 @@ def _get_empty_latency_frame() -> gpd.GeoDataFrame:
         "geometry": pd.Series([], dtype="object"),
         "satellite": pd.Series([], dtype="str"),
         "instrument": pd.Series([], dtype="str"),
-        "observed": pd.Series([], dtype="datetime64[ns, utc]"),
+        "sat_alt": pd.Series([], dtype="float"),
+        "sat_az": pd.Series([], dtype="float"),
         "station": pd.Series([], dtype="str"),
         "downlinked": pd.Series([], dtype="datetime64[ns, utc]"),
         "latency": pd.Series([], dtype="timedelta64[ns]"),
+        "observed": pd.Series([], dtype="datetime64[ns, utc]"),
     }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
 def compute_latencies(
-    observations: gpd.GeoDataFrame, downlinks: gpd.GeoDataFrame
+    observations: gpd.GeoDataFrame,
+    downlinks: gpd.GeoDataFrame,
+    during_contact: Literal["next", "end", "immediate"] = "end",
 ) -> gpd.GeoDataFrame:
     """
     Collect latencies between an observation and the first downlink opportunity.
 
+    An observation that ends before a downlink starts is downlinked at that
+    downlink's epoch (midpoint). The `during_contact` option sets how an
+    observation that ends while a downlink is in progress is downlinked:
+    `"end"` (default) downlinks it at the end of the downlink in progress
+    (stored data is played back after the data recorded before the contact);
+    `"next"` waits for the next downlink to start (stored data is only
+    played back from the start of a contact); `"immediate"` downlinks it as it is
+    observed (real-time downlink), at the later of the observation epoch and
+    the start of the downlink in progress. Each observation is assigned the
+    earliest of these downlink times.
+
     Args:
         observations (geopandas.GeoDataFrame): The data frame of observations to downlink.
         downlinks (geopandas.GeoDataFrame): The data frame of downlink opportunities.
+        during_contact (str): Downlink of observations that end during a
+            downlink opportunity: `"end"` (default), `"next"`, or `"immediate"`.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected latency results, sorted by the 'observed'
@@ -141,36 +159,59 @@ def compute_latencies(
         - 'latency' (timedelta64[ns]): Latency between observation and downlink.
         - 'observed' (datetime64[ns, UTC]): Timestamp when the observation was made.
     """
+    if during_contact not in ("next", "end", "immediate"):
+        raise ValueError(
+            f"during_contact must be 'next', 'end', or 'immediate', not {during_contact!r}"
+        )
     if observations.empty or downlinks.empty:
         return _get_empty_latency_frame()
 
-    # merge observations with downlinks to find matching satellite downlinks
+    obs = observations.sort_values(by="end").reset_index(drop=True)
+    contacts = downlinks[["satellite", "station", "start", "epoch", "end"]].rename(
+        columns={
+            "start": "downlink_start",
+            "epoch": "downlinked",
+            "end": "downlink_end",
+        }
+    )
+    # pair each observation with the first downlink that starts after it ends
     obs = pd.merge_asof(
-        observations.sort_values(by="end"),
-        downlinks.sort_values(by="start"),
+        obs,
+        contacts.sort_values(by="downlink_start"),
         by="satellite",
         left_on="end",
-        right_on="start",
+        right_on="downlink_start",
         direction="forward",
     )
+    if during_contact != "next":
+        # find the first downlink that ends after the observation ends, which
+        # is in progress if it started before the observation ends
+        current = pd.merge_asof(
+            obs[["satellite", "end"]],
+            contacts.sort_values(by="downlink_end"),
+            by="satellite",
+            left_on="end",
+            right_on="downlink_end",
+            direction="forward",
+        )
+        in_progress = current["downlink_start"] <= current["end"]
+        if during_contact == "end":
+            downlinked = current["downlink_end"]
+        else:
+            downlinked = current["downlink_start"].where(
+                current["downlink_start"] > obs["epoch"], obs["epoch"]
+            )
+        earlier = in_progress & (
+            obs["downlinked"].isna() | (downlinked < obs["downlinked"])
+        )
+        obs.loc[earlier, "station"] = current.loc[earlier, "station"]
+        obs.loc[earlier, "downlinked"] = downlinked[earlier]
 
     # compute latency
-    obs["latency"] = obs["epoch_y"] - obs["epoch_x"]
+    obs["latency"] = obs["downlinked"] - obs["epoch"]
+    obs.rename(columns={"epoch": "observed"}, inplace=True)
 
-    # rename and select relevant columns. Only "epoch" and "geometry" exist
-    # in both `observations` and `downlinks`, so merge_asof only suffixes
-    # those two with "_x"/"_y"; "station", "sat_alt", and "sat_az" exist in
-    # just one of the two frames each and so are never suffixed at all.
-    obs.rename(
-        columns={
-            "epoch_y": "downlinked",
-            "epoch_x": "observed",
-            "geometry_x": "geometry",
-        },
-        inplace=True,
-    )
-
-    # reorder columns
+    # select relevant columns
     obs = obs[
         [
             "point_id",
@@ -184,28 +225,21 @@ def compute_latencies(
             "latency",
             "observed",
         ]
-    ].copy()
+    ]
 
-    # handle rows without matching downlinks (if any)
-    no_downlink_rows = obs["downlinked"].isna()
-    if no_downlink_rows.any():
-        obs.loc[no_downlink_rows, ["station", "downlinked", "latency"]] = [
-            None,
-            pd.NaT,
-            pd.NaT,
-        ]
-
-    # ensure result_df is a GeoDataFrame with geometry set
-    obs = gpd.GeoDataFrame(obs, geometry="geometry")
-
-    # set CRS if observations is a GeoDataFrame and has a defined CRS
-    if isinstance(observations, gpd.GeoDataFrame) and observations.crs:
-        obs.set_crs(observations.crs)
+    # ensure the result is a GeoDataFrame with the observations' CRS
+    obs = gpd.GeoDataFrame(
+        obs,
+        geometry="geometry",
+        crs=(
+            observations.crs
+            if isinstance(observations, gpd.GeoDataFrame) and observations.crs
+            else "EPSG:4326"
+        ),
+    )
 
     # sort observations by observed time
-    obs.sort_values(by="observed", inplace=True)
-
-    obs.reset_index(drop=True, inplace=True)
+    obs = obs.sort_values(by="observed").reset_index(drop=True)
     return obs
 
 

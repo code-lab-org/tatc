@@ -306,6 +306,161 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         self.assertTrue(pd.isna(result.iloc[0].latency))
 
     @staticmethod
+    def _make_observation(point_id, start, epoch, end):
+        """
+        Build a synthetic observation record for satellite "A" (times are
+        minutes after 2022-06-01T00:00Z).
+        """
+        t_0 = pd.Timestamp("2022-06-01T00:00", tz="UTC")
+        return {
+            "point_id": point_id,
+            "geometry": ShapelyPoint(0, 0),
+            "satellite": "A",
+            "instrument": "I",
+            "start": t_0 + pd.Timedelta(minutes=start),
+            "epoch": t_0 + pd.Timedelta(minutes=epoch),
+            "end": t_0 + pd.Timedelta(minutes=end),
+            "sat_alt": 45.0,
+            "sat_az": 90.0,
+        }
+
+    @staticmethod
+    def _make_downlink(station, start, end):
+        """
+        Build a synthetic downlink record for satellite "A" (times are
+        minutes after 2022-06-01T00:00Z).
+        """
+        t_0 = pd.Timestamp("2022-06-01T00:00", tz="UTC")
+        return {
+            "station": station,
+            "geometry": ShapelyPoint(1, 1),
+            "satellite": "A",
+            "start": t_0 + pd.Timedelta(minutes=start),
+            "epoch": t_0 + pd.Timedelta(minutes=(start + end) / 2),
+            "end": t_0 + pd.Timedelta(minutes=end),
+        }
+
+    def _synthetic_latencies(self, during_contact, downlinks=None):
+        """
+        Compute latencies (in minutes, by point_id) of three synthetic
+        observations: one before, one during, and one partly during a
+        downlink from 10 to 20 minutes, which is followed by a downlink from
+        100 to 110 minutes.
+        """
+        observations = gpd.GeoDataFrame(
+            [
+                self._make_observation(0, 2, 3, 4),
+                self._make_observation(1, 12, 13, 14),
+                self._make_observation(2, 6, 8, 11),
+            ],
+            crs="EPSG:4326",
+        )
+        if downlinks is None:
+            downlinks = [
+                self._make_downlink("S1", 10, 20),
+                self._make_downlink("S2", 100, 110),
+            ]
+        latencies = compute_latencies(
+            observations,
+            gpd.GeoDataFrame(downlinks, crs="EPSG:4326"),
+            during_contact=during_contact,
+        ).set_index("point_id")
+        return latencies.latency.dt.total_seconds() / 60, latencies.station
+
+    def test_compute_latencies_during_contact_next(self):
+        """
+        Test that an observation that ends during a downlink waits for the
+        midpoint of the next downlink with the "next" option.
+        """
+        latency, station = self._synthetic_latencies("next")
+        self.assertEqual(latency[0], 15 - 3)
+        self.assertEqual(latency[1], 105 - 13)
+        self.assertEqual(latency[2], 105 - 8)
+        self.assertEqual(list(station), ["S1", "S2", "S2"])
+
+    def test_compute_latencies_during_contact_end(self):
+        """
+        Test that an observation that ends during a downlink is downlinked
+        at its end with the "end" option (the default).
+        """
+        latency, station = self._synthetic_latencies("end")
+        self.assertEqual(latency[0], 15 - 3)
+        self.assertEqual(latency[1], 20 - 13)
+        self.assertEqual(latency[2], 20 - 8)
+        self.assertEqual(list(station), ["S1", "S1", "S1"])
+
+    def test_compute_latencies_during_contact_default(self):
+        """
+        Test that the default during_contact option is "end".
+        """
+        observations = gpd.GeoDataFrame(
+            [self._make_observation(1, 12, 13, 14)], crs="EPSG:4326"
+        )
+        downlinks = gpd.GeoDataFrame(
+            [self._make_downlink("S1", 10, 20), self._make_downlink("S2", 100, 110)],
+            crs="EPSG:4326",
+        )
+        latencies = compute_latencies(observations, downlinks)
+        self.assertEqual(latencies.latency.iloc[0], pd.Timedelta(minutes=20 - 13))
+
+    def test_compute_latencies_during_contact_immediate(self):
+        """
+        Test that an observation that ends during a downlink is downlinked
+        at the later of its epoch and the downlink start with the
+        "immediate" option.
+        """
+        latency, station = self._synthetic_latencies("immediate")
+        self.assertEqual(latency[0], 15 - 3)
+        self.assertEqual(latency[1], 0)
+        self.assertEqual(latency[2], 10 - 8)
+        self.assertEqual(list(station), ["S1", "S1", "S1"])
+
+    def test_compute_latencies_during_contact_earliest_downlink(self):
+        """
+        Test that an observation that ends during a long downlink is
+        downlinked at the midpoint of a shorter downlink at another station
+        that starts after it and ends first.
+        """
+        latency, station = self._synthetic_latencies(
+            "end",
+            [
+                self._make_downlink("S1", 10, 60),
+                self._make_downlink("S2", 15, 25),
+                self._make_downlink("S3", 100, 110),
+            ],
+        )
+        self.assertEqual(latency[1], 20 - 13)
+        self.assertEqual(station[1], "S2")
+        self.assertEqual(latency[2], 20 - 8)
+        self.assertEqual(station[2], "S2")
+
+    def test_compute_latencies_during_contact_invalid(self):
+        """
+        Test that an unknown during_contact option raises a ValueError.
+        """
+        with self.assertRaises(ValueError):
+            self._synthetic_latencies("later")
+
+    def test_compute_latencies_during_contact_never_later(self):
+        """
+        Test that the "end" and "immediate" options never give a longer
+        latency than the default for a realistic scenario.
+        """
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        end = datetime(2022, 6, 10, tzinfo=timezone.utc)
+        observations = collect_observations(
+            self.point, self.satellite, start, end, instrument_index=0
+        )
+        downlinks = collect_downlinks(self.stations, self.satellite, start, end)
+        latency = {
+            option: compute_latencies(observations, downlinks, option).latency
+            for option in ("next", "end", "immediate")
+        }
+        self.assertTrue((latency["end"] <= latency["next"]).all())
+        self.assertTrue((latency["immediate"] <= latency["end"]).all())
+        self.assertTrue((latency["immediate"] >= pd.Timedelta(0)).all())
+
+    @staticmethod
     def _make_cell(cell_id, min_lon, min_lat, max_lon, max_lat):
         """
         Build a synthetic cell record matching the schema expected by
