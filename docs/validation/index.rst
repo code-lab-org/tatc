@@ -23,8 +23,14 @@ The following compare TAT-C analysis results with reference data from operationa
   ValidateOrbitGeneration.ipynb
   ValidateDopGNSS.ipynb
   ValidateLatencyNOAA20.ipynb
+  ValidateSolarLandsat.ipynb
+  ValidateSwathSWOT.ipynb
+  ValidateLidarICESat2.ipynb
+  ValidateConstellationIridium.ipynb
+  ValidateGeostationaryGOES.ipynb
+  ValidateOrbitISS.ipynb
 
-These notebooks download reference data on first run (the MLS, NISAR, AMSR2, and GMI data require a free `NASA Earthdata Login <https://urs.earthdata.nasa.gov/>`_ account) and require additional dependencies, which can be installed via::
+These notebooks download reference data on first run (the MLS, NISAR, AMSR2, GMI, SWOT, ICESat-2, and ECOSTRESS data require a free `NASA Earthdata Login <https://urs.earthdata.nasa.gov/>`_ account) and require additional dependencies, which can be installed via::
 
   pip install tatc[validation]
 
