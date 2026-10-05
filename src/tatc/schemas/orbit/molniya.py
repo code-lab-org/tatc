@@ -58,6 +58,7 @@ class MolniyaOrbit(MolniyaTundraOrbitBase):
             true_anomaly=true_anomaly,
             epoch=self.epoch,
             perigee_altitude=self.perigee_altitude,
+            inclination=self.inclination,
             right_ascension_ascending_node=raan,
             northern_coverage=self.northern_coverage,
         )

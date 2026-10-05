@@ -5,10 +5,17 @@ Unit tests for the TundraOrbit schema.
 """
 
 import unittest
+from datetime import datetime, timedelta, timezone
 
+import numpy as np
 from pydantic import ValidationError
+from skyfield.api import wgs84
 
-from tatc.constants import EARTH_MEAN_RADIUS, EARTH_SIDEREAL_DAY_S
+from tatc.constants import (
+    EARTH_J2_CRITICAL_INCLINATION,
+    EARTH_MEAN_RADIUS,
+    EARTH_SIDEREAL_DAY_S,
+)
 from tatc.schemas import TundraOrbit
 
 
@@ -132,6 +139,50 @@ class TestTundraOrbit(unittest.TestCase):
         """
         o = TundraOrbit(perigee_altitude=24480000, true_anomaly=0)
         self.assertAlmostEqual(o.get_mean_anomaly(), 0, delta=1e-6)
+
+    def test_inclination_default(self):
+        """
+        Test that the inclination defaults to the critical inclination.
+        """
+        self.assertEqual(self.test_orbit.inclination, EARTH_J2_CRITICAL_INCLINATION)
+        self.assertEqual(
+            self.test_orbit.get_inclination(), EARTH_J2_CRITICAL_INCLINATION
+        )
+
+    def test_bad_inclination(self):
+        """
+        Test that the TundraOrbit schema raises a ValidationError for an
+        inclination outside [0, 180).
+        """
+        for inclination in (-1, 180):
+            with self.assertRaises(ValidationError):
+                TundraOrbit(perigee_altitude=24480000, inclination=inclination)
+
+    def test_quasi_zenith_orbit(self):
+        """
+        Test a quasi-zenith orbit like QZSS's (eccentricity 0.075, 41 deg
+        inclination): its derived orbits and general perturbations
+        representation keep the inclination, its apogee is at 41 deg
+        latitude, and the apogee longitude drifts by less than 0.03 deg per
+        day over 20 days.
+        """
+        epoch = datetime(2026, 10, 4, tzinfo=timezone.utc)
+        orbit = TundraOrbit(perigee_altitude=32600e3, inclination=41, epoch=epoch)
+        self.assertAlmostEqual(orbit.get_eccentricity(), 0.075, delta=0.001)
+        self.assertEqual(orbit.get_derived_orbit(20, 10).inclination, 41)
+        self.assertAlmostEqual(orbit.to_gp_orbit().get_inclination(), 41, delta=0.01)
+        times = [epoch + timedelta(minutes=5 * k) for k in range(20 * 288)]
+        track = orbit.to_gp_orbit().get_orbit_track(times)
+        radius = np.linalg.norm(track.position.m, axis=0)
+        apogees = (
+            np.nonzero((radius[1:-1] > radius[:-2]) & (radius[1:-1] >= radius[2:]))[0]
+            + 1
+        )
+        subpoint = wgs84.subpoint_of(track[apogees])
+        days = np.array([(times[k] - epoch) / timedelta(days=1) for k in apogees])
+        rate = np.polyfit(days, np.degrees(np.unwrap(subpoint.longitude.radians)), 1)[0]
+        self.assertLess(abs(rate), 0.03)
+        self.assertAlmostEqual(subpoint.latitude.degrees[0], 41, delta=0.2)
 
     def test_get_derived_orbit_preserves_other_fields(self):
         """

@@ -26,6 +26,15 @@ class MolniyaTundraOrbitBase(OrbitBase):
         description="True, if the orbit generates northern hemisphere coverage.",
     )
     perigee_altitude: float = Field(..., description="Perigee altitude (meters).", ge=0)
+    inclination: float = Field(
+        default=constants.EARTH_J2_CRITICAL_INCLINATION,
+        description="Inclination (degrees). Defaults to the critical "
+        + "inclination (about 63.4 degrees), for which the argument of perigee "
+        + "is frozen; at other inclinations, the argument of perigee (and so "
+        + "the latitude of apogee) precesses as propagated.",
+        ge=0,
+        lt=180,
+    )
     right_ascension_ascending_node: float = Field(
         default=0,
         description="Right ascension of ascending node (degrees).",
@@ -35,12 +44,12 @@ class MolniyaTundraOrbitBase(OrbitBase):
 
     def get_inclination(self) -> float:
         """
-        Gets the inclination (degrees) of the frozen orbit.
+        Gets the inclination (degrees).
 
         Returns:
             float: the inclination
         """
-        return constants.EARTH_J2_CRITICAL_INCLINATION
+        return self.inclination
 
     def get_right_ascension_ascending_node(self) -> float:
         """
@@ -53,7 +62,8 @@ class MolniyaTundraOrbitBase(OrbitBase):
 
     def get_perigee_argument(self) -> float:
         """
-        Gets the perigee argument (degrees) of the frozen orbit.
+        Gets the perigee argument (degrees), at the southernmost (for
+        northern coverage) or northernmost point of the orbit.
 
         Returns:
             float: the perigee argument
@@ -125,9 +135,11 @@ class MolniyaTundraOrbitBase(OrbitBase):
         SGP4's own secular rates (including the Earth's oblateness) so that
         the satellite completes the given number of anomalistic revolutions
         (perigee to perigee) while the Earth rotates once relative to the
-        orbit's precessing ascending node. Without the node's precession,
-        the apogee longitudes of a Molniya orbit drift westward by about 0.1
-        degrees per day. The result is cached.
+        apogee, whose right ascension changes with the precession of the
+        ascending node and, away from the critical inclination, of the
+        argument of perigee. Without the node's precession, the apogee
+        longitudes of a Molniya orbit drift westward by about 0.1 degrees
+        per day. The result is cached.
 
         Args:
             revolutions_per_day (int): The number of revolutions per day.
@@ -168,7 +180,17 @@ class MolniyaTundraOrbitBase(OrbitBase):
                 2 * np.pi / (period / 60),
                 np.radians(self.right_ascension_ascending_node),
             )
-            target = revolutions_per_day * (rotation_rate - satrec.nodedot)
+            # rate of change of the apogee's right ascension with the
+            # argument of perigee (zero at the critical inclination)
+            argp = np.radians(self.get_perigee_argument())
+            cos_i = np.cos(np.radians(self.get_inclination()))
+            denominator = np.cos(argp) ** 2 + (cos_i * np.sin(argp)) ** 2
+            apogee_rate = (
+                satrec.nodedot + cos_i / denominator * satrec.argpdot
+                if denominator > 1e-6
+                else satrec.nodedot
+            )
+            target = revolutions_per_day * (rotation_rate - apogee_rate)
             period *= satrec.mdot / target
         result = timedelta(seconds=period)
         self.__dict__["repeat_orbit_period"] = result  # type: ignore

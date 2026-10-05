@@ -12,7 +12,11 @@ import numpy as np
 from pydantic import ValidationError
 from skyfield.api import wgs84
 
-from tatc.constants import EARTH_MEAN_RADIUS, EARTH_SIDEREAL_DAY_S
+from tatc.constants import (
+    EARTH_J2_CRITICAL_INCLINATION,
+    EARTH_MEAN_RADIUS,
+    EARTH_SIDEREAL_DAY_S,
+)
 from tatc.schemas import MolniyaOrbit
 
 
@@ -113,16 +117,54 @@ class TestMolniyaOrbit(unittest.TestCase):
         self.assertNotAlmostEqual(corrected_period_s, naive_period_s, delta=1e-6)
         self.assertAlmostEqual(corrected_period_s, naive_period_s, delta=30)
 
+    def test_inclination_default(self):
+        """
+        Test that the inclination defaults to the critical inclination.
+        """
+        self.assertEqual(self.test_orbit.inclination, EARTH_J2_CRITICAL_INCLINATION)
+        self.assertEqual(
+            self.test_orbit.get_inclination(), EARTH_J2_CRITICAL_INCLINATION
+        )
+
+    def test_inclination_custom(self):
+        """
+        Test that a custom inclination is used by the orbit, its derived
+        orbits, and its general perturbations representation.
+        """
+        orbit = MolniyaOrbit(perigee_altitude=600e3, inclination=50)
+        self.assertEqual(orbit.get_inclination(), 50)
+        self.assertEqual(orbit.get_derived_orbit(20, 10).inclination, 50)
+        self.assertAlmostEqual(orbit.to_gp_orbit().get_inclination(), 50, delta=0.01)
+        self.assertAlmostEqual(orbit.get_mean_motion() * 86400 / 360, 2.0, delta=0.01)
+
+    def test_bad_inclination(self):
+        """
+        Test that the MolniyaOrbit schema raises a ValidationError for an
+        inclination outside [0, 180).
+        """
+        for inclination in (-1, 180):
+            with self.assertRaises(ValidationError):
+                MolniyaOrbit(perigee_altitude=600e3, inclination=inclination)
+
     def test_apogee_longitudes_repeat(self):
         """
         Test that the ground track repeats as propagated: the longitudes of
         each of the two daily apogees drift by less than 0.01 deg per day
         over 20 days (without accounting for the precession of the
-        ascending node, they drift westward by about 0.1 deg per day).
+        ascending node, they drift westward by about 0.1 deg per day; at
+        50 deg inclination, without accounting for the precession of the
+        argument of perigee, eastward by about 0.3 deg per day), and the
+        apogees are at the latitude of the inclination.
         """
         epoch = datetime(2026, 10, 4, tzinfo=timezone.utc)
-        for perigee_altitude in (600e3, 1500e3):
-            orbit = MolniyaOrbit(perigee_altitude=perigee_altitude, epoch=epoch)
+        for perigee_altitude, inclination in (
+            (600e3, EARTH_J2_CRITICAL_INCLINATION),
+            (1500e3, EARTH_J2_CRITICAL_INCLINATION),
+            (600e3, 50),
+        ):
+            orbit = MolniyaOrbit(
+                perigee_altitude=perigee_altitude, inclination=inclination, epoch=epoch
+            )
             times = [epoch + timedelta(minutes=2 * k) for k in range(20 * 720)]
             track = orbit.to_gp_orbit().get_orbit_track(times)
             radius = np.linalg.norm(track.position.m, axis=0)
@@ -132,7 +174,8 @@ class TestMolniyaOrbit(unittest.TestCase):
                 ]
                 + 1
             )
-            longitude = wgs84.subpoint_of(track[apogees]).longitude.degrees
+            subpoint = wgs84.subpoint_of(track[apogees])
+            longitude = subpoint.longitude.degrees
             days = np.array([(times[k] - epoch) / timedelta(days=1) for k in apogees])
             for first in (0, 1):
                 rate = np.polyfit(
@@ -140,7 +183,8 @@ class TestMolniyaOrbit(unittest.TestCase):
                     np.degrees(np.unwrap(np.radians(longitude[first::2]))),
                     1,
                 )[0]
-                self.assertLess(abs(rate), 0.01, perigee_altitude)
+                self.assertLess(abs(rate), 0.01, (perigee_altitude, inclination))
+            self.assertAlmostEqual(subpoint.latitude.degrees[0], inclination, delta=0.2)
 
     def test_get_semimajor_axis_and_mean_motion(self):
         """
