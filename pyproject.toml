@@ -104,6 +104,7 @@ validation = [
     "awsgnssroutils",
     "earthaccess",
     "h5py",
+    "hatanaka",
     "metpy",
     "netcdf4",
     "requests",

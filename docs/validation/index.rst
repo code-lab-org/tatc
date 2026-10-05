@@ -20,6 +20,9 @@ The following compare TAT-C analysis results with reference data from operationa
   ValidateRevisitSentinel2.ipynb
   ValidateConicalAMSR2.ipynb
   ValidateConicalGMI.ipynb
+  ValidateOrbitGeneration.ipynb
+  ValidateDopGNSS.ipynb
+  ValidateLatencyNOAA20.ipynb
 
 These notebooks download reference data on first run (the MLS, NISAR, AMSR2, and GMI data require a free `NASA Earthdata Login <https://urs.earthdata.nasa.gov/>`_ account) and require additional dependencies, which can be installed via::
 

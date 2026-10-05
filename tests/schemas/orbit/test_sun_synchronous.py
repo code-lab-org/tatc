@@ -5,9 +5,12 @@ Unit tests for the SunSynchronousOrbit schema.
 """
 
 import unittest
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
+
+import numpy as np
 
 from pydantic import ValidationError
+from skyfield.framelib import itrs
 
 from tatc.constants import EARTH_MEAN_RADIUS
 from tatc.schemas import SunSynchronousOrbit
@@ -225,13 +228,11 @@ class TestSunSynchronousOrbit(unittest.TestCase):
             "equator_crossing_ascending": True,
         }
         gp_orbit = SunSynchronousOrbit(**data).to_gp_orbit()
+        # the equator crossing time is local mean solar time: at the March
+        # equinox, the mean Sun trails the apparent Sun (at right ascension
+        # 0 deg) by 1.87 deg (an equation of time of -7.5 minutes)
         self.assertAlmostEqual(
-            min(
-                gp_orbit.get_right_ascension_ascending_node(),
-                360.0 - gp_orbit.get_right_ascension_ascending_node(),
-            ),
-            0.0,
-            delta=0.25,
+            gp_orbit.get_right_ascension_ascending_node(), 360.0 - 1.87, delta=0.25
         )
 
     def test_to_gp_orbit_raan_descending_equinox(self):
@@ -247,9 +248,47 @@ class TestSunSynchronousOrbit(unittest.TestCase):
             "equator_crossing_ascending": False,
         }
         gp_orbit = SunSynchronousOrbit(**data).to_gp_orbit()
+        # local mean solar time (see test_to_gp_orbit_raan_ascending_equinox)
         self.assertAlmostEqual(
-            gp_orbit.get_right_ascension_ascending_node(), 180.0, delta=0.25
+            gp_orbit.get_right_ascension_ascending_node(), 180.0 - 1.87, delta=0.25
         )
+
+    def test_to_gp_orbit_ascending_node_local_mean_solar_time(self):
+        """
+        Test that the propagated orbit crosses the equator northbound at the
+        requested local mean solar time (universal time plus longitude), for
+        ascending and descending equator crossing times and epochs with
+        equations of time from -14 to +16 minutes.
+        """
+        for epoch in [
+            datetime(2026, 2, 11, 6, tzinfo=timezone.utc),
+            datetime(2026, 10, 4, 12, tzinfo=timezone.utc),
+            datetime(2026, 11, 3, 18, tzinfo=timezone.utc),
+        ]:
+            for ect, ascending, node_hours in [
+                (time(13, 30), True, 13.5),
+                (time(10, 30), False, 22.5),
+            ]:
+                gp_orbit = SunSynchronousOrbit(
+                    mean_altitude=800000,
+                    equator_crossing_time=ect,
+                    equator_crossing_ascending=ascending,
+                    epoch=epoch,
+                ).to_gp_orbit()
+                times = [epoch + timedelta(seconds=10 * k) for k in range(700)]
+                position = gp_orbit.get_orbit_track(times).frame_xyz(itrs).m
+                k = np.nonzero((position[2][:-1] < 0) & (position[2][1:] >= 0))[0][0]
+                f = -position[2][k] / (position[2][k + 1] - position[2][k])
+                x = position[0][k] + f * (position[0][k + 1] - position[0][k])
+                y = position[1][k] + f * (position[1][k + 1] - position[1][k])
+                universal_hours = (times[k] - epoch.replace(hour=0)) / timedelta(
+                    hours=1
+                ) + f * 10 / 3600
+                local_hours = np.mod(
+                    universal_hours + np.degrees(np.arctan2(y, x)) / 15, 24
+                )
+                difference = (local_hours - node_hours + 12) % 24 - 12
+                self.assertLess(abs(difference) * 60, 0.5, (epoch, ect))
 
     def test_to_gp_orbit_raan_ascending_solstice(self):
         """

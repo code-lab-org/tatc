@@ -5,12 +5,22 @@ Unit tests for the TrainConstellation schema.
 """
 
 import unittest
-from datetime import timedelta
+from datetime import datetime, time, timedelta, timezone
+
+import numpy as np
 
 from pydantic import ValidationError
 
 from tatc import constants
-from tatc.schemas import CircularOrbit, Instrument, TrainConstellation
+from skyfield.api import wgs84
+
+from tatc.schemas import (
+    CircularOrbit,
+    Instrument,
+    SunSynchronousOrbit,
+    TrainConstellation,
+)
+from tatc.utils import geodesic_distance
 
 
 class TestTrainConstellation(unittest.TestCase):
@@ -59,39 +69,98 @@ class TestTrainConstellation(unittest.TestCase):
             True,
         )
 
+    def _secular_rates(self):
+        """SGP4 secular rates (degrees/second) of the test orbit."""
+        satrec = self.test_orbit.to_gp_orbit().elements[0].to_satrec()
+        return (
+            np.degrees(satrec.mdot + satrec.argpdot) / 60,
+            np.degrees(satrec.nodedot) / 60,
+        )
+
     def test_get_delta_mean_anomaly_repeat_ground_track_tle(self):
         """
-        Test that the delta mean anomaly can be retrieved from the TrainConstellation
-        object for a repeat ground track TLE orbit.
+        Test that the delta mean anomaly is the distance the (circular) lead
+        orbit advances along the orbit (its propagated argument of latitude
+        rate) during the interval, close to the two-body estimate for a
+        short interval.
         """
+        along, _ = self._secular_rates()
+        interval = self.test_con_rgt.interval.total_seconds()
+        self.assertAlmostEqual(
+            self.test_con_rgt.get_delta_mean_anomaly(), -along * interval, delta=1e-9
+        )
         self.assertAlmostEqual(
             self.test_con_rgt.get_delta_mean_anomaly(),
             -360 * self.test_con_rgt.interval / self.test_orbit.get_orbit_period(),
-            delta=0.001,
+            delta=0.05,
         )
 
     def test_get_delta_mean_anomaly_no_repeat_ground_track_tle(self):
         """
-        Test that the delta mean anomaly can be retrieved from the TrainConstellation
-        object for a non-repeat ground track TLE orbit.
+        Test that the delta mean anomaly does not depend on whether the
+        ground track repeats.
         """
         self.assertAlmostEqual(
             self.test_con_nrgt.get_delta_mean_anomaly(),
-            -360 * self.test_con_nrgt.interval / self.test_orbit.get_orbit_period(),
-            delta=0.001,
+            self.test_con_rgt.get_delta_mean_anomaly(),
+            delta=1e-12,
         )
 
     def test_get_delta_raan_repeat_ground_track_tle(self):
         """
-        Test that the delta right ascension of ascending node can be retrieved from the
-        TrainConstellation object for a repeat ground track TLE orbit.
+        Test that the delta right ascension of ascending node for a repeat
+        ground track is the Earth's rotation during the interval less the
+        precession of the lead orbit's plane.
         """
+        _, precession = self._secular_rates()
+        interval = self.test_con_rgt.interval.total_seconds()
         self.assertAlmostEqual(
             self.test_con_rgt.get_delta_raan(),
-            360
-            * self.test_con_rgt.interval.total_seconds()
-            / constants.EARTH_SIDEREAL_DAY_S,
+            (360 / constants.EARTH_SIDEREAL_DAY_S - precession) * interval,
             delta=1e-9,
+        )
+
+    def test_repeat_ground_track_sun_synchronous_days(self):
+        """
+        Test that a train on a sun-synchronous orbit with an interval of
+        whole days keeps its members in the lead's plane, and that each
+        member's ground track position is that of the one ahead of it one
+        interval earlier.
+        """
+        lead = SunSynchronousOrbit(
+            mean_altitude=786000,
+            equator_crossing_time=time(10, 30),
+            equator_crossing_ascending=False,
+            epoch=datetime(2026, 10, 4, tzinfo=timezone.utc),
+        )
+        train = TrainConstellation(
+            name="Train", orbit=lead, number_satellites=2, interval=timedelta(days=5)
+        )
+        follower = train.generate_members()[1].orbit
+        self.assertAlmostEqual(
+            (
+                follower.get_right_ascension_ascending_node()
+                - lead.get_right_ascension_ascending_node()
+                + 180
+            )
+            % 360
+            - 180,
+            0,
+            delta=0.01,
+        )
+        t = datetime(2026, 10, 6, tzinfo=timezone.utc)
+        ahead = wgs84.subpoint_of(
+            lead.to_gp_orbit().get_orbit_track(t - train.interval)
+        )
+        behind = wgs84.subpoint_of(follower.to_gp_orbit().get_orbit_track(t))
+        self.assertLess(
+            geodesic_distance(
+                ahead.longitude.degrees,
+                ahead.latitude.degrees,
+                behind.longitude.degrees,
+                behind.latitude.degrees,
+            ),
+            20e3,
         )
 
     def test_get_delta_raan_repeat_ground_track_uses_sidereal_day(self):

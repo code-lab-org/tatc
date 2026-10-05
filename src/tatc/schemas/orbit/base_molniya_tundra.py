@@ -6,10 +6,11 @@ Base object schemas for Molniya and Tundra orbits.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 from pydantic import Field, model_validator
+from sgp4.api import WGS72, Satrec
 
 from ... import constants, utils
 from .base import OrbitBase
@@ -114,6 +115,64 @@ class MolniyaTundraOrbitBase(OrbitBase):
         )
         target_mean_motion = 360 / target_period_s
         return timedelta(seconds=360 / (target_mean_motion - mean_motion_correction))
+
+    def _compute_repeat_orbit_period(self, revolutions_per_day: int) -> timedelta:
+        """
+        Computes the orbit period for which the ground track repeats with the
+        given number of revolutions per day, as propagated by SGP4. Starting
+        from the J2-corrected period for the sidereal day
+        (`_compute_j2_corrected_orbit_period`), the period is refined using
+        SGP4's own secular rates (including the Earth's oblateness) so that
+        the satellite completes the given number of anomalistic revolutions
+        (perigee to perigee) while the Earth rotates once relative to the
+        orbit's precessing ascending node. Without the node's precession,
+        the apogee longitudes of a Molniya orbit drift westward by about 0.1
+        degrees per day. The result is cached.
+
+        Args:
+            revolutions_per_day (int): The number of revolutions per day.
+
+        Returns:
+            timedelta: The orbit period.
+        """
+        cached = self.__dict__.get("repeat_orbit_period")
+        if cached is not None:
+            return cached
+        period = self._compute_j2_corrected_orbit_period(
+            constants.EARTH_SIDEREAL_DAY_S / revolutions_per_day
+        ).total_seconds()
+        epoch = (self.epoch - datetime(1949, 12, 31, tzinfo=timezone.utc)) / timedelta(
+            days=1
+        )
+        # Earth's rotation rate (radians/minute), as SGP4's rates
+        rotation_rate = 2 * np.pi / constants.EARTH_SIDEREAL_DAY_S * 60
+        for _ in range(5):
+            semimajor_axis = np.cbrt(constants.EARTH_MU * period**2 / (4 * np.pi**2))
+            eccentricity = (
+                1
+                - (constants.EARTH_MEAN_RADIUS + self.perigee_altitude) / semimajor_axis
+            )
+            satrec = Satrec()
+            satrec.sgp4init(
+                WGS72,
+                "i",
+                0,
+                epoch,
+                0.0,
+                0.0,
+                0.0,
+                eccentricity,
+                np.radians(self.get_perigee_argument()),
+                np.radians(self.get_inclination()),
+                0.0,
+                2 * np.pi / (period / 60),
+                np.radians(self.right_ascension_ascending_node),
+            )
+            target = revolutions_per_day * (rotation_rate - satrec.nodedot)
+            period *= satrec.mdot / target
+        result = timedelta(seconds=period)
+        self.__dict__["repeat_orbit_period"] = result  # type: ignore
+        return result
 
     def get_semimajor_axis(self) -> float:
         """

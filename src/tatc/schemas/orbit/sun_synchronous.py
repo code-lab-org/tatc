@@ -50,27 +50,30 @@ class SunSynchronousOrbit(CircularOrbitBase):
 
     def get_right_ascension_ascending_node(self) -> float:
         """
-        Gets the right ascension of ascending node (decimal degrees).
+        Gets the right ascension of ascending node (decimal degrees): the
+        right ascension at which the ascending node's local mean solar time,
+        at the epoch, equals the equator crossing time (or, for a descending
+        equator crossing time, the time 12 hours later). Local mean solar
+        time at a longitude is the universal time plus the longitude (15
+        degrees per hour), so the node's longitude at the epoch is 15 degrees
+        per hour of the difference between its local time and the universal
+        time, and its right ascension adds the Greenwich mean sidereal time
+        (consistent with the frame of the general perturbations elements).
 
         Returns:
             float: the right ascension of ascending node
         """
-        ect_day = timedelta(
+        ect_hours = timedelta(
             hours=self.equator_crossing_time.hour,
             minutes=self.equator_crossing_time.minute,
             seconds=self.equator_crossing_time.second,
             microseconds=self.equator_crossing_time.microsecond,
-        ) / timedelta(days=1)
+        ) / timedelta(hours=1)
+        # local mean solar time of the ascending node
+        node_hours = ect_hours + (0 if self.equator_crossing_ascending else 12)
         epoch_time = constants.timescale.from_datetime(self.epoch)
-        sun = constants.de421["sun"]
-        earth = constants.de421["earth"]
-        right_ascension, _, _ = earth.at(epoch_time).observe(sun).radec()  # type: ignore
-        # pylint: disable=W0212
-        return (
-            right_ascension._degrees
-            + 360 * ect_day
-            + 180 * self.equator_crossing_ascending
-        ) % 360
+        universal_hours = np.mod(epoch_time.ut1 + 0.5, 1) * 24
+        return float(np.mod(15 * (epoch_time.gmst + node_hours - universal_hours), 360))
 
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float

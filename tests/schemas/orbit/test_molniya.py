@@ -5,8 +5,12 @@ Unit tests for the MolniyaOrbit schema.
 """
 
 import unittest
+from datetime import datetime, timedelta, timezone
+
+import numpy as np
 
 from pydantic import ValidationError
+from skyfield.api import wgs84
 
 from tatc.constants import EARTH_MEAN_RADIUS, EARTH_SIDEREAL_DAY_S
 from tatc.schemas import MolniyaOrbit
@@ -98,15 +102,45 @@ class TestMolniyaOrbit(unittest.TestCase):
         """
         Regression test: get_orbit_period must not simply return the
         naive, uncorrected half sidereal day -- it should be shifted by a
-        small (order 1-10 second), nonzero correction accounting for
+        small (order 10 second), nonzero correction accounting for
         Earth's J2 oblateness perturbation to the true rate of mean
-        anomaly advance. This exercises the fix for the historical
-        "TODO this needs to be corrected to account for J2 effects".
+        anomaly advance and the precession of the ascending node. This
+        exercises the fix for the historical "TODO this needs to be
+        corrected to account for J2 effects".
         """
         naive_period_s = EARTH_SIDEREAL_DAY_S / 2
         corrected_period_s = self.test_orbit.get_orbit_period().total_seconds()
         self.assertNotAlmostEqual(corrected_period_s, naive_period_s, delta=1e-6)
-        self.assertAlmostEqual(corrected_period_s, naive_period_s, delta=10)
+        self.assertAlmostEqual(corrected_period_s, naive_period_s, delta=30)
+
+    def test_apogee_longitudes_repeat(self):
+        """
+        Test that the ground track repeats as propagated: the longitudes of
+        each of the two daily apogees drift by less than 0.01 deg per day
+        over 20 days (without accounting for the precession of the
+        ascending node, they drift westward by about 0.1 deg per day).
+        """
+        epoch = datetime(2026, 10, 4, tzinfo=timezone.utc)
+        for perigee_altitude in (600e3, 1500e3):
+            orbit = MolniyaOrbit(perigee_altitude=perigee_altitude, epoch=epoch)
+            times = [epoch + timedelta(minutes=2 * k) for k in range(20 * 720)]
+            track = orbit.to_gp_orbit().get_orbit_track(times)
+            radius = np.linalg.norm(track.position.m, axis=0)
+            apogees = (
+                np.nonzero((radius[1:-1] > radius[:-2]) & (radius[1:-1] >= radius[2:]))[
+                    0
+                ]
+                + 1
+            )
+            longitude = wgs84.subpoint_of(track[apogees]).longitude.degrees
+            days = np.array([(times[k] - epoch) / timedelta(days=1) for k in apogees])
+            for first in (0, 1):
+                rate = np.polyfit(
+                    days[first::2],
+                    np.degrees(np.unwrap(np.radians(longitude[first::2]))),
+                    1,
+                )[0]
+                self.assertLess(abs(rate), 0.01, perigee_altitude)
 
     def test_get_semimajor_axis_and_mean_motion(self):
         """
