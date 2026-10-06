@@ -36,7 +36,9 @@ class SOCConstellation(BaseConstellation):
     Anderson, Michel-Alexandre Cardin, and Paul T. Grogan (2022). "Design and analysis
     of flexible multi-layer staged deployment for satellite mega-constellations under
     demand uncertainty" Acta Astronautica, vol. 198, pp. 179-193.
-    doi: 10.1016/j.actaastro.2022.05.022
+    doi: 10.1016/j.actaastro.2022.05.022, with footprint centers on the hexagonal
+    lattice that covers a plane with the fewest circles (rather than the hexagonal
+    lattice of touching circles, which leaves gaps between them).
 
     For near-polar orbits, the satellites follow the polar streets-of-coverage pattern
     of Lloyd Rider (1985). "Optimized polar orbit constellations for redundant earth
@@ -61,7 +63,9 @@ class SOCConstellation(BaseConstellation):
     packing_distance: float = Field(
         ...,
         description="Relative distance between footprint centers (inclined orbits), "
-        + "or relative footprint radius used as a coverage margin (polar orbits).",
+        + "where 1 places the footprints on the hexagonal lattice that just "
+        + "covers continuously, or relative footprint radius used as a coverage "
+        + "margin (polar orbits). Smaller values add overlap as a coverage margin.",
         gt=0,
         le=1,
     )
@@ -193,11 +197,14 @@ class SOCConstellation(BaseConstellation):
         # satellite footprint radius (m) [Eq. (21) in Anderson et al. (2022)]
         r_foot = EARTH_MEAN_RADIUS * math.sin(math.radians(self.get_footprint_angle()))
 
-        # distance between adjacent footprint centers (m) [Eq. (23) in Anderson et al. (2022)]
-        d_f = 2 * r_foot * self.packing_distance
+        # distance between adjacent footprint centers (m) [cf. Eq. (23) in Anderson
+        # et al. (2022)], on the hexagonal covering lattice: footprints overlap
+        # along each plane, leaving no gaps with the footprints of adjacent planes
+        # (Eq. (23) spaced footprints by their diameter, so that they only touched)
+        d_f = math.sqrt(3) * r_foot * self.packing_distance
 
-        # distance between adjacent planes (m) [Eq. (24) in Anderson et al. (2022)]
-        d_p = math.sqrt(3) * r_foot * self.packing_distance
+        # distance between adjacent planes (m) [cf. Eq. (24) in Anderson et al. (2022)]
+        d_p = 1.5 * r_foot * self.packing_distance
 
         # angle (radians) between footprint centers [Eq. (25) in Anderson et al. (2022)]
         gamma_f = 2 * math.asin((0.5 * d_f) / (EARTH_MEAN_RADIUS))
@@ -220,10 +227,9 @@ class SOCConstellation(BaseConstellation):
             number_satellites=number_satellites,
             number_planes=number_planes,
             # offset adjacent planes by half a within-plane satellite
-            # spacing, so the d_p row spacing (derived above via the
-            # hexagonal-packing sqrt(3) factor) actually yields a
-            # staggered hex/brick layout rather than a plain rectangular
-            # grid of planes
+            # spacing, so the d_p row spacing (derived above for the
+            # hexagonal covering lattice) actually yields a staggered
+            # hexagonal layout rather than a plain rectangular grid of planes
             relative_spacing=number_planes // 2,
         )
 

@@ -6,7 +6,9 @@ Unit tests for the SOCConstellation schema.
 
 import math
 import unittest
+from datetime import datetime, timezone
 
+import numpy as np
 from pydantic import ValidationError
 
 from tatc.constants import EARTH_MEAN_RADIUS
@@ -93,9 +95,9 @@ class TestSOCConstellation(unittest.TestCase):
         self.assertEqual(
             self.d420_delta.generate_walker().number_satellites
             / self.d420_delta.generate_walker().number_planes,
-            7,
+            8,
         )
-        self.assertEqual(self.d420_delta.get_satellites_per_plane(), 7)
+        self.assertEqual(self.d420_delta.get_satellites_per_plane(), 8)
 
     def test_type_defaults_to_soc(self):
         """
@@ -121,7 +123,7 @@ class TestSOCConstellation(unittest.TestCase):
     def test_packing_distance_bounds(self):
         """
         Test that packing_distance must be in (0, 1]: values above 1 would
-        space footprint centers farther apart than the footprint diameter,
+        space footprint centers farther apart than the hexagonal covering lattice,
         leaving gaps and violating the continuous "streets of coverage"
         design goal.
         """
@@ -131,12 +133,74 @@ class TestSOCConstellation(unittest.TestCase):
         with self.assertRaises(ValidationError):
             SOCConstellation(**{**self.d420_data, "packing_distance": 1.1})
 
+    def test_generate_walker_covering_lattice(self):
+        """
+        Test that, with a packing distance of 1, the Walker delta pattern
+        places footprints on the hexagonal covering lattice: adjacent
+        footprints along each plane are sqrt(3) footprint radii apart (so they
+        overlap) and adjacent planes 1.5 footprint radii apart.
+        """
+        walker = self.d420_delta.generate_walker()
+        r_foot = EARTH_MEAN_RADIUS * math.sin(
+            math.radians(self.d420_delta.get_footprint_angle())
+        )
+        gamma_f = 2 * math.asin(math.sqrt(3) / 2 * r_foot / EARTH_MEAN_RADIUS)
+        gamma_p = 2 * math.asin(0.75 * r_foot / EARTH_MEAN_RADIUS)
+        self.assertEqual(
+            self.d420_delta.get_satellites_per_plane(),
+            math.ceil(2 * math.pi / gamma_f),
+        )
+        self.assertEqual(walker.number_planes, math.ceil(2 * math.pi / gamma_p))
+        # the in-plane spacing is narrower than the footprint diameter
+        self.assertLess(
+            walker.get_delta_mean_anomaly_within_planes(),
+            2 * self.d420_delta.get_footprint_angle(),
+        )
+
+    def test_generate_members_inclined_continuous_coverage(self):
+        """
+        Test that, with a packing distance of 1, the Walker delta pattern
+        covers every point between the latitudes reached by the edges of the
+        footprints. This is a regression test for footprints that only touched
+        along each plane (the hexagonal lattice of touching circles), which
+        left about 0.05% of this band uncovered.
+        """
+        con = SOCConstellation(
+            name="SOC",
+            orbit=CircularOrbit(
+                altitude=800000,
+                inclination=70,
+                epoch=datetime(2000, 1, 1, tzinfo=timezone.utc),
+            ),
+            swath_width=2500000,
+            packing_distance=1,
+        )
+        footprint = math.radians(con.get_footprint_angle())
+        positions = np.array(
+            [
+                member.orbit.to_gp_orbit().get_orbit_track(con.orbit.epoch).position.m
+                for member in con.generate_members()
+            ]
+        )
+        positions /= np.linalg.norm(positions, axis=1, keepdims=True)
+        band = math.radians(70) - footprint
+        lat, lon = np.meshgrid(
+            np.linspace(-band, band, 121), np.radians(np.arange(0, 360, 0.5))
+        )
+        points = np.stack(
+            [np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)],
+            axis=-1,
+        ).reshape(-1, 3)
+        self.assertTrue(
+            np.all((points @ positions.T).max(axis=1) >= math.cos(footprint))
+        )
+
     def test_generate_walker_planes_are_hex_offset(self):
         """
         Test that adjacent planes are offset by half a within-plane
         satellite spacing, realizing the staggered hexagonal packing
-        implied by the sqrt(3) row spacing (Eq. 24 in Anderson et al.
-        2022) rather than a plain rectangular grid of planes. This is a
+        implied by the hexagonal lattice row spacing (cf. Eq. 24 in Anderson
+        et al. 2022) rather than a plain rectangular grid of planes. This is a
         regression test for a bug where the generated WalkerConstellation
         left relative_spacing at its default of 0 (no offset).
         """
