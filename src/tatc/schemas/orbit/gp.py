@@ -440,13 +440,14 @@ class GeneralPerturbationsOrbit(BaseModel):
         Returns:
             list[datetime]: the epoch times
         """
-        # lazy-load epochs, invalidating the cache if the element count changed
-        element_epochs = self.__dict__.get("element_epochs")
-        if element_epochs is None or len(element_epochs) != len(self.elements):
+        # lazy-load epochs, invalidating the cache if the elements changed
+        key = tuple(id(el) for el in self.elements)
+        cached = self.__dict__.get("element_epochs")
+        if cached is None or cached[0] != key:
             # extract the element epoch times
-            element_epochs = [el.epoch for el in self.elements]
-            self.__dict__["element_epochs"] = element_epochs  # type: ignore
-        return element_epochs  # type: ignore
+            cached = (key, [el.epoch for el in self.elements])
+            self.__dict__["element_epochs"] = cached  # type: ignore
+        return cached[1]  # type: ignore
 
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float
@@ -656,15 +657,20 @@ class GeneralPerturbationsOrbit(BaseModel):
                 seconds=config.get_rc().repeat_cycle_consistency_threshold_s
             )
 
-        if lazy_load:
-            repeat_cycle = self.__dict__.get("computed_repeat_cycle")
-        else:
-            repeat_cycle = None
+        # keyed by the elements and options, so that a copy with changed
+        # fields (e.g. from `model_copy(update=...)`) is recomputed
+        key = (
+            tuple(id(el) for el in self.elements),
+            self.remove_drag,
+            self.repeat_cycle,
+        )
+        cached = self.__dict__.get("computed_repeat_cycle") if lazy_load else None
+        repeat_cycle = cached[1] if cached is not None and cached[0] == key else None
         if repeat_cycle is None and self.repeat_cycle is not None:
             # a declared repeat cycle (of a maintained orbit), refined with
             # the first element instead of searched for
             repeat_cycle = self.elements[0].refine_repeat_cycle(self.repeat_cycle)
-            self.__dict__["computed_repeat_cycle"] = repeat_cycle  # type: ignore
+            self.__dict__["computed_repeat_cycle"] = (key, repeat_cycle)  # type: ignore
         if repeat_cycle is None:
             repeat_cycle = timedelta(0)
             min_cycle = max_cycle = None
@@ -686,7 +692,7 @@ class GeneralPerturbationsOrbit(BaseModel):
                 # keep the most recent element's cycle as the orbit's
                 # representative value, once every element seen so far agrees
                 repeat_cycle = cycle
-            self.__dict__["computed_repeat_cycle"] = repeat_cycle  # type: ignore
+            self.__dict__["computed_repeat_cycle"] = (key, repeat_cycle)  # type: ignore
         if repeat_cycle is not None and repeat_cycle > timedelta(0):
             return repeat_cycle
         return None

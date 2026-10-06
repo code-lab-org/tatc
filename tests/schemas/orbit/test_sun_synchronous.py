@@ -340,6 +340,26 @@ class TestSunSynchronousOrbit(unittest.TestCase):
         drift = node_local_hours(epoch + timedelta(days=365)) - node_local_hours(epoch)
         self.assertLess(abs((drift + 12) % 24 - 12) * 3600, 3)
 
+    def test_gp_orbit_cache_follows_fields(self):
+        """
+        Test that the cached general perturbations orbit is reused for the
+        same orbit but recomputed for a copy with changed fields (which
+        model_copy copies along with the cache).
+        """
+        low = SunSynchronousOrbit(mean_altitude=500e3, equator_crossing_time=time(10))
+        gp_orbit = low.to_gp_orbit()
+        self.assertIs(low.to_gp_orbit(), gp_orbit)
+        high = low.model_copy(update={"mean_altitude": 900e3})
+        self.assertLess(
+            high.to_gp_orbit().get_mean_motion(), gp_orbit.get_mean_motion()
+        )
+        self.assertEqual(
+            high.to_gp_orbit().elements[0],
+            SunSynchronousOrbit(mean_altitude=900e3, equator_crossing_time=time(10))
+            .to_gp_orbit()
+            .elements[0],
+        )
+
     def test_inclination_cache_follows_altitude(self):
         """
         Test that the cached inclination is recomputed for a copy of the

@@ -147,9 +147,19 @@ class MolniyaTundraOrbitBase(OrbitBase):
         Returns:
             timedelta: The orbit period.
         """
+        # keyed by the inputs, so that a copy with changed fields (e.g. from
+        # `model_copy(update=...)`, which copies the cache) is recomputed
+        key = (
+            revolutions_per_day,
+            self.perigee_altitude,
+            self.inclination,
+            self.northern_coverage,
+            self.right_ascension_ascending_node,
+            self.epoch,
+        )
         cached = self.__dict__.get("repeat_orbit_period")
-        if cached is not None:
-            return cached
+        if cached is not None and cached[0] == key:
+            return cached[1]
         period = self._compute_j2_corrected_orbit_period(
             constants.EARTH_SIDEREAL_DAY_S / revolutions_per_day
         ).total_seconds()
@@ -193,7 +203,7 @@ class MolniyaTundraOrbitBase(OrbitBase):
             target = revolutions_per_day * (rotation_rate - apogee_rate)
             period *= satrec.mdot / target
         result = timedelta(seconds=period)
-        self.__dict__["repeat_orbit_period"] = result  # type: ignore
+        self.__dict__["repeat_orbit_period"] = (key, result)  # type: ignore
         return result
 
     def get_semimajor_axis(self) -> float:

@@ -172,13 +172,15 @@ class OrbitBase(BaseModel):
         """
         if lazy_load is None:
             lazy_load = config.get_rc().gp_orbit_lazy_load
-        if lazy_load:
-            gp_orbit = self.__dict__.get("gp_orbit")
-        else:
-            gp_orbit = None
-        if gp_orbit is None:
-            gp_orbit = self._compute_gp_orbit()
-            self.__dict__["gp_orbit"] = gp_orbit  # type: ignore
+        # the cached conversion is keyed by the orbit's field values, so that
+        # a copy with changed fields (e.g. from `model_copy(update=...)`,
+        # which copies the cache) is converted again
+        key = self.model_dump_json()
+        cached = self.__dict__.get("gp_orbit") if lazy_load else None
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        gp_orbit = self._compute_gp_orbit()
+        self.__dict__["gp_orbit"] = (key, gp_orbit)  # type: ignore
         return gp_orbit
 
     def _compute_gp_orbit(self) -> GeneralPerturbationsOrbit:

@@ -137,6 +137,22 @@ class TestMolniyaOrbit(unittest.TestCase):
         self.assertAlmostEqual(orbit.to_gp_orbit().get_inclination(), 50, delta=0.01)
         self.assertAlmostEqual(orbit.get_mean_motion() * 86400 / 360, 2.0, delta=0.01)
 
+    def test_period_cache_follows_fields(self):
+        """
+        Test that the cached orbit period is recomputed for a copy with a
+        changed inclination or perigee altitude (which model_copy copies
+        along with the cache).
+        """
+        orbit = MolniyaOrbit(perigee_altitude=600e3)
+        orbit.get_orbit_period()
+        for update in ({"inclination": 50}, {"perigee_altitude": 1500e3}):
+            self.assertEqual(
+                orbit.model_copy(update=update).get_orbit_period(),
+                MolniyaOrbit(
+                    **{"perigee_altitude": 600e3, **update}
+                ).get_orbit_period(),
+            )
+
     def test_bad_inclination(self):
         """
         Test that the MolniyaOrbit schema raises a ValidationError for an

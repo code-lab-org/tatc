@@ -59,6 +59,31 @@ class VelocityFrame(str, Enum):
     """
 
 
+class ViewGeometry(str, Enum):
+    """
+    Enumeration of the geometries in which a pointed instrument's view (its
+    fields of view and pixels) is defined.
+    """
+
+    FRAME = "frame"
+    """
+    In a plane perpendicular to the boresight (as for the focal plane of a
+    framing camera or a pushbroom array): a rectangle with half widths
+    `tan(field_of_view / 2)`, or an ellipse inscribed in it. The angular
+    extent along track narrows away from the view center across track (in
+    proportion to the cosine of the cross-track angle).
+    """
+    SCAN = "scan"
+    """
+    In angles (as for a cross-track scanner or a radar): each direction is the
+    boresight rotated by a cross-track angle about the along-track axis and
+    then by an along-track angle about the rotated cross-track axis (the
+    rigid rotation of roll and pitch angles), with the fields of view as the
+    ranges of these angles. The angular extent along track is constant
+    across the scan, so the footprint widens along track away from nadir.
+    """
+
+
 class NadirReference(str, Enum):
     """
     Enumeration of definitions of the nadir direction, from which an
@@ -228,6 +253,44 @@ def compute_view_tangents(
         scale = np.sum(los * boresight, axis=0)
         scale = np.where(scale > 0, scale, np.nan)
         return np.sum(los * along, axis=0) / scale, np.sum(los * cross, axis=0) / scale
+
+
+def compute_view_angles(
+    orbit_track: Geocentric,
+    target: GeographicPosition,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
+) -> tuple[npt.NDArray, npt.NDArray]:
+    """
+    Compute the roll and pitch angles (degrees) that point a view's center at
+    a target, following the rigid rotation of `compute_projected_ray_position`
+    (first by the roll angle about the along-track axis, then by the pitch
+    angle about the rolled cross-track axis): the angles of the target in a
+    `ViewGeometry.SCAN` view. Does not check whether the target is above the
+    satellite's horizon.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        target (skyfield.toposlib.GeographicPosition): the target position.
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
+        nadir_reference (NadirReference): The definition of the nadir
+            direction from which the view is rotated.
+
+    Returns:
+        tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the roll (positive
+            left) and pitch (positive forward) angles (degrees).
+    """
+    p_m, nadir, along, cross = _compute_view_frame(
+        orbit_track, 0, 0, velocity_frame, nadir_reference
+    )
+    los = np.reshape(np.array(target.itrs_xyz.m), (3,) + (1,) * (p_m.ndim - 1)) - p_m
+    los = los / np.linalg.norm(los, axis=0)
+    roll = np.degrees(
+        np.arctan2(np.sum(los * cross, axis=0), np.sum(los * nadir, axis=0))
+    )
+    pitch = np.degrees(np.arcsin(np.clip(np.sum(los * along, axis=0), -1, 1)))
+    return roll, pitch
 
 
 def compute_cone_and_azimuth(
@@ -455,6 +518,7 @@ def compute_footprint(
     elevation: float = 0,
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
     nadir_reference: NadirReference = NadirReference.GEODETIC,
+    view_geometry: ViewGeometry = ViewGeometry.FRAME,
 ) -> list[Polygon | MultiPolygon]:
     """
     Compute the instantaneous instrument footprint. Supports both a scalar
@@ -480,6 +544,8 @@ def compute_footprint(
             vector that defines the along-track direction.
         nadir_reference (NadirReference): The definition of the nadir
             direction from which the view is rotated.
+        view_geometry (ViewGeometry): The geometry in which the fields of view
+            are defined.
 
     Returns:
         list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The instrument footprint(s).
@@ -513,21 +579,55 @@ def compute_footprint(
         angles = np.where(angles < -theta, angles + 360, angles)
     else:
         angles = np.linspace(0, 360, number_points)
-    points = [
-        compute_projected_ray_position(
-            orbit_track,
-            cross_track_field_of_view,
-            along_track_field_of_view,
-            roll_angle,
-            pitch_angle,
-            is_rectangular,
-            angle,
-            elevation,
-            velocity_frame,
-            nadir_reference,
-        )
-        for angle in angles
-    ]
+    if view_geometry == ViewGeometry.SCAN:
+        # perimeter in (cross-track, along-track) angles, counterclockwise from
+        # the left side as for the clock angles above, with points evenly
+        # spaced in angle along each side
+        half_c, half_a = cross_track_field_of_view / 2, along_track_field_of_view / 2
+        if is_rectangular:
+            s = np.linspace(-1, 1, number_points, endpoint=False)
+            offsets = np.concatenate(
+                (
+                    np.stack([np.full_like(s, half_c), s * half_a], axis=1),
+                    np.stack([-s * half_c, np.full_like(s, half_a)], axis=1),
+                    np.stack([np.full_like(s, -half_c), -s * half_a], axis=1),
+                    np.stack([s * half_c, np.full_like(s, -half_a)], axis=1),
+                )
+            )
+        else:
+            theta = np.radians(np.linspace(0, 360, number_points))
+            offsets = np.stack([half_c * np.cos(theta), half_a * np.sin(theta)], axis=1)
+        points = [
+            compute_projected_ray_position(
+                orbit_track,
+                0,
+                0,
+                roll_angle + cross_offset,
+                pitch_angle + along_offset,
+                False,
+                0,
+                elevation,
+                velocity_frame,
+                nadir_reference,
+            )
+            for cross_offset, along_offset in offsets
+        ]
+    else:
+        points = [
+            compute_projected_ray_position(
+                orbit_track,
+                cross_track_field_of_view,
+                along_track_field_of_view,
+                roll_angle,
+                pitch_angle,
+                is_rectangular,
+                angle,
+                elevation,
+                velocity_frame,
+                nadir_reference,
+            )
+            for angle in angles
+        ]
     is_vectorized = len(np.shape(orbit_track.t)) > 0  # type: ignore
     return [
         project_polygon_to_elevation(

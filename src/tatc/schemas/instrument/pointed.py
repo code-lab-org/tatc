@@ -17,8 +17,10 @@ from skyfield.toposlib import GeographicPosition
 from ...utils.orbital import compute_argument_of_latitude
 from ...utils.projection import (
     VelocityFrame,
+    ViewGeometry,
     compute_footprint,
     compute_projected_ray_position,
+    compute_view_angles,
     compute_view_tangents,
 )
 from .simple import Instrument
@@ -65,6 +67,14 @@ class PointedInstrument(Instrument):
         + "rolled cross-track axis (after roll), positive forward.",
         ge=-180,
         le=180,
+    )
+    view_geometry: ViewGeometry = Field(
+        default=ViewGeometry.FRAME,
+        description="Geometry in which the fields of view and pixels are defined: "
+        + "in a plane perpendicular to the boresight (`frame`, as for a framing "
+        + "camera or a pushbroom array), or in cross-track and along-track angles "
+        + "(`scan`, as for a cross-track scanner, whose along-track angular extent "
+        + "is constant across the scan).",
     )
     is_rectangular: bool = Field(
         default=False,
@@ -150,6 +160,7 @@ class PointedInstrument(Instrument):
             elevation=elevation,
             velocity_frame=self.velocity_frame,
             nadir_reference=self.nadir_reference,
+            view_geometry=self.view_geometry,
         )
 
     @field_validator("roll_angle_profile")
@@ -211,17 +222,33 @@ class PointedInstrument(Instrument):
         Returns:
             numpy.typing.NDArray: Array of indicators: `True` if the target is in the field of view.
         """
-        along, cross = compute_view_tangents(
-            orbit_track,
-            target,
-            self.velocity_frame,
-            self.get_roll_angle(orbit_track),
-            self.pitch_angle,
-            self.nadir_reference,
-        )
-        # offsets from the view center, normalized by the view half widths
-        along_offset = along / np.tan(np.radians(self.along_track_field_of_view / 2))
-        cross_offset = cross / np.tan(np.radians(self.cross_track_field_of_view / 2))
+        if self.view_geometry == ViewGeometry.SCAN:
+            roll, pitch = compute_view_angles(
+                orbit_track, target, self.velocity_frame, self.nadir_reference
+            )
+            # angular offsets from the view center, normalized by the half widths
+            cross_offset = (
+                (roll - self.get_roll_angle(orbit_track) + 180) % 360 - 180
+            ) / (self.cross_track_field_of_view / 2)
+            along_offset = (pitch - self.pitch_angle) / (
+                self.along_track_field_of_view / 2
+            )
+        else:
+            along, cross = compute_view_tangents(
+                orbit_track,
+                target,
+                self.velocity_frame,
+                self.get_roll_angle(orbit_track),
+                self.pitch_angle,
+                self.nadir_reference,
+            )
+            # offsets from the view center, normalized by the view half widths
+            along_offset = along / np.tan(
+                np.radians(self.along_track_field_of_view / 2)
+            )
+            cross_offset = cross / np.tan(
+                np.radians(self.cross_track_field_of_view / 2)
+            )
         with np.errstate(invalid="ignore"):
             if self.is_rectangular:
                 inside = (np.abs(along_offset) <= 1) & (np.abs(cross_offset) <= 1)
@@ -277,6 +304,20 @@ class PointedInstrument(Instrument):
         Returns:
             (skyfield.toposlib.GeographicPosition): the geographic position of the projected pixel
         """
+        if self.view_geometry == ViewGeometry.SCAN:
+            cross_offset, along_offset = self._get_pixel_offsets(
+                cross_track_index, along_track_index
+            )
+            return compute_projected_ray_position(
+                orbit_track=orbit_track,
+                cross_track_field_of_view=0,
+                along_track_field_of_view=0,
+                roll_angle=self.get_roll_angle(orbit_track) + cross_offset,
+                pitch_angle=self.pitch_angle + along_offset,
+                elevation=elevation,
+                velocity_frame=self.velocity_frame,
+                nadir_reference=self.nadir_reference,
+            )
         cone, clock = self.get_pixel_cone_and_clock_angle(
             cross_track_index, along_track_index
         )
@@ -299,6 +340,35 @@ class PointedInstrument(Instrument):
             nadir_reference=self.nadir_reference,
         )
 
+    def _get_pixel_offsets(
+        self, cross_track_index: int, along_track_index: int
+    ) -> tuple[float, float]:
+        """
+        Gets a pixel's angular offsets (degrees) from the view center, across
+        track (positive left) and along track (positive forward).
+
+        Args:
+            cross_track_index (int): pixel index in cross-track dimension
+                (right to left: index 0 is on the right of the direction of motion).
+            along_track_index (int): pixel index in along-track dimension (fore to aft).
+
+        Returns:
+            tuple[float, float]: the cross-track and along-track offsets (degrees).
+        """
+        cross_track_offset = (
+            (0.5 + cross_track_index - self.cross_track_pixels / 2)
+            * (1 - self.cross_track_oversampling)
+            * self.cross_track_field_of_view
+            / self.cross_track_pixels
+        )
+        along_track_offset = (
+            (self.along_track_pixels / 2 - 0.5 - along_track_index)
+            * (1 - self.along_track_oversampling)
+            * self.along_track_field_of_view
+            / self.along_track_pixels
+        )
+        return cross_track_offset, along_track_offset
+
     def get_pixel_cone_and_clock_angle(
         self, cross_track_index: int, along_track_index: int
     ) -> tuple[float, float]:
@@ -318,17 +388,8 @@ class PointedInstrument(Instrument):
                 from the cross-track axis on the left of the direction of
                 motion toward the along-track axis forward) angles (degrees).
         """
-        cross_track_offset = (
-            (0.5 + cross_track_index - self.cross_track_pixels / 2)
-            * (1 - self.cross_track_oversampling)
-            * self.cross_track_field_of_view
-            / self.cross_track_pixels
-        )
-        along_track_offset = (
-            (self.along_track_pixels / 2 - 0.5 - along_track_index)
-            * (1 - self.along_track_oversampling)
-            * self.along_track_field_of_view
-            / self.along_track_pixels
+        cross_track_offset, along_track_offset = self._get_pixel_offsets(
+            cross_track_index, along_track_index
         )
         return (
             np.sqrt(cross_track_offset**2 + along_track_offset**2),

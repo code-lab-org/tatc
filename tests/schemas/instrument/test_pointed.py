@@ -14,7 +14,12 @@ from skyfield.api import EarthSatellite, wgs84
 from tatc.constants import timescale
 from tatc.schemas import CircularOrbit, PointedInstrument
 from tatc.utils import field_of_regard_to_swath_width, geodesic_distance
-from tatc.utils.projection import VelocityFrame, compute_projected_ray_position
+from tatc.utils.projection import (
+    VelocityFrame,
+    ViewGeometry,
+    compute_projected_ray_position,
+    compute_view_angles,
+)
 
 
 class TestPointedInstrument(unittest.TestCase):
@@ -631,4 +636,121 @@ class TestRollAngleProfile(unittest.TestCase):
         for k in (0, 2, 3):
             self.assertAlmostEqual(
                 distance["steered"][k], distance["fixed"][k], delta=1e3
+            )
+
+
+class TestScanViewGeometry(unittest.TestCase):
+    """
+    Unit tests for PointedInstrument views defined in scan (angular)
+    geometry, as for cross-track scanners.
+    """
+
+    def setUp(self):
+        epoch = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        satellite = EarthSatellite.from_satrec(
+            CircularOrbit(mean_altitude=834e3, inclination=98.7, epoch=epoch)
+            .to_gp_orbit()
+            .elements[0]
+            .to_satrec(),
+            timescale,
+        )
+        self.track = satellite.at(timescale.from_datetime(epoch))
+        # a VIIRS-like scanner: 112.1 deg across track, 0.814 deg along track
+        self.base = dict(
+            name="scanner",
+            field_of_regard=115,
+            cross_track_field_of_view=112.1,
+            along_track_field_of_view=0.814,
+            is_rectangular=True,
+        )
+
+    def along_track_extent(self, instrument, cross_angle):
+        """
+        Distance (km) between the footprint's fore and aft edges at a
+        cross-track angle (degrees): between the polygon vertices nearest
+        that cross-track angle ahead of and behind the cross-track plane.
+        """
+        footprint = instrument.compute_footprint(self.track, number_points=200)[0]
+        best = {}
+        for lon, lat in np.array(footprint.exterior.coords)[:, :2]:
+            roll, pitch = compute_view_angles(self.track, wgs84.latlon(lat, lon))
+            side = pitch > 0
+            if side not in best or abs(roll - cross_angle) < best[side][0]:
+                best[side] = (abs(roll - cross_angle), lon, lat)
+        (_, lon_0, lat_0), (_, lon_1, lat_1) = best[True], best[False]
+        return geodesic_distance(lon_0, lat_0, lon_1, lat_1) / 1e3
+
+    def test_default_frame_geometry(self):
+        """
+        Test that views are defined in frame geometry by default.
+        """
+        self.assertEqual(
+            PointedInstrument(**self.base).view_geometry, ViewGeometry.FRAME
+        )
+
+    def test_scan_footprint_widens_away_from_nadir(self):
+        """
+        Test that, in scan geometry, the footprint's along-track extent is
+        that of the rays at the edges of the along-track field of view: at
+        nadir, about 11.8 km in both geometries; 50 deg across track, wider
+        in scan geometry (where the along-track angular extent is constant)
+        than in frame geometry (where it narrows with the cosine of the
+        cross-track angle) by about 1 / cos(50 deg).
+        """
+        scan = PointedInstrument(**self.base, view_geometry=ViewGeometry.SCAN)
+        frame = PointedInstrument(**self.base)
+        half = self.base["along_track_field_of_view"] / 2
+        fore = compute_projected_ray_position(self.track, 0, 0, 50, half)
+        aft = compute_projected_ray_position(self.track, 0, 0, 50, -half)
+        expected = (
+            geodesic_distance(
+                fore.longitude.degrees,
+                fore.latitude.degrees,
+                aft.longitude.degrees,
+                aft.latitude.degrees,
+            )
+            / 1e3
+        )
+        self.assertAlmostEqual(self.along_track_extent(scan, 0), 11.8, delta=0.5)
+        self.assertAlmostEqual(self.along_track_extent(frame, 0), 11.8, delta=0.5)
+        self.assertAlmostEqual(self.along_track_extent(scan, 50), expected, delta=0.5)
+        self.assertAlmostEqual(
+            self.along_track_extent(scan, 50) / self.along_track_extent(frame, 50),
+            1 / np.cos(np.radians(50)),
+            delta=0.1,
+        )
+
+    def test_scan_field_of_view_bounds(self):
+        """
+        Test that, in scan geometry, a target just inside the angular
+        bounds at the swath edge is in the field of view, and one just
+        outside is not (in frame geometry, the along-track bound narrows
+        there, so the inside target is outside).
+        """
+        scan = PointedInstrument(**self.base, view_geometry=ViewGeometry.SCAN)
+        frame = PointedInstrument(**self.base)
+        for pitch, inside in [(0.39, True), (0.42, False)]:
+            ray = compute_projected_ray_position(self.track, 0, 0, 55, pitch)
+            target = wgs84.latlon(ray.latitude.degrees, ray.longitude.degrees)
+            self.assertEqual(scan.is_in_field_of_view(self.track, target)[0], inside)
+            self.assertFalse(frame.is_in_field_of_view(self.track, target)[0])
+
+    def test_scan_pixel_positions(self):
+        """
+        Test that, in scan geometry, pixel centers are evenly spaced in
+        cross-track angle (the rays at the pixels' angular offsets).
+        """
+        scan = PointedInstrument(
+            **{**self.base, "cross_track_field_of_view": 100},
+            cross_track_pixels=5,
+            view_geometry=ViewGeometry.SCAN,
+        )
+        for index, angle in enumerate([-40, -20, 0, 20, 40]):
+            pixel = scan.compute_projected_pixel_position(self.track, index, 0)
+            ray = compute_projected_ray_position(self.track, 0, 0, angle, 0)
+            self.assertAlmostEqual(
+                pixel.latitude.degrees, ray.latitude.degrees, places=8
+            )
+            self.assertAlmostEqual(
+                pixel.longitude.degrees, ray.longitude.degrees, places=8
             )

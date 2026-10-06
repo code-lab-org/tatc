@@ -30,6 +30,7 @@ from tatc.utils.projection import (
     compute_cone_and_azimuth,
     compute_limb,
     compute_projected_ray_position,
+    compute_view_angles,
     compute_view_tangents,
 )
 
@@ -958,3 +959,33 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
             self.orbit_track, 0, 0, roll_angle, pitch_angle, False, 0, 0
         )
         return position.latitude.degrees, position.longitude.degrees
+
+
+class TestComputeViewAngles(unittest.TestCase):
+    """
+    Unit tests for compute_view_angles.
+    """
+
+    def test_inverts_rigid_rotation(self):
+        """
+        Test that the view angles of the point where a ray with given roll
+        and pitch angles meets the ellipsoid are those angles, in both
+        velocity frames.
+        """
+        epoch = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        satellite = EarthSatellite.from_satrec(
+            CircularOrbit(mean_altitude=834e3, inclination=98.7, epoch=epoch)
+            .to_gp_orbit()
+            .elements[0]
+            .to_satrec(),
+            timescale,
+        )
+        track = satellite.at(timescale.from_datetime(epoch))
+        for frame in VelocityFrame:
+            for roll, pitch in [(0, 0), (30, 0), (-56, 0.4), (20, -10), (-40, 25)]:
+                ray = compute_projected_ray_position(
+                    track, 0, 0, roll, pitch, velocity_frame=frame
+                )
+                target = wgs84.latlon(ray.latitude.degrees, ray.longitude.degrees)
+                angles = compute_view_angles(track, target, velocity_frame=frame)
+                np.testing.assert_allclose(angles, (roll, pitch), atol=1e-6)

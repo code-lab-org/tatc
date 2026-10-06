@@ -32,7 +32,11 @@ from ..utils.observation import (
     compute_min_elevation_angle,
 )
 from ..utils.orbital import compute_apoapsis_radius
-from ..utils.projection import _compute_view_frame, compute_cone_and_azimuth
+from ..utils.projection import (
+    ViewGeometry,
+    _compute_view_frame,
+    compute_cone_and_azimuth,
+)
 
 
 def _get_visible_interval_series(
@@ -426,6 +430,15 @@ def _get_view_crossing_times(
             [reference + pd.Timedelta(seconds=float(x)) for x in seconds],
             [shifts[i] for i in index],
         )
+        if instrument.view_geometry == ViewGeometry.SCAN:
+            # the target's along-track (pitch) angle reaches the view's
+            position, _, along, _ = _compute_view_frame(
+                orbit_track, 0, 0, instrument.velocity_frame, instrument.nadir_reference
+            )
+            los = np.reshape(np.array(target.itrs_xyz.m), (3, 1)) - position
+            return np.sum(los * along, axis=0) / np.linalg.norm(los, axis=0) - np.sin(
+                np.radians(instrument.pitch_angle)
+            )
         position, _, along, _ = _compute_view_frame(
             orbit_track,
             instrument.get_roll_angle(orbit_track),

@@ -1025,7 +1025,9 @@ class TestPartitionByElementIndex(unittest.TestCase):
         self.multi_element_orbit.partition_by_element_index(start, end)
         cached = self.multi_element_orbit.__dict__.get("element_epochs")
         self.assertIsNotNone(cached)
-        self.assertEqual(cached, [self.epoch_0, self.epoch_1, self.epoch_2])
+        # the cache holds the elements' identities and their epochs
+        self.assertEqual(cached[1], [self.epoch_0, self.epoch_1, self.epoch_2])
+        self.assertIs(self.multi_element_orbit.get_element_epochs(), cached[1])
 
     def test_single_element_orbit(self):
         """
@@ -1775,6 +1777,22 @@ class TestRemoveDragAndRepeatCycle(unittest.TestCase):
                 start, start + timedelta(days=200), try_repeat=True
             ),
             orbit.get_repeat_cycle(),
+        )
+
+    def test_repeat_cycle_cache_follows_fields(self):
+        """
+        Test that the cached repeat cycle is recomputed for a copy with a
+        different declared repeat cycle (which model_copy copies along with
+        the cache).
+        """
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            self.icesat2_tle, remove_drag=True, repeat_cycle=timedelta(days=91)
+        )
+        orbit.get_repeat_cycle()
+        copy = orbit.model_copy(update={"repeat_cycle": timedelta(days=30)})
+        self.assertEqual(
+            copy.get_repeat_cycle(),
+            orbit.elements[0].refine_repeat_cycle(timedelta(days=30)),
         )
 
     def test_options_preserved(self):

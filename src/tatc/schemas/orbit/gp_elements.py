@@ -319,10 +319,11 @@ class GeneralPerturbationsElements(BaseModel):
         if lazy_load is None:
             lazy_load = config.get_rc().repeat_cycle_lazy_load
 
-        if lazy_load:
-            repeat_cycle = self.__dict__.get("repeat_cycle")
-        else:
-            repeat_cycle = None
+        # keyed by the element's field values, so that a copy with changed
+        # fields (e.g. from `model_copy(update=...)`) is recomputed
+        key = tuple(self.model_dump().values())
+        cached = self.__dict__.get("repeat_cycle") if lazy_load else None
+        repeat_cycle = cached[1] if cached is not None and cached[0] == key else None
         if repeat_cycle is None:
             epoch = self.epoch
             # verify candidates without drag (as for an orbit maintained
@@ -407,7 +408,7 @@ class GeneralPerturbationsElements(BaseModel):
                     # approach, which reflects small errors of mean motion
                     repeat_cycle = self.refine_repeat_cycle(t_min - epoch)
                     break
-            self.__dict__["repeat_cycle"] = repeat_cycle  # type: ignore
+            self.__dict__["repeat_cycle"] = (key, repeat_cycle)  # type: ignore
         if repeat_cycle is not None and repeat_cycle > timedelta(0):
             return repeat_cycle
         return None
