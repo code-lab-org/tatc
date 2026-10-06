@@ -20,6 +20,18 @@ from tatc.constants import (
 from tatc.schemas import MolniyaOrbit
 
 
+def sampled_apogee_longitudes(orbit, hours):
+    """
+    Longitudes (degrees) of the apogees found by sampling the propagated
+    orbit every 20 s from its epoch.
+    """
+    times = [orbit.epoch + timedelta(seconds=20 * k) for k in range(hours * 180)]
+    track = orbit.to_gp_orbit().get_orbit_track(times)
+    radius = np.linalg.norm(track.position.m, axis=0)
+    k = np.nonzero((radius[1:-1] > radius[:-2]) & (radius[1:-1] >= radius[2:]))[0] + 1
+    return wgs84.subpoint_of(track[k]).longitude.degrees
+
+
 class TestMolniyaOrbit(unittest.TestCase):
     """
     Unit tests for the MolniyaOrbit schema.
@@ -244,6 +256,23 @@ class TestMolniyaOrbit(unittest.TestCase):
             derived_orbit.right_ascension_ascending_node,
             self.test_orbit.right_ascension_ascending_node + 10,
             delta=0.001,
+        )
+
+    def test_from_apogee_longitude(self):
+        """
+        Test that a Molniya orbit placed by longitude has its first apogee
+        over that longitude and its second apogee 180 degrees away.
+        """
+        orbit = MolniyaOrbit.from_apogee_longitude(
+            40,
+            perigee_altitude=600e3,
+            true_anomaly=200,
+            epoch=datetime(2026, 10, 4, tzinfo=timezone.utc),
+        )
+        self.assertIsInstance(orbit, MolniyaOrbit)
+        self.assertAlmostEqual(orbit.get_apogee_longitude(), 40, delta=1e-5)
+        np.testing.assert_allclose(
+            sampled_apogee_longitudes(orbit, 25), [40, -140], atol=0.02
         )
 
     def test_to_gp_orbit(self):

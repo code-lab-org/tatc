@@ -19,6 +19,18 @@ from tatc.constants import (
 from tatc.schemas import TundraOrbit
 
 
+def sampled_apogee_longitudes(orbit, hours):
+    """
+    Longitudes (degrees) of the apogees found by sampling the propagated
+    orbit every 20 s from its epoch.
+    """
+    times = [orbit.epoch + timedelta(seconds=20 * k) for k in range(hours * 180)]
+    track = orbit.to_gp_orbit().get_orbit_track(times)
+    radius = np.linalg.norm(track.position.m, axis=0)
+    k = np.nonzero((radius[1:-1] > radius[:-2]) & (radius[1:-1] >= radius[2:]))[0] + 1
+    return wgs84.subpoint_of(track[k]).longitude.degrees
+
+
 class TestTundraOrbit(unittest.TestCase):
     """
     Unit tests for the TundraOrbit schema.
@@ -207,6 +219,55 @@ class TestTundraOrbit(unittest.TestCase):
             derived_orbit.right_ascension_ascending_node,
             self.test_orbit.right_ascension_ascending_node + 10,
             delta=0.001,
+        )
+
+    def test_get_apogee_longitude(self):
+        """
+        Test that the apogee longitude is that of the first apogee after the
+        epoch found by sampling the propagated orbit, and moves with the
+        right ascension of ascending node (approximately, as the node's
+        precession and the period also change slightly).
+        """
+        longitude = self.test_orbit.get_apogee_longitude()
+        self.assertAlmostEqual(
+            longitude, sampled_apogee_longitudes(self.test_orbit, 25)[0], delta=0.02
+        )
+        self.assertAlmostEqual(
+            self.test_orbit.get_derived_orbit(0, 10).get_apogee_longitude(),
+            longitude + 10,
+            delta=0.1,
+        )
+
+    def test_from_apogee_longitude_quasi_zenith(self):
+        """
+        Test that a quasi-zenith orbit placed by longitude (like QZSS's
+        figure-8 ground track centered near 137 deg east) has its apogees over
+        that longitude.
+        """
+        orbit = TundraOrbit.from_apogee_longitude(
+            137,
+            perigee_altitude=32600e3,
+            inclination=41,
+            true_anomaly=10,
+            epoch=datetime(2026, 10, 4, tzinfo=timezone.utc),
+        )
+        self.assertIsInstance(orbit, TundraOrbit)
+        self.assertEqual(orbit.inclination, 41)
+        self.assertEqual(orbit.true_anomaly, 10)
+        self.assertAlmostEqual(orbit.get_apogee_longitude(), 137, delta=1e-5)
+        np.testing.assert_allclose(sampled_apogee_longitudes(orbit, 49), 137, atol=0.02)
+
+    def test_from_apogee_longitude_southern_coverage(self):
+        """
+        Test placement by longitude for southern hemisphere coverage, with an
+        epoch past apogee.
+        """
+        orbit = TundraOrbit.from_apogee_longitude(
+            -100, perigee_altitude=24480e3, northern_coverage=False, true_anomaly=250
+        )
+        self.assertFalse(orbit.northern_coverage)
+        np.testing.assert_allclose(
+            sampled_apogee_longitudes(orbit, 49), -100, atol=0.04
         )
 
     def test_to_gp_orbit(self):

@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 from pydantic import Field, model_validator
 from sgp4.api import WGS72, Satrec
+from skyfield.api import wgs84
+from typing_extensions import Self
 
 from ... import constants, utils
 from .base import OrbitBase
@@ -41,6 +43,88 @@ class MolniyaTundraOrbitBase(OrbitBase):
         ge=0,
         lt=360,
     )
+
+    @classmethod
+    def from_apogee_longitude(
+        cls,
+        apogee_longitude: float,
+        perigee_altitude: float,
+        inclination: float = constants.EARTH_J2_CRITICAL_INCLINATION,
+        northern_coverage: bool = True,
+        true_anomaly: float = 0,
+        epoch: datetime = datetime(2020, 1, 1, tzinfo=timezone.utc),
+    ) -> Self:
+        """
+        Creates an orbit whose apogee is over a longitude, rather than at a
+        right ascension of ascending node. The ground track of a Tundra (or
+        quasi-zenith) orbit is a figure-8 centered on its apogee longitude
+        (and a Molniya orbit's apogees alternate between this longitude and
+        the one 180 degrees away). The right ascension of ascending node is
+        solved so that the first apogee at or after the epoch, as propagated
+        (see `get_apogee_longitude`), is over the longitude.
+
+        Args:
+            apogee_longitude (float): Longitude (degrees) of the apogee's
+                sub-satellite point in the WGS 84 coordinate system.
+            perigee_altitude (float): Perigee altitude (meters).
+            inclination (float): Inclination (degrees). Defaults to the
+                critical inclination.
+            northern_coverage (bool): True, if the orbit generates northern
+                hemisphere coverage.
+            true_anomaly (float): True anomaly (degrees) at epoch.
+            epoch (datetime): Timestamp (epoch) of the initial orbital state.
+
+        Returns:
+            Self: the orbit (of the class on which this method is called)
+        """
+        orbit = None
+        raan = 0.0
+        # the apogee longitude moves with the right ascension of ascending
+        # node, so a few corrections converge
+        for _ in range(4):
+            orbit = cls(
+                perigee_altitude=perigee_altitude,
+                inclination=inclination,
+                northern_coverage=northern_coverage,
+                true_anomaly=true_anomaly,
+                epoch=epoch,
+                right_ascension_ascending_node=raan,
+            )
+            error = (apogee_longitude - orbit.get_apogee_longitude() + 180) % 360 - 180
+            if abs(error) < 1e-6:
+                break
+            raan = float((raan + error) % 360)
+        return orbit  # type: ignore
+
+    def get_apogee_longitude(self) -> float:
+        """
+        Gets the longitude (degrees) of the sub-satellite point in the WGS 84
+        coordinate system at the first apogee at or after the epoch, as
+        propagated by SGP4. For a Tundra (or quasi-zenith) orbit, the ground
+        track is a figure-8 centered on this longitude.
+
+        Returns:
+            float: the apogee longitude (degrees, -180 to 180)
+        """
+        gp_orbit = self.to_gp_orbit()
+        satrec = gp_orbit.elements[0].to_satrec()
+        # minutes from epoch until the mean anomaly reaches 180 degrees
+        minutes = ((np.pi - satrec.mo) % (2 * np.pi)) / satrec.mdot
+        # refine the time of maximum radius from samples every 30 s
+        offsets = minutes + np.arange(-30, 30.5, 0.5)
+        track = gp_orbit.get_orbit_track(
+            [self.epoch + timedelta(minutes=float(offset)) for offset in offsets]
+        )
+        radius = np.linalg.norm(track.position.m, axis=0)
+        k = int(np.clip(np.argmax(radius), 1, len(radius) - 2))
+        # vertex of the parabola through the samples around the maximum
+        curvature = radius[k - 1] - 2 * radius[k] + radius[k + 1]
+        shift = (
+            0.5 * (radius[k - 1] - radius[k + 1]) / curvature if curvature < 0 else 0
+        )
+        apogee_time = self.epoch + timedelta(minutes=float(offsets[k] + 0.5 * shift))
+        position = wgs84.subpoint_of(gp_orbit.get_orbit_track(apogee_time))
+        return float((position.longitude.degrees + 180) % 360 - 180)
 
     def get_inclination(self) -> float:
         """
