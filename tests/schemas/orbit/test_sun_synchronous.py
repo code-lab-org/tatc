@@ -12,7 +12,7 @@ import numpy as np
 from pydantic import ValidationError
 from skyfield.framelib import itrs
 
-from tatc.constants import EARTH_MEAN_RADIUS
+from tatc.constants import EARTH_MEAN_RADIUS, TROPICAL_YEAR_S
 from tatc.schemas import SunSynchronousOrbit
 from tatc.schemas.orbit.gp import GeneralPerturbationsOrbit
 
@@ -289,6 +289,66 @@ class TestSunSynchronousOrbit(unittest.TestCase):
                 )
                 difference = (local_hours - node_hours + 12) % 24 - 12
                 self.assertLess(abs(difference) * 60, 0.5, (epoch, ect))
+
+    def test_inclination_precesses_with_mean_sun(self):
+        """
+        Test that the inclination makes SGP4's secular precession rate of
+        the ascending node equal the mean Sun's (360 degrees per tropical
+        year) at several altitudes, about 0.012 degrees above the classical
+        J2 estimate at 705 km.
+        """
+        for altitude in (400e3, 705e3, 824e3, 1500e3):
+            orbit = SunSynchronousOrbit(
+                mean_altitude=altitude, equator_crossing_time=time(10, 30)
+            )
+            satrec = orbit.to_gp_orbit().elements[0].to_satrec()
+            self.assertAlmostEqual(
+                satrec.nodedot / (2 * np.pi / TROPICAL_YEAR_S * 60), 1, places=9
+            )
+        landsat = SunSynchronousOrbit(
+            mean_altitude=705e3, equator_crossing_time=time(10)
+        )
+        classical = np.degrees(
+            np.arccos(-np.power(landsat.get_semimajor_axis() / 12352000, 7 / 2))
+        )
+        self.assertAlmostEqual(
+            landsat.get_inclination() - classical, 0.012, delta=0.002
+        )
+
+    def test_local_time_constant_over_a_year(self):
+        """
+        Test that the local mean solar time of the ascending node of the
+        propagated orbit changes by less than 3 seconds over a year
+        (previously, about 2 minutes per year).
+        """
+        epoch = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        gp_orbit = SunSynchronousOrbit(
+            mean_altitude=705e3, equator_crossing_time=time(22), epoch=epoch
+        ).to_gp_orbit()
+
+        def node_local_hours(start):
+            times = [start + timedelta(seconds=10 * k) for k in range(700)]
+            position = gp_orbit.get_orbit_track(times).frame_xyz(itrs).m
+            k = np.nonzero((position[2][:-1] < 0) & (position[2][1:] >= 0))[0][0]
+            f = -position[2][k] / (position[2][k + 1] - position[2][k])
+            x = position[0][k] + f * (position[0][k + 1] - position[0][k])
+            y = position[1][k] + f * (position[1][k + 1] - position[1][k])
+            midnight = start.replace(hour=0, minute=0, second=0, microsecond=0)
+            universal = (times[k] - midnight) / timedelta(hours=1) + f * 10 / 3600
+            return np.mod(universal + np.degrees(np.arctan2(y, x)) / 15, 24)
+
+        drift = node_local_hours(epoch + timedelta(days=365)) - node_local_hours(epoch)
+        self.assertLess(abs((drift + 12) % 24 - 12) * 3600, 3)
+
+    def test_inclination_cache_follows_altitude(self):
+        """
+        Test that the cached inclination is recomputed for a copy of the
+        orbit with a different altitude.
+        """
+        low = SunSynchronousOrbit(mean_altitude=500e3, equator_crossing_time=time(10))
+        low_inclination = low.get_inclination()
+        high = low.model_copy(update={"mean_altitude": 900e3})
+        self.assertGreater(high.get_inclination(), low_inclination + 0.5)
 
     def test_to_gp_orbit_raan_ascending_solstice(self):
         """

@@ -20,6 +20,8 @@ timescale = load.timescale()
 # time properties
 EARTH_SOLAR_DAY_S = 86400
 EARTH_SIDEREAL_DAY_S = 86164.0905
+# mean tropical year (seconds): the period of the mean Sun's right ascension
+TROPICAL_YEAR_S = 365.24219 * 86400
 # mean angular velocity (rad/s) of the Earth relative to inertial space
 EARTH_ROTATION_RATE = 2 * np.pi / EARTH_SIDEREAL_DAY_S
 
