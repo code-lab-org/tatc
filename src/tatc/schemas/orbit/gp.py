@@ -93,6 +93,23 @@ class GeneralPerturbationsOrbit(BaseModel):
     elements: list[GeneralPerturbationsElements] = Field(
         ..., description="General perturbations elements.", min_length=1
     )
+    remove_drag: bool = Field(
+        default=False,
+        description="True, to propagate the orbit without drag, as for an "
+        + "orbit maintained against drag: the elements' drag terms (B* and "
+        + "the derivatives of mean motion) are set to zero, while the "
+        + "Earth's oblateness (and, for deep-space orbits, the Moon and Sun) "
+        + "still perturb the orbit.",
+    )
+    repeat_cycle: timedelta | None = Field(
+        default=None,
+        description="Repeat cycle of an orbit maintained on a repeat ground "
+        + "track (for example, 91 days), which overrides the computed repeat "
+        + "cycle; it is refined to the nearest whole number of nodal days "
+        + "(or, for a sun-synchronous orbit, mean solar days). "
+        + "Requires `remove_drag`.",
+        gt=timedelta(0),
+    )
 
     @model_validator(mode="after")
     def _sort_elements_by_epoch(self) -> GeneralPerturbationsOrbit:
@@ -107,6 +124,28 @@ class GeneralPerturbationsOrbit(BaseModel):
         reintroduce unsorted order.
         """
         self.elements.sort(key=lambda el: el.epoch)
+        return self
+
+    @model_validator(mode="after")
+    def _apply_remove_drag(self) -> GeneralPerturbationsOrbit:
+        """
+        Sets the elements' drag terms to zero if `remove_drag` is set, and
+        validates that a repeat cycle is only specified without drag (with
+        drag, the orbit would not repeat).
+        """
+        if self.repeat_cycle is not None and not self.remove_drag:
+            raise ValueError("repeat_cycle requires remove_drag=True.")
+        if self.remove_drag:
+            self.elements = [
+                (
+                    el
+                    if el.bstar == el.mean_motion_dot == el.mean_motion_ddot == 0
+                    else el.model_copy(
+                        update={"bstar": 0, "mean_motion_dot": 0, "mean_motion_ddot": 0}
+                    )
+                )
+                for el in self.elements
+            ]
         return self
 
     def get_semimajor_axis(self, index: int = 0) -> float:
@@ -290,7 +329,12 @@ class GeneralPerturbationsOrbit(BaseModel):
         return self.elements[index].mean_motion_ddot
 
     @classmethod
-    def from_tle(cls, tle_lines: list[str]) -> GeneralPerturbationsOrbit:
+    def from_tle(
+        cls,
+        tle_lines: list[str],
+        remove_drag: bool = False,
+        repeat_cycle: timedelta | None = None,
+    ) -> GeneralPerturbationsOrbit:
         """
         Creates a GP orbit from two line element (TLE) lines. Multiple
         TLEs (e.g. a history of element sets for one satellite) may be
@@ -299,6 +343,9 @@ class GeneralPerturbationsOrbit(BaseModel):
 
         Args:
             tle_lines (list[str]): the two line element lines
+            remove_drag (bool): True, to propagate the orbit without drag.
+            repeat_cycle (timedelta | None): The repeat cycle of a maintained
+                orbit (requires `remove_drag`).
 
         Returns:
             GeneralPerturbationsOrbit: the GP orbit
@@ -312,11 +359,18 @@ class GeneralPerturbationsOrbit(BaseModel):
             elements=[
                 GeneralPerturbationsElements.from_tle((tle_lines[i], tle_lines[i + 1]))
                 for i in range(0, len(tle_lines), 2)
-            ]
+            ],
+            remove_drag=remove_drag,
+            repeat_cycle=repeat_cycle,
         )
 
     @classmethod
-    def from_omm_csv(cls, omm_csv: list[str]) -> GeneralPerturbationsOrbit:
+    def from_omm_csv(
+        cls,
+        omm_csv: list[str],
+        remove_drag: bool = False,
+        repeat_cycle: timedelta | None = None,
+    ) -> GeneralPerturbationsOrbit:
         """
         Creates a GP orbit from OMM CSV lines, using every data row
         (unlike GeneralPerturbationsElements.from_omm_csv, which only
@@ -324,6 +378,9 @@ class GeneralPerturbationsOrbit(BaseModel):
 
         Args:
             omm_csv (list[str]): The OMM CSV lines, including a header row.
+            remove_drag (bool): True, to propagate the orbit without drag.
+            repeat_cycle (timedelta | None): The repeat cycle of a maintained
+                orbit (requires `remove_drag`).
 
         Returns:
             GeneralPerturbationsOrbit: the GP orbit
@@ -332,11 +389,18 @@ class GeneralPerturbationsOrbit(BaseModel):
             elements=[
                 GeneralPerturbationsElements.from_omm_dict(fields)
                 for fields in csv.DictReader(omm_csv)
-            ]
+            ],
+            remove_drag=remove_drag,
+            repeat_cycle=repeat_cycle,
         )
 
     @classmethod
-    def from_omm_json(cls, omm_json: str) -> GeneralPerturbationsOrbit:
+    def from_omm_json(
+        cls,
+        omm_json: str,
+        remove_drag: bool = False,
+        repeat_cycle: timedelta | None = None,
+    ) -> GeneralPerturbationsOrbit:
         """
         Creates a GP orbit from an OMM JSON string, using every entry
         (unlike GeneralPerturbationsElements.from_omm_json, which only
@@ -345,6 +409,9 @@ class GeneralPerturbationsOrbit(BaseModel):
         Args:
             omm_json (str): The OMM JSON string, encoding a list of OMM
                 records.
+            remove_drag (bool): True, to propagate the orbit without drag.
+            repeat_cycle (timedelta | None): The repeat cycle of a maintained
+                orbit (requires `remove_drag`).
 
         Returns:
             GeneralPerturbationsOrbit: the GP orbit
@@ -353,7 +420,9 @@ class GeneralPerturbationsOrbit(BaseModel):
             elements=[
                 GeneralPerturbationsElements.from_omm_dict(fields)
                 for fields in json.loads(omm_json)
-            ]
+            ],
+            remove_drag=remove_drag,
+            repeat_cycle=repeat_cycle,
         )
 
     def get_element_epochs(self) -> list[datetime]:
@@ -403,7 +472,11 @@ class GeneralPerturbationsOrbit(BaseModel):
                 derived_el.ra_of_asc_node + delta_raan, 360
             )
             derived_elements.append(derived_el)
-        return GeneralPerturbationsOrbit(elements=derived_elements)
+        return GeneralPerturbationsOrbit(
+            elements=derived_elements,
+            remove_drag=self.remove_drag,
+            repeat_cycle=self.repeat_cycle,
+        )
 
     @overload
     def get_closest_element_index(self, at_times: None) -> int: ...
@@ -561,6 +634,11 @@ class GeneralPerturbationsOrbit(BaseModel):
         orbit (the common case) this is equivalent to just asking that
         one element, since there is nothing to compare against.
 
+        If the orbit declares a repeat cycle (`repeat_cycle`, for an orbit
+        maintained on a repeat ground track without drag), it is refined
+        (see `GeneralPerturbationsElements.refine_repeat_cycle`) and
+        returned instead of searched for.
+
         Args:
             max_delta_position (float | None): the maximum difference in position (m) allowed for a repeat.
             max_delta_velocity (float | None): the maximum difference in velocity (m/s) allowed for a repeat.
@@ -579,9 +657,14 @@ class GeneralPerturbationsOrbit(BaseModel):
             )
 
         if lazy_load:
-            repeat_cycle = self.__dict__.get("repeat_cycle")
+            repeat_cycle = self.__dict__.get("computed_repeat_cycle")
         else:
             repeat_cycle = None
+        if repeat_cycle is None and self.repeat_cycle is not None:
+            # a declared repeat cycle (of a maintained orbit), refined with
+            # the first element instead of searched for
+            repeat_cycle = self.elements[0].refine_repeat_cycle(self.repeat_cycle)
+            self.__dict__["computed_repeat_cycle"] = repeat_cycle  # type: ignore
         if repeat_cycle is None:
             repeat_cycle = timedelta(0)
             min_cycle = max_cycle = None
@@ -603,7 +686,7 @@ class GeneralPerturbationsOrbit(BaseModel):
                 # keep the most recent element's cycle as the orbit's
                 # representative value, once every element seen so far agrees
                 repeat_cycle = cycle
-            self.__dict__["repeat_cycle"] = repeat_cycle  # type: ignore
+            self.__dict__["computed_repeat_cycle"] = repeat_cycle  # type: ignore
         if repeat_cycle is not None and repeat_cycle > timedelta(0):
             return repeat_cycle
         return None

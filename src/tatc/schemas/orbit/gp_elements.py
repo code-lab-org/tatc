@@ -22,6 +22,9 @@ from skyfield.searchlib import find_minima
 
 from ... import config, constants, utils
 
+SUN_SYNCHRONOUS_NODAL_DAY_TOLERANCE_S = 10
+"""Maximum difference (seconds) between the nodal day of a sun-synchronous orbit and a mean solar day."""
+
 
 class GeneralPerturbationsElements(BaseModel):
     """General perturbations orbital elements for a satellite."""
@@ -280,7 +283,11 @@ class GeneralPerturbationsElements(BaseModel):
         analytically-predicted candidate is confirmed by directly
         propagating the real orbit and checking that both position and
         velocity match the initial state within tolerance; the first
-        (shortest) candidate that does so is the reported repeat cycle.
+        (shortest) candidate that does so is the reported repeat cycle,
+        rounded to a whole number of nodal days (or, for a sun-synchronous
+        orbit, mean solar days; see `refine_repeat_cycle`). Candidates are
+        propagated without drag (B* and the mean motion derivatives set to
+        zero), as for an orbit maintained on its repeat ground track.
 
         This is scoped to a single element on purpose: a
         `GeneralPerturbationsOrbit` with multiple elements may span a
@@ -318,7 +325,12 @@ class GeneralPerturbationsElements(BaseModel):
             repeat_cycle = None
         if repeat_cycle is None:
             epoch = self.epoch
-            satellite = self.to_skyfield()
+            # verify candidates without drag (as for an orbit maintained
+            # against drag), which would otherwise move the propagated
+            # satellite away from its repeat ground track
+            satellite = self.model_copy(
+                update={"bstar": 0, "mean_motion_dot": 0, "mean_motion_ddot": 0}
+            ).to_skyfield()
             # record the initial position and velocity in Earth-centered Earth-fixed frame
             position_0, velocity_0 = satellite.at(
                 constants.timescale.from_datetime(epoch)
@@ -389,9 +401,50 @@ class GeneralPerturbationsElements(BaseModel):
                     delta_position < max_delta_position
                     and delta_velocity < max_delta_velocity
                 ):
-                    repeat_cycle = t_min - epoch
+                    # report a whole number of nodal (or, for a
+                    # sun-synchronous orbit, mean solar) days, as for a
+                    # maintained orbit, rather than the time of closest
+                    # approach, which reflects small errors of mean motion
+                    repeat_cycle = self.refine_repeat_cycle(t_min - epoch)
                     break
             self.__dict__["repeat_cycle"] = repeat_cycle  # type: ignore
         if repeat_cycle is not None and repeat_cycle > timedelta(0):
             return repeat_cycle
         return None
+
+    def refine_repeat_cycle(self, repeat_cycle: timedelta) -> timedelta:
+        """
+        Refines the approximate repeat cycle of an orbit maintained on a
+        repeat ground track (for example, a nominal number of days) to the
+        nearest whole number of nodal days (the period of the Earth's
+        rotation relative to the orbit's precessing ascending node, read from
+        the SGP4 model's secular rates, as in `get_repeat_cycle`), after which
+        a repeat ground track orbit returns over the same ground track. For a
+        sun-synchronous orbit (whose nodal day is within
+        `SUN_SYNCHRONOUS_NODAL_DAY_TOLERANCE_S` of a mean solar day), the
+        repeat cycle is refined to the nearest whole number of mean solar days
+        instead: a maintained sun-synchronous orbit keeps its local time of
+        ascending node (so that its nodal day is, on average, exactly a mean
+        solar day), whereas the elements' nodal precession at their epoch
+        typically differs slightly (for Landsat 9, by about 0.3 seconds per
+        day), which would accumulate over many cycles.
+
+        Unlike `get_repeat_cycle`, the satellite's return to its initial
+        Earth-fixed position is not verified: over a long repeat cycle, a
+        small difference between the elements' mean motion and the exact
+        repeat (well within the orbit's maintenance) accumulates to tens of
+        kilometers, and chance near-repeats at other durations can be closer.
+
+        Args:
+            repeat_cycle (timedelta): The approximate repeat cycle.
+
+        Returns:
+            timedelta: the refined repeat cycle
+        """
+        model = self.to_satrec()
+        earth_rotation_rate = 2 * np.pi / constants.EARTH_SIDEREAL_DAY_S * 60
+        nodal_day = 2 * np.pi / (earth_rotation_rate - model.nodedot) * 60
+        if abs(nodal_day - 86400) < SUN_SYNCHRONOUS_NODAL_DAY_TOLERANCE_S:
+            nodal_day = 86400
+        days = max(1, round(repeat_cycle.total_seconds() / nodal_day))
+        return timedelta(seconds=days * nodal_day)

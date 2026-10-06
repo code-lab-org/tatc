@@ -1394,24 +1394,35 @@ class TestGetRepeatCycle(unittest.TestCase):
     def test_consistency_threshold_override_changes_accept_reject_boundary(self):
         """
         Test that consistency_threshold controls the accept/reject
-        boundary directly: the same pair of elements (differing by
-        ~1.59 seconds in their independently-computed repeat cycles) is
-        rejected under a 1-second threshold and accepted under a
-        2-second threshold.
+        boundary directly: the same pair of elements of a
+        non-sun-synchronous orbit (SWOT), whose inclinations differ by
+        0.002 degrees so that their repeat cycles (whole numbers of nodal
+        days) differ by about 1.7 seconds, is rejected under a threshold
+        below that difference and accepted under one above it.
         """
-        base = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle).elements[0]
+        base = GeneralPerturbationsOrbit.from_tle(
+            [
+                "1 54754U 22173A   26277.59902338  .00000094  00000+0  65386-4 0  9997",
+                "2 54754  77.6084 247.6064 0000264 143.3265 216.7905 14.00173063194463",
+            ]
+        ).elements[0]
         nearly_identical = base.model_copy(
-            update={"mean_motion": base.mean_motion * (1 + 1e-6)}
+            update={"inclination": base.inclination + 0.002}
         )
+        difference = abs(
+            base.get_repeat_cycle(lazy_load=False)
+            - nearly_identical.get_repeat_cycle(lazy_load=False)
+        )
+        self.assertGreater(difference, timedelta(seconds=1))
         orbit = GeneralPerturbationsOrbit(elements=[base, nearly_identical])
         self.assertIsNone(
             orbit.get_repeat_cycle(
-                consistency_threshold=timedelta(seconds=1), lazy_load=False
+                consistency_threshold=difference / 2, lazy_load=False
             )
         )
         self.assertIsNotNone(
             orbit.get_repeat_cycle(
-                consistency_threshold=timedelta(seconds=2), lazy_load=False
+                consistency_threshold=difference * 2, lazy_load=False
             )
         )
 
@@ -1647,3 +1658,142 @@ if __name__ == "__main__":
             self.assertLess(
                 min(abs((t - time).total_seconds()) for t in matching), 1e-3
             )
+
+
+class TestRemoveDragAndRepeatCycle(unittest.TestCase):
+    """
+    Unit tests for removing the drag terms of a GP orbit and declaring the
+    repeat cycle of a maintained orbit.
+    """
+
+    def setUp(self):
+        # ICESat-2 (NORAD 43613) is maintained on a 91-day repeat ground
+        # track (1,387 orbits), which is too long to be found by the
+        # repeat-cycle search from a single element set
+        self.icesat2_tle = [
+            "1 43613U 18070A   26277.57046165  .00001587  00000+0  57409-4 0  9990",
+            "2 43613  91.9994 320.5065 0005609  71.5392 288.6467 15.28297940449160",
+        ]
+
+    def test_defaults_keep_drag(self):
+        """
+        Test that, by default, the elements' drag terms are kept and no
+        repeat cycle is declared.
+        """
+        orbit = GeneralPerturbationsOrbit.from_tle(self.icesat2_tle)
+        self.assertFalse(orbit.remove_drag)
+        self.assertIsNone(orbit.repeat_cycle)
+        self.assertNotEqual(orbit.get_bstar(), 0)
+
+    def test_remove_drag_zeroes_drag_terms(self):
+        """
+        Test that removing drag sets B* and the mean motion derivatives to
+        zero, so the propagated orbit matches at the epoch but no longer
+        decays (the two diverge over 30 days).
+        """
+        drag = GeneralPerturbationsOrbit.from_tle(self.icesat2_tle)
+        no_drag = GeneralPerturbationsOrbit.from_tle(self.icesat2_tle, remove_drag=True)
+        self.assertEqual(no_drag.get_bstar(), 0)
+        self.assertEqual(no_drag.get_mean_motion_dot(), 0)
+        self.assertEqual(no_drag.get_mean_motion_ddot(), 0)
+        epoch = drag.get_epoch()
+        at_epoch = [o.get_orbit_track(epoch).position.m for o in (drag, no_drag)]
+        np.testing.assert_allclose(at_epoch[0], at_epoch[1], atol=1e-3)
+        earlier = epoch - timedelta(days=30)
+        positions = [o.get_orbit_track(earlier).position.m for o in (drag, no_drag)]
+        self.assertGreater(np.linalg.norm(positions[0] - positions[1]), 10e3)
+
+    def test_repeat_cycle_requires_remove_drag(self):
+        """
+        Test that a repeat cycle cannot be declared for an orbit with drag.
+        """
+        with self.assertRaises(ValidationError):
+            GeneralPerturbationsOrbit.from_tle(
+                self.icesat2_tle, repeat_cycle=timedelta(days=91)
+            )
+
+    def test_declared_repeat_cycle_refined_to_nodal_days(self):
+        """
+        Test that a declared repeat cycle of 91 days is refined to 91
+        nodal days (from the SGP4 secular rates), within a minute of
+        ICESat-2's repeat cycle measured from the equator crossings of the
+        same reference ground tracks in consecutive cycles (90 days,
+        19:39:53 to 19:40:15), whereas the repeat-cycle search finds none.
+        """
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            self.icesat2_tle, remove_drag=True, repeat_cycle=timedelta(days=91)
+        )
+        model = orbit.elements[0].to_satrec()
+        nodal_day = (
+            2
+            * np.pi
+            / (2 * np.pi / constants.EARTH_SIDEREAL_DAY_S * 60 - model.nodedot)
+            * 60
+        )
+        repeat_cycle = orbit.get_repeat_cycle()
+        self.assertAlmostEqual(repeat_cycle.total_seconds(), 91 * nodal_day, places=3)
+        measured = timedelta(days=90, hours=19, minutes=40, seconds=5)
+        self.assertLess(abs((repeat_cycle - measured).total_seconds()), 60)
+        self.assertIsNone(
+            GeneralPerturbationsOrbit.from_tle(
+                self.icesat2_tle, remove_drag=True
+            ).get_repeat_cycle()
+        )
+
+    def test_declared_repeat_cycle_sun_synchronous_solar_days(self):
+        """
+        Test that a declared repeat cycle of a sun-synchronous orbit
+        (Landsat 9) is refined to whole mean solar days (16 days exactly),
+        as the orbit is maintained at a constant local time of ascending
+        node, rather than to whole nodal days from the elements' nodal
+        precession, which differs from a solar day by a fraction of a second.
+        """
+        landsat_9_tle = [
+            "1 49260U 21088A   26277.17558559  .00000158  00000+0  45237-4 0  9997",
+            "2 49260  98.2176 345.9720 0001438  89.7555 270.3809 14.57106411266879",
+        ]
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            landsat_9_tle, remove_drag=True, repeat_cycle=timedelta(days=16)
+        )
+        self.assertEqual(orbit.get_repeat_cycle(), timedelta(days=16))
+        self.assertEqual(
+            orbit.elements[0].refine_repeat_cycle(timedelta(days=15, hours=20)),
+            timedelta(days=16),
+        )
+
+    def test_declared_repeat_cycle_used_for_observation_events(self):
+        """
+        Test that the declared repeat cycle is used to repeat observation
+        events over analysis periods longer than the cycle.
+        """
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            self.icesat2_tle, remove_drag=True, repeat_cycle=timedelta(days=91)
+        )
+        start = orbit.get_epoch()
+        self.assertEqual(
+            orbit.get_observation_repeat_cycle(
+                start, start + timedelta(days=200), try_repeat=True
+            ),
+            orbit.get_repeat_cycle(),
+        )
+
+    def test_options_preserved(self):
+        """
+        Test that the options are preserved by derived orbits, OMM
+        constructors, and serialization.
+        """
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            self.icesat2_tle, remove_drag=True, repeat_cycle=timedelta(days=91)
+        )
+        derived = orbit.get_derived_orbit(10, 5)
+        self.assertTrue(derived.remove_drag)
+        self.assertEqual(derived.repeat_cycle, timedelta(days=91))
+        restored = GeneralPerturbationsOrbit.model_validate_json(
+            orbit.model_dump_json()
+        )
+        self.assertEqual(restored, orbit)
+        omm = json.dumps([orbit.elements[0].to_omm_dict()])
+        from_omm = GeneralPerturbationsOrbit.from_omm_json(
+            omm, remove_drag=True, repeat_cycle=timedelta(days=91)
+        )
+        self.assertEqual(from_omm.get_repeat_cycle(), orbit.get_repeat_cycle())
