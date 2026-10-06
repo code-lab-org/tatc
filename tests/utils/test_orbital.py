@@ -9,7 +9,11 @@ import unittest
 import numpy as np
 
 from tatc import constants
-from tatc.utils import mean_anomaly_to_true_anomaly, true_anomaly_to_mean_anomaly
+from tatc.utils import (
+    compute_argument_of_latitude,
+    mean_anomaly_to_true_anomaly,
+    true_anomaly_to_mean_anomaly,
+)
 from tatc.utils.orbital import (
     compute_apoapsis_radius,
     compute_ground_inertial_velocity,
@@ -418,4 +422,65 @@ class TestOrbital(unittest.TestCase):  # pylint: disable=too-many-public-methods
         """
         self.assertAlmostEqual(
             true_anomaly_to_mean_anomaly(78.95065818, 0.0001492), 78.940629, delta=0.01
+        )
+
+
+class TestComputeArgumentOfLatitude(unittest.TestCase):
+    """
+    Unit tests for compute_argument_of_latitude.
+    """
+
+    def test_quadrants(self):
+        """
+        Test the argument of latitude at the ascending node, the
+        northernmost point, the descending node, and the southernmost point
+        of a circular orbit inclined 60 degrees with its ascending node on
+        the x axis.
+        """
+        inclination = np.radians(60)
+        for u_deg in (0, 45, 90, 180, 270, 315):
+            u = np.radians(u_deg)
+            position = np.array(
+                [
+                    np.cos(u),
+                    np.sin(u) * np.cos(inclination),
+                    np.sin(u) * np.sin(inclination),
+                ]
+            )
+            velocity = np.array(
+                [
+                    -np.sin(u),
+                    np.cos(u) * np.cos(inclination),
+                    np.cos(u) * np.sin(inclination),
+                ]
+            )
+            self.assertAlmostEqual(
+                compute_argument_of_latitude(7e6 * position, 7e3 * velocity) % 360,
+                u_deg,
+                places=6,
+            )
+
+    def test_vectorized_retrograde(self):
+        """
+        Test that the argument of latitude is computed for (3, N) arrays and
+        for a retrograde orbit (inclination 120 degrees).
+        """
+        inclination = np.radians(120)
+        u = np.radians(np.array([10.0, 100.0, 200.0, 300.0]))
+        position = np.stack(
+            [
+                np.cos(u),
+                np.sin(u) * np.cos(inclination),
+                np.sin(u) * np.sin(inclination),
+            ]
+        )
+        velocity = np.stack(
+            [
+                -np.sin(u),
+                np.cos(u) * np.cos(inclination),
+                np.cos(u) * np.sin(inclination),
+            ]
+        )
+        np.testing.assert_allclose(
+            compute_argument_of_latitude(position, velocity), np.degrees(u), atol=1e-9
         )

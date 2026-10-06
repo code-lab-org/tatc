@@ -30,7 +30,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
 
     def setUp(self):
         super().setUp()
-        self.point = Point(id=0, latitude=0, longitude=0, min_elevation_angle=10)
+        self.point = Point(id=0, latitude=0, longitude=0)
         self.station = GroundStation(
             name="Station 1", latitude=0, longitude=180, min_elevation_angle=10
         )

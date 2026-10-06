@@ -27,6 +27,7 @@ from .observation import (
 )
 from .orbital import (
     compute_apoapsis_radius,
+    compute_argument_of_latitude,
     compute_ground_inertial_velocity,
     compute_ground_surface_velocity,
     compute_j2_aop_rate,
@@ -71,6 +72,7 @@ __all__ = [
     "buffer_footprint",
     "buffer_target",
     "compute_apoapsis_radius",
+    "compute_argument_of_latitude",
     "compute_cone_and_azimuth",
     "compute_field_of_regard",
     "compute_footprint",

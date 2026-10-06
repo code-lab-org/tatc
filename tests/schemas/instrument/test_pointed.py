@@ -5,7 +5,7 @@ Unit tests for the PointedInstrument schema.
 """
 
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 from pydantic import ValidationError
@@ -521,3 +521,114 @@ class TestPointedInstrument(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRollAngleProfile(unittest.TestCase):
+    """
+    Unit tests for a PointedInstrument roll angle that varies around the
+    orbit (roll_angle_profile).
+    """
+
+    def setUp(self):
+        epoch = datetime(2020, 3, 20, 12, tzinfo=timezone.utc)
+        self.satellite = EarthSatellite.from_satrec(
+            CircularOrbit(
+                mean_altitude=700000,
+                true_anomaly=0,
+                epoch=epoch,
+                inclination=98.0,
+                right_ascension_ascending_node=0.0,
+            )
+            .to_gp_orbit()
+            .elements[0]
+            .to_satrec(),
+            timescale,
+        )
+        period = 2 * np.pi * np.sqrt((6378137.0 + 700000) ** 3 / 3.986004418e14)
+        # a quarter orbit apart: arguments of latitude near 0, 90, 180, 270 deg
+        self.track = self.satellite.at(
+            timescale.from_datetimes(
+                [epoch + timedelta(seconds=float(k * period / 4)) for k in range(4)]
+            )
+        )
+        self.base = dict(
+            name="radar",
+            field_of_regard=90,
+            cross_track_field_of_view=10,
+            along_track_field_of_view=1,
+            roll_angle=-30,
+            is_rectangular=True,
+        )
+
+    def test_default_uses_roll_angle(self):
+        """
+        Test that, without a profile, the roll angle is constant.
+        """
+        instrument = PointedInstrument(**self.base)
+        self.assertEqual(instrument.get_roll_angle(self.track), -30)
+
+    def test_profile_sorted_and_interpolated_periodically(self):
+        """
+        Test that the profile is sorted by argument of latitude and
+        interpolated linearly, wrapping around 360 degrees.
+        """
+        instrument = PointedInstrument(
+            **self.base, roll_angle_profile=[(270, -32), (90, -28)]
+        )
+        self.assertEqual(instrument.roll_angle_profile, [(90, -28), (270, -32)])
+        roll = instrument.get_roll_angle(self.track)
+        # 0 and 180 deg are midway between the profile points (wrapping at 360)
+        np.testing.assert_allclose(roll, [-30, -28, -30, -32], atol=0.05)
+
+    def test_profile_validation(self):
+        """
+        Test that arguments of latitude outside [0, 360) and roll angles
+        outside [-180, 180] are rejected.
+        """
+        for profile in ([(360, -30)], [(-1, -30)], [(10, 181)], []):
+            with self.assertRaises(ValidationError):
+                PointedInstrument(**self.base, roll_angle_profile=profile)
+
+    def test_constant_profile_matches_fixed_roll(self):
+        """
+        Test that a constant profile gives the same footprints and fields
+        of view as the fixed roll angle.
+        """
+        fixed = PointedInstrument(**self.base)
+        steered = PointedInstrument(**self.base, roll_angle_profile=[(0, -30)])
+        for a, b in zip(
+            fixed.compute_footprint(self.track), steered.compute_footprint(self.track)
+        ):
+            self.assertTrue(a.equals(b))
+        target = fixed.compute_footprint_center(self.track[1])
+        self.assertTrue(steered.is_in_field_of_view(self.track[1], target)[0])
+
+    def test_profile_moves_view(self):
+        """
+        Test that the view center follows the profile: rolling 5 degrees
+        farther to the right in the northern part of the orbit moves the
+        footprint center farther from the ground track there only.
+        """
+        fixed = PointedInstrument(**self.base)
+        steered = PointedInstrument(
+            **self.base,
+            roll_angle_profile=[(0, -30), (90, -35), (180, -30), (270, -30)],
+        )
+        sub = wgs84.subpoint_of(self.track)
+        distance = {}
+        for name, instrument in [("fixed", fixed), ("steered", steered)]:
+            center = instrument.compute_footprint_center(self.track)
+            distance[name] = [
+                geodesic_distance(
+                    sub.longitude.degrees[k],
+                    sub.latitude.degrees[k],
+                    center.longitude.degrees[k],
+                    center.latitude.degrees[k],
+                )
+                for k in range(4)
+            ]
+        self.assertGreater(distance["steered"][1], distance["fixed"][1] + 50e3)
+        for k in (0, 2, 3):
+            self.assertAlmostEqual(
+                distance["steered"][k], distance["fixed"][k], delta=1e3
+            )

@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
-from pydantic import Field
+from pydantic import Field, field_validator
 from shapely import MultiPolygon, Polygon
 from shapely.geometry import MultiPoint, Point
 from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
+from ...utils.orbital import compute_argument_of_latitude
 from ...utils.projection import (
     VelocityFrame,
     compute_footprint,
@@ -47,6 +48,16 @@ class PointedInstrument(Instrument):
         + "along-track axis, positive to the left of the direction of motion.",
         ge=-180,
         le=180,
+    )
+    roll_angle_profile: list[tuple[float, float]] | None = Field(
+        default=None,
+        description="Roll angle (degrees) as a function of the satellite's "
+        + "argument of latitude (degrees from the ascending node, 0 to 360, in "
+        + "the direction of motion), as (argument of latitude, roll angle) pairs "
+        + "interpolated linearly and periodically, for an instrument whose roll "
+        + "varies around the orbit (for example, the roll steering of a "
+        + "synthetic aperture radar). If given, it overrides `roll_angle`.",
+        min_length=1,
     )
     pitch_angle: float = Field(
         default=0,
@@ -132,7 +143,7 @@ class PointedInstrument(Instrument):
             orbit_track=orbit_track,
             cross_track_field_of_view=self.cross_track_field_of_view,
             along_track_field_of_view=self.along_track_field_of_view,
-            roll_angle=self.roll_angle,
+            roll_angle=self.get_roll_angle(orbit_track),
             pitch_angle=self.pitch_angle,
             is_rectangular=self.is_rectangular,
             number_points=number_points,
@@ -140,6 +151,49 @@ class PointedInstrument(Instrument):
             velocity_frame=self.velocity_frame,
             nadir_reference=self.nadir_reference,
         )
+
+    @field_validator("roll_angle_profile")
+    @classmethod
+    def _validate_roll_angle_profile(
+        cls, profile: list[tuple[float, float]] | None
+    ) -> list[tuple[float, float]] | None:
+        """
+        Validates that the profile's arguments of latitude lie in [0, 360)
+        and its roll angles in [-180, 180], and sorts it by argument of
+        latitude.
+        """
+        if profile is None:
+            return None
+        for argument, roll in profile:
+            if not 0 <= argument < 360:
+                raise ValueError("Arguments of latitude must be in [0, 360).")
+            if not -180 <= roll <= 180:
+                raise ValueError("Roll angles must be in [-180, 180].")
+        return sorted(profile)
+
+    def get_roll_angle(
+        self, orbit_track: Geocentric | None = None
+    ) -> float | npt.NDArray[np.float64]:
+        """
+        Gets the roll angle (degrees) at the satellite position(s) of an orbit
+        track: interpolated from `roll_angle_profile` at the satellite's
+        argument of latitude, if given, or otherwise `roll_angle`.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric | None): The
+                satellite position/velocity (in an inertial frame).
+
+        Returns:
+            float | numpy.typing.NDArray[numpy.float64]: the roll angle(s) (degrees)
+        """
+        if self.roll_angle_profile is None or orbit_track is None:
+            return self.roll_angle
+        argument = compute_argument_of_latitude(
+            orbit_track.position.m, orbit_track.velocity.m_per_s
+        )
+        arguments, rolls = zip(*self.roll_angle_profile)
+        roll = np.interp(argument, arguments, rolls, period=360)
+        return float(roll) if np.ndim(roll) == 0 else roll
 
     def is_in_field_of_view(
         self,
@@ -161,7 +215,7 @@ class PointedInstrument(Instrument):
             orbit_track,
             target,
             self.velocity_frame,
-            self.roll_angle,
+            self.get_roll_angle(orbit_track),
             self.pitch_angle,
             self.nadir_reference,
         )
@@ -194,7 +248,7 @@ class PointedInstrument(Instrument):
             orbit_track=orbit_track,
             cross_track_field_of_view=0,
             along_track_field_of_view=0,
-            roll_angle=self.roll_angle,
+            roll_angle=self.get_roll_angle(orbit_track),
             pitch_angle=self.pitch_angle,
             is_rectangular=False,
             angle=0,
@@ -236,7 +290,7 @@ class PointedInstrument(Instrument):
             # pixel lands at its true cone-angle offset.
             cross_track_field_of_view=2 * cone,
             along_track_field_of_view=2 * cone,
-            roll_angle=self.roll_angle,
+            roll_angle=self.get_roll_angle(orbit_track),
             pitch_angle=self.pitch_angle,
             is_rectangular=False,
             angle=clock,

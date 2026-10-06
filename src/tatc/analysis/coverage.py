@@ -421,13 +421,14 @@ def _get_view_crossing_times(
 
     def residual(seconds: np.ndarray, index: np.ndarray) -> np.ndarray:
         # along-track component of the unit line of sight in the view frame
+        orbit_track = _get_orbit_track(
+            orbit,
+            [reference + pd.Timedelta(seconds=float(x)) for x in seconds],
+            [shifts[i] for i in index],
+        )
         position, _, along, _ = _compute_view_frame(
-            _get_orbit_track(
-                orbit,
-                [reference + pd.Timedelta(seconds=float(x)) for x in seconds],
-                [shifts[i] for i in index],
-            ),
-            instrument.roll_angle,
+            orbit_track,
+            instrument.get_roll_angle(orbit_track),
             instrument.pitch_angle,
             instrument.velocity_frame,
             instrument.nadir_reference,
