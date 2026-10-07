@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel, Field
 
 from ... import config, constants, utils
+from ...utils.cache import get_cached
 from .gp import GeneralPerturbationsOrbit
 
 
@@ -172,16 +173,11 @@ class OrbitBase(BaseModel):
         """
         if lazy_load is None:
             lazy_load = config.get_rc().gp_orbit_lazy_load
-        # the cached conversion is keyed by the orbit's field values, so that
-        # a copy with changed fields (e.g. from `model_copy(update=...)`,
-        # which copies the cache) is converted again
-        key = self.model_dump_json()
-        cached = self.__dict__.get("gp_orbit") if lazy_load else None
-        if cached is not None and cached[0] == key:
-            return cached[1]
-        gp_orbit = self._compute_gp_orbit()
-        self.__dict__["gp_orbit"] = (key, gp_orbit)  # type: ignore
-        return gp_orbit
+        # keyed by the orbit's field values, so that a copy with changed
+        # fields is converted again
+        return get_cached(
+            self, "gp_orbit", self.model_dump_json(), self._compute_gp_orbit, lazy_load
+        )
 
     def _compute_gp_orbit(self) -> GeneralPerturbationsOrbit:
         """

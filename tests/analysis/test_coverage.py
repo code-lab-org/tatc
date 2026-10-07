@@ -22,7 +22,7 @@ from tatc.analysis import (
     reduce_observations,
 )
 from tatc import config
-from tatc.analysis.coverage import _get_orbit_track
+from tatc.constants import timescale
 from tatc.schemas import (
     ConicalInstrument,
     GeneralPerturbationsOrbit,
@@ -316,26 +316,86 @@ class TestCoverageAnalysis(IssConstellationTestCase):
                     )
                     np.testing.assert_allclose(angle, 50, atol=1e-3)
 
-    def test_get_orbit_track_shifted(self):
+    def test_get_orbit_track_repeated(self):
         """
-        Test that a shifted orbit track has the Earth-fixed position and
-        velocity of the orbit at the shifted times, expressed at the
-        unshifted times.
+        Test that the orbit track has the Earth-fixed position and velocity
+        of the orbit's element maintained on its repeat ground track at the
+        times shifted by whole repeat cycles (here, two cycles after the
+        epoch, and one cycle before it), expressed at the unshifted times;
+        and that, without a repeat cycle, it is directly propagated.
         """
-        orbit = self.satellite.orbit.to_gp_orbit()
-        times = [
-            datetime(2022, 6, 1, 12, minute, tzinfo=timezone.utc) for minute in (0, 7)
-        ]
-        shifts = [timedelta(days=3), timedelta(days=-2)]
-        shifted = _get_orbit_track(orbit, times, shifts)
-        direct = orbit.get_orbit_track([t - d for t, d in zip(times, shifts)])
-        self.assertEqual(shifted.t.utc_datetime().tolist(), times)
-        shifted_position, shifted_velocity = shifted.frame_xyz_and_velocity(itrs)
-        direct_position, direct_velocity = direct.frame_xyz_and_velocity(itrs)
-        np.testing.assert_allclose(shifted_position.m, direct_position.m, atol=1e-3)
-        np.testing.assert_allclose(
-            shifted_velocity.m_per_s, direct_velocity.m_per_s, atol=1e-6
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            [
+                "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
+                "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
+            ],
+            remove_drag=True,
+            repeat_cycle="auto",
         )
+        repeat_cycle = orbit.get_repeat_cycle()
+        epoch = orbit.get_epoch()
+        times = [epoch + timedelta(days=40), epoch - timedelta(days=20)]
+        shifts = [2 * repeat_cycle, -repeat_cycle]
+        repeated = orbit.get_orbit_track(times)
+        maintained = orbit.get_repeat_element().to_skyfield()
+        direct = maintained.at(
+            timescale.from_datetimes([t - d for t, d in zip(times, shifts)])
+        )
+        self.assertEqual(repeated.t.utc_datetime().tolist(), times)
+        repeated_position, repeated_velocity = repeated.frame_xyz_and_velocity(itrs)
+        direct_position, direct_velocity = direct.frame_xyz_and_velocity(itrs)
+        np.testing.assert_allclose(repeated_position.m, direct_position.m, atol=1e-3)
+        np.testing.assert_allclose(
+            repeated_velocity.m_per_s, direct_velocity.m_per_s, atol=1e-6
+        )
+        np.testing.assert_allclose(
+            orbit.model_copy(update={"repeat_cycle": None})
+            .get_orbit_track(times)
+            .position.m,
+            orbit.elements[0]
+            .to_skyfield(remove_drag=True)
+            .at(timescale.from_datetimes(times))
+            .position.m,
+        )
+
+    def test_collect_observations_continuous_at_repeat_boundary(self):
+        """
+        Test that, when observation events are repeated, observations just
+        before the end of a repeat cycle are at the times of the element
+        maintained on its repeat ground track, like those just after it,
+        rather than offset by the drift of the element's own mean motion
+        over the cycle (about 10 s for this Landsat 8 element set).
+        """
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            [
+                "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
+                "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
+            ],
+            remove_drag=True,
+            repeat_cycle="auto",
+        )
+        boundary = orbit.get_epoch() + orbit.get_repeat_cycle()
+        satellite = Satellite(
+            name="Landsat 8",
+            orbit=orbit,
+            instruments=[Instrument(name="nadir", field_of_regard=15)],
+        )
+        for minutes in (-3, 3):
+            time = boundary + timedelta(minutes=minutes)
+            sub = wgs84.subpoint_of(orbit.get_orbit_track(time))
+            point = Point(
+                id=0,
+                latitude=float(sub.latitude.degrees),
+                longitude=float(sub.longitude.degrees),
+            )
+            observations = collect_observations(
+                point,
+                satellite,
+                boundary - timedelta(hours=3),
+                boundary + timedelta(hours=3),
+            )
+            nearest = (observations.epoch - time).abs().min()
+            self.assertLess(nearest, pd.Timedelta(seconds=1))
 
     def test_collect_observations_repeat_cycle_maintained_orbit(self):
         """
@@ -349,7 +409,9 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             [
                 "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
                 "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
-            ]
+            ],
+            remove_drag=True,
+            repeat_cycle="auto",
         )
         repeat_cycle = orbit.get_repeat_cycle()
         self.assertIsNotNone(repeat_cycle)
@@ -368,7 +430,6 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         )
         start = orbit.get_epoch()
         end = start + 4 * repeat_cycle
-        self.assertEqual(orbit.get_observation_repeat_cycle(start, end), repeat_cycle)
         point = Point(id=0, latitude=40, longitude=-105)
         observations = collect_observations(point, satellite, start, end)
         cycle = ((observations.epoch - start) // repeat_cycle).to_numpy()
@@ -380,6 +441,50 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             np.testing.assert_allclose(
                 (repeated - first - k * repeat_cycle).dt.total_seconds(), 0, atol=1e-2
             )
+
+    def test_collect_observations_repeat_cycle_anchored_at_epoch(self):
+        """
+        Test that observations ten repeat cycles after the orbit's epoch are
+        those of the first two repeat cycles after the epoch, shifted by ten
+        repeat cycles: the repeated cycle is anchored at the epoch, rather
+        than propagated (with drag) to the start of the analysis period.
+        """
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            [
+                "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
+                "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
+            ],
+            remove_drag=True,
+            repeat_cycle="auto",
+        )
+        repeat_cycle = orbit.get_repeat_cycle()
+        self.assertIsNotNone(repeat_cycle)
+        satellite = Satellite(
+            name="Landsat 8",
+            orbit=orbit,
+            instruments=[
+                PointedInstrument(
+                    name="Imager",
+                    field_of_regard=30,
+                    cross_track_field_of_view=15,
+                    along_track_field_of_view=0.1,
+                    is_rectangular=True,
+                )
+            ],
+        )
+        epoch = orbit.get_epoch()
+        point = Point(id=0, latitude=40, longitude=-105)
+        near = collect_observations(point, satellite, epoch, epoch + 2 * repeat_cycle)
+        far = collect_observations(
+            point, satellite, epoch + 10 * repeat_cycle, epoch + 12 * repeat_cycle
+        )
+        self.assertGreater(len(near), 0)
+        self.assertEqual(len(far), len(near))
+        np.testing.assert_allclose(
+            (far.epoch - near.epoch - 10 * repeat_cycle).dt.total_seconds(),
+            0,
+            atol=1e-2,
+        )
 
     def test_collect_observations_pointed_matches_field_of_regard(self):
         """
