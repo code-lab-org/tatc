@@ -18,6 +18,7 @@ The following compare TAT-C analysis results with reference data from operationa
   ValidateSARNISAR.ipynb
   ValidatePushbroomMSI.ipynb
   ValidateRevisitSentinel2.ipynb
+  ValidateRegionSentinel2.ipynb
   ValidateConicalAMSR2.ipynb
   ValidateConicalGMI.ipynb
   ValidateOrbitGeneration.ipynb
