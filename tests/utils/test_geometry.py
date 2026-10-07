@@ -15,6 +15,7 @@ from tatc.utils import (
     geodesic_destination,
     geodesic_distance,
     get_planar_bounds,
+    hash_geometry,
     normalize_geometry,
     project_polygon_to_elevation,
     split_polygon,
@@ -38,6 +39,29 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
     """
     Unit tests for the tatc.utils.geometry module.
     """
+
+    def test_hash_geometry(self):
+        """
+        Test that a geometry's hash is 16 hexadecimal digits, the same for
+        equal geometries with vertices in a different order or orientation,
+        and different for different geometries.
+        """
+        polygon = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        value = hash_geometry(polygon)
+        self.assertEqual(len(value), 16)
+        int(value, 16)
+        self.assertEqual(
+            hash_geometry(Polygon([(1, 1), (1, 0), (0, 0), (0, 1)])), value
+        )
+        self.assertNotEqual(
+            hash_geometry(Polygon([(0, 0), (1, 0), (1, 2), (0, 2)])), value
+        )
+        self.assertNotEqual(
+            hash_geometry(
+                Polygon([(0, 0, 100), (1, 0, 100), (1, 1, 100), (0, 1, 100)])
+            ),
+            value,
+        )
 
     def test_geodesic_distance_same_point(self):
         """

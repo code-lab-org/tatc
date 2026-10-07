@@ -23,7 +23,6 @@ from tatc.analysis import (
     reduce_observations,
 )
 from tatc.analysis.observations import _refine_access_periods
-from tatc import config
 from tatc.constants import timescale
 from tatc.schemas import (
     ConicalInstrument,

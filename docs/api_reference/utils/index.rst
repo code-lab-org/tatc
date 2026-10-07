@@ -76,6 +76,8 @@ Utility Functions
 
 .. autofunction:: tatc.utils.normalize_geometry
 
+.. autofunction:: tatc.utils.hash_geometry
+
 .. autofunction:: tatc.utils.geodesic_distance
 
 .. autofunction:: tatc.utils.get_planar_bounds

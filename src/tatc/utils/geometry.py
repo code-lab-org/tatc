@@ -6,6 +6,7 @@ Geometry utility functions.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any, overload
 
 import geopandas as gpd
@@ -18,9 +19,10 @@ from shapely.geometry import (
     GeometryCollection,
     LineString,
     MultiPolygon,
+    Point,
     Polygon,
 )
-from shapely.geometry import Point as ShapelyPoint
+from shapely.geometry.base import BaseGeometry
 from shapely.ops import split
 
 from .ellipsoid import _get_surface_directions
@@ -549,6 +551,26 @@ def normalize_geometry(
     return geometry
 
 
+def hash_geometry(geometry: BaseGeometry) -> str:
+    """
+    Computes a compact hash of a geometry, to identify it (for example, the
+    region of interest of an observation) without storing it: the first 16
+    hexadecimal digits (64 bits) of the BLAKE2b digest of its normalized
+    well-known binary (little-endian, with z coordinates, if any). Geometries
+    with the same normalized coordinates have the same hash, regardless of
+    the order of their vertices, rings, or parts.
+
+    Args:
+        geometry (shapely.geometry.base.BaseGeometry): The geometry.
+
+    Returns:
+        str: The hash, as 16 hexadecimal digits.
+    """
+    return hashlib.blake2b(
+        shapely.to_wkb(shapely.normalize(geometry), byte_order=1), digest_size=8
+    ).hexdigest()
+
+
 def _get_boundary_arcs(
     geometry: Polygon | MultiPolygon, elevation: float = 0, max_segment: float = 1
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
@@ -693,7 +715,7 @@ def _get_point_coordinates(point: Any) -> tuple[float, float, float]:
         tuple[float, float, float]: the longitude (degrees), latitude
             (degrees), and elevation (meters)
     """
-    if isinstance(point, ShapelyPoint):
+    if isinstance(point, Point):
         if point.is_empty:
             raise ValueError("Point is empty.")
         longitude, latitude = point.x, point.y

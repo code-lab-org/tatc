@@ -26,11 +26,18 @@ from ..constants import (
     EARTH_ROTATION_RATE,
     timescale,
 )
-from ..schemas import Satellite
+from ..schemas import (
+    ConicalInstrument,
+    GeneralPerturbationsOrbit,
+    Instrument,
+    PointedInstrument,
+    Satellite,
+)
 from ..utils.geometry import (
     _get_angular_distance_to_arcs,
     _get_boundary_arcs,
     _get_nearest_arc_points,
+    hash_geometry,
     project_polygon_to_elevation,
     split_polygon,
 )
@@ -40,11 +47,7 @@ from ..utils.ellipsoid import (
     _get_surface_positions,
 )
 from ..utils.projection import NadirReference, VelocityFrame, _compute_view_frame
-from .observations import (
-    _build_observation_frame,
-    _get_empty_coverage_frame,
-    _refine_access_periods,
-)
+from .observations import _refine_access_periods
 from .validation import _check_satellite, _check_satellites
 
 
@@ -352,13 +355,320 @@ def _get_region_view(
     return angle, sat_elevation, longitude, latitude
 
 
+def _get_empty_region_frame() -> gpd.GeoDataFrame:
+    """
+    Gets an empty data frame for region observations.
+
+    Returns:
+        geopandas.GeoDataFrame: Empty data frame.
+    """
+    columns = {
+        "target_hash": pd.Series([], dtype="str"),
+        "geometry": pd.Series([], dtype="object"),
+        "satellite": pd.Series([], dtype="str"),
+        "instrument": pd.Series([], dtype="str"),
+        "start": pd.Series([], dtype="datetime64[ns, utc]"),
+        "end": pd.Series([], dtype="datetime64[ns, utc]"),
+    }
+    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
+
+
+def _find_footprint_periods(
+    region: geo.Polygon | geo.MultiPolygon,
+    orbit: GeneralPerturbationsOrbit,
+    instrument: PointedInstrument | ConicalInstrument,
+    windows: list[pd.Interval],
+    elevation: float = 0,
+    time_step: timedelta = timedelta(seconds=10),
+    tolerance: timedelta = timedelta(milliseconds=1),
+) -> list[pd.Interval]:
+    """
+    Finds the periods within windows (which must contain them) when an
+    instrument's footprint intersects a region. Footprints are sampled at
+    most `time_step` apart within each window. Where neither of two
+    consecutive footprints intersects the region but the convex hull of both
+    (which contains the area the footprint sweeps between them) does, and
+    their distances to the region do not exceed the distance a footprint
+    moves between them, the interval is divided until a
+    footprint intersects the region or the interval is shorter than
+    `tolerance`, so that brief observations between samples are found. The
+    start and end of each period are refined by bisection to within
+    `tolerance`.
+
+    Args:
+        region (shapely.geometry.Polygon | shapely.geometry.MultiPolygon):
+                The region, split along the anti-meridian and poles (see
+                `tatc.utils.geometry.split_polygon`).
+        orbit (GeneralPerturbationsOrbit): The orbit.
+        instrument (PointedInstrument | ConicalInstrument): The instrument.
+        windows (list[pandas.Interval]): The windows to search.
+        elevation (float): The elevation (meters) of the region above the
+                WGS 84 ellipsoid, at which to project footprints.
+        time_step (datetime.timedelta): The maximum time between samples.
+        tolerance (datetime.timedelta): The precision of the period bounds.
+
+    Returns:
+        list[pandas.Interval]: the periods
+    """
+    if len(windows) == 0:
+        return []
+    reference = windows[0].left
+    resolution = tolerance.total_seconds()
+
+    def footprints(seconds: np.ndarray) -> np.ndarray:
+        if len(seconds) == 0:
+            return np.array([], dtype=object)
+        orbit_track = orbit.get_orbit_track(
+            [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
+        )
+        return np.array(
+            instrument.compute_footprint(orbit_track, elevation=elevation),
+            dtype=object,
+        )
+
+    def observes(views: np.ndarray) -> np.ndarray:
+        return shapely.intersects(views, region)
+
+    # bound on the angular rate (radians/second) at which footprints move
+    # over the ground: the orbital angular rate at periapsis plus the
+    # Earth's rotation, with a 50 percent margin for off-nadir views
+    rate = 1.5 * (
+        max(
+            np.sqrt(EARTH_MU * (1 + e.eccentricity) / e.get_semimajor_axis() ** 3)
+            / (1 - e.eccentricity) ** 1.5
+            for e in orbit.elements
+        )
+        + EARTH_ROTATION_RATE
+    )
+    # orthographic projection (of the unit sphere) centered on the region,
+    # under which distances on the hemisphere facing it do not exceed those
+    # on the sphere (radians), at any latitude and across the anti-meridian;
+    # boundaries are first divided into segments of at most 1 degree, as
+    # they are straight in longitude and latitude
+    center = region.representative_point()
+    sin_lat0, cos_lat0 = np.sin(np.radians(center.y)), np.cos(np.radians(center.y))
+
+    def project(coords: np.ndarray) -> np.ndarray:
+        longitude = np.radians(coords[:, 0] - center.x)
+        latitude = np.radians(coords[:, 1])
+        return np.column_stack(
+            [
+                np.cos(latitude) * np.sin(longitude),
+                cos_lat0 * np.sin(latitude)
+                - sin_lat0 * np.cos(latitude) * np.cos(longitude),
+            ]
+        )
+
+    def facing(geometries: np.ndarray) -> np.ndarray:
+        # whether every vertex of each geometry is on the facing hemisphere
+        coords, index = shapely.get_coordinates(geometries, return_index=True)
+        cosine = sin_lat0 * np.sin(np.radians(coords[:, 1])) + cos_lat0 * np.cos(
+            np.radians(coords[:, 1])
+        ) * np.cos(np.radians(coords[:, 0] - center.x))
+        result = np.ones(len(geometries), dtype=bool)
+        np.logical_and.at(result, index, cosine > 0)
+        return result
+
+    projected_region = shapely.transform(shapely.segmentize(region, 1), project)
+
+    def distance(views: np.ndarray) -> np.ndarray:
+        segmented = shapely.segmentize(views, 1)
+        return np.where(
+            facing(segmented),
+            np.nan_to_num(
+                shapely.distance(
+                    shapely.transform(segmented, project), projected_region
+                )
+            ),
+            0,
+        )
+
+    def may_observe(
+        views_a: np.ndarray, views_b: np.ndarray, seconds: np.ndarray
+    ) -> np.ndarray:
+        # the area swept between two footprints lies within their convex hull
+        possible = shapely.intersects(
+            shapely.convex_hull(shapely.union(views_a, views_b)), region
+        )
+        # and within the distance a footprint moves of either footprint
+        return possible & (distance(views_a) + distance(views_b) <= rate * seconds)
+
+    # samples within each window
+    bounds = [
+        ((w.left - reference).total_seconds(), (w.right - reference).total_seconds())
+        for w in windows
+    ]
+    samples = [
+        np.linspace(
+            lo, hi, max(2, int(np.ceil((hi - lo) / time_step.total_seconds())) + 1)
+        )
+        for lo, hi in bounds
+    ]
+    counts = np.cumsum([len(s) for s in samples])[:-1]
+    views = np.split(footprints(np.concatenate(samples)), counts)
+    seen = [observes(v) for v in views]
+    # search intervals where the footprint may have swept over the region
+    # between samples that do not observe it
+    times = [list(zip(s, p)) for s, p in zip(samples, seen)]
+    search = [
+        (k, s[i], s[i + 1], v[i], v[i + 1])
+        for k, (s, v, p) in enumerate(zip(samples, views, seen))
+        for i in np.flatnonzero(
+            ~p[:-1] & ~p[1:] & may_observe(v[:-1], v[1:], np.diff(s))
+        )
+    ]
+    while len(search) > 0:
+        middle = np.array([(lo + hi) / 2 for _, lo, hi, _, _ in search])
+        views_middle = footprints(middle)
+        seen_middle = observes(views_middle)
+        divided = []
+        for (k, lo, hi, view_lo, view_hi), t, view, found in zip(
+            search, middle, views_middle, seen_middle
+        ):
+            if found:
+                times[k].append((t, True))
+            elif hi - lo > 2 * resolution:
+                divided += [(k, lo, t, view_lo, view), (k, t, hi, view, view_hi)]
+        search = [
+            interval
+            for interval, keep in zip(
+                divided,
+                (
+                    may_observe(
+                        np.array([i[3] for i in divided], dtype=object),
+                        np.array([i[4] for i in divided], dtype=object),
+                        np.array([i[2] - i[1] for i in divided]),
+                    )
+                    if divided
+                    else []
+                ),
+            )
+            if keep
+        ]
+    # brackets of each change of state between (sorted) samples
+    times = [sorted(t) for t in times]
+    brackets = [
+        (k, i)
+        for k, t in enumerate(times)
+        for i in range(len(t) - 1)
+        if t[i][1] != t[i + 1][1]
+    ]
+    lower = np.array([times[k][i][0] for k, i in brackets])
+    upper = np.array([times[k][i + 1][0] for k, i in brackets])
+    state = np.array([times[k][i][1] for k, i in brackets], dtype=bool)
+    while len(lower) > 0 and np.any(upper - lower > resolution):
+        middle = (lower + upper) / 2
+        same = observes(footprints(middle)) == state
+        lower, upper = np.where(same, middle, lower), np.where(same, upper, middle)
+    crossings = dict(zip(brackets, (lower + upper) / 2))
+    periods = []
+    for k, t in enumerate(times):
+        left = t[0][0] if t[0][1] else None
+        for i in range(len(t) - 1):
+            if t[i][1] == t[i + 1][1]:
+                continue
+            if t[i + 1][1]:
+                left = crossings[(k, i)]
+            else:
+                periods.append((left, crossings[(k, i)]))
+                left = None
+        if left is not None:
+            periods.append((left, t[-1][0]))
+    return [
+        pd.Interval(
+            left=reference + pd.Timedelta(seconds=float(left)),
+            right=reference + pd.Timedelta(seconds=float(right)),
+        )
+        for left, right in periods
+    ]
+
+
+def _get_swath(
+    region: geo.Polygon | geo.MultiPolygon,
+    orbit: GeneralPerturbationsOrbit,
+    instrument: Instrument,
+    period: pd.Interval,
+    elevation: float = 0,
+    time_step: timedelta = timedelta(seconds=10),
+    min_time_step: timedelta = timedelta(milliseconds=100),
+) -> geo.Polygon | geo.MultiPolygon:
+    """
+    Gets the part of a region swept by an instrument's footprint (see
+    `compute_footprint`) during a period: the union of footprints sampled at
+    most `time_step` apart, where the interval between two consecutive
+    footprints that do not intersect is divided until they do (or it is
+    shorter than `min_time_step`), clipped to the region. Except for a
+    `ConicalInstrument` (whose footprint is an arc), footprints are convex,
+    so the convex hull of two consecutive footprints (a single polygon
+    spanning less than 180 degrees of longitude) fills the area swept
+    between them.
+
+    Args:
+        region (shapely.geometry.Polygon | shapely.geometry.MultiPolygon):
+                The region, split along the anti-meridian and poles (see
+                `tatc.utils.geometry.split_polygon`).
+        orbit (GeneralPerturbationsOrbit): The orbit.
+        instrument (Instrument): The instrument.
+        period (pandas.Interval): The period.
+        elevation (float): The elevation (meters) of the region above the
+                WGS 84 ellipsoid, at which to project footprints.
+        time_step (datetime.timedelta): The maximum time between samples.
+        min_time_step (datetime.timedelta): The minimum time between samples.
+
+    Returns:
+        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: the swath
+    """
+    duration = (period.right - period.left).total_seconds()
+
+    def footprints(seconds: np.ndarray) -> np.ndarray:
+        orbit_track = orbit.get_orbit_track(
+            [period.left + pd.Timedelta(seconds=float(x)) for x in seconds]
+        )
+        return np.array(
+            instrument.compute_footprint(orbit_track, elevation=elevation),
+            dtype=object,
+        )
+
+    seconds = np.linspace(
+        0, duration, max(2, int(np.ceil(duration / time_step.total_seconds())) + 1)
+    )
+    views = footprints(seconds)
+    # divide intervals between consecutive footprints that do not intersect
+    while True:
+        gaps = np.flatnonzero(
+            ~shapely.intersects(views[:-1], views[1:])
+            & (np.diff(seconds) > 2 * min_time_step.total_seconds())
+        )
+        if len(gaps) == 0:
+            break
+        middle = (seconds[gaps] + seconds[gaps + 1]) / 2
+        seconds = np.insert(seconds, gaps + 1, middle)
+        views = np.insert(views, gaps + 1, footprints(middle))
+    parts = [views]
+    if not isinstance(instrument, ConicalInstrument):
+        # fill the area swept between consecutive (convex) footprints
+        pairs = shapely.union(views[:-1], views[1:])
+        bounds = shapely.bounds(pairs)
+        single = (shapely.get_type_id(pairs) == 3) & (bounds[:, 2] - bounds[:, 0] < 180)
+        parts.append(shapely.convex_hull(pairs[single]))
+    swath = shapely.intersection(shapely.union_all(np.concatenate(parts)), region)
+    # keep the polygonal parts of the swath, without z coordinates
+    polygons = [
+        shapely.force_2d(part)
+        for part in shapely.get_parts(swath)
+        if isinstance(part, geo.Polygon) and not part.is_empty
+    ]
+    if len(polygons) == 1:
+        return polygons[0]
+    return geo.MultiPolygon(polygons)
+
+
 def collect_region_observations(
     region: geo.Polygon | geo.MultiPolygon,
     satellite: Satellite,
     start: datetime,
     end: datetime,
     instrument_index: int = 0,
-    omit_solar: bool = True,
 ) -> gpd.GeoDataFrame:
     """
     Collect single satellite observations of a region of interest: a
@@ -368,15 +678,28 @@ def collect_region_observations(
     the anti-meridian and poles (see `tatc.utils.geometry.split_polygon`).
     For a point, see `tatc.analysis.point_coverage.collect_observations`.
 
-    Each observation spans a period when any part of the region lies within
-    the instrument's field of regard and above the satellite's horizon: when
-    the angle from nadir of the region's point nearest to nadir (the nadir
-    point itself, if within the region) is at most half the field of regard.
-    Only the field of regard is considered, for any instrument: the view
-    geometry of a pointed or conical instrument is not. Each observation's
-    epoch is the period's midpoint, and its validity (illumination) and
-    satellite (and solar) angles refer to the region's point nearest to
-    nadir at the epoch.
+    Each observation spans a period when the instrument can observe any part
+    of the region, from its start to its end (refined to a millisecond):
+
+    - for a `PointedInstrument` or a `ConicalInstrument`, while its
+      instantaneous footprint (see `compute_footprint`) intersects the
+      region, searched within the periods when its field of regard (which
+      must contain its footprint) may observe the region (see
+      `compute_region_access_periods`);
+    - otherwise, while any part of the region lies within the field of
+      regard (a cone about nadir) and above the satellite's horizon.
+
+    An observation is recorded if it lasts at least the instrument's minimum
+    access time and the instrument's requirements (such as illumination) are
+    met at its midpoint, for a point of the region within the instrument's
+    view. The instrument's fixed access time (`access_time_fixed`) does not
+    apply to regions.
+
+    The geometry of each observation is its swath: the part of the region
+    swept by the instrument's footprint (see `compute_footprint`) during the
+    observation. The region is identified by its `target_hash` (see
+    `tatc.utils.geometry.hash_geometry`), with which `aggregate_observations`
+    and `reduce_observations` group observations of the same region.
 
     If the orbit is propagated with a repeat cycle (see
     `GeneralPerturbationsOrbit.repeat_cycle`), it is modeled as maintained on
@@ -390,11 +713,12 @@ def collect_region_observations(
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
         instrument_index (int): The index of the observing instrument in satellite.
-        omit_solar (bool): `True`, to omit solar angles to improve performance.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame with recorded observations
-            (with a `point_id` of 0).
+        geopandas.GeoDataFrame: The data frame of observations, with the
+            region's `target_hash`, the swath (`geometry`), the `satellite`
+            and `instrument` names, and the `start` and `end` of each
+            observation.
     """
     _check_satellite(satellite)
     if not isinstance(region, (geo.Polygon, geo.MultiPolygon)):
@@ -403,6 +727,7 @@ def collect_region_observations(
             f"{type(region).__name__} (see collect_observations for a point)"
         )
     elevation = _get_region_elevation(region)
+    target_hash = hash_geometry(region)
     # split along the anti-meridian and poles (which discards z coordinates),
     # restoring the region's elevation, if any
     geometry = split_polygon(region)
@@ -411,50 +736,62 @@ def collect_region_observations(
     instrument = satellite.instruments[instrument_index]
     orbit = satellite.orbit.to_gp_orbit()
     shapely.prepare(geometry)
-    arcs = _get_boundary_arcs(geometry, elevation)
-    periods = list(
+    windows = list(
         _get_visible_polygon_interval_series(
             geometry, satellite, instrument.field_of_regard, start, end, elevation
         )
     )
-    # refine the periods to the field of regard: when the angle from nadir
-    # of the region's point nearest to nadir is at most half the field of
-    # regard, and the satellite is above that point's horizon
-    half_angle = instrument.field_of_regard / 2
-
-    def residual(orbit_track: Geocentric) -> np.ndarray:
-        angle, sat_elevation, _, _ = _get_region_view(
-            geometry, arcs, orbit_track, instrument.nadir_reference, elevation
+    if isinstance(instrument, (PointedInstrument, ConicalInstrument)):
+        periods = _find_footprint_periods(
+            geometry, orbit, instrument, windows, elevation
         )
-        return np.maximum(angle - half_angle, -sat_elevation)
+    else:
+        # refine the windows to the field of regard: when the angle from
+        # nadir of the region's point nearest to nadir is at most half the
+        # field of regard, and the satellite is above that point's horizon
+        arcs = _get_boundary_arcs(geometry, elevation)
+        half_angle = instrument.field_of_regard / 2
 
-    periods = _refine_access_periods(
-        residual, orbit, periods, max_step=timedelta(seconds=10)
-    )
-    observations = []
+        def residual(orbit_track: Geocentric) -> np.ndarray:
+            angle, sat_elevation, _, _ = _get_region_view(
+                geometry, arcs, orbit_track, instrument.nadir_reference, elevation
+            )
+            return np.maximum(angle - half_angle, -sat_elevation)
+
+        periods = _refine_access_periods(
+            residual, orbit, windows, max_step=timedelta(seconds=10)
+        )
+    records = []
     for period in periods:
-        # instrument validity (illumination) is only checked at each
-        # period's epoch (its midpoint), for the region's point nearest to
-        # nadir, as an approximation of the whole interval
-        epoch = period.mid
-        orbit_track = orbit.get_orbit_track([epoch])
-        _, _, longitude, latitude = _get_region_view(
-            geometry, arcs, orbit_track, instrument.nadir_reference, elevation
-        )
-        target = wgs84.latlon(latitude[0], longitude[0], elevation)
-        if (
-            instrument.min_access_time <= period.right - period.left
-            and instrument.is_valid_observation(orbit_track, target).all()
-        ):
-            observations.append((period, epoch, (longitude[0], latitude[0], elevation)))
-    return _build_observation_frame(
-        observations,
-        0,
-        geometry,
-        satellite,
-        instrument,
-        omit_solar,
-    )
+        if period.right - period.left < instrument.min_access_time:
+            continue
+        # instrument validity (illumination) is only checked at the period's
+        # midpoint, for a point of the region within the instrument's view,
+        # as an approximation of the whole period
+        orbit_track = orbit.get_orbit_track([period.mid])
+        view = instrument.compute_footprint(orbit_track, elevation=elevation)[0]
+        observed = view.intersection(geometry)
+        point = (observed if not observed.is_empty else geometry).representative_point()
+        target = wgs84.latlon(point.y, point.x, elevation)
+        if instrument.is_valid_observation(orbit_track, target).all():
+            swath = _get_swath(geometry, orbit, instrument, period, elevation)
+            records.append(
+                {
+                    "target_hash": target_hash,
+                    "geometry": (
+                        project_polygon_to_elevation(swath, elevation)
+                        if region.has_z
+                        else swath
+                    ),
+                    "satellite": satellite.name,
+                    "instrument": instrument.name,
+                    "start": period.left,
+                    "end": period.right,
+                }
+            )
+    if len(records) == 0:
+        return _get_empty_region_frame()
+    return gpd.GeoDataFrame(records, crs="EPSG:4326")
 
 
 def collect_multi_region_observations(
@@ -462,7 +799,6 @@ def collect_multi_region_observations(
     satellites: Satellite | list[Satellite],
     start: datetime,
     end: datetime,
-    omit_solar: bool = True,
 ) -> gpd.GeoDataFrame:
     """
     Collect multiple satellite observations of a region of interest: calls
@@ -476,20 +812,17 @@ def collect_multi_region_observations(
                 each contributing an observation per instrument it carries.
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
-        omit_solar (bool): `True`, to omit solar angles to improve performance.
 
     Returns:
         geopandas.GeoDataFrame: The data frame with all recorded observations.
     """
     gdfs = [
-        collect_region_observations(
-            region, satellite, start, end, instrument_index, omit_solar
-        )
+        collect_region_observations(region, satellite, start, end, instrument_index)
         for satellite in _check_satellites(satellites)
         for instrument_index in range(len(satellite.instruments))
     ]
     if len(gdfs) == 0:
         # an empty `satellites` list leaves nothing to concatenate
-        return _get_empty_coverage_frame(omit_solar)
+        return _get_empty_region_frame()
     # concatenate into one data frame, sort by start time, and re-index
     return pd.concat(gdfs).sort_values("start").reset_index(drop=True)
