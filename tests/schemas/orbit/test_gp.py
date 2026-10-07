@@ -4,12 +4,15 @@ Unit tests for the GeneralPerturbationsOrbit schema.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import copy
 import csv
 import io
 import json
+import pickle
 import unittest
 import warnings
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import numpy as np
 from pydantic import ValidationError
@@ -1113,15 +1116,19 @@ class TestPartitionByElementIndex(unittest.TestCase):
         re-deriving them independently, so a subsequent call reuses the
         same cached list.
         """
-        self.assertIsNone(self.multi_element_orbit.__dict__.get("element_epochs"))
         start = self.epoch_0 - timedelta(days=365)
         end = self.epoch_2 + timedelta(days=365)
-        self.multi_element_orbit.partition_by_element_index(start, end)
-        cached = self.multi_element_orbit.__dict__.get("element_epochs")
-        self.assertIsNotNone(cached)
-        # the cache holds the elements' identities and their epochs
-        self.assertEqual(cached[1], [self.epoch_0, self.epoch_1, self.epoch_2])
-        self.assertIs(self.multi_element_orbit.get_element_epochs(), cached[1])
+        with patch.object(
+            GeneralPerturbationsOrbit,
+            "get_element_epochs",
+            autospec=True,
+            side_effect=GeneralPerturbationsOrbit.get_element_epochs,
+        ) as get_element_epochs:
+            self.multi_element_orbit.partition_by_element_index(start, end)
+        get_element_epochs.assert_called()
+        cached = self.multi_element_orbit.get_element_epochs()
+        self.assertEqual(cached, [self.epoch_0, self.epoch_1, self.epoch_2])
+        self.assertIs(self.multi_element_orbit.get_element_epochs(), cached)
 
     def test_single_element_orbit(self):
         """
@@ -1782,6 +1789,96 @@ class TestGetObservationEvents(unittest.TestCase):
         )
         self._assert_repeated_events(orbit, start, end, times, codes)
 
+    def _get_overhead_point(self, orbit, time):
+        """Gets the point beneath an orbit's (directly propagated) track at a time."""
+        subpoint = wgs84.subpoint_of(orbit.get_orbit_track(time, try_repeat=False))
+        return Point(
+            id=0,
+            latitude=float(subpoint.latitude.degrees),
+            longitude=float(subpoint.longitude.degrees),
+        )
+
+    def test_find_events_pass_culminating_outside_period(self):
+        """
+        Test that the set of a pass that culminates before the start of the
+        period, and the rise of one that culminates after its end, are found
+        (Skyfield's find_events finds neither).
+        """
+        orbit = GeneralPerturbationsOrbit(elements=[self.base])
+        culmination = self.base.epoch + timedelta(hours=1)
+        point = self._get_overhead_point(orbit, culmination)
+        topos = wgs84.latlon(point.latitude, point.longitude)
+        satellite = self.base.to_skyfield()
+        times, codes = _find_events(
+            satellite,
+            topos,
+            constants.timescale.from_datetime(culmination - timedelta(minutes=30)),
+            constants.timescale.from_datetime(culmination + timedelta(minutes=30)),
+            80,
+        )
+        self.assertEqual(codes.tolist(), [0, 1, 2])
+        rise, _, set_ = times.utc_datetime()
+        after = _find_events(
+            satellite,
+            topos,
+            constants.timescale.from_datetime(culmination + timedelta(seconds=2)),
+            constants.timescale.from_datetime(culmination + timedelta(minutes=30)),
+            80,
+        )
+        self.assertEqual(after[1].tolist(), [2])
+        self.assertLess(abs((after[0].utc_datetime()[0] - set_).total_seconds()), 1e-2)
+        before = _find_events(
+            satellite,
+            topos,
+            constants.timescale.from_datetime(culmination - timedelta(minutes=30)),
+            constants.timescale.from_datetime(culmination - timedelta(seconds=2)),
+            80,
+        )
+        self.assertEqual(before[1].tolist(), [0])
+        self.assertLess(abs((before[0].utc_datetime()[0] - rise).total_seconds()), 1e-2)
+
+    def test_multi_element_pass_spanning_element_switch(self):
+        """
+        Test that a pass spanning the switch between two elements (here,
+        identical, so that the orbit track is continuous) has the same
+        events as with a single element, although each element's period
+        contains only part of the pass.
+        """
+        single = GeneralPerturbationsOrbit(elements=[self.base])
+        multi = GeneralPerturbationsOrbit(elements=[self.base, self.base.model_copy()])
+        point = self._get_overhead_point(
+            single, self.base.epoch + timedelta(seconds=10)
+        )
+        start = self.base.epoch - timedelta(minutes=30)
+        end = self.base.epoch + timedelta(minutes=30)
+        expected = single.get_observation_events(point, start, end, 80, False)
+        actual = multi.get_observation_events(point, start, end, 80, False)
+        self.assertEqual(expected[1].tolist(), [0, 1, 2])
+        self.assertEqual(actual[1].tolist(), expected[1].tolist())
+        np.testing.assert_allclose(actual[0].tt, expected[0].tt, atol=1e-2 / 86400)
+
+    def test_multi_element_pass_ends_at_element_switch(self):
+        """
+        Test that a pass ends at the switch between two elements if the
+        satellite is above the minimum elevation angle with the first
+        element but not with the second (here, ahead along the orbit).
+        """
+        ahead = self.base.model_copy(
+            update={"mean_anomaly": (self.base.mean_anomaly + 3) % 360}
+        )
+        orbit = GeneralPerturbationsOrbit(elements=[self.base, ahead])
+        point = self._get_overhead_point(
+            GeneralPerturbationsOrbit(elements=[self.base]), self.base.epoch
+        )
+        start = self.base.epoch - timedelta(minutes=30)
+        end = self.base.epoch + timedelta(minutes=30)
+        times, codes = orbit.get_observation_events(point, start, end, 80, False)
+        self.assertEqual(codes.tolist()[-1], 2)
+        self.assertIn(0, codes.tolist()[:-1])
+        self.assertLess(
+            abs((times.utc_datetime()[-1] - self.base.epoch).total_seconds()), 1e-3
+        )
+
     def test_warns_when_propagating_with_drag_far_from_epoch(self):
         """
         Test that propagating an element with drag and without a repeat
@@ -2204,6 +2301,27 @@ class TestRemoveDragAndRepeatCycle(unittest.TestCase):
             .get_repeat_element(timedelta(days=30))
             .refine_repeat_cycle(timedelta(days=30)),
         )
+
+    def test_pickle_and_copy_after_propagation(self):
+        """
+        Test that an orbit can be pickled (as to send it to another process),
+        deep copied, and derived after it is propagated, which caches
+        Skyfield satellites that cannot be pickled.
+        """
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            self.icesat2_tle, remove_drag=True, repeat_cycle=timedelta(days=91)
+        )
+        time = orbit.get_epoch() + timedelta(days=200)
+        position = orbit.get_orbit_track(time).position.m
+        for other in (
+            pickle.loads(pickle.dumps(orbit)),
+            copy.deepcopy(orbit),
+            orbit.get_derived_orbit(0, 0),
+        ):
+            self.assertEqual(other, orbit)
+            np.testing.assert_allclose(
+                other.get_orbit_track(time).position.m, position, atol=1e-6
+            )
 
     def test_options_preserved(self):
         """

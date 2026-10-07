@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import json
 import warnings
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Literal, overload
 
@@ -47,6 +48,63 @@ def _to_time(times: datetime | list[datetime]) -> Time:
     return constants.timescale.from_datetimes(times)
 
 
+def _bisect(
+    excess: Callable[[npt.NDArray], npt.NDArray],
+    lower: npt.NDArray,
+    upper: npt.NDArray,
+) -> npt.NDArray:
+    """
+    Bisects brackets of a change of sign of a function to a millisecond.
+
+    Args:
+        excess (Callable[[numpy.typing.NDArray], numpy.typing.NDArray]): The
+            function of time (TT Julian date).
+        lower (numpy.typing.NDArray): The lower ends of the brackets.
+        upper (numpy.typing.NDArray): The upper ends of the brackets.
+
+    Returns:
+        numpy.typing.NDArray: the times of the changes of sign
+    """
+    if len(lower) == 0:
+        return lower
+    f_lower = excess(lower)
+    for _ in range(64):
+        if np.max(upper - lower) < 1e-3 / 86400:
+            break
+        middle = (lower + upper) / 2
+        f_middle = excess(middle)
+        same = np.sign(f_middle) == np.sign(f_lower)
+        lower = np.where(same, middle, lower)
+        f_lower = np.where(same, f_middle, f_lower)
+        upper = np.where(same, upper, middle)
+    return (lower + upper) / 2
+
+
+def _find_crossing(
+    excess: Callable[[npt.NDArray], npt.NDArray], start: float, stop: float
+) -> float | None:
+    """
+    Finds the first time, from `start` (where a function is not negative)
+    toward `stop`, when the function becomes negative, if it does so once
+    between them.
+
+    Args:
+        excess (Callable[[numpy.typing.NDArray], numpy.typing.NDArray]): The
+            function of time (TT Julian date).
+        start (float): The time from which to search.
+        stop (float): The time toward which to search (excluded).
+
+    Returns:
+        float | None: the time of the crossing, if found
+    """
+    samples = np.linspace(start, stop, 26)[:-1]
+    negative = np.flatnonzero(excess(samples) < 0)
+    if len(negative) == 0:
+        return None
+    bracket = np.sort(samples[negative[0] - 1 : negative[0] + 1])
+    return float(_bisect(excess, bracket[:1], bracket[1:])[0])
+
+
 def _find_events(
     satellite: EarthSatellite,
     topos: GeographicPosition,
@@ -57,7 +115,8 @@ def _find_events(
     """
     Find the rise, culminate, and set events of a satellite with respect to a
     ground position using Skyfield's `find_events`, with the rise and set
-    times refined by bisection.
+    times refined by bisection and the rise or set events of passes that
+    culminate outside the period added.
 
     Skyfield's search stops refining all rise and set brackets once the first
     one converges, which assumes they start with equal widths; over long
@@ -65,6 +124,13 @@ def _find_events(
     early or late. Each rise or set event lies between the preceding event
     (or `t_0`) and the reported time, where the elevation angle crosses the
     minimum, so that bracket is bisected to a millisecond.
+
+    Skyfield finds rise and set events around culminations, so it misses the
+    set of a pass that culminates before `t_0` (and the rise of one that
+    culminates after `t_1`): if the satellite is above the minimum elevation
+    angle at `t_0` but the first event found is a rise (or none is found and
+    it is below at `t_1`), its set in between is added (and, conversely, a
+    rise before `t_1`).
 
     Args:
         satellite (skyfield.sgp4lib.EarthSatellite): The satellite.
@@ -79,32 +145,37 @@ def _find_events(
     """
     times, events = satellite.find_events(topos, t_0, t_1, min_elevation_angle)
     jd = np.array(times.tt, dtype=float, ndmin=1)
-    refine = np.flatnonzero(events != 1)
-    if len(refine) == 0:
-        return times, events
+    events = np.array(events, dtype=int, ndmin=1)
     relative = satellite - topos
 
     def excess(x: npt.NDArray) -> npt.NDArray:
         t = constants.timescale.tt_jd(x)
         return relative.at(t).altaz()[0].degrees - min_elevation_angle
 
-    lower = np.concatenate(([t_0.tt], jd))[refine]
-    upper = jd[refine]
-    f_lower, f_upper = excess(lower), excess(upper)
-    bracketed = np.sign(f_lower) != np.sign(f_upper)
-    lower, upper, f_lower = lower[bracketed], upper[bracketed], f_lower[bracketed]
-    if len(lower) > 0:
-        for _ in range(64):
-            if np.max(upper - lower) < 1e-3 / 86400:
-                break
-            middle = (lower + upper) / 2
-            f_middle = excess(middle)
-            same = np.sign(f_middle) == np.sign(f_lower)
-            lower = np.where(same, middle, lower)
-            f_lower = np.where(same, f_middle, f_lower)
-            upper = np.where(same, upper, middle)
-        jd[refine[bracketed]] = (lower + upper) / 2
-    return constants.timescale.tt_jd(jd), events
+    refine = np.flatnonzero(events != 1)
+    if len(refine) > 0:
+        lower = np.concatenate(([t_0.tt], jd))[refine]
+        upper = jd[refine]
+        bracketed = np.sign(excess(lower)) != np.sign(excess(upper))
+        jd[refine[bracketed]] = _bisect(excess, lower[bracketed], upper[bracketed])
+    crossing_jd, crossing_events = jd[events != 1], events[events != 1]
+    f_0, f_1 = excess(np.array([t_0.tt, t_1.tt]))
+    added = []
+    if f_0 >= 0 and (len(crossing_events) == 0 or crossing_events[0] == 0):
+        if len(crossing_events) > 0 or f_1 < 0:
+            stop = crossing_jd[0] if len(crossing_events) > 0 else t_1.tt
+            added.append((_find_crossing(excess, t_0.tt, stop), 2))
+    if f_1 >= 0 and (len(crossing_events) == 0 or crossing_events[-1] == 2):
+        if len(crossing_events) > 0 or f_0 < 0:
+            stop = crossing_jd[-1] if len(crossing_events) > 0 else t_0.tt
+            added.append((_find_crossing(excess, t_1.tt, stop), 0))
+    added = [(time, code) for time, code in added if time is not None]
+    if len(added) == 0:
+        return constants.timescale.tt_jd(jd), events
+    jd = np.concatenate((jd, [time for time, _ in added]))
+    events = np.concatenate((events, [code for _, code in added]))
+    order = np.argsort(jd, kind="stable")
+    return constants.timescale.tt_jd(jd[order]), events[order]
 
 
 class _RepeatTrack:
@@ -180,6 +251,27 @@ class _RepeatTrack:
             t,
             center=399,
         )
+
+    def get_boundaries(self, start: datetime, end: datetime) -> list[datetime]:
+        """
+        Gets the ends of repeat cycles (other than the epoch) strictly
+        between `start` and `end`, at which the repeated orbit track joins
+        the next cycle.
+
+        Args:
+            start (datetime): Start time.
+            end (datetime): End time.
+
+        Returns:
+            list[datetime]: the ends of repeat cycles
+        """
+        first = int(np.ceil((start - self.epoch) / self.repeat_cycle))
+        last = int(np.floor((end - self.epoch) / self.repeat_cycle))
+        return [
+            self.epoch + cycles * self.repeat_cycle
+            for cycles in range(first, last + 1)
+            if cycles != 0 and start < self.epoch + cycles * self.repeat_cycle < end
+        ]
 
     def find_events(
         self,
@@ -1086,6 +1178,44 @@ class GeneralPerturbationsOrbit(BaseModel):
                 stacklevel=3,
             )
 
+    def _get_boundary_events(
+        self,
+        topos: GeographicPosition,
+        boundaries: list[datetime],
+        min_elevation_angle: float,
+        try_repeat: bool,
+    ) -> list[tuple[datetime, int]]:
+        """
+        Gets the rise and set events at boundaries where the propagation
+        switches between sources (elements, repeat tracks, or repeat cycles),
+        whose orbit tracks differ slightly. A satellite above the minimum
+        elevation angle just before a boundary but not just after it sets at
+        the boundary (or, conversely, rises), although `find_events`, which
+        searches each source separately, reports neither.
+
+        Args:
+            topos (skyfield.toposlib.GeographicPosition): Target location to observe.
+            boundaries (list[datetime]): The boundaries.
+            min_elevation_angle (float): Minimum elevation angle (deg) to constrain observation.
+            try_repeat (bool): True, if repeat tracks are used.
+
+        Returns:
+            list[tuple[datetime, int]]: event times and their rise (0) / set (2) codes
+        """
+        if len(boundaries) == 0:
+            return []
+        epsilon = timedelta(milliseconds=1)
+        t = _to_time([b + d for b in boundaries for d in (-epsilon, epsilon)])
+        altitude = (self.get_orbit_track_at_time(t, try_repeat) - topos.at(t)).altaz()[
+            0
+        ]
+        up = np.reshape(altitude.degrees >= min_elevation_angle, (-1, 2))
+        return [
+            (boundary, 2 if before else 0)
+            for boundary, (before, after) in zip(boundaries, up)
+            if before != after
+        ]
+
     def get_observation_events(
         self,
         point: Point,
@@ -1106,7 +1236,9 @@ class GeneralPerturbationsOrbit(BaseModel):
         after the epoch are computed once and repeated, shifted by whole
         repeat cycles, to cover the period), and the rest by partitioning
         the period by whichever element's epoch is closest at each time (see
-        `partition_by_element_index`).
+        `partition_by_element_index`). Where a pass spans a switch between
+        these sources, whose orbit tracks differ slightly, the satellite may
+        rise or set at the switch (see `_get_boundary_events`).
 
         Args:
             point (Point): Target location to observe.
@@ -1123,15 +1255,21 @@ class GeneralPerturbationsOrbit(BaseModel):
             try_repeat = config.get_rc().repeat_cycle_for_observation_events
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
         first, last = self._get_repeat_tracks(try_repeat)
-        events = []
+        # events, and boundaries between the sources that propagate them
+        events, boundaries = [], []
         if first is not None and start < first.epoch:
             events.extend(
                 first.find_events(
                     topos, start, min(end, first.epoch), min_elevation_angle
                 )
             )
+            boundaries.extend(first.get_boundaries(start, min(end, first.epoch)))
         direct_start = start if first is None else max(start, first.epoch)
         direct_end = end if last is None else min(end, last.epoch)
+        if first is not None and first is not last and start < first.epoch < end:
+            boundaries.append(first.epoch)
+        if last is not None and first is not last and start < last.epoch < end:
+            boundaries.append(last.epoch)
         if direct_start < direct_end:
             if try_repeat:
                 self._warn_if_propagating_with_drag(
@@ -1140,15 +1278,14 @@ class GeneralPerturbationsOrbit(BaseModel):
                         self.get_closest_element_index([direct_start, direct_end])
                     ),
                 )
-            boundaries, indices = self.partition_by_element_index(
-                direct_start, direct_end
-            )
+            parts, indices = self.partition_by_element_index(direct_start, direct_end)
+            boundaries.extend(parts[1:-1])
             for i, index in enumerate(indices):
                 times, codes = _find_events(
                     self.elements[index].to_skyfield(self.remove_drag),
                     topos,
-                    constants.timescale.from_datetime(boundaries[i]),
-                    constants.timescale.from_datetime(boundaries[i + 1]),
+                    constants.timescale.from_datetime(parts[i]),
+                    constants.timescale.from_datetime(parts[i + 1]),
                     min_elevation_angle,
                 )
                 if len(codes) > 0:
@@ -1161,6 +1298,12 @@ class GeneralPerturbationsOrbit(BaseModel):
                     topos, max(start, last.epoch), end, min_elevation_angle
                 )
             )
+            boundaries.extend(last.get_boundaries(max(start, last.epoch), end))
+        events.extend(
+            self._get_boundary_events(
+                topos, boundaries, min_elevation_angle, try_repeat
+            )
+        )
         # sort by time, removing duplicates at the ends of repeated cycles
         events = sorted(set((t, int(code)) for t, code in events))
         if len(events) == 0:
