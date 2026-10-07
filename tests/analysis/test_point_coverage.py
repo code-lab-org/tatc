@@ -18,6 +18,7 @@ from tatc.analysis import (
     aggregate_observations,
     collect_multi_observations,
     collect_observations,
+    compute_access_periods,
     grid_observations,
     reduce_observations,
 )
@@ -1328,4 +1329,66 @@ class TestCollectObservationsGeometry(IssConstellationTestCase):
         for column in ["access", "revisit", "samples"]:
             pd.testing.assert_series_equal(
                 actual[column], expected.loc[actual.index, column]
+            )
+
+
+class TestComputeAccessPeriods(IssConstellationTestCase):
+    """
+    Unit tests for `compute_access_periods`.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        self.end = self.start + timedelta(days=1)
+
+    def test_elevation_angle_at_bounds(self):
+        """
+        Test that the satellite is at the minimum elevation angle at the
+        start and end of each period that does not span the analysis
+        period's bounds, and above it at its midpoint.
+        """
+        periods = compute_access_periods(
+            Point(latitude=40.74, longitude=-74.03),
+            self.satellite,
+            self.start,
+            self.end,
+            10,
+        )
+        self.assertGreater(len(periods), 0)
+        topos = wgs84.latlon(40.74, -74.03)
+        for period in periods:
+            times = [period.left, period.mid, period.right]
+            track = self.orbit.get_orbit_track(times)
+            altitude = (
+                (track - topos.at(timescale.from_datetimes(times))).altaz()[0].degrees
+            )
+            np.testing.assert_allclose(altitude[[0, 2]], 10, atol=1e-3)
+            self.assertGreater(altitude[1], 10)
+
+    def test_shapely_point_matches_point(self):
+        """
+        Test that a shapely point has the same periods as the equivalent
+        TAT-C point.
+        """
+        expected = compute_access_periods(
+            Point(latitude=40.74, longitude=-74.03, elevation=100),
+            self.satellite,
+            self.start,
+            self.end,
+            10,
+        )
+        actual = compute_access_periods(
+            ShapelyPoint(-74.03, 40.74, 100), self.satellite, self.start, self.end, 10
+        )
+        self.assertGreater(len(expected), 0)
+        self.assertEqual(list(actual), list(expected))
+
+    def test_rejects_constellation(self):
+        """
+        Test that a constellation raises a TypeError.
+        """
+        with self.assertRaises(TypeError):
+            compute_access_periods(
+                Point(latitude=0, longitude=0), self.constellation, self.start, self.end
             )

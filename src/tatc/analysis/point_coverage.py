@@ -162,6 +162,52 @@ def _get_visible_interval_series(
     return pd.Series(obs_periods, dtype="interval")
 
 
+def compute_access_periods(
+    point: Point | geo.Point,
+    satellite: Satellite,
+    start: datetime,
+    end: datetime,
+    min_elevation_angle: float = 0,
+) -> pd.Series:
+    """
+    Compute the periods when a satellite is in view of a point: when its
+    elevation angle, seen from the point, is at least a minimum. The rise
+    and set times are refined to a millisecond (see
+    `GeneralPerturbationsOrbit.get_observation_events`), and periods in
+    progress at the start or end of the analysis period are truncated to it.
+    For the periods when an instrument observes the point, see
+    `collect_observations`.
+
+    Args:
+        point (Point | shapely.geometry.Point): The point: a TAT-C point or a
+                shapely point (longitude, latitude, and optional elevation in
+                meters).
+        satellite (Satellite): The satellite.
+        start (datetime.datetime): Start of analysis period.
+        end (datetime.datetime): End of analysis period.
+        min_elevation_angle (float): The minimum elevation angle (degrees).
+
+    Returns:
+        pandas.Series: the access periods (`pandas.Interval` of UTC
+            timestamps), in time order.
+    """
+    _check_satellite(satellite)
+    _, _, elevation = _get_point_coordinates(point)
+    # use the apogee altitude above the polar radius (and above the point,
+    # if below the ellipsoid) as a conservative upper bound for pairing rise
+    # and set events
+    max_altitude = (
+        compute_apoapsis_radius(
+            satellite.orbit.get_semimajor_axis(), satellite.orbit.get_eccentricity()
+        )
+        - EARTH_POLAR_RADIUS
+        - min(elevation, 0)
+    )
+    return _get_visible_interval_series(
+        point, satellite, min_elevation_angle, max_altitude, start, end
+    )
+
+
 def _get_view_crossing_times(
     target: GeographicPosition,
     satellite: Satellite,
@@ -364,9 +410,7 @@ def collect_observations(
     )
     target = wgs84.latlon(latitude, longitude, elevation)
     periods = list(
-        _get_visible_interval_series(
-            point, satellite, min_elevation_angle, max_altitude, start, end
-        )
+        compute_access_periods(point, satellite, start, end, min_elevation_angle)
     )
     # refine the periods to the field of regard: when the point's angle
     # from nadir is at most half the field of regard

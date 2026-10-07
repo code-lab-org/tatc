@@ -14,8 +14,8 @@ from tatc.analysis import (
     collect_multi_region_observations,
     collect_observations,
     collect_region_observations,
+    compute_region_access_periods,
 )
-from tatc.analysis.region_coverage import _get_visible_polygon_interval_series
 from tatc.schemas import Instrument, Satellite
 from tatc.utils import split_polygon
 
@@ -24,7 +24,7 @@ from .common import IssConstellationTestCase
 
 class TestVisiblePolygonIntervalSeries(IssConstellationTestCase):
     """
-    Unit tests for the periods when an instrument may observe a region.
+    Unit tests for `compute_region_access_periods`.
     """
 
     def setUp(self):
@@ -49,12 +49,12 @@ class TestVisiblePolygonIntervalSeries(IssConstellationTestCase):
             box(-180, -90, 180, -50),
         ]:
             with self.subTest(region=region.wkt):
-                periods = _get_visible_polygon_interval_series(
+                periods = compute_region_access_periods(
                     region,
                     self.narrow_satellite,
-                    self.narrow.field_of_regard,
                     times[0],
                     times[-1],
+                    self.narrow.field_of_regard,
                 )
                 observed = [
                     time
@@ -72,12 +72,12 @@ class TestVisiblePolygonIntervalSeries(IssConstellationTestCase):
         Test that there are no periods for a region beyond the reach of the
         instrument's field of regard (near the pole, for the ISS orbit).
         """
-        periods = _get_visible_polygon_interval_series(
+        periods = compute_region_access_periods(
             box(-180, 80, 180, 90),
             self.narrow_satellite,
-            self.narrow.field_of_regard,
             self.start,
             self.start + timedelta(days=1),
+            self.narrow.field_of_regard,
         )
         self.assertTrue(periods.empty)
 
@@ -87,16 +87,50 @@ class TestVisiblePolygonIntervalSeries(IssConstellationTestCase):
         period spanning the whole analysis period.
         """
         end = self.start + timedelta(hours=6)
-        periods = _get_visible_polygon_interval_series(
+        periods = compute_region_access_periods(
             box(-180, -90, 180, 90),
             self.narrow_satellite,
-            self.narrow.field_of_regard,
             self.start,
             end,
+            self.narrow.field_of_regard,
         )
         self.assertEqual(len(periods), 1)
         self.assertEqual(periods.iloc[0].left, pd.Timestamp(self.start))
         self.assertEqual(periods.iloc[0].right, pd.Timestamp(end))
+
+    def test_periods_use_region_elevation(self):
+        """
+        Test that the periods of a region with z coordinates use its
+        elevation by default, as when the elevation is given.
+        """
+        flat = box(-114.8, 31.3, -109.0, 37.0)
+        raised = Polygon([(x, y, 3000) for x, y in flat.exterior.coords])
+        end = self.start + timedelta(days=1)
+        by_z = compute_region_access_periods(
+            raised, self.narrow_satellite, self.start, end, self.narrow.field_of_regard
+        )
+        given = compute_region_access_periods(
+            flat,
+            self.narrow_satellite,
+            self.start,
+            end,
+            self.narrow.field_of_regard,
+            3000,
+        )
+        self.assertGreater(len(by_z), 0)
+        self.assertEqual(list(by_z), list(given))
+
+    def test_point_is_not_a_region(self):
+        """
+        Test that a point raises a TypeError.
+        """
+        with self.assertRaises(TypeError):
+            compute_region_access_periods(
+                ShapelyPoint(0, 0),
+                self.satellite,
+                self.start,
+                self.start + timedelta(hours=1),
+            )
 
 
 class TestCollectRegionObservations(IssConstellationTestCase):

@@ -781,7 +781,7 @@ def buffer_target(
     does not conservatively bound observations near the poles or across the
     anti-meridian. The analysis functions instead cull to the periods when
     an instrument's field of regard may observe a region (see
-    `tatc.analysis.region_coverage._get_visible_polygon_interval_series`). This
+    `tatc.analysis.region_coverage.compute_region_access_periods`). This
     function will be removed in a future release.
 
     Args:

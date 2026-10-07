@@ -14,11 +14,9 @@ import geopandas as gpd
 import pandas as pd
 from shapely import geometry as geo
 
-from ..constants import EARTH_MEAN_RADIUS
 from ..schemas import GroundStation, Satellite
-from ..utils.orbital import compute_apoapsis_radius
 from .observations import _get_target_keys
-from .point_coverage import _get_visible_interval_series
+from .point_coverage import compute_access_periods
 from .validation import _check_satellite
 
 
@@ -58,14 +56,7 @@ def collect_downlinks(
     Returns:
         geopandas.GeoDataFrame: The data frame of collected downlink results.
     """
-    # use the orbit's apogee altitude as a conservative upper bound
     _check_satellite(satellite)
-    max_altitude = (
-        compute_apoapsis_radius(
-            satellite.orbit.get_semimajor_axis(), satellite.orbit.get_eccentricity()
-        )
-        - EARTH_MEAN_RADIUS
-    )
     # collect the records of ground station overpasses
     records = [
         {
@@ -79,13 +70,8 @@ def collect_downlinks(
             "epoch": period.mid,
         }
         for station in ([stations] if isinstance(stations, GroundStation) else stations)
-        for period in _get_visible_interval_series(
-            station,
-            satellite,
-            station.min_elevation_angle,
-            max_altitude,
-            start,
-            end,
+        for period in compute_access_periods(
+            station, satellite, start, end, station.min_elevation_angle
         )
         if (station.min_access_time <= period.right - period.left)
     ]

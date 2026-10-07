@@ -18,7 +18,7 @@ from skyfield.positionlib import Geocentric
 from ..constants import de421
 from ..schemas import AllInstruments, PointedInstrument, Satellite
 from ..utils.geometry import split_polygon
-from .region_coverage import _get_visible_polygon_interval_series
+from .region_coverage import compute_region_access_periods
 from .validation import _check_satellite
 
 
@@ -74,7 +74,7 @@ def _cull_orbit_track(
     Propagates the orbit track only at the times when the instrument's
     footprint intersects a mask. The times are first culled to the periods
     when the instrument's field of regard may observe any part of the mask
-    (see `tatc.analysis.region_coverage._get_visible_polygon_interval_series`), so
+    (see `tatc.analysis.region_coverage.compute_region_access_periods`), so
     that the orbit is not propagated far from the mask, and then to those
     whose footprint intersects the mask.
 
@@ -92,12 +92,12 @@ def _cull_orbit_track(
             the culled orbit track and its footprints, or None if no
             footprint intersects the mask
     """
-    periods = _get_visible_polygon_interval_series(
+    periods = compute_region_access_periods(
         mask,
         satellite,
-        instrument.field_of_regard,
         min(times),
         max(times),
+        instrument.field_of_regard,
         elevation,
     )
     if periods.empty:

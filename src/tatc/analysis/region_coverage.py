@@ -73,7 +73,7 @@ def _get_visible_polygon_interval_series(
 
     is not positive. For a single point, this is equivalent to a minimum
     elevation angle condition (see
-    `tatc.analysis.point_coverage._get_visible_interval_series`). The
+    `tatc.analysis.point_coverage.compute_access_periods`). The
     central angle `lambda` is evaluated at the orbit's apoapsis (its largest
     over the orbit) on a sphere of the region's smallest geocentric radius
     (larger than on the ellipsoid), and widened by the largest separation of
@@ -237,6 +237,55 @@ def _get_region_elevation(region: geo.Polygon | geo.MultiPolygon) -> float:
     if not region.has_z:
         return 0.0
     return float(np.mean(shapely.get_coordinates(region, include_z=True)[:, 2]))
+
+
+def compute_region_access_periods(
+    region: geo.Polygon | geo.MultiPolygon,
+    satellite: Satellite,
+    start: datetime,
+    end: datetime,
+    field_of_regard: float = 180,
+    elevation: float | None = None,
+    margin: float = 0.1,
+) -> pd.Series:
+    """
+    Compute a conservative superset of the periods when an instrument's
+    field of regard (a cone about nadir, or the horizon) may observe any
+    part of a region, from which no observation is missed however brief:
+    for example, to cull the times at which to propagate an orbit or compute
+    footprints. The field of regard is evaluated conservatively (at the
+    orbit's apoapsis, on a sphere of the region's smallest radius, and
+    widened by a margin), so the periods may begin somewhat before and end
+    somewhat after the region is observed. For the periods when the region
+    is observed, see `collect_region_observations`.
+
+    Args:
+        region (shapely.geometry.Polygon | shapely.geometry.MultiPolygon):
+                The region (longitude and latitude in degrees).
+        satellite (Satellite): The satellite.
+        start (datetime.datetime): Start of analysis period.
+        end (datetime.datetime): End of analysis period.
+        field_of_regard (float): The instrument's field of regard (degrees;
+                180, the default, for the horizon).
+        elevation (float | None): The region's elevation (meters) above the
+                WGS 84 ellipsoid; by default, the mean of its z coordinates,
+                if any, or otherwise zero.
+        margin (float): Additional central angle (degrees) to widen the field of regard.
+
+    Returns:
+        pandas.Series: the access periods (`pandas.Interval` of UTC
+            timestamps), in time order.
+    """
+    _check_satellite(satellite)
+    if not isinstance(region, (geo.Polygon, geo.MultiPolygon)):
+        raise TypeError(
+            f"region must be a Polygon or MultiPolygon, not a {type(region).__name__}"
+        )
+    if elevation is None:
+        elevation = _get_region_elevation(region)
+    return _get_visible_polygon_interval_series(
+        region, satellite, field_of_regard, start, end, elevation, margin
+    )
 
 
 def _get_region_view(

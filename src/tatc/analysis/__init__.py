@@ -31,6 +31,7 @@ from .orbit_track import (
 from .point_coverage import (
     collect_multi_observations,
     collect_observations,
+    compute_access_periods,
 )
 from .radar import (
     collect_radar_track,
@@ -39,6 +40,7 @@ from .radar import (
 from .region_coverage import (
     collect_multi_region_observations,
     collect_region_observations,
+    compute_region_access_periods,
 )
 from .ro_coverage import (
     collect_ro_observations,
@@ -61,10 +63,12 @@ __all__ = [
     "collect_radar_track",
     "collect_region_observations",
     "collect_ro_observations",
+    "compute_access_periods",
     "compute_dop",
     "compute_ground_track",
     "compute_latencies",
     "compute_radar_track",
+    "compute_region_access_periods",
     "grid_latencies",
     "grid_observations",
     "reduce_latencies",
