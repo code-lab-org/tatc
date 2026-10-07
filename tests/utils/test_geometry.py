@@ -557,6 +557,101 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
         self.assertTrue(result.is_valid)
         self.assertFalse(result.has_z)
 
+    def test_split_polygon_antimeridian_beyond_180(self):
+        """
+        Test that a polygon whose coordinates continue past 180 degrees
+        longitude (without a jump between adjacent vertices) is split into
+        two polygons on the standard longitude range.
+        """
+        polygon = Polygon([(170, -10), (190, -10), (190, 10), (170, 10), (170, -10)])
+        result = MultiPolygon(
+            [
+                Polygon([(170, -10), (170, 10), (180, 10), (180, -10), (170, -10)]),
+                Polygon(
+                    [(-180, -10), (-180, 10), (-170, 10), (-170, -10), (-180, -10)]
+                ),
+            ]
+        )
+        self.assertTrue(split_polygon(polygon).equals(result))
+
+    def test_split_polygon_antimeridian_beyond_negative_180(self):
+        """
+        Test that a polygon whose coordinates continue past -180 degrees
+        longitude is split into two polygons on the standard longitude range.
+        """
+        polygon = Polygon(
+            [(-190, -10), (-170, -10), (-170, 10), (-190, 10), (-190, -10)]
+        )
+        result = MultiPolygon(
+            [
+                Polygon([(170, -10), (170, 10), (180, 10), (180, -10), (170, -10)]),
+                Polygon(
+                    [(-180, -10), (-180, 10), (-170, 10), (-170, -10), (-180, -10)]
+                ),
+            ]
+        )
+        self.assertTrue(split_polygon(polygon).equals(result))
+
+    def test_split_polygon_antimeridian_entirely_beyond_180(self):
+        """
+        Test that a polygon lying entirely past 180 degrees longitude is
+        wrapped to the standard longitude range.
+        """
+        polygon = Polygon([(190, -10), (200, -10), (200, 10), (190, 10), (190, -10)])
+        result = Polygon(
+            [(-170, -10), (-160, -10), (-160, 10), (-170, 10), (-170, -10)]
+        )
+        self.assertTrue(split_polygon(polygon).equals(result))
+
+    def test_split_polygon_antimeridian_beyond_180_with_hole(self):
+        """
+        Test that a hole past 180 degrees longitude is wrapped along with the
+        piece that contains it.
+        """
+        polygon = Polygon(
+            [(170, -10), (190, -10), (190, 10), (170, 10), (170, -10)],
+            [[(183, -2), (187, -2), (187, 2), (183, 2), (183, -2)]],
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.area, polygon.area)
+        self.assertFalse(result.contains(Point(-175, 0)))
+        self.assertTrue(result.contains(Point(-171, 0)))
+        self.assertTrue(result.contains(Point(175, 0)))
+
+    def test_split_polygon_all_longitudes_south_cap(self):
+        """
+        Test that a polygon spanning exactly -180 to 180 degrees longitude
+        down to the south pole is not split: its edges between -180 and 180
+        degrees are seams, not anti-meridian crossings.
+        """
+        polygon = Polygon(
+            [(-180, -90), (180, -90), (180, -70), (-180, -70), (-180, -90)]
+        )
+        self.assertEqual(split_polygon(polygon), polygon)
+
+    def test_split_polygon_all_longitudes_north_cap(self):
+        """
+        Test that a polygon spanning exactly -180 to 180 degrees longitude
+        up to the north pole is not split.
+        """
+        polygon = Polygon([(-180, 70), (180, 70), (180, 90), (-180, 90), (-180, 70)])
+        self.assertEqual(split_polygon(polygon), polygon)
+
+    def test_split_polygon_polar_cap_with_seam_vertices(self):
+        """
+        Test that a ring encircling a pole with vertices on both sides of
+        the anti-meridian (-180 and 180 degrees) is still split as a polar
+        cap: the seam edge between them is crossed the shorter way.
+        """
+        polygon = Polygon(
+            [(-180, -70), (-90, -70), (0, -70), (90, -70), (180, -70), (-180, -70)]
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertTrue(result.contains(Point(10, -80)))
+        self.assertFalse(result.contains(Point(10, -60)))
+
     def test_split_polygon_unknown_geometry(self):
         """
         Test that an unsupported geometry type raises a ValueError.

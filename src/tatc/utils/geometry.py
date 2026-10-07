@@ -16,7 +16,6 @@ from shapely.geometry import (
     GeometryCollection,
     LineString,
     MultiPolygon,
-    Point,
     Polygon,
 )
 from shapely.ops import split
@@ -313,24 +312,32 @@ def _split_polygon_antimeridian(
     """
     Splits a polygon that crosses the antimeridian (180 degrees longitude)
     into a valid MultiPolygon on the standard (-180, 180) longitude range.
-    A crossing is detected when adjacent exterior vertices jump by 180
-    degrees of longitude or more.
+    A crossing is either a jump, where adjacent exterior vertices differ by
+    more than 180 degrees of longitude (the shorter way around the globe
+    crosses the antimeridian), or a coordinate beyond +/-180 degrees (the
+    exterior continues past the antimeridian). A seam edge between vertices
+    both on the antimeridian (e.g. from -180 to 180 degrees along the edge of
+    a polygon spanning all longitudes) is not a jump, unless the exterior
+    encircles a pole.
 
     Two cases are handled differently:
 
-    - If the polygon's vertex longitudes wrap all the way around the globe
-      (e.g. a polar cap that does not itself exceed +/-90 degrees
-      latitude), it is reconstructed with a flattened edge at the pole and
-      split along the prime meridian instead of the antimeridian. Note:
-      the raw result of this case may be reported as invalid (the two
-      pieces touch along the shared prime-meridian cut edge); the public
-      `split_polygon` function repairs this via `shapely.make_valid`.
+    - If the exterior encircles a pole (its longitude winds a full 360
+      degrees around the globe, e.g. a polar cap that does not itself
+      exceed +/-90 degrees latitude), it is reconstructed with a flattened
+      edge at the pole and split along the prime meridian instead of the
+      antimeridian. Note: the raw result of this case may be reported as
+      invalid (the two pieces touch along the shared prime-meridian cut
+      edge); the public `split_polygon` function repairs this via
+      `shapely.make_valid`.
     - Otherwise, coordinates are "unrolled" past +/-180 degrees according to
-      the cumulative crossing direction, split along the antimeridian, and
-      wrapped back with `_wrap_polygon_over_antimeridian`.
+      the cumulative jump direction, split along the antimeridian that the
+      unrolled coordinates cross, and wrapped back with
+      `_wrap_polygon_over_antimeridian`.
 
-    A polygon with no detected crossing is returned unchanged. Note: this
-    function only supports polygons that span LESS than 360 degrees longitude.
+    A polygon with no crossing is returned unchanged. Note: this function
+    only supports polygons that span LESS than 360 degrees longitude, other
+    than polar caps and polygons spanning exactly -180 to 180 degrees.
 
     Args:
        polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to split.
@@ -340,14 +347,16 @@ def _split_polygon_antimeridian(
     """
     if isinstance(polygon, Polygon):
         lon = np.array([c[0] for c in polygon.exterior.coords])
-        # check if any longitudes cross the anti-meridian
-        # (adjacent coordinate longitude differs by more than 180 degrees)
-        if all(np.abs(np.diff(lon)) < 180):
-            return polygon
+        diff = np.diff(lon)
+        # jumps: adjacent coordinate longitudes differ by more than 180 degrees,
+        # distinguishing seam edges between vertices both on the anti-meridian
+        jump = np.abs(diff) > 180
+        seam = (np.abs(lon[:-1]) == 180) & (np.abs(lon[1:]) == 180)
+        # net longitude winding of the exterior (+/-360 degrees around a pole),
+        # taking each jump (including seam edges) the shorter way around
+        winding = np.sum(diff - 360 * np.where(jump, np.round(diff / 360), 0))
         # check if this polygon contains a pole
-        if Polygon(zip(np.cos(np.radians(lon)), np.sin(np.radians(lon)))).contains(
-            Point(0, 0)
-        ):
+        if np.abs(winding) > 180:
             # extract (lon, lat) only, discarding any z-dimension, and sort by longitude
             coords = [(c[0], c[1]) for c in polygon.exterior.coords[0:-1]]
             coords.sort(key=lambda r: r[0])
@@ -376,7 +385,13 @@ def _split_polygon_antimeridian(
         # find anti-meridian crossings and calculate shift direction
         # coords from W -> E (shift < 0) will add 360 degrees to E component
         # coords from E -> W (shift > 0) will subtract 360 degrees from W component
-        shift = np.insert(np.cumsum(np.around(np.diff(lon) / 360)), 0, 0)
+        # (seam edges are not crossings outside of a polar cap)
+        jump &= ~seam
+        shift = np.insert(np.cumsum(np.where(jump, np.round(diff / 360), 0)), 0, 0)
+        unrolled = lon - 360 * shift
+        if np.all(np.abs(unrolled) <= 180):
+            # no jumps and no coordinates beyond the anti-meridian
+            return polygon
         pgon = Polygon(
             [
                 (c[0] - 360 * shift[i], c[1])
@@ -394,8 +409,8 @@ def _split_polygon_antimeridian(
                 for i in polygon.interiors
             ],
         )
-        # split along the anti-meridian (-180 for shift > 0; 180 for shift < 0)
-        shift_dir = -180 if shift.max() >= 1 else 180
+        # split along the anti-meridian that the unrolled coordinates cross
+        shift_dir = -180 if unrolled.min() < -180 else 180
         parts = split(pgon, LineString([(shift_dir, -180), (shift_dir, 180)]))
         # convert to multi polygon
         if isinstance(parts, GeometryCollection):
@@ -416,9 +431,12 @@ def split_polygon(
     """
     Splits a Polygon into a MultiPolygon if it crosses the anti-meridian
     (180 degrees longitude), exceeds the north pole (90 degrees latitude), or
-    exceeds the south pole (-90 degrees latitude). Note: this function
-    only supports polygons that span LESS than 360 degrees longitude.
-    Operates on (longitude, latitude) only: any z-dimension on the input
+    exceeds the south pole (-90 degrees latitude). The anti-meridian may be
+    crossed either by a jump between adjacent vertices (e.g. from 170 to
+    -170 degrees) or by coordinates beyond +/-180 degrees (e.g. from 170 to
+    190 degrees). Note: this function only supports polygons that span LESS
+    than 360 degrees longitude, other than polar caps (encircling a pole)
+    and polygons spanning exactly -180 to 180 degrees. Operates on (longitude, latitude) only: any z-dimension on the input
     is discarded. Use `project_polygon_to_elevation` to add elevation back
     after splitting.
 
