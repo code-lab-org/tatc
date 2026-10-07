@@ -891,7 +891,9 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
             [
                 "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
                 "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
-            ]
+            ],
+            remove_drag=True,
+            repeat_cycle="auto",
         )
         repeat_cycle = orbit.get_repeat_cycle()
         satellite = Satellite(

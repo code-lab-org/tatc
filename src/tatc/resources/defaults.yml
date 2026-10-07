@@ -12,8 +12,6 @@ repeat_cycle_delta_semimajor_axis_m: 100
 repeat_cycle_search_duration_days: 30
 repeat_cycle_consistency_threshold_s: 3600
 repeat_cycle_lazy_load: True
-repeat_cycle_for_orbit_track: True
-repeat_cycle_for_observation_events: True
 
 # orbit tle-related settings
 gp_orbit_lazy_load: True

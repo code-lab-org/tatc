@@ -113,9 +113,12 @@ class MolniyaTundraOrbitBase(OrbitBase):
         minutes = ((np.pi - satrec.mo) % (2 * np.pi)) / satrec.mdot
         # refine the time of maximum radius from samples every 30 s
         offsets = minutes + np.arange(-30, 30.5, 0.5)
-        track = gp_orbit.get_orbit_track(
-            [self.epoch + timedelta(minutes=float(offset)) for offset in offsets],
-            try_repeat=False,
+        # propagated directly (not repeated), as the orbit's own geometry
+        satellite = gp_orbit.elements[0].to_skyfield()
+        track = satellite.at(
+            constants.timescale.from_datetimes(
+                [self.epoch + timedelta(minutes=float(offset)) for offset in offsets]
+            )
         )
         radius = np.linalg.norm(track.position.m, axis=0)
         k = int(np.clip(np.argmax(radius), 1, len(radius) - 2))
@@ -126,7 +129,7 @@ class MolniyaTundraOrbitBase(OrbitBase):
         )
         apogee_time = self.epoch + timedelta(minutes=float(offsets[k] + 0.5 * shift))
         position = wgs84.subpoint_of(
-            gp_orbit.get_orbit_track(apogee_time, try_repeat=False)
+            satellite.at(constants.timescale.from_datetime(apogee_time))
         )
         return float((position.longitude.degrees + 180) % 360 - 180)
 

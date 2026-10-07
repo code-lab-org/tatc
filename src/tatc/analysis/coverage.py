@@ -14,10 +14,8 @@ import numpy as np
 import pandas as pd
 from shapely import geometry as geo
 from skyfield.api import wgs84
-from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
-from .. import config
 from ..constants import EARTH_POLAR_RADIUS, de421, timescale
 from ..schemas import (
     ConicalInstrument,
@@ -86,7 +84,7 @@ def _get_visible_interval_series(
         # elevation angle at the window's midpoint.
         mid = start + (end - start) / 2
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
-        orbit_track = _get_orbit_track(satellite.orbit.to_gp_orbit(), [mid])[0]
+        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track([mid])[0]
         elevation_angle = (
             (orbit_track - topos.at(timescale.from_datetime(mid))).altaz()[0].degrees
         )
@@ -246,27 +244,6 @@ def _find_crossings(
     return crossing, bracketed
 
 
-def _get_orbit_track(
-    orbit: GeneralPerturbationsOrbit, times: list[datetime]
-) -> Geocentric:
-    """
-    Get the orbit track at a list of times, as propagated for observation
-    events: with the orbit's repeat tracks, if observation events are
-    repeated (the `repeat_cycle_for_observation_events` setting; see
-    `GeneralPerturbationsOrbit.get_orbit_track_at_time`).
-
-    Args:
-        orbit (GeneralPerturbationsOrbit): The orbit.
-        times (list[datetime.datetime]): The times.
-
-    Returns:
-        skyfield.positionlib.Geocentric: The orbit track.
-    """
-    return orbit.get_orbit_track(
-        times, try_repeat=config.get_rc().repeat_cycle_for_observation_events
-    )
-
-
 def _refine_access_periods(
     target: GeographicPosition,
     orbit: GeneralPerturbationsOrbit,
@@ -299,8 +276,8 @@ def _refine_access_periods(
 
     def angle_from_nadir(seconds: np.ndarray, _index: np.ndarray) -> np.ndarray:
         angle, _ = compute_cone_and_azimuth(
-            _get_orbit_track(
-                orbit, [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
+            orbit.get_orbit_track(
+                [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
             ),
             target,
             nadir_reference=instrument.nadir_reference,
@@ -367,8 +344,8 @@ def _get_view_crossing_times(
 
     def residual(seconds: np.ndarray, _index: np.ndarray) -> np.ndarray:
         # along-track component of the unit line of sight in the view frame
-        orbit_track = _get_orbit_track(
-            orbit, [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
+        orbit_track = orbit.get_orbit_track(
+            [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
         )
         if instrument.view_geometry == ViewGeometry.SCAN:
             # the target's along-track (pitch) angle reaches the view's
@@ -427,8 +404,8 @@ def _get_cone_crossing_times(
 
     def cone_angle(seconds: np.ndarray, _index: np.ndarray) -> np.ndarray:
         cone, _ = compute_cone_and_azimuth(
-            _get_orbit_track(
-                orbit, [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
+            orbit.get_orbit_track(
+                [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
             ),
             target,
             instrument.velocity_frame,
@@ -483,10 +460,10 @@ def collect_observations(
     crosses the scanned cone (up to two per period, entering and leaving the
     cone); at that time, the point must lie within the field of view.
 
-    If observation events are repeated with the orbit's repeat cycle (the
-    `repeat_cycle_for_observation_events` setting), the orbit is modeled as
-    maintained on its repeat ground track before its first and after its
-    last element's epoch (see `GeneralPerturbationsOrbit.get_orbit_track_at_time`).
+    If the orbit is propagated with a repeat cycle (see
+    `GeneralPerturbationsOrbit.repeat_cycle`), it is modeled as maintained on
+    its repeat ground track before its first and after its last element's
+    epoch (see `GeneralPerturbationsOrbit.get_orbit_track_at_time`).
 
     Args:
         point (Point): The ground point of interest.
@@ -548,7 +525,7 @@ def collect_observations(
             # observation period boundaries with Skyfield's find_discrete
             # using the instrument's own validity condition, but that is out
             # of scope for now
-            orbit_track = _get_orbit_track(orbit, [epoch])
+            orbit_track = orbit.get_orbit_track([epoch])
             if not (
                 instrument.min_access_time <= period.right - period.left
                 and instrument.is_valid_observation(orbit_track, target).all()
@@ -585,7 +562,7 @@ def collect_observations(
         gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
         ts = timescale.from_datetimes(gdf.epoch)
-        orbit_track = _get_orbit_track(orbit, gdf.epoch.tolist())
+        orbit_track = orbit.get_orbit_track(gdf.epoch.tolist())
         # append satellite altitude/azimuth columns
         sat_altaz = (orbit_track - topos.at(ts)).altaz()
         gdf["sat_alt"] = sat_altaz[0].degrees  # type: ignore

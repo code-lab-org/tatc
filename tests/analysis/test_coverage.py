@@ -23,7 +23,6 @@ from tatc.analysis import (
 )
 from tatc import config
 from tatc.constants import timescale
-from tatc.analysis.coverage import _get_orbit_track
 from tatc.schemas import (
     ConicalInstrument,
     GeneralPerturbationsOrbit,
@@ -319,24 +318,25 @@ class TestCoverageAnalysis(IssConstellationTestCase):
 
     def test_get_orbit_track_repeated(self):
         """
-        Test that the orbit track, as propagated for observation events, has
-        the Earth-fixed position and velocity of the orbit's element
-        maintained on its repeat ground track at the times shifted by whole
-        repeat cycles (here, two cycles after the epoch, and one cycle before
-        it), expressed at the unshifted times; and that, if observation
-        events are not repeated, it is directly propagated.
+        Test that the orbit track has the Earth-fixed position and velocity
+        of the orbit's element maintained on its repeat ground track at the
+        times shifted by whole repeat cycles (here, two cycles after the
+        epoch, and one cycle before it), expressed at the unshifted times;
+        and that, without a repeat cycle, it is directly propagated.
         """
         orbit = GeneralPerturbationsOrbit.from_tle(
             [
                 "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
                 "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
-            ]
+            ],
+            remove_drag=True,
+            repeat_cycle="auto",
         )
         repeat_cycle = orbit.get_repeat_cycle()
         epoch = orbit.get_epoch()
         times = [epoch + timedelta(days=40), epoch - timedelta(days=20)]
         shifts = [2 * repeat_cycle, -repeat_cycle]
-        repeated = _get_orbit_track(orbit, times)
+        repeated = orbit.get_orbit_track(times)
         maintained = orbit.get_repeat_element().to_skyfield()
         direct = maintained.at(
             timescale.from_datetimes([t - d for t, d in zip(times, shifts)])
@@ -348,18 +348,15 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         np.testing.assert_allclose(
             repeated_velocity.m_per_s, direct_velocity.m_per_s, atol=1e-6
         )
-        original = config.get_rc().repeat_cycle_for_observation_events
-        try:
-            config.get_rc().repeat_cycle_for_observation_events = False
-            np.testing.assert_allclose(
-                _get_orbit_track(orbit, times).position.m,
-                orbit.elements[0]
-                .to_skyfield()
-                .at(timescale.from_datetimes(times))
-                .position.m,
-            )
-        finally:
-            config.get_rc().repeat_cycle_for_observation_events = original
+        np.testing.assert_allclose(
+            orbit.model_copy(update={"repeat_cycle": None})
+            .get_orbit_track(times)
+            .position.m,
+            orbit.elements[0]
+            .to_skyfield(remove_drag=True)
+            .at(timescale.from_datetimes(times))
+            .position.m,
+        )
 
     def test_collect_observations_continuous_at_repeat_boundary(self):
         """
@@ -373,7 +370,9 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             [
                 "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
                 "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
-            ]
+            ],
+            remove_drag=True,
+            repeat_cycle="auto",
         )
         boundary = orbit.get_epoch() + orbit.get_repeat_cycle()
         satellite = Satellite(
@@ -410,7 +409,9 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             [
                 "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
                 "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
-            ]
+            ],
+            remove_drag=True,
+            repeat_cycle="auto",
         )
         repeat_cycle = orbit.get_repeat_cycle()
         self.assertIsNotNone(repeat_cycle)
@@ -452,7 +453,9 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             [
                 "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
                 "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
-            ]
+            ],
+            remove_drag=True,
+            repeat_cycle="auto",
         )
         repeat_cycle = orbit.get_repeat_cycle()
         self.assertIsNotNone(repeat_cycle)

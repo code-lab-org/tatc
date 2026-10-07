@@ -11,7 +11,7 @@ import json
 import warnings
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Literal, overload
+from typing import Annotated, Literal, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -26,6 +26,9 @@ from ... import config, constants, utils
 from ...utils.cache import get_cached
 from ..surface import Point
 from .gp_elements import GeneralPerturbationsElements
+
+RepeatCycle = Annotated[timedelta, Field(gt=timedelta(0))] | Literal["auto"] | None
+"""Repeat cycle of a GP orbit: declared, "auto" (found from the elements), or None (direct)."""
 
 _FIRST_REPEAT = -1
 """Source code of times propagated with the first element's repeat track."""
@@ -335,15 +338,14 @@ class GeneralPerturbationsOrbit(BaseModel):
     Orbit defined with general perturbations (GP) elements.
 
     The orbit is propagated with SGP4, using whichever element's epoch is
-    closest to each time. If a repeat cycle is used (by default, see the
-    `repeat_cycle_for_orbit_track` and `repeat_cycle_for_observation_events`
-    settings) and either the orbit declares one (`repeat_cycle`) or one is
-    found (see `GeneralPerturbationsElements.get_repeat_cycle`), times before
-    the first element's epoch and after the last element's epoch are instead
-    propagated with that element maintained on its repeat ground track and
-    repeated with its repeat cycle (see `get_repeat_element`), as for an
-    orbit maintained on its repeat ground track, which SGP4 does not model.
-    For an orbit with a single element, this applies to all times.
+    closest to each time. Optionally (with `repeat_cycle` and `remove_drag`),
+    it is propagated as an orbit maintained against drag on a repeat ground
+    track, which SGP4 does not model: if the orbit declares a repeat cycle or
+    one is found (see `GeneralPerturbationsElements.get_repeat_cycle`), times
+    before the first element's epoch and after the last element's epoch are
+    instead propagated with that element maintained on its repeat ground
+    track and repeated with its repeat cycle (see `get_repeat_element`). For
+    an orbit with a single element, this applies to all times.
     """
 
     type: Literal["gp"] = Field(default="gp", description="Orbit type discriminator.")
@@ -358,15 +360,19 @@ class GeneralPerturbationsOrbit(BaseModel):
         + "Earth's oblateness (and, for deep-space orbits, the Moon and Sun) "
         + "still perturb the orbit.",
     )
-    repeat_cycle: timedelta | None = Field(
+    repeat_cycle: RepeatCycle = Field(
         default=None,
-        description="Repeat cycle of an orbit maintained on a repeat ground "
-        + "track (for example, 91 days), which overrides the computed repeat "
-        + "cycle; it is refined to the nearest whole number of nodal days "
-        + "(or, for a sun-synchronous orbit, mean solar days) of the elements "
-        + "maintained on the repeat ground track (see "
-        + "`GeneralPerturbationsElements.get_repeat_element`). Requires `remove_drag`.",
-        gt=timedelta(0),
+        description="Repeat cycle with which the orbit is propagated as "
+        + "maintained on a repeat ground track: None (the default), to "
+        + "propagate the elements directly; `auto`, to use the repeat cycle "
+        + "found from the elements, if any (see "
+        + "`GeneralPerturbationsElements.get_repeat_cycle`); or a duration, to "
+        + "declare the repeat cycle (for example, 91 days, which is refined to "
+        + "the nearest whole number of nodal days, or for a sun-synchronous "
+        + "orbit mean solar days, of the elements maintained on the repeat "
+        + "ground track; see `GeneralPerturbationsElements.get_repeat_element`). "
+        + "A repeat cycle requires `remove_drag`, as the orbit is maintained "
+        + "against drag.",
     )
 
     @model_validator(mode="after")
@@ -383,8 +389,9 @@ class GeneralPerturbationsOrbit(BaseModel):
     @model_validator(mode="after")
     def _validate_repeat_cycle(self) -> GeneralPerturbationsOrbit:
         """
-        Validates that a repeat cycle is only declared without drag (with
-        drag, the orbit would not repeat).
+        Validates that a repeat cycle (declared or "auto") is only used
+        without drag, as for an orbit maintained against drag (with drag, the
+        orbit would not repeat).
         """
         if self.repeat_cycle is not None and not self.remove_drag:
             raise ValueError("repeat_cycle requires remove_drag=True.")
@@ -575,7 +582,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         cls,
         tle_lines: list[str],
         remove_drag: bool = False,
-        repeat_cycle: timedelta | None = None,
+        repeat_cycle: RepeatCycle = None,
     ) -> GeneralPerturbationsOrbit:
         """
         Creates a GP orbit from two line element (TLE) lines. Multiple
@@ -586,8 +593,9 @@ class GeneralPerturbationsOrbit(BaseModel):
         Args:
             tle_lines (list[str]): the two line element lines
             remove_drag (bool): True, to propagate the orbit without drag.
-            repeat_cycle (timedelta | None): The repeat cycle of a maintained
-                orbit (requires `remove_drag`).
+            repeat_cycle (timedelta | Literal["auto"] | None): The repeat
+                cycle: None (direct propagation), "auto" (found from the
+                elements), or declared; a repeat cycle requires `remove_drag`.
 
         Returns:
             GeneralPerturbationsOrbit: the GP orbit
@@ -611,7 +619,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         cls,
         omm_csv: list[str],
         remove_drag: bool = False,
-        repeat_cycle: timedelta | None = None,
+        repeat_cycle: RepeatCycle = None,
     ) -> GeneralPerturbationsOrbit:
         """
         Creates a GP orbit from OMM CSV lines, using every data row
@@ -621,8 +629,9 @@ class GeneralPerturbationsOrbit(BaseModel):
         Args:
             omm_csv (list[str]): The OMM CSV lines, including a header row.
             remove_drag (bool): True, to propagate the orbit without drag.
-            repeat_cycle (timedelta | None): The repeat cycle of a maintained
-                orbit (requires `remove_drag`).
+            repeat_cycle (timedelta | Literal["auto"] | None): The repeat
+                cycle: None (direct propagation), "auto" (found from the
+                elements), or declared; a repeat cycle requires `remove_drag`.
 
         Returns:
             GeneralPerturbationsOrbit: the GP orbit
@@ -641,7 +650,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         cls,
         omm_json: str,
         remove_drag: bool = False,
-        repeat_cycle: timedelta | None = None,
+        repeat_cycle: RepeatCycle = None,
     ) -> GeneralPerturbationsOrbit:
         """
         Creates a GP orbit from an OMM JSON string, using every entry
@@ -652,8 +661,9 @@ class GeneralPerturbationsOrbit(BaseModel):
             omm_json (str): The OMM JSON string, encoding a list of OMM
                 records.
             remove_drag (bool): True, to propagate the orbit without drag.
-            repeat_cycle (timedelta | None): The repeat cycle of a maintained
-                orbit (requires `remove_drag`).
+            repeat_cycle (timedelta | Literal["auto"] | None): The repeat
+                cycle: None (direct propagation), "auto" (found from the
+                elements), or declared; a repeat cycle requires `remove_drag`.
 
         Returns:
             GeneralPerturbationsOrbit: the GP orbit
@@ -861,7 +871,8 @@ class GeneralPerturbationsOrbit(BaseModel):
         max_delta_semimajor_axis: float | None = None,
     ) -> timedelta | None:
         """
-        Gets the orbit's repeat cycle, if every element agrees on one.
+        Gets the orbit's repeat cycle, if every element agrees on one, or
+        None if the orbit is propagated directly (`repeat_cycle` is None).
 
         If the orbit declares a repeat cycle (`repeat_cycle`, for an orbit
         maintained on a repeat ground track without drag), it is refined to
@@ -891,7 +902,9 @@ class GeneralPerturbationsOrbit(BaseModel):
         Returns:
             timedelta: the repeat cycle duration (if every element agrees on one)
         """
-        if self.repeat_cycle is not None:
+        if self.repeat_cycle is None:
+            return None
+        if isinstance(self.repeat_cycle, timedelta):
             return self._get_repeat_track(0).repeat_cycle  # type: ignore
         if consistency_threshold is None:
             consistency_threshold = timedelta(
@@ -916,7 +929,8 @@ class GeneralPerturbationsOrbit(BaseModel):
     def _get_approximate_repeat_cycle(self, index: int) -> timedelta | None:
         """
         Gets the approximate repeat cycle of an element: the orbit's declared
-        repeat cycle, if any, or otherwise the element's computed one.
+        repeat cycle, the element's computed one, or None if the orbit is
+        propagated directly.
 
         Args:
             index (int): the index of the element
@@ -924,9 +938,9 @@ class GeneralPerturbationsOrbit(BaseModel):
         Returns:
             timedelta | None: the approximate repeat cycle, if any
         """
-        if self.repeat_cycle is not None:
-            return self.repeat_cycle
-        return self.elements[index].get_repeat_cycle()
+        if self.repeat_cycle == "auto":
+            return self.elements[index].get_repeat_cycle()
+        return self.repeat_cycle
 
     def get_repeat_element(self, index: int = 0) -> GeneralPerturbationsElements | None:
         """
@@ -944,7 +958,8 @@ class GeneralPerturbationsOrbit(BaseModel):
 
         Returns:
             GeneralPerturbationsElements | None: the maintained element, if
-                the orbit declares a repeat cycle or the element has one
+                the orbit declares a repeat cycle or the element has one (and
+                the orbit is not propagated directly)
         """
         repeat_cycle = self._get_approximate_repeat_cycle(index)
         if repeat_cycle is None:
@@ -973,22 +988,15 @@ class GeneralPerturbationsOrbit(BaseModel):
             lambda: _RepeatTrack(element, element.refine_repeat_cycle(repeat_cycle)),
         )
 
-    def _get_repeat_tracks(
-        self, try_repeat: bool
-    ) -> tuple[_RepeatTrack | None, _RepeatTrack | None]:
+    def _get_repeat_tracks(self) -> tuple[_RepeatTrack | None, _RepeatTrack | None]:
         """
         Gets the repeat tracks used before the first element's epoch and
         after the last element's epoch (the same for a single element).
-
-        Args:
-            try_repeat (bool): True, if repeat tracks should be used.
 
         Returns:
             tuple[_RepeatTrack | None, _RepeatTrack | None]: the first and
                 last elements' repeat tracks, if used
         """
-        if not try_repeat:
-            return None, None
         first = self._get_repeat_track(0)
         if len(self.elements) == 1:
             return first, first
@@ -1020,24 +1028,22 @@ class GeneralPerturbationsOrbit(BaseModel):
             return last.at(t)  # type: ignore
         return self.elements[source].to_skyfield(self.remove_drag).at(t)  # type: ignore
 
-    def get_orbit_track_at_time(
-        self, t: Time, try_repeat: bool | None = None
-    ) -> Geocentric:
+    def get_orbit_track_at_time(self, t: Time) -> Geocentric:
         """
         Gets the orbit track of this orbit at given Skyfield time(s), in the
         inertial (GCRS) frame.
 
         Each time is propagated with whichever element's epoch is closest to
         it (see `get_closest_element_index`), so a vectorized `t` may draw
-        from different elements for different entries. If `try_repeat`,
-        times before the first element's epoch and after the last element's
-        epoch are instead propagated with that element's repeat track, if it
-        has a repeat cycle: the satellite's Earth-fixed position and velocity
-        are those of the element maintained on its repeat ground track at
-        the time shifted by whole repeat cycles to within one repeat cycle of
-        its epoch (see `get_repeat_element`), expressed in the inertial frame
-        at the time itself. For an orbit with a single element, this applies
-        to all times.
+        from different elements for different entries. Unless `repeat_cycle`
+        is None, times before the first element's epoch and after the last
+        element's epoch are instead propagated with that element's repeat
+        track, if it has a repeat cycle: the satellite's Earth-fixed position
+        and velocity are those of the element maintained on its repeat ground
+        track at the time shifted by whole repeat cycles to within one repeat
+        cycle of its epoch (see `get_repeat_element`), expressed in the
+        inertial frame at the time itself. For an orbit with a single
+        element, this applies to all times.
 
         Prefer this method over `get_orbit_track` when a Skyfield `Time` is
         already in hand (e.g. while iterating a Skyfield search such as
@@ -1047,15 +1053,11 @@ class GeneralPerturbationsOrbit(BaseModel):
 
         Args:
             t (skyfield.timelib.Time): time(s) at which to compute position/velocity.
-            try_repeat (bool | None): True, if repeat tracks should be used
-                (by default, the `repeat_cycle_for_orbit_track` setting).
 
         Returns:
             skyfield.positionlib.Geocentric: the orbit track position/velocity
         """
-        if try_repeat is None:
-            try_repeat = config.get_rc().repeat_cycle_for_orbit_track
-        first, last = self._get_repeat_tracks(try_repeat)
+        first, last = self._get_repeat_tracks()
         # the source of each time: the closest element's index, or a repeat track
         sources = np.asarray(self.get_closest_element_index(t))
         if last is not None:
@@ -1066,8 +1068,7 @@ class GeneralPerturbationsOrbit(BaseModel):
                 _LAST_REPEAT if first is last else _FIRST_REPEAT,
                 sources,
             )
-        if try_repeat:
-            self._warn_if_propagating_with_drag(t, sources)
+        self._warn_if_propagating_with_drag(t, sources)
         unique = np.unique(sources)
         if len(unique) == 1:
             return self._propagate(int(unique[0]), t, first, last)
@@ -1092,42 +1093,34 @@ class GeneralPerturbationsOrbit(BaseModel):
             velocity_au_per_d[:, mask] = track.velocity.au_per_d
         return Geocentric(position_au, velocity_au_per_d, t)
 
-    def get_orbit_track(
-        self, times: datetime | list[datetime], try_repeat: bool | None = None
-    ) -> Geocentric:
+    def get_orbit_track(self, times: datetime | list[datetime]) -> Geocentric:
         """
         Gets the orbit track of this orbit at given time(s), in the inertial
         (GCRS) frame (see `get_orbit_track_at_time`).
 
         Args:
             times (datetime | list[datetime]): time(s) at which to compute position/velocity.
-            try_repeat (bool | None): True, if repeat tracks should be used
-                (by default, the `repeat_cycle_for_orbit_track` setting).
 
         Returns:
             skyfield.positionlib.Geocentric: the orbit track position/velocity
         """
-        return self.get_orbit_track_at_time(_to_time(times), try_repeat)
+        return self.get_orbit_track_at_time(_to_time(times))
 
-    def get_geographic_position_at_time(
-        self, t: Time, try_repeat: bool | None = None
-    ) -> GeographicPosition:
+    def get_geographic_position_at_time(self, t: Time) -> GeographicPosition:
         """
         Gets the geodetic (WGS84) position of this orbit at given Skyfield
         time(s), in an Earth-fixed frame (see `get_orbit_track_at_time`).
 
         Args:
             t (skyfield.timelib.Time): time(s) at which to compute geodetic position.
-            try_repeat (bool | None): True, if repeat tracks should be used
-                (by default, the `repeat_cycle_for_orbit_track` setting).
 
         Returns:
             skyfield.toposlib.GeographicPosition: the geodetic position
         """
-        return wgs84.geographic_position_of(self.get_orbit_track_at_time(t, try_repeat))
+        return wgs84.geographic_position_of(self.get_orbit_track_at_time(t))
 
     def get_geographic_position(
-        self, times: datetime | list[datetime], try_repeat: bool | None = None
+        self, times: datetime | list[datetime]
     ) -> GeographicPosition:
         """
         Gets the geodetic (WGS84) position of this orbit at given time(s), in
@@ -1135,13 +1128,11 @@ class GeneralPerturbationsOrbit(BaseModel):
 
         Args:
             times (datetime | list[datetime]): time(s) at which to compute geodetic position.
-            try_repeat (bool | None): True, if repeat tracks should be used
-                (by default, the `repeat_cycle_for_orbit_track` setting).
 
         Returns:
             skyfield.toposlib.GeographicPosition: the geodetic position
         """
-        return self.get_geographic_position_at_time(_to_time(times), try_repeat)
+        return self.get_geographic_position_at_time(_to_time(times))
 
     def _warn_if_propagating_with_drag(self, t: Time, sources: npt.NDArray) -> None:
         """
@@ -1173,8 +1164,8 @@ class GeneralPerturbationsOrbit(BaseModel):
                 + f"{limit.total_seconds() / 86400:g} days from their "
                 + "epoch: the propagated orbit decays and can diverge "
                 + "from an orbit maintained against drag. To model a "
-                + "maintained orbit, set `remove_drag=True` and declare "
-                + "its `repeat_cycle`.",
+                + "maintained orbit, set `remove_drag=True` and "
+                + '`repeat_cycle="auto"` (or declare its repeat cycle).',
                 stacklevel=3,
             )
 
@@ -1183,7 +1174,6 @@ class GeneralPerturbationsOrbit(BaseModel):
         topos: GeographicPosition,
         boundaries: list[datetime],
         min_elevation_angle: float,
-        try_repeat: bool,
     ) -> list[tuple[datetime, int]]:
         """
         Gets the rise and set events at boundaries where the propagation
@@ -1197,7 +1187,6 @@ class GeneralPerturbationsOrbit(BaseModel):
             topos (skyfield.toposlib.GeographicPosition): Target location to observe.
             boundaries (list[datetime]): The boundaries.
             min_elevation_angle (float): Minimum elevation angle (deg) to constrain observation.
-            try_repeat (bool): True, if repeat tracks are used.
 
         Returns:
             list[tuple[datetime, int]]: event times and their rise (0) / set (2) codes
@@ -1206,9 +1195,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             return []
         epsilon = timedelta(milliseconds=1)
         t = _to_time([b + d for b in boundaries for d in (-epsilon, epsilon)])
-        altitude = (self.get_orbit_track_at_time(t, try_repeat) - topos.at(t)).altaz()[
-            0
-        ]
+        altitude = (self.get_orbit_track_at_time(t) - topos.at(t)).altaz()[0]
         up = np.reshape(altitude.degrees >= min_elevation_angle, (-1, 2))
         return [
             (boundary, 2 if before else 0)
@@ -1222,7 +1209,6 @@ class GeneralPerturbationsOrbit(BaseModel):
         start: datetime,
         end: datetime,
         min_elevation_angle: float,
-        try_repeat: bool | None = None,
     ) -> tuple[Time, npt.NDArray]:
         """
         Gets the observation events (rise/culminate/set) of this orbit
@@ -1231,8 +1217,8 @@ class GeneralPerturbationsOrbit(BaseModel):
 
         Times are propagated as by `get_orbit_track_at_time`: the parts of
         the period before the first element's epoch and after the last
-        element's epoch, if `try_repeat` and the element has a repeat cycle,
-        with its repeat track (the events of the repeat cycle just before or
+        element's epoch, if the element has a repeat cycle (and `repeat_cycle`
+        is not None), with its repeat track (the events of the repeat cycle just before or
         after the epoch are computed once and repeated, shifted by whole
         repeat cycles, to cover the period), and the rest by partitioning
         the period by whichever element's epoch is closest at each time (see
@@ -1245,16 +1231,12 @@ class GeneralPerturbationsOrbit(BaseModel):
             start (datetime): Start time of the observation period.
             end (datetime): End time of the observation period.
             min_elevation_angle (float): Minimum elevation angle (deg) to constrain observation.
-            try_repeat (bool | None): True, if repeat tracks should be used (by
-                default, the `repeat_cycle_for_observation_events` setting).
 
         Returns:
             tuple[skyfield.timelib.Time, numpy.ndarray]: event times and their rise (0) / culminate (1) / set (2) codes
         """
-        if try_repeat is None:
-            try_repeat = config.get_rc().repeat_cycle_for_observation_events
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
-        first, last = self._get_repeat_tracks(try_repeat)
+        first, last = self._get_repeat_tracks()
         # events, and boundaries between the sources that propagate them
         events, boundaries = [], []
         if first is not None and start < first.epoch:
@@ -1271,13 +1253,10 @@ class GeneralPerturbationsOrbit(BaseModel):
         if last is not None and first is not last and start < last.epoch < end:
             boundaries.append(last.epoch)
         if direct_start < direct_end:
-            if try_repeat:
-                self._warn_if_propagating_with_drag(
-                    _to_time([direct_start, direct_end]),
-                    np.array(
-                        self.get_closest_element_index([direct_start, direct_end])
-                    ),
-                )
+            self._warn_if_propagating_with_drag(
+                _to_time([direct_start, direct_end]),
+                np.array(self.get_closest_element_index([direct_start, direct_end])),
+            )
             parts, indices = self.partition_by_element_index(direct_start, direct_end)
             boundaries.extend(parts[1:-1])
             for i, index in enumerate(indices):
@@ -1299,11 +1278,7 @@ class GeneralPerturbationsOrbit(BaseModel):
                 )
             )
             boundaries.extend(last.get_boundaries(max(start, last.epoch), end))
-        events.extend(
-            self._get_boundary_events(
-                topos, boundaries, min_elevation_angle, try_repeat
-            )
-        )
+        events.extend(self._get_boundary_events(topos, boundaries, min_elevation_angle))
         # sort by time, removing duplicates at the ends of repeated cycles
         events = sorted(set((t, int(code)) for t, code in events))
         if len(events) == 0:

@@ -36,8 +36,6 @@ class TestRuntimeConfiguration(unittest.TestCase):
         self.assertEqual(rc.repeat_cycle_search_duration_days, 30)
         self.assertEqual(rc.repeat_cycle_consistency_threshold_s, 3600)
         self.assertTrue(rc.repeat_cycle_lazy_load)
-        self.assertTrue(rc.repeat_cycle_for_orbit_track)
-        self.assertTrue(rc.repeat_cycle_for_observation_events)
         self.assertTrue(rc.gp_orbit_lazy_load)
 
     def test_footprint_points_elliptical_accepts_minimum(self):
@@ -158,9 +156,10 @@ class TestLoadYamlConfig(unittest.TestCase):
         self.assertEqual(rc.repeat_cycle_search_duration_days, 7)
         self.assertEqual(rc.repeat_cycle_consistency_threshold_s, 60)
         self.assertFalse(rc.repeat_cycle_lazy_load)
-        self.assertFalse(rc.repeat_cycle_for_orbit_track)
-        self.assertFalse(rc.repeat_cycle_for_observation_events)
         self.assertFalse(rc.gp_orbit_lazy_load)
+        # removed settings (now `GeneralPerturbationsOrbit.repeat_cycle`) are ignored
+        self.assertFalse(hasattr(rc, "repeat_cycle_for_orbit_track"))
+        self.assertFalse(hasattr(rc, "repeat_cycle_for_observation_events"))
 
     def test_partial_yaml_falls_back_to_defaults_for_missing_fields(self):
         """
@@ -281,8 +280,6 @@ class TestPackagedDefaults(unittest.TestCase):
                 "repeat_cycle_search_duration_days": 30,
                 "repeat_cycle_consistency_threshold_s": 3600,
                 "repeat_cycle_lazy_load": True,
-                "repeat_cycle_for_orbit_track": True,
-                "repeat_cycle_for_observation_events": True,
                 "gp_orbit_lazy_load": True,
             },
         )

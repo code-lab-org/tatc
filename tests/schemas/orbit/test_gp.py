@@ -24,6 +24,15 @@ from tatc.schemas import GeneralPerturbationsOrbit, Point
 from tatc.schemas.orbit.gp import _find_events
 
 
+REPEATING = {"remove_drag": True, "repeat_cycle": "auto"}
+"""Options to propagate an orbit maintained on its (found) repeat ground track."""
+
+
+def direct(orbit: GeneralPerturbationsOrbit) -> GeneralPerturbationsOrbit:
+    """Gets a copy of an orbit propagated directly (without a repeat cycle)."""
+    return orbit.model_copy(update={"repeat_cycle": None})
+
+
 class TestGPOrbit(unittest.TestCase):
     """
     Unit tests for the GeneralPerturbationsOrbit schema.
@@ -792,7 +801,9 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
             "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
             "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
         ]
-        self.repeat_orbit = GeneralPerturbationsOrbit.from_tle(landsat_8_tle)
+        self.repeat_orbit = GeneralPerturbationsOrbit.from_tle(
+            landsat_8_tle, **REPEATING
+        )
         self.epoch = self.repeat_orbit.get_epoch()
         self.repeat_cycle = self.repeat_orbit.get_repeat_cycle()
         self.assertIsNotNone(self.repeat_cycle)
@@ -802,7 +813,7 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
             "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
             "2 25544  51.6455  41.4969 0003508  68.0432  78.3395 15.48957534286754",
         ]
-        self.non_repeat_orbit = GeneralPerturbationsOrbit.from_tle(iss_tle)
+        self.non_repeat_orbit = GeneralPerturbationsOrbit.from_tle(iss_tle, **REPEATING)
 
         # a multi-element orbit (elements otherwise identical to Landsat-8,
         # just re-epoched), to confirm the substitution never applies
@@ -811,23 +822,30 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
             elements=[
                 base.model_copy(update={"epoch": self.epoch}),
                 base.model_copy(update={"epoch": self.epoch + timedelta(days=1)}),
-            ]
+            ],
+            **REPEATING,
         )
 
-    def test_try_repeat_false_matches_direct_propagation(self):
+    def test_default_orbit_matches_direct_propagation(self):
         """
-        Test that try_repeat=False always returns the true, directly
-        propagated position, even for an orbit with a known repeat cycle.
+        Test that an orbit with the default options (`repeat_cycle=None`,
+        with drag) always returns the true, directly propagated position,
+        even if its element has a repeat cycle.
         """
         t = constants.timescale.from_datetime(self.epoch + self.repeat_cycle * 3)
-        actual = self.repeat_orbit.get_geographic_position_at_time(t, try_repeat=False)
+        default = GeneralPerturbationsOrbit(elements=self.repeat_orbit.elements)
+        self.assertIsNone(default.repeat_cycle)
+        self.assertFalse(default.remove_drag)
+        # propagated with drag more than 30 days from the epoch
+        with self.assertWarns(UserWarning):
+            actual = default.get_geographic_position_at_time(t)
         expected = wgs84.geographic_position_of(
             self.repeat_orbit.elements[0].to_skyfield().at(t)
         )
         self.assertEqual(actual.latitude.degrees, expected.latitude.degrees)
         self.assertEqual(actual.longitude.degrees, expected.longitude.degrees)
 
-    def test_try_repeat_true_within_first_cycle_uses_maintained_element(self):
+    def test_repeat_within_first_cycle_uses_maintained_element(self):
         """
         Test that, for a time less than one repeat cycle after epoch, the
         time is not shifted, but propagated with the element maintained on
@@ -835,20 +853,19 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
         to the element's own (direct) propagation near the epoch.
         """
         t = constants.timescale.from_datetime(self.epoch + timedelta(hours=5))
-        with_repeat = self.repeat_orbit.get_geographic_position_at_time(
-            t, try_repeat=True
-        )
+        with_repeat = self.repeat_orbit.get_geographic_position_at_time(t)
         maintained = wgs84.geographic_position_of(
             self.repeat_orbit.get_repeat_element().to_skyfield().at(t)
         )
-        direct = self.repeat_orbit.get_geographic_position_at_time(t, try_repeat=False)
+        unrepeated = direct(self.repeat_orbit).get_geographic_position_at_time(t)
         self.assertEqual(with_repeat.latitude.degrees, maintained.latitude.degrees)
         self.assertEqual(with_repeat.longitude.degrees, maintained.longitude.degrees)
         self.assertLess(
-            np.linalg.norm(np.array(with_repeat.itrs_xyz.m) - direct.itrs_xyz.m), 5e3
+            np.linalg.norm(np.array(with_repeat.itrs_xyz.m) - unrepeated.itrs_xyz.m),
+            5e3,
         )
 
-    def test_try_repeat_true_continuous_across_cycles(self):
+    def test_repeat_continuous_across_cycles(self):
         """
         Test that the repeated orbit track joins at the ends of each repeat
         cycle: the element maintained on its repeat ground track returns
@@ -862,7 +879,7 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
         def position(time):
             return np.array(
                 self.repeat_orbit.get_geographic_position_at_time(
-                    constants.timescale.from_datetime(time), try_repeat=True
+                    constants.timescale.from_datetime(time)
                 ).itrs_xyz.m
             )
 
@@ -915,7 +932,7 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
         )
         self.assertIsNone(no_repeat.get_repeat_element())
 
-    def test_try_repeat_true_substitutes_epoch_relative_time_for_far_future(self):
+    def test_repeat_substitutes_epoch_relative_time_for_far_future(self):
         """
         Test that a time several repeat cycles in the future is
         substituted with the equivalent epoch-relative offset (t's offset
@@ -926,7 +943,7 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
         """
         far_future = self.epoch + self.repeat_cycle * 3 + timedelta(hours=5)
         t = constants.timescale.from_datetime(far_future)
-        actual = self.repeat_orbit.get_geographic_position_at_time(t, try_repeat=True)
+        actual = self.repeat_orbit.get_geographic_position_at_time(t)
 
         offset_days = (far_future - self.epoch) / timedelta(days=1)
         cycle_days = self.repeat_cycle / timedelta(days=1)
@@ -943,12 +960,12 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
             actual.longitude.degrees, expected.longitude.degrees, places=9
         )
 
-        direct = wgs84.geographic_position_of(
-            self.repeat_orbit.get_orbit_track_at_time(t, try_repeat=False)
+        unrepeated = wgs84.geographic_position_of(
+            direct(self.repeat_orbit).get_orbit_track_at_time(t)
         )
-        self.assertNotEqual(actual.latitude.degrees, direct.latitude.degrees)
+        self.assertNotEqual(actual.latitude.degrees, unrepeated.latitude.degrees)
 
-    def test_try_repeat_true_preserves_sign_for_time_before_epoch(self):
+    def test_repeat_preserves_sign_for_time_before_epoch(self):
         """
         Regression test: a query 2.5 repeat cycles *before* epoch must
         wrap to -0.5 cycles (epoch minus half a cycle), not +0.5 cycles.
@@ -960,7 +977,7 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
         """
         query_time = self.epoch - self.repeat_cycle * 2.5
         t = constants.timescale.from_datetime(query_time)
-        actual = self.repeat_orbit.get_geographic_position_at_time(t, try_repeat=True)
+        actual = self.repeat_orbit.get_geographic_position_at_time(t)
 
         correct = wgs84.geographic_position_of(
             self.repeat_orbit.get_repeat_element()
@@ -979,7 +996,7 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
             np.linalg.norm(np.array(correct.itrs_xyz.m) - wrong.itrs_xyz.m), 5e3
         )
 
-    def test_try_repeat_true_multi_element_orbit(self):
+    def test_repeat_multi_element_orbit(self):
         """
         Test that a multi-element orbit is repeated with its first element
         before the first epoch and with its last element after the last
@@ -993,71 +1010,65 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
             self.epoch + timedelta(days=41),
         ]
         expected_orbits = [
-            GeneralPerturbationsOrbit(elements=[first]),
+            GeneralPerturbationsOrbit(elements=[first], **REPEATING),
             None,
-            GeneralPerturbationsOrbit(elements=[last]),
+            GeneralPerturbationsOrbit(elements=[last], **REPEATING),
         ]
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            actual = self.multi_element_orbit.get_geographic_position(
-                times, try_repeat=True
-            )
+            actual = self.multi_element_orbit.get_geographic_position(times)
         for i, (time, orbit) in enumerate(zip(times, expected_orbits)):
             t = constants.timescale.from_datetime(time)
             expected = (
-                wgs84.geographic_position_of(first.to_skyfield().at(t))
+                wgs84.geographic_position_of(first.to_skyfield(remove_drag=True).at(t))
                 if orbit is None
-                else orbit.get_geographic_position_at_time(t, try_repeat=True)
+                else orbit.get_geographic_position_at_time(t)
             )
             np.testing.assert_allclose(
                 np.array(actual.itrs_xyz.m)[:, i], expected.itrs_xyz.m, atol=1e-3
             )
 
-    def test_try_repeat_true_falls_back_when_no_repeat_cycle_found(self):
+    def test_falls_back_when_no_repeat_cycle_found(self):
         """
-        Test that try_repeat=True falls back to direct propagation for an
-        orbit (the ISS) with no detectable repeat cycle.
+        Test that an orbit falls back to direct propagation (without drag)
+        if no repeat cycle is found (the ISS).
         """
         t = constants.timescale.from_datetime(
             self.non_repeat_orbit.get_epoch() + timedelta(days=10)
         )
-        actual = self.non_repeat_orbit.get_geographic_position_at_time(
-            t, try_repeat=True
-        )
+        actual = self.non_repeat_orbit.get_geographic_position_at_time(t)
         expected = wgs84.geographic_position_of(
-            self.non_repeat_orbit.get_orbit_track_at_time(t)
+            self.non_repeat_orbit.elements[0].to_skyfield(remove_drag=True).at(t)
         )
         self.assertEqual(actual.latitude.degrees, expected.latitude.degrees)
         self.assertEqual(actual.longitude.degrees, expected.longitude.degrees)
 
-    def test_try_repeat_none_uses_config_default(self):
+    def test_repeat_cycle_field_selects_propagation(self):
         """
-        Test that omitting try_repeat follows
-        config.get_rc().repeat_cycle_for_orbit_track.
+        Test that the `repeat_cycle` field selects how the orbit is
+        propagated: "auto" and a declared repeat cycle repeat the orbit
+        track, while None (the default) propagates the element directly.
         """
         t = constants.timescale.from_datetime(
             self.epoch + self.repeat_cycle * 3 + timedelta(hours=5)
         )
-        original = config.get_rc().repeat_cycle_for_orbit_track
-        try:
-            config.get_rc().repeat_cycle_for_orbit_track = True
-            with_default_true = self.repeat_orbit.get_geographic_position_at_time(t)
-            config.get_rc().repeat_cycle_for_orbit_track = False
-            with_default_false = self.repeat_orbit.get_geographic_position_at_time(t)
-        finally:
-            config.get_rc().repeat_cycle_for_orbit_track = original
-        expected_true = self.repeat_orbit.get_geographic_position_at_time(
-            t, try_repeat=True
+        self.assertEqual(self.repeat_orbit.repeat_cycle, "auto")
+        repeated = self.repeat_orbit.get_geographic_position_at_time(t)
+        declared = self.repeat_orbit.model_copy(
+            update={"repeat_cycle": timedelta(days=16)}
+        ).get_geographic_position_at_time(t)
+        direct_position = direct(self.repeat_orbit).get_geographic_position_at_time(t)
+        expected = wgs84.geographic_position_of(
+            self.repeat_orbit.elements[0].to_skyfield(remove_drag=True).at(t)
         )
-        expected_false = self.repeat_orbit.get_geographic_position_at_time(
-            t, try_repeat=False
+        np.testing.assert_allclose(repeated.itrs_xyz.m, declared.itrs_xyz.m, atol=1e-3)
+        np.testing.assert_allclose(direct_position.itrs_xyz.m, expected.itrs_xyz.m)
+        self.assertGreater(
+            np.linalg.norm(np.array(repeated.itrs_xyz.m) - direct_position.itrs_xyz.m),
+            10e3,
         )
-        self.assertEqual(
-            with_default_true.latitude.degrees, expected_true.latitude.degrees
-        )
-        self.assertEqual(
-            with_default_false.latitude.degrees, expected_false.latitude.degrees
-        )
+        self.assertIsNone(direct(self.repeat_orbit).get_repeat_cycle())
+        self.assertIsNone(direct(self.repeat_orbit).get_repeat_element())
 
     def test_vectorized_time_substitution_matches_per_time_computation(self):
         """
@@ -1072,12 +1083,10 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
             self.epoch - self.repeat_cycle * 2.5,
         ]
         t_vector = constants.timescale.from_datetimes(query_times)
-        actual = self.repeat_orbit.get_geographic_position_at_time(
-            t_vector, try_repeat=True
-        )
+        actual = self.repeat_orbit.get_geographic_position_at_time(t_vector)
         for i, query_time in enumerate(query_times):
             expected = self.repeat_orbit.get_geographic_position_at_time(
-                constants.timescale.from_datetime(query_time), try_repeat=True
+                constants.timescale.from_datetime(query_time)
             )
             self.assertAlmostEqual(
                 actual.latitude.degrees[i], expected.latitude.degrees, places=9
@@ -1241,8 +1250,8 @@ class TestPartitionByElementIndex(unittest.TestCase):
         point = Point(id=0, latitude=40.0, longitude=-74.0)
         start = self.epoch_0
         end = self.epoch_0 + timedelta(hours=12)
-        _, events = self.multi_element_orbit.get_observation_events(
-            point, start, end, min_elevation_angle=10, try_repeat=False
+        _, events = direct(self.multi_element_orbit).get_observation_events(
+            point, start, end, min_elevation_angle=10
         )
         self.assertGreater(len(events), 0)
 
@@ -1302,7 +1311,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         orbits every 16 days (USGS). A small tolerance accounts for the
         real orbit's minor drift between station-keeping maneuvers.
         """
-        orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle)
+        orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle, **REPEATING)
         repeat_cycle = orbit.get_repeat_cycle()
         self.assertIsNotNone(repeat_cycle)
         self.assertAlmostEqual(repeat_cycle.total_seconds() / 86400, 16, delta=0.1)
@@ -1313,7 +1322,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         orbits every 10 days (ESA), at a different altitude/inclination
         than Landsat-8, using the default tolerances.
         """
-        orbit = GeneralPerturbationsOrbit.from_tle(self.sentinel_2a_tle)
+        orbit = GeneralPerturbationsOrbit.from_tle(self.sentinel_2a_tle, **REPEATING)
         repeat_cycle = orbit.get_repeat_cycle()
         self.assertIsNotNone(repeat_cycle)
         self.assertAlmostEqual(repeat_cycle.total_seconds() / 86400, 10, delta=0.1)
@@ -1324,7 +1333,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         orbits every 12 days (ESA), at a different altitude/inclination
         than Landsat-8, using the default tolerances.
         """
-        orbit = GeneralPerturbationsOrbit.from_tle(self.sentinel_1a_tle)
+        orbit = GeneralPerturbationsOrbit.from_tle(self.sentinel_1a_tle, **REPEATING)
         repeat_cycle = orbit.get_repeat_cycle()
         self.assertIsNotNone(repeat_cycle)
         self.assertAlmostEqual(repeat_cycle.total_seconds() / 86400, 12, delta=0.1)
@@ -1337,7 +1346,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         just the multi-week cycles above, and at a completely different
         (MEO) altitude regime.
         """
-        orbit = GeneralPerturbationsOrbit.from_tle(self.gps_tle)
+        orbit = GeneralPerturbationsOrbit.from_tle(self.gps_tle, **REPEATING)
         repeat_cycle = orbit.get_repeat_cycle()
         self.assertIsNotNone(repeat_cycle)
         self.assertAlmostEqual(
@@ -1360,7 +1369,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         the epoch's orbital phase, not of the orbit's true repeatability,
         so this test widens the tolerance rather than the global default.
         """
-        orbit = GeneralPerturbationsOrbit.from_tle(self.molniya_tle)
+        orbit = GeneralPerturbationsOrbit.from_tle(self.molniya_tle, **REPEATING)
         repeat_cycle = orbit.get_repeat_cycle(
             max_delta_position=80000, max_delta_velocity=25
         )
@@ -1417,7 +1426,8 @@ class TestGetRepeatCycle(unittest.TestCase):
             [
                 "1 43613U 18070A   26277.57046165  .00001587  00000+0  57409-4 0  9990",
                 "2 43613  91.9994 320.5065 0005609  71.5392 288.6467 15.28297940449160",
-            ]
+            ],
+            **REPEATING,
         )
         self.assertIsNone(
             orbit.get_repeat_cycle(max_search_duration=timedelta(days=100))
@@ -1433,7 +1443,8 @@ class TestGetRepeatCycle(unittest.TestCase):
             [
                 "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
                 "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
-            ]
+            ],
+            **REPEATING,
         )
         self.assertIsNotNone(orbit.get_repeat_cycle())
         rc = config.get_rc()
@@ -1456,7 +1467,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         Test that a cached repeat cycle is not reused for a search with
         other options.
         """
-        orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle)
+        orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle, **REPEATING)
         self.assertIsNotNone(orbit.get_repeat_cycle())
         self.assertIsNone(
             orbit.get_repeat_cycle(max_search_duration=timedelta(days=10))
@@ -1471,7 +1482,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         (the default) returns the identical cached timedelta rather than
         recomputing.
         """
-        orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle)
+        orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle, **REPEATING)
         first = orbit.get_repeat_cycle()
         second = orbit.get_repeat_cycle()
         self.assertIs(first, second)
@@ -1481,7 +1492,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         Test that lazy_load=False recomputes rather than reusing the
         cached result (a fresh but equal timedelta).
         """
-        orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle)
+        orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle, **REPEATING)
         first = orbit.get_repeat_cycle()
         second = orbit.get_repeat_cycle(lazy_load=False)
         self.assertEqual(first, second)
@@ -1492,7 +1503,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         Test that a max_search_duration shorter than the true repeat
         cycle (16 days) cannot find it.
         """
-        orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle)
+        orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle, **REPEATING)
         repeat_cycle = orbit.get_repeat_cycle(
             max_search_duration=timedelta(days=10), lazy_load=False
         )
@@ -1503,7 +1514,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         Test that an unrealistically tight position/velocity tolerance
         rejects even the real repeat cycle.
         """
-        orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle)
+        orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle, **REPEATING)
         repeat_cycle = orbit.get_repeat_cycle(
             max_delta_position=1, max_delta_velocity=0.001, lazy_load=False
         )
@@ -1522,7 +1533,9 @@ class TestGetRepeatCycle(unittest.TestCase):
         nearly_identical = base.model_copy(
             update={"mean_motion": base.mean_motion * (1 + 1e-6)}
         )
-        orbit = GeneralPerturbationsOrbit(elements=[base, nearly_identical])
+        orbit = GeneralPerturbationsOrbit(
+            elements=[base, nearly_identical], **REPEATING
+        )
         repeat_cycle = orbit.get_repeat_cycle()
         self.assertIsNotNone(repeat_cycle)
         self.assertAlmostEqual(repeat_cycle.total_seconds() / 86400, 16, delta=0.1)
@@ -1543,7 +1556,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         """
         base = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle).elements[0]
         maneuvered = base.model_copy(update={"mean_motion": base.mean_motion * 1.0005})
-        orbit = GeneralPerturbationsOrbit(elements=[base, maneuvered])
+        orbit = GeneralPerturbationsOrbit(elements=[base, maneuvered], **REPEATING)
         max_delta_position = 40000
         max_delta_velocity = 5
         base_cycle = base.get_repeat_cycle(max_delta_position, max_delta_velocity)
@@ -1567,7 +1580,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         """
         base = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle).elements[0]
         maneuvered = base.model_copy(update={"mean_motion": base.mean_motion * 1.002})
-        orbit = GeneralPerturbationsOrbit(elements=[base, maneuvered])
+        orbit = GeneralPerturbationsOrbit(elements=[base, maneuvered], **REPEATING)
         self.assertIsNotNone(base.get_repeat_cycle())
         self.assertIsNone(maneuvered.get_repeat_cycle())
         self.assertIsNone(orbit.get_repeat_cycle())
@@ -1595,7 +1608,9 @@ class TestGetRepeatCycle(unittest.TestCase):
             - nearly_identical.get_repeat_cycle(lazy_load=False)
         )
         self.assertGreater(difference, timedelta(seconds=1))
-        orbit = GeneralPerturbationsOrbit(elements=[base, nearly_identical])
+        orbit = GeneralPerturbationsOrbit(
+            elements=[base, nearly_identical], **REPEATING
+        )
         self.assertIsNone(
             orbit.get_repeat_cycle(
                 consistency_threshold=difference / 2, lazy_load=False
@@ -1636,13 +1651,13 @@ class TestGetObservationEvents(unittest.TestCase):
         would not produce exactly period-spaced events, since real
         orbital dynamics drift slightly cycle to cycle).
         """
-        orbit = GeneralPerturbationsOrbit(elements=[self.base])
+        orbit = GeneralPerturbationsOrbit(elements=[self.base], **REPEATING)
         repeat_cycle = orbit.get_repeat_cycle()
         self.assertIsNotNone(repeat_cycle)
         start = self.base.epoch
         end = start + repeat_cycle * 2 + timedelta(hours=1)
         times, _ = orbit.get_observation_events(
-            self.point, start, end, min_elevation_angle=10, try_repeat=True
+            self.point, start, end, min_elevation_angle=10
         )
         utc_times = times.utc_datetime()
         events_per_cycle = int(np.sum(utc_times < start + repeat_cycle))
@@ -1659,7 +1674,7 @@ class TestGetObservationEvents(unittest.TestCase):
         is repeated with its first element before the first epoch and with
         its last element after the last epoch, as single-element orbits of
         those elements are, and propagated directly with the closest element
-        between the epochs, as with try_repeat=False.
+        between the epochs, as without a repeat cycle.
         """
         second = self.base.model_copy(
             update={
@@ -1667,31 +1682,29 @@ class TestGetObservationEvents(unittest.TestCase):
                 "mean_motion": self.base.mean_motion * (1 + 1e-6),
             }
         )
-        orbit = GeneralPerturbationsOrbit(elements=[self.base, second])
+        orbit = GeneralPerturbationsOrbit(elements=[self.base, second], **REPEATING)
         first_epoch, last_epoch = self.base.epoch, second.epoch
         start, end = first_epoch - timedelta(days=40), last_epoch + timedelta(days=40)
         times, codes = orbit.get_observation_events(
-            self.point, start, end, min_elevation_angle=10, try_repeat=True
+            self.point, start, end, min_elevation_angle=10
         )
         times = np.array(times.utc_datetime())
         margin = timedelta(hours=1)
-        for reference, lower, upper, try_repeat in [
+        for reference, lower, upper in [
             (
-                GeneralPerturbationsOrbit(elements=[self.base]),
+                GeneralPerturbationsOrbit(elements=[self.base], **REPEATING),
                 start,
                 first_epoch - margin,
-                True,
             ),
-            (orbit, first_epoch + margin, last_epoch - margin, False),
+            (direct(orbit), first_epoch + margin, last_epoch - margin),
             (
-                GeneralPerturbationsOrbit(elements=[second]),
+                GeneralPerturbationsOrbit(elements=[second], **REPEATING),
                 last_epoch + margin,
                 end,
-                True,
             ),
         ]:
             expected_times, expected_codes = reference.get_observation_events(
-                self.point, lower, upper, min_elevation_angle=10, try_repeat=try_repeat
+                self.point, lower, upper, min_elevation_angle=10
             )
             selected = (times >= lower) & (times <= upper)
             self.assertGreater(len(expected_codes), 0)
@@ -1716,7 +1729,9 @@ class TestGetObservationEvents(unittest.TestCase):
         the epoch.
         """
         epoch, repeat_cycle = orbit.get_epoch(), orbit.get_repeat_cycle()
-        maintained = GeneralPerturbationsOrbit(elements=[orbit.get_repeat_element()])
+        maintained = GeneralPerturbationsOrbit(
+            elements=[orbit.get_repeat_element()], **REPEATING
+        )
         expected = []
         for after in (True, False):
             window = (
@@ -1724,8 +1739,8 @@ class TestGetObservationEvents(unittest.TestCase):
                 if after
                 else (epoch - repeat_cycle, epoch)
             )
-            times, codes = maintained.get_observation_events(
-                self.point, *window, min_elevation_angle=10, try_repeat=False
+            times, codes = direct(maintained).get_observation_events(
+                self.point, *window, min_elevation_angle=10
             )
             for time, code in zip(times.utc_datetime(), codes):
                 for cycles in range(-50, 51):
@@ -1765,12 +1780,12 @@ class TestGetObservationEvents(unittest.TestCase):
         the epoch: the element is never propagated more than one cycle
         from its epoch.
         """
-        orbit = GeneralPerturbationsOrbit(elements=[self.base])
+        orbit = GeneralPerturbationsOrbit(elements=[self.base], **REPEATING)
         repeat_cycle = orbit.get_repeat_cycle()
         start = self.base.epoch + 10 * repeat_cycle + timedelta(hours=3)
         end = start + repeat_cycle
         times, codes = orbit.get_observation_events(
-            self.point, start, end, min_elevation_angle=10, try_repeat=True
+            self.point, start, end, min_elevation_angle=10
         )
         self._assert_repeated_events(orbit, start, end, times, codes)
 
@@ -1780,18 +1795,18 @@ class TestGetObservationEvents(unittest.TestCase):
         the repeat cycle just before the epoch, shifted by whole repeat
         cycles, for a period that spans the epoch.
         """
-        orbit = GeneralPerturbationsOrbit(elements=[self.base])
+        orbit = GeneralPerturbationsOrbit(elements=[self.base], **REPEATING)
         repeat_cycle = orbit.get_repeat_cycle()
         start = self.base.epoch - 3 * repeat_cycle - timedelta(hours=5)
         end = self.base.epoch + timedelta(days=2)
         times, codes = orbit.get_observation_events(
-            self.point, start, end, min_elevation_angle=10, try_repeat=True
+            self.point, start, end, min_elevation_angle=10
         )
         self._assert_repeated_events(orbit, start, end, times, codes)
 
     def _get_overhead_point(self, orbit, time):
         """Gets the point beneath an orbit's (directly propagated) track at a time."""
-        subpoint = wgs84.subpoint_of(orbit.get_orbit_track(time, try_repeat=False))
+        subpoint = wgs84.subpoint_of(direct(orbit).get_orbit_track(time))
         return Point(
             id=0,
             latitude=float(subpoint.latitude.degrees),
@@ -1804,7 +1819,7 @@ class TestGetObservationEvents(unittest.TestCase):
         period, and the rise of one that culminates after its end, are found
         (Skyfield's find_events finds neither).
         """
-        orbit = GeneralPerturbationsOrbit(elements=[self.base])
+        orbit = GeneralPerturbationsOrbit(elements=[self.base], **REPEATING)
         culmination = self.base.epoch + timedelta(hours=1)
         point = self._get_overhead_point(orbit, culmination)
         topos = wgs84.latlon(point.latitude, point.longitude)
@@ -1844,15 +1859,17 @@ class TestGetObservationEvents(unittest.TestCase):
         events as with a single element, although each element's period
         contains only part of the pass.
         """
-        single = GeneralPerturbationsOrbit(elements=[self.base])
-        multi = GeneralPerturbationsOrbit(elements=[self.base, self.base.model_copy()])
+        single = GeneralPerturbationsOrbit(elements=[self.base], **REPEATING)
+        multi = GeneralPerturbationsOrbit(
+            elements=[self.base, self.base.model_copy()], **REPEATING
+        )
         point = self._get_overhead_point(
             single, self.base.epoch + timedelta(seconds=10)
         )
         start = self.base.epoch - timedelta(minutes=30)
         end = self.base.epoch + timedelta(minutes=30)
-        expected = single.get_observation_events(point, start, end, 80, False)
-        actual = multi.get_observation_events(point, start, end, 80, False)
+        expected = direct(single).get_observation_events(point, start, end, 80)
+        actual = direct(multi).get_observation_events(point, start, end, 80)
         self.assertEqual(expected[1].tolist(), [0, 1, 2])
         self.assertEqual(actual[1].tolist(), expected[1].tolist())
         np.testing.assert_allclose(actual[0].tt, expected[0].tt, atol=1e-2 / 86400)
@@ -1866,13 +1883,14 @@ class TestGetObservationEvents(unittest.TestCase):
         ahead = self.base.model_copy(
             update={"mean_anomaly": (self.base.mean_anomaly + 3) % 360}
         )
-        orbit = GeneralPerturbationsOrbit(elements=[self.base, ahead])
+        orbit = GeneralPerturbationsOrbit(elements=[self.base, ahead], **REPEATING)
         point = self._get_overhead_point(
-            GeneralPerturbationsOrbit(elements=[self.base]), self.base.epoch
+            GeneralPerturbationsOrbit(elements=[self.base], **REPEATING),
+            self.base.epoch,
         )
         start = self.base.epoch - timedelta(minutes=30)
         end = self.base.epoch + timedelta(minutes=30)
-        times, codes = orbit.get_observation_events(point, start, end, 80, False)
+        times, codes = direct(orbit).get_observation_events(point, start, end, 80)
         self.assertEqual(codes.tolist()[-1], 2)
         self.assertIn(0, codes.tolist()[:-1])
         self.assertLess(
@@ -1881,9 +1899,10 @@ class TestGetObservationEvents(unittest.TestCase):
 
     def test_warns_when_propagating_with_drag_far_from_epoch(self):
         """
-        Test that propagating an element with drag and without a repeat
-        cycle (the ISS) far from its epoch warns, unless the repeat cycle is
-        not requested or the drag is removed.
+        Test that propagating an element directly with drag far from its
+        epoch (the ISS, with the default options) warns, unless it is
+        propagated without drag (including when no repeat cycle is found) or
+        near its epoch.
         """
         iss_tle = [
             "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
@@ -1893,27 +1912,24 @@ class TestGetObservationEvents(unittest.TestCase):
         start = orbit.get_epoch() + timedelta(days=60)
         end = start + timedelta(hours=6)
         with self.assertWarns(UserWarning):
-            orbit.get_observation_events(self.point, start, end, 10, try_repeat=True)
+            orbit.get_observation_events(self.point, start, end, 10)
         with self.assertWarns(UserWarning):
-            orbit.get_geographic_position(start, try_repeat=True)
+            orbit.get_geographic_position(start)
         epoch = orbit.get_epoch()
-        for quiet_orbit, period, try_repeat in [
-            (orbit, (start, end), False),
+        for quiet_orbit, period in [
+            (GeneralPerturbationsOrbit.from_tle(iss_tle, **REPEATING), (start, end)),
             (
                 GeneralPerturbationsOrbit.from_tle(iss_tle, remove_drag=True),
                 (start, end),
-                True,
             ),
-            (orbit, (epoch, epoch + timedelta(days=1)), True),
+            (orbit, (epoch, epoch + timedelta(days=1))),
         ]:
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                quiet_orbit.get_observation_events(
-                    self.point, *period, 10, try_repeat=try_repeat
-                )
+                quiet_orbit.get_observation_events(self.point, *period, 10)
             self.assertFalse(
                 any("with drag" in str(w.message) for w in caught),
-                (period, try_repeat),
+                (period, quiet_orbit.repeat_cycle),
             )
 
     def test_repeat_cycle_used_within_first_cycle(self):
@@ -1922,17 +1938,17 @@ class TestGetObservationEvents(unittest.TestCase):
         propagated with the element maintained on its repeat ground track,
         so that its events do not depend on the length of the period.
         """
-        orbit = GeneralPerturbationsOrbit(elements=[self.base])
+        orbit = GeneralPerturbationsOrbit(elements=[self.base], **REPEATING)
         repeat_cycle = orbit.get_repeat_cycle()
         self.assertIsNotNone(repeat_cycle)
         start = self.base.epoch + timedelta(days=1)
         end = start + timedelta(days=5)
         times, codes = orbit.get_observation_events(
-            self.point, start, end, min_elevation_angle=10, try_repeat=True
+            self.point, start, end, min_elevation_angle=10
         )
         self._assert_repeated_events(orbit, start, end, times, codes)
         longer = orbit.get_observation_events(
-            self.point, start, end + 2 * repeat_cycle, 10, try_repeat=True
+            self.point, start, end + 2 * repeat_cycle, 10
         )
         self.assertEqual(longer[1][: len(codes)].tolist(), codes.tolist())
         differences = np.array(
@@ -1948,9 +1964,9 @@ class TestGetObservationEvents(unittest.TestCase):
         """
         Test that a multi-element orbit whose elements do not agree on a
         repeat cycle (simulating a maneuver) uses per-time nearest-element
-        partitioning between its first and last epochs even with
-        try_repeat=True -- verified by exact equality with try_repeat=False,
-        since both use the same partition_by_element_index-based code path.
+        partitioning between its first and last epochs -- verified by exact
+        equality with direct propagation (`repeat_cycle=None`), since both
+        use the same partition_by_element_index-based code path.
         """
         maneuvered = self.base.model_copy(
             update={
@@ -1958,15 +1974,15 @@ class TestGetObservationEvents(unittest.TestCase):
                 "mean_motion": self.base.mean_motion * 1.002,
             }
         )
-        orbit = GeneralPerturbationsOrbit(elements=[self.base, maneuvered])
+        orbit = GeneralPerturbationsOrbit(elements=[self.base, maneuvered], **REPEATING)
         self.assertIsNone(orbit.get_repeat_cycle())
         start = self.base.epoch
         end = start + timedelta(days=5)
         with_repeat = orbit.get_observation_events(
-            self.point, start, end, min_elevation_angle=10, try_repeat=True
+            self.point, start, end, min_elevation_angle=10
         )
-        without_repeat = orbit.get_observation_events(
-            self.point, start, end, min_elevation_angle=10, try_repeat=False
+        without_repeat = direct(orbit).get_observation_events(
+            self.point, start, end, min_elevation_angle=10
         )
         self.assertGreater(len(with_repeat[1]), 0)
         self.assertTrue(
@@ -2024,8 +2040,8 @@ if __name__ == "__main__":
         orbit = GeneralPerturbationsOrbit(elements=[self.base])
         topos = wgs84.latlon(self.point.latitude, self.point.longitude)
         start = self.base.epoch
-        times, events = orbit.get_observation_events(
-            self.point, start, start + timedelta(days=2), 35, try_repeat=False
+        times, events = direct(orbit).get_observation_events(
+            self.point, start, start + timedelta(days=2), 35
         )
         self.assertGreater(np.sum(events == 0), 1)
         satellite = self.base.to_skyfield()
@@ -2038,12 +2054,11 @@ if __name__ == "__main__":
             elevation = (satellite - topos).at(ts).altaz()[0].degrees
             # the elevation angle crosses the minimum within the millisecond
             self.assertLess((elevation[0] - 35) * (elevation[1] - 35), 0)
-            short_times, short_events = orbit.get_observation_events(
+            short_times, short_events = direct(orbit).get_observation_events(
                 self.point,
                 time - timedelta(minutes=10),
                 time + timedelta(minutes=10),
                 35,
-                try_repeat=False,
             )
             matching = short_times.utc_datetime()[short_events == event]
             self.assertLess(
@@ -2068,12 +2083,13 @@ class TestRemoveDragAndRepeatCycle(unittest.TestCase):
 
     def test_defaults_keep_drag(self):
         """
-        Test that, by default, the elements' drag terms are kept and no
-        repeat cycle is declared.
+        Test that, by default, the elements' drag terms are kept and they
+        are propagated directly, without a repeat cycle.
         """
         orbit = GeneralPerturbationsOrbit.from_tle(self.icesat2_tle)
         self.assertFalse(orbit.remove_drag)
         self.assertIsNone(orbit.repeat_cycle)
+        self.assertIsNone(orbit.get_repeat_cycle())
         self.assertNotEqual(orbit.get_bstar(), 0)
 
     def test_remove_drag_ignores_drag_terms(self):
@@ -2088,14 +2104,12 @@ class TestRemoveDragAndRepeatCycle(unittest.TestCase):
         self.assertNotEqual(no_drag.get_bstar(), 0)
         epoch = drag.get_epoch()
         at_epoch = [
-            o.get_orbit_track(epoch, try_repeat=False).position.m
-            for o in (drag, no_drag)
+            direct(o).get_orbit_track(epoch).position.m for o in (drag, no_drag)
         ]
         np.testing.assert_allclose(at_epoch[0], at_epoch[1], atol=1e-3)
         earlier = epoch - timedelta(days=30)
         positions = [
-            o.get_orbit_track(earlier, try_repeat=False).position.m
-            for o in (drag, no_drag)
+            direct(o).get_orbit_track(earlier).position.m for o in (drag, no_drag)
         ]
         self.assertGreater(np.linalg.norm(positions[0] - positions[1]), 10e3)
         np.testing.assert_allclose(
@@ -2107,10 +2121,38 @@ class TestRemoveDragAndRepeatCycle(unittest.TestCase):
             .position.m,
         )
 
+    def test_repeat_cycle_values(self):
+        """
+        Test that the repeat cycle accepts None, or "auto" or a positive
+        duration (with `remove_drag`), and is preserved by serialization.
+        """
+        for remove_drag, repeat_cycle in [
+            (False, None),
+            (True, None),
+            (True, "auto"),
+            (True, timedelta(days=91)),
+        ]:
+            orbit = GeneralPerturbationsOrbit.from_tle(
+                self.icesat2_tle, remove_drag=remove_drag, repeat_cycle=repeat_cycle
+            )
+            self.assertEqual(orbit.repeat_cycle, repeat_cycle)
+            restored = GeneralPerturbationsOrbit.model_validate_json(
+                orbit.model_dump_json()
+            )
+            self.assertEqual(restored.repeat_cycle, repeat_cycle)
+        for repeat_cycle in ["never", timedelta(0), timedelta(days=-1)]:
+            with self.assertRaises(ValidationError):
+                GeneralPerturbationsOrbit.from_tle(
+                    self.icesat2_tle, remove_drag=True, repeat_cycle=repeat_cycle
+                )
+
     def test_repeat_cycle_requires_remove_drag(self):
         """
-        Test that a repeat cycle cannot be declared for an orbit with drag.
+        Test that a repeat cycle cannot be declared (or found) for an orbit
+        with drag.
         """
+        with self.assertRaises(ValidationError):
+            GeneralPerturbationsOrbit.from_tle(self.icesat2_tle, repeat_cycle="auto")
         with self.assertRaises(ValidationError):
             GeneralPerturbationsOrbit.from_tle(
                 self.icesat2_tle, repeat_cycle=timedelta(days=91)
@@ -2270,8 +2312,8 @@ class TestRemoveDragAndRepeatCycle(unittest.TestCase):
         end = start + timedelta(days=2)
         times, codes = orbit.get_observation_events(point, start, end, 10)
         maintained = GeneralPerturbationsOrbit(elements=[orbit.get_repeat_element()])
-        expected_times, expected_codes = maintained.get_observation_events(
-            point, start - 2 * repeat_cycle, end - 2 * repeat_cycle, 10, False
+        expected_times, expected_codes = direct(maintained).get_observation_events(
+            point, start - 2 * repeat_cycle, end - 2 * repeat_cycle, 10
         )
         self.assertGreater(len(codes), 0)
         self.assertEqual(codes.tolist(), expected_codes.tolist())
