@@ -23,7 +23,7 @@ from tatc.analysis.limb_coverage import (
     _limb_tangent_point,
     _sample_limb_scan,
 )
-from tatc.utils.tangent_point import _geodetic_altitude
+from tatc.utils.ellipsoid import rectangular_to_geodetic
 from tatc.constants import EARTH_MEAN_RADIUS, timescale
 
 from .common import IssConstellationTestCase
@@ -70,9 +70,9 @@ class TestLimbTangentPoint(unittest.TestCase):
         the satellite. (Altitude varies only quadratically with distance
         along a near-horizontal ray, so the position tolerance is loose.)
         """
-        sat_geodetic_altitude = _geodetic_altitude(
+        sat_geodetic_altitude = rectangular_to_geodetic(
             itrs.rotation_at(self.t) @ np.array([self.r_sat, 0, 0])
-        )
+        )[2]
         tp_p, in_domain = _limb_tangent_point(self.sat, 0.0, [sat_geodetic_altitude])
         self.assertTrue(in_domain[0])
         np.testing.assert_allclose(tp_p.ravel(), [self.r_sat, 0, 0], atol=500)
@@ -129,11 +129,11 @@ class TestLimbTangentPoint(unittest.TestCase):
                 d = (tp_p - sat_p) / np.linalg.norm(tp_p - sat_p)
                 offsets = np.linspace(-50e3, 50e3, 20001)
                 ray = tp_p[:, np.newaxis] + offsets * d[:, np.newaxis]
-                altitudes = _geodetic_altitude(rotation @ ray)
+                altitudes = rectangular_to_geodetic(rotation @ ray)[2]
                 # minimum sits at the reported tangent point (5 m sampling)
                 self.assertLess(abs(offsets[np.argmin(altitudes)]), 100.0)
                 self.assertLess(
-                    _geodetic_altitude(rotation @ tp_p) - altitudes.min(), 1e-3
+                    rectangular_to_geodetic(rotation @ tp_p)[2] - altitudes.min(), 1e-3
                 )
                 # whereas the geocentric closest approach is well off it
                 geocentric_offset = -np.dot(tp_p, d)

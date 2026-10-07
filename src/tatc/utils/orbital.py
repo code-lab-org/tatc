@@ -6,11 +6,16 @@ Orbital utility functions.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import numpy.typing as npt
 from numba import njit
 
 from .. import constants
+
+if TYPE_CHECKING:
+    from skyfield.positionlib import Geocentric
 
 
 @njit
@@ -350,3 +355,37 @@ def compute_argument_of_latitude(
         360,
     )
     return float(u) if np.ndim(u) == 0 else u
+
+
+def compute_vnb_frame(
+    orbit_track: Geocentric,
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
+    """
+    Computes the unit vectors of a satellite's VNB (velocity, normal,
+    binormal) frame: along its inertial velocity (V), normal to its orbit
+    plane (N, along the angular momentum), and completing the right-handed
+    frame (B, V x N), which coincides with the radial direction only for a
+    circular orbit.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): The satellite orbit track
+            (inertial position and velocity).
+
+    Returns:
+        tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
+            the V, N, and B unit vectors (inertial, shape (3, ...))
+    """
+    rx_pv = orbit_track
+    rx_p_m = np.array(rx_pv.position.m)
+    rx_v_m_per_s = np.array(rx_pv.velocity.m_per_s)
+    # unit vector tangent to receiver orbit plane (VNB x-axis)
+    rx_v_u = np.divide(rx_v_m_per_s, np.linalg.norm(rx_v_m_per_s, axis=0))
+    # unit vector normal to receiver orbit plane (VNB y-axis)
+    rx_n_u = np.cross(rx_p_m, rx_v_m_per_s, 0, 0, -1).T
+    rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
+    # unit vector completing the right-handed VNB frame (V x N),
+    # perpendicular to both V and N by construction. This is NOT the same
+    # as the position unit vector (r-hat): the two coincide only for a
+    # circular orbit.
+    rx_b_u = np.cross(rx_v_u, rx_n_u, 0, 0, -1).T
+    return rx_v_u, rx_n_u, rx_b_u

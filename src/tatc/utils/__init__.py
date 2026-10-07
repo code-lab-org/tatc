@@ -5,6 +5,12 @@ Utility functions for the TATC library.
 """
 
 from .atmosphere import altitude_to_pressure, pressure_to_altitude
+from .ellipsoid import (
+    compute_ellipsoid_intersection,
+    compute_tangent_point,
+    geodetic_to_rectangular,
+    rectangular_to_geodetic,
+)
 from .formatting import zero_pad
 from .geometry import (
     geodesic_destination,
@@ -34,6 +40,7 @@ from .orbital import (
     compute_j2_mean_motion_rate,
     compute_j2_raan_rate,
     compute_orbit_inertial_velocity,
+    compute_vnb_frame,
     mean_anomaly_to_true_anomaly,
     mean_motion_to_orbit_period,
     mean_motion_to_semimajor_axis,
@@ -119,4 +126,9 @@ __all__ = [
     "to_datetime64_ns",
     "true_anomaly_to_mean_anomaly",
     "zero_pad",
+    "compute_ellipsoid_intersection",
+    "compute_tangent_point",
+    "geodetic_to_rectangular",
+    "rectangular_to_geodetic",
+    "compute_vnb_frame",
 ]

@@ -21,14 +21,16 @@ from tatc.utils import (
 )
 from tatc.constants import EARTH_EQUATORIAL_RADIUS, EARTH_POLAR_RADIUS
 from tatc.schemas import Point as TatcPoint
+from tatc.utils.ellipsoid import (
+    _get_geodetic_coordinates,
+    _get_surface_directions,
+    _get_surface_positions,
+)
 from tatc.utils.geometry import (
     _get_angular_distance_to_arcs,
     _get_boundary_arcs,
-    _get_geodetic_coordinates,
     _get_nearest_arc_points,
     _get_point_coordinates,
-    _get_surface_directions,
-    _get_surface_positions,
 )
 
 

@@ -54,6 +54,8 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_ground_surface_velocity
 
+.. autofunction:: tatc.utils.compute_vnb_frame
+
 .. autofunction:: tatc.utils.compute_j2_raan_rate
 
 .. autofunction:: tatc.utils.compute_j2_aop_rate
@@ -85,3 +87,11 @@ Utility Functions
 .. autofunction:: tatc.utils.altitude_to_pressure
 
 .. autofunction:: tatc.utils.pressure_to_altitude
+
+.. autofunction:: tatc.utils.geodetic_to_rectangular
+
+.. autofunction:: tatc.utils.rectangular_to_geodetic
+
+.. autofunction:: tatc.utils.compute_ellipsoid_intersection
+
+.. autofunction:: tatc.utils.compute_tangent_point

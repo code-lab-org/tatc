@@ -23,7 +23,7 @@ from shapely.geometry import (
 from shapely.geometry import Point as ShapelyPoint
 from shapely.ops import split
 
-from ..constants import EARTH_ECCENTRICITY, EARTH_EQUATORIAL_RADIUS, EARTH_POLAR_RADIUS
+from .ellipsoid import _get_surface_directions
 
 # WGS 84 ellipsoid geodesic solver, shared across calls
 _WGS84_GEOD = Geod(ellps="WGS84")
@@ -549,42 +549,13 @@ def normalize_geometry(
     return geometry
 
 
-def _get_surface_directions(
-    longitude: npt.ArrayLike, latitude: npt.ArrayLike, elevation: float = 0
-) -> npt.NDArray[np.float64]:
-    """
-    Gets the geocentric unit vectors (Earth-fixed, shape (3, N)) toward
-    geodetic positions at an elevation above the WGS 84 ellipsoid.
-
-    Args:
-        longitude (numpy.typing.ArrayLike): The geodetic longitudes (degrees).
-        latitude (numpy.typing.ArrayLike): The geodetic latitudes (degrees).
-        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
-
-    Returns:
-        numpy.typing.NDArray[numpy.float64]: the unit vectors
-    """
-    lon = np.radians(np.asarray(longitude, dtype=float))
-    lat = np.radians(np.asarray(latitude, dtype=float))
-    e2 = EARTH_ECCENTRICITY**2
-    n = EARTH_EQUATORIAL_RADIUS / np.sqrt(1 - e2 * np.sin(lat) ** 2)
-    position = np.array(
-        [
-            (n + elevation) * np.cos(lat) * np.cos(lon),
-            (n + elevation) * np.cos(lat) * np.sin(lon),
-            (n * (1 - e2) + elevation) * np.sin(lat),
-        ]
-    )
-    return position / np.linalg.norm(position, axis=0)
-
-
 def _get_boundary_arcs(
     geometry: Polygon | MultiPolygon, elevation: float = 0, max_segment: float = 1
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """
     Gets the boundary of a (split, see `split_polygon`) geometry as great
     circle arcs between geocentric unit vectors (see
-    `_get_surface_directions`). Edges, straight in longitude and latitude,
+    `tatc.utils.ellipsoid._get_surface_directions`). Edges, straight in longitude and latitude,
     are first divided into segments of at most `max_segment` degrees, over
     which a great circle arc departs from them by about a thousandth of a
     degree at most. Degenerate edges (for example, along a pole) and seams
@@ -706,55 +677,6 @@ def _get_angular_distance_to_arcs(
         numpy.typing.NDArray[numpy.float64]: the angular distances (radians, shape (N,))
     """
     return _get_nearest_arc_points(directions, arcs, chunk_size)[0]
-
-
-def _get_surface_positions(
-    directions: npt.NDArray[np.float64], elevation: float = 0
-) -> npt.NDArray[np.float64]:
-    """
-    Gets the Earth-fixed positions (meters, shape (3, N)) in geocentric
-    directions (unit vectors, shape (3, N)) on the surface of an ellipsoid
-    of the WGS 84 semi-axes extended by an elevation (which approximates
-    the surface at that elevation above the WGS 84 ellipsoid).
-
-    Args:
-        directions (numpy.typing.NDArray[numpy.float64]): The unit vectors (shape (3, N)).
-        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
-
-    Returns:
-        numpy.typing.NDArray[numpy.float64]: the positions (meters)
-    """
-    equatorial = EARTH_EQUATORIAL_RADIUS + elevation
-    polar = EARTH_POLAR_RADIUS + elevation
-    radius = 1 / np.sqrt(
-        (directions[0] ** 2 + directions[1] ** 2) / equatorial**2
-        + directions[2] ** 2 / polar**2
-    )
-    return directions * radius
-
-
-def _get_geodetic_coordinates(
-    directions: npt.NDArray[np.float64],
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    """
-    Gets the geodetic longitude and latitude (degrees) of the points on the
-    WGS 84 ellipsoid in geocentric directions (unit vectors, shape (3, N)).
-
-    Args:
-        directions (numpy.typing.NDArray[numpy.float64]): The unit vectors (shape (3, N)).
-
-    Returns:
-        tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]:
-            the longitudes and latitudes (degrees)
-    """
-    longitude = np.degrees(np.arctan2(directions[1], directions[0]))
-    latitude = np.degrees(
-        np.arctan2(
-            directions[2],
-            (1 - EARTH_ECCENTRICITY**2) * np.hypot(directions[0], directions[1]),
-        )
-    )
-    return longitude, latitude
 
 
 def _get_point_coordinates(point: Any) -> tuple[float, float, float]:

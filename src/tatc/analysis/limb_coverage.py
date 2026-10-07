@@ -18,12 +18,12 @@ from skyfield.positionlib import Geocentric
 
 from ..constants import EARTH_MEAN_RADIUS, timescale
 from ..schemas import Satellite
-from .ro_coverage import _receiver_frame_vectors
-from ..utils.tangent_point import (
+from ..utils.ellipsoid import (
     _ellipsoidal_tangent_distance,
-    _geodetic_altitude,
     _itrs_rotation,
+    rectangular_to_geodetic,
 )
+from ..utils.orbital import compute_vnb_frame
 from .validation import _check_satellite
 
 
@@ -84,7 +84,7 @@ def _limb_tangent_point(
             satellite's own altitude at that sample (no valid viewing
             angle exists).
     """
-    v_u, n_u, b_u = _receiver_frame_vectors(sat_pv)
+    v_u, n_u, b_u = compute_vnb_frame(sat_pv)
 
     # satellite position and geocentric radius at each sample
     sat_p = np.array(sat_pv.position.m)
@@ -98,7 +98,7 @@ def _limb_tangent_point(
 
     # a valid viewing angle exists only for elevations up to the
     # satellite's own geodetic altitude
-    in_domain = target_elevations <= _geodetic_altitude(sat_p_itrs) + tolerance
+    in_domain = target_elevations <= rectangular_to_geodetic(sat_p_itrs)[2] + tolerance
 
     # look direction: rotate from the velocity direction toward the
     # orbit-normal by scan_azimuth (staying in the local horizontal
@@ -117,7 +117,7 @@ def _limb_tangent_point(
         d = np.cos(el) * horizontal - np.sin(el) * b_u
         d_itrs = np.einsum("ij...,j...->i...", rotation, d)
         s = _ellipsoidal_tangent_distance(sat_p_itrs, d_itrs, target_elevations)
-        error = _geodetic_altitude(sat_p_itrs + s * d_itrs) - target_elevations
+        error = rectangular_to_geodetic(sat_p_itrs + s * d_itrs)[2] - target_elevations
         if not np.any(np.abs(error[in_domain]) > tolerance):
             break
         reference_radius = reference_radius - error

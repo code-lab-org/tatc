@@ -30,12 +30,14 @@ from ..schemas import Satellite
 from ..utils.geometry import (
     _get_angular_distance_to_arcs,
     _get_boundary_arcs,
-    _get_geodetic_coordinates,
     _get_nearest_arc_points,
-    _get_surface_directions,
-    _get_surface_positions,
     project_polygon_to_elevation,
     split_polygon,
+)
+from ..utils.ellipsoid import (
+    _get_geodetic_coordinates,
+    _get_surface_directions,
+    _get_surface_positions,
 )
 from ..utils.projection import NadirReference, VelocityFrame, _compute_view_frame
 from .observations import (

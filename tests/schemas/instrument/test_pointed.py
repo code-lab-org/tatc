@@ -226,13 +226,15 @@ class TestPointedInstrument(unittest.TestCase):
     def test_get_pixel_cone_and_clock_angle_single_pixel(self):
         """
         Test that a single pixel (spanning the full field of view) is
-        centered on boresight: zero cone angle.
+        centered on boresight: zero cone angle, with a clock angle of zero
+        (the arctangent of zero along-track and cross-track offsets).
         """
         o = PointedInstrument(
             name="t", cross_track_field_of_view=20.0, along_track_field_of_view=10.0
         )
         cone, clock = o.get_pixel_cone_and_clock_angle(0, 0)
         self.assertAlmostEqual(cone, 0.0)
+        self.assertAlmostEqual(clock, 0.0)
 
     def test_get_pixel_cone_and_clock_angle_cross_track(self):
         """

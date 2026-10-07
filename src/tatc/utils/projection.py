@@ -24,6 +24,11 @@ from skyfield.toposlib import GeographicPosition
 from spiceypy.spiceypy import edlimb, recgeo
 
 from .. import config, constants
+from .ellipsoid import (
+    _intersect_limb,
+    compute_ellipsoid_intersection,
+    rectangular_to_geodetic,
+)
 from .geometry import project_polygon_to_elevation, split_polygon
 from .observation import field_of_regard_to_swath_width
 from .orbital import compute_ground_surface_velocity
@@ -340,145 +345,6 @@ def compute_cone_and_azimuth(
     )
 
 
-def _intersect_ellipsoid(
-    position: npt.NDArray, direction: npt.NDArray, elevation: float = 0
-) -> tuple[npt.NDArray, npt.NDArray]:
-    """
-    Computes the first intersections of rays with the ellipsoid of the
-    WGS 84 semi-axes extended by an elevation, as SPICE's `surfpt`,
-    vectorized across rays.
-
-    Args:
-        position (numpy.typing.NDArray): The rays' origins (meters, Earth-fixed, shape (3, N)).
-        direction (numpy.typing.NDArray): The rays' directions (Earth-fixed, shape (3, N)).
-        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
-
-    Returns:
-        tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the intersection
-            points (meters, shape (3, N); undefined for rays that miss) and
-            whether each ray intersects the ellipsoid
-    """
-    axes = np.array(
-        [
-            constants.EARTH_EQUATORIAL_RADIUS + elevation,
-            constants.EARTH_EQUATORIAL_RADIUS + elevation,
-            constants.EARTH_POLAR_RADIUS + elevation,
-        ]
-    )[:, np.newaxis]
-    # in coordinates scaled by the semi-axes, the ellipsoid is the unit sphere
-    p, d = position / axes, direction / axes
-    a = np.sum(d * d, axis=0)
-    b = np.sum(p * d, axis=0)
-    c = np.sum(p * p, axis=0) - 1
-    discriminant = b**2 - a * c
-    root = np.sqrt(np.maximum(discriminant, 0))
-    with np.errstate(divide="ignore", invalid="ignore"):
-        # the nearer root, from outside (c > 0, toward the ellipsoid: b < 0),
-        # in the form that avoids cancellation; or the exit, from inside
-        t = np.where(c >= 0, c / (root - b), (root - b) / a)
-    found = (discriminant >= 0) & ((c < 0) | (b < 0))
-    return position + np.where(found, t, 0) * direction, found
-
-
-def _rectangular_to_geodetic(
-    position: npt.NDArray,
-) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
-    """
-    Converts Earth-fixed positions to WGS 84 geodetic coordinates, as SPICE's
-    `recgeo`, vectorized across positions, by fixed-point iteration on the
-    geodetic latitude (which converges to well below a micrometer within a
-    few iterations for positions near the Earth's surface).
-
-    Args:
-        position (numpy.typing.NDArray): The positions (meters, shape (3, N)).
-
-    Returns:
-        tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
-            the longitudes (radians), latitudes (radians), and altitudes (meters)
-    """
-    x, y, z = position
-    p = np.hypot(x, y)
-    e2 = constants.EARTH_ECCENTRICITY**2
-    latitude = np.arctan2(z, p * (1 - e2))
-    for _ in range(6):
-        sin_latitude = np.sin(latitude)
-        n = constants.EARTH_EQUATORIAL_RADIUS / np.sqrt(1 - e2 * sin_latitude**2)
-        latitude = np.arctan2(z + e2 * n * sin_latitude, p)
-    sin_latitude = np.sin(latitude)
-    altitude = (
-        p * np.cos(latitude)
-        + z * sin_latitude
-        - constants.EARTH_EQUATORIAL_RADIUS * np.sqrt(1 - e2 * sin_latitude**2)
-    )
-    return np.arctan2(y, x), latitude, altitude
-
-
-def _intersect_limb(
-    position: npt.NDArray,
-    direction: npt.NDArray,
-    normal: npt.NDArray,
-    elevation: float = 0,
-) -> npt.NDArray:
-    """
-    Computes points of the limb of the ellipsoid of the WGS 84 semi-axes
-    extended by an elevation (its points whose lines of sight from a position
-    are tangent to it), as for rays that miss it: the intersection of the limb
-    with the plane through the position with a normal, choosing of its two
-    points the one whose direction from the Earth's center is closer to the
-    ray's. Equivalent to SPICE's `edlimb`, `nvp2pl`, and `inelpl`, vectorized
-    across rays.
-
-    In coordinates scaled by the semi-axes, the ellipsoid is the unit sphere
-    and the limb seen from a scaled position `p` is the circle of points `x`
-    on it with `x . p = 1`: centered at `p / |p|^2`, with radius
-    `sqrt(1 - 1 / |p|^2)`, in the plane normal to `p`.
-
-    Args:
-        position (numpy.typing.NDArray): The rays' origins (meters, Earth-fixed, shape (3, N)).
-        direction (numpy.typing.NDArray): The rays' directions (Earth-fixed, shape (3, N)).
-        normal (numpy.typing.NDArray): The planes' normals (Earth-fixed, shape (3, N)).
-        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
-
-    Returns:
-        numpy.typing.NDArray: the limb points (meters, shape (3, N))
-    """
-    axes = np.array(
-        [
-            constants.EARTH_EQUATORIAL_RADIUS + elevation,
-            constants.EARTH_EQUATORIAL_RADIUS + elevation,
-            constants.EARTH_POLAR_RADIUS + elevation,
-        ]
-    )[:, np.newaxis]
-    p = position / axes
-    q = np.sum(p * p, axis=0)
-    center = p / q
-    radius = np.sqrt(1 - 1 / q)
-    # orthonormal basis of the plane of the limb circle
-    u = p / np.sqrt(q)
-    helper = np.where(np.abs(u[2]) < 0.9, [[0.0], [0.0], [1.0]], [[1.0], [0.0], [0.0]])
-    e_1 = np.cross(u, helper, axis=0)
-    e_1 /= np.linalg.norm(e_1, axis=0)
-    e_2 = np.cross(u, e_1, axis=0)
-    # the plane through the position, in scaled coordinates: n . x = d
-    n = normal * axes
-    d = np.sum(normal * position, axis=0)
-    # points of the circle on the plane, at angles phi +/- delta from e_1
-    a_1, a_2 = np.sum(n * e_1, axis=0), np.sum(n * e_2, axis=0)
-    phi = np.arctan2(a_2, a_1)
-    delta = np.arccos(
-        np.clip((d - np.sum(n * center, axis=0)) / (radius * np.hypot(a_1, a_2)), -1, 1)
-    )
-    points = [
-        (center + radius * (np.cos(theta) * e_1 + np.sin(theta) * e_2)) * axes
-        for theta in (phi + delta, phi - delta)
-    ]
-    # the point whose direction from the Earth's center is closer to the ray's
-    closeness = [
-        np.sum(direction * x, axis=0) / np.linalg.norm(x, axis=0) for x in points
-    ]
-    return np.where(closeness[0] >= closeness[1], points[0], points[1])
-
-
 def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-many-statements
     orbit_track: Geocentric,
     cross_track_field_of_view: float,
@@ -604,8 +470,8 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     # elevation), vectorized across times
     position = np.reshape(p_m, (3, -1))
     direction = np.reshape(ray, (3, -1))
-    points, found = _intersect_ellipsoid(position, direction, elevation)
-    geos = np.array(_rectangular_to_geodetic(points))
+    points, found = compute_ellipsoid_intersection(position, direction, elevation)
+    geos = np.array(rectangular_to_geodetic(points))
     miss = ~found
     if np.any(miss):
         # projected points do not fall on the WGS 84 geoid surface: use the
@@ -615,7 +481,7 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
             c, (3, -1)
         ) * np.cos(np.pi / 2 + angle)
         geos[:, miss] = np.array(
-            _rectangular_to_geodetic(
+            rectangular_to_geodetic(
                 _intersect_limb(
                     position[:, miss], direction[:, miss], normal[:, miss], elevation
                 )
@@ -624,7 +490,7 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     if not is_vectorized:
         geos = geos[:, 0]
     # return resulting geographic position
-    return wgs84.latlon(np.degrees(geos[1]), np.degrees(geos[0]), geos[2])
+    return wgs84.latlon(geos[1], geos[0], geos[2])
 
 
 def compute_footprint(

@@ -21,7 +21,8 @@ from skyfield.timelib import Time
 
 from ..constants import timescale
 from ..schemas import Satellite
-from ..utils.tangent_point import _ellipsoidal_tangent_point, _itrs_rotation
+from ..utils.ellipsoid import _ellipsoidal_tangent_point, _itrs_rotation
+from ..utils.orbital import compute_vnb_frame
 from .validation import _check_satellite, _check_satellites
 
 
@@ -38,7 +39,7 @@ def _tangent_point_geometry(
 
     The tangent point is the point on the receiver-transmitter line with
     minimum WGS 84 geodetic altitude (see
-    `tatc.utils.tangent_point._ellipsoidal_tangent_point`), the
+    `tatc.utils.compute_tangent_point`), the
     convention used to geolocate operationally processed RO profiles. It
     differs from the line's closest approach to the Earth's center by up to
     about 20 km horizontally at middle latitudes (the two coincide at the
@@ -78,27 +79,6 @@ def _tangent_point_geometry(
     return tp_p, tp_sign, rx_tx_pitch, rx_tx_yaw
 
 
-def _receiver_frame_vectors(
-    rx_pv: Geocentric,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Computes the receiver body-fixed (VNB) frame unit vectors.
-    """
-    rx_p_m = np.array(rx_pv.position.m)
-    rx_v_m_per_s = np.array(rx_pv.velocity.m_per_s)
-    # unit vector tangent to receiver orbit plane (VNB x-axis)
-    rx_v_u = np.divide(rx_v_m_per_s, np.linalg.norm(rx_v_m_per_s, axis=0))
-    # unit vector normal to receiver orbit plane (VNB y-axis)
-    rx_n_u = np.cross(rx_p_m, rx_v_m_per_s, 0, 0, -1).T
-    rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
-    # unit vector completing the right-handed VNB frame (V x N),
-    # perpendicular to both V and N by construction. This is NOT the same
-    # as the position unit vector (r-hat): the two coincide only for a
-    # circular orbit.
-    rx_b_u = np.cross(rx_v_u, rx_n_u, 0, 0, -1).T
-    return rx_v_u, rx_n_u, rx_b_u
-
-
 def _make_ro_validity_function(
     transmitter: Satellite, receiver: Satellite, max_yaw: float, step_days: float
 ) -> Callable:
@@ -113,7 +93,7 @@ def _make_ro_validity_function(
         # inertial frame, in which repeat tracks are expressed at the true time
         rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track_at_time(t)
         tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track_at_time(t)
-        rx_v_u, rx_n_u, rx_b_u = _receiver_frame_vectors(rx_pv)
+        rx_v_u, rx_n_u, rx_b_u = compute_vnb_frame(rx_pv)
         _, tp_sign, _, rx_tx_yaw = _tangent_point_geometry(
             tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u
         )
@@ -176,7 +156,7 @@ def _sample_ro_arc(
     t = timescale.from_datetimes(times)
 
     rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track_at_time(t)
-    rx_v_u, rx_n_u, rx_b_u = _receiver_frame_vectors(rx_pv)
+    rx_v_u, rx_n_u, rx_b_u = compute_vnb_frame(rx_pv)
     tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track_at_time(t)
     tp_p, _, rx_tx_pitch, rx_tx_yaw = _tangent_point_geometry(
         tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u

@@ -16,11 +16,11 @@ from skyfield.units import Distance, Velocity
 from tatc.analysis import collect_ro_observations
 from tatc.analysis.ro_coverage import (
     _interpolate_ro_point,
-    _receiver_frame_vectors,
     _sample_ro_arc,
     _tangent_point_geometry,
 )
-from tatc.utils.tangent_point import _geodetic_altitude, _itrs_rotation
+from tatc.utils import compute_vnb_frame
+from tatc.utils.ellipsoid import _itrs_rotation, rectangular_to_geodetic
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Instrument, Satellite
 
@@ -42,7 +42,7 @@ def _make_geocentric(position_m, velocity_m_per_s, t):
 
 class TestReceiverFrameVectors(unittest.TestCase):
     """
-    Unit tests for `_receiver_frame_vectors`.
+    Unit tests for `compute_vnb_frame`.
     """
 
     def setUp(self):
@@ -58,7 +58,7 @@ class TestReceiverFrameVectors(unittest.TestCase):
         tangential.
         """
         rx = _make_geocentric([[7000e3], [0], [0]], [[0], [7.5e3], [0]], self.t)
-        v_u, n_u, b_u = _receiver_frame_vectors(rx)
+        v_u, n_u, b_u = compute_vnb_frame(rx)
         np.testing.assert_allclose(v_u.ravel(), [0, 1, 0], atol=1e-12)
         np.testing.assert_allclose(n_u.ravel(), [0, 0, 1], atol=1e-12)
         np.testing.assert_allclose(b_u.ravel(), [1, 0, 0], atol=1e-12)
@@ -82,7 +82,7 @@ class TestReceiverFrameVectors(unittest.TestCase):
             [datetime(2022, 6, 20, i, tzinfo=timezone.utc) for i in range(5)]
         )
         track = orbit.to_gp_orbit().get_orbit_track_at_time(t)
-        v_u, n_u, b_u = _receiver_frame_vectors(track)
+        v_u, n_u, b_u = compute_vnb_frame(track)
         np.testing.assert_allclose(np.einsum("ij,ij->j", v_u, n_u), 0, atol=1e-9)
         np.testing.assert_allclose(np.einsum("ij,ij->j", v_u, b_u), 0, atol=1e-9)
         np.testing.assert_allclose(np.einsum("ij,ij->j", n_u, b_u), 0, atol=1e-9)
@@ -105,7 +105,7 @@ class TestTangentPointGeometry(unittest.TestCase):
         """
         rx = _make_geocentric([[7000e3], [0], [0]], [[0], [7.5e3], [0]], self.t)
         tx = _make_geocentric([[-7000e3], [0], [0]], [[0], [-3.0e3], [0]], self.t)
-        v_u, n_u, b_u = _receiver_frame_vectors(rx)
+        v_u, n_u, b_u = compute_vnb_frame(rx)
         tp_p, tp_sign, _, _ = _tangent_point_geometry(tx, rx, v_u, n_u, b_u)
         np.testing.assert_allclose(tp_p.ravel(), [0, 0, 0], atol=1e-6)
         self.assertEqual(tp_sign[0], -1)
@@ -118,7 +118,7 @@ class TestTangentPointGeometry(unittest.TestCase):
         """
         rx = _make_geocentric([[7000e3], [0], [0]], [[0], [7.5e3], [0]], self.t)
         tx = _make_geocentric([[8000e3], [2000e3], [0]], [[0], [3.0e3], [0]], self.t)
-        v_u, n_u, b_u = _receiver_frame_vectors(rx)
+        v_u, n_u, b_u = compute_vnb_frame(rx)
         _, tp_sign, _, _ = _tangent_point_geometry(tx, rx, v_u, n_u, b_u)
         self.assertEqual(tp_sign[0], 1)
 
@@ -143,7 +143,7 @@ class TestTangentPointGeometry(unittest.TestCase):
         rx_p, tx_p = tp_guess - north * 2800e3, tp_guess + north * 25500e3
         rx = _make_geocentric(rx_p.reshape(3, 1), [[0], [7.5e3], [1e3]], self.t)
         tx = _make_geocentric(tx_p.reshape(3, 1), [[1e3], [-3.0e3], [0]], self.t)
-        v_u, n_u, b_u = _receiver_frame_vectors(rx)
+        v_u, n_u, b_u = compute_vnb_frame(rx)
         tp_p, tp_sign, _, _ = _tangent_point_geometry(tx, rx, v_u, n_u, b_u)
         tp_p = tp_p.ravel()
         self.assertEqual(tp_sign[0], -1)
@@ -151,10 +151,12 @@ class TestTangentPointGeometry(unittest.TestCase):
         d = (tx_p - rx_p) / np.linalg.norm(tx_p - rx_p)
         offsets = np.linspace(-50e3, 50e3, 10001)
         line = tp_p[:, np.newaxis] + offsets * d[:, np.newaxis]
-        altitudes = _geodetic_altitude(rotation @ line)
+        altitudes = rectangular_to_geodetic(rotation @ line)[2]
         # minimum sits at the reported tangent point (10 m sampling)
         self.assertLess(abs(offsets[np.argmin(altitudes)]), 100.0)
-        self.assertLess(_geodetic_altitude(rotation @ tp_p) - altitudes.min(), 1e-3)
+        self.assertLess(
+            rectangular_to_geodetic(rotation @ tp_p)[2] - altitudes.min(), 1e-3
+        )
         # whereas the geocentric closest approach is kilometers away
         geocentric_tp = rx_p - d * np.dot(rx_p, d)
         self.assertGreater(np.linalg.norm(geocentric_tp - tp_p), 5e3)
