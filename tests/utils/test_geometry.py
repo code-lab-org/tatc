@@ -7,6 +7,7 @@ Unit tests for the tatc.utils.geometry module.
 import unittest
 
 import geopandas as gpd
+import numpy as np
 from pyproj import Geod
 from shapely.geometry import MultiPolygon, Point, Polygon
 
@@ -17,6 +18,17 @@ from tatc.utils import (
     normalize_geometry,
     project_polygon_to_elevation,
     split_polygon,
+)
+from tatc.constants import EARTH_EQUATORIAL_RADIUS, EARTH_POLAR_RADIUS
+from tatc.schemas import Point as TatcPoint
+from tatc.utils.geometry import (
+    _get_angular_distance_to_arcs,
+    _get_boundary_arcs,
+    _get_geodetic_coordinates,
+    _get_nearest_arc_points,
+    _get_point_coordinates,
+    _get_surface_directions,
+    _get_surface_positions,
 )
 
 
@@ -651,6 +663,131 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
         self.assertTrue(result.is_valid)
         self.assertTrue(result.contains(Point(10, -80)))
         self.assertFalse(result.contains(Point(10, -60)))
+
+    def test_get_surface_directions(self):
+        """
+        Test that surface directions are geocentric unit vectors, which
+        coincide with geodetic directions at the equator and poles.
+        """
+        directions = _get_surface_directions([0, 90, 0], [0, 0, 90])
+        np.testing.assert_allclose(directions, np.eye(3), atol=1e-12)
+        # the geocentric latitude is less than the geodetic latitude
+        direction = _get_surface_directions(0, 45)
+        self.assertLess(np.degrees(np.arcsin(direction[2])), 45)
+
+    def test_get_boundary_arcs_omits_seams(self):
+        """
+        Test that the boundary arcs of a polygon spanning all longitudes
+        omit its seams along the anti-meridian and its degenerate edge along
+        the pole, leaving only its 1-degree segments along -70 degrees.
+        """
+        start, end = _get_boundary_arcs(
+            Polygon([(-180, -90), (180, -90), (180, -70), (-180, -70), (-180, -90)])
+        )
+        self.assertEqual(start.shape, (3, 360))
+        self.assertEqual(end.shape, (3, 360))
+
+    def test_get_boundary_arcs_keeps_anti_meridian_boundary(self):
+        """
+        Test that an edge along the anti-meridian is kept when the polygon
+        does not continue across it.
+        """
+        start, _ = _get_boundary_arcs(
+            Polygon([(170, -10), (180, -10), (180, 10), (170, 10), (170, -10)])
+        )
+        self.assertEqual(start.shape, (3, 60))
+
+    def test_get_angular_distance_to_arcs(self):
+        """
+        Test the angular distance to an arc along the equator from 0 to 10
+        degrees longitude: to its great circle beside it, and to its nearest
+        end beyond it.
+        """
+
+        def unit(lon, lat):
+            lon, lat = np.radians(lon), np.radians(lat)
+            return np.array(
+                [np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)]
+            )
+
+        arcs = (unit([0], [0]), unit([10], [0]))
+        distance = np.degrees(
+            _get_angular_distance_to_arcs(unit([5, 15, -4, 5], [3, 0, 3, 0]), arcs)
+        )
+        expected = [
+            3,
+            5,
+            np.degrees(np.arccos(np.cos(np.radians(4)) * np.cos(np.radians(3)))),
+            0,
+        ]
+        np.testing.assert_allclose(distance, expected, atol=1e-9)
+
+    def test_get_nearest_arc_points(self):
+        """
+        Test that the nearest point on an arc along the equator (from 0 to
+        10 degrees longitude) is the projection onto it beside the arc, or
+        its nearest end beyond it.
+        """
+
+        def unit(lon, lat):
+            lon, lat = np.radians(lon), np.radians(lat)
+            return np.array(
+                [np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)]
+            )
+
+        arcs = (unit([0], [0]), unit([10], [0]))
+        _, nearest = _get_nearest_arc_points(unit([5, 15, -4], [3, 0, 3]), arcs)
+        np.testing.assert_allclose(nearest, unit([5, 10, 0], [0, 0, 0]), atol=1e-12)
+
+    def test_get_surface_positions_and_geodetic_coordinates(self):
+        """
+        Test that surface positions lie on the WGS 84 ellipsoid at the
+        equatorial and polar radii, and that geodetic coordinates invert
+        surface directions.
+        """
+        positions = _get_surface_positions(np.eye(3))
+        np.testing.assert_allclose(
+            np.linalg.norm(positions, axis=0),
+            [EARTH_EQUATORIAL_RADIUS, EARTH_EQUATORIAL_RADIUS, EARTH_POLAR_RADIUS],
+        )
+        longitude, latitude = _get_geodetic_coordinates(
+            _get_surface_directions([-120, 30, 170], [-60, 15, 45])
+        )
+        np.testing.assert_allclose(longitude, [-120, 30, 170], atol=1e-9)
+        np.testing.assert_allclose(latitude, [-60, 15, 45], atol=1e-9)
+
+    def test_get_point_coordinates(self):
+        """
+        Test that the coordinates of a TAT-C point and of a shapely point
+        (with or without elevation) are the same.
+        """
+        self.assertEqual(
+            _get_point_coordinates(
+                TatcPoint(latitude=40.7, longitude=-74.0, elevation=10)
+            ),
+            (-74.0, 40.7, 10.0),
+        )
+        self.assertEqual(
+            _get_point_coordinates(Point(-74.0, 40.7, 10)), (-74.0, 40.7, 10.0)
+        )
+        self.assertEqual(_get_point_coordinates(Point(-74.0, 40.7)), (-74.0, 40.7, 0.0))
+
+    def test_get_point_coordinates_invalid_latitude(self):
+        """
+        Test that a shapely point with a latitude beyond the poles raises a
+        ValueError.
+        """
+        with self.assertRaises(ValueError):
+            _get_point_coordinates(Point(0, 91))
+
+    def test_get_angular_distance_to_no_arcs(self):
+        """
+        Test that the angular distance to no arcs is a half circle.
+        """
+        distance = _get_angular_distance_to_arcs(
+            np.array([[1.0], [0.0], [0.0]]), (np.empty((3, 0)), np.empty((3, 0)))
+        )
+        np.testing.assert_allclose(distance, [np.pi])
 
     def test_split_polygon_unknown_geometry(self):
         """

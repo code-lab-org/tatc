@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
+from shapely.geometry import Point as ShapelyPoint
 
 from tatc.analysis import DopMethod, compute_dop
 from tatc.schemas import (
@@ -43,6 +44,25 @@ class TestDopAnalysis(unittest.TestCase):
             number_satellites=24,
             number_planes=6,
         )
+
+    def test_compute_dop_shapely_point_matches_point(self):
+        """
+        Test that the DOP at a shapely point (with elevation) is that at the
+        equivalent TAT-C point.
+        """
+        satellites = self.gps_constellation.generate_members()
+        expected = compute_dop(
+            self.times,
+            Point(latitude=40, longitude=-105, elevation=1600),
+            satellites,
+            10,
+            DopMethod.PDOP,
+        )
+        actual = compute_dop(
+            self.times, ShapelyPoint(-105, 40, 1600), satellites, 10, DopMethod.PDOP
+        )
+        np.testing.assert_array_equal(actual.dop.values, expected.dop.values)
+        self.assertTrue(actual.geometry.equals(expected.geometry))
 
     def test_compute_gdop(self):
         """

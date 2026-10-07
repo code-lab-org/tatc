@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import numpy as np
 from pydantic import ValidationError
+from shapely.geometry import Point as ShapelyPoint
 from skyfield.api import wgs84
 from skyfield.framelib import itrs
 
@@ -1641,6 +1642,31 @@ class TestGetObservationEvents(unittest.TestCase):
         ]
         self.base = GeneralPerturbationsOrbit.from_tle(landsat_8_tle).elements[0]
         self.point = Point(id=0, latitude=40.0, longitude=-105.0)
+
+    def test_shapely_point_matches_point(self):
+        """
+        Test that the events for a shapely point (longitude, latitude, and
+        elevation) are those for the equivalent TAT-C point.
+        """
+        orbit = GeneralPerturbationsOrbit(elements=[self.base])
+        start = self.base.epoch
+        end = start + timedelta(days=1)
+        for point, shapely_point in [
+            (self.point, ShapelyPoint(-105.0, 40.0)),
+            (
+                Point(latitude=40.0, longitude=-105.0, elevation=1600),
+                ShapelyPoint(-105.0, 40.0, 1600),
+            ),
+        ]:
+            expected_times, expected_codes = orbit.get_observation_events(
+                point, start, end, min_elevation_angle=10
+            )
+            times, codes = orbit.get_observation_events(
+                shapely_point, start, end, min_elevation_angle=10
+            )
+            self.assertGreater(len(codes), 0)
+            np.testing.assert_array_equal(codes, expected_codes)
+            np.testing.assert_array_equal(times.tt, expected_times.tt)
 
     def test_repeat_cycle_tiles_events_across_cycles(self):
         """

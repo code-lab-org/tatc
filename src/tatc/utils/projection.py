@@ -6,6 +6,7 @@ Projection utility functions.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterable
 from enum import Enum
 
@@ -822,6 +823,13 @@ def buffer_target(
     the fastest (most conservative, largest-distance) point for any given
     inclination.
 
+    Deprecated: buffering in a planar (equidistant cylindrical) projection
+    does not conservatively bound observations near the poles or across the
+    anti-meridian. The analysis functions instead cull to the periods when
+    an instrument's field of regard may observe a region (see
+    `tatc.analysis.region_coverage._get_visible_polygon_interval_series`). This
+    function will be removed in a future release.
+
     Args:
         geometry (shapely.Geometry): The target geometry (with EPSG:4326 coordinates) to buffer.
         altitude (float): The spacecraft orbit altitude (meters).
@@ -840,6 +848,11 @@ def buffer_target(
     Returns:
         shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The buffered geometry.
     """
+    warnings.warn(
+        "buffer_target is deprecated and will be removed in a future release",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if distance_crs is None:
         _, min_lat, _, max_lat = geometry.bounds
         lat_ts = min(max(abs(min_lat), abs(max_lat)), 89.9)

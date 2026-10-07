@@ -1,5 +1,5 @@
 """
-Methods to perform coverage analysis.
+Methods to perform coverage analysis of points.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 from shapely import geometry as geo
 from skyfield.api import wgs84
+from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
 from ..constants import EARTH_POLAR_RADIUS, de421, timescale
@@ -25,6 +26,7 @@ from ..schemas import (
     PointedInstrument,
     Satellite,
 )
+from ..utils.geometry import _get_point_coordinates
 from ..utils.observation import (
     compute_max_access_time,
     compute_min_elevation_angle,
@@ -39,7 +41,7 @@ from .validation import _check_satellite, _check_satellites
 
 
 def _get_visible_interval_series(
-    point: Point,
+    point: Point | geo.Point,
     satellite: Satellite,
     min_elevation_angle: float,
     max_altitude: float,
@@ -50,7 +52,9 @@ def _get_visible_interval_series(
     Get the series of visible intervals based on altitude angle constraints.
 
     Args:
-        point (Point): Point to observe.
+        point (Point | shapely.geometry.Point): Point to observe: a TAT-C
+                point or a shapely point (longitude, latitude, and optional
+                elevation in meters).
         satellite (Satellite): Satellite doing the observation.
         min_elevation_angle (float): Minimum elevation angle (degrees) for valid observation.
         max_altitude (float): A conservative upper-bound satellite altitude
@@ -84,7 +88,8 @@ def _get_visible_interval_series(
         # the pass's culmination). Disambiguate by sampling the true
         # elevation angle at the window's midpoint.
         mid = start + (end - start) / 2
-        topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
+        longitude, latitude, elevation = _get_point_coordinates(point)
+        topos = wgs84.latlon(latitude, longitude, elevation)
         orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track([mid])[0]
         elevation_angle = (
             (orbit_track - topos.at(timescale.from_datetime(mid))).altaz()[0].degrees
@@ -191,6 +196,84 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
+def _build_observation_frame(
+    observations: list[tuple[pd.Interval, pd.Timestamp, tuple[float, float, float]]],
+    point_id: int,
+    geometry: geo.base.BaseGeometry,
+    satellite: Satellite,
+    instrument: Instrument,
+    omit_solar: bool,
+) -> gpd.GeoDataFrame:
+    """
+    Builds the data frame of observations of a point or region, with the
+    satellite (and solar) angles of each observed point at its epoch.
+
+    Args:
+        observations (list[tuple[pandas.Interval, pandas.Timestamp, tuple[float, float, float]]]):
+                Each observation's period, epoch, and observed point's longitude
+                (degrees), latitude (degrees), and elevation (meters).
+        point_id (int): The identifier recorded with each observation.
+        geometry (shapely.geometry.base.BaseGeometry): The geometry recorded with
+                each observation.
+        satellite (Satellite): The observing satellite.
+        instrument (Instrument): The observing instrument.
+        omit_solar (bool): `True`, to omit solar angles to improve performance.
+
+    Returns:
+        geopandas.GeoDataFrame: The data frame with recorded observations.
+    """
+    if len(observations) == 0:
+        return _get_empty_coverage_frame(omit_solar)
+    gdf = gpd.GeoDataFrame(
+        [
+            {
+                "point_id": point_id,
+                "geometry": geometry,
+                "satellite": satellite.name,
+                "instrument": instrument.name,
+                "start": (
+                    period.left
+                    if not instrument.access_time_fixed
+                    else epoch - instrument.min_access_time / 2
+                ),
+                "end": (
+                    period.right
+                    if not instrument.access_time_fixed
+                    else epoch + instrument.min_access_time / 2
+                ),
+                "epoch": epoch,
+            }
+            for period, epoch, _ in observations
+        ],
+        crs="EPSG:4326",
+    )
+    # observed point of each observation
+    longitude, latitude, elevation = np.array(
+        [target for _, _, target in observations]
+    ).T
+    topos = wgs84.latlon(latitude, longitude, elevation)
+    ts = timescale.from_datetimes(gdf.epoch)
+    orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(gdf.epoch.tolist())
+    # append satellite altitude/azimuth columns
+    sat_altaz = (orbit_track - topos.at(ts)).altaz()
+    gdf["sat_alt"] = sat_altaz[0].degrees  # type: ignore
+    gdf["sat_az"] = sat_altaz[1].degrees  # type: ignore
+    if not omit_solar:
+        # append satellite sunlit column
+        gdf["sat_sunlit"] = orbit_track.is_sunlit(de421)
+        # append solar altitude/azimuth columns
+        sun_altaz = (
+            (de421["earth"] + topos).at(ts).observe(de421["sun"]).apparent().altaz()
+        )
+        gdf["solar_alt"] = sun_altaz[0].degrees
+        gdf["solar_az"] = sun_altaz[1].degrees
+        # append local solar time column
+        gdf["solar_time"] = (de421["earth"] + topos).at(ts).observe(
+            de421["sun"]
+        ).apparent().hadec()[0].hours + 12
+    return gdf
+
+
 def _find_crossings(
     residual: Callable[[np.ndarray, np.ndarray], np.ndarray],
     lower: np.ndarray,
@@ -246,71 +329,96 @@ def _find_crossings(
 
 
 def _refine_access_periods(
-    target: GeographicPosition,
+    residual: Callable[[Geocentric], np.ndarray],
     orbit: GeneralPerturbationsOrbit,
-    instrument: Instrument,
     periods: list[pd.Interval],
+    max_step: timedelta | None = None,
 ) -> list[pd.Interval]:
     """
-    Refine visible periods to the times when a target lies within an
-    instrument's field of regard: when its angle from nadir (using the
-    instrument's nadir reference) is at most half the field of regard. The
-    visible periods, from a conservative minimum elevation angle, bracket
-    these times. Periods during which the target does not enter the field
-    of regard are removed; period ends at which it is already inside (for
-    example, at the ends of the analysis period) are kept.
+    Refine visible periods to the times when a residual function of the
+    orbit track is not positive: for example, a target's angle from nadir
+    less half an instrument's field of regard. The visible periods, from a
+    conservative condition, bracket these times. Each period is sampled at
+    21 times (or more, if needed to sample at least every `max_step`), and
+    each change of sign of the residual between samples is refined, so that
+    a period may be divided into several parts (for example, as a
+    satellite passes over separate parts of a region). Periods in which the
+    residual is positive at every sample are removed; period ends at which
+    it is not positive (for example, at the ends of the analysis period) are
+    kept.
 
     Args:
-        target (skyfield.toposlib.GeographicPosition): The target position.
+        residual (Callable[[skyfield.positionlib.Geocentric], numpy.ndarray]):
+                The residual function of an orbit track (at one or more times).
         orbit (GeneralPerturbationsOrbit): The orbit.
-        instrument (Instrument): The observing instrument.
         periods (list[pandas.Interval]): The visible periods.
+        max_step (datetime.timedelta | None): The maximum time between samples.
 
     Returns:
         list[pandas.Interval]: The refined periods.
     """
-    half_angle = instrument.field_of_regard / 2
-    if len(periods) == 0 or half_angle >= 90:
+    if len(periods) == 0:
         return periods
     reference = periods[0].left
-    n = len(periods)
 
-    def angle_from_nadir(seconds: np.ndarray, _index: np.ndarray) -> np.ndarray:
-        angle, _ = compute_cone_and_azimuth(
-            orbit.get_orbit_track(
-                [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
+    def evaluate(seconds: np.ndarray, _index: np.ndarray) -> np.ndarray:
+        return np.reshape(
+            residual(
+                orbit.get_orbit_track(
+                    [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
+                )
             ),
-            target,
-            nadir_reference=instrument.nadir_reference,
+            -1,
         )
-        return np.reshape(angle, -1)
 
     lower = np.array([(period.left - reference).total_seconds() for period in periods])
     upper = np.array([(period.right - reference).total_seconds() for period in periods])
-    # time of the minimum angle from nadir in each period, from sampled times
-    samples = lower[:, None] + (upper - lower)[:, None] * np.linspace(0, 1, 21)
-    angles = angle_from_nadir(samples.ravel(), np.repeat(np.arange(n), 21)).reshape(
-        samples.shape
-    )
-    closest = samples[np.arange(n), np.argmin(angles, axis=1)]
-    crossing, bracketed = _find_crossings(
-        lambda seconds, index: angle_from_nadir(seconds, index) - half_angle,
-        np.concatenate([lower, closest]),
-        np.concatenate([closest, upper]),
-    )
-    refined = []
-    for i in range(n):
-        if np.min(angles[i]) > half_angle:
-            continue
-        left = crossing[i] if bracketed[i] else lower[i]
-        right = crossing[i + n] if bracketed[i + n] else upper[i]
-        refined.append(
-            pd.Interval(
-                left=reference + pd.Timedelta(seconds=float(left)),
-                right=reference + pd.Timedelta(seconds=float(right)),
-            )
+    counts = np.full(len(periods), 21)
+    if max_step is not None:
+        counts = np.maximum(
+            counts, np.ceil((upper - lower) / max_step.total_seconds()).astype(int) + 1
         )
-    return refined
+    samples = [
+        np.linspace(lo, hi, count) for lo, hi, count in zip(lower, upper, counts)
+    ]
+    values = np.split(
+        evaluate(np.concatenate(samples), np.array([])), np.cumsum(counts)[:-1]
+    )
+    # brackets of each change of sign between samples
+    brackets = [
+        (i, j)
+        for i, value in enumerate(values)
+        for j in np.flatnonzero((value[:-1] <= 0) != (value[1:] <= 0))
+    ]
+    crossings = {}
+    if len(brackets) > 0:
+        crossing, _ = _find_crossings(
+            evaluate,
+            np.array([samples[i][j] for i, j in brackets]),
+            np.array([samples[i][j + 1] for i, j in brackets]),
+        )
+        crossings = dict(zip(brackets, crossing))
+    refined = []
+    for i, (sample, value) in enumerate(zip(samples, values)):
+        inside = value <= 0
+        left = sample[0] if inside[0] else None
+        for j in range(len(sample) - 1):
+            if inside[j] == inside[j + 1]:
+                continue
+            if inside[j + 1]:
+                left = crossings[(i, j)]
+            else:
+                refined.append((left, crossings[(i, j)]))
+                left = None
+        if left is not None:
+            refined.append((left, sample[-1]))
+    return [
+        pd.Interval(
+            left=reference + pd.Timedelta(seconds=float(left)),
+            right=reference + pd.Timedelta(seconds=float(right)),
+        )
+        for left, right in refined
+    ]
 
 
 def _get_view_crossing_times(
@@ -446,7 +554,7 @@ def _get_cone_crossing_times(
 
 
 def collect_observations(
-    point: Point,
+    point: Point | geo.Point,
     satellite: Satellite,
     start: datetime,
     end: datetime,
@@ -454,7 +562,14 @@ def collect_observations(
     omit_solar: bool = True,
 ) -> gpd.GeoDataFrame:
     """
-    Collect single satellite observations of a geodetic point of interest.
+    Collect single satellite observations of a geodetic point of interest:
+    a TAT-C `Point` or a shapely `Point` (whose x, y, and optional z
+    coordinates are its longitude, latitude, and elevation in meters);
+    TAT-C points are expected to be replaced by shapely points in the
+    future. Observations record a TAT-C point's `id` as their `point_id`, or
+    0 for a shapely point. For a region, see
+    `tatc.analysis.region_coverage.collect_region_observations`.
+
     Each observation spans a period when the point lies within the
     instrument's field of regard (when its angle from nadir is at most half
     the field of regard). Its epoch is the period's midpoint or, for
@@ -470,7 +585,7 @@ def collect_observations(
     epoch (see `GeneralPerturbationsOrbit.get_orbit_track_at_time`).
 
     Args:
-        point (Point): The ground point of interest.
+        point (Point | shapely.geometry.Point): The ground point of interest.
         satellite (Satellite): The observing satellite.
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
@@ -481,6 +596,13 @@ def collect_observations(
         geopandas.GeoDataFrame: The data frame with recorded observations.
     """
     _check_satellite(satellite)
+    if not isinstance(point, (Point, geo.Point)):
+        raise TypeError(
+            "point must be a Point or shapely Point, not a "
+            f"{type(point).__name__} (see collect_region_observations for a region)"
+        )
+    point_id = point.id if isinstance(point, Point) else 0
+    longitude, latitude, elevation = _get_point_coordinates(point)
     instrument = satellite.instruments[instrument_index]
     orbit = satellite.orbit.to_gp_orbit()
     # use the apogee altitude above the polar radius (and above the point,
@@ -491,7 +613,7 @@ def collect_observations(
             satellite.orbit.get_semimajor_axis(), satellite.orbit.get_eccentricity()
         )
         - EARTH_POLAR_RADIUS
-        - min(point.elevation, 0)
+        - min(elevation, 0)
     )
     # compute the minimum altitude angle required for observation, less a
     # margin for the spherical approximation (but not below the horizon)
@@ -499,14 +621,24 @@ def collect_observations(
         0.0,
         compute_min_elevation_angle(max_altitude, instrument.field_of_regard) - 1.0,
     )
-    target = wgs84.latlon(point.latitude, point.longitude, point.elevation)
+    target = wgs84.latlon(latitude, longitude, elevation)
     periods = list(
         _get_visible_interval_series(
             point, satellite, min_elevation_angle, max_altitude, start, end
         )
     )
-    # refine the periods to the field of regard
-    periods = _refine_access_periods(target, orbit, instrument, periods)
+    # refine the periods to the field of regard: when the point's angle
+    # from nadir is at most half the field of regard
+    half_angle = instrument.field_of_regard / 2
+    if half_angle < 90:
+        periods = _refine_access_periods(
+            lambda orbit_track: compute_cone_and_azimuth(
+                orbit_track, target, nadir_reference=instrument.nadir_reference
+            )[0]
+            - half_angle,
+            orbit,
+            periods,
+        )
     # observation epochs: the time a pointed instrument's view sweeps over
     # the point, the times the point crosses a conical instrument's cone, or
     # otherwise the midpoint of each visible period
@@ -521,7 +653,7 @@ def collect_observations(
         epochs = _get_cone_crossing_times(target, satellite, instrument, periods)
     else:
         epochs = [[period.mid] for period in periods]
-    records = []
+    observations = []
     for period, period_epochs in zip(periods, epochs):
         for epoch in period_epochs:
             # instrument validity (illumination, field of view) is only
@@ -531,7 +663,7 @@ def collect_observations(
             # using the instrument's own validity condition, but that is out
             # of scope for now
             orbit_track = orbit.get_orbit_track([epoch])
-            if not (
+            if (
                 instrument.min_access_time <= period.right - period.left
                 and instrument.is_valid_observation(orbit_track, target).all()
                 and (
@@ -539,59 +671,19 @@ def collect_observations(
                     or instrument.is_in_field_of_view(orbit_track, target).all()
                 )
             ):
-                continue
-            records.append(
-                {
-                    "point_id": point.id,
-                    "geometry": geo.Point(
-                        point.longitude, point.latitude, point.elevation
-                    ),
-                    "satellite": satellite.name,
-                    "instrument": instrument.name,
-                    "start": (
-                        period.left
-                        if not instrument.access_time_fixed
-                        else epoch - instrument.min_access_time / 2
-                    ),
-                    "end": (
-                        period.right
-                        if not instrument.access_time_fixed
-                        else epoch + instrument.min_access_time / 2
-                    ),
-                    "epoch": epoch,
-                }
-            )
-
-    # build the dataframe
-    if len(records) > 0:
-        gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
-        topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
-        ts = timescale.from_datetimes(gdf.epoch)
-        orbit_track = orbit.get_orbit_track(gdf.epoch.tolist())
-        # append satellite altitude/azimuth columns
-        sat_altaz = (orbit_track - topos.at(ts)).altaz()
-        gdf["sat_alt"] = sat_altaz[0].degrees  # type: ignore
-        gdf["sat_az"] = sat_altaz[1].degrees  # type: ignore
-        if not omit_solar:
-            # append satellite sunlit column
-            gdf["sat_sunlit"] = orbit_track.is_sunlit(de421)
-            # append solar altitude/azimuth columns
-            sun_altaz = (
-                (de421["earth"] + topos).at(ts).observe(de421["sun"]).apparent().altaz()
-            )
-            gdf["solar_alt"] = sun_altaz[0].degrees
-            gdf["solar_az"] = sun_altaz[1].degrees
-            # append local solar time column
-            gdf["solar_time"] = (de421["earth"] + topos).at(ts).observe(
-                de421["sun"]
-            ).apparent().hadec()[0].hours + 12
-    else:
-        gdf = _get_empty_coverage_frame(omit_solar)
-    return gdf
+                observations.append((period, epoch, (longitude, latitude, elevation)))
+    return _build_observation_frame(
+        observations,
+        point_id,
+        geo.Point(longitude, latitude, elevation),
+        satellite,
+        instrument,
+        omit_solar,
+    )
 
 
 def collect_multi_observations(
-    point: Point,
+    point: Point | geo.Point,
     satellites: Satellite | list[Satellite],
     start: datetime,
     end: datetime,
@@ -603,7 +695,8 @@ def collect_multi_observations(
     `satellites`, and concatenates the results into one data frame.
 
     Args:
-        point (Point): The ground point of interest.
+        point (Point | shapely.geometry.Point): The ground point of interest
+                (see `collect_observations`).
         satellites (Satellite | list[Satellite]): The observing satellite(s),
                 each contributing an observation per instrument it carries.
         start (datetime.datetime): Start of analysis period.
@@ -623,6 +716,23 @@ def collect_multi_observations(
         return _get_empty_coverage_frame(omit_solar)
     # concatenate into one data frame, sort by start time, and re-index
     return pd.concat(gdfs).sort_values("start").reset_index(drop=True)
+
+
+def _get_target_keys(gdf: gpd.GeoDataFrame) -> list[pd.Series]:
+    """
+    Gets the keys that identify the target (point or region) of each
+    observation: its `point_id` and its geometry (as well-known binary), so
+    that targets with distinct geometries are kept apart even if they share
+    a `point_id` (for example, shapely points with the default identifier
+    of 0).
+
+    Args:
+        gdf (geopandas.GeoDataFrame): The observations.
+
+    Returns:
+        list[pandas.Series]: the keys
+    """
+    return [gdf["point_id"], gdf.geometry.to_wkb().rename("geometry_key")]
 
 
 def _get_empty_aggregate_frame() -> gpd.GeoDataFrame:
@@ -649,7 +759,8 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     Aggregate constellation observations. Interleaves observations by multiple
     satellites to compute aggregate performance metrics including access
     (observation duration) and revisit (duration between observations).
-    Overlapping (including fully nested) observations for the same point,
+    Overlapping (including fully nested) observations of the same target
+    (the same `point_id` and geometry, see `_get_target_keys`),
     possibly from different satellites/instruments, are merged into a single
     continuous coverage period; `satellite`/`instrument` record every
     contributor to that period, comma-separated. `epoch` is reassigned to
@@ -669,8 +780,8 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     if observations.empty:
         return _get_empty_aggregate_frame()
     gdfs = []
-    # split into constituent data frames based on point_id
-    for _, gdf in observations.groupby("point_id"):
+    # split into constituent data frames for each target
+    for _, gdf in observations.groupby(_get_target_keys(observations)):
         # sort the values by start datetime
         gdf = gdf.sort_values("start")
         # assign the observation group number based on overlapping start/end times
@@ -718,8 +829,8 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
 
 def reduce_observations(aggregated_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
-    Reduce constellation observations: for each unique point_id in
-    `aggregated_observations`, computes the mean access period, the mean
+    Reduce constellation observations: for each unique target (`point_id`
+    and geometry, see `_get_target_keys`) in `aggregated_observations`, computes the mean access period, the mean
     revisit period, and the total number of samples (aggregated periods)
     over the analysis period. The first sample's revisit is undefined (no
     prior observation to measure a gap from) and is excluded from the mean
@@ -742,15 +853,19 @@ def reduce_observations(aggregated_observations: gpd.GeoDataFrame) -> gpd.GeoDat
     gdf["revisit"] = gdf["revisit"].dt.total_seconds()
     # assign each record to one observation
     gdf["samples"] = 1
-    # perform the aggregation operation
-    gdf = gdf.dissolve(
-        "point_id",
-        aggfunc={
-            "access": "mean",
-            "revisit": "mean",
-            "samples": "sum",
-        },
-    ).reset_index()
+    # perform the aggregation operation for each target
+    gdf = (
+        gdf.dissolve(
+            _get_target_keys(gdf),
+            aggfunc={
+                "access": "mean",
+                "revisit": "mean",
+                "samples": "sum",
+            },
+        )
+        .reset_index()
+        .drop(columns="geometry_key")
+    )
     # convert access and revisit from numeric values after aggregation
     gdf["access"] = pd.to_timedelta(gdf["access"], unit="s")
     gdf["revisit"] = pd.to_timedelta(gdf["revisit"], unit="s")

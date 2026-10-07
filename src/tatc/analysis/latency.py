@@ -17,7 +17,7 @@ from shapely import geometry as geo
 from ..constants import EARTH_MEAN_RADIUS
 from ..schemas import GroundStation, Satellite
 from ..utils.orbital import compute_apoapsis_radius
-from .coverage import _get_visible_interval_series
+from .point_coverage import _get_target_keys, _get_visible_interval_series
 from .validation import _check_satellite
 
 
@@ -263,7 +263,8 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
 
 def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
-    Reduce observation latencies: for each unique point_id in
+    Reduce observation latencies: for each unique target (`point_id` and
+    geometry, see `tatc.analysis.point_coverage._get_target_keys`) in
     `latency_observations`, computes the mean latency and the total number
     of samples (observation/downlink pairs). An observation with no
     matching downlink has an undefined (NaT) latency (see
@@ -285,13 +286,17 @@ def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame
     # assign each record to one observation
     gdf["samples"] = 1
     # perform the aggregation operation
-    gdf = gdf.dissolve(
-        "point_id",
-        aggfunc={
-            "latency": "mean",
-            "samples": "sum",
-        },
-    ).reset_index()
+    gdf = (
+        gdf.dissolve(
+            _get_target_keys(gdf),
+            aggfunc={
+                "latency": "mean",
+                "samples": "sum",
+            },
+        )
+        .reset_index()
+        .drop(columns="geometry_key")
+    )
     # convert latency from numeric values after aggregation
     gdf["latency"] = pd.to_timedelta(gdf["latency"], unit="s")
     return gdf

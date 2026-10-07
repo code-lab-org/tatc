@@ -2,14 +2,12 @@
 Defines analysis functions.
 """
 
-from .coverage import (
-    aggregate_observations,
-    collect_multi_observations,
-    collect_observations,
-    grid_observations,
-    reduce_observations,
-)
 from .dop import DopMethod, compute_dop
+from .ground_track import (
+    collect_ground_pixels,
+    collect_ground_track,
+    compute_ground_track,
+)
 from .latency import (
     collect_downlinks,
     compute_latencies,
@@ -20,20 +18,28 @@ from .limb_coverage import (
     ScanDirection,
     collect_limb_observations,
 )
+from .orbit_track import (
+    OrbitCoordinate,
+    OrbitOutput,
+    collect_orbit_track,
+)
+from .point_coverage import (
+    aggregate_observations,
+    collect_multi_observations,
+    collect_observations,
+    grid_observations,
+    reduce_observations,
+)
 from .radar import (
     collect_radar_track,
     compute_radar_track,
 )
+from .region_coverage import (
+    collect_multi_region_observations,
+    collect_region_observations,
+)
 from .ro_coverage import (
     collect_ro_observations,
-)
-from .track import (
-    OrbitCoordinate,
-    OrbitOutput,
-    collect_ground_pixels,
-    collect_ground_track,
-    collect_orbit_track,
-    compute_ground_track,
 )
 
 __all__ = [
@@ -47,9 +53,11 @@ __all__ = [
     "collect_ground_track",
     "collect_limb_observations",
     "collect_multi_observations",
+    "collect_multi_region_observations",
     "collect_observations",
     "collect_orbit_track",
     "collect_radar_track",
+    "collect_region_observations",
     "collect_ro_observations",
     "compute_dop",
     "compute_ground_track",

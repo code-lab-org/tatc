@@ -251,6 +251,29 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         self.assertTrue(matched.any())
         self.assertTrue((results.station[matched] == self.station.name).all())
 
+    def test_reduce_latencies_separates_points_sharing_identifier(self):
+        """
+        Test that latencies of distinct points that share an identifier are
+        reduced separately for each point.
+        """
+        latencies = gpd.GeoDataFrame(
+            [
+                {
+                    "point_id": 0,
+                    "geometry": ShapelyPoint(lon, 0),
+                    "latency": pd.Timedelta(minutes=minutes),
+                }
+                for lon, minutes in [(0, 10), (0, 20), (90, 60)]
+            ],
+            crs="EPSG:4326",
+        )
+        reduced = reduce_latencies(latencies).sort_values("samples")
+        self.assertEqual(list(reduced.samples), [1, 2])
+        self.assertEqual(
+            list(reduced.latency), [pd.Timedelta(minutes=60), pd.Timedelta(minutes=15)]
+        )
+        self.assertEqual([g.x for g in reduced.geometry], [90, 0])
+
     def test_reduce_latencies_all_unmatched(self):
         """
         Test that observations with no matching downlink (NaT latency)

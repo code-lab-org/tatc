@@ -6,10 +6,12 @@ Geometry utility functions.
 
 from __future__ import annotations
 
-from typing import overload
+from typing import Any, overload
 
 import geopandas as gpd
 import numpy as np
+import numpy.typing as npt
+import shapely
 from pyproj import Geod
 from shapely import make_valid
 from shapely.geometry import (
@@ -18,7 +20,10 @@ from shapely.geometry import (
     MultiPolygon,
     Polygon,
 )
+from shapely.geometry import Point as ShapelyPoint
 from shapely.ops import split
+
+from ..constants import EARTH_ECCENTRICITY, EARTH_EQUATORIAL_RADIUS, EARTH_POLAR_RADIUS
 
 # WGS 84 ellipsoid geodesic solver, shared across calls
 _WGS84_GEOD = Geod(ellps="WGS84")
@@ -521,3 +526,236 @@ def normalize_geometry(
             axis=1,
         )
     return geometry
+
+
+def _get_surface_directions(
+    longitude: npt.ArrayLike, latitude: npt.ArrayLike, elevation: float = 0
+) -> npt.NDArray[np.float64]:
+    """
+    Gets the geocentric unit vectors (Earth-fixed, shape (3, N)) toward
+    geodetic positions at an elevation above the WGS 84 ellipsoid.
+
+    Args:
+        longitude (numpy.typing.ArrayLike): The geodetic longitudes (degrees).
+        latitude (numpy.typing.ArrayLike): The geodetic latitudes (degrees).
+        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
+
+    Returns:
+        numpy.typing.NDArray[numpy.float64]: the unit vectors
+    """
+    lon = np.radians(np.asarray(longitude, dtype=float))
+    lat = np.radians(np.asarray(latitude, dtype=float))
+    e2 = EARTH_ECCENTRICITY**2
+    n = EARTH_EQUATORIAL_RADIUS / np.sqrt(1 - e2 * np.sin(lat) ** 2)
+    position = np.array(
+        [
+            (n + elevation) * np.cos(lat) * np.cos(lon),
+            (n + elevation) * np.cos(lat) * np.sin(lon),
+            (n * (1 - e2) + elevation) * np.sin(lat),
+        ]
+    )
+    return position / np.linalg.norm(position, axis=0)
+
+
+def _get_boundary_arcs(
+    geometry: Polygon | MultiPolygon, elevation: float = 0, max_segment: float = 1
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """
+    Gets the boundary of a (split, see `split_polygon`) geometry as great
+    circle arcs between geocentric unit vectors (see
+    `_get_surface_directions`). Edges, straight in longitude and latitude,
+    are first divided into segments of at most `max_segment` degrees, over
+    which a great circle arc departs from them by about a thousandth of a
+    degree at most. Degenerate edges (for example, along a pole) and seams
+    along the anti-meridian between parts of a split geometry, which are
+    not boundaries, are omitted.
+
+    Args:
+        geometry (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The geometry.
+        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
+        max_segment (float): The maximum length (degrees) of a segment.
+
+    Returns:
+        tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]:
+            the unit vectors (shape (3, E)) at the start and end of each arc
+    """
+    densified = shapely.segmentize(geometry, max_segment)
+    polygons = densified.geoms if isinstance(densified, MultiPolygon) else [densified]
+    rings = [
+        np.asarray(ring.coords)[:, :2]
+        for polygon in polygons
+        for ring in [polygon.exterior, *polygon.interiors]
+    ]
+    if len(rings) == 0:
+        return np.empty((3, 0)), np.empty((3, 0))
+    start = np.concatenate([ring[:-1] for ring in rings])
+    end = np.concatenate([ring[1:] for ring in rings])
+    # seams: edges along the anti-meridian where the geometry continues
+    # across it (on the opposite side of the anti-meridian)
+    on_meridian = (np.abs(start[:, 0]) == 180) & (end[:, 0] == start[:, 0])
+    seam = np.zeros(len(start), dtype=bool)
+    seam[on_meridian] = shapely.intersects_xy(
+        geometry,
+        -start[on_meridian, 0],
+        (start[on_meridian, 1] + end[on_meridian, 1]) / 2,
+    )
+    start_u = _get_surface_directions(start[:, 0], start[:, 1], elevation)
+    end_u = _get_surface_directions(end[:, 0], end[:, 1], elevation)
+    degenerate = np.linalg.norm(np.cross(start_u.T, end_u.T), axis=1) < 1e-12
+    keep = ~seam & ~degenerate
+    return start_u[:, keep], end_u[:, keep]
+
+
+def _get_nearest_arc_points(
+    directions: npt.NDArray[np.float64],
+    arcs: tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]],
+    chunk_size: int = 1024,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """
+    Computes the minimum angular distance from each of a set of directions
+    to a set of great circle arcs (see `_get_boundary_arcs`), each shorter
+    than a half circle, and the nearest point on the arcs.
+
+    Args:
+        directions (numpy.typing.NDArray[numpy.float64]): The unit vectors (shape (3, N)).
+        arcs (tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]):
+            The unit vectors (shape (3, E)) at the start and end of each arc.
+        chunk_size (int): The number of directions processed at once, to limit memory.
+
+    Returns:
+        tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]:
+            the angular distances (radians, shape (N,)) and the unit vectors
+            toward the nearest points (shape (3, N); the directions
+            themselves if there are no arcs)
+    """
+    start, end = arcs
+    distance = np.full(directions.shape[1], np.pi)
+    nearest = np.array(directions, dtype=float, copy=True)
+    if start.shape[1] == 0:
+        return distance, nearest
+    # unit normal to each arc's great circle and, within its plane, the
+    # normals to the arc's ends (pointing into the arc)
+    normal = np.cross(start.T, end.T).T
+    normal /= np.linalg.norm(normal, axis=0)
+    after_start = np.cross(normal.T, start.T).T
+    before_end = np.cross(end.T, normal.T).T
+    for i in range(0, directions.shape[1], chunk_size):
+        u = directions[:, i : i + chunk_size]
+        # sine of the distance to each great circle (shape (E, M))
+        sine = normal.T @ u
+        # the direction's projection onto a great circle lies within its
+        # arc if on the inner side of both of the arc's ends
+        within = (after_start.T @ u >= 0) & (before_end.T @ u >= 0)
+        to_circle = np.arcsin(np.clip(np.abs(sine), 0, 1))
+        cos_start, cos_end = start.T @ u, end.T @ u
+        to_ends = np.arccos(np.clip(np.maximum(cos_start, cos_end), -1, 1))
+        candidates = np.where(within, to_circle, to_ends)
+        arc = np.argmin(candidates, axis=0)
+        column = np.arange(u.shape[1])
+        distance[i : i + chunk_size] = candidates[arc, column]
+        # nearest point: the projection onto the great circle within the
+        # arc, or otherwise the nearer end of the arc
+        projection = u - normal[:, arc] * sine[arc, column]
+        projection /= np.linalg.norm(projection, axis=0)
+        end_point = np.where(
+            cos_start[arc, column] >= cos_end[arc, column], start[:, arc], end[:, arc]
+        )
+        nearest[:, i : i + chunk_size] = np.where(
+            within[arc, column], projection, end_point
+        )
+    return distance, nearest
+
+
+def _get_angular_distance_to_arcs(
+    directions: npt.NDArray[np.float64],
+    arcs: tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]],
+    chunk_size: int = 1024,
+) -> npt.NDArray[np.float64]:
+    """
+    Computes the minimum angular distance from each of a set of directions
+    to a set of great circle arcs (see `_get_nearest_arc_points`).
+
+    Args:
+        directions (numpy.typing.NDArray[numpy.float64]): The unit vectors (shape (3, N)).
+        arcs (tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]):
+            The unit vectors (shape (3, E)) at the start and end of each arc.
+        chunk_size (int): The number of directions processed at once, to limit memory.
+
+    Returns:
+        numpy.typing.NDArray[numpy.float64]: the angular distances (radians, shape (N,))
+    """
+    return _get_nearest_arc_points(directions, arcs, chunk_size)[0]
+
+
+def _get_surface_positions(
+    directions: npt.NDArray[np.float64], elevation: float = 0
+) -> npt.NDArray[np.float64]:
+    """
+    Gets the Earth-fixed positions (meters, shape (3, N)) in geocentric
+    directions (unit vectors, shape (3, N)) on the surface of an ellipsoid
+    of the WGS 84 semi-axes extended by an elevation (which approximates
+    the surface at that elevation above the WGS 84 ellipsoid).
+
+    Args:
+        directions (numpy.typing.NDArray[numpy.float64]): The unit vectors (shape (3, N)).
+        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
+
+    Returns:
+        numpy.typing.NDArray[numpy.float64]: the positions (meters)
+    """
+    equatorial = EARTH_EQUATORIAL_RADIUS + elevation
+    polar = EARTH_POLAR_RADIUS + elevation
+    radius = 1 / np.sqrt(
+        (directions[0] ** 2 + directions[1] ** 2) / equatorial**2
+        + directions[2] ** 2 / polar**2
+    )
+    return directions * radius
+
+
+def _get_geodetic_coordinates(
+    directions: npt.NDArray[np.float64],
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """
+    Gets the geodetic longitude and latitude (degrees) of the points on the
+    WGS 84 ellipsoid in geocentric directions (unit vectors, shape (3, N)).
+
+    Args:
+        directions (numpy.typing.NDArray[numpy.float64]): The unit vectors (shape (3, N)).
+
+    Returns:
+        tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]:
+            the longitudes and latitudes (degrees)
+    """
+    longitude = np.degrees(np.arctan2(directions[1], directions[0]))
+    latitude = np.degrees(
+        np.arctan2(
+            directions[2],
+            (1 - EARTH_ECCENTRICITY**2) * np.hypot(directions[0], directions[1]),
+        )
+    )
+    return longitude, latitude
+
+
+def _get_point_coordinates(point: Any) -> tuple[float, float, float]:
+    """
+    Gets the geodetic coordinates of a point: either a TAT-C `Point` (or a
+    subclass, such as `GroundStation`) or a shapely `Point`, whose x, y, and
+    (optional) z coordinates are its longitude (degrees), latitude
+    (degrees), and elevation (meters) in the WGS 84 coordinate system.
+
+    Args:
+        point (tatc.schemas.Point | shapely.geometry.Point): The point.
+
+    Returns:
+        tuple[float, float, float]: the longitude (degrees), latitude
+            (degrees), and elevation (meters)
+    """
+    if isinstance(point, ShapelyPoint):
+        if point.is_empty:
+            raise ValueError("Point is empty.")
+        longitude, latitude = point.x, point.y
+        elevation = point.z if point.has_z else 0.0
+        if not -90 <= latitude <= 90:
+            raise ValueError(f"Point latitude {latitude} is not within [-90, 90].")
+        return float(longitude), float(latitude), float(elevation)
+    return float(point.longitude), float(point.latitude), float(point.elevation)

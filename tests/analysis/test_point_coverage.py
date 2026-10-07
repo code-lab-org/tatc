@@ -1,5 +1,5 @@
 """
-Unit tests for the coverage analysis functions in tatc.analysis.
+Unit tests for the point coverage analysis functions in tatc.analysis.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -12,7 +12,7 @@ import pandas as pd
 from skyfield.api import wgs84
 from skyfield.framelib import itrs
 from shapely.geometry import Point as ShapelyPoint
-from shapely.geometry import box
+from shapely.geometry import LineString, box
 
 from tatc.analysis import (
     aggregate_observations,
@@ -21,6 +21,7 @@ from tatc.analysis import (
     grid_observations,
     reduce_observations,
 )
+from tatc.analysis.point_coverage import _refine_access_periods
 from tatc import config
 from tatc.constants import timescale
 from tatc.schemas import (
@@ -1206,3 +1207,125 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         result = grid_observations(reduced, cells)
         self.assertEqual(len(result.index), 1)
         self.assertEqual(result.iloc[0].cell_id, 0)
+
+
+class TestCollectObservationsGeometry(IssConstellationTestCase):
+    """
+    Unit tests for collecting observations of shapely points.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.narrow = Instrument(name="Narrow", field_of_regard=60)
+        self.narrow_satellite = Satellite(
+            name="Narrow", orbit=self.orbit, instruments=[self.narrow]
+        )
+        self.start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        self.end = self.start + timedelta(days=1)
+
+    def test_shapely_point_matches_point(self):
+        """
+        Test that a shapely point is observed exactly as the equivalent
+        TAT-C point (other than its identifier).
+        """
+        expected = collect_observations(
+            Point(id=5, latitude=40.74, longitude=-74.03),
+            self.satellite,
+            self.start,
+            self.end,
+        )
+        actual = collect_observations(
+            ShapelyPoint(-74.03, 40.74),
+            self.satellite,
+            self.start,
+            self.end,
+        )
+        columns = ["start", "end", "epoch", "sat_alt", "sat_az"]
+        self.assertGreater(len(expected.index), 0)
+        pd.testing.assert_frame_equal(expected[columns], actual[columns])
+
+    def test_shapely_point_default_identifier(self):
+        """
+        Test that observations of a shapely point record a `point_id` of 0
+        by default.
+        """
+        observations = collect_observations(
+            ShapelyPoint(-74.03, 40.74), self.satellite, self.start, self.end
+        )
+        self.assertGreater(len(observations.index), 0)
+        self.assertTrue((observations.point_id == 0).all())
+
+    def test_invalid_geometry_type(self):
+        """
+        Test that a geometry other than a point (including a region, see
+        collect_region_observations) raises a TypeError.
+        """
+        for geometry in [LineString([(0, 0), (1, 1)]), box(0, 0, 1, 1)]:
+            with self.subTest(geometry=geometry.geom_type):
+                with self.assertRaises(TypeError):
+                    collect_observations(geometry, self.satellite, self.start, self.end)
+
+    def test_refine_access_periods_splits_period(self):
+        """
+        Test that a period in which the residual changes sign several times
+        is divided into the parts where it is not positive.
+        """
+        start = pd.Timestamp(self.start)
+
+        def residual(orbit_track):
+            seconds = (
+                orbit_track.t.tt - timescale.from_datetime(self.start).tt
+            ) * 86400
+            return np.cos(2 * np.pi * np.asarray(seconds) / 600)
+
+        periods = _refine_access_periods(
+            residual,
+            self.orbit,
+            [pd.Interval(start, start + pd.Timedelta(seconds=1200))],
+        )
+        self.assertEqual(len(periods), 2)
+        for period, (left, right) in zip(periods, [(150, 450), (750, 1050)]):
+            self.assertAlmostEqual(
+                (period.left - start).total_seconds(), left, delta=0.01
+            )
+            self.assertAlmostEqual(
+                (period.right - start).total_seconds(), right, delta=0.01
+            )
+
+    def test_reductions_separate_points_sharing_identifier(self):
+        """
+        Test that aggregating and reducing observations of distinct shapely
+        points that share the default identifier keeps the points apart,
+        with the same results as TAT-C points with distinct identifiers.
+        """
+        points = [ShapelyPoint(-74.0, 40.7), ShapelyPoint(-118.2, 34.0)]
+        shared = pd.concat(
+            [
+                collect_observations(point, self.satellite, self.start, self.end)
+                for point in points
+            ],
+            ignore_index=True,
+        )
+        distinct = pd.concat(
+            [
+                collect_observations(
+                    Point(id=i, latitude=point.y, longitude=point.x),
+                    self.satellite,
+                    self.start,
+                    self.end,
+                )
+                for i, point in enumerate(points)
+            ],
+            ignore_index=True,
+        )
+        expected = reduce_observations(aggregate_observations(distinct))
+        actual = reduce_observations(aggregate_observations(shared))
+        self.assertTrue((actual.point_id == 0).all())
+        self.assertEqual(len(actual.index), 2)
+        self.assertTrue((actual.geometry.geom_type == "Point").all())
+        actual = actual.set_index(actual.geometry.to_wkb())
+        expected = expected.set_index(expected.geometry.to_wkb())
+        for column in ["access", "revisit", "samples"]:
+            pd.testing.assert_series_equal(
+                actual[column], expected.loc[actual.index, column]
+            )

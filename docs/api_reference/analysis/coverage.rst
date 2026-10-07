@@ -9,6 +9,14 @@ Collect Multi Observations
 --------------------------
 .. autofunction:: tatc.analysis.collect_multi_observations
 
+Collect Region Observations
+---------------------------
+.. autofunction:: tatc.analysis.collect_region_observations
+
+Collect Multi Region Observations
+---------------------------------
+.. autofunction:: tatc.analysis.collect_multi_region_observations
+
 Aggregate Observations
 ----------------------
 .. autofunction:: tatc.analysis.aggregate_observations

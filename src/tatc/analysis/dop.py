@@ -14,10 +14,12 @@ from enum import Enum
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from shapely.geometry import Point as ShapelyPoint
 from skyfield.api import wgs84
 
 from ..constants import timescale
 from ..schemas import Point, Satellite
+from ..utils.geometry import _get_point_coordinates
 from .validation import _check_satellites
 
 
@@ -35,7 +37,7 @@ class DopMethod(str, Enum):
 
 def compute_dop(
     times: list[datetime],
-    point: Point,
+    point: Point | ShapelyPoint,
     satellites: list[Satellite],
     min_elevation: float,
     dop_method: DopMethod,
@@ -57,7 +59,8 @@ def compute_dop(
 
     Args:
         times: a vector of datetimes at which to measure dilusion of precision
-        point: a ground point intended to view satellites
+        point: a ground point intended to view satellites: a TAT-C point or a
+                shapely point (longitude, latitude, and optional elevation in meters)
         satellites: the list of satellites to be viewed by the ground point
         min_elevation: the minimum elevation angle (deg) to consider a satellite visible
         dop_method: dilusion of precision calculation method
@@ -91,7 +94,8 @@ def compute_dop(
     sk_times = timescale.from_datetimes(times)
 
     # construct skyfield geodetic position for user
-    sk_position = wgs84.latlon(point.latitude, point.longitude, point.elevation)
+    longitude, latitude, elevation = _get_point_coordinates(point)
+    sk_position = wgs84.latlon(latitude, longitude, elevation)
 
     # propagate each satellite's orbit at every requested time, using
     # per-time nearest-element selection for multi-element orbits (matching
@@ -166,9 +170,7 @@ def compute_dop(
     columns = {
         "dop": pd.Series(dop, dtype="float", index=times),
         "geometry": pd.Series(
-            gpd.points_from_xy(
-                [point.longitude] * len(dop), [point.latitude] * len(dop)
-            ),
+            gpd.points_from_xy([longitude] * len(dop), [latitude] * len(dop)),
             dtype="object",
             index=times,
         ),

@@ -5,6 +5,7 @@ Unit tests for the tatc.utils.projection module.
 """
 
 import unittest
+import warnings
 from datetime import datetime, timezone
 
 import numpy as np
@@ -34,6 +35,15 @@ from tatc.utils.projection import (
     compute_view_angles,
     compute_view_tangents,
 )
+
+
+def _deprecated_buffer_target(*args, **kwargs):
+    """
+    Calls the deprecated `buffer_target`, ignoring its deprecation warning.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        return buffer_target(*args, **kwargs)
 
 
 def _great_circle_distance(lat1, lon1, lat2, lon2):
@@ -827,12 +837,19 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         result = buffer_footprint(point, to_crs, from_crs, 0, 0)
         self.assertTrue(result.is_empty)
 
+    def test_buffer_target_is_deprecated(self):
+        """
+        Test that `buffer_target` warns that it is deprecated.
+        """
+        with self.assertWarns(DeprecationWarning):
+            buffer_target(Point(0, 0), 705000, 51.6, 20, 60)
+
     def test_buffer_target_contains_original_geometry(self):
         """
         Test that the buffered target contains the original geometry.
         """
         point = Point(0, 0)
-        result = buffer_target(point, 705000, 51.6, 20, 60)
+        result = _deprecated_buffer_target(point, 705000, 51.6, 20, 60)
         self.assertTrue(result.contains(point))
 
     def test_buffer_target_matches_expected_distance(self):
@@ -855,7 +872,9 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         swath_width = field_of_regard_to_swath_width(altitude, field_of_regard)
         ground_velocity = compute_ground_surface_velocity(altitude, 0, inclination)
         expected_distance = ground_velocity * time_step + swath_width / 2
-        result = buffer_target(point, altitude, inclination, field_of_regard, time_step)
+        result = _deprecated_buffer_target(
+            point, altitude, inclination, field_of_regard, time_step
+        )
         for x, y, *_ in result.exterior.coords:
             distance = _great_circle_distance(0, 0, y, x)
             self.assertAlmostEqual(
@@ -881,7 +900,9 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         )
         expected_distance = ground_velocity * time_step + swath_width / 2
         point = Point(0, 51.6)
-        result = buffer_target(point, altitude, inclination, field_of_regard, time_step)
+        result = _deprecated_buffer_target(
+            point, altitude, inclination, field_of_regard, time_step
+        )
         distances = [
             _great_circle_distance(51.6, 0, y, x) for x, y, *_ in result.exterior.coords
         ]
@@ -905,7 +926,7 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         )
         expected_distance = ground_velocity * time_step + swath_width / 2
         point = Point(0, 51.6)
-        result = buffer_target(
+        result = _deprecated_buffer_target(
             point,
             altitude,
             inclination,
@@ -926,8 +947,8 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         the time step (more distance traveled).
         """
         point = Point(0, 0)
-        smaller = buffer_target(point, 705000, 51.6, 20, 10)
-        larger = buffer_target(point, 705000, 51.6, 20, 200)
+        smaller = _deprecated_buffer_target(point, 705000, 51.6, 20, 10)
+        larger = _deprecated_buffer_target(point, 705000, 51.6, 20, 200)
         self.assertGreater(larger.area, smaller.area)
 
     def test_buffer_target_increases_with_field_of_regard(self):
@@ -936,8 +957,8 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         the field of regard (wider swath).
         """
         point = Point(0, 0)
-        smaller = buffer_target(point, 705000, 51.6, 5, 60)
-        larger = buffer_target(point, 705000, 51.6, 60, 60)
+        smaller = _deprecated_buffer_target(point, 705000, 51.6, 5, 60)
+        larger = _deprecated_buffer_target(point, 705000, 51.6, 60, 60)
         self.assertGreater(larger.area, smaller.area)
 
     def test_buffer_target_distance_scaling(self):
@@ -947,8 +968,12 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         original point.
         """
         point = Point(0, 0)
-        result_1x = buffer_target(point, 705000, 51.6, 20, 60, distance_scaling=1.0)
-        result_2x = buffer_target(point, 705000, 51.6, 20, 60, distance_scaling=2.0)
+        result_1x = _deprecated_buffer_target(
+            point, 705000, 51.6, 20, 60, distance_scaling=1.0
+        )
+        result_2x = _deprecated_buffer_target(
+            point, 705000, 51.6, 20, 60, distance_scaling=2.0
+        )
         coords_1x = list(result_1x.exterior.coords)
         coords_2x = list(result_2x.exterior.coords)
         max_dist_1x = max(_great_circle_distance(0, 0, y, x) for x, y in coords_1x)

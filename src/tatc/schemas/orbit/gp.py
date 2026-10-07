@@ -15,12 +15,14 @@ from typing import Annotated, Literal, overload
 import numpy as np
 import numpy.typing as npt
 from pydantic import BaseModel, Field, model_validator
+from shapely.geometry import Point as ShapelyPoint
 from skyfield.api import Time, wgs84
 from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
 from ... import config, constants, utils
 from ...utils.cache import get_cached
+from ...utils.geometry import _get_point_coordinates
 from ...utils.propagation import _find_events, _RepeatTrack, _to_time
 from ..surface import Point
 from .gp_elements import GeneralPerturbationsElements
@@ -906,7 +908,7 @@ class GeneralPerturbationsOrbit(BaseModel):
 
     def get_observation_events(
         self,
-        point: Point,
+        point: Point | ShapelyPoint,
         start: datetime,
         end: datetime,
         min_elevation_angle: float,
@@ -928,7 +930,9 @@ class GeneralPerturbationsOrbit(BaseModel):
         rise or set at the switch (see `_get_boundary_events`).
 
         Args:
-            point (Point): Target location to observe.
+            point (Point | shapely.geometry.Point): Target location to observe: a
+                TAT-C point or a shapely point (longitude, latitude, and optional
+                elevation in meters).
             start (datetime): Start time of the observation period.
             end (datetime): End time of the observation period.
             min_elevation_angle (float): Minimum elevation angle (deg) to constrain observation.
@@ -936,7 +940,8 @@ class GeneralPerturbationsOrbit(BaseModel):
         Returns:
             tuple[skyfield.timelib.Time, numpy.ndarray]: event times and their rise (0) / culminate (1) / set (2) codes
         """
-        topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
+        longitude, latitude, elevation = _get_point_coordinates(point)
+        topos = wgs84.latlon(latitude, longitude, elevation)
         first, last = self._get_repeat_tracks()
         # events, and boundaries between the sources that propagate them
         events, boundaries = [], []
