@@ -21,7 +21,7 @@ from skyfield.timelib import Time
 
 from ..constants import timescale
 from ..schemas import Satellite
-from .tangent_point import _ellipsoidal_tangent_point, _itrs_rotation
+from ..utils.tangent_point import _ellipsoidal_tangent_point, _itrs_rotation
 from .validation import _check_satellite, _check_satellites
 
 
@@ -38,7 +38,7 @@ def _tangent_point_geometry(
 
     The tangent point is the point on the receiver-transmitter line with
     minimum WGS 84 geodetic altitude (see
-    `tatc.analysis.tangent_point._ellipsoidal_tangent_point`), the
+    `tatc.utils.tangent_point._ellipsoidal_tangent_point`), the
     convention used to geolocate operationally processed RO profiles. It
     differs from the line's closest approach to the Earth's center by up to
     about 20 km horizontally at middle latitudes (the two coincide at the

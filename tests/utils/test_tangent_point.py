@@ -11,7 +11,7 @@ import numpy as np
 from skyfield.api import wgs84
 from skyfield.framelib import itrs
 
-from tatc.analysis.tangent_point import (
+from tatc.utils.tangent_point import (
     _ellipsoidal_tangent_point,
     _geodetic_altitude,
     _itrs_rotation,

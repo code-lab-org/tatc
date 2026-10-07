@@ -51,13 +51,13 @@ from .projection import (
     compute_footprint,
     compute_limb,
     compute_projected_ray_position,
-    compute_radar_footprint,
-    compute_radar_footprint_profile,
     compute_view_angles,
     compute_view_tangents,
 )
 from .radar import (
     compute_radar_beam_height,
+    compute_radar_footprint,
+    compute_radar_footprint_profile,
     compute_radar_ground_range,
     compute_radar_ground_range_bounds,
     compute_radar_slant_range,

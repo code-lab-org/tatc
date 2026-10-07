@@ -17,7 +17,8 @@ from shapely import geometry as geo
 from ..constants import EARTH_MEAN_RADIUS
 from ..schemas import GroundStation, Satellite
 from ..utils.orbital import compute_apoapsis_radius
-from .point_coverage import _get_target_keys, _get_visible_interval_series
+from .observations import _get_target_keys
+from .point_coverage import _get_visible_interval_series
 from .validation import _check_satellite
 
 
@@ -264,7 +265,7 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
 def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     Reduce observation latencies: for each unique target (`point_id` and
-    geometry, see `tatc.analysis.point_coverage._get_target_keys`) in
+    geometry, see `tatc.analysis.observations._get_target_keys`) in
     `latency_observations`, computes the mean latency and the total number
     of samples (observation/downlink pairs). An observation with no
     matching downlink has an undefined (NaT) latency (see

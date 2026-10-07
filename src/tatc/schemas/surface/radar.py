@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, model_validator
 from shapely.geometry import MultiPolygon, Polygon
 
 from ... import config
-from ...utils.projection import compute_radar_footprint, compute_radar_footprint_profile
+from ...utils.radar import compute_radar_footprint, compute_radar_footprint_profile
 from ...utils.radar import compute_radar_ground_range_bounds
 from .point import Point
 

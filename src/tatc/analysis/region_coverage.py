@@ -38,7 +38,7 @@ from ..utils.geometry import (
     split_polygon,
 )
 from ..utils.projection import NadirReference, VelocityFrame, _compute_view_frame
-from .point_coverage import (
+from .observations import (
     _build_observation_frame,
     _get_empty_coverage_frame,
     _refine_access_periods,

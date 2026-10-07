@@ -20,7 +20,7 @@ from tatc.analysis.ro_coverage import (
     _sample_ro_arc,
     _tangent_point_geometry,
 )
-from tatc.analysis.tangent_point import _geodetic_altitude, _itrs_rotation
+from tatc.utils.tangent_point import _geodetic_altitude, _itrs_rotation
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Instrument, Satellite
 

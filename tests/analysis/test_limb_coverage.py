@@ -23,7 +23,7 @@ from tatc.analysis.limb_coverage import (
     _limb_tangent_point,
     _sample_limb_scan,
 )
-from tatc.analysis.tangent_point import _geodetic_altitude
+from tatc.utils.tangent_point import _geodetic_altitude
 from tatc.constants import EARTH_MEAN_RADIUS, timescale
 
 from .common import IssConstellationTestCase

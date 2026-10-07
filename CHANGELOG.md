@@ -42,7 +42,7 @@ Changed:
  - Fixed `split_polygon` for longitudes beyond 180 degrees, for polygons spanning -180 to 180 degrees of longitude, and for holes across the anti-meridian or around a pole (holes are now split like exteriors), and to drop degenerate (zero-area) parts left by repairing invalid polygons.
  - Fixed cached orbit computations for copies with changed fields, and orbits and satellites to be picklable after propagation.
  - Improved the performance of footprints (vectorized ray and limb intersections, polygon assembly, and `split_polygon`), masked ground tracks, multi-element orbit propagation, and `collect_ro_observations`. `to_datetime64_ns` and `GeneralPerturbationsOrbit.get_closest_element_index` accept Skyfield `Time` objects.
- - Reorganized analysis modules: `coverage` is split into `point_coverage` and `region_coverage`, and `track` into `orbit_track` and `ground_track` (public functions remain available from `tatc.analysis`). Orbit propagation algorithms moved to `tatc.utils.propagation`.
+ - Reorganized modules: `tatc.analysis.coverage` is split into `point_coverage`, `region_coverage`, and `observations` (the aggregation, reduction, and gridding shared by both), and `tatc.analysis.track` into `orbit_track` and `ground_track`; `tangent_point` moved from `tatc.analysis` to `tatc.utils`, and the radar footprint functions from `tatc.utils.projection` to `tatc.utils.radar`. Public functions remain available from `tatc.analysis` and `tatc.utils`. Orbit propagation algorithms moved to `tatc.utils.propagation`.
  - Updated example notebooks.
 
 ## 3.5.1

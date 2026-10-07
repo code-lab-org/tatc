@@ -19,7 +19,7 @@ from skyfield.positionlib import Geocentric
 from ..constants import EARTH_MEAN_RADIUS, timescale
 from ..schemas import Satellite
 from .ro_coverage import _receiver_frame_vectors
-from .tangent_point import (
+from ..utils.tangent_point import (
     _ellipsoidal_tangent_distance,
     _geodetic_altitude,
     _itrs_rotation,
