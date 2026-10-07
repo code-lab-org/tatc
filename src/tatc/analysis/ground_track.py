@@ -69,7 +69,7 @@ def _cull_orbit_track(
     times: list[datetime],
     mask: Polygon | MultiPolygon,
     elevation: float,
-) -> Geocentric | None:
+) -> tuple[Geocentric, list[Polygon | MultiPolygon]] | None:
     """
     Propagates the orbit track only at the times when the instrument's
     footprint intersects a mask. The times are first culled to the periods
@@ -88,8 +88,9 @@ def _cull_orbit_track(
                 at which to project footprints.
 
     Returns:
-        skyfield.positionlib.Geocentric | None: the culled orbit track, or
-            None if no footprint intersects the mask
+        tuple[skyfield.positionlib.Geocentric, list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]] | None:
+            the culled orbit track and its footprints, or None if no
+            footprint intersects the mask
     """
     periods = _get_visible_polygon_interval_series(
         mask,
@@ -117,7 +118,9 @@ def _cull_orbit_track(
     mask_intersects_footprint = [mask.intersects(f) for f in footprint]
     if not any(mask_intersects_footprint):
         return None
-    return orbit_track[mask_intersects_footprint]
+    return orbit_track[mask_intersects_footprint], [
+        f for f, keep in zip(footprint, mask_intersects_footprint) if keep
+    ]
 
 
 def collect_ground_track(
@@ -131,8 +134,8 @@ def collect_ground_track(
 ) -> gpd.GeoDataFrame:
     """
     Collect the instrument's viewable ground footprint at each requested
-    time, projected to a specified elevation, using SPICE to compute the
-    exact ray/WGS-84-geoid intersection (see
+    time, projected to a specified elevation by computing the exact
+    ray/WGS-84-geoid intersection (see
     `tatc.utils.projection.compute_footprint`).
 
     Args:
@@ -163,23 +166,21 @@ def collect_ground_track(
     if mask is not None:
         mask = _get_mask_geometry(mask)
     if mask is not None and len(times) > 1:
-        # propagate orbit only where the footprint intersects the mask
-        orbit_track = _cull_orbit_track(satellite, instrument, times, mask, elevation)
-        if orbit_track is None:
+        # propagate orbit only where the footprint intersects the mask,
+        # reusing the footprints computed to cull it
+        culled = _cull_orbit_track(satellite, instrument, times, mask, elevation)
+        if culled is None:
             return _get_empty_ground_track()
+        orbit_track, geometries = culled
     else:
         # propagate orbit
         orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(times)
+        # compute footprints (exact ray/WGS-84-geoid intersection)
+        geometries = instrument.compute_footprint(orbit_track, None, elevation)
     # compute targets
     target = instrument.compute_footprint_center(orbit_track, elevation)
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track, target)
-    # compute footprints via SPICE (exact ray/WGS-84-geoid intersection)
-    geometries = instrument.compute_footprint(
-        orbit_track,
-        None,
-        elevation,
-    )
     records = [
         {
             "time": time,
@@ -308,9 +309,10 @@ def collect_ground_pixels(
         mask = _get_mask_geometry(mask)
     if mask is not None and len(times) > 1:
         # propagate orbit only where the footprint intersects the mask
-        orbit_track = _cull_orbit_track(satellite, instrument, times, mask, elevation)
-        if orbit_track is None:
+        culled = _cull_orbit_track(satellite, instrument, times, mask, elevation)
+        if culled is None:
             return _get_empty_ground_track()
+        orbit_track, _ = culled
     else:
         # propagate orbit
         orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(times)

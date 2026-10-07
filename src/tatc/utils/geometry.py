@@ -105,14 +105,7 @@ def project_polygon_to_elevation(
         shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The projected
         polygon, matching the input type.
     """
-    if isinstance(polygon, Polygon):
-        return Polygon(
-            [(p[0], p[1], elevation) for p in polygon.exterior.coords],
-            [[(p[0], p[1], elevation) for p in i.coords] for i in polygon.interiors],
-        )
-    return MultiPolygon(
-        [project_polygon_to_elevation(g, elevation) for g in polygon.geoms]
-    )
+    return shapely.force_3d(shapely.force_2d(polygon), elevation)
 
 
 def _flatten_polygons(pgons: list[Polygon | MultiPolygon]) -> list[Polygon]:
@@ -157,30 +150,23 @@ def _wrap_polygon_over_pole(
        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon.
     """
     if isinstance(polygon, Polygon):
-        if all(c[1] * pole <= 90 for c in polygon.exterior.coords):
+        exterior = shapely.get_coordinates(polygon.exterior)
+        if np.all(exterior[:, 1] * pole <= 90):
             # no wrapping necessary
             return polygon
         # map latitudes beyond the pole back between -90 and 90, adjusting longitude by 180 degrees
-        lat_shift = 180 if all(c[0] <= 0 for c in polygon.exterior.coords) else -180
-        return Polygon(
-            [
+        lat_shift = 180 if np.all(exterior[:, 0] <= 0) else -180
+
+        def wrap(coords: npt.NDArray) -> npt.NDArray:
+            beyond = coords[:, 1] * pole >= 90
+            return np.column_stack(
                 [
-                    c[0] + lat_shift if c[1] * pole >= 90 else c[0],
-                    pole * 180 - c[1] if c[1] * pole >= 90 else c[1],
+                    np.where(beyond, coords[:, 0] + lat_shift, coords[:, 0]),
+                    np.where(beyond, pole * 180 - coords[:, 1], coords[:, 1]),
                 ]
-                for c in polygon.exterior.coords
-            ],
-            [
-                [
-                    [
-                        c[0] + lat_shift if c[1] * pole >= 90 else c[0],
-                        pole * 180 - c[1] if c[1] * pole >= 90 else c[1],
-                    ]
-                    for c in i.coords
-                ]
-                for i in polygon.interiors
-            ],
-        )
+            )
+
+        return shapely.transform(polygon, wrap)
     # recursive call for each polygon
     return MultiPolygon(
         _flatten_polygons([_wrap_polygon_over_pole(p, pole) for p in polygon.geoms])
@@ -209,7 +195,7 @@ def _split_polygon_over_pole(
        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The split polygon.
     """
     if isinstance(polygon, Polygon):
-        if all(c[1] * pole <= 90 for c in polygon.exterior.coords):
+        if np.all(shapely.get_coordinates(polygon.exterior)[:, 1] * pole <= 90):
             # no splitting necessary
             return polygon
         # split polygon along the pole
@@ -266,20 +252,14 @@ def _wrap_polygon_over_antimeridian(
        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon.
     """
     if isinstance(polygon, Polygon):
-        if all(c[0] >= -180 and c[0] <= 180 for c in polygon.exterior.coords):
+        longitude = shapely.get_coordinates(polygon.exterior)[:, 0]
+        if np.all((longitude >= -180) & (longitude <= 180)):
             # no wrapping necessary
             return polygon
-        if all(c[0] <= -180 for c in polygon.exterior.coords):
-            # map longitudes from (-540, -180] to (-180, 180]
-            return Polygon(
-                [[c[0] + 360, c[1]] for c in polygon.exterior.coords],
-                [[[c[0] + 360, c[1]] for c in i.coords] for i in polygon.interiors],
-            )
-        # map longitudes from [180, 540) to [-180, 180)
-        return Polygon(
-            [[c[0] - 360, c[1]] for c in polygon.exterior.coords],
-            [[[c[0] - 360, c[1]] for c in i.coords] for i in polygon.interiors],
-        )
+        # map longitudes from (-540, -180] to (-180, 180], or from [180, 540)
+        # to [-180, 180)
+        offset = 360 if np.all(longitude <= -180) else -360
+        return shapely.transform(polygon, lambda coords: coords + [offset, 0])
     # recursive call for each polygon
     return MultiPolygon(
         _flatten_polygons([_wrap_polygon_over_antimeridian(p) for p in polygon.geoms])
@@ -351,7 +331,8 @@ def _split_polygon_antimeridian(
        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The split polygon.
     """
     if isinstance(polygon, Polygon):
-        lon = np.array([c[0] for c in polygon.exterior.coords])
+        exterior = shapely.get_coordinates(polygon.exterior)
+        lon = exterior[:, 0]
         diff = np.diff(lon)
         # jumps: adjacent coordinate longitudes differ by more than 180 degrees,
         # distinguishing seam edges between vertices both on the anti-meridian
@@ -363,30 +344,25 @@ def _split_polygon_antimeridian(
         # check if this polygon contains a pole
         if np.abs(winding) > 180:
             # extract (lon, lat) only, discarding any z-dimension, and sort by longitude
-            coords = [(c[0], c[1]) for c in polygon.exterior.coords[0:-1]]
-            coords.sort(key=lambda r: r[0])
+            coords = exterior[:-1][np.argsort(exterior[:-1, 0], kind="stable")]
             # determine if contains north or south pole based on sign of mean latitude
-            n_s = 1 if np.array(coords)[:, 1].mean() > 0 else -1
+            n_s = 1 if coords[:, 1].mean() > 0 else -1
             # interpolate latitude at antimeridian
             lat = np.interp(
-                180, [coords[-1][0], coords[0][0] + 180], [coords[-1][1], coords[0][1]]
+                180, [coords[-1, 0], coords[0, 0] + 180], [coords[-1, 1], coords[0, 1]]
             )
-            # reconstruct polygon (ccw) with added coords on antimeridian
-            pgon = Polygon(
-                [(-180, 90 * n_s), (-180, lat)]
-                + coords
-                + [(180, lat), (180, 90 * n_s), (-180, 90 * n_s)],
-                [
-                    [(c[0], c[1]) for c in interior.coords]
-                    for interior in polygon.interiors
-                ],
+            # reconstruct polygon (ccw) with added coords on antimeridian and a
+            # flattened edge along the pole, spanning -180 to 180 degrees
+            return Polygon(
+                np.concatenate(
+                    [
+                        [[-180, 90 * n_s], [-180, lat]],
+                        coords,
+                        [[180, lat], [180, 90 * n_s], [-180, 90 * n_s]],
+                    ]
+                ),
+                [shapely.get_coordinates(interior) for interior in polygon.interiors],
             )
-            # return polygon split down prime meridian to improve handling
-            parts = split(pgon, LineString([(0, -180), (0, 180)]))
-            # convert to multi polygon
-            if isinstance(parts, GeometryCollection):
-                parts = _convert_collection_to_polygon(parts)
-            return parts
         # find anti-meridian crossings and calculate shift direction
         # coords from W -> E (shift < 0) will add 360 degrees to E component
         # coords from E -> W (shift > 0) will subtract 360 degrees from W component
@@ -398,20 +374,17 @@ def _split_polygon_antimeridian(
             # no jumps and no coordinates beyond the anti-meridian
             return polygon
         pgon = Polygon(
+            np.column_stack([unrolled, exterior[:, 1]]),
             [
-                (c[0] - 360 * shift[i], c[1])
-                for i, c in enumerate(polygon.exterior.coords)
-            ],
-            [
-                [
-                    (
-                        ic[0]
-                        - 360 * np.interp(ic[0], np.sort(lon), shift[np.argsort(lon)]),
-                        ic[1],
-                    )
-                    for ic in i.coords
-                ]
-                for i in polygon.interiors
+                np.column_stack(
+                    [
+                        ic[:, 0]
+                        - 360
+                        * np.interp(ic[:, 0], np.sort(lon), shift[np.argsort(lon)]),
+                        ic[:, 1],
+                    ]
+                )
+                for ic in (shapely.get_coordinates(i) for i in polygon.interiors)
             ],
         )
         # split along the anti-meridian that the unrolled coordinates cross
@@ -428,6 +401,30 @@ def _split_polygon_antimeridian(
             _flatten_polygons([_split_polygon_antimeridian(p) for p in polygon.geoms])
         )
     raise ValueError("Unknown geometry: " + str(type(polygon)))
+
+
+def _is_within_planar_domain(polygon: Polygon | MultiPolygon) -> bool:
+    """
+    Checks, vectorized across coordinates, whether a polygon lies within the
+    standard (-180, -90, 180, 90) longitude and latitude domain without
+    crossing the anti-meridian (no adjacent coordinates, even across rings,
+    differ by more than 180 degrees of longitude), in which case it needs no
+    splitting (see `split_polygon`).
+
+    Args:
+        polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon.
+
+    Returns:
+        bool: True, if the polygon needs no splitting
+    """
+    if not isinstance(polygon, (Polygon, MultiPolygon)):
+        return False
+    coordinates = shapely.get_coordinates(polygon)
+    return bool(
+        np.all(np.abs(coordinates[:, 0]) <= 180)
+        and np.all(np.abs(coordinates[:, 1]) <= 90)
+        and np.all(np.abs(np.diff(coordinates[:, 0])) <= 180)
+    )
 
 
 def split_polygon(
@@ -451,16 +448,40 @@ def split_polygon(
     Returns:
         shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The split polygon.
     """
-    polygon = _split_polygon_over_pole(
-        _split_polygon_over_pole(_split_polygon_antimeridian(polygon), pole=-1),
-        pole=1,
-    )
+    if not _is_within_planar_domain(polygon):
+        if isinstance(polygon, MultiPolygon) and any(
+            len(part.interiors) > 0 for part in polygon.geoms
+        ):
+            # split each part (with its holes) separately
+            polygon = MultiPolygon(
+                _flatten_polygons([split_polygon(part) for part in polygon.geoms])
+            )
+        elif isinstance(polygon, Polygon) and len(polygon.interiors) > 0:
+            # split the exterior and each hole as polygons of their own (so
+            # that holes across the anti-meridian or around a pole are split
+            # like exteriors) and subtract the holes from the exterior
+            polygon = split_polygon(Polygon(polygon.exterior)).difference(
+                shapely.union_all(
+                    [split_polygon(Polygon(ring)) for ring in polygon.interiors]
+                )
+            )
+            if isinstance(polygon, GeometryCollection):
+                polygon = _convert_collection_to_polygon(polygon)
+        else:
+            polygon = _split_polygon_over_pole(
+                _split_polygon_over_pole(_split_polygon_antimeridian(polygon), pole=-1),
+                pole=1,
+            )
     # invalid polygons can arise from narrow sensor geometries in polar regions
     if not polygon.is_valid:
         # try to fix geometry
         polygon = make_valid(polygon)  # type: ignore
         if isinstance(polygon, GeometryCollection):
             polygon = _convert_collection_to_polygon(polygon)
+        if isinstance(polygon, MultiPolygon):
+            # drop degenerate (zero-area) parts left by the repair
+            parts = [p for p in polygon.geoms if p.area > 1e-20]
+            polygon = parts[0] if len(parts) == 1 else MultiPolygon(parts)
     return polygon
 
 

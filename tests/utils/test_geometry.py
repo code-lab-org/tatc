@@ -252,9 +252,10 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
         self.assertIsInstance(result, MultiPolygon)
         self.assertTrue(result.is_valid)
         wrapped_part = next(g for g in result.geoms if len(g.interiors) > 0)
-        self.assertEqual(
-            list(wrapped_part.interiors[0].coords),
-            [(135, 89), (140, 89), (140, 87), (135, 87), (135, 89)],
+        self.assertTrue(
+            Polygon(wrapped_part.interiors[0]).equals(
+                Polygon([(135, 89), (140, 89), (140, 87), (135, 87), (135, 89)])
+            )
         )
 
     def test_split_polygon_north_pole_multipolygon(self):
@@ -480,9 +481,10 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
         self.assertIsInstance(result, MultiPolygon)
         self.assertTrue(result.is_valid)
         wrapped_part = next(g for g in result.geoms if len(g.interiors) > 0)
-        self.assertEqual(
-            list(wrapped_part.interiors[0].coords),
-            [(175, 2), (177, 2), (177, 4), (175, 4), (175, 2)],
+        self.assertTrue(
+            Polygon(wrapped_part.interiors[0]).equals(
+                Polygon([(175, 2), (177, 2), (177, 4), (175, 4), (175, 2)])
+            )
         )
 
     def test_split_polygon_antimeridian_multipolygon(self):
@@ -788,6 +790,107 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
             np.array([[1.0], [0.0], [0.0]]), (np.empty((3, 0)), np.empty((3, 0)))
         )
         np.testing.assert_allclose(distance, [np.pi])
+
+    def test_split_polygon_polar_cap_with_hole_across_antimeridian(self):
+        """
+        Test that a hole across the anti-meridian in a polar cap is split
+        like the cap, rather than spanning the other way around the pole.
+        """
+        polygon = Polygon(
+            [(-180, 60), (-90, 60), (0, 60), (90, 60), (180, 60), (-180, 60)],
+            [[(175, 70), (-175, 70), (-175, 75), (175, 75), (175, 70)]],
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.area, 360 * 30 - 10 * 5)
+        for point in [(178, 72), (-178, 72)]:
+            self.assertFalse(result.contains(Point(*point)))
+        for point in [(0, 72), (170, 72), (-170, 72), (0, 85)]:
+            self.assertTrue(result.contains(Point(*point)))
+
+    def test_split_polygon_hole_across_antimeridian(self):
+        """
+        Test that a hole across the anti-meridian, in a polygon across the
+        anti-meridian, is split along with it.
+        """
+        polygon = Polygon(
+            [(160, -10), (-160, -10), (-160, 10), (160, 10), (160, -10)],
+            [[(175, -5), (-175, -5), (-175, 5), (175, 5), (175, -5)]],
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.area, 40 * 20 - 10 * 10)
+        for point in [(178, 0), (-178, 0)]:
+            self.assertFalse(result.contains(Point(*point)))
+        for point in [(165, 0), (-165, 0)]:
+            self.assertTrue(result.contains(Point(*point)))
+
+    def test_split_polygon_hole_around_pole(self):
+        """
+        Test that a hole around a pole (in a ring of latitudes around it) is
+        split like a polar cap.
+        """
+        polygon = Polygon(
+            [(-180, 60), (-90, 60), (0, 60), (90, 60), (180, 60), (-180, 60)],
+            [[(-180, 80), (90, 80), (0, 80), (-90, 80), (-180, 80)]],
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.area, 360 * 20)
+        self.assertFalse(result.contains(Point(0, 85)))
+        self.assertTrue(result.contains(Point(0, 70)))
+
+    def test_split_polygon_wraps_hole_past_180(self):
+        """
+        Test that a hole lying entirely past 180 degrees longitude is wrapped
+        to the standard longitude range along with its polygon.
+        """
+        polygon = Polygon(
+            [(170, -10), (200, -10), (200, 10), (170, 10), (170, -10)],
+            [[(185, -5), (195, -5), (195, 5), (185, 5), (185, -5)]],
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.area, 30 * 20 - 10 * 10)
+        self.assertFalse(result.contains(Point(-170, 0)))
+        for point in [(175, 0), (-178, 0), (-162, 0)]:
+            self.assertTrue(result.contains(Point(*point)))
+
+    def test_split_polygon_wraps_hole_beyond_pole_past_180(self):
+        """
+        Test that a hole beyond the south pole and past 180 degrees
+        longitude is wrapped over both along with its polygon.
+        """
+        polygon = Polygon(
+            [(170, -95), (200, -95), (200, -85), (170, -85), (170, -95)],
+            [[(185, -93), (195, -93), (195, -91), (185, -91), (185, -93)]],
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.area, 30 * 10 - 10 * 2)
+        self.assertFalse(result.contains(Point(10, -88)))
+        for point in [(175, -87), (-175, -87), (0, -86)]:
+            self.assertTrue(result.contains(Point(*point)))
+
+    def test_split_polygon_multipolygon_with_island_in_hole(self):
+        """
+        Test that an island within another part's hole, across the
+        anti-meridian, is kept.
+        """
+        polygon = MultiPolygon(
+            [
+                Polygon(
+                    [(160, -10), (-160, -10), (-160, 10), (160, 10), (160, -10)],
+                    [[(175, -5), (-175, -5), (-175, 5), (175, 5), (175, -5)]],
+                ),
+                Polygon([(178, -1), (-178, -1), (-178, 1), (178, 1), (178, -1)]),
+            ]
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.area, 40 * 20 - 10 * 10 + 4 * 2)
+        self.assertTrue(result.contains(Point(179, 0)))
+        self.assertFalse(result.contains(Point(176, 0)))
 
     def test_split_polygon_unknown_geometry(self):
         """
