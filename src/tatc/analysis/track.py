@@ -25,6 +25,7 @@ from ..constants import de421
 from ..schemas import AllInstruments, ConicalInstrument, PointedInstrument, Satellite
 from ..utils.observation import field_of_regard_to_swath_width
 from ..utils.projection import buffer_target
+from .validation import _check_satellite
 
 
 def _swath_width(
@@ -137,6 +138,7 @@ def collect_orbit_track(
     Returns:
         geopandas.GeoDataFrame: The data frame of collected orbit track results.
     """
+    _check_satellite(satellite)
     if len(times) == 0:
         return _get_empty_orbit_track()
     # select the observing instrument
@@ -344,6 +346,7 @@ def collect_ground_track(
         geopandas.GeoDataFrame: The data frame of collected ground track results.
     """
 
+    _check_satellite(satellite)
     if len(times) == 0:
         return _get_empty_ground_track()
     # propagate orbit
@@ -460,6 +463,7 @@ def compute_ground_track(
     Returns:
         GeoDataFrame: The data frame of aggregated ground track results.
     """
+    _check_satellite(satellite)
     track = collect_ground_track(satellite, times, instrument_index, elevation, mask)
     if not track.empty:
         # assign orbit identifier
@@ -511,6 +515,7 @@ def collect_ground_pixels(
         geopandas.GeoDataFrame: The data frame of collected ground pixels results.
     """
 
+    _check_satellite(satellite)
     if len(times) == 0:
         return _get_empty_ground_track()
     # propagate orbit

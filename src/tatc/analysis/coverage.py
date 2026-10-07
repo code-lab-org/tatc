@@ -35,6 +35,7 @@ from ..utils.projection import (
     _compute_view_frame,
     compute_cone_and_azimuth,
 )
+from .validation import _check_satellite, _check_satellites
 
 
 def _get_visible_interval_series(
@@ -479,6 +480,7 @@ def collect_observations(
     Returns:
         geopandas.GeoDataFrame: The data frame with recorded observations.
     """
+    _check_satellite(satellite)
     instrument = satellite.instruments[instrument_index]
     orbit = satellite.orbit.to_gp_orbit()
     # use the apogee altitude above the polar radius (and above the point,
@@ -613,7 +615,7 @@ def collect_multi_observations(
     """
     gdfs = [
         collect_observations(point, satellite, start, end, instrument_index, omit_solar)
-        for satellite in (satellites if isinstance(satellites, list) else [satellites])
+        for satellite in _check_satellites(satellites)
         for instrument_index in range(len(satellite.instruments))
     ]
     if len(gdfs) == 0:

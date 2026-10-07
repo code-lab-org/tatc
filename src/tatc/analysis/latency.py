@@ -18,6 +18,7 @@ from ..constants import EARTH_MEAN_RADIUS
 from ..schemas import GroundStation, Satellite
 from ..utils.orbital import compute_apoapsis_radius
 from .coverage import _get_visible_interval_series
+from .validation import _check_satellite
 
 
 def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
@@ -57,6 +58,7 @@ def collect_downlinks(
         geopandas.GeoDataFrame: The data frame of collected downlink results.
     """
     # use the orbit's apogee altitude as a conservative upper bound
+    _check_satellite(satellite)
     max_altitude = (
         compute_apoapsis_radius(
             satellite.orbit.get_semimajor_axis(), satellite.orbit.get_eccentricity()

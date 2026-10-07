@@ -24,6 +24,7 @@ from .tangent_point import (
     _geodetic_altitude,
     _itrs_rotation,
 )
+from .validation import _check_satellite
 
 
 class ScanDirection(str, Enum):
@@ -307,6 +308,7 @@ def collect_limb_observations(
             each scan. Defaults to the midpoint of `scan_elevations`
             (`(min + max) / 2`) when `None`.
     """
+    _check_satellite(satellite)
     if scan_direction is None:
         scan_direction = _default_scan_direction(scan_azimuth)
     scan_elevations = sorted(

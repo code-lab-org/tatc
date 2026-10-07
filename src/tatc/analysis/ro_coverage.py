@@ -22,6 +22,7 @@ from skyfield.timelib import Time
 from ..constants import timescale
 from ..schemas import Satellite
 from .tangent_point import _ellipsoidal_tangent_point, _itrs_rotation
+from .validation import _check_satellite, _check_satellites
 
 
 def _tangent_point_geometry(
@@ -395,6 +396,7 @@ def collect_ro_observations(
             no larger than the shortest profile you expect; a smaller value costs more
             computation but guards against silently skipping brief observation periods.
     """
+    _check_satellite(receiver, "receiver")
     # generate observations
     obs = list(
         chain.from_iterable(
@@ -408,9 +410,7 @@ def collect_ro_observations(
                 range_elevation,
                 min_profile_duration,
             )
-            for transmitter in (
-                transmitters if isinstance(transmitters, list) else [transmitters]
-            )
+            for transmitter in _check_satellites(transmitters, "transmitters")
         )
     )
     if len(obs) == 0:
