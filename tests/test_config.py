@@ -277,6 +277,7 @@ class TestPackagedDefaults(unittest.TestCase):
                 "footprint_points_radar_azimuthal": 360,
                 "repeat_cycle_delta_position_m": 10000,
                 "repeat_cycle_delta_velocity_m_per_s": 3,
+                "repeat_cycle_delta_semimajor_axis_m": 100,
                 "repeat_cycle_search_duration_days": 30,
                 "repeat_cycle_consistency_threshold_s": 3600,
                 "repeat_cycle_lazy_load": True,

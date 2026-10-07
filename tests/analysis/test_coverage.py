@@ -22,6 +22,7 @@ from tatc.analysis import (
     reduce_observations,
 )
 from tatc import config
+from tatc.constants import timescale
 from tatc.analysis.coverage import _get_orbit_track
 from tatc.schemas import (
     ConicalInstrument,
@@ -316,13 +317,14 @@ class TestCoverageAnalysis(IssConstellationTestCase):
                     )
                     np.testing.assert_allclose(angle, 50, atol=1e-3)
 
-    def test_get_orbit_track_shifted(self):
+    def test_get_orbit_track_repeated(self):
         """
-        Test that a shifted orbit track has the Earth-fixed position and
-        velocity of the orbit's element maintained on its repeat ground track
-        at the shifted times, expressed at the unshifted times; and that,
-        with zero shifts (events repeated, but not shifted), it is the
-        maintained element's orbit track, and without shifts the orbit's own.
+        Test that the orbit track, as propagated for observation events, has
+        the Earth-fixed position and velocity of the orbit's element
+        maintained on its repeat ground track at the times shifted by whole
+        repeat cycles (here, two cycles after the epoch, and one cycle before
+        it), expressed at the unshifted times; and that, if observation
+        events are not repeated, it is directly propagated.
         """
         orbit = GeneralPerturbationsOrbit.from_tle(
             [
@@ -330,27 +332,34 @@ class TestCoverageAnalysis(IssConstellationTestCase):
                 "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
             ]
         )
-        times = [
-            orbit.get_epoch() + timedelta(days=40, minutes=minute) for minute in (0, 7)
-        ]
-        unshifted = _get_orbit_track(orbit, times, [timedelta(0), timedelta(0)])
-        np.testing.assert_allclose(
-            unshifted.position.m, orbit.get_repeat_orbit_track(times).position.m
+        repeat_cycle = orbit.get_repeat_cycle()
+        epoch = orbit.get_epoch()
+        times = [epoch + timedelta(days=40), epoch - timedelta(days=20)]
+        shifts = [2 * repeat_cycle, -repeat_cycle]
+        repeated = _get_orbit_track(orbit, times)
+        maintained = orbit.get_repeat_element().to_skyfield()
+        direct = maintained.at(
+            timescale.from_datetimes([t - d for t, d in zip(times, shifts)])
         )
-        np.testing.assert_allclose(
-            _get_orbit_track(orbit, times, None).position.m,
-            orbit.get_orbit_track(times).position.m,
-        )
-        shifts = [timedelta(days=3), timedelta(days=-2)]
-        shifted = _get_orbit_track(orbit, times, shifts)
-        direct = orbit.get_repeat_orbit_track([t - d for t, d in zip(times, shifts)])
-        self.assertEqual(shifted.t.utc_datetime().tolist(), times)
-        shifted_position, shifted_velocity = shifted.frame_xyz_and_velocity(itrs)
+        self.assertEqual(repeated.t.utc_datetime().tolist(), times)
+        repeated_position, repeated_velocity = repeated.frame_xyz_and_velocity(itrs)
         direct_position, direct_velocity = direct.frame_xyz_and_velocity(itrs)
-        np.testing.assert_allclose(shifted_position.m, direct_position.m, atol=1e-3)
+        np.testing.assert_allclose(repeated_position.m, direct_position.m, atol=1e-3)
         np.testing.assert_allclose(
-            shifted_velocity.m_per_s, direct_velocity.m_per_s, atol=1e-6
+            repeated_velocity.m_per_s, direct_velocity.m_per_s, atol=1e-6
         )
+        original = config.get_rc().repeat_cycle_for_observation_events
+        try:
+            config.get_rc().repeat_cycle_for_observation_events = False
+            np.testing.assert_allclose(
+                _get_orbit_track(orbit, times).position.m,
+                orbit.elements[0]
+                .to_skyfield()
+                .at(timescale.from_datetimes(times))
+                .position.m,
+            )
+        finally:
+            config.get_rc().repeat_cycle_for_observation_events = original
 
     def test_collect_observations_continuous_at_repeat_boundary(self):
         """
@@ -374,7 +383,7 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         )
         for minutes in (-3, 3):
             time = boundary + timedelta(minutes=minutes)
-            sub = wgs84.subpoint_of(orbit.get_repeat_orbit_track(time))
+            sub = wgs84.subpoint_of(orbit.get_orbit_track(time))
             point = Point(
                 id=0,
                 latitude=float(sub.latitude.degrees),
@@ -420,7 +429,6 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         )
         start = orbit.get_epoch()
         end = start + 4 * repeat_cycle
-        self.assertEqual(orbit.get_observation_repeat_cycle(start, end), repeat_cycle)
         point = Point(id=0, latitude=40, longitude=-105)
         observations = collect_observations(point, satellite, start, end)
         cycle = ((observations.epoch - start) // repeat_cycle).to_numpy()

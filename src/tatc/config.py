@@ -84,11 +84,17 @@ class RuntimeConfiguration(BaseModel):
     )
     repeat_cycle_for_orbit_track: bool = Field(
         default=True,
-        description="True, if a repeat cycle should be used to generate orbit tracks.",
+        description=(
+            "True, if a repeat cycle should be used to propagate orbit tracks "
+            "(including ground tracks and footprints)."
+        ),
     )
     repeat_cycle_for_observation_events: bool = Field(
         default=True,
-        description="True, if a repeat cycle should be used to generate observation events.",
+        description=(
+            "True, if a repeat cycle should be used to propagate observation "
+            "events (including ground station contacts)."
+        ),
     )
     gp_orbit_lazy_load: bool = Field(
         default=True,

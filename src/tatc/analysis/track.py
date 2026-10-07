@@ -351,10 +351,7 @@ def collect_ground_track(
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
     if mask is not None and len(times) > 1:
-        # use the (possibly repeat-cycle-corrected) geodetic position for this
-        # rough, buffer-tolerant culling step only; final geometry/validity
-        # below still uses the true orbit_track for consistency.
-        sat_pos = satellite.orbit.to_gp_orbit().get_geographic_position(times)
+        sat_pos = wgs84.geographic_position_of(orbit_track)
         if isinstance(mask, (Polygon, MultiPolygon)):
             geometry = mask
         elif isinstance(mask, gpd.GeoDataFrame):
@@ -525,10 +522,7 @@ def collect_ground_pixels(
             "Ground pixels are only compatible with rectangular PointedInstrument instances"
         )
     if mask is not None and len(times) > 1:
-        # use the (possibly repeat-cycle-corrected) geodetic position for this
-        # rough, buffer-tolerant culling step only; final geometry/validity
-        # below still uses the true orbit_track for consistency.
-        sat_pos = satellite.orbit.to_gp_orbit().get_geographic_position(times)
+        sat_pos = wgs84.geographic_position_of(orbit_track)
         if isinstance(mask, (Polygon, MultiPolygon)):
             geometry = mask
         elif isinstance(mask, gpd.GeoDataFrame):

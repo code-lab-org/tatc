@@ -15,6 +15,7 @@ from skyfield.api import wgs84
 from typing_extensions import Self
 
 from ... import constants, utils
+from ...utils.cache import get_cached
 from .base import OrbitBase
 
 
@@ -113,7 +114,8 @@ class MolniyaTundraOrbitBase(OrbitBase):
         # refine the time of maximum radius from samples every 30 s
         offsets = minutes + np.arange(-30, 30.5, 0.5)
         track = gp_orbit.get_orbit_track(
-            [self.epoch + timedelta(minutes=float(offset)) for offset in offsets]
+            [self.epoch + timedelta(minutes=float(offset)) for offset in offsets],
+            try_repeat=False,
         )
         radius = np.linalg.norm(track.position.m, axis=0)
         k = int(np.clip(np.argmax(radius), 1, len(radius) - 2))
@@ -123,7 +125,9 @@ class MolniyaTundraOrbitBase(OrbitBase):
             0.5 * (radius[k - 1] - radius[k + 1]) / curvature if curvature < 0 else 0
         )
         apogee_time = self.epoch + timedelta(minutes=float(offsets[k] + 0.5 * shift))
-        position = wgs84.subpoint_of(gp_orbit.get_orbit_track(apogee_time))
+        position = wgs84.subpoint_of(
+            gp_orbit.get_orbit_track(apogee_time, try_repeat=False)
+        )
         return float((position.longitude.degrees + 180) % 360 - 180)
 
     def get_inclination(self) -> float:
@@ -241,9 +245,25 @@ class MolniyaTundraOrbitBase(OrbitBase):
             self.right_ascension_ascending_node,
             self.epoch,
         )
-        cached = self.__dict__.get("repeat_orbit_period")
-        if cached is not None and cached[0] == key:
-            return cached[1]
+        return get_cached(
+            self,
+            "repeat_orbit_period",
+            key,
+            lambda: self._solve_repeat_orbit_period(revolutions_per_day),
+        )
+
+    def _solve_repeat_orbit_period(self, revolutions_per_day: int) -> timedelta:
+        """
+        Solves for the orbit period for which the ground track repeats with
+        the given number of revolutions per day, without caching (see
+        `_compute_repeat_orbit_period`).
+
+        Args:
+            revolutions_per_day (int): The number of revolutions per day.
+
+        Returns:
+            timedelta: The orbit period.
+        """
         period = self._compute_j2_corrected_orbit_period(
             constants.EARTH_SIDEREAL_DAY_S / revolutions_per_day
         ).total_seconds()
@@ -286,9 +306,7 @@ class MolniyaTundraOrbitBase(OrbitBase):
             )
             target = revolutions_per_day * (rotation_rate - apogee_rate)
             period *= satrec.mdot / target
-        result = timedelta(seconds=period)
-        self.__dict__["repeat_orbit_period"] = (key, result)  # type: ignore
-        return result
+        return timedelta(seconds=period)
 
     def get_semimajor_axis(self) -> float:
         """

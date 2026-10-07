@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 import geopandas as gpd
 import numpy as np
 from pyproj import Transformer
-from shapely.geometry import MultiPolygon, Point as ShapelyPoint, Polygon
+from shapely.geometry import MultiPolygon, Point as ShapelyPoint, Polygon, box
 from skyfield.api import wgs84
 
 from tatc.analysis import (
@@ -20,7 +20,14 @@ from tatc.analysis import (
     collect_orbit_track,
     compute_ground_track,
 )
-from tatc.schemas import GroundStation, Instrument, Point, PointedInstrument, Satellite
+from tatc.schemas import (
+    GeneralPerturbationsOrbit,
+    GroundStation,
+    Instrument,
+    Point,
+    PointedInstrument,
+    Satellite,
+)
 from tatc.utils.geometry import geodesic_distance
 from tatc.utils.observation import field_of_regard_to_swath_width
 
@@ -872,3 +879,36 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
         satellite = Satellite(name="Pixels", orbit=self.orbit, instruments=[instrument])
         results = collect_ground_pixels(satellite, [])
         self.assertTrue(results.empty)
+
+    def test_collect_ground_track_repeat_cycle_far_from_epoch(self):
+        """
+        Test that, far from the epoch of an orbit with a repeat cycle, the
+        ground track is propagated with the orbit's repeat track (as are
+        observations), so that a mask culls the same footprints as clipping
+        the unmasked ground track, and footprints repeat with the cycle.
+        """
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            [
+                "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
+                "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
+            ]
+        )
+        repeat_cycle = orbit.get_repeat_cycle()
+        satellite = Satellite(
+            name="Landsat 8",
+            orbit=orbit,
+            instruments=[Instrument(name="Imager", field_of_regard=15)],
+        )
+        mask = box(-110, 30, -90, 50)
+        start = orbit.get_epoch() + 6 * repeat_cycle + timedelta(days=4)
+        times = [start + timedelta(seconds=10 * i) for i in range(int(86400 / 10))]
+        masked = collect_ground_track(satellite, times, mask=mask)
+        clipped = gpd.clip(collect_ground_track(satellite, times), mask)
+        self.assertGreater(len(masked), 0)
+        self.assertEqual(sorted(masked.time), sorted(clipped.time))
+        first = collect_ground_track(
+            satellite, [t - 6 * repeat_cycle for t in times], mask=mask
+        )
+        self.assertEqual(
+            sorted(masked.time), sorted(t + 6 * repeat_cycle for t in first.time)
+        )

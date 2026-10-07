@@ -14,6 +14,7 @@ from pydantic import AliasChoices, Field
 from sgp4.api import WGS72, Satrec
 
 from ... import constants, utils
+from ...utils.cache import get_cached
 from .base_circular import CircularOrbitBase
 
 
@@ -53,9 +54,24 @@ class SunSynchronousOrbit(CircularOrbitBase):
             float: the inclination
         """
         semimajor_axis = self.get_semimajor_axis()
-        cached = self.__dict__.get("sso_inclination")
-        if cached is not None and cached[0] == semimajor_axis:
-            return cached[1]
+        return get_cached(
+            self,
+            "sso_inclination",
+            semimajor_axis,
+            lambda: self._compute_inclination(semimajor_axis),
+        )
+
+    def _compute_inclination(self, semimajor_axis: float) -> float:
+        """
+        Computes the sun-synchronous inclination, without caching (see
+        `get_inclination`).
+
+        Args:
+            semimajor_axis (float): The semimajor axis (meters).
+
+        Returns:
+            float: the inclination (degrees)
+        """
         inclination = np.arccos(-np.power(semimajor_axis / 12352000, 7 / 2))
         # mean motion (radians/minute), as for the general perturbations elements
         mean_motion = (
@@ -87,9 +103,7 @@ class SunSynchronousOrbit(CircularOrbitBase):
             inclination += (satrec.nodedot - target) / (
                 satrec.nodedot * np.tan(inclination)
             )
-        result = float(np.degrees(inclination))
-        self.__dict__["sso_inclination"] = (semimajor_axis, result)  # type: ignore
-        return result
+        return float(np.degrees(inclination))
 
     def get_right_ascension_ascending_node(self) -> float:
         """
