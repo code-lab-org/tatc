@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import json
+import warnings
 from datetime import datetime, timedelta
 from typing import Literal, overload
 
@@ -22,6 +23,29 @@ from skyfield.toposlib import GeographicPosition
 from ... import config, constants, utils
 from ..surface import Point
 from .gp_elements import GeneralPerturbationsElements
+
+
+def _get_repeat_shift(
+    offset: timedelta | npt.NDArray, repeat_cycle: timedelta
+) -> timedelta | npt.NDArray:
+    """
+    Gets the shift, a signed whole number of repeat cycles, that reduces a
+    time offset from an element's epoch to within one repeat cycle of the
+    epoch on the same side of it: a time after the epoch to the repeat cycle
+    just after it, and a time before the epoch to the repeat cycle just
+    before it.
+
+    Args:
+        offset (timedelta | numpy.typing.NDArray): The time offset(s) from the epoch.
+        repeat_cycle (timedelta): The repeat cycle.
+
+    Returns:
+        timedelta | numpy.typing.NDArray: The shift(s).
+    """
+    cycles = np.trunc(np.asarray(offset / repeat_cycle, dtype=float))
+    if cycles.ndim == 0:
+        return int(cycles) * repeat_cycle
+    return np.array([int(k) * repeat_cycle for k in cycles], dtype=object)
 
 
 def _find_events(
@@ -106,7 +130,9 @@ class GeneralPerturbationsOrbit(BaseModel):
         description="Repeat cycle of an orbit maintained on a repeat ground "
         + "track (for example, 91 days), which overrides the computed repeat "
         + "cycle; it is refined to the nearest whole number of nodal days "
-        + "(or, for a sun-synchronous orbit, mean solar days). "
+        + "(or, for a sun-synchronous orbit, mean solar days), and the "
+        + "elements' mean motion is adjusted so that a whole number of orbits "
+        + "spans it exactly (see `GeneralPerturbationsElements.get_repeat_element`). "
         + "Requires `remove_drag`.",
         gt=timedelta(0),
     )
@@ -131,11 +157,17 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         Sets the elements' drag terms to zero if `remove_drag` is set, and
         validates that a repeat cycle is only specified without drag (with
-        drag, the orbit would not repeat).
+        drag, the orbit would not repeat). With a declared repeat cycle, each
+        element is also adjusted to the exact repeat, so that the satellite
+        returns to its initial position after each repeat cycle.
         """
         if self.repeat_cycle is not None and not self.remove_drag:
             raise ValueError("repeat_cycle requires remove_drag=True.")
-        if self.remove_drag:
+        if self.repeat_cycle is not None:
+            self.elements = [
+                el.get_repeat_element(self.repeat_cycle) for el in self.elements
+            ]
+        elif self.remove_drag:
             self.elements = [
                 (
                     el
@@ -618,6 +650,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         max_search_duration: timedelta | None = None,
         lazy_load: bool | None = None,
         consistency_threshold: timedelta | None = None,
+        max_delta_semimajor_axis: float | None = None,
     ) -> timedelta | None:
         """
         Compute the orbit's repeat cycle, if every element agrees on one.
@@ -646,6 +679,8 @@ class GeneralPerturbationsOrbit(BaseModel):
             max_search_duration (timedelta | None): the maximum period of time to search for repeats.
             lazy_load (bool | None): True, if the previously-computed repeat cycle should be loaded.
             consistency_threshold (timedelta | None): the maximum allowed spread between elements' repeat cycles.
+            max_delta_semimajor_axis (float | None): the maximum difference (m) between the
+                semimajor axis and that of an exact repeat for a candidate repeat.
 
         Returns:
             timedelta: the repeat cycle duration (if every element agrees on one)
@@ -658,11 +693,17 @@ class GeneralPerturbationsOrbit(BaseModel):
             )
 
         # keyed by the elements and options, so that a copy with changed
-        # fields (e.g. from `model_copy(update=...)`) is recomputed
+        # fields (e.g. from `model_copy(update=...)`) or a search with other
+        # options is recomputed
         key = (
             tuple(id(el) for el in self.elements),
             self.remove_drag,
             self.repeat_cycle,
+            max_delta_position,
+            max_delta_velocity,
+            max_search_duration,
+            consistency_threshold,
+            max_delta_semimajor_axis,
         )
         cached = self.__dict__.get("computed_repeat_cycle") if lazy_load else None
         repeat_cycle = cached[1] if cached is not None and cached[0] == key else None
@@ -680,6 +721,7 @@ class GeneralPerturbationsOrbit(BaseModel):
                     max_delta_velocity,
                     max_search_duration,
                     lazy_load,
+                    max_delta_semimajor_axis,
                 )
                 if cycle is None:
                     repeat_cycle = timedelta(0)
@@ -808,10 +850,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             if repeat_cycle is not None:
                 epoch = self.get_epoch()
                 offset = t.utc_datetime() - epoch
-                repeat_offset = np.multiply(
-                    np.sign(offset / timedelta(1)),
-                    np.mod(np.abs(offset / timedelta(1)), repeat_cycle / timedelta(1)),
-                ) * timedelta(1)
+                repeat_offset = offset - _get_repeat_shift(offset, repeat_cycle)
                 repeat_times = (
                     constants.timescale.from_datetime(epoch + repeat_offset)
                     if t.shape == ()
@@ -820,6 +859,12 @@ class GeneralPerturbationsOrbit(BaseModel):
                 return wgs84.geographic_position_of(
                     self.elements[0].to_skyfield().at(repeat_times)
                 )
+        if try_repeat and np.size(t.tt) > 0:
+            # the earliest and latest times, without converting every time
+            tt = np.atleast_1d(t.tt)
+            self._warn_if_propagating_with_drag(
+                constants.timescale.tt_jd(np.array([tt.min(), tt.max()])).utc_datetime()
+            )
         # compute geodetic position from a true, directly propagated orbit track
         return wgs84.geographic_position_of(self.get_orbit_track_at_time(t))
 
@@ -844,16 +889,54 @@ class GeneralPerturbationsOrbit(BaseModel):
         )
         return self.get_geographic_position_at_time(t, try_repeat)
 
+    def _warn_if_propagating_with_drag(
+        self, times: datetime | npt.NDArray | list[datetime]
+    ) -> None:
+        """
+        Warns if this orbit is propagated with drag, without a repeat cycle,
+        to times farther from the nearest element's epoch than the
+        `repeat_cycle_search_duration_days` setting: drag lowers the
+        propagated orbit, which then diverges from a maintained orbit.
+
+        Args:
+            times (datetime | numpy.typing.NDArray | list[datetime]): The propagated times.
+        """
+        if not any(
+            el.bstar != 0 or el.mean_motion_dot != 0 or el.mean_motion_ddot != 0
+            for el in self.elements
+        ):
+            return
+        times = np.atleast_1d(np.asarray(times, dtype=object))
+        if len(times) == 0:
+            return
+        limit = timedelta(days=config.get_rc().repeat_cycle_search_duration_days)
+        for time in (min(times), max(times)):
+            if abs(time - self.get_closest_element(time).epoch) > limit:
+                warnings.warn(
+                    "Propagating general perturbations elements with drag, "
+                    + "without a repeat cycle, more than "
+                    + f"{limit.total_seconds() / 86400:g} days from their "
+                    + "epoch: the propagated orbit decays and can diverge "
+                    + "from an orbit maintained against drag. To model a "
+                    + "maintained orbit, set `remove_drag=True` and declare "
+                    + "its `repeat_cycle`.",
+                    stacklevel=3,
+                )
+                return
+
     def get_observation_repeat_cycle(
         self, start: datetime, end: datetime, try_repeat: bool | None = None
     ) -> timedelta | None:
         """
-        Gets the repeat cycle with which `get_observation_events` repeats the
-        events of the first cycle (starting at `start`) to cover the period
-        from `start` to `end`, if it does: when `try_repeat` (by default, the
-        `repeat_cycle_for_observation_events` setting) and this orbit has a
-        repeat cycle shorter than the period. The repeated events model an
-        orbit maintained on its repeat ground track.
+        Gets the repeat cycle with which `get_observation_events` repeats
+        observation events between `start` and `end`, if it does: when
+        `try_repeat` (by default, the `repeat_cycle_for_observation_events`
+        setting), this orbit has a single element with a repeat cycle, and
+        the period extends more than one repeat cycle from the element's
+        epoch. As in `get_geographic_position_at_time`, times are shifted by
+        whole repeat cycles to the repeat cycle just after (or, for times
+        before the epoch, just before) the epoch, which models an orbit
+        maintained on its repeat ground track (see `get_repeat_shifts`).
 
         Args:
             start (datetime): Start time of the observation period.
@@ -865,12 +948,117 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         if try_repeat is None:
             try_repeat = config.get_rc().repeat_cycle_for_observation_events
-        if not try_repeat:
+        if not try_repeat or len(self.elements) > 1:
             return None
         repeat_cycle = self.get_repeat_cycle()
-        if repeat_cycle is not None and repeat_cycle < end - start:
+        if repeat_cycle is None:
+            return None
+        epoch = self.get_epoch()
+        if start < epoch - repeat_cycle or end > epoch + repeat_cycle:
             return repeat_cycle
         return None
+
+    def get_repeat_shifts(
+        self,
+        times: list[datetime],
+        start: datetime,
+        end: datetime,
+        try_repeat: bool | None = None,
+    ) -> list[timedelta]:
+        """
+        Gets the shift, a signed whole number of repeat cycles, by which
+        `get_observation_events` shifts each time between `start` and `end`
+        to the repeat cycle just after (or, for times before the epoch, just
+        before) the element's epoch, if it repeats observation events (see
+        `get_observation_repeat_cycle`); otherwise, zero.
+
+        Args:
+            times (list[datetime]): Times between `start` and `end`.
+            start (datetime): Start time of the observation period.
+            end (datetime): End time of the observation period.
+            try_repeat (bool | None): True, if a repeat orbit should be used to improve long-term accuracy.
+
+        Returns:
+            list[timedelta]: the shift of each time.
+        """
+        repeat_cycle = self.get_observation_repeat_cycle(start, end, try_repeat)
+        if repeat_cycle is None:
+            return [timedelta(0) for _ in times]
+        epoch = self.get_epoch()
+        return [_get_repeat_shift(time - epoch, repeat_cycle) for time in times]
+
+    def _get_repeated_observation_events(
+        self,
+        topos: GeographicPosition,
+        start: datetime,
+        end: datetime,
+        min_elevation_angle: float,
+        repeat_cycle: timedelta,
+    ) -> tuple[Time, npt.NDArray]:
+        """
+        Gets the observation events between `start` and `end` by repeating
+        those of the repeat cycles just after and just before the element's
+        epoch, shifted by whole repeat cycles (see `get_repeat_shifts`).
+
+        Args:
+            topos (skyfield.toposlib.GeographicPosition): Target location to observe.
+            start (datetime): Start time of the observation period.
+            end (datetime): End time of the observation period.
+            min_elevation_angle (float): Minimum elevation angle (deg) to constrain observation.
+            repeat_cycle (timedelta): The repeat cycle.
+
+        Returns:
+            tuple[skyfield.timelib.Time, numpy.ndarray]: event times and their rise (0) / culminate (1) / set (2) codes
+        """
+        epoch = self.get_epoch()
+        satellite = self.elements[0].to_skyfield()
+        events = []
+        # the parts of the period after and before the epoch, which are
+        # shifted to the repeat cycle just after and just before it
+        for after, side_start, side_end in (
+            (True, max(start, epoch), end),
+            (False, start, min(end, epoch)),
+        ):
+            if side_start >= side_end:
+                continue
+            first = int(np.trunc((side_start - epoch) / repeat_cycle))
+            last = int(np.trunc((side_end - epoch) / repeat_cycle))
+            # pieces of this part within each shifted repeat cycle, as their
+            # shift and their bounds once shifted
+            pieces = []
+            for cycles in range(first, last + 1):
+                shift = cycles * repeat_cycle
+                cycle_start = epoch + shift - (timedelta(0) if after else repeat_cycle)
+                lower = max(side_start, cycle_start)
+                upper = min(side_end, cycle_start + repeat_cycle)
+                if lower < upper:
+                    pieces.append((shift, lower - shift, upper - shift))
+            if len(pieces) == 0:
+                continue
+            # compute the events once over the shifted pieces
+            times, codes = _find_events(
+                satellite,
+                topos,
+                constants.timescale.from_datetime(min(p[1] for p in pieces)),
+                constants.timescale.from_datetime(max(p[2] for p in pieces)),
+                min_elevation_angle,
+            )
+            if len(codes) == 0:
+                continue
+            times_py = np.atleast_1d(times.utc_datetime())
+            for shift, lower, upper in pieces:
+                selected = (times_py >= lower) & (times_py <= upper)
+                events.extend(
+                    zip(times_py[selected] + shift, np.asarray(codes)[selected])
+                )
+        # sort by time, removing duplicates at the ends of shifted pieces
+        events = sorted(set((t, int(code)) for t, code in events))
+        if len(events) == 0:
+            return Time([], []), np.array([], dtype=int)
+        return (
+            constants.timescale.from_datetimes([t for t, _ in events]),
+            np.array([code for _, code in events]),
+        )
 
     def get_observation_events(
         self,
@@ -887,18 +1075,17 @@ class GeneralPerturbationsOrbit(BaseModel):
 
         Tries three strategies, in order, and uses the first that applies:
 
-        1. If `try_repeat` and this orbit has a repeat cycle shorter than
-           `end - start` (see `get_repeat_cycle`, which validates that
-           *every* element agrees on the same cycle if there are several),
-           events are computed once over a single repeat cycle starting at
-           `start` and then copy-pasted forward for as many cycles as
-           needed to cover the full period, rather than propagating the
-           whole span directly. Because a validated repeat cycle means the
-           whole orbit -- not just one element -- repeats identically,
-           this does not need to consider which element is closest to
-           each time the way strategy 2 does; the single element closest
-           to `start` is enough to compute the one cycle's worth of events
-           that every subsequent cycle repeats.
+        1. If `try_repeat` and this orbit's single element has a repeat
+           cycle and the period extends more than one repeat cycle from the
+           element's epoch (see `get_observation_repeat_cycle`), the events
+           of the repeat cycles just after and just before the epoch are
+           computed once (over the parts of them that the period, shifted by
+           whole repeat cycles, covers) and repeated, shifted by whole repeat
+           cycles, to cover the period (see `get_repeat_shifts`), as for an
+           orbit maintained on its repeat ground track. Anchoring the
+           repeated cycles at the epoch, as `get_geographic_position_at_time`
+           does, propagates the element no more than one repeat cycle from
+           its epoch, however far the period is from it.
         2. Otherwise, if this orbit has multiple elements, the requested
            period is partitioned by whichever element's epoch is closest
            at each point in time (`partition_by_element_index`), and
@@ -917,32 +1104,17 @@ class GeneralPerturbationsOrbit(BaseModel):
         Returns:
             tuple[skyfield.timelib.Time, numpy.ndarray]: event times and their rise (0) / culminate (1) / set (2) codes
         """
+        if try_repeat is None:
+            try_repeat = config.get_rc().repeat_cycle_for_observation_events
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
         t_0 = constants.timescale.from_datetime(start)
         repeat_cycle = self.get_observation_repeat_cycle(start, end, try_repeat)
         if repeat_cycle is not None:
-            # compute the events of one repeat cycle and repeat them
-            repeat_t_1 = constants.timescale.from_datetime(start + repeat_cycle)
-            times, events = _find_events(
-                self.get_closest_element(start).to_skyfield(),
-                topos,
-                t_0,
-                repeat_t_1,
-                min_elevation_angle,
+            return self._get_repeated_observation_events(
+                topos, start, end, min_elevation_angle, repeat_cycle
             )
-            number_cycles = int(np.ceil((end - start) / repeat_cycle))
-            if len(times) == 0:
-                return (Time([], []), np.array([], dtype=int))
-            times_py = np.concatenate(
-                [times.utc_datetime() + i * repeat_cycle for i in range(number_cycles)]
-            )
-            events_py = np.concatenate([events for _ in range(number_cycles)])
-            if len(times_py) == 0:
-                return Time([], []), np.array([], dtype=int)
-            return (
-                constants.timescale.from_datetimes(times_py[times_py <= end]),
-                events_py[times_py <= end],
-            )
+        if try_repeat:
+            self._warn_if_propagating_with_drag([start, end])
         if len(self.elements) > 1:
             # partition the period by whichever element is closest at each time
             part_ts, element_is = self.partition_by_element_index(start, end)

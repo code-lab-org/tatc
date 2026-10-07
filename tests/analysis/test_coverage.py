@@ -381,6 +381,48 @@ class TestCoverageAnalysis(IssConstellationTestCase):
                 (repeated - first - k * repeat_cycle).dt.total_seconds(), 0, atol=1e-2
             )
 
+    def test_collect_observations_repeat_cycle_anchored_at_epoch(self):
+        """
+        Test that observations ten repeat cycles after the orbit's epoch are
+        those of the first two repeat cycles after the epoch, shifted by ten
+        repeat cycles: the repeated cycle is anchored at the epoch, rather
+        than propagated (with drag) to the start of the analysis period.
+        """
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            [
+                "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
+                "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
+            ]
+        )
+        repeat_cycle = orbit.get_repeat_cycle()
+        self.assertIsNotNone(repeat_cycle)
+        satellite = Satellite(
+            name="Landsat 8",
+            orbit=orbit,
+            instruments=[
+                PointedInstrument(
+                    name="Imager",
+                    field_of_regard=30,
+                    cross_track_field_of_view=15,
+                    along_track_field_of_view=0.1,
+                    is_rectangular=True,
+                )
+            ],
+        )
+        epoch = orbit.get_epoch()
+        point = Point(id=0, latitude=40, longitude=-105)
+        near = collect_observations(point, satellite, epoch, epoch + 2 * repeat_cycle)
+        far = collect_observations(
+            point, satellite, epoch + 10 * repeat_cycle, epoch + 12 * repeat_cycle
+        )
+        self.assertGreater(len(near), 0)
+        self.assertEqual(len(far), len(near))
+        np.testing.assert_allclose(
+            (far.epoch - near.epoch - 10 * repeat_cycle).dt.total_seconds(),
+            0,
+            atol=1e-2,
+        )
+
     def test_collect_observations_pointed_matches_field_of_regard(self):
         """
         Test that a wide, thin pointed view observes the same passes as a

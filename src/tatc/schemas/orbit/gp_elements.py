@@ -256,12 +256,80 @@ class GeneralPerturbationsElements(BaseModel):
         """
         return EarthSatellite.from_omm(constants.timescale, self.to_omm_dict())
 
+    def get_nodal_period_and_day(self) -> tuple[float, float]:
+        """
+        Gets the nodal period (between ascending node crossings) and the
+        nodal day (the period of the Earth's rotation relative to the
+        precessing ascending node), from the SGP4 model's own secular rates
+        for mean anomaly, argument of perigee, and right ascension of
+        ascending node (mdot, argpdot, and nodedot, in radians/minute).
+
+        Returns:
+            tuple[float, float]: the nodal period and nodal day (seconds)
+        """
+        model = self.to_satrec()
+        nodal_period = 2 * np.pi / (model.mdot + model.argpdot) * 60
+        earth_rotation_rate = 2 * np.pi / constants.EARTH_SIDEREAL_DAY_S * 60
+        nodal_day = 2 * np.pi / (earth_rotation_rate - model.nodedot) * 60
+        return nodal_period, nodal_day
+
+    def get_repeat_element(
+        self, repeat_cycle: timedelta
+    ) -> GeneralPerturbationsElements:
+        """
+        Gets a copy of this element maintained on the repeat ground track
+        with the approximate repeat cycle: its drag terms (B* and the
+        derivatives of mean motion) are set to zero and its mean motion is
+        adjusted so that a whole number of nodal periods spans the refined
+        repeat cycle (see `refine_repeat_cycle`) exactly. A satellite
+        propagated with the copy returns to its initial position and time of
+        ascending node crossing after each repeat cycle, so that repeating
+        its first cycle has no discontinuity at the end of each cycle.
+
+        A single element's mean motion reflects the satellite's position
+        within its maintenance band (between maneuvers), so it differs
+        slightly from the exact repeat: by 67 m of semimajor axis for an
+        ICESat-2 element set, which, over its 91-day repeat cycle,
+        accumulates to a 113 s difference of the time of ascending node
+        crossing. Near the element's epoch, the copy departs from the
+        element's own propagation at the rate of this difference (for
+        ICESat-2, about 1.2 s per day).
+
+        Args:
+            repeat_cycle (timedelta): The approximate repeat cycle.
+
+        Returns:
+            GeneralPerturbationsElements: the maintained element
+        """
+        element = self.model_copy(
+            update={"bstar": 0, "mean_motion_dot": 0, "mean_motion_ddot": 0}
+        )
+        nodal_period, _ = element.get_nodal_period_and_day()
+        orbits = max(
+            1,
+            round(
+                element.refine_repeat_cycle(repeat_cycle).total_seconds() / nodal_period
+            ),
+        )
+        for _ in range(10):
+            nodal_period, _ = element.get_nodal_period_and_day()
+            refined = element.refine_repeat_cycle(repeat_cycle).total_seconds()
+            residual = orbits * nodal_period - refined
+            if abs(residual) < 1e-6:
+                break
+            # the nodal period varies (nearly) inversely with mean motion
+            element = element.model_copy(
+                update={"mean_motion": element.mean_motion * (1 + residual / refined)}
+            )
+        return element
+
     def get_repeat_cycle(
         self,
         max_delta_position: float | None = None,
         max_delta_velocity: float | None = None,
         max_search_duration: timedelta | None = None,
         lazy_load: bool | None = None,
+        max_delta_semimajor_axis: float | None = None,
     ) -> timedelta | None:
         """
         Compute this element's repeat cycle. Lazy-loads a previously-computed
@@ -279,15 +347,44 @@ class GeneralPerturbationsElements(BaseModel):
         calculation (starting from the TLE's mean motion converted to a
         semimajor axis via plain Kepler's third law) would otherwise miss
         -- a small (~0.1%) but real discrepancy that is enough to make a
-        genuine multi-week repeat cycle miss its tolerance entirely. Each
-        analytically-predicted candidate is confirmed by directly
-        propagating the real orbit and checking that both position and
-        velocity match the initial state within tolerance; the first
-        (shortest) candidate that does so is the reported repeat cycle,
-        rounded to a whole number of nodal days (or, for a sun-synchronous
-        orbit, mean solar days; see `refine_repeat_cycle`). Candidates are
-        propagated without drag (B* and the mean motion derivatives set to
-        zero), as for an orbit maintained on its repeat ground track.
+        genuine multi-week repeat cycle miss its tolerance entirely.
+
+        A whole number of nodal days is confirmed as the repeat cycle in
+        either of two ways, both checking that the propagated satellite
+        returns within `max_delta_position` and `max_delta_velocity` of its
+        initial position and velocity (which rejects candidates that the
+        secular rates alone do not rule out, for example for an orbit whose
+        argument of perigee precesses):
+
+        1. The element itself, propagated without drag (as for an orbit
+           maintained against drag), returns to its initial state.
+        2. The element's semimajor axis is within `max_delta_semimajor_axis`
+           of the exact repeat, and the element maintained on that repeat
+           ground track (see `get_repeat_element`: without drag, and with
+           the exact repeat's mean motion) returns to its initial state. A
+           maintained orbit's semimajor axis varies within a band (for
+           example, about 200 m for Landsat 9) as drag lowers it and
+           maneuvers raise it, so an element set taken anywhere within the
+           band can be far enough from the exact repeat for its ground
+           track to drift beyond `max_delta_position` over a multi-week
+           repeat cycle. Exact repeats of up to D nodal days are spaced by
+           about 1/D^2 orbits per day, so this applies only to repeat cycles
+           whose exact repeats are spaced by at least three times the
+           tolerance (in low Earth orbit with the default 100 m, up to about
+           32 days), beyond which it would admit chance near-repeats.
+
+        The first (shortest) confirmed candidate is the reported repeat
+        cycle, rounded to a whole number of nodal days (or, for a
+        sun-synchronous orbit, mean solar days; see `refine_repeat_cycle`).
+
+        Long repeat cycles cannot be identified reliably from a single
+        element set: among the many whole numbers of nodal days within a
+        long search, some happen to be closer to an exact repeat than the
+        true one. For an ICESat-2 element set, whose semimajor axis is 67 m
+        from its 91-day repeat, chance repeats after 62 and 95 days are
+        within 14 and 37 m. Searches longer than about 40 days risk such
+        false repeat cycles; declare a long repeat cycle instead (see
+        `GeneralPerturbationsOrbit.repeat_cycle`).
 
         This is scoped to a single element on purpose: a
         `GeneralPerturbationsOrbit` with multiple elements may span a
@@ -303,6 +400,8 @@ class GeneralPerturbationsElements(BaseModel):
             max_delta_velocity (float | None): the maximum difference in velocity (m/s) allowed for a repeat.
             max_search_duration (timedelta | None): the maximum period of time to search for repeats.
             lazy_load (bool | None): True, if the previously-computed repeat cycle should be loaded.
+            max_delta_semimajor_axis (float | None): the maximum difference (m) between the
+                semimajor axis and that of an exact repeat for a candidate repeat.
 
         Returns:
             timedelta: the repeat cycle duration (if it exists)
@@ -318,62 +417,87 @@ class GeneralPerturbationsElements(BaseModel):
             )
         if lazy_load is None:
             lazy_load = config.get_rc().repeat_cycle_lazy_load
+        if max_delta_semimajor_axis is None:
+            max_delta_semimajor_axis = (
+                config.get_rc().repeat_cycle_delta_semimajor_axis_m
+            )
 
-        # keyed by the element's field values, so that a copy with changed
-        # fields (e.g. from `model_copy(update=...)`) is recomputed
-        key = tuple(self.model_dump().values())
+        # keyed by the element's field values and the search options, so
+        # that a copy with changed fields (e.g. from `model_copy(update=...)`)
+        # or a search with other options is recomputed
+        key = (
+            tuple(self.model_dump().values()),
+            max_delta_position,
+            max_delta_velocity,
+            max_search_duration,
+            max_delta_semimajor_axis,
+        )
         cached = self.__dict__.get("repeat_cycle") if lazy_load else None
         repeat_cycle = cached[1] if cached is not None and cached[0] == key else None
         if repeat_cycle is None:
             epoch = self.epoch
-            # verify candidates without drag (as for an orbit maintained
-            # against drag), which would otherwise move the propagated
-            # satellite away from its repeat ground track
-            satellite = self.model_copy(
-                update={"bstar": 0, "mean_motion_dot": 0, "mean_motion_ddot": 0}
-            ).to_skyfield()
-            # record the initial position and velocity in Earth-centered Earth-fixed frame
-            position_0, velocity_0 = satellite.at(
-                constants.timescale.from_datetime(epoch)
-            ).frame_xyz_and_velocity(itrs)
-            p_0_m = np.array(position_0.m)
-            v_0_m_per_s = np.array(velocity_0.m_per_s)
-
             # analytic repeat ground track candidates: how many nodal days
-            # (D) are needed for a whole number of orbits (C) to elapse.
-            # mdot/argpdot/nodedot (rad/minute) are SGP4's own secular
-            # rates for mean anomaly, argument of perigee, and RAAN.
-            model = satellite.model
-            nodal_period = 2 * np.pi / (model.mdot + model.argpdot) * 60
-            earth_rotation_rate = 2 * np.pi / constants.EARTH_SIDEREAL_DAY_S * 60
-            nodal_day = 2 * np.pi / (earth_rotation_rate - model.nodedot) * 60
+            # (D) are needed for a whole number of orbits (C) to elapse
+            element = self.model_copy(
+                update={"bstar": 0, "mean_motion_dot": 0, "mean_motion_ddot": 0}
+            )
+            nodal_period, nodal_day = element.get_nodal_period_and_day()
             orbits_per_day = nodal_day / nodal_period
             max_days = int(max_search_duration.total_seconds() / nodal_day)
             days_range = np.arange(1, max_days + 1)
             orbit_counts = np.round(orbits_per_day * days_range)
-            residual_orbits = np.abs(orbits_per_day * days_range - orbit_counts)
-            # approximate ground-track drift (m) implied by missing a whole
-            # orbit count by residual_orbits, at the equator; only a coarse
-            # heuristic to shortlist candidates worth verifying by direct
-            # propagation below, not itself a pass/fail criterion
+            residual_orbits = orbits_per_day * days_range - orbit_counts
+            # ground-track drift (m) at the equator implied by missing a whole
+            # orbit count by residual_orbits
             ground_track_spacing = (
                 2 * np.pi * constants.EARTH_MEAN_RADIUS / orbits_per_day
             )
-            approx_drift = residual_orbits * ground_track_spacing
-            # generous margin: this estimate is J2-only, while the actual
-            # verification below propagates the real (e.g. SGP4) orbit
-            candidate_days = days_range[approx_drift < 3 * max_delta_position]
-
-            def position_error(t: Time) -> npt.NDArray[np.float64]:
-                position, _ = satellite.at(t).frame_xyz_and_velocity(itrs)
-                return np.linalg.norm((np.array(position.m).T - p_0_m.T).T, axis=0)
-
-            position_error.rough_period = nodal_period / 86400  # type: ignore
+            drift = np.abs(residual_orbits) * ground_track_spacing
+            # difference (m) between the semimajor axis and that of the exact
+            # repeat, from the sensitivity of orbits per nodal day to the
+            # semimajor axis (by a finite difference of mean motion)
+            perturbed = element.model_copy(
+                update={"mean_motion": element.mean_motion * (1 + 1e-6)}
+            )
+            perturbed_period, perturbed_day = perturbed.get_nodal_period_and_day()
+            sensitivity = (perturbed_day / perturbed_period - orbits_per_day) / (
+                perturbed.get_semimajor_axis() - element.get_semimajor_axis()
+            )
+            delta_semimajor_axis = (
+                orbit_counts / days_range - orbits_per_day
+            ) / sensitivity
+            # exact repeats of up to D nodal days are spaced by about 1/D^2
+            # orbits per day: apply the semimajor axis tolerance only where
+            # they are spaced by at least three times the tolerance, beyond
+            # which it would admit chance near-repeats
+            short = 3 * max_delta_semimajor_axis * abs(sensitivity) * days_range**2 <= 1
+            # generous margin: the drift is estimated from secular rates,
+            # while the verification below also includes periodic terms
+            near_drift = drift < 3 * max_delta_position
+            near_semimajor_axis = short & (
+                np.abs(delta_semimajor_axis) < max_delta_semimajor_axis
+            )
+            # verify candidates without drag (as for an orbit maintained
+            # against drag), which would otherwise move the propagated
+            # satellite away from its repeat ground track
+            satellite = element.to_skyfield()
 
             def find_closest_approach(
-                center: datetime,
-            ) -> tuple[datetime, float, float] | None:
-                window = timedelta(seconds=nodal_period / 2)
+                satellite: EarthSatellite, center: datetime, period: float
+            ) -> tuple[float, float] | None:
+                # initial position and velocity in the Earth-fixed frame
+                position_0, velocity_0 = satellite.at(
+                    constants.timescale.from_datetime(epoch)
+                ).frame_xyz_and_velocity(itrs)
+                p_0_m = np.array(position_0.m)
+                v_0_m_per_s = np.array(velocity_0.m_per_s)
+
+                def position_error(t: Time) -> npt.NDArray[np.float64]:
+                    position, _ = satellite.at(t).frame_xyz_and_velocity(itrs)
+                    return np.linalg.norm((np.array(position.m).T - p_0_m.T).T, axis=0)
+
+                position_error.rough_period = period / 86400  # type: ignore
+                window = timedelta(seconds=period / 2)
                 times, errors = find_minima(
                     constants.timescale.from_datetime(center - window),
                     constants.timescale.from_datetime(center + window),
@@ -383,30 +507,44 @@ class GeneralPerturbationsElements(BaseModel):
                     return None
                 t_min = times[np.argmin(errors)]
                 position, velocity = satellite.at(t_min).frame_xyz_and_velocity(itrs)
-                delta_position = float(np.linalg.norm(np.array(position.m) - p_0_m))
-                delta_velocity = float(
-                    np.linalg.norm(np.array(velocity.m_per_s) - v_0_m_per_s)
+                return (
+                    float(np.linalg.norm(np.array(position.m) - p_0_m)),
+                    float(np.linalg.norm(np.array(velocity.m_per_s) - v_0_m_per_s)),
                 )
-                return t_min.utc_datetime(), delta_position, delta_velocity
 
             # assign zero repeat cycle value to avoid recalculation, unless
             # a candidate below is confirmed
+            def is_confirmed(result: tuple[float, float] | None) -> bool:
+                return (
+                    result is not None
+                    and result[0] < max_delta_position
+                    and result[1] < max_delta_velocity
+                )
+
             repeat_cycle = timedelta(0)
-            for days in candidate_days:
-                predicted = epoch + timedelta(seconds=int(days) * nodal_day)
-                result = find_closest_approach(predicted)
-                if result is None:
-                    continue
-                t_min, delta_position, delta_velocity = result
-                if (
-                    delta_position < max_delta_position
-                    and delta_velocity < max_delta_velocity
-                ):
+            for i in np.flatnonzero(near_drift | near_semimajor_axis):
+                candidate = timedelta(seconds=int(days_range[i]) * nodal_day)
+                # verify a candidate near the element's mean motion with the
+                # element itself (without drag), and one near the semimajor
+                # axis of the exact repeat with the element maintained on its
+                # repeat ground track (with the exact repeat's mean motion)
+                confirmed = near_drift[i] and is_confirmed(
+                    find_closest_approach(satellite, epoch + candidate, nodal_period)
+                )
+                if not confirmed and near_semimajor_axis[i]:
+                    maintained = self.get_repeat_element(candidate)
+                    confirmed = is_confirmed(
+                        find_closest_approach(
+                            maintained.to_skyfield(),
+                            epoch + maintained.refine_repeat_cycle(candidate),
+                            nodal_period,
+                        )
+                    )
+                if confirmed:
                     # report a whole number of nodal (or, for a
                     # sun-synchronous orbit, mean solar) days, as for a
-                    # maintained orbit, rather than the time of closest
-                    # approach, which reflects small errors of mean motion
-                    repeat_cycle = self.refine_repeat_cycle(t_min - epoch)
+                    # maintained orbit
+                    repeat_cycle = self.refine_repeat_cycle(candidate)
                     break
             self.__dict__["repeat_cycle"] = (key, repeat_cycle)  # type: ignore
         if repeat_cycle is not None and repeat_cycle > timedelta(0):
@@ -442,9 +580,7 @@ class GeneralPerturbationsElements(BaseModel):
         Returns:
             timedelta: the refined repeat cycle
         """
-        model = self.to_satrec()
-        earth_rotation_rate = 2 * np.pi / constants.EARTH_SIDEREAL_DAY_S * 60
-        nodal_day = 2 * np.pi / (earth_rotation_rate - model.nodedot) * 60
+        _, nodal_day = self.get_nodal_period_and_day()
         if abs(nodal_day - 86400) < SUN_SYNCHRONOUS_NODAL_DAY_TOLERANCE_S:
             nodal_day = 86400
         days = max(1, round(repeat_cycle.total_seconds() / nodal_day))

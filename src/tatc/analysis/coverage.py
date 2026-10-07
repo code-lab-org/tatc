@@ -84,9 +84,12 @@ def _get_visible_interval_series(
         # window, and the window is too narrow, or off-center, to contain
         # the pass's culmination). Disambiguate by sampling the true
         # elevation angle at the window's midpoint.
+        orbit = satellite.orbit.to_gp_orbit()
         mid = start + (end - start) / 2
+        # shifted by whole repeat cycles, if events are repeated
+        mid = mid - orbit.get_repeat_shifts([mid], start, end)[0]
         topos = wgs84.latlon(point.latitude, point.longitude, point.elevation)
-        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(mid)
+        orbit_track = orbit.get_orbit_track(mid)
         elevation_angle = (
             (orbit_track - topos.at(timescale.from_datetime(mid))).altaz()[0].degrees
         )
@@ -292,9 +295,11 @@ def _get_repeat_shifts(
     periods: list[pd.Interval],
 ) -> list[timedelta]:
     """
-    Get the shift of each visible period, a whole number of repeat cycles,
-    if `get_observation_events` repeats the events of the first cycle to
-    cover the analysis period (otherwise zero).
+    Get the shift of each visible period (at its midpoint), a signed whole
+    number of repeat cycles, if `get_observation_events` repeats the events
+    of the repeat cycles just after and before the orbit's epoch to cover the
+    analysis period (otherwise zero; see
+    `GeneralPerturbationsOrbit.get_repeat_shifts`).
 
     Args:
         orbit (GeneralPerturbationsOrbit): The orbit.
@@ -305,14 +310,7 @@ def _get_repeat_shifts(
     Returns:
         list[datetime.timedelta]: The shift of each period.
     """
-    repeat_cycle = orbit.get_observation_repeat_cycle(start, end)
-    if repeat_cycle is None:
-        return [timedelta(0) for _ in periods]
-    reference = pd.Timestamp(start.astimezone(tz=timezone.utc))
-    return [
-        int(np.floor((period.mid - reference) / repeat_cycle)) * repeat_cycle
-        for period in periods
-    ]
+    return orbit.get_repeat_shifts([period.mid for period in periods], start, end)
 
 
 def _refine_access_periods(
@@ -554,7 +552,8 @@ def collect_observations(
     orbit is modeled as maintained on its repeat ground track: within each
     repeated cycle, epochs and field of view are evaluated with the
     satellite's Earth-fixed position and velocity propagated to the
-    corresponding time in the first cycle.
+    corresponding time in the repeat cycle just after (or, before the
+    orbit's epoch, just before) the epoch.
 
     Args:
         point (Point): The ground point of interest.

@@ -52,9 +52,22 @@ class RuntimeConfiguration(BaseModel):
         description="Maximum difference in velocity (meters/second) for a valid repeat.",
         gt=0,
     )
+    repeat_cycle_delta_semimajor_axis_m: float = Field(
+        default=100,
+        description=(
+            "Maximum difference (meters) between an element's semimajor axis "
+            "and that of an exact repeat for a valid repeat, as for an element "
+            "set taken within an orbit's maintenance band."
+        ),
+        ge=0,
+    )
     repeat_cycle_search_duration_days: float = Field(
         default=30,
-        description="Maximum duration for which to search for repeat cycles.",
+        description=(
+            "Maximum duration for which to search for repeat cycles. Repeat "
+            "cycles longer than about 40 days cannot be identified reliably "
+            "from a single element set and should be declared instead."
+        ),
     )
     repeat_cycle_consistency_threshold_s: float = Field(
         default=3600,
