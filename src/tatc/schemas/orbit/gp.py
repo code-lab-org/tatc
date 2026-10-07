@@ -691,6 +691,20 @@ class GeneralPerturbationsOrbit(BaseModel):
             consistency_threshold = timedelta(
                 seconds=config.get_rc().repeat_cycle_consistency_threshold_s
             )
+        # resolve the defaults of the search options, so that the cached
+        # repeat cycle is recomputed if the runtime configuration changes
+        if max_delta_position is None:
+            max_delta_position = config.get_rc().repeat_cycle_delta_position_m
+        if max_delta_velocity is None:
+            max_delta_velocity = config.get_rc().repeat_cycle_delta_velocity_m_per_s
+        if max_search_duration is None:
+            max_search_duration = timedelta(
+                days=config.get_rc().repeat_cycle_search_duration_days
+            )
+        if max_delta_semimajor_axis is None:
+            max_delta_semimajor_axis = (
+                config.get_rc().repeat_cycle_delta_semimajor_axis_m
+            )
 
         # keyed by the elements and options, so that a copy with changed
         # fields (e.g. from `model_copy(update=...)`) or a search with other
@@ -738,6 +752,66 @@ class GeneralPerturbationsOrbit(BaseModel):
         if repeat_cycle is not None and repeat_cycle > timedelta(0):
             return repeat_cycle
         return None
+
+    def get_repeat_element(self) -> GeneralPerturbationsElements | None:
+        """
+        Gets this orbit's element maintained on its repeat ground track (see
+        `GeneralPerturbationsElements.get_repeat_element`), with which
+        repeated orbit tracks and observation events are propagated: without
+        drag, and with its mean motion adjusted so that a whole number of
+        orbits spans the repeat cycle exactly. Its satellite returns to its
+        initial position after each repeat cycle, so that repeating its
+        cycles has no discontinuity at their ends. The element is cached.
+
+        Returns:
+            GeneralPerturbationsElements | None: the maintained element, if
+                this orbit has a single element and a repeat cycle
+        """
+        if len(self.elements) != 1:
+            return None
+        repeat_cycle = self.get_repeat_cycle()
+        if repeat_cycle is None:
+            return None
+        # keyed by the element and repeat cycle, so that a copy with changed
+        # fields (e.g. from `model_copy(update=...)`) is recomputed
+        key = (id(self.elements[0]), repeat_cycle)
+        cached = self.__dict__.get("repeat_element")
+        if cached is None or cached[0] != key:
+            element = self.elements[0].get_repeat_element(repeat_cycle)
+            cached = (key, element, element.to_skyfield())
+            self.__dict__["repeat_element"] = cached  # type: ignore
+        return cached[1]
+
+    def _get_repeat_satellite(self) -> EarthSatellite:
+        """
+        Gets the Skyfield satellite of this orbit's element maintained on its
+        repeat ground track (see `get_repeat_element`).
+
+        Returns:
+            skyfield.sgp4lib.EarthSatellite: the maintained satellite
+        """
+        if self.get_repeat_element() is None:
+            raise ValueError("This orbit has no repeat cycle.")
+        return self.__dict__["repeat_element"][2]
+
+    def get_repeat_orbit_track(self, times: datetime | list[datetime]) -> Geocentric:
+        """
+        Gets the orbit track of this orbit's element maintained on its repeat
+        ground track (see `get_repeat_element`), in the inertial (GCRS) frame,
+        as used for repeated orbit tracks and observation events.
+
+        Args:
+            times (datetime | list[datetime]): time(s) at which to compute position/velocity.
+
+        Returns:
+            skyfield.positionlib.Geocentric: the orbit track position/velocity
+        """
+        t = (
+            constants.timescale.from_datetime(times)
+            if isinstance(times, datetime)
+            else constants.timescale.from_datetimes(times)
+        )
+        return self._get_repeat_satellite().at(t)  # type: ignore
 
     def get_orbit_track_at_time(self, t: Time) -> Geocentric:
         """
@@ -830,7 +904,9 @@ class GeneralPerturbationsOrbit(BaseModel):
         repeat cycle to improve long-term accuracy: rather than directly
         propagating to a possibly-distant `t`, it propagates near this orbit's
         epoch (reducing `t`'s offset from epoch modulo the repeat cycle) and
-        relies on the orbit's ground track repeating with that period. Because
+        relies on the orbit's ground track repeating with that period,
+        propagating the element maintained on its repeat ground track (see
+        `get_repeat_element`) so that consecutive cycles join. Because
         the result is a `GeographicPosition` -- a location descriptor, not a
         frozen inertial state vector -- it can be freely reused afterward (e.g.
         `.at(some_time)` for a look angle or Sun angle at any moment) without
@@ -856,8 +932,10 @@ class GeneralPerturbationsOrbit(BaseModel):
                     if t.shape == ()
                     else constants.timescale.from_datetimes(epoch + repeat_offset)
                 )
+                # propagated with the element maintained on its repeat
+                # ground track, which has no discontinuity between cycles
                 return wgs84.geographic_position_of(
-                    self.elements[0].to_skyfield().at(repeat_times)
+                    self._get_repeat_satellite().at(repeat_times)
                 )
         if try_repeat and np.size(t.tt) > 0:
             # the earliest and latest times, without converting every time
@@ -998,7 +1076,9 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         Gets the observation events between `start` and `end` by repeating
         those of the repeat cycles just after and just before the element's
-        epoch, shifted by whole repeat cycles (see `get_repeat_shifts`).
+        epoch, shifted by whole repeat cycles (see `get_repeat_shifts`), as
+        propagated with the element maintained on its repeat ground track
+        (see `get_repeat_element`).
 
         Args:
             topos (skyfield.toposlib.GeographicPosition): Target location to observe.
@@ -1011,7 +1091,9 @@ class GeneralPerturbationsOrbit(BaseModel):
             tuple[skyfield.timelib.Time, numpy.ndarray]: event times and their rise (0) / culminate (1) / set (2) codes
         """
         epoch = self.get_epoch()
-        satellite = self.elements[0].to_skyfield()
+        # the element maintained on its repeat ground track, which returns to
+        # its initial position after each cycle, so that repeated cycles join
+        satellite = self._get_repeat_satellite()
         events = []
         # the parts of the period after and before the epoch, which are
         # shifted to the repeat cycle just after and just before it
@@ -1082,7 +1164,8 @@ class GeneralPerturbationsOrbit(BaseModel):
            computed once (over the parts of them that the period, shifted by
            whole repeat cycles, covers) and repeated, shifted by whole repeat
            cycles, to cover the period (see `get_repeat_shifts`), as for an
-           orbit maintained on its repeat ground track. Anchoring the
+           orbit maintained on its repeat ground track (propagated with the
+           element adjusted to it, see `get_repeat_element`). Anchoring the
            repeated cycles at the epoch, as `get_geographic_position_at_time`
            does, propagates the element no more than one repeat cycle from
            its epoch, however far the period is from it.

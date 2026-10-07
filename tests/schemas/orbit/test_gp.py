@@ -824,19 +824,93 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
         self.assertEqual(actual.latitude.degrees, expected.latitude.degrees)
         self.assertEqual(actual.longitude.degrees, expected.longitude.degrees)
 
-    def test_try_repeat_true_within_first_cycle_matches_direct_propagation(self):
+    def test_try_repeat_true_within_first_cycle_uses_maintained_element(self):
         """
         Test that, for a time less than one repeat cycle after epoch, the
-        substitution is a no-op (the wrapped offset equals the original
-        offset), so try_repeat=True and try_repeat=False agree exactly.
+        time is not shifted, but propagated with the element maintained on
+        its repeat ground track (see get_repeat_element), which stays close
+        to the element's own (direct) propagation near the epoch.
         """
         t = constants.timescale.from_datetime(self.epoch + timedelta(hours=5))
         with_repeat = self.repeat_orbit.get_geographic_position_at_time(
             t, try_repeat=True
         )
+        maintained = wgs84.geographic_position_of(
+            self.repeat_orbit.get_repeat_element().to_skyfield().at(t)
+        )
         direct = self.repeat_orbit.get_geographic_position_at_time(t, try_repeat=False)
-        self.assertEqual(with_repeat.latitude.degrees, direct.latitude.degrees)
-        self.assertEqual(with_repeat.longitude.degrees, direct.longitude.degrees)
+        self.assertEqual(with_repeat.latitude.degrees, maintained.latitude.degrees)
+        self.assertEqual(with_repeat.longitude.degrees, maintained.longitude.degrees)
+        self.assertLess(
+            np.linalg.norm(np.array(with_repeat.itrs_xyz.m) - direct.itrs_xyz.m), 5e3
+        )
+
+    def test_try_repeat_true_continuous_across_cycles(self):
+        """
+        Test that the repeated orbit track joins at the ends of each repeat
+        cycle: the element maintained on its repeat ground track returns
+        close to its initial position (within the shift of a sun-synchronous
+        orbit's nodal day from a solar day, here about 4 km per cycle),
+        whereas the element's own mean motion, slightly off the exact
+        repeat, would leave a jump of tens of kilometers (for this Landsat 8
+        element set, 34 km).
+        """
+        d = timedelta(seconds=0.5)
+
+        def position(time):
+            return np.array(
+                self.repeat_orbit.get_geographic_position_at_time(
+                    constants.timescale.from_datetime(time), try_repeat=True
+                ).itrs_xyz.m
+            )
+
+        for boundary in (
+            self.epoch + self.repeat_cycle,
+            self.epoch - self.repeat_cycle,
+        ):
+            step = np.linalg.norm(position(boundary + d) - position(boundary - d))
+            later = boundary + timedelta(seconds=10)
+            normal = np.linalg.norm(position(later + d) - position(later - d))
+            self.assertLess(step - normal, 3e3)
+        own = self.repeat_orbit.elements[0].model_copy(
+            update={"bstar": 0, "mean_motion_dot": 0, "mean_motion_ddot": 0}
+        )
+        jump = np.linalg.norm(
+            own.to_skyfield()
+            .at(constants.timescale.from_datetime(self.epoch + self.repeat_cycle))
+            .frame_xyz(itrs)
+            .m
+            - own.to_skyfield()
+            .at(constants.timescale.from_datetime(self.epoch))
+            .frame_xyz(itrs)
+            .m
+        )
+        self.assertGreater(jump, 20e3)
+
+    def test_get_repeat_element(self):
+        """
+        Test that the maintained element is the element adjusted to the
+        exact repeat (cached), and None without a repeat cycle or with
+        multiple elements.
+        """
+        element = self.repeat_orbit.get_repeat_element()
+        self.assertEqual(
+            element,
+            self.repeat_orbit.elements[0].get_repeat_element(self.repeat_cycle),
+        )
+        self.assertIs(self.repeat_orbit.get_repeat_element(), element)
+        self.assertEqual(element.bstar, 0)
+        self.assertIsNone(self.multi_element_orbit.get_repeat_element())
+        no_repeat = self.repeat_orbit.model_copy(
+            update={
+                "elements": [
+                    self.repeat_orbit.elements[0].model_copy(
+                        update={"mean_motion": 14.0}
+                    )
+                ]
+            }
+        )
+        self.assertIsNone(no_repeat.get_repeat_element())
 
     def test_try_repeat_true_substitutes_epoch_relative_time_for_far_future(self):
         """
@@ -855,7 +929,7 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
         cycle_days = self.repeat_cycle / timedelta(days=1)
         wrapped_offset = timedelta(days=float(np.mod(offset_days, cycle_days)))
         expected = wgs84.geographic_position_of(
-            self.repeat_orbit.elements[0]
+            self.repeat_orbit.get_repeat_element()
             .to_skyfield()
             .at(constants.timescale.from_datetime(self.epoch + wrapped_offset))
         )
@@ -877,28 +951,30 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
         wrap to -0.5 cycles (epoch minus half a cycle), not +0.5 cycles.
         A naive numpy np.mod() on the raw (negative) offset always
         returns a non-negative result, which would silently wrap to the
-        wrong side of the repeat cycle -- a real bug this implementation
-        avoids by explicitly reapplying the offset's original sign.
+        wrong side of the repeat cycle. Since the maintained element repeats
+        (nearly) exactly, the two sides now give (nearly) the same position,
+        within the per-cycle shift of the sun-synchronous rounding (about
+        4 km here).
         """
         query_time = self.epoch - self.repeat_cycle * 2.5
         t = constants.timescale.from_datetime(query_time)
         actual = self.repeat_orbit.get_geographic_position_at_time(t, try_repeat=True)
 
         correct = wgs84.geographic_position_of(
-            self.repeat_orbit.elements[0]
+            self.repeat_orbit.get_repeat_element()
             .to_skyfield()
             .at(constants.timescale.from_datetime(self.epoch - self.repeat_cycle * 0.5))
         )
         wrong = wgs84.geographic_position_of(
-            self.repeat_orbit.elements[0]
+            self.repeat_orbit.get_repeat_element()
             .to_skyfield()
             .at(constants.timescale.from_datetime(self.epoch + self.repeat_cycle * 0.5))
         )
         self.assertAlmostEqual(
             actual.latitude.degrees, correct.latitude.degrees, places=9
         )
-        self.assertNotAlmostEqual(
-            actual.latitude.degrees, wrong.latitude.degrees, places=2
+        self.assertLess(
+            np.linalg.norm(np.array(correct.itrs_xyz.m) - wrong.itrs_xyz.m), 5e3
         )
 
     def test_try_repeat_true_ignored_for_multi_element_orbit(self):
@@ -909,9 +985,11 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
         per-time nearest-element propagation (get_orbit_track_at_time).
         """
         t = constants.timescale.from_datetime(self.epoch + timedelta(days=40))
-        actual = self.multi_element_orbit.get_geographic_position_at_time(
-            t, try_repeat=True
-        )
+        # propagated with drag more than 30 days from the nearest epoch
+        with self.assertWarns(UserWarning):
+            actual = self.multi_element_orbit.get_geographic_position_at_time(
+                t, try_repeat=True
+            )
         expected = wgs84.geographic_position_of(
             self.multi_element_orbit.get_orbit_track_at_time(t)
         )
@@ -1324,6 +1402,34 @@ class TestGetRepeatCycle(unittest.TestCase):
             orbit.get_repeat_cycle(max_search_duration=timedelta(days=100))
         )
 
+    def test_cache_follows_runtime_configuration(self):
+        """
+        Test that the orbit's cached repeat cycle is recomputed when the
+        runtime configuration of the search options changes (the defaults
+        are resolved before the cache key is built).
+        """
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            [
+                "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
+                "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
+            ]
+        )
+        self.assertIsNotNone(orbit.get_repeat_cycle())
+        rc = config.get_rc()
+        original = (
+            rc.repeat_cycle_delta_position_m,
+            rc.repeat_cycle_delta_semimajor_axis_m,
+        )
+        try:
+            rc.repeat_cycle_delta_position_m = 1
+            rc.repeat_cycle_delta_semimajor_axis_m = 0
+            self.assertIsNone(orbit.get_repeat_cycle())
+        finally:
+            rc.repeat_cycle_delta_position_m, rc.repeat_cycle_delta_semimajor_axis_m = (
+                original
+            )
+        self.assertIsNotNone(orbit.get_repeat_cycle())
+
     def test_cache_follows_search_options(self):
         """
         Test that a cached repeat cycle is not reused for a search with
@@ -1560,11 +1666,13 @@ class TestGetObservationEvents(unittest.TestCase):
     def _expected_repeated_events(self, orbit, start, end):
         """
         Expected repeated events: the events of the repeat cycle just after
-        (or before) the epoch, directly propagated, shifted by each whole
-        number of repeat cycles that maps them into the period on the same
-        side of the epoch.
+        (or before) the epoch, directly propagated with the element
+        maintained on its repeat ground track, shifted by each whole number
+        of repeat cycles that maps them into the period on the same side of
+        the epoch.
         """
         epoch, repeat_cycle = orbit.get_epoch(), orbit.get_repeat_cycle()
+        maintained = GeneralPerturbationsOrbit(elements=[orbit.get_repeat_element()])
         expected = []
         for after in (True, False):
             window = (
@@ -1572,7 +1680,7 @@ class TestGetObservationEvents(unittest.TestCase):
                 if after
                 else (epoch - repeat_cycle, epoch)
             )
-            times, codes = orbit.get_observation_events(
+            times, codes = maintained.get_observation_events(
                 self.point, *window, min_elevation_angle=10, try_repeat=False
             )
             for time, code in zip(times.utc_datetime(), codes):

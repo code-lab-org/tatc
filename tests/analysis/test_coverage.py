@@ -319,16 +319,31 @@ class TestCoverageAnalysis(IssConstellationTestCase):
     def test_get_orbit_track_shifted(self):
         """
         Test that a shifted orbit track has the Earth-fixed position and
-        velocity of the orbit at the shifted times, expressed at the
-        unshifted times.
+        velocity of the orbit's element maintained on its repeat ground track
+        at the shifted times, expressed at the unshifted times; and that,
+        with zero shifts (events repeated, but not shifted), it is the
+        maintained element's orbit track, and without shifts the orbit's own.
         """
-        orbit = self.satellite.orbit.to_gp_orbit()
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            [
+                "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
+                "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
+            ]
+        )
         times = [
-            datetime(2022, 6, 1, 12, minute, tzinfo=timezone.utc) for minute in (0, 7)
+            orbit.get_epoch() + timedelta(days=40, minutes=minute) for minute in (0, 7)
         ]
+        unshifted = _get_orbit_track(orbit, times, [timedelta(0), timedelta(0)])
+        np.testing.assert_allclose(
+            unshifted.position.m, orbit.get_repeat_orbit_track(times).position.m
+        )
+        np.testing.assert_allclose(
+            _get_orbit_track(orbit, times, None).position.m,
+            orbit.get_orbit_track(times).position.m,
+        )
         shifts = [timedelta(days=3), timedelta(days=-2)]
         shifted = _get_orbit_track(orbit, times, shifts)
-        direct = orbit.get_orbit_track([t - d for t, d in zip(times, shifts)])
+        direct = orbit.get_repeat_orbit_track([t - d for t, d in zip(times, shifts)])
         self.assertEqual(shifted.t.utc_datetime().tolist(), times)
         shifted_position, shifted_velocity = shifted.frame_xyz_and_velocity(itrs)
         direct_position, direct_velocity = direct.frame_xyz_and_velocity(itrs)
@@ -336,6 +351,43 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         np.testing.assert_allclose(
             shifted_velocity.m_per_s, direct_velocity.m_per_s, atol=1e-6
         )
+
+    def test_collect_observations_continuous_at_repeat_boundary(self):
+        """
+        Test that, when observation events are repeated, observations just
+        before the end of a repeat cycle are at the times of the element
+        maintained on its repeat ground track, like those just after it,
+        rather than offset by the drift of the element's own mean motion
+        over the cycle (about 10 s for this Landsat 8 element set).
+        """
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            [
+                "1 39084U 13008A   26213.27824675  .00000294  00000+0  75333-4 0  9990",
+                "2 39084  98.2277 282.8718 0001275  92.4910 267.6434 14.57104473704466",
+            ]
+        )
+        boundary = orbit.get_epoch() + orbit.get_repeat_cycle()
+        satellite = Satellite(
+            name="Landsat 8",
+            orbit=orbit,
+            instruments=[Instrument(name="nadir", field_of_regard=15)],
+        )
+        for minutes in (-3, 3):
+            time = boundary + timedelta(minutes=minutes)
+            sub = wgs84.subpoint_of(orbit.get_repeat_orbit_track(time))
+            point = Point(
+                id=0,
+                latitude=float(sub.latitude.degrees),
+                longitude=float(sub.longitude.degrees),
+            )
+            observations = collect_observations(
+                point,
+                satellite,
+                boundary - timedelta(hours=3),
+                boundary + timedelta(hours=3),
+            )
+            nearest = (observations.epoch - time).abs().min()
+            self.assertLess(nearest, pd.Timedelta(seconds=1))
 
     def test_collect_observations_repeat_cycle_maintained_orbit(self):
         """
