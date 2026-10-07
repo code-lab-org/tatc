@@ -9,132 +9,24 @@ from __future__ import annotations
 import csv
 import json
 from datetime import datetime, timedelta, timezone
-from typing import NamedTuple
 
 import numpy as np
-import numpy.typing as npt
 from pydantic import BaseModel, Field
 from sgp4 import exporter, omm
 from sgp4.api import WGS72, Satrec
 from sgp4.conveniences import sat_epoch_datetime
-from skyfield.api import EarthSatellite, Time
-from skyfield.framelib import itrs
-from skyfield.searchlib import find_minima
+from skyfield.api import EarthSatellite
 
 from ... import config, constants, utils
 from ...utils.cache import get_cached
+from ...utils.propagation import (
+    RepeatCycleSearch,
+    _compute_repeat_element,
+    _search_repeat_cycle,
+)
 
 SUN_SYNCHRONOUS_NODAL_DAY_TOLERANCE_S = 10
 """Maximum difference (seconds) between the nodal day of a sun-synchronous orbit and a mean solar day."""
-
-
-class RepeatCycleSearch(NamedTuple):
-    """
-    Options to search for a repeat cycle, which default to the runtime
-    configuration (see `resolve`).
-    """
-
-    max_delta_position: float
-    """Maximum difference in position (m) allowed for a repeat."""
-    max_delta_velocity: float
-    """Maximum difference in velocity (m/s) allowed for a repeat."""
-    max_search_duration: timedelta
-    """Maximum period of time to search for repeats."""
-    max_delta_semimajor_axis: float
-    """Maximum difference (m) between the semimajor axis and that of an exact repeat."""
-
-    @classmethod
-    def resolve(
-        cls,
-        max_delta_position: float | None = None,
-        max_delta_velocity: float | None = None,
-        max_search_duration: timedelta | None = None,
-        max_delta_semimajor_axis: float | None = None,
-    ) -> RepeatCycleSearch:
-        """
-        Resolves search options, taking those not specified from the runtime
-        configuration, so that a cached repeat cycle (keyed by the options)
-        is recomputed if the configuration changes.
-
-        Args:
-            max_delta_position (float | None): the maximum difference in position (m) allowed for a repeat.
-            max_delta_velocity (float | None): the maximum difference in velocity (m/s) allowed for a repeat.
-            max_search_duration (timedelta | None): the maximum period of time to search for repeats.
-            max_delta_semimajor_axis (float | None): the maximum difference (m) between the
-                semimajor axis and that of an exact repeat for a candidate repeat.
-
-        Returns:
-            RepeatCycleSearch: the search options
-        """
-        rc = config.get_rc()
-        return cls(
-            (
-                rc.repeat_cycle_delta_position_m
-                if max_delta_position is None
-                else max_delta_position
-            ),
-            (
-                rc.repeat_cycle_delta_velocity_m_per_s
-                if max_delta_velocity is None
-                else max_delta_velocity
-            ),
-            (
-                timedelta(days=rc.repeat_cycle_search_duration_days)
-                if max_search_duration is None
-                else max_search_duration
-            ),
-            (
-                rc.repeat_cycle_delta_semimajor_axis_m
-                if max_delta_semimajor_axis is None
-                else max_delta_semimajor_axis
-            ),
-        )
-
-
-def _get_closest_return(
-    satellite: EarthSatellite, epoch: datetime, center: datetime, period: float
-) -> tuple[float, float] | None:
-    """
-    Gets the differences of Earth-fixed position and velocity between a
-    satellite's closest return, within half an orbit of a time, and its
-    initial state at an epoch.
-
-    Args:
-        satellite (skyfield.api.EarthSatellite): The satellite.
-        epoch (datetime): The epoch of the initial state.
-        center (datetime): The time near which to search for the closest return.
-        period (float): The orbit period (seconds).
-
-    Returns:
-        tuple[float, float] | None: the differences of position (m) and
-            velocity (m/s), or None if no closest return is found
-    """
-    # initial position and velocity in the Earth-fixed frame
-    position_0, velocity_0 = satellite.at(
-        constants.timescale.from_datetime(epoch)
-    ).frame_xyz_and_velocity(itrs)
-    p_0_m = np.array(position_0.m)
-    v_0_m_per_s = np.array(velocity_0.m_per_s)
-
-    def position_error(t: Time) -> npt.NDArray[np.float64]:
-        position, _ = satellite.at(t).frame_xyz_and_velocity(itrs)
-        return np.linalg.norm((np.array(position.m).T - p_0_m.T).T, axis=0)
-
-    position_error.rough_period = period / 86400  # type: ignore
-    window = timedelta(seconds=period / 2)
-    times, errors = find_minima(
-        constants.timescale.from_datetime(center - window),
-        constants.timescale.from_datetime(center + window),
-        position_error,
-    )
-    if len(times) == 0:
-        return None
-    t_min = times[np.argmin(errors)]
-    position, velocity = satellite.at(t_min).frame_xyz_and_velocity(itrs)
-    return (
-        float(np.linalg.norm(np.array(position.m) - p_0_m)),
-        float(np.linalg.norm(np.array(velocity.m_per_s) - v_0_m_per_s)),
-    )
 
 
 class GeneralPerturbationsElements(BaseModel):
@@ -478,59 +370,8 @@ class GeneralPerturbationsElements(BaseModel):
             self,
             "repeat_element",
             (self._get_key(), repeat_cycle),
-            lambda: self._compute_repeat_element(repeat_cycle),
+            lambda: _compute_repeat_element(self, repeat_cycle),
         )
-
-    def _compute_repeat_element(
-        self, repeat_cycle: timedelta
-    ) -> GeneralPerturbationsElements:
-        """
-        Computes this element maintained on the repeat ground track with the
-        approximate repeat cycle, without caching (see `get_repeat_element`).
-
-        Args:
-            repeat_cycle (timedelta): The approximate repeat cycle.
-
-        Returns:
-            GeneralPerturbationsElements: the maintained element
-        """
-        element = self.without_drag()
-        sun_synchronous = element.is_sun_synchronous()
-        nodal_period, _ = element.get_nodal_period_and_day()
-        orbits = max(
-            1,
-            round(
-                element.refine_repeat_cycle(repeat_cycle).total_seconds() / nodal_period
-            ),
-        )
-        for _ in range(10):
-            nodal_period, nodal_day = element.get_nodal_period_and_day()
-            refined = element.refine_repeat_cycle(repeat_cycle).total_seconds()
-            update = {}
-            residual = orbits * nodal_period - refined
-            if abs(residual) >= 1e-6:
-                # the nodal period varies (nearly) inversely with mean motion
-                update["mean_motion"] = element.mean_motion * (1 + residual / refined)
-            if sun_synchronous and abs(nodal_day - constants.EARTH_SOLAR_DAY_S) >= 1e-6:
-                # the node precession rate is (nearly) proportional to the
-                # cosine of inclination
-                ratio = (
-                    constants.EARTH_ROTATION_RATE
-                    - 2 * np.pi / constants.EARTH_SOLAR_DAY_S
-                ) / (constants.EARTH_ROTATION_RATE - 2 * np.pi / nodal_day)
-                update["inclination"] = float(
-                    np.degrees(
-                        np.arccos(
-                            np.clip(
-                                np.cos(np.radians(element.inclination)) * ratio, -1, 1
-                            )
-                        )
-                    )
-                )
-            if not update:
-                break
-            element = element.model_copy(update=update)
-        return element
 
     def get_repeat_cycle(
         self,
@@ -618,95 +459,9 @@ class GeneralPerturbationsElements(BaseModel):
             self,
             "repeat_cycle",
             (self._get_key(), search),
-            lambda: self._search_repeat_cycle(search),
+            lambda: _search_repeat_cycle(self, search),
             lazy_load,
         )
-
-    def _search_repeat_cycle(self, search: RepeatCycleSearch) -> timedelta | None:
-        """
-        Searches for this element's repeat cycle, without caching (see
-        `get_repeat_cycle`).
-
-        Args:
-            search (RepeatCycleSearch): The search options.
-
-        Returns:
-            timedelta | None: the repeat cycle duration (if it exists)
-        """
-        # analytic repeat ground track candidates: how many nodal days (D)
-        # are needed for a whole number of orbits (C) to elapse
-        element = self.without_drag()
-        nodal_period, nodal_day = element.get_nodal_period_and_day()
-        orbits_per_day = nodal_day / nodal_period
-        max_days = int(search.max_search_duration.total_seconds() / nodal_day)
-        days_range = np.arange(1, max_days + 1)
-        orbit_counts = np.round(orbits_per_day * days_range)
-        residual_orbits = orbits_per_day * days_range - orbit_counts
-        # ground-track drift (m) at the equator implied by missing a whole
-        # orbit count by residual_orbits
-        ground_track_spacing = 2 * np.pi * constants.EARTH_MEAN_RADIUS / orbits_per_day
-        drift = np.abs(residual_orbits) * ground_track_spacing
-        # difference (m) between the semimajor axis and that of the exact
-        # repeat, from the sensitivity of orbits per nodal day to the
-        # semimajor axis (by a finite difference of mean motion)
-        perturbed = element.model_copy(
-            update={"mean_motion": element.mean_motion * (1 + 1e-6)}
-        )
-        perturbed_period, perturbed_day = perturbed.get_nodal_period_and_day()
-        sensitivity = (perturbed_day / perturbed_period - orbits_per_day) / (
-            perturbed.get_semimajor_axis() - element.get_semimajor_axis()
-        )
-        delta_semimajor_axis = (
-            orbit_counts / days_range - orbits_per_day
-        ) / sensitivity
-        # exact repeats of up to D nodal days are spaced by about 1/D^2
-        # orbits per day: apply the semimajor axis tolerance only where they
-        # are spaced by at least three times the tolerance, beyond which it
-        # would admit chance near-repeats
-        short = (
-            3 * search.max_delta_semimajor_axis * abs(sensitivity) * days_range**2 <= 1
-        )
-        # generous margin: the drift is estimated from secular rates, while
-        # the verification below also includes periodic terms
-        near_drift = drift < 3 * search.max_delta_position
-        near_semimajor_axis = short & (
-            np.abs(delta_semimajor_axis) < search.max_delta_semimajor_axis
-        )
-
-        def is_confirmed(result: tuple[float, float] | None) -> bool:
-            return (
-                result is not None
-                and result[0] < search.max_delta_position
-                and result[1] < search.max_delta_velocity
-            )
-
-        for i in np.flatnonzero(near_drift | near_semimajor_axis):
-            candidate = timedelta(seconds=int(days_range[i]) * nodal_day)
-            maintained = self.get_repeat_element(candidate)
-            # verify a candidate near the element's mean motion with the
-            # element itself (without drag, as for an orbit maintained against
-            # drag), and one near the semimajor axis of the exact repeat with
-            # the element maintained on its repeat ground track
-            confirmed = near_drift[i] and is_confirmed(
-                _get_closest_return(
-                    element.to_skyfield(),
-                    self.epoch,
-                    self.epoch + candidate,
-                    nodal_period,
-                )
-            )
-            if not confirmed and near_semimajor_axis[i]:
-                confirmed = is_confirmed(
-                    _get_closest_return(
-                        maintained.to_skyfield(),
-                        self.epoch,
-                        self.epoch + maintained.refine_repeat_cycle(candidate),
-                        nodal_period,
-                    )
-                )
-            if confirmed:
-                return maintained.refine_repeat_cycle(candidate)
-        return None
 
     def refine_repeat_cycle(self, repeat_cycle: timedelta) -> timedelta:
         """

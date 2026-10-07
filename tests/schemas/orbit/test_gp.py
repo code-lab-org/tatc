@@ -21,7 +21,7 @@ from skyfield.framelib import itrs
 
 from tatc import config, constants
 from tatc.schemas import GeneralPerturbationsOrbit, Point
-from tatc.schemas.orbit.gp import _find_events
+from tatc.utils.propagation import _find_events
 
 
 REPEATING = {"remove_drag": True, "repeat_cycle": "auto"}
