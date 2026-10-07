@@ -30,8 +30,12 @@ The following compare TAT-C analysis results with reference data from operationa
   ValidateGeostationaryGOES.ipynb
   ValidateOrbitISS.ipynb
   ValidateMaintainedOrbitLandsat9.ipynb
+  ValidateTiltPACE.ipynb
+  ValidateDriftMODIS.ipynb
+  ValidatePointingOCO2.ipynb
+  ValidateYawFlipGPM.ipynb
 
-These notebooks download reference data on first run (the MLS, NISAR, AMSR2, GMI, SWOT, ICESat-2, and ECOSTRESS data require a free `NASA Earthdata Login <https://urs.earthdata.nasa.gov/>`_ account, and the Landsat 9 orbit history a free `Space-Track.org <https://www.space-track.org/>`_ account) and require additional dependencies, which can be installed via::
+These notebooks download reference data on first run (the MLS, NISAR, AMSR2, GMI, SWOT, ICESat-2, ECOSTRESS, PACE, MODIS, OCO-2, and GPM data require a free `NASA Earthdata Login <https://urs.earthdata.nasa.gov/>`_ account, and the Landsat 9 orbit history a free `Space-Track.org <https://www.space-track.org/>`_ account) and require additional dependencies, which can be installed via::
 
   pip install tatc[validation]
 

@@ -75,12 +75,14 @@ class ViewGeometry(str, Enum):
     """
     SCAN = "scan"
     """
-    In angles (as for a cross-track scanner or a radar): each direction is the
-    boresight rotated by a cross-track angle about the along-track axis and
-    then by an along-track angle about the rotated cross-track axis (the
-    rigid rotation of roll and pitch angles), with the fields of view as the
-    ranges of these angles. The angular extent along track is constant
-    across the scan, so the footprint widens along track away from nadir.
+    In angles (as for a cross-track scanner or a radar): the pitch angle tilts
+    the scan plane (a rotation about the cross-track axis, as for a scanner
+    that tilts fore or aft), and each direction is the tilted nadir rotated
+    by a cross-track (scan) angle about the tilted along-track axis and then
+    by an along-track angle about the rotated cross-track axis, with the
+    fields of view as the ranges of these angles about the roll angle and
+    the scan plane. The angular extent along track is constant across the
+    scan, so the footprint widens along track away from nadir.
     """
 
 
@@ -168,14 +170,16 @@ def _compute_view_frame(
     pitch_angle: float = 0,
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
     nadir_reference: NadirReference = NadirReference.GEODETIC,
+    tilt_angle: float = 0,
 ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
     """
     Compute the Earth-fixed position and the orthonormal unit vectors that
     orient a pointed instrument's view: the boresight (view center), the
     along-track axis, and the cross-track axis (to the left of the direction
-    of motion). The view is rotated rigidly from nadir: first by the roll
-    angle about the along-track axis (positive to the left), then by the
-    pitch angle about the rolled cross-track axis (positive forward).
+    of motion). The view is rotated rigidly from nadir: first by the tilt
+    angle about the cross-track axis (positive forward), then by the roll
+    angle about the (tilted) along-track axis (positive to the left), then
+    by the pitch angle about the rolled cross-track axis (positive forward).
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
@@ -185,6 +189,9 @@ def _compute_view_frame(
             vector that defines the along-track direction.
         nadir_reference (NadirReference): The definition of the nadir
             direction from which the view is rotated.
+        tilt_angle (float): the tilt angle (degrees) of the plane in which
+            the roll angle is measured, as for the scan plane of a scanner
+            that tilts fore or aft.
 
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
@@ -198,6 +205,9 @@ def _compute_view_frame(
     # orthonormal cross-track (left) and along-track (forward) axes at nadir
     c = c / np.linalg.norm(c, axis=0)
     a = np.cross(n, c, axis=0)
+    # tilt about the cross-track axis
+    tilt = np.radians(tilt_angle)
+    n, a = np.cos(tilt) * n + np.sin(tilt) * a, np.cos(tilt) * a - np.sin(tilt) * n
     # roll about the along-track axis
     roll, pitch = np.radians(roll_angle), np.radians(pitch_angle)
     boresight = np.cos(roll) * n + np.sin(roll) * c
@@ -260,14 +270,17 @@ def compute_view_angles(
     target: GeographicPosition,
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
     nadir_reference: NadirReference = NadirReference.GEODETIC,
+    tilt_angle: float = 0,
 ) -> tuple[npt.NDArray, npt.NDArray]:
     """
     Compute the roll and pitch angles (degrees) that point a view's center at
     a target, following the rigid rotation of `compute_projected_ray_position`
-    (first by the roll angle about the along-track axis, then by the pitch
-    angle about the rolled cross-track axis): the angles of the target in a
-    `ViewGeometry.SCAN` view. Does not check whether the target is above the
-    satellite's horizon.
+    (after the tilt angle about the cross-track axis, first by the roll angle
+    about the along-track axis, then by the pitch angle about the rolled
+    cross-track axis): the angles of the target in a `ViewGeometry.SCAN` view,
+    whose scan plane is tilted by the tilt angle (the target's scan angle and
+    its along-track angle from the scan plane). Does not check whether the
+    target is above the satellite's horizon.
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
@@ -276,13 +289,15 @@ def compute_view_angles(
             vector that defines the along-track direction.
         nadir_reference (NadirReference): The definition of the nadir
             direction from which the view is rotated.
+        tilt_angle (float): the tilt angle (degrees) of the scan plane about
+            the cross-track axis (positive forward).
 
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the roll (positive
             left) and pitch (positive forward) angles (degrees).
     """
     p_m, nadir, along, cross = _compute_view_frame(
-        orbit_track, 0, 0, velocity_frame, nadir_reference
+        orbit_track, 0, 0, velocity_frame, nadir_reference, tilt_angle
     )
     los = np.reshape(np.array(target.itrs_xyz.m), (3,) + (1,) * (p_m.ndim - 1)) - p_m
     los = los / np.linalg.norm(los, axis=0)
@@ -344,6 +359,7 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     elevation: float = 0,
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
     nadir_reference: NadirReference = NadirReference.GEODETIC,
+    tilt_angle: float = 0,
 ) -> GeographicPosition:
     """
     Get the location of a projected ray from an instrument. The ray is cast
@@ -384,6 +400,10 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
             vector that defines the along-track direction.
         nadir_reference (NadirReference): The definition of the nadir
             direction from which the view is rotated.
+        tilt_angle (float): a rotation (degrees) about the cross-track axis,
+            positive forward, applied before the roll angle (tilting the
+            plane in which the roll angle is measured, as for the scan plane
+            of a `ViewGeometry.SCAN` view).
 
     Returns:
         (skyfield.toposlib.GeographicPosition): the geographic position of the projected ray
@@ -393,7 +413,12 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     # ray pointed at the field of view center (before adding the field of
     # view extent) and the along-track (v) and cross-track (c) axes of the view
     p_m, base_ray, v, c = _compute_view_frame(
-        orbit_track, roll_angle, pitch_angle, velocity_frame, nadir_reference
+        orbit_track,
+        roll_angle,
+        pitch_angle,
+        velocity_frame,
+        nadir_reference,
+        tilt_angle,
     )
     # whether orbit_track represents a single time or a vector of times
     is_vectorized = len(np.shape(p_m)) > 1
@@ -534,7 +559,9 @@ def compute_footprint(
             about the along-track axis, positive to the left of the direction
             of motion.
         pitch_angle (float): The fore/aft look angle (degrees), a rotation
-            about the rolled cross-track axis, positive forward.
+            about the rolled cross-track axis, positive forward (in
+            `ViewGeometry.SCAN`, the tilt of the scan plane: a rotation about
+            the cross-track axis applied before the roll angle).
         is_rectangular (bool): True, if this is a rectangular sensor.
         number_points (int | None): The required number of polygon points to
             generate: per side for a rectangular sensor, or total for an
@@ -597,18 +624,21 @@ def compute_footprint(
         else:
             theta = np.radians(np.linspace(0, 360, number_points))
             offsets = np.stack([half_c * np.cos(theta), half_a * np.sin(theta)], axis=1)
+        # rays at the angular offsets from the roll angle and the scan plane,
+        # which the pitch angle tilts about the cross-track axis
         points = [
             compute_projected_ray_position(
                 orbit_track,
                 0,
                 0,
                 roll_angle + cross_offset,
-                pitch_angle + along_offset,
+                along_offset,
                 False,
                 0,
                 elevation,
                 velocity_frame,
                 nadir_reference,
+                pitch_angle,
             )
             for cross_offset, along_offset in offsets
         ]

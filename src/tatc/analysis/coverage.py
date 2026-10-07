@@ -431,18 +431,21 @@ def _get_view_crossing_times(
             [shifts[i] for i in index],
         )
         if instrument.view_geometry == ViewGeometry.SCAN:
-            # the target's along-track (pitch) angle reaches the view's
+            # the target crosses the scan plane (tilted by the pitch angle)
             position, _, along, _ = _compute_view_frame(
-                orbit_track, 0, 0, instrument.velocity_frame, instrument.nadir_reference
+                orbit_track,
+                0,
+                0,
+                instrument.velocity_frame,
+                instrument.nadir_reference,
+                instrument.get_pitch_angle(orbit_track),
             )
             los = np.reshape(np.array(target.itrs_xyz.m), (3, 1)) - position
-            return np.sum(los * along, axis=0) / np.linalg.norm(los, axis=0) - np.sin(
-                np.radians(instrument.pitch_angle)
-            )
+            return np.sum(los * along, axis=0) / np.linalg.norm(los, axis=0)
         position, _, along, _ = _compute_view_frame(
             orbit_track,
             instrument.get_roll_angle(orbit_track),
-            instrument.pitch_angle,
+            instrument.get_pitch_angle(orbit_track),
             instrument.velocity_frame,
             instrument.nadir_reference,
         )

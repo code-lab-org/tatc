@@ -16,6 +16,7 @@ from skyfield.framelib import itrs
 from tatc import config, constants
 from tatc.constants import timescale
 from tatc.schemas import CircularOrbit
+from tatc.utils import geodesic_distance
 from tatc.utils.observation import (
     compute_field_of_regard,
     field_of_regard_to_swath_width,
@@ -989,3 +990,51 @@ class TestComputeViewAngles(unittest.TestCase):
                 target = wgs84.latlon(ray.latitude.degrees, ray.longitude.degrees)
                 angles = compute_view_angles(track, target, velocity_frame=frame)
                 np.testing.assert_allclose(angles, (roll, pitch), atol=1e-6)
+
+    def test_inverts_tilted_rotation(self):
+        """
+        Test that, with a tilt angle, the view angles of the point where a ray
+        with given roll and pitch angles (after the tilt) meets the ellipsoid
+        are those angles, and that the rays of a tilted scan line (zero pitch)
+        lie in the plane containing the cross-track axis and the tilted nadir:
+        they coincide with the rays of a frame view pitched by the tilt angle.
+        """
+        epoch = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        satellite = EarthSatellite.from_satrec(
+            CircularOrbit(mean_altitude=676e3, inclination=98.1, epoch=epoch)
+            .to_gp_orbit()
+            .elements[0]
+            .to_satrec(),
+            timescale,
+        )
+        track = satellite.at(timescale.from_datetime(epoch))
+        for tilt in (20, -20):
+            for roll, pitch in [(0, 0), (30, 0), (-56, 0.4), (40, -2)]:
+                ray = compute_projected_ray_position(
+                    track, 0, 0, roll, pitch, tilt_angle=tilt
+                )
+                target = wgs84.latlon(ray.latitude.degrees, ray.longitude.degrees)
+                angles = compute_view_angles(track, target, tilt_angle=tilt)
+                np.testing.assert_allclose(angles, (roll, pitch), atol=1e-6)
+            for roll in (-56, -30, 0, 30, 56):
+                scan = compute_projected_ray_position(
+                    track, 0, 0, roll, 0, tilt_angle=tilt
+                )
+                frame = compute_projected_ray_position(
+                    track,
+                    2 * abs(roll),
+                    2 * abs(roll),
+                    0,
+                    tilt,
+                    False,
+                    0 if roll >= 0 else 180,
+                )
+                self.assertLess(
+                    geodesic_distance(
+                        scan.longitude.degrees,
+                        scan.latitude.degrees,
+                        frame.longitude.degrees,
+                        frame.latitude.degrees,
+                    ),
+                    1,
+                )

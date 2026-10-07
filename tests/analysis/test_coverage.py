@@ -424,6 +424,57 @@ class TestCoverageAnalysis(IssConstellationTestCase):
                 atol=2,
             )
 
+    def test_collect_observations_pointed_pitch_scan_matches_frame(self):
+        """
+        Test that a pitched view in scan geometry, whose pitch angle tilts the
+        scan plane, observes points at the same times as a pitched view in
+        frame geometry: both views sweep the plane containing the cross-track
+        axis and the tilted boresight.
+        """
+        _, (frame, _) = self._collect_pointed_observations(
+            field_of_regard=140, pitch_angle=20
+        )
+        _, (scan, _) = self._collect_pointed_observations(
+            field_of_regard=140, pitch_angle=20, view_geometry="scan"
+        )
+        self.assertEqual(len(frame), len(scan))
+        np.testing.assert_allclose(
+            (scan.epoch - frame.epoch).dt.total_seconds(), 0, atol=0.01
+        )
+
+    def test_collect_observations_pointed_pitch_profile(self):
+        """
+        Test that a view pitched forward over the northern half of the orbit
+        and aft over the southern half (pitch_angle_profile) observes points
+        in the northern hemisphere before the time of closest approach and
+        points in the southern hemisphere after it, by about 22 s.
+        """
+        _, (pointed, nadir) = self._collect_pointed_observations(
+            field_of_regard=140,
+            pitch_angle_profile=[(5, 20), (175, 20), (185, -20), (355, -20)],
+        )
+        matched = pd.merge_asof(
+            nadir.sort_values("epoch"),
+            pointed[["point_id", "epoch"]]
+            .rename(columns={"epoch": "epoch_pointed"})
+            .sort_values("epoch_pointed"),
+            left_on="epoch",
+            right_on="epoch_pointed",
+            by="point_id",
+            direction="nearest",
+            tolerance=pd.Timedelta(minutes=1),
+        )
+        # points away from the equator, where the pitch changes
+        matched = matched[matched.geometry.y.abs() > 10]
+        self.assertGreater(len(matched), 0)
+        self.assertFalse(matched.epoch_pointed.isna().any())
+        sign = np.where(matched.geometry.y > 0, -1, 1)
+        np.testing.assert_allclose(
+            sign * (matched.epoch_pointed - matched.epoch).dt.total_seconds(),
+            22,
+            atol=2,
+        )
+
     def test_collect_observations_pointed_forward_wide_field_of_regard(self):
         """
         Test that a strongly pitched view with a field of regard reaching the
