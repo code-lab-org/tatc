@@ -16,7 +16,7 @@ from skyfield.units import Distance, Velocity
 from tatc.analysis import collect_ro_observations
 from tatc.analysis.ro_sampling import (
     _interpolate_ro_point,
-    _sample_ro_arc,
+    _sample_ro_arcs,
     _tangent_point_geometry,
 )
 from tatc.constants import timescale
@@ -403,7 +403,7 @@ class TestCollectRoObservations(unittest.TestCase):
         self.assertGreater(len(results), 0)
         self.assertTrue(results.is_rising.isin([True, False]).all())
 
-    def test_sample_ro_arc_closes_at_arc_boundary_when_still_in_range(self):
+    def test_sample_ro_arcs_closes_at_arc_boundary_when_still_in_range(self):
         """
         Test that an observation correctly closes at the sampled arc's own
         boundary, not just via exiting the elevation range -- using an
@@ -411,11 +411,10 @@ class TestCollectRoObservations(unittest.TestCase):
         point never leaves it, so the only way the sampled window's single
         observation can end is by reaching the last sample.
         """
-        observations = _sample_ro_arc(
-            self.transmitter,
+        observations = _sample_ro_arcs(
+            [self.transmitter],
             self.receiver,
-            self.start,
-            self.start + timedelta(minutes=5),
+            [(0, self.start, self.start + timedelta(minutes=5))],
             timedelta(seconds=30),
             (-1e9, 1e9),
         )

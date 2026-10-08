@@ -6,7 +6,6 @@ Methods to perform radio occultation (RO) coverage analysis.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import datetime, timedelta
 from itertools import chain
 
@@ -16,13 +15,13 @@ import pandas as pd
 from shapely.geometry import MultiPoint, Point
 from skyfield.api import Distance, wgs84
 from skyfield.positionlib import Geocentric
-from skyfield.searchlib import find_discrete
 from skyfield.timelib import Time
 
 from ..constants import timescale
 from ..schemas import Satellite
 from ..utils.ellipsoid import _ellipsoidal_tangent_point, _itrs_rotation
 from ..utils.orbital import compute_vnb_frame
+from ..utils.propagation import _index_orbit_track
 from .check import _check_satellite, _check_satellites
 
 
@@ -79,20 +78,28 @@ def _tangent_point_geometry(
     return tp_p, tp_sign, rx_tx_pitch, rx_tx_yaw
 
 
-def _make_ro_validity_function(
-    transmitter: Satellite, receiver: Satellite, max_yaw: float, step_days: float
-) -> Callable:
+def _get_ro_validity(
+    transmitters: list[Satellite],
+    receiver: Satellite,
+    t: Time,
+    parts: list[tuple[int, np.ndarray | None]],
+    max_yaw: float,
+) -> list[np.ndarray]:
     """
-    Builds a Skyfield-compatible discrete function of time returning whether the
-    tangent point intersects the Earth and the transmitter yaw is within bounds,
-    for use with `skyfield.searchlib.find_discrete`.
+    Evaluates whether each of several transmitters' tangent points intersect
+    the Earth with the transmitter yaw within bounds (1 if so, 0 otherwise),
+    each at its own part of Skyfield times `t`: (transmitter index, index of
+    its times in `t`, or None for all of `t`). The receiver is propagated
+    once for all of `t`, and the parts share the Earth orientation
+    quantities cached on `t` (see `tatc.utils.propagation._index_time`).
     """
-
-    def f(t):
-        # receiver and transmitter positions are compared directly in the
-        # inertial frame, in which repeat tracks are expressed at the true time
-        rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track_at_time(t)
-        tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track_at_time(t)
+    # receiver and transmitter positions are compared directly in the
+    # inertial frame, in which repeat tracks are expressed at the true time
+    rx_track = receiver.orbit.to_gp_orbit().get_orbit_track_at_time(t)
+    values = []
+    for k, index in parts:
+        rx_pv = rx_track if index is None else _index_orbit_track(rx_track, index)
+        tx_pv = transmitters[k].orbit.to_gp_orbit().get_orbit_track_at_time(rx_pv.t)
         rx_v_u, rx_n_u, rx_b_u = compute_vnb_frame(rx_pv)
         _, tp_sign, _, rx_tx_yaw = _tangent_point_geometry(
             tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u
@@ -101,10 +108,127 @@ def _make_ro_validity_function(
         valid = np.logical_and(
             tp_sign < 0, np.abs(rx_tx_yaw) % (180 - max_yaw) < max_yaw
         )
-        return valid.astype(int)
+        values.append(valid.astype(int))
+    return values
 
-    f.step_days = step_days  # type: ignore
-    return f
+
+def _find_ro_arcs(
+    transmitters: list[Satellite],
+    receiver: Satellite,
+    start: datetime,
+    end: datetime,
+    max_yaw: float,
+    step_days: float,
+    epsilon: float = 1e-3 / 86400,
+    num: int = 12,
+) -> list[tuple[int, datetime, datetime]]:
+    """
+    Finds the arcs (periods) when each transmitter's RO observation is valid
+    (see `_get_ro_validity`) as by Skyfield's `find_discrete` for each
+    transmitter (sampled at most `step_days` apart, and refined by dividing
+    the brackets of each change of validity into `num` samples until they
+    are at most `epsilon` days long), but for all transmitters together:
+    they share the initial samples, and the refined samples of all
+    transmitters are evaluated together at each step.
+
+    Returns:
+        list[tuple[int, datetime, datetime]]: each arc's transmitter index,
+            start, and end, by transmitter and in time order.
+    """
+    if len(transmitters) == 0:
+        return []
+    t_start, t_end = timescale.from_datetime(start), timescale.from_datetime(end)
+    jd0, jd1 = t_start.tt, t_end.tt
+    if jd0 >= jd1:
+        raise ValueError(
+            f"your start_time {t_start} is later than your end_time {t_end}"
+        )
+    everything = [(k, None) for k in range(len(transmitters))]
+    # validity at the start of the first segment, from the start time itself
+    initial = _get_ro_validity(
+        transmitters, receiver, timescale.from_datetimes([start]), everything, max_yaw
+    )
+    # initial samples (with at least the end points), shared by all transmitters
+    jd = np.linspace(jd0, jd1, int((jd1 - jd0) / step_days) + 2)
+    samples = dict.fromkeys(range(len(transmitters)), jd)
+    values = dict(
+        zip(
+            samples,
+            _get_ro_validity(
+                transmitters, receiver, timescale.tt_jd(jd), everything, max_yaw
+            ),
+        )
+    )
+    end_mask = np.linspace(0.0, 1.0, num)
+    start_mask = end_mask[::-1]
+    transitions = {}
+    while len(samples) > 0:
+        for k in list(samples):
+            jd, y = samples[k], values[k]
+            indices = np.flatnonzero(np.diff(y))
+            if len(indices) == 0:
+                # no change of validity
+                transitions[k] = (jd[indices], y[indices])
+                del samples[k]
+                continue
+            starts, ends = jd[indices], jd[indices + 1]
+            # brackets narrow at the same rate (from equal initial intervals),
+            # so only the first is tested
+            if ends[0] - starts[0] <= epsilon:
+                # keep only the last of changes less than epsilon apart
+                mask = np.concatenate((np.diff(ends) > 3.0 * epsilon, [True]))
+                transitions[k] = (ends[mask], y[indices + 1][mask])
+                del samples[k]
+                continue
+            samples[k] = (
+                np.multiply.outer(starts, start_mask).flatten()
+                + np.multiply.outer(ends, end_mask).flatten()
+            )
+        if len(samples) > 0:
+            # evaluate the refined samples of all transmitters together
+            bounds = np.cumsum([0] + [len(jd) for jd in samples.values()])
+            values = dict(
+                zip(
+                    samples,
+                    _get_ro_validity(
+                        transmitters,
+                        receiver,
+                        timescale.tt_jd(np.concatenate(list(samples.values()))),
+                        [
+                            (k, np.arange(bounds[i], bounds[i + 1]))
+                            for i, k in enumerate(samples)
+                        ],
+                        max_yaw,
+                    ),
+                )
+            )
+    # times of all changes of validity, converted together
+    order = sorted(transitions)
+    counts = np.cumsum([0] + [len(transitions[k][0]) for k in order])
+    utc = np.atleast_1d(
+        timescale.tt_jd(
+            np.concatenate([transitions[k][0] for k in order] + [np.array([])])
+        ).utc_datetime()
+    )
+    arcs = []
+    for i, k in enumerate(order):
+        # boundary times delimiting N+1 alternating valid/invalid segments (N
+        # = number of transitions); each segment's validity is the value that
+        # becomes active at its start (the initial validity for the first
+        # segment, else the corresponding transition value) -- the final
+        # boundary time (`end`) is a pure endpoint with no segment-start
+        # value of its own
+        boundary_times = [start] + list(utc[counts[i] : counts[i + 1]]) + [end]
+        boundary_values = [bool(initial[k][0])] + [
+            bool(value) for value in transitions[k][1]
+        ]
+        # keep only the segments where validity holds
+        arcs.extend(
+            (k, boundary_times[j], boundary_times[j + 1])
+            for j in range(len(boundary_times) - 1)
+            if boundary_values[j] and boundary_times[j + 1] > boundary_times[j]
+        )
+    return arcs
 
 
 def _tangent_point_tx_azimuth(
@@ -137,40 +261,61 @@ def _tangent_point_tx_azimuth(
     return np.degrees(np.arctan2(east, north)) % 360
 
 
-def _sample_ro_arc(
-    transmitter: Satellite,
+def _sample_ro_arcs(
+    transmitters: list[Satellite],
     receiver: Satellite,
-    arc_start: datetime,
-    arc_end: datetime,
+    arcs: list[tuple[int, datetime, datetime]],
     time_step: timedelta,
     range_elevation: tuple[float, float],
 ) -> list[dict]:
     """
-    Samples tangent point observations across a single valid RO arc, splitting it
-    into one or more observations if the tangent point elevation leaves the
-    specified range.
+    Samples tangent point observations across valid RO arcs (see
+    `_find_ro_arcs`: each with its transmitter index, start, and end),
+    splitting each into one or more observations if the tangent point
+    elevation leaves the specified range. The samples of all arcs are
+    computed together.
     """
-    # sample the arc at (at most) the specified time step, including both endpoints
-    steps = max(int(np.ceil((arc_end - arc_start) / time_step)), 1)
-    times = [arc_start + i * (arc_end - arc_start) / steps for i in range(steps + 1)]
-    t = timescale.from_datetimes(times)
+    if len(arcs) == 0:
+        return []
+    # sample each arc at (at most) the specified time step, including both endpoints
+    arc_times = []
+    for _, arc_start, arc_end in arcs:
+        steps = max(int(np.ceil((arc_end - arc_start) / time_step)), 1)
+        arc_times.append(
+            [arc_start + i * (arc_end - arc_start) / steps for i in range(steps + 1)]
+        )
+    bounds = np.cumsum([0] + [len(times) for times in arc_times])
+    t = timescale.from_datetimes(list(chain.from_iterable(arc_times)))
 
-    rx_pv = receiver.orbit.to_gp_orbit().get_orbit_track_at_time(t)
-    rx_v_u, rx_n_u, rx_b_u = compute_vnb_frame(rx_pv)
-    tx_pv = transmitter.orbit.to_gp_orbit().get_orbit_track_at_time(t)
-    tp_p, _, rx_tx_pitch, rx_tx_yaw = _tangent_point_geometry(
-        tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u
-    )
+    rx_track = receiver.orbit.to_gp_orbit().get_orbit_track_at_time(t)
+    tp_p = np.empty((3, bounds[-1]))
+    tx_p = np.empty((3, bounds[-1]))
+    rx_tx_pitch = np.empty(bounds[-1])
+    rx_tx_yaw = np.empty(bounds[-1])
+    for k in sorted(set(k for k, _, _ in arcs)):
+        # the samples of the arcs of each transmitter
+        index = np.concatenate(
+            [
+                np.arange(bounds[i], bounds[i + 1])
+                for i, (arc_k, _, _) in enumerate(arcs)
+                if arc_k == k
+            ]
+        )
+        rx_pv = _index_orbit_track(rx_track, index)
+        rx_v_u, rx_n_u, rx_b_u = compute_vnb_frame(rx_pv)
+        tx_pv = transmitters[k].orbit.to_gp_orbit().get_orbit_track_at_time(rx_pv.t)
+        tp_p[:, index], _, rx_tx_pitch[index], rx_tx_yaw[index] = (
+            _tangent_point_geometry(tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u)
+        )
+        tx_p[:, index] = tx_pv.position.m
 
-    # tangent point geodetic position, computed once for the whole arc
+    # tangent point geodetic position, computed once for all arcs
     tpp_geo = wgs84.geographic_position_of(Geocentric(Distance(m=tp_p).au, None, t))
     longitude = np.array(tpp_geo.longitude.degrees)
     latitude = np.array(tpp_geo.latitude.degrees)
     elevation = np.array(tpp_geo.elevation.m)
     # azimuth of transmitter from geodetic tangent point (clockwise from North)
-    tp_tx_azimuth = _tangent_point_tx_azimuth(
-        tp_p, np.array(tx_pv.position.m), t, latitude, longitude
-    )
+    tp_tx_azimuth = _tangent_point_tx_azimuth(tp_p, tx_p, t, latitude, longitude)
     # tangent point height within elevation range
     in_range = np.logical_and(
         elevation > range_elevation[0], elevation < range_elevation[1]
@@ -178,91 +323,48 @@ def _sample_ro_arc(
 
     # occultation observations
     occ_obs = []
-    # occultation arc
-    occ_arc = None
-    for j, time in enumerate(times):
-        if in_range[j]:
-            if occ_arc is None:
-                # start of new RO observation. rx_tx_pitch is the
-                # transmitter's pitch angle relative to the receiver, where
-                # -90 deg points at the geocenter (never actually reached by a
-                # real RO profile, since the signal must pass through the
-                # atmosphere); pitch above -90 deg means the transmitter is
-                # "ahead" of the receiver (a rising/emersion occultation),
-                # below -90 deg means "behind" (a setting/immersion one).
-                # This is an approximation of the more direct (but more
-                # expensive) definition -- the sign of the tangent point's
-                # own elevation rate -- using this arc's first sample only.
-                occ_arc = {
-                    "tx": transmitter.name,
-                    "is_rising": rx_tx_pitch[j] > -90,
-                    "points": [],
-                }
-            occ_arc["points"].append(
-                {
-                    "time": time,
-                    "longitude": longitude[j],
-                    "latitude": latitude[j],
-                    "elevation": elevation[j],
-                    "rx_tx_pitch": rx_tx_pitch[j],
-                    "rx_tx_yaw": rx_tx_yaw[j],
-                    "tp_tx_azimuth": tp_tx_azimuth[j],
-                }
-            )
-            if j + 1 >= len(times):
-                # end of RO observation due to arc boundary
+    for (k, _, _), times, offset in zip(arcs, arc_times, bounds):
+        # occultation arc
+        occ_arc = None
+        for j, time in enumerate(times, start=offset):
+            if in_range[j]:
+                if occ_arc is None:
+                    # start of new RO observation. rx_tx_pitch is the
+                    # transmitter's pitch angle relative to the receiver,
+                    # where -90 deg points at the geocenter (never actually
+                    # reached by a real RO profile, since the signal must
+                    # pass through the atmosphere); pitch above -90 deg means
+                    # the transmitter is "ahead" of the receiver (a
+                    # rising/emersion occultation), below -90 deg means
+                    # "behind" (a setting/immersion one). This is an
+                    # approximation of the more direct (but more expensive)
+                    # definition -- the sign of the tangent point's own
+                    # elevation rate -- using this arc's first sample only.
+                    occ_arc = {
+                        "tx": transmitters[k].name,
+                        "is_rising": rx_tx_pitch[j] > -90,
+                        "points": [],
+                    }
+                occ_arc["points"].append(
+                    {
+                        "time": time,
+                        "longitude": longitude[j],
+                        "latitude": latitude[j],
+                        "elevation": elevation[j],
+                        "rx_tx_pitch": rx_tx_pitch[j],
+                        "rx_tx_yaw": rx_tx_yaw[j],
+                        "tp_tx_azimuth": tp_tx_azimuth[j],
+                    }
+                )
+                if j + 1 >= offset + len(times):
+                    # end of RO observation due to arc boundary
+                    occ_obs.append(occ_arc)
+                    occ_arc = None
+            elif occ_arc is not None:
+                # end of RO observation due to elevation constraints
                 occ_obs.append(occ_arc)
                 occ_arc = None
-        elif occ_arc is not None:
-            # end of RO observation due to elevation constraints
-            occ_obs.append(occ_arc)
-            occ_arc = None
     return occ_obs
-
-
-def _collect_ro_series(
-    transmitter: Satellite,
-    receiver: Satellite,
-    start: datetime,
-    end: datetime,
-    time_step: timedelta,
-    max_yaw: float,
-    range_elevation: tuple[float, float],
-    min_profile_duration: timedelta,
-) -> list[dict]:
-    # discrete function of time: 1 if the tangent point intersects and the
-    # transmitter yaw angle is below maximum, 0 otherwise
-    # scan at half the shortest profile duration we must not skip, decoupled
-    # from time_step so long mission durations don't blow up the coarse scan
-    is_valid = _make_ro_validity_function(
-        transmitter, receiver, max_yaw, (min_profile_duration / 2) / timedelta(days=1)
-    )
-    # find the precise times at which validity changes
-    transition_times, transition_values = find_discrete(
-        timescale.from_datetime(start), timescale.from_datetime(end), is_valid
-    )
-    initial_valid = bool(is_valid(timescale.from_datetimes([start]))[0])
-    # boundary times delimiting N+1 alternating valid/invalid segments (N =
-    # number of transitions); each segment's validity is the value that
-    # becomes active at its start (initial_valid for the first segment,
-    # else the corresponding transition value) -- the final boundary time
-    # (`end`) is a pure endpoint with no segment-start value of its own
-    boundary_times = [start] + list(transition_times.utc_datetime()) + [end]
-    boundary_values = [initial_valid] + [bool(value) for value in transition_values]
-    # keep only the segments where validity holds
-    arcs = [
-        (boundary_times[i], boundary_times[i + 1])
-        for i in range(len(boundary_times) - 1)
-        if boundary_values[i] and boundary_times[i + 1] > boundary_times[i]
-    ]
-    return list(
-        chain.from_iterable(
-            _sample_ro_arc(
-                transmitter, receiver, arc_start, arc_end, time_step, range_elevation
-            )
-            for arc_start, arc_end in arcs
-        )
-    )
 
 
 def _interpolate_ro_point(points: list[dict], sample_elevation: float) -> dict:
@@ -377,21 +479,24 @@ def collect_ro_observations(
             computation but guards against silently skipping brief observation periods.
     """
     _check_satellite(receiver, "receiver")
-    # generate observations
-    obs = list(
-        chain.from_iterable(
-            _collect_ro_series(
-                transmitter,
-                receiver,
-                start,
-                end,
-                time_step,
-                max_yaw,
-                range_elevation,
-                min_profile_duration,
-            )
-            for transmitter in _check_satellites(transmitters, "transmitters")
-        )
+    transmitters = _check_satellites(transmitters, "transmitters")
+    # find the valid observation periods of all transmitters together,
+    # scanning at half the shortest profile duration we must not skip
+    # (decoupled from time_step so long mission durations don't blow up the
+    # coarse scan), and sample them together
+    obs = _sample_ro_arcs(
+        transmitters,
+        receiver,
+        _find_ro_arcs(
+            transmitters,
+            receiver,
+            start,
+            end,
+            max_yaw,
+            (min_profile_duration / 2) / timedelta(days=1),
+        ),
+        time_step,
+        range_elevation,
     )
     if len(obs) == 0:
         return _get_empty_ro_frame()
