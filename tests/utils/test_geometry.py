@@ -44,7 +44,8 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
         """
         Test that a geometry's hash is 16 hexadecimal digits, the same for
         equal geometries with vertices in a different order or orientation,
-        and different for different geometries.
+        or without z coordinates at zero elevation, and different for
+        different geometries.
         """
         polygon = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
         value = hash_geometry(polygon)
@@ -62,6 +63,10 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
             ),
             value,
         )
+        self.assertEqual(
+            hash_geometry(Polygon([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)])), value
+        )
+        self.assertEqual(hash_geometry(Point(1, 2)), hash_geometry(Point(1, 2, 0)))
 
     def test_geodesic_distance_same_point(self):
         """

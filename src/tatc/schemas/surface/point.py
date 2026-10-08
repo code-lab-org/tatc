@@ -12,7 +12,13 @@ class Point(BaseModel):
     Surface point in the WGS 84 coordinate system.
     """
 
-    id: NonNegativeInt = Field(default=0, description="Unique point identifier.")
+    id: NonNegativeInt = Field(
+        default=0,
+        description=(
+            "Point identifier. Not used by the analysis methods, which identify "
+            "points by the hash of their geometry (see `tatc.utils.hash_geometry`)."
+        ),
+    )
     latitude: float = Field(
         ...,
         description="Latitude (decimal degrees) in the WGS 84 coordinate system.",

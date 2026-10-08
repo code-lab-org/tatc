@@ -95,7 +95,7 @@ def _get_empty_latency_frame() -> gpd.GeoDataFrame:
         geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
-        "point_id": pd.Series([], dtype="int"),
+        "target_hash": pd.Series([], dtype="str"),
         "geometry": pd.Series([], dtype="object"),
         "satellite": pd.Series([], dtype="str"),
         "instrument": pd.Series([], dtype="str"),
@@ -137,7 +137,8 @@ def compute_latencies(
     Returns:
         geopandas.GeoDataFrame: The data frame of collected latency results, sorted by the 'observed'
         column in ascending order. It includes the following columns:
-        - 'point_id' (int64): Identifier for the observation point.
+        - 'target_hash' (str): Hash of the observation point (see
+          `tatc.utils.geometry.hash_geometry`).
         - 'geometry' (geometry): Geometry representing the observation point.
         - 'satellite' (object): Name or identifier of the satellite.
         - 'instrument' (object): Name or identifier of the instrument.
@@ -203,7 +204,7 @@ def compute_latencies(
     # select relevant columns
     obs = obs[
         [
-            "point_id",
+            "target_hash",
             "geometry",
             "satellite",
             "instrument",
@@ -240,7 +241,7 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
         geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
-        "point_id": pd.Series([], dtype="int"),
+        "target_hash": pd.Series([], dtype="str"),
         "geometry": pd.Series([], dtype="object"),
         "latency": pd.Series([], dtype="timedelta64[ns]"),
         "samples": pd.Series([], dtype="int"),
@@ -250,8 +251,8 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
 
 def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
-    Reduce observation latencies: for each unique target (`point_id` and
-    geometry, see `tatc.analysis.observations._get_target_keys`) in
+    Reduce observation latencies: for each unique target (`target_hash`,
+    see `tatc.analysis.observations._get_target_keys`) in
     `latency_observations`, computes the mean latency and the total number
     of samples (observation/downlink pairs). An observation with no
     matching downlink has an undefined (NaT) latency (see
@@ -273,17 +274,13 @@ def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame
     # assign each record to one observation
     gdf["samples"] = 1
     # perform the aggregation operation
-    gdf = (
-        gdf.dissolve(
-            _get_target_keys(gdf),
-            aggfunc={
-                "latency": "mean",
-                "samples": "sum",
-            },
-        )
-        .reset_index()
-        .drop(columns="geometry_key")
-    )
+    gdf = gdf.dissolve(
+        _get_target_keys(gdf),
+        aggfunc={
+            "latency": "mean",
+            "samples": "sum",
+        },
+    ).reset_index()
     # convert latency from numeric values after aggregation
     gdf["latency"] = pd.to_timedelta(gdf["latency"], unit="s")
     return gdf

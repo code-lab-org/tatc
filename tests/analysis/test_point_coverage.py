@@ -32,7 +32,11 @@ from tatc.schemas import (
     PointedInstrument,
     Satellite,
 )
-from tatc.utils import compute_cone_and_azimuth, compute_view_tangents
+from tatc.utils import (
+    compute_cone_and_azimuth,
+    compute_view_tangents,
+    hash_geometry,
+)
 
 from .common import IssConstellationTestCase
 
@@ -271,12 +275,12 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             self.assertAlmostEqual(float(along), 0, delta=1e-5)
         matched = pd.merge_asof(
             geocentric.sort_values("epoch"),
-            geodetic[["point_id", "epoch"]]
+            geodetic[["target_hash", "epoch"]]
             .rename(columns={"epoch": "epoch_geodetic"})
             .sort_values("epoch_geodetic"),
             left_on="epoch",
             right_on="epoch_geodetic",
-            by="point_id",
+            by="target_hash",
             direction="nearest",
             tolerance=pd.Timedelta(seconds=10),
         ).dropna(subset=["epoch_geodetic"])
@@ -513,12 +517,12 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             )
             matched = pd.merge_asof(
                 nadir.sort_values("epoch"),
-                pointed[["point_id", "epoch"]]
+                pointed[["target_hash", "epoch"]]
                 .rename(columns={"epoch": "epoch_pointed"})
                 .sort_values("epoch_pointed"),
                 left_on="epoch",
                 right_on="epoch_pointed",
-                by="point_id",
+                by="target_hash",
                 direction="nearest",
                 tolerance=pd.Timedelta(minutes=1),
             )
@@ -561,12 +565,12 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         )
         matched = pd.merge_asof(
             nadir.sort_values("epoch"),
-            pointed[["point_id", "epoch"]]
+            pointed[["target_hash", "epoch"]]
             .rename(columns={"epoch": "epoch_pointed"})
             .sort_values("epoch_pointed"),
             left_on="epoch",
             right_on="epoch_pointed",
-            by="point_id",
+            by="target_hash",
             direction="nearest",
             tolerance=pd.Timedelta(minutes=1),
         )
@@ -686,10 +690,10 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         self.assertGreater(len(forward), 0)
         merged = pd.merge_asof(
             forward.sort_values("epoch"),
-            nadir[["point_id", "start", "end"]].sort_values("start"),
+            nadir[["target_hash", "start", "end"]].sort_values("start"),
             left_on="epoch",
             right_on="start",
-            by="point_id",
+            by="target_hash",
             direction="nearest",
         )
         np.testing.assert_array_less(
@@ -700,10 +704,10 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         )
         merged = pd.merge_asof(
             aft.sort_values("epoch"),
-            nadir[["point_id", "start", "end"]].sort_values("end"),
+            nadir[["target_hash", "start", "end"]].sort_values("end"),
             left_on="epoch",
             right_on="end",
-            by="point_id",
+            by="target_hash",
             direction="nearest",
         )
         np.testing.assert_array_less(
@@ -780,14 +784,14 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         self.assertIn("start", results.columns)
 
     @staticmethod
-    def _make_observation(point_id, satellite, instrument, start, end):
+    def _make_observation(target_hash, satellite, instrument, start, end):
         """
         Build a synthetic observation record matching the schema
         `collect_observations` produces, for direct, deterministic control
         over `aggregate_observations` inputs (bypassing orbital propagation).
         """
         return {
-            "point_id": point_id,
+            "target_hash": target_hash,
             "geometry": ShapelyPoint(0, 0),
             "satellite": satellite,
             "instrument": instrument,
@@ -842,11 +846,11 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         self.assertEqual(results.iloc[1].end, t0 + timedelta(minutes=25))
         self.assertEqual(results.iloc[1].revisit, timedelta(minutes=5))
 
-    def test_aggregate_observations_isolates_point_ids(self):
+    def test_aggregate_observations_isolates_targets(self):
         """
-        Test that merging and revisit computation are scoped per point_id:
-        a point_id=1 observation must not be merged with, or treated as a
-        revisit predecessor for, a point_id=0 observation, even if their
+        Test that merging and revisit computation are scoped per target_hash:
+        a target_hash=1 observation must not be merged with, or treated as a
+        revisit predecessor for, a target_hash=0 observation, even if their
         windows would otherwise overlap/abut.
         """
         t0 = datetime(2022, 6, 1, tzinfo=timezone.utc)
@@ -940,7 +944,7 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         self.assertTrue(results.empty)
 
     @staticmethod
-    def _make_aggregated_observation(point_id, access_minutes, revisit_minutes):
+    def _make_aggregated_observation(target_hash, access_minutes, revisit_minutes):
         """
         Build a synthetic aggregated-observation record (matching
         `aggregate_observations`'s output schema) for direct, deterministic
@@ -948,7 +952,7 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         produces `pandas.NaT`, matching the first observation for a point.
         """
         return {
-            "point_id": point_id,
+            "target_hash": target_hash,
             "geometry": ShapelyPoint(0, 0),
             "access": pd.Timedelta(minutes=access_minutes),
             "revisit": (
@@ -980,9 +984,9 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         self.assertEqual(results.iloc[0].access, timedelta(minutes=10))
         self.assertEqual(results.iloc[0].revisit, timedelta(minutes=52.5))
 
-    def test_reduce_observations_isolates_point_ids(self):
+    def test_reduce_observations_isolates_targets(self):
         """
-        Test that statistics are computed independently per point_id, not
+        Test that statistics are computed independently per target_hash, not
         pooled across points.
         """
         observations = gpd.GeoDataFrame(
@@ -995,8 +999,8 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         )
         results = reduce_observations(observations)
         self.assertEqual(len(results.index), 2)
-        point_0 = results[results.point_id == 0].iloc[0]
-        point_1 = results[results.point_id == 1].iloc[0]
+        point_0 = results[results.target_hash == 0].iloc[0]
+        point_1 = results[results.target_hash == 1].iloc[0]
         self.assertEqual(point_0.samples, 1)
         self.assertEqual(point_0.access, timedelta(minutes=5))
         self.assertTrue(pd.isna(point_0.revisit))
@@ -1020,14 +1024,14 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         self.assertAlmostEqual(
             reduced_results.iloc[0].access,
             aggregated_results[
-                aggregated_results.point_id == reduced_results.iloc[0].point_id
+                aggregated_results.target_hash == reduced_results.iloc[0].target_hash
             ].access.mean(),
             delta=timedelta(seconds=0.01),
         )
         self.assertAlmostEqual(
             reduced_results.iloc[0].revisit,
             aggregated_results[
-                aggregated_results.point_id == reduced_results.iloc[0].point_id
+                aggregated_results.target_hash == reduced_results.iloc[0].target_hash
             ].revisit.mean(),
             delta=timedelta(seconds=0.01),
         )
@@ -1057,7 +1061,7 @@ class TestCoverageAnalysis(IssConstellationTestCase):
 
     @staticmethod
     def _make_reduced_observation(
-        point_id, lon, lat, access_seconds, revisit_seconds, samples
+        target_hash, lon, lat, access_seconds, revisit_seconds, samples
     ):
         """
         Build a synthetic reduced-observation record (matching
@@ -1065,7 +1069,7 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         control over `grid_observations` inputs.
         """
         return {
-            "point_id": point_id,
+            "target_hash": target_hash,
             "geometry": ShapelyPoint(lon, lat),
             "access": pd.Timedelta(seconds=access_seconds),
             "revisit": pd.Timedelta(seconds=revisit_seconds),
@@ -1083,7 +1087,7 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             crs="EPSG:4326",
         )
         reduced = gpd.GeoDataFrame(
-            columns=["point_id", "geometry", "access", "revisit", "samples"],
+            columns=["target_hash", "geometry", "access", "revisit", "samples"],
             crs="EPSG:4326",
         )
         result = grid_observations(reduced, cells)
@@ -1244,16 +1248,20 @@ class TestCollectObservationsGeometry(IssConstellationTestCase):
         self.assertGreater(len(expected.index), 0)
         pd.testing.assert_frame_equal(expected[columns], actual[columns])
 
-    def test_shapely_point_default_identifier(self):
+    def test_point_target_hash(self):
         """
-        Test that observations of a shapely point record a `point_id` of 0
-        by default.
+        Test that observations of a shapely point, or of a TAT-C point at the
+        same location, record the hash of the point (at zero elevation) as
+        their `target_hash`, and no `point_id`.
         """
-        observations = collect_observations(
-            ShapelyPoint(-74.03, 40.74), self.satellite, self.start, self.end
-        )
-        self.assertGreater(len(observations.index), 0)
-        self.assertTrue((observations.point_id == 0).all())
+        point = ShapelyPoint(-74.03, 40.74)
+        for target in [point, Point(id=7, latitude=point.y, longitude=point.x)]:
+            observations = collect_observations(
+                target, self.satellite, self.start, self.end
+            )
+            self.assertGreater(len(observations.index), 0)
+            self.assertNotIn("point_id", observations.columns)
+            self.assertTrue((observations.target_hash == hash_geometry(point)).all())
 
     def test_invalid_geometry_type(self):
         """
@@ -1292,11 +1300,11 @@ class TestCollectObservationsGeometry(IssConstellationTestCase):
                 (period.right - start).total_seconds(), right, delta=0.01
             )
 
-    def test_reductions_separate_points_sharing_identifier(self):
+    def test_reductions_of_shapely_and_tatc_points(self):
         """
         Test that aggregating and reducing observations of distinct shapely
-        points that share the default identifier keeps the points apart,
-        with the same results as TAT-C points with distinct identifiers.
+        points keeps the points apart, by their hashes, with the same results
+        as TAT-C points at the same locations.
         """
         points = [ShapelyPoint(-74.0, 40.7), ShapelyPoint(-118.2, 34.0)]
         shared = pd.concat(
@@ -1320,8 +1328,10 @@ class TestCollectObservationsGeometry(IssConstellationTestCase):
         )
         expected = reduce_observations(aggregate_observations(distinct))
         actual = reduce_observations(aggregate_observations(shared))
-        self.assertTrue((actual.point_id == 0).all())
-        self.assertEqual(len(actual.index), 2)
+        self.assertEqual(
+            set(actual.target_hash), {hash_geometry(point) for point in points}
+        )
+        self.assertEqual(set(actual.target_hash), set(expected.target_hash))
         self.assertTrue((actual.geometry.geom_type == "Point").all())
         actual = actual.set_index(actual.geometry.to_wkb())
         expected = expected.set_index(expected.geometry.to_wkb())

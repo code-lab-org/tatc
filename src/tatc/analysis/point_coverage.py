@@ -18,7 +18,7 @@ from skyfield.toposlib import GeographicPosition
 
 from ..constants import EARTH_POLAR_RADIUS, timescale
 from ..schemas import ConicalInstrument, Point, PointedInstrument, Satellite
-from ..utils.geometry import _get_point_coordinates
+from ..utils.geometry import _get_point_coordinates, hash_geometry
 from ..utils.observation import (
     compute_max_access_time,
     compute_min_elevation_angle,
@@ -353,8 +353,10 @@ def collect_observations(
     a TAT-C `Point` or a shapely `Point` (whose x, y, and optional z
     coordinates are its longitude, latitude, and elevation in meters);
     TAT-C points are expected to be replaced by shapely points in the
-    future. Observations record a TAT-C point's `id` as their `point_id`, or
-    0 for a shapely point. For a region, see
+    future. Observations record the point (with its elevation as its z
+    coordinate) as their geometry, identified by its hash, `target_hash` (see
+    `tatc.utils.geometry.hash_geometry`); a TAT-C point's `id` is not
+    recorded. For a region, see
     `tatc.analysis.region_coverage.collect_region_observations`.
 
     Each observation spans a period when the point lies within the
@@ -388,8 +390,8 @@ def collect_observations(
             "point must be a Point or shapely Point, not a "
             f"{type(point).__name__} (see collect_region_observations for a region)"
         )
-    point_id = point.id if isinstance(point, Point) else 0
     longitude, latitude, elevation = _get_point_coordinates(point)
+    geometry = geo.Point(longitude, latitude, elevation)
     instrument = satellite.instruments[instrument_index]
     orbit = satellite.orbit.to_gp_orbit()
     # use the apogee altitude above the polar radius (and above the point,
@@ -459,8 +461,8 @@ def collect_observations(
                 observations.append((period, epoch, (longitude, latitude, elevation)))
     return _build_observation_frame(
         observations,
-        point_id,
-        geo.Point(longitude, latitude, elevation),
+        hash_geometry(geometry),
+        geometry,
         satellite,
         instrument,
         omit_solar,

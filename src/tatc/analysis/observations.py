@@ -33,7 +33,7 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
         geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
-        "point_id": pd.Series([], dtype="int"),
+        "target_hash": pd.Series([], dtype="str"),
         "geometry": pd.Series([], dtype="object"),
         "satellite": pd.Series([], dtype="str"),
         "instrument": pd.Series([], dtype="str"),
@@ -56,7 +56,7 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
 
 def _build_observation_frame(
     observations: list[tuple[pd.Interval, pd.Timestamp, tuple[float, float, float]]],
-    point_id: int,
+    target_hash: str,
     geometry: geo.base.BaseGeometry,
     satellite: Satellite,
     instrument: Instrument,
@@ -70,7 +70,8 @@ def _build_observation_frame(
         observations (list[tuple[pandas.Interval, pandas.Timestamp, tuple[float, float, float]]]):
                 Each observation's period, epoch, and observed point's longitude
                 (degrees), latitude (degrees), and elevation (meters).
-        point_id (int): The identifier recorded with each observation.
+        target_hash (str): The hash of the target recorded with each
+                observation (see `tatc.utils.geometry.hash_geometry`).
         geometry (shapely.geometry.base.BaseGeometry): The geometry recorded with
                 each observation.
         satellite (Satellite): The observing satellite.
@@ -85,7 +86,7 @@ def _build_observation_frame(
     gdf = gpd.GeoDataFrame(
         [
             {
-                "point_id": point_id,
+                "target_hash": target_hash,
                 "geometry": geometry,
                 "satellite": satellite.name,
                 "instrument": instrument.name,
@@ -282,12 +283,8 @@ def _refine_access_periods(
 def _get_target_keys(gdf: gpd.GeoDataFrame) -> list[pd.Series]:
     """
     Gets the keys that identify the target (point or region) of each
-    observation: for a region, its `target_hash` (see
-    `tatc.utils.geometry.hash_geometry`), as the geometry of each observation
-    is the part of the region observed; for a point, its `point_id` and its
-    geometry (as well-known binary), so that points with distinct geometries
-    are kept apart even if they share a `point_id` (for example, shapely
-    points with the default identifier of 0).
+    observation: its `target_hash`, the hash of the point or region (see
+    `tatc.utils.geometry.hash_geometry`).
 
     Args:
         gdf (geopandas.GeoDataFrame): The observations.
@@ -295,42 +292,18 @@ def _get_target_keys(gdf: gpd.GeoDataFrame) -> list[pd.Series]:
     Returns:
         list[pandas.Series]: the keys
     """
-    if "target_hash" in gdf.columns:
-        return [gdf["target_hash"]]
-    return [gdf["point_id"], gdf.geometry.to_wkb().rename("geometry_key")]
+    return [gdf["target_hash"]]
 
 
-def _get_target_columns(gdf: gpd.GeoDataFrame) -> dict[str, pd.Series]:
-    """
-    Gets empty columns that identify the target (point or region) of each
-    observation, as in `gdf` (see `_get_target_keys`).
-
-    Args:
-        gdf (geopandas.GeoDataFrame): The observations.
-
-    Returns:
-        dict[str, pandas.Series]: the empty columns
-    """
-    if "target_hash" in gdf.columns:
-        return {"target_hash": pd.Series([], dtype="str")}
-    return {"point_id": pd.Series([], dtype="int")}
-
-
-def _get_empty_aggregate_frame(
-    target_columns: dict[str, pd.Series] | None = None,
-) -> gpd.GeoDataFrame:
+def _get_empty_aggregate_frame() -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for aggregated coverage analysis results.
-
-    Args:
-        target_columns (dict[str, pandas.Series]): The columns that identify
-                the target (see `_get_target_columns`), by default `point_id`.
 
     Returns:
         geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
-        **(target_columns or {"point_id": pd.Series([], dtype="int")}),
+        "target_hash": pd.Series([], dtype="str"),
         "geometry": pd.Series([], dtype="object"),
         "satellite": pd.Series([], dtype="str"),
         "instrument": pd.Series([], dtype="str"),
@@ -347,8 +320,7 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     satellites to compute aggregate performance metrics including access
     (observation duration) and revisit (duration between observations).
     Overlapping (including fully nested) observations of the same target
-    (the same `point_id` and geometry of a point, or the same `target_hash`
-    of a region, see `_get_target_keys`), possibly from different
+    (the same `target_hash`, see `_get_target_keys`), possibly from different
     satellites/instruments, are merged into a single continuous coverage
     period; `satellite`/`instrument` record every contributor to that
     period, comma-separated, and the geometry is the union of theirs (for a
@@ -367,7 +339,7 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         geopandas.GeoDataFrame: The data frame with aggregated observations.
     """
     if observations.empty:
-        return _get_empty_aggregate_frame(_get_target_columns(observations))
+        return _get_empty_aggregate_frame()
     gdfs = []
     # split into constituent data frames for each target
     for _, gdf in observations.groupby(_get_target_keys(observations)):
@@ -379,7 +351,7 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         gdf = gdf.dissolve(
             "obs",
             aggfunc={
-                **{key: "first" for key in _get_target_columns(gdf)},
+                "target_hash": "first",
                 "satellite": ", ".join,  # type: ignore
                 "instrument": ", ".join,  # type: ignore
                 "start": "min",
@@ -399,21 +371,15 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return pd.concat(gdfs).reset_index(drop=True)
 
 
-def _get_empty_reduce_frame(
-    target_columns: dict[str, pd.Series] | None = None,
-) -> gpd.GeoDataFrame:
+def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for reduced coverage analysis results.
-
-    Args:
-        target_columns (dict[str, pandas.Series]): The columns that identify
-                the target (see `_get_target_columns`), by default `point_id`.
 
     Returns:
         geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
-        **(target_columns or {"point_id": pd.Series([], dtype="int")}),
+        "target_hash": pd.Series([], dtype="str"),
         "geometry": pd.Series([], dtype="object"),
         "access": pd.Series([], dtype="timedelta64[ns]"),
         "revisit": pd.Series([], dtype="timedelta64[ns]"),
@@ -424,9 +390,9 @@ def _get_empty_reduce_frame(
 
 def reduce_observations(aggregated_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
-    Reduce constellation observations: for each unique target (the
-    `point_id` and geometry of a point, or the `target_hash` of a region, see
-    `_get_target_keys`) in `aggregated_observations`, computes the mean
+    Reduce constellation observations: for each unique target (the same
+    `target_hash`, see `_get_target_keys`) in `aggregated_observations`,
+    computes the mean
     access period, the mean revisit period, and the total number of samples
     (aggregated periods) over the analysis period. For a region, the
     geometry is the union of the parts of it observed. The first sample's revisit is undefined (no
@@ -442,7 +408,7 @@ def reduce_observations(aggregated_observations: gpd.GeoDataFrame) -> gpd.GeoDat
         geopandas.GeoDataFrame: The data frame with reduced observations.
     """
     if aggregated_observations.empty:
-        return _get_empty_reduce_frame(_get_target_columns(aggregated_observations))
+        return _get_empty_reduce_frame()
     # operate on a copy of the data frame
     gdf = aggregated_observations.copy()
     # convert access and revisit to numeric values before aggregation
@@ -451,18 +417,14 @@ def reduce_observations(aggregated_observations: gpd.GeoDataFrame) -> gpd.GeoDat
     # assign each record to one observation
     gdf["samples"] = 1
     # perform the aggregation operation for each target
-    gdf = (
-        gdf.dissolve(
-            _get_target_keys(gdf),
-            aggfunc={
-                "access": "mean",
-                "revisit": "mean",
-                "samples": "sum",
-            },
-        )
-        .reset_index()
-        .drop(columns="geometry_key", errors="ignore")
-    )
+    gdf = gdf.dissolve(
+        _get_target_keys(gdf),
+        aggfunc={
+            "access": "mean",
+            "revisit": "mean",
+            "samples": "sum",
+        },
+    ).reset_index()
     # convert access and revisit from numeric values after aggregation
     gdf["access"] = pd.to_timedelta(gdf["access"], unit="s")
     gdf["revisit"] = pd.to_timedelta(gdf["revisit"], unit="s")

@@ -556,9 +556,10 @@ def hash_geometry(geometry: BaseGeometry) -> str:
     Computes a compact hash of a geometry, to identify it (for example, the
     region of interest of an observation) without storing it: the first 16
     hexadecimal digits (64 bits) of the BLAKE2b digest of its normalized
-    well-known binary (little-endian, with z coordinates, if any). Geometries
-    with the same normalized coordinates have the same hash, regardless of
-    the order of their vertices, rings, or parts.
+    well-known binary (little-endian, with z coordinates, which are zero if
+    missing). Geometries with the same normalized coordinates have the same
+    hash, regardless of the order of their vertices, rings, or parts, and a
+    geometry without z coordinates has the same hash as at zero elevation.
 
     Args:
         geometry (shapely.geometry.base.BaseGeometry): The geometry.
@@ -567,7 +568,8 @@ def hash_geometry(geometry: BaseGeometry) -> str:
         str: The hash, as 16 hexadecimal digits.
     """
     return hashlib.blake2b(
-        shapely.to_wkb(shapely.normalize(geometry), byte_order=1), digest_size=8
+        shapely.to_wkb(shapely.normalize(shapely.force_3d(geometry)), byte_order=1),
+        digest_size=8,
     ).hexdigest()
 
 

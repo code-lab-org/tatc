@@ -17,7 +17,6 @@ from tatc.generation import (
     generate_points_uniform_angular_distance,
     generate_points_uniform_spacing,
 )
-from tatc.generation._grid import compute_point_id_uniform_spacing
 
 
 class TestPointGenerators(unittest.TestCase):
@@ -244,12 +243,11 @@ class TestPointGenerators(unittest.TestCase):
         n = len(points)
         expected_first_latitude = np.degrees(np.arcsin(2 * 1 / (n + 2) - 1))
         expected_last_latitude = np.degrees(np.arcsin(2 * n / (n + 2) - 1))
-        points_by_id = points.set_index("point_id")
         self.assertAlmostEqual(
-            points_by_id.loc[0].geometry.y, expected_first_latitude, places=9
+            points.geometry.iloc[0].y, expected_first_latitude, places=9
         )
         self.assertAlmostEqual(
-            points_by_id.loc[n - 1].geometry.y, expected_last_latitude, places=9
+            points.geometry.iloc[-1].y, expected_last_latitude, places=9
         )
 
     def test_generate_points_fibonacci_lattice_antimeridian_crossing_mask(self):
@@ -272,21 +270,18 @@ class TestPointGenerators(unittest.TestCase):
         # via the +360 shift, not dropped
         self.assertTrue((points.geometry.x > 180).any())
 
-    def test_generate_points_uniform_angular_distance_point_id_matches_grid_formula(
-        self,
-    ):
+    def test_generated_point_ids_are_geometry_hashes(self):
         """
-        Test that every point_id returned by the equally spaced generator
-        matches compute_point_id_uniform_spacing for that point's
-        recovered (i, j) grid index, confirming point_id is a stable,
-        dense (no gaps or collisions) enumeration for a global grid.
+        Test that every point_id returned by the point generators is the
+        hash of the point's geometry (see `tatc.utils.hash_geometry`), and
+        unique.
         """
-        theta = 10
-        points = generate_points_uniform_angular_distance(theta, theta)
-        self.assertEqual(sorted(points.point_id), list(range(len(points))))
-        for _, row in points.iterrows():
-            i = round((row.geometry.x - (-180 + 0.5 * theta)) / theta)
-            j = round((row.geometry.y - (-90 + 0.5 * theta)) / theta)
+        for points in [
+            generate_points_uniform_angular_distance(10, 10),
+            generate_points_fibonacci_lattice(2000000, elevation=100),
+        ]:
             self.assertEqual(
-                compute_point_id_uniform_spacing(i, j, theta), row.point_id
+                list(points.point_id),
+                [utils.hash_geometry(g) for g in points.geometry],
             )
+            self.assertTrue(points.point_id.is_unique)

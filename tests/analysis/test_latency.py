@@ -19,6 +19,7 @@ from tatc.analysis import (
     reduce_latencies,
 )
 from tatc.schemas import GroundStation, Point
+from tatc.utils import hash_geometry
 
 from .common import IssConstellationTestCase
 
@@ -251,15 +252,15 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         self.assertTrue(matched.any())
         self.assertTrue((results.station[matched] == self.station.name).all())
 
-    def test_reduce_latencies_separates_points_sharing_identifier(self):
+    def test_reduce_latencies_separates_points(self):
         """
-        Test that latencies of distinct points that share an identifier are
-        reduced separately for each point.
+        Test that latencies of distinct points are reduced separately for
+        each point, by its hash.
         """
         latencies = gpd.GeoDataFrame(
             [
                 {
-                    "point_id": 0,
+                    "target_hash": hash_geometry(ShapelyPoint(lon, 0)),
                     "geometry": ShapelyPoint(lon, 0),
                     "latency": pd.Timedelta(minutes=minutes),
                 }
@@ -284,7 +285,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         observations = gpd.GeoDataFrame(
             [
                 {
-                    "point_id": 0,
+                    "target_hash": 0,
                     "geometry": ShapelyPoint(0, 0),
                     "satellite": "A",
                     "instrument": "I",
@@ -295,7 +296,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
                     "sat_az": 90.0,
                 },
                 {
-                    "point_id": 0,
+                    "target_hash": 0,
                     "geometry": ShapelyPoint(0, 0),
                     "satellite": "A",
                     "instrument": "I",
@@ -329,14 +330,14 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         self.assertTrue(pd.isna(result.iloc[0].latency))
 
     @staticmethod
-    def _make_observation(point_id, start, epoch, end):
+    def _make_observation(target_hash, start, epoch, end):
         """
         Build a synthetic observation record for satellite "A" (times are
         minutes after 2022-06-01T00:00Z).
         """
         t_0 = pd.Timestamp("2022-06-01T00:00", tz="UTC")
         return {
-            "point_id": point_id,
+            "target_hash": target_hash,
             "geometry": ShapelyPoint(0, 0),
             "satellite": "A",
             "instrument": "I",
@@ -365,7 +366,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
 
     def _synthetic_latencies(self, during_contact, downlinks=None):
         """
-        Compute latencies (in minutes, by point_id) of three synthetic
+        Compute latencies (in minutes, by target_hash) of three synthetic
         observations: one before, one during, and one partly during a
         downlink from 10 to 20 minutes, which is followed by a downlink from
         100 to 110 minutes.
@@ -387,7 +388,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
             observations,
             gpd.GeoDataFrame(downlinks, crs="EPSG:4326"),
             during_contact=during_contact,
-        ).set_index("point_id")
+        ).set_index("target_hash")
         return latencies.latency.dt.total_seconds() / 60, latencies.station
 
     def test_compute_latencies_during_contact_next(self):
@@ -492,14 +493,14 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         return {"cell_id": cell_id, "geometry": box(min_lon, min_lat, max_lon, max_lat)}
 
     @staticmethod
-    def _make_reduced_latency(point_id, lon, lat, latency_seconds, samples):
+    def _make_reduced_latency(target_hash, lon, lat, latency_seconds, samples):
         """
         Build a synthetic reduced-latency record (matching
         `reduce_latencies`'s output schema) for direct, deterministic
         control over `grid_latencies` inputs.
         """
         return {
-            "point_id": point_id,
+            "target_hash": target_hash,
             "geometry": ShapelyPoint(lon, lat),
             "latency": pd.Timedelta(seconds=latency_seconds),
             "samples": samples,
@@ -515,7 +516,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
             crs="EPSG:4326",
         )
         reduced = gpd.GeoDataFrame(
-            columns=["point_id", "geometry", "latency", "samples"], crs="EPSG:4326"
+            columns=["target_hash", "geometry", "latency", "samples"], crs="EPSG:4326"
         )
         result = grid_latencies(reduced, cells)
         self.assertEqual(len(result.index), 2)

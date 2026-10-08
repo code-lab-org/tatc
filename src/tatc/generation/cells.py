@@ -11,8 +11,8 @@ import numpy as np
 from shapely.geometry import MultiPolygon, Polygon
 
 from ..constants import EARTH_MEAN_RADIUS
-from ..utils.geometry import get_planar_bounds
-from ._grid import compute_point_id_uniform_spacing, generate_indices_uniform_spacing
+from ..utils.geometry import get_planar_bounds, hash_geometry
+from ._grid import generate_indices_uniform_spacing
 
 
 def generate_cells_uniform_spacing(
@@ -38,7 +38,9 @@ def generate_cells_uniform_spacing(
             longitude (`"lon"`), or none (`None`).
 
     Returns:
-        geopandas.GeoDataFrame: the data frame of generated cells
+        geopandas.GeoDataFrame: the data frame of generated cells, each
+            identified by the hash of its geometry (`cell_id`, see
+            `tatc.utils.geometry.hash_geometry`)
     """
     # compute the angular disance of each sample (assuming sphere)
     theta_longitude = np.degrees(distance / EARTH_MEAN_RADIUS)
@@ -75,7 +77,9 @@ def generate_cells_uniform_angular_spacing(
             longitude (`"lon"`), or none (`None`).
 
     Returns:
-        geopandas.GeoDataFrame: the data frame of generated cells
+        geopandas.GeoDataFrame: the data frame of generated cells, each
+            identified by the hash of its geometry (`cell_id`, see
+            `tatc.utils.geometry.hash_geometry`)
     """
 
     # generate indices of grid cells over the filtered region
@@ -90,10 +94,6 @@ def generate_cells_uniform_angular_spacing(
     # create a geodataframe in the WGS84 reference frame
     gdf = gpd.GeoDataFrame(
         {
-            "cell_id": [
-                compute_point_id_uniform_spacing(i, j, theta_longitude)
-                for (i, j) in indices
-            ],
             "geometry": [
                 Polygon(
                     [
@@ -174,5 +174,7 @@ def generate_cells_uniform_angular_spacing(
         gdf = gpd.clip(gdf, mask).reset_index(drop=True)
         # convert each cell to a convex hull to simplify presentation
         gdf.geometry = gdf.geometry.convex_hull
+    # identify each cell by the hash of its geometry
+    gdf.insert(0, "cell_id", [hash_geometry(g) for g in gdf.geometry])
     # return the final geodataframe
     return gdf
