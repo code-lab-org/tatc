@@ -11,14 +11,14 @@ differences.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 import numpy as np
+import numpy.typing as npt
+import shapely
 from numba import njit
-from pyproj import Transformer
 from shapely import make_valid
 from shapely.geometry import GeometryCollection, MultiPolygon, Point, Polygon
-from shapely.ops import transform
 
 from .. import constants
 from .geometry import geodesic_destination, project_polygon_to_elevation, split_polygon
@@ -276,6 +276,44 @@ def compute_terrain_elevation_angle(
     )
 
 
+def _get_distance_projection(
+    latitude: float,
+) -> tuple[Callable[[npt.NDArray], npt.NDArray], Callable[[npt.NDArray], npt.NDArray]]:
+    """
+    Gets the transforms of coordinates (shape (N, 2)) to and from a
+    distance-preserving projection near a latitude: the equidistant
+    cylindrical projection with true scale at that latitude, as PROJ's
+    `+proj=eqc +lat_ts={latitude} +datum=WGS84 +units=m` (a spherical
+    projection with the WGS 84 equatorial radius, whose inverse wraps
+    longitudes to [-180, 180] degrees), computed in closed form rather than
+    by constructing a pair of PROJ transformers for every latitude.
+
+    Args:
+        latitude (float): The latitude (degrees) of true scale.
+
+    Returns:
+        tuple[Callable[[numpy.typing.NDArray], numpy.typing.NDArray], Callable[[numpy.typing.NDArray], numpy.typing.NDArray]]:
+            the transforms from longitude and latitude (degrees) to
+            projected coordinates (meters), and back
+    """
+    radius = constants.EARTH_EQUATORIAL_RADIUS
+    scale = radius * np.cos(np.radians(latitude))
+
+    def to_distance(coords: npt.NDArray) -> npt.NDArray:
+        return np.column_stack(
+            [scale * np.radians(coords[:, 0]), radius * np.radians(coords[:, 1])]
+        )
+
+    def from_distance(coords: npt.NDArray) -> npt.NDArray:
+        longitude = np.degrees(coords[:, 0] / scale)
+        longitude = np.where(
+            np.abs(longitude) > 180, (longitude + 180) % 360 - 180, longitude
+        )
+        return np.column_stack([longitude, np.degrees(coords[:, 1] / radius)])
+
+    return to_distance, from_distance
+
+
 def compute_radar_footprint(
     longitude: float,
     latitude: float,
@@ -301,10 +339,8 @@ def compute_radar_footprint(
     Returns:
         shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The radar footprint.
     """
-    distance_crs = f"+proj=eqc +lat_ts={latitude} +datum=WGS84 +units=m"
-    to_crs = Transformer.from_crs("EPSG:4326", distance_crs, always_xy=True)
-    from_crs = Transformer.from_crs(distance_crs, "EPSG:4326", always_xy=True)
-    center = transform(to_crs.transform, Point(longitude, latitude))  # type: ignore
+    to_distance, from_distance = _get_distance_projection(latitude)
+    center = shapely.transform(Point(longitude, latitude), to_distance)
     outer = center.buffer(outer_ground_range)
     footprint = (
         outer.difference(center.buffer(inner_ground_range))
@@ -312,9 +348,37 @@ def compute_radar_footprint(
         else outer
     )
     return project_polygon_to_elevation(
-        split_polygon(transform(from_crs.transform, footprint)),  # type: ignore
+        split_polygon(shapely.transform(footprint, from_distance)),
         elevation,
     )
+
+
+def _unwrap_longitudes(coords: npt.NDArray, longitude: float) -> npt.NDArray:
+    """
+    Shifts the longitudes of a ring's coordinates (shape (N, 2)) by whole
+    turns to within 180 degrees of a longitude (e.g. of a station whose
+    footprint crosses the anti-meridian), so that the ring is continuous
+    for set operations (and can be split along the anti-meridian afterwards,
+    see `split_polygon`), unless the ring encircles a pole (its longitudes
+    then wind a full turn, which `split_polygon` handles as is).
+
+    Args:
+        coords (numpy.typing.NDArray): The ring's coordinates (longitude and
+            latitude, degrees).
+        longitude (float): The longitude (degrees) to unwrap about.
+
+    Returns:
+        numpy.typing.NDArray: the coordinates, unwrapped if possible
+    """
+    shift = 360 * np.round((longitude - coords[:, 0]) / 360)
+    if not np.any(shift):
+        return coords
+    unwrapped = coords[:, 0] + shift
+    steps = np.diff(np.append(unwrapped, unwrapped[0]))
+    if np.abs(np.sum((steps + 180) % 360 - 180)) > 180:
+        # the ring encircles a pole
+        return coords
+    return np.column_stack([unwrapped, coords[:, 1]])
 
 
 def _profile_polygon(
@@ -327,12 +391,19 @@ def _profile_polygon(
     Builds a polygon through the points at sampled ground ranges along
     sampled azimuths from a center point, repairing any self-intersections
     that can arise from zero-width (e.g. fully blocked) azimuth samples.
+    Its longitudes are unwrapped about the center point's (see
+    `_unwrap_longitudes`), so it may extend beyond 180 degrees.
     """
     polygon = Polygon(
-        [
-            geodesic_destination(longitude, latitude, azimuth, ground_range)
-            for azimuth, ground_range in zip(azimuths, ground_ranges)
-        ]
+        _unwrap_longitudes(
+            np.array(
+                [
+                    geodesic_destination(longitude, latitude, azimuth, ground_range)
+                    for azimuth, ground_range in zip(azimuths, ground_ranges)
+                ]
+            ),
+            longitude,
+        )
     )
     if polygon.is_valid:
         return polygon
@@ -361,7 +432,10 @@ def compute_radar_footprint_profile(
     the antenna, governed by the antenna's maximum scan elevation angle
     rather than terrain) or a sampled inner-boundary profile (e.g. for a
     target below the antenna, where the inner bound depends on the lowest
-    usable elevation angle and therefore on terrain).
+    usable elevation angle and therefore on terrain). The footprint is
+    built continuously about the station's longitude (see
+    `_unwrap_longitudes`), and then split along the anti-meridian and poles
+    (see `split_polygon`).
 
     Args:
         longitude (float): Longitude (degrees) of the radar station.
@@ -384,12 +458,11 @@ def compute_radar_footprint_profile(
         inner = _profile_polygon(longitude, latitude, azimuths, inner_ground_range)
         footprint = footprint.difference(inner)
     elif inner_ground_range > 0:
-        distance_crs = f"+proj=eqc +lat_ts={latitude} +datum=WGS84 +units=m"
-        to_crs = Transformer.from_crs("EPSG:4326", distance_crs, always_xy=True)
-        from_crs = Transformer.from_crs(distance_crs, "EPSG:4326", always_xy=True)
-        center = transform(to_crs.transform, Point(longitude, latitude))  # type: ignore
-        inner_circle = transform(
-            from_crs.transform, center.buffer(inner_ground_range)  # type: ignore
+        to_distance, from_distance = _get_distance_projection(latitude)
+        center = shapely.transform(Point(longitude, latitude), to_distance)
+        inner_circle = shapely.transform(
+            center.buffer(inner_ground_range),
+            lambda coords: _unwrap_longitudes(from_distance(coords), longitude),
         )
         footprint = footprint.difference(inner_circle)
     return project_polygon_to_elevation(split_polygon(footprint), elevation)
