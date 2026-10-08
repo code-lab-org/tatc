@@ -23,7 +23,7 @@ from skyfield.framelib import itrs
 from tatc import config, constants
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from tatc.utils.computation import _run
-from tatc.utils.propagation import _find_events
+from tatc.utils.propagation import _complete_passes, _find_events
 
 REPEATING = {"remove_drag": True, "repeat_cycle": "auto"}
 """Options to propagate an orbit maintained on its (found) repeat ground track."""
@@ -2391,3 +2391,85 @@ class TestRemoveDragAndRepeatCycle(unittest.TestCase):
             omm, remove_drag=True, repeat_cycle=timedelta(days=91)
         )
         self.assertEqual(from_omm.get_repeat_cycle(), orbit.get_repeat_cycle())
+
+
+class TestCompletePasses(unittest.TestCase):
+    """
+    Unit tests for `_complete_passes`, with a synthetic elevation angle (less
+    the minimum) that is positive within passes of a half-width `w` about
+    culminations at `c`: `1 - ((t - c) / w)^2`, at the nearest culmination.
+    """
+
+    def setUp(self):
+        self.culminations = np.array([10.0, 20.0])
+        self.width = 1.0
+
+        def excess(x):
+            x = np.asarray(x, dtype=float)
+            yield constants.timescale.tt_jd(x)
+            nearest = self.culminations[
+                np.argmin(np.abs(x[..., None] - self.culminations), axis=-1)
+            ]
+            return 1 - ((x - nearest) / self.width) ** 2
+
+        self.excess = excess
+
+    def complete(self, jd, events, t_0=0.0, t_1=30.0):
+        f_0, f_1 = _run(self.excess(np.array([t_0, t_1])))
+        return _run(
+            _complete_passes(
+                self.excess,
+                np.array(jd, dtype=float),
+                np.array(events),
+                t_0,
+                t_1,
+                f_0,
+                f_1,
+            )
+        )
+
+    def test_complete_passes_unchanged(self):
+        """
+        Test that complete passes are unchanged.
+        """
+        jd, events = self.complete([9, 10, 11, 19, 20, 21], [0, 1, 2, 0, 1, 2])
+        np.testing.assert_array_equal(jd, [9, 10, 11, 19, 20, 21])
+        np.testing.assert_array_equal(events, [0, 1, 2, 0, 1, 2])
+
+    def test_missing_rise(self):
+        """
+        Test that a missing rise (a culmination and set without a rise) is
+        found before the culmination.
+        """
+        jd, events = self.complete([10, 11, 19, 20, 21], [1, 2, 0, 1, 2])
+        np.testing.assert_array_equal(events, [0, 1, 2, 0, 1, 2])
+        self.assertAlmostEqual(jd[0], 9, delta=1e-6)
+
+    def test_missing_set(self):
+        """
+        Test that a missing set (a rise and culmination followed by another
+        rise, or by the end while below the minimum) is found after the
+        culmination.
+        """
+        jd, events = self.complete([9, 10, 19, 20], [0, 1, 0, 1])
+        np.testing.assert_array_equal(events, [0, 1, 2, 0, 1, 2])
+        self.assertAlmostEqual(jd[2], 11, delta=1e-6)
+        self.assertAlmostEqual(jd[5], 21, delta=1e-6)
+
+    def test_lone_culmination(self):
+        """
+        Test that the rise and set of a lone culmination are found.
+        """
+        jd, events = self.complete([10], [1], t_1=15.0)
+        np.testing.assert_array_equal(events, [0, 1, 2])
+        np.testing.assert_allclose(jd, [9, 10, 11], atol=1e-6)
+
+    def test_culmination_below_minimum(self):
+        """
+        Test that a culmination below the minimum, and a set without a
+        culmination above it, are dropped.
+        """
+        self.width = 1e-9  # passes too narrow to reach the minimum at these times
+        jd, events = self.complete([10.5, 11], [1, 2], t_1=15.0)
+        self.assertEqual(len(jd), 0)
+        self.assertEqual(len(events), 0)

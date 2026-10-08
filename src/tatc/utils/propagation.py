@@ -441,12 +441,97 @@ def _find_events(
             stop = crossing_jd[-1] if len(crossing_events) > 0 else t_0.tt
             added.append(((yield from _find_crossing(excess, t_1.tt, stop)), 0))
     added = [(time, code) for time, code in added if time is not None]
-    if len(added) == 0:
-        return constants.timescale.tt_jd(jd), events
-    jd = np.concatenate((jd, [time for time, _ in added]))
-    events = np.concatenate((events, [code for _, code in added]))
-    order = np.argsort(jd, kind="stable")
-    return constants.timescale.tt_jd(jd[order]), events[order]
+    if len(added) > 0:
+        jd = np.concatenate((jd, [time for time, _ in added]))
+        events = np.concatenate((events, [code for _, code in added]))
+        order = np.argsort(jd, kind="stable")
+        jd, events = jd[order], events[order]
+    jd, events = yield from _complete_passes(
+        excess, jd, events, t_0.tt, t_1.tt, f_0, f_1
+    )
+    return constants.timescale.tt_jd(jd), events
+
+
+def _complete_passes(
+    excess: Callable[[npt.NDArray], TimeRequest],
+    jd: npt.NDArray,
+    events: npt.NDArray,
+    t_0: float,
+    t_1: float,
+    f_0: float,
+    f_1: float,
+) -> TimeRequest:
+    """
+    Completes the passes of a sequence of rise (0), culminate (1), and set
+    (2) events, as a computation (see `TimeRequest`).
+
+    Skyfield's `find_events` can miss the rise or set of a grazing pass,
+    whose maximum elevation angle barely exceeds the minimum (reporting, for
+    example, a culmination and a set but no rise). Following the events from
+    the elevation angle at `t_0`, a missing rise (a culmination or set while
+    below the minimum) is found by searching back from the culmination, and
+    a missing set (a rise while above the minimum, or above it at the end
+    but not at `t_1`) by searching forward from the last culmination. A
+    culmination below the minimum, and a set without a culmination above it
+    since the last event, are dropped (no pass reaches the minimum).
+
+    Args:
+        excess (Callable[[numpy.typing.NDArray], TimeRequest]): The
+            computation of the elevation angle less the minimum (degrees)
+            at times (TT Julian dates).
+        jd (numpy.typing.NDArray): The event times (TT Julian dates), in order.
+        events (numpy.typing.NDArray): The event codes.
+        t_0 (float): The start time (TT Julian date).
+        t_1 (float): The end time (TT Julian date).
+        f_0 (float): The elevation angle less the minimum at `t_0`.
+        f_1 (float): The elevation angle less the minimum at `t_1`.
+
+    Returns:
+        TimeRequest: the computation of the completed event times and codes
+            (tuple[numpy.typing.NDArray, numpy.typing.NDArray])
+    """
+    culminations = np.flatnonzero(events == 1)
+    f_culminations = dict(
+        zip(culminations, (yield from excess(jd[culminations])))
+        if len(culminations) > 0
+        else []
+    )
+    out = []
+    above = f_0 >= 0
+    # the last rise or set (or t_0), and the last culmination since then
+    last_crossing, last_culmination = t_0, None
+    for i, (time, code) in enumerate(zip(jd, events)):
+        if code == 1:
+            if f_culminations[i] < 0:
+                continue
+            if not above:
+                rise = yield from _find_crossing(excess, time, last_crossing)
+                if rise is not None:
+                    out.append((rise, 0))
+                    last_crossing = rise
+                above = True
+            last_culmination = time
+            out.append((time, code))
+            continue
+        if code == 0 and above and last_culmination is not None:
+            missed = yield from _find_crossing(excess, last_culmination, time)
+            if missed is not None:
+                out.append((missed, 2))
+        if code == 2 and not above:
+            # no culmination above the minimum since the last event
+            continue
+        above, last_crossing, last_culmination = code == 0, time, None
+        out.append((time, code))
+    if above and f_1 < 0 and last_culmination is not None:
+        missed = yield from _find_crossing(excess, last_culmination, t_1)
+        if missed is not None:
+            out.append((missed, 2))
+    if len(out) == len(jd) and all(time == t for (time, _), t in zip(out, jd)):
+        return jd, events
+    return (
+        np.array([time for time, _ in out], dtype=float),
+        np.array([code for _, code in out], dtype=int),
+    )
 
 
 class _RepeatTrack:
