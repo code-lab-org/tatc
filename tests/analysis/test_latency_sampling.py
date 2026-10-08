@@ -559,3 +559,27 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         self.assertAlmostEqual(
             result.iloc[0].latency.total_seconds(), expected_latency, places=6
         )
+
+
+class TestDownlinksOfSatellites(IssConstellationTestCase):
+    """
+    Unit tests for the downlinks of several satellites.
+    """
+
+    def test_satellites_equal_each_satellite(self):
+        """
+        Test that the downlinks of several satellites, computed together,
+        equal those of each satellite, concatenated and sorted by start.
+        """
+        station = GroundStation(name="Wallops", latitude=37.9, longitude=-75.5)
+        members = self.constellation.generate_members()
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        end = start + timedelta(days=1)
+        downlinks = collect_downlinks(station, members, start, end)
+        expected = (
+            pd.concat([collect_downlinks(station, m, start, end) for m in members])
+            .sort_values("start")
+            .reset_index(drop=True)
+        )
+        self.assertGreater(len(downlinks.index), 0)
+        pd.testing.assert_frame_equal(downlinks, expected)

@@ -25,7 +25,7 @@ from ..utils.ellipsoid import (
     rectangular_to_geodetic,
 )
 from ..utils.orbital import compute_vnb_frame
-from .check import _check_satellite
+from .check import _check_satellites
 
 
 class ScanDirection(str, Enum):
@@ -309,7 +309,7 @@ def _get_empty_limb_frame() -> gpd.GeoDataFrame:
 
 
 def collect_limb_observations(
-    satellite: Satellite,
+    satellites: Satellite | list[Satellite],
     times: list[datetime],
     scan_azimuth: float,
     scan_elevations: list[float],
@@ -327,7 +327,9 @@ def collect_limb_observations(
     for details.
 
     Args:
-        satellite (Satellite): the satellite carrying the limb-sounding instrument.
+        satellites (Satellite | list[Satellite]): the satellite(s) carrying the
+            limb-sounding instrument, each scanning at every time (results
+            are concatenated and sorted by time).
         times (list[datetime.datetime]): the start time of each vertical scan.
         scan_azimuth (float): the sensor's fixed viewing azimuth (deg),
             relative to the satellite's velocity direction, measured in
@@ -360,7 +362,7 @@ def collect_limb_observations(
             each scan. Defaults to the midpoint of `scan_elevations`
             (`(min + max) / 2`) when `None`.
     """
-    _check_satellite(satellite)
+    satellites = _check_satellites(satellites)
     if scan_direction is None:
         scan_direction = _default_scan_direction(scan_azimuth)
     scan_elevations = sorted(
@@ -369,9 +371,10 @@ def collect_limb_observations(
     if sample_elevation is None:
         sample_elevation = (min(scan_elevations) + max(scan_elevations)) / 2
 
-    # sample all scans together
+    # sample all scans of each satellite together
     scans = [
-        points
+        (satellite.name, points)
+        for satellite in satellites
         for points in _sample_limb_scans(
             satellite, times, scan_azimuth, scan_elevations, scan_duration
         )
@@ -383,16 +386,16 @@ def collect_limb_observations(
     geometry = shapely.multipoints(
         [
             [point["longitude"], point["latitude"], point["elevation"]]
-            for scan in scans
+            for _, scan in scans
             for point in scan
         ],
-        indices=np.repeat(np.arange(len(scans)), [len(scan) for scan in scans]),
+        indices=np.repeat(np.arange(len(scans)), [len(scan) for _, scan in scans]),
     )
     # format results
     return gpd.GeoDataFrame(
         [
             {
-                "satellite": satellite.name,
+                "satellite": name,
                 "geometry": points,
                 "position": Point(
                     sample["longitude"], sample["latitude"], sample["elevation"]
@@ -401,8 +404,8 @@ def collect_limb_observations(
                 "end": scan[-1]["time"],
                 "time": sample["time"],
             }
-            for scan, points in zip(scans, geometry)
+            for (name, scan), points in zip(scans, geometry)
             for sample in [_interpolate_limb_point(scan, sample_elevation)]
         ],
         crs="EPSG:4326",
-    ).sort_values("time", ignore_index=True)
+    ).sort_values("time", kind="stable", ignore_index=True)

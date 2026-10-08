@@ -15,9 +15,10 @@ import pandas as pd
 from shapely import geometry as geo
 
 from ..schemas import GroundStation, Satellite
-from .check import _check_satellite
+from ..utils.propagation import _run_together
+from .check import _check_satellites
 from .coverage_metrics import _get_target_keys
-from .point_sampling import compute_access_periods
+from .point_sampling import _compute_access_periods
 
 
 def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
@@ -40,23 +41,36 @@ def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
 
 def collect_downlinks(
     stations: GroundStation | list[GroundStation],
-    satellite: Satellite,
+    satellites: Satellite | list[Satellite],
     start: datetime,
     end: datetime,
 ) -> gpd.GeoDataFrame:
     """
-    Collect satellite downlink opportunities to ground station(s) of interest.
+    Collect satellite downlink opportunities to ground station(s) of
+    interest. The access periods of every station and satellite are
+    computed together (see `tatc.utils.propagation._run_together`).
 
     Args:
         stations (GroundStation | list[GroundStation]): The ground stations.
-        satellite (Satellite): The observing satellite.
+        satellites (Satellite | list[Satellite]): The observing satellite(s).
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame of collected downlink results.
+        geopandas.GeoDataFrame: The data frame of collected downlink results,
+            sorted by start time.
     """
-    _check_satellite(satellite)
+    satellites = _check_satellites(satellites)
+    stations = [stations] if isinstance(stations, GroundStation) else stations
+    pairs = [(station, satellite) for satellite in satellites for station in stations]
+    access_periods = _run_together(
+        [
+            _compute_access_periods(
+                station, satellite, start, end, station.min_elevation_angle
+            )
+            for station, satellite in pairs
+        ]
+    )
     # collect the records of ground station overpasses
     records = [
         {
@@ -69,10 +83,8 @@ def collect_downlinks(
             "end": period.right,
             "epoch": period.mid,
         }
-        for station in ([stations] if isinstance(stations, GroundStation) else stations)
-        for period in compute_access_periods(
-            station, satellite, start, end, station.min_elevation_angle
-        )
+        for (station, satellite), periods in zip(pairs, access_periods)
+        for period in periods
         if (station.min_access_time <= period.right - period.left)
     ]
     # build the dataframe

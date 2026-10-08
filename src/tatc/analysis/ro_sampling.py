@@ -21,8 +21,8 @@ from ..constants import timescale
 from ..schemas import Satellite
 from ..utils.ellipsoid import _ellipsoidal_tangent_point, _itrs_rotation
 from ..utils.orbital import compute_vnb_frame
-from ..utils.propagation import _index_orbit_track
-from .check import _check_satellite, _check_satellites
+from ..utils.propagation import _index_orbit_track, _index_time
+from .check import _check_satellites
 
 
 def _tangent_point_geometry(
@@ -78,28 +78,76 @@ def _tangent_point_geometry(
     return tp_p, tp_sign, rx_tx_pitch, rx_tx_yaw
 
 
+def _get_receiver_tracks(
+    receivers: list[Satellite],
+    pairs: list[tuple[int, int]],
+    t: Time,
+    parts: list[tuple[int, np.ndarray | None]],
+) -> dict[int, tuple[Geocentric, np.ndarray]]:
+    """
+    Propagates each receiver once for all the times of its pairs' parts of
+    Skyfield times `t` (see `_get_ro_validity`).
+
+    Returns:
+        dict[int, tuple[skyfield.positionlib.Geocentric, numpy.ndarray]]: the
+            orbit track of each receiver (by index) and the position in it
+            of each of the times in `t`.
+    """
+    size = len(t.tt)
+    indices: dict[int, list[np.ndarray]] = {}
+    for p, index in parts:
+        indices.setdefault(pairs[p][0], []).append(
+            np.arange(size) if index is None else index
+        )
+    tracks = {}
+    for r, index_list in indices.items():
+        union = np.unique(np.concatenate(index_list))
+        orbit = receivers[r].orbit.to_gp_orbit()
+        if len(union) == size:
+            tracks[r] = (orbit.get_orbit_track_at_time(t), np.arange(size))
+        else:
+            position = np.zeros(size, dtype=int)
+            position[union] = np.arange(len(union))
+            tracks[r] = (orbit.get_orbit_track_at_time(_index_time(t, union)), position)
+    return tracks
+
+
 def _get_ro_validity(
+    receivers: list[Satellite],
     transmitters: list[Satellite],
-    receiver: Satellite,
+    pairs: list[tuple[int, int]],
     t: Time,
     parts: list[tuple[int, np.ndarray | None]],
     max_yaw: float,
 ) -> list[np.ndarray]:
     """
-    Evaluates whether each of several transmitters' tangent points intersect
-    the Earth with the transmitter yaw within bounds (1 if so, 0 otherwise),
-    each at its own part of Skyfield times `t`: (transmitter index, index of
-    its times in `t`, or None for all of `t`). The receiver is propagated
-    once for all of `t`, and the parts share the Earth orientation
-    quantities cached on `t` (see `tatc.utils.propagation._index_time`).
+    Evaluates whether the tangent points of several receiver-transmitter
+    pairs (receiver and transmitter indices) intersect the Earth with the
+    transmitter yaw within bounds (1 if so, 0 otherwise), each at its own
+    part of Skyfield times `t`: (pair index, index of its times in `t`, or
+    None for all of `t`). Each receiver is propagated once for all of its
+    parts' times, and each transmitter once for its parts of all of `t`; the
+    parts share the Earth orientation quantities cached on `t` (see
+    `tatc.utils.propagation._index_time`).
     """
     # receiver and transmitter positions are compared directly in the
     # inertial frame, in which repeat tracks are expressed at the true time
-    rx_track = receiver.orbit.to_gp_orbit().get_orbit_track_at_time(t)
+    rx_tracks = _get_receiver_tracks(receivers, pairs, t, parts)
+    tx_tracks: dict[int, Geocentric] = {}
     values = []
-    for k, index in parts:
-        rx_pv = rx_track if index is None else _index_orbit_track(rx_track, index)
-        tx_pv = transmitters[k].orbit.to_gp_orbit().get_orbit_track_at_time(rx_pv.t)
+    for p, index in parts:
+        r, k = pairs[p]
+        rx_track, position = rx_tracks[r]
+        if index is None:
+            rx_pv = rx_track
+            if k not in tx_tracks:
+                tx_tracks[k] = (
+                    transmitters[k].orbit.to_gp_orbit().get_orbit_track_at_time(t)
+                )
+            tx_pv = tx_tracks[k]
+        else:
+            rx_pv = _index_orbit_track(rx_track, position[index])
+            tx_pv = transmitters[k].orbit.to_gp_orbit().get_orbit_track_at_time(rx_pv.t)
         rx_v_u, rx_n_u, rx_b_u = compute_vnb_frame(rx_pv)
         _, tp_sign, _, rx_tx_yaw = _tangent_point_geometry(
             tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u
@@ -113,29 +161,32 @@ def _get_ro_validity(
 
 
 def _find_ro_arcs(
+    receivers: list[Satellite],
     transmitters: list[Satellite],
-    receiver: Satellite,
     start: datetime,
     end: datetime,
     max_yaw: float,
     step_days: float,
     epsilon: float = 1e-3 / 86400,
     num: int = 12,
-) -> list[tuple[int, datetime, datetime]]:
+) -> list[tuple[int, int, datetime, datetime]]:
     """
-    Finds the arcs (periods) when each transmitter's RO observation is valid
-    (see `_get_ro_validity`) as by Skyfield's `find_discrete` for each
-    transmitter (sampled at most `step_days` apart, and refined by dividing
-    the brackets of each change of validity into `num` samples until they
-    are at most `epsilon` days long), but for all transmitters together:
-    they share the initial samples, and the refined samples of all
-    transmitters are evaluated together at each step.
+    Finds the arcs (periods) when each receiver-transmitter pair's RO
+    observation is valid (see `_get_ro_validity`) as by Skyfield's
+    `find_discrete` for each pair (sampled at most `step_days` apart, and
+    refined by dividing the brackets of each change of validity into `num`
+    samples until they are at most `epsilon` days long), but for all pairs
+    together: they share the initial samples (at which each receiver and
+    transmitter is propagated once), and the refined samples of all pairs
+    are evaluated together at each step.
 
     Returns:
-        list[tuple[int, datetime, datetime]]: each arc's transmitter index,
-            start, and end, by transmitter and in time order.
+        list[tuple[int, int, datetime, datetime]]: each arc's receiver and
+            transmitter indices, start, and end, by receiver, transmitter,
+            and in time order.
     """
-    if len(transmitters) == 0:
+    pairs = [(r, k) for r in range(len(receivers)) for k in range(len(transmitters))]
+    if len(pairs) == 0:
         return []
     t_start, t_end = timescale.from_datetime(start), timescale.from_datetime(end)
     jd0, jd1 = t_start.tt, t_end.tt
@@ -143,19 +194,24 @@ def _find_ro_arcs(
         raise ValueError(
             f"your start_time {t_start} is later than your end_time {t_end}"
         )
-    everything = [(k, None) for k in range(len(transmitters))]
+    everything = [(p, None) for p in range(len(pairs))]
     # validity at the start of the first segment, from the start time itself
     initial = _get_ro_validity(
-        transmitters, receiver, timescale.from_datetimes([start]), everything, max_yaw
+        receivers,
+        transmitters,
+        pairs,
+        timescale.from_datetimes([start]),
+        everything,
+        max_yaw,
     )
-    # initial samples (with at least the end points), shared by all transmitters
+    # initial samples (with at least the end points), shared by all pairs
     jd = np.linspace(jd0, jd1, int((jd1 - jd0) / step_days) + 2)
-    samples = dict.fromkeys(range(len(transmitters)), jd)
+    samples = dict.fromkeys(range(len(pairs)), jd)
     values = dict(
         zip(
             samples,
             _get_ro_validity(
-                transmitters, receiver, timescale.tt_jd(jd), everything, max_yaw
+                receivers, transmitters, pairs, timescale.tt_jd(jd), everything, max_yaw
             ),
         )
     )
@@ -163,13 +219,13 @@ def _find_ro_arcs(
     start_mask = end_mask[::-1]
     transitions = {}
     while len(samples) > 0:
-        for k in list(samples):
-            jd, y = samples[k], values[k]
+        for p in list(samples):
+            jd, y = samples[p], values[p]
             indices = np.flatnonzero(np.diff(y))
             if len(indices) == 0:
                 # no change of validity
-                transitions[k] = (jd[indices], y[indices])
-                del samples[k]
+                transitions[p] = (jd[indices], y[indices])
+                del samples[p]
                 continue
             starts, ends = jd[indices], jd[indices + 1]
             # brackets narrow at the same rate (from equal initial intervals),
@@ -177,26 +233,27 @@ def _find_ro_arcs(
             if ends[0] - starts[0] <= epsilon:
                 # keep only the last of changes less than epsilon apart
                 mask = np.concatenate((np.diff(ends) > 3.0 * epsilon, [True]))
-                transitions[k] = (ends[mask], y[indices + 1][mask])
-                del samples[k]
+                transitions[p] = (ends[mask], y[indices + 1][mask])
+                del samples[p]
                 continue
-            samples[k] = (
+            samples[p] = (
                 np.multiply.outer(starts, start_mask).flatten()
                 + np.multiply.outer(ends, end_mask).flatten()
             )
         if len(samples) > 0:
-            # evaluate the refined samples of all transmitters together
+            # evaluate the refined samples of all pairs together
             bounds = np.cumsum([0] + [len(jd) for jd in samples.values()])
             values = dict(
                 zip(
                     samples,
                     _get_ro_validity(
+                        receivers,
                         transmitters,
-                        receiver,
+                        pairs,
                         timescale.tt_jd(np.concatenate(list(samples.values()))),
                         [
-                            (k, np.arange(bounds[i], bounds[i + 1]))
-                            for i, k in enumerate(samples)
+                            (p, np.arange(bounds[i], bounds[i + 1]))
+                            for i, p in enumerate(samples)
                         ],
                         max_yaw,
                     ),
@@ -204,14 +261,14 @@ def _find_ro_arcs(
             )
     # times of all changes of validity, converted together
     order = sorted(transitions)
-    counts = np.cumsum([0] + [len(transitions[k][0]) for k in order])
+    counts = np.cumsum([0] + [len(transitions[p][0]) for p in order])
     utc = np.atleast_1d(
         timescale.tt_jd(
-            np.concatenate([transitions[k][0] for k in order] + [np.array([])])
+            np.concatenate([transitions[p][0] for p in order] + [np.array([])])
         ).utc_datetime()
     )
     arcs = []
-    for i, k in enumerate(order):
+    for i, p in enumerate(order):
         # boundary times delimiting N+1 alternating valid/invalid segments (N
         # = number of transitions); each segment's validity is the value that
         # becomes active at its start (the initial validity for the first
@@ -219,12 +276,12 @@ def _find_ro_arcs(
         # boundary time (`end`) is a pure endpoint with no segment-start
         # value of its own
         boundary_times = [start] + list(utc[counts[i] : counts[i + 1]]) + [end]
-        boundary_values = [bool(initial[k][0])] + [
-            bool(value) for value in transitions[k][1]
+        boundary_values = [bool(initial[p][0])] + [
+            bool(value) for value in transitions[p][1]
         ]
         # keep only the segments where validity holds
         arcs.extend(
-            (k, boundary_times[j], boundary_times[j + 1])
+            (*pairs[p], boundary_times[j], boundary_times[j + 1])
             for j in range(len(boundary_times) - 1)
             if boundary_values[j] and boundary_times[j + 1] > boundary_times[j]
         )
@@ -262,15 +319,16 @@ def _tangent_point_tx_azimuth(
 
 
 def _sample_ro_arcs(
+    receivers: list[Satellite],
     transmitters: list[Satellite],
-    receiver: Satellite,
-    arcs: list[tuple[int, datetime, datetime]],
+    arcs: list[tuple[int, int, datetime, datetime]],
     time_step: timedelta,
     range_elevation: tuple[float, float],
 ) -> list[dict]:
     """
     Samples tangent point observations across valid RO arcs (see
-    `_find_ro_arcs`: each with its transmitter index, start, and end),
+    `_find_ro_arcs`: each with its receiver and transmitter indices, start,
+    and end),
     splitting each into one or more observations if the tangent point
     elevation leaves the specified range. The samples of all arcs are
     computed together.
@@ -279,7 +337,7 @@ def _sample_ro_arcs(
         return []
     # sample each arc at (at most) the specified time step, including both endpoints
     arc_times = []
-    for _, arc_start, arc_end in arcs:
+    for _, _, arc_start, arc_end in arcs:
         steps = max(int(np.ceil((arc_end - arc_start) / time_step)), 1)
         arc_times.append(
             [arc_start + i * (arc_end - arc_start) / steps for i in range(steps + 1)]
@@ -287,21 +345,32 @@ def _sample_ro_arcs(
     bounds = np.cumsum([0] + [len(times) for times in arc_times])
     t = timescale.from_datetimes(list(chain.from_iterable(arc_times)))
 
-    rx_track = receiver.orbit.to_gp_orbit().get_orbit_track_at_time(t)
     tp_p = np.empty((3, bounds[-1]))
     tx_p = np.empty((3, bounds[-1]))
     rx_tx_pitch = np.empty(bounds[-1])
     rx_tx_yaw = np.empty(bounds[-1])
-    for k in sorted(set(k for k, _, _ in arcs)):
-        # the samples of the arcs of each transmitter
-        index = np.concatenate(
+
+    def samples(selected: set[tuple[int, int]]) -> np.ndarray:
+        # the samples of the arcs of the selected pairs
+        return np.concatenate(
             [
                 np.arange(bounds[i], bounds[i + 1])
-                for i, (arc_k, _, _) in enumerate(arcs)
-                if arc_k == k
+                for i, (r, k, _, _) in enumerate(arcs)
+                if (r, k) in selected
             ]
         )
-        rx_pv = _index_orbit_track(rx_track, index)
+
+    pairs = sorted(set((r, k) for r, k, _, _ in arcs))
+    rx_tracks = _get_receiver_tracks(
+        receivers,
+        pairs,
+        t,
+        [(i, samples({pair})) for i, pair in enumerate(pairs)],
+    )
+    for r, k in pairs:
+        index = samples({(r, k)})
+        rx_track, position = rx_tracks[r]
+        rx_pv = _index_orbit_track(rx_track, position[index])
         rx_v_u, rx_n_u, rx_b_u = compute_vnb_frame(rx_pv)
         tx_pv = transmitters[k].orbit.to_gp_orbit().get_orbit_track_at_time(rx_pv.t)
         tp_p[:, index], _, rx_tx_pitch[index], rx_tx_yaw[index] = (
@@ -323,7 +392,7 @@ def _sample_ro_arcs(
 
     # occultation observations
     occ_obs = []
-    for (k, _, _), times, offset in zip(arcs, arc_times, bounds):
+    for (r, k, _, _), times, offset in zip(arcs, arc_times, bounds):
         # occultation arc
         occ_arc = None
         for j, time in enumerate(times, start=offset):
@@ -341,6 +410,7 @@ def _sample_ro_arcs(
                     # definition -- the sign of the tangent point's own
                     # elevation rate -- using this arc's first sample only.
                     occ_arc = {
+                        "rx": receivers[r].name,
                         "tx": transmitters[k].name,
                         "is_rising": rx_tx_pitch[j] > -90,
                         "points": [],
@@ -437,7 +507,7 @@ def _get_empty_ro_frame() -> gpd.GeoDataFrame:
 
 
 def collect_ro_observations(
-    receiver: Satellite,
+    receivers: Satellite | list[Satellite],
     transmitters: Satellite | list[Satellite],
     start: datetime,
     end: datetime,
@@ -460,7 +530,7 @@ def collect_ro_observations(
     for details.
 
     Args:
-        receiver (Satellite): the satellite with a RO receiver.
+        receivers (Satellite | list[Satellite]): the satellite(s) with a RO receiver.
         transmitters (Satellite | list[Satellite]]): the satellite(s) with a RO transmitter.
         start (datetime.datetime): the start of the analysis period.
         end (datetime.datetime): the end of the analysis period.
@@ -478,18 +548,18 @@ def collect_ro_observations(
             no larger than the shortest profile you expect; a smaller value costs more
             computation but guards against silently skipping brief observation periods.
     """
-    _check_satellite(receiver, "receiver")
+    receivers = _check_satellites(receivers, "receivers")
     transmitters = _check_satellites(transmitters, "transmitters")
-    # find the valid observation periods of all transmitters together,
-    # scanning at half the shortest profile duration we must not skip
+    # find the valid observation periods of all receivers and transmitters
+    # together, scanning at half the shortest profile duration we must not skip
     # (decoupled from time_step so long mission durations don't blow up the
     # coarse scan), and sample them together
     obs = _sample_ro_arcs(
+        receivers,
         transmitters,
-        receiver,
         _find_ro_arcs(
+            receivers,
             transmitters,
-            receiver,
             start,
             end,
             max_yaw,
@@ -504,7 +574,7 @@ def collect_ro_observations(
     return gpd.GeoDataFrame(
         [
             {
-                "receiver": receiver.name,
+                "receiver": o["rx"],
                 "transmitter": o["tx"],
                 "is_rising": o["is_rising"],
                 "geometry": MultiPoint(

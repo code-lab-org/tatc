@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 from shapely.geometry import MultiPolygon, Point as ShapelyPoint, Polygon, box
 from skyfield.api import wgs84
 
@@ -647,3 +648,44 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
         self.assertEqual(
             sorted(masked.time), sorted(t + 6 * repeat_cycle for t in first.time)
         )
+
+
+class TestGroundTrackOfSatellites(IssConstellationTestCase):
+    """
+    Unit tests for the ground tracks and pixels of several satellites.
+    """
+
+    def test_satellites_equal_each_satellite(self):
+        """
+        Test that the ground track and ground pixels of several satellites
+        equal those of each satellite, concatenated and sorted by time, with
+        and without a mask.
+        """
+        instrument = PointedInstrument(
+            name="Pixels",
+            cross_track_field_of_view=10.0,
+            along_track_field_of_view=10.0,
+            is_rectangular=True,
+            cross_track_pixels=3,
+            along_track_pixels=3,
+        )
+        members = [
+            member.model_copy(update={"instruments": [instrument]})
+            for member in self.constellation.generate_members()
+        ]
+        times = [
+            datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=2 * i)
+            for i in range(30)
+        ]
+        mask = box(-90, -45, 90, 45)
+        for collect in (collect_ground_track, collect_ground_pixels):
+            for region in (None, mask):
+                with self.subTest(collect=collect.__name__, mask=region is not None):
+                    expected = (
+                        pd.concat([collect(m, times, mask=region) for m in members])
+                        .sort_values("time", kind="stable")
+                        .reset_index(drop=True)
+                    )
+                    pd.testing.assert_frame_equal(
+                        collect(members, times, mask=region), expected
+                    )

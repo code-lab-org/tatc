@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
+import pandas as pd
 from shapely.geometry import MultiPoint
 from shapely.geometry import Point as ShapelyPoint
 from skyfield.positionlib import Geocentric
@@ -20,7 +21,12 @@ from tatc.analysis.ro_sampling import (
     _tangent_point_geometry,
 )
 from tatc.constants import timescale
-from tatc.schemas import GeneralPerturbationsOrbit, Instrument, Satellite
+from tatc.schemas import (
+    CircularOrbit,
+    GeneralPerturbationsOrbit,
+    Instrument,
+    Satellite,
+)
 from tatc.utils import compute_vnb_frame
 from tatc.utils.ellipsoid import _itrs_rotation, rectangular_to_geodetic
 
@@ -412,14 +418,74 @@ class TestCollectRoObservations(unittest.TestCase):
         observation can end is by reaching the last sample.
         """
         observations = _sample_ro_arcs(
+            [self.receiver],
             [self.transmitter],
-            self.receiver,
-            [(0, self.start, self.start + timedelta(minutes=5))],
+            [(0, 0, self.start, self.start + timedelta(minutes=5))],
             timedelta(seconds=30),
             (-1e9, 1e9),
         )
         self.assertEqual(len(observations), 1)
         self.assertEqual(len(observations[0]["points"]), 11)
+
+
+class TestRoObservationsOfReceivers(unittest.TestCase):
+    """
+    Unit tests for the RO observations of several receivers.
+    """
+
+    def test_receivers_equal_each_receiver(self):
+        """
+        Test that the RO observations of several receivers, computed
+        together, equal those of each receiver (matched by receiver,
+        transmitter, and start).
+        """
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        end = start + timedelta(hours=6)
+        receivers = [
+            Satellite(
+                name=f"RX{i}",
+                orbit=CircularOrbit(
+                    altitude=520e3,
+                    inclination=24,
+                    right_ascension_ascending_node=90 * i,
+                    epoch=start,
+                ),
+                instruments=[Instrument(name="RO Receiver")],
+            )
+            for i in range(2)
+        ]
+        transmitters = [
+            Satellite(
+                name=f"TX{i}",
+                orbit=CircularOrbit(
+                    altitude=20200e3,
+                    inclination=55,
+                    right_ascension_ascending_node=60 * i,
+                    epoch=start,
+                ),
+                instruments=[Instrument(name="RO Transmitter")],
+            )
+            for i in range(3)
+        ]
+        key = ["receiver", "transmitter", "start"]
+        observations = (
+            collect_ro_observations(receivers, transmitters, start, end)
+            .sort_values(key)
+            .reset_index(drop=True)
+        )
+        expected = (
+            pd.concat(
+                [
+                    collect_ro_observations(receiver, transmitters, start, end)
+                    for receiver in receivers
+                ]
+            )
+            .sort_values(key)
+            .reset_index(drop=True)
+        )
+        self.assertGreater(len(observations.index), 0)
+        self.assertEqual(set(observations.receiver), {"RX0", "RX1"})
+        pd.testing.assert_frame_equal(observations, expected)
 
 
 if __name__ == "__main__":

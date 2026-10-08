@@ -17,12 +17,13 @@ from shapely.geometry import MultiPolygon, Polygon
 from skyfield.api import wgs84
 from skyfield.framelib import itrs
 from skyfield.functions import angle_between
+from skyfield.timelib import Time
 
 from ..constants import de421
 from ..schemas import AllInstruments, ConicalInstrument, Satellite
 from ..utils.observation import field_of_regard_to_swath_width
-from ..utils.propagation import _index_orbit_track
-from .check import _check_satellite
+from ..utils.propagation import _index_orbit_track, _to_time
+from .check import _check_satellites
 
 
 def _swath_width(
@@ -85,9 +86,9 @@ class OrbitOutput(str, Enum):
 
 
 def collect_orbit_track(
-    satellite: Satellite,
+    satellites: Satellite | list[Satellite],
     times: list[datetime],
-    instrument_index: int = 0,
+    instrument_index: int | None = 0,
     elevation: float = 0,
     mask: Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries | None = None,
     coordinates: OrbitCoordinate = OrbitCoordinate.WGS84,
@@ -97,15 +98,17 @@ def collect_orbit_track(
     solar_beta: bool = False,
 ) -> gpd.GeoDataFrame:
     """
-    Collect the satellite's own position (and, optionally, velocity) at each
-    requested time, in a specified coordinate frame. Note this reports the
-    satellite's location, not the zero-elevation ground point beneath it; use
-    `collect_ground_track` for footprint/ground-projected results.
+    Collect the satellites' own positions (and, optionally, velocities) at
+    each requested time, in a specified coordinate frame. Note this reports
+    the satellite's location, not the zero-elevation ground point beneath it;
+    use `collect_ground_track` for footprint/ground-projected results.
 
     Args:
-        satellite (Satellite): The observing satellite.
+        satellites (Satellite | list[Satellite]): The observing satellite(s).
         times (typing.List[datetime.datetime]): The list of times to sample.
-        instrument_index (int): The index of the observing instrument in satellite.
+        instrument_index (int | None): The index of the observing instrument
+                in each satellite, or `None` for every instrument of each
+                satellite.
         elevation (float): The elevation (meters) above the WGS 84 datum for
                 which to project the instrument's field of regard into a
                 swath width (`swath_width` output column). Does not affect
@@ -133,15 +136,65 @@ def collect_orbit_track(
         solar_beta (bool): `True` to include solar beta angles.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame of collected orbit track results.
+        geopandas.GeoDataFrame: The data frame of collected orbit track
+            results: for a single satellite and instrument (an integer
+            `instrument_index`), in the order of `times`; otherwise, those of
+            each satellite and instrument, concatenated and sorted by time.
     """
-    _check_satellite(satellite)
+    single = not isinstance(satellites, list) and instrument_index is not None
+    satellites = _check_satellites(satellites)
     if len(times) == 0:
         return _get_empty_orbit_track()
+    # the times, shared by every satellite (with their Earth orientation)
+    t = _to_time(times)
+    tracks = [
+        _collect_orbit_track(
+            satellite,
+            t,
+            index,
+            elevation,
+            mask,
+            coordinates,
+            orbit_output,
+            sat_sunlit,
+            solar_altaz,
+            solar_beta,
+        )
+        for satellite in satellites
+        for index in (
+            range(len(satellite.instruments))
+            if instrument_index is None
+            else [instrument_index]
+        )
+    ]
+    if single:
+        return tracks[0]
+    if len(tracks) == 0:
+        return _get_empty_orbit_track()
+    # concatenate into one data frame, sort by time, and re-index
+    return pd.concat(tracks).sort_values("time", kind="stable").reset_index(drop=True)
+
+
+def _collect_orbit_track(
+    satellite: Satellite,
+    t: Time,
+    instrument_index: int,
+    elevation: float,
+    mask: Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries | None,
+    coordinates: OrbitCoordinate,
+    orbit_output: OrbitOutput,
+    sat_sunlit: bool,
+    solar_altaz: bool,
+    solar_beta: bool,
+) -> gpd.GeoDataFrame:
+    """
+    Collect a satellite's own position at Skyfield times (see
+    `collect_orbit_track`).
+    """
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
     # propagate orbit
-    orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(times)
+    orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track_at_time(t)
     # geodetic (WGS84) position of the satellite itself (not the zero-elevation
     # subpoint below it -- elevation here is the satellite's own altitude)
     sat_pos = wgs84.geographic_position_of(orbit_track)

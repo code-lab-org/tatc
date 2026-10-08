@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
+import pandas as pd
 from shapely.geometry import MultiPoint
 from shapely.geometry import Point as ShapelyPoint
 from skyfield.api import wgs84
@@ -615,6 +616,41 @@ class TestCollectLimbObservations(IssConstellationTestCase):
         for geometry in results.geometry:
             elevations = [point.z for point in geometry.geoms]
             self.assertEqual(elevations, sorted(elevations, reverse=True))
+
+
+class TestLimbObservationsOfSatellites(IssConstellationTestCase):
+    """
+    Unit tests for the limb observations of several satellites.
+    """
+
+    def test_satellites_equal_each_satellite(self):
+        """
+        Test that the limb observations of several satellites equal those of
+        each satellite, concatenated and sorted by time.
+        """
+        members = self.constellation.generate_members()
+        times = [
+            datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(seconds=30 * i)
+            for i in range(20)
+        ]
+        elevations = list(np.linspace(0, 90e3, 10))
+        observations = collect_limb_observations(
+            members, times, 0, elevations, timedelta(seconds=20)
+        )
+        expected = (
+            pd.concat(
+                [
+                    collect_limb_observations(
+                        m, times, 0, elevations, timedelta(seconds=20)
+                    )
+                    for m in members
+                ]
+            )
+            .sort_values("time", kind="stable")
+            .reset_index(drop=True)
+        )
+        self.assertEqual(len(observations.index), len(members) * len(times))
+        pd.testing.assert_frame_equal(observations, expected)
 
 
 if __name__ == "__main__":

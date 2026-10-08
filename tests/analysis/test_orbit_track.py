@@ -7,6 +7,7 @@ Unit tests for the orbit track analysis functions.
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
+import pandas as pd
 from pyproj import Transformer
 from shapely.geometry import Polygon
 
@@ -357,3 +358,45 @@ class TestOrbitTrackAnalysis(IssConstellationTestCase):
         for solar_beta in results.solar_beta:
             self.assertGreaterEqual(solar_beta, -90.0)
             self.assertLessEqual(solar_beta, 90.0)
+
+
+class TestOrbitTrackOfSatellites(IssConstellationTestCase):
+    """
+    Unit tests for the orbit tracks of several satellites and instruments.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.times = [
+            datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
+            for i in range(30)
+        ]
+
+    def test_satellites_equal_each_satellite(self):
+        """
+        Test that the orbit track of several satellites equals that of each
+        satellite, concatenated and sorted by time.
+        """
+        members = self.constellation.generate_members()
+        expected = (
+            pd.concat([collect_orbit_track(m, self.times) for m in members])
+            .sort_values("time", kind="stable")
+            .reset_index(drop=True)
+        )
+        pd.testing.assert_frame_equal(
+            collect_orbit_track(members, self.times), expected
+        )
+
+    def test_every_instrument(self):
+        """
+        Test that the orbit track of every instrument (`instrument_index=None`)
+        has a row for each instrument at each time.
+        """
+        other = self.instrument.model_copy(update={"name": "Other"})
+        satellite = self.satellite.model_copy(
+            update={"instruments": [self.instrument, other]}
+        )
+        track = collect_orbit_track(satellite, self.times, None)
+        self.assertEqual(len(track.index), 2 * len(self.times))
+        self.assertEqual(set(track.instrument), {"Test", "Other"})
+        self.assertTrue(track.time.is_monotonic_increasing)

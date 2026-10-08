@@ -329,7 +329,8 @@ def _index_time(t: Time, index: npt.ArrayLike) -> Time:
     precession-nutation matrix: Skyfield caches these costly per-instant
     quantities (used to convert between the inertial and Earth-fixed
     frames) on a `Time`, but indexing a `Time` does not carry them over.
-    Computes them for all of `t` if not already cached.
+    Computes them for all of `t` if not already cached (with interpolated
+    nutation angles, see `_interpolate_nutation`).
 
     Args:
         t (skyfield.timelib.Time): The time(s).
@@ -339,6 +340,7 @@ def _index_time(t: Time, index: npt.ArrayLike) -> Time:
     Returns:
         skyfield.timelib.Time: the indexed time(s)
     """
+    _interpolate_nutation(t)
     gast, precession_nutation = t.gast, t.M
     indexed = t[index]
     indexed.gast = gast[index]

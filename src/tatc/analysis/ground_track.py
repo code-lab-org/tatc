@@ -14,12 +14,13 @@ import pandas as pd
 from shapely.geometry import MultiPolygon, Polygon
 from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
+from skyfield.timelib import Time
 
 from ..constants import de421
 from ..schemas import AllInstruments, PointedInstrument, Satellite
 from ..utils.geometry import split_polygon
-from ..utils.propagation import _index_orbit_track
-from .check import _check_satellite
+from ..utils.propagation import _index_orbit_track, _to_time
+from .check import _check_satellite, _check_satellites
 from .region_sampling import compute_region_access_periods
 
 
@@ -126,9 +127,9 @@ def _cull_orbit_track(
 
 
 def collect_ground_track(
-    satellite: Satellite,
+    satellites: Satellite | list[Satellite],
     times: list[datetime],
-    instrument_index: int = 0,
+    instrument_index: int | None = 0,
     elevation: float = 0,
     mask: Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries | None = None,
     sat_altaz: bool = False,
@@ -141,8 +142,10 @@ def collect_ground_track(
     `tatc.utils.projection.compute_footprint`).
 
     Args:
-        satellite (Satellite): The observing satellite.
-        instrument_index (int): The index of the observing instrument in satellite.
+        satellites (Satellite | list[Satellite]): The observing satellite(s).
+        instrument_index (int | None): The index of the observing instrument
+                in each satellite, or `None` for every instrument of each
+                satellite.
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate ground track.
@@ -157,16 +160,55 @@ def collect_ground_track(
                 for the sub-satellite point.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame of collected ground track results.
+        geopandas.GeoDataFrame: The data frame of collected ground track results:
+            for a single satellite and instrument (an integer
+            `instrument_index`), sorted by time; otherwise, those of each
+            satellite and instrument, concatenated and sorted by time.
     """
-
-    _check_satellite(satellite)
+    single = not isinstance(satellites, list) and instrument_index is not None
+    satellites = _check_satellites(satellites)
     if len(times) == 0:
         return _get_empty_ground_track()
-    # select the observing instrument
-    instrument = satellite.instruments[instrument_index]
     if mask is not None:
         mask = _get_mask_geometry(mask)
+    # the times, shared by every satellite (with their Earth orientation)
+    t = _to_time(times)
+    tracks = [
+        _collect_ground_track(
+            satellite, times, t, index, elevation, mask, sat_altaz, solar_altaz
+        )
+        for satellite in satellites
+        for index in (
+            range(len(satellite.instruments))
+            if instrument_index is None
+            else [instrument_index]
+        )
+    ]
+    if single:
+        return tracks[0]
+    if len(tracks) == 0:
+        return _get_empty_ground_track()
+    # concatenate into one data frame, sort by time, and re-index
+    return pd.concat(tracks).sort_values("time", kind="stable").reset_index(drop=True)
+
+
+def _collect_ground_track(
+    satellite: Satellite,
+    times: list[datetime],
+    t: Time,
+    instrument_index: int,
+    elevation: float,
+    mask: Polygon | MultiPolygon | None,
+    sat_altaz: bool,
+    solar_altaz: bool,
+) -> gpd.GeoDataFrame:
+    """
+    Collect a satellite's ground track at times, given as `datetime`s and as
+    Skyfield times (see `collect_ground_track`), with a mask split along the anti-meridian
+    and poles (see `_get_mask_geometry`).
+    """
+    # select the observing instrument
+    instrument = satellite.instruments[instrument_index]
     if mask is not None and len(times) > 1:
         # propagate orbit only where the footprint intersects the mask,
         # reusing the footprints computed to cull it
@@ -176,7 +218,7 @@ def collect_ground_track(
         orbit_track, geometries = culled
     else:
         # propagate orbit
-        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(times)
+        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track_at_time(t)
         # compute footprints (exact ray/WGS-84-geoid intersection)
         geometries = instrument.compute_footprint(orbit_track, None, elevation)
     # compute targets
@@ -265,9 +307,9 @@ def compute_ground_track(
 
 
 def collect_ground_pixels(
-    satellite: Satellite,
+    satellites: Satellite | list[Satellite],
     times: list[datetime],
-    instrument_index: int = 0,
+    instrument_index: int | None = 0,
     elevation: float = 0,
     mask: Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries | None = None,
     sat_altaz: bool = False,
@@ -281,8 +323,10 @@ def collect_ground_pixels(
     grid defines the pixel array.
 
     Args:
-        satellite (Satellite): The observing satellite.
-        instrument_index (int): The index of the observing instrument in satellite.
+        satellites (Satellite | list[Satellite]): The observing satellite(s).
+        instrument_index (int | None): The index of the observing instrument
+                in each satellite, or `None` for every instrument of each
+                satellite.
         times (typing.List[datetime.datetime]): The list of datetimes to sample.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate ground pixels.
@@ -295,20 +339,59 @@ def collect_ground_pixels(
         solar_altaz (bool): `True` to include solar altitude/azimuth angles.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame of collected ground pixels results.
+        geopandas.GeoDataFrame: The data frame of collected ground pixels results:
+            for a single satellite and instrument (an integer
+            `instrument_index`), sorted by time; otherwise, those of each
+            satellite and instrument, concatenated and sorted by time.
     """
-
-    _check_satellite(satellite)
+    single = not isinstance(satellites, list) and instrument_index is not None
+    satellites = _check_satellites(satellites)
     if len(times) == 0:
         return _get_empty_ground_track()
+    if mask is not None:
+        mask = _get_mask_geometry(mask)
+    # the times, shared by every satellite (with their Earth orientation)
+    t = _to_time(times)
+    tracks = [
+        _collect_ground_pixels(
+            satellite, times, t, index, elevation, mask, sat_altaz, solar_altaz
+        )
+        for satellite in satellites
+        for index in (
+            range(len(satellite.instruments))
+            if instrument_index is None
+            else [instrument_index]
+        )
+    ]
+    if single:
+        return tracks[0]
+    if len(tracks) == 0:
+        return _get_empty_ground_track()
+    # concatenate into one data frame, sort by time, and re-index
+    return pd.concat(tracks).sort_values("time", kind="stable").reset_index(drop=True)
+
+
+def _collect_ground_pixels(
+    satellite: Satellite,
+    times: list[datetime],
+    t: Time,
+    instrument_index: int,
+    elevation: float,
+    mask: Polygon | MultiPolygon | None,
+    sat_altaz: bool,
+    solar_altaz: bool,
+) -> gpd.GeoDataFrame:
+    """
+    Collect a satellite's ground pixels at times, given as `datetime`s and as
+    Skyfield times (see `collect_ground_pixels`), with a mask split along the anti-meridian
+    and poles (see `_get_mask_geometry`).
+    """
     # select the observing instrument
     instrument = satellite.instruments[instrument_index]
     if not isinstance(instrument, PointedInstrument) or not instrument.is_rectangular:
         raise ValueError(
             "Ground pixels are only compatible with rectangular PointedInstrument instances"
         )
-    if mask is not None:
-        mask = _get_mask_geometry(mask)
     if mask is not None and len(times) > 1:
         # propagate orbit only where the footprint intersects the mask
         culled = _cull_orbit_track(satellite, instrument, times, mask, elevation)
@@ -317,7 +400,7 @@ def collect_ground_pixels(
         orbit_track, _ = culled
     else:
         # propagate orbit
-        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(times)
+        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track_at_time(t)
     # compute the footprint pixel array
     geometries = instrument.compute_footprint_pixel_array(
         orbit_track,
