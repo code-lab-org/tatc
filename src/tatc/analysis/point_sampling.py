@@ -48,6 +48,29 @@ from .sampling import (
 )
 
 
+def _get_elevation_angles(
+    point: Point | geo.Point, satellite: Satellite, times: list[datetime]
+) -> TimeRequest:
+    """
+    Get a satellite's elevation angles (degrees) from a point at times, as a
+    computation (see `tatc.utils.computation.TimeRequest`).
+
+    Args:
+        point (Point | shapely.geometry.Point): The point.
+        satellite (Satellite): The satellite.
+        times (list[datetime.datetime]): The times.
+
+    Returns:
+        TimeRequest: the computation of the elevation angles (numpy.ndarray).
+    """
+    longitude, latitude, elevation = _get_point_coordinates(point)
+    topos = wgs84.latlon(latitude, longitude, elevation)
+    t_track, t_topos = _to_time(times), timescale.from_datetimes(times)
+    yield [t_track, t_topos]
+    orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track_at_time(t_track)
+    return np.atleast_1d((orbit_track - topos.at(t_topos)).altaz()[0].degrees)
+
+
 def _get_visible_interval_series(
     point: Point | geo.Point,
     satellite: Satellite,
@@ -90,6 +113,8 @@ def _get_visible_interval_series(
     )
 
     # build the observation periods
+    window_start = pd.Timestamp(start.astimezone(tz=timezone.utc))
+    window_end = pd.Timestamp(end.astimezone(tz=timezone.utc))
     obs_periods = []
     if len(events) == 0:
         # no rise, culminate, or set event was captured in [start, end]. This
@@ -100,68 +125,82 @@ def _get_visible_interval_series(
         # window, and the window is too narrow, or off-center, to contain
         # the pass's culmination). Disambiguate by sampling the true
         # elevation angle at the window's midpoint.
-        mid = start + (end - start) / 2
-        longitude, latitude, elevation = _get_point_coordinates(point)
-        topos = wgs84.latlon(latitude, longitude, elevation)
-        t_track, t_mid = _to_time([mid]), timescale.from_datetime(mid)
-        yield [t_track, t_mid]
-        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track_at_time(t_track)[0]
-        elevation_angle = (orbit_track - topos.at(t_mid)).altaz()[0].degrees
-        if elevation_angle > min_elevation_angle:  # type: ignore
+        (elevation_angle,) = yield from _get_elevation_angles(
+            point, satellite, [start + (end - start) / 2]
+        )
+        if elevation_angle > min_elevation_angle:
             # continuously visible for the entire window
-            obs_periods += [
-                pd.Interval(
-                    left=pd.Timestamp(start.astimezone(tz=timezone.utc)),
-                    right=pd.Timestamp(end.astimezone(tz=timezone.utc)),
+            obs_periods += [pd.Interval(left=window_start, right=window_end)]
+        return pd.Series(obs_periods, dtype="interval")
+    # Skyfield's find_events can miss the rise or set of a grazing pass,
+    # whose maximum elevation barely exceeds min_elevation_angle, so a set
+    # without a rise (or a rise without a set) does not by itself mean that
+    # the point is visible at the start (or end) of the window: check the
+    # elevation angle there, and otherwise bound the period by the maximum
+    # access time (which, a period being refined afterward, need not be
+    # tight; an unbounded period could span several passes)
+    visible_at_start, visible_at_end = (
+        angle > min_elevation_angle
+        for angle in (yield from _get_elevation_angles(point, satellite, [start, end]))
+    )
+    utc = pd.DatetimeIndex(np.atleast_1d(times.utc_datetime()))
+    if np.all(events == 1):
+        # only culminations: the window lies within one pass (visible
+        # throughout) or the culminations are of grazing passes
+        if visible_at_start and visible_at_end:
+            obs_periods += [pd.Interval(left=window_start, right=window_end)]
+        else:
+            for culmination in utc:
+                period = pd.Interval(
+                    left=max(window_start, culmination - max_access_time),
+                    right=min(window_end, culmination + max_access_time),
                 )
-            ]
-    elif np.all(events == 1):
-        # if all events are type 1 (culminate), create a period from start to end
+                if obs_periods and period.left <= obs_periods[-1].right:
+                    # merge overlapping periods
+                    period = pd.Interval(
+                        left=obs_periods.pop().left, right=period.right
+                    )
+                obs_periods.append(period)
+        return pd.Series(obs_periods, dtype="interval")
+    # otherwise, match rise/set events (converted to UTC timestamps once,
+    # as converting Skyfield times is costly)
+    rises = utc[events == 0]
+    sets = utc[events == 2]
+    if len(sets) > 0 and (len(rises) == 0 or sets[0] < rises[0]) and start < sets[0]:
+        # if first event is a set, create a period from the start (or, if
+        # its rise was missed, from the maximum access time before the set)
         obs_periods += [
             pd.Interval(
-                left=pd.Timestamp(start.astimezone(tz=timezone.utc)),
-                right=pd.Timestamp(end.astimezone(tz=timezone.utc)),
+                left=(
+                    window_start
+                    if visible_at_start
+                    else max(window_start, sets[0] - max_access_time)
+                ),
+                right=sets[0],
             )
         ]
-    else:
-        # otherwise, match rise/set events (converted to UTC timestamps once,
-        # as converting Skyfield times is costly)
-        utc = pd.DatetimeIndex(np.atleast_1d(times.utc_datetime()))
-        rises = utc[events == 0]
-        sets = utc[events == 2]
-        if (
-            len(sets) > 0
-            and (len(rises) == 0 or sets[0] < rises[0])
-            and start < sets[0]
-        ):
-            # if first event is a set, create a period from the start
-            obs_periods += [
-                pd.Interval(
-                    left=pd.Timestamp(start.astimezone(tz=timezone.utc)),
-                    right=sets[0],
-                )
-            ]
-        # create an observation period to match with each rise event if
-        # there is a following set event within twice the maximum access time
-        # (the events are in time order, so the first set after each rise)
-        next_sets = sets.searchsorted(rises, side="right")
+    # create an observation period to match with each rise event if
+    # there is a following set event within twice the maximum access time
+    # (the events are in time order, so the first set after each rise)
+    next_sets = sets.searchsorted(rises, side="right")
+    obs_periods += [
+        pd.Interval(left=rise, right=sets[i])
+        for rise, i in zip(rises, next_sets)
+        if i < len(sets) and sets[i] < rise + 2 * max_access_time
+    ]
+    if len(rises) > 0 and (len(sets) == 0 or rises[-1] > sets[-1]) and rises[-1] < end:
+        # if last event is a rise, create a period to the end (or, if its
+        # set was missed, to the maximum access time after the rise)
         obs_periods += [
-            pd.Interval(left=rise, right=sets[i])
-            for rise, i in zip(rises, next_sets)
-            if i < len(sets) and sets[i] < rise + 2 * max_access_time
+            pd.Interval(
+                left=rises[-1],
+                right=(
+                    window_end
+                    if visible_at_end
+                    else min(window_end, rises[-1] + max_access_time)
+                ),
+            )
         ]
-        if (
-            len(rises) > 0
-            and (len(sets) == 0 or rises[-1] > sets[-1])
-            and rises[-1] < end
-        ):
-            # if last event is a rise, create a period to the end
-            obs_periods += [
-                pd.Interval(
-                    left=rises[-1],
-                    right=pd.Timestamp(end.astimezone(tz=timezone.utc)),
-                )
-            ]
     return pd.Series(obs_periods, dtype="interval")
 
 
