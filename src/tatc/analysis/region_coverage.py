@@ -584,25 +584,25 @@ def _find_footprint_periods(
     ]
 
 
-def _get_swath(
+def _get_swaths(
     region: geo.Polygon | geo.MultiPolygon,
     orbit: GeneralPerturbationsOrbit,
     instrument: Instrument,
-    period: pd.Interval,
+    periods: list[pd.Interval],
     elevation: float = 0,
     time_step: timedelta = timedelta(seconds=10),
     min_time_step: timedelta = timedelta(milliseconds=100),
-) -> geo.Polygon | geo.MultiPolygon:
+) -> list[geo.Polygon | geo.MultiPolygon]:
     """
     Gets the part of a region swept by an instrument's footprint (see
-    `compute_footprint`) during a period: the union of footprints sampled at
-    most `time_step` apart, where the interval between two consecutive
-    footprints that do not intersect is divided until they do (or it is
-    shorter than `min_time_step`), clipped to the region. Except for a
-    `ConicalInstrument` (whose footprint is an arc), footprints are convex,
-    so the convex hull of two consecutive footprints (a single polygon
-    spanning less than 180 degrees of longitude) fills the area swept
-    between them.
+    `compute_footprint`) during each of a set of periods: the union of
+    footprints sampled at most `time_step` apart, where the interval between
+    two consecutive footprints that do not intersect is divided until they
+    do (or it is shorter than `min_time_step`), clipped to the region.
+    Except for a `ConicalInstrument` (whose footprint is an arc), footprints
+    are convex, so the convex hull of two consecutive footprints (a single
+    polygon spanning less than 180 degrees of longitude) fills the area
+    swept between them. The footprints of all periods are computed together.
 
     Args:
         region (shapely.geometry.Polygon | shapely.geometry.MultiPolygon):
@@ -610,58 +610,82 @@ def _get_swath(
                 `tatc.utils.geometry.split_polygon`).
         orbit (GeneralPerturbationsOrbit): The orbit.
         instrument (Instrument): The instrument.
-        period (pandas.Interval): The period.
+        periods (list[pandas.Interval]): The periods.
         elevation (float): The elevation (meters) of the region above the
                 WGS 84 ellipsoid, at which to project footprints.
         time_step (datetime.timedelta): The maximum time between samples.
         min_time_step (datetime.timedelta): The minimum time between samples.
 
     Returns:
-        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: the swath
+        list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: the
+            swath of each period
     """
-    duration = (period.right - period.left).total_seconds()
+    if len(periods) == 0:
+        return []
+    reference = periods[0].left
 
     def footprints(seconds: np.ndarray) -> np.ndarray:
         orbit_track = orbit.get_orbit_track_at_time(
-            _to_time_from_offsets(period.left, seconds)
+            _to_time_from_offsets(reference, seconds)
         )
         return np.array(
             instrument.compute_footprint(orbit_track, elevation=elevation),
             dtype=object,
         )
 
-    seconds = np.linspace(
-        0, duration, max(2, int(np.ceil(duration / time_step.total_seconds())) + 1)
+    # samples (seconds from the reference) within each period
+    seconds = []
+    for period in periods:
+        duration = (period.right - period.left).total_seconds()
+        seconds.append(
+            (period.left - reference).total_seconds()
+            + np.linspace(
+                0,
+                duration,
+                max(2, int(np.ceil(duration / time_step.total_seconds())) + 1),
+            )
+        )
+    views = np.split(
+        footprints(np.concatenate(seconds)), np.cumsum([len(s) for s in seconds])[:-1]
     )
-    views = footprints(seconds)
     # divide intervals between consecutive footprints that do not intersect
     while True:
-        gaps = np.flatnonzero(
-            ~shapely.intersects(views[:-1], views[1:])
-            & (np.diff(seconds) > 2 * min_time_step.total_seconds())
-        )
-        if len(gaps) == 0:
+        gaps = [
+            np.flatnonzero(
+                ~shapely.intersects(v[:-1], v[1:])
+                & (np.diff(s) > 2 * min_time_step.total_seconds())
+            )
+            for s, v in zip(seconds, views)
+        ]
+        counts = [len(g) for g in gaps]
+        if sum(counts) == 0:
             break
-        middle = (seconds[gaps] + seconds[gaps + 1]) / 2
-        seconds = np.insert(seconds, gaps + 1, middle)
-        views = np.insert(views, gaps + 1, footprints(middle))
-    parts = [views]
-    if not isinstance(instrument, ConicalInstrument):
-        # fill the area swept between consecutive (convex) footprints
-        pairs = shapely.union(views[:-1], views[1:])
-        bounds = shapely.bounds(pairs)
-        single = (shapely.get_type_id(pairs) == 3) & (bounds[:, 2] - bounds[:, 0] < 180)
-        parts.append(shapely.convex_hull(pairs[single]))
-    swath = shapely.intersection(shapely.union_all(np.concatenate(parts)), region)
-    # keep the polygonal parts of the swath, without z coordinates
-    polygons = [
-        shapely.force_2d(part)
-        for part in shapely.get_parts(swath)
-        if isinstance(part, geo.Polygon) and not part.is_empty
-    ]
-    if len(polygons) == 1:
-        return polygons[0]
-    return geo.MultiPolygon(polygons)
+        middles = [(s[g] + s[g + 1]) / 2 for s, g in zip(seconds, gaps)]
+        views_middle = np.split(
+            footprints(np.concatenate(middles)), np.cumsum(counts)[:-1]
+        )
+        seconds = [np.insert(s, g + 1, m) for s, g, m in zip(seconds, gaps, middles)]
+        views = [np.insert(v, g + 1, w) for v, g, w in zip(views, gaps, views_middle)]
+    swaths = []
+    for period_views in views:
+        parts = [period_views]
+        if not isinstance(instrument, ConicalInstrument):
+            # fill the area swept between consecutive (convex) footprints
+            pairs = shapely.union(period_views[:-1], period_views[1:])
+            bounds = shapely.bounds(pairs)
+            single = (shapely.get_type_id(pairs) == 3) & (
+                bounds[:, 2] - bounds[:, 0] < 180
+            )
+            parts.append(shapely.convex_hull(pairs[single]))
+        swath = shapely.intersection(shapely.union_all(np.concatenate(parts)), region)
+        # keep the polygonal parts of the swath, without z coordinates
+        polygons = [
+            shapely.force_2d(part)
+            for part in shapely.get_parts(swath)
+            if isinstance(part, geo.Polygon) and not part.is_empty
+        ]
+        swaths.append(polygons[0] if len(polygons) == 1 else geo.MultiPolygon(polygons))
+    return swaths
 
 
 def collect_region_observations(
@@ -762,37 +786,48 @@ def collect_region_observations(
         periods = _refine_access_periods(
             residual, orbit, windows, max_step=timedelta(seconds=10)
         )
-    records = []
-    for period in periods:
-        if period.right - period.left < instrument.min_access_time:
-            continue
-        # instrument validity (illumination) is only checked at the period's
-        # midpoint, for a point of the region within the instrument's view,
-        # as an approximation of the whole period
-        orbit_track = orbit.get_orbit_track([period.mid])
-        view = instrument.compute_footprint(orbit_track, elevation=elevation)[0]
-        observed = view.intersection(geometry)
-        point = (observed if not observed.is_empty else geometry).representative_point()
-        target = wgs84.latlon(point.y, point.x, elevation)
-        if instrument.is_valid_observation(orbit_track, target).all():
-            swath = _get_swath(geometry, orbit, instrument, period, elevation)
-            records.append(
-                {
-                    "target_hash": target_hash,
-                    "geometry": (
-                        project_polygon_to_elevation(swath, elevation)
-                        if region.has_z
-                        else swath
-                    ),
-                    "satellite": satellite.name,
-                    "instrument": instrument.name,
-                    "start": period.left,
-                    "end": period.right,
-                }
-            )
-    if len(records) == 0:
+    periods = [
+        period
+        for period in periods
+        if period.right - period.left >= instrument.min_access_time
+    ]
+    if len(periods) == 0:
         return _get_empty_region_frame()
-    return gpd.GeoDataFrame(records, crs="EPSG:4326")
+    # instrument validity (illumination) is only checked at each period's
+    # midpoint, for a point of the region within the instrument's view, as an
+    # approximation of the whole period (for all periods at once)
+    orbit_track = orbit.get_orbit_track([period.mid for period in periods])
+    views = np.array(
+        instrument.compute_footprint(orbit_track, elevation=elevation), dtype=object
+    )
+    observed = shapely.intersection(views, geometry)
+    points = shapely.point_on_surface(
+        np.where(shapely.is_empty(observed), geometry, observed)
+    )
+    target = wgs84.latlon(shapely.get_y(points), shapely.get_x(points), elevation)
+    valid = np.atleast_1d(instrument.is_valid_observation(orbit_track, target))
+    periods = [period for period, is_valid in zip(periods, valid) if is_valid]
+    if len(periods) == 0:
+        return _get_empty_region_frame()
+    swaths = _get_swaths(geometry, orbit, instrument, periods, elevation)
+    return gpd.GeoDataFrame(
+        [
+            {
+                "target_hash": target_hash,
+                "geometry": (
+                    project_polygon_to_elevation(swath, elevation)
+                    if region.has_z
+                    else swath
+                ),
+                "satellite": satellite.name,
+                "instrument": instrument.name,
+                "start": period.left,
+                "end": period.right,
+            }
+            for period, swath in zip(periods, swaths)
+        ],
+        crs="EPSG:4326",
+    )
 
 
 def collect_multi_region_observations(

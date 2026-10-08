@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+import shapely
 from pydantic import Field, model_validator
 from shapely import MultiPolygon, Polygon, unary_union
 from skyfield.constants import AU_M
@@ -21,6 +22,7 @@ from ... import config, constants
 from ...utils.geometry import project_polygon_to_elevation, split_polygon
 from ...utils.projection import (
     VelocityFrame,
+    _compute_projected_rays,
     compute_cone_and_azimuth,
     compute_projected_ray_position,
 )
@@ -240,48 +242,68 @@ class ConicalInstrument(Instrument):
         tracks = {f: _shift_along_track(orbit_track, f * sweep) for f in fractions}
 
         def project(rays):
-            # rays as (shift fraction, cone azimuth) pairs
-            positions = [
-                compute_projected_ray_position(
+            # rays as (shift fraction, cone azimuth) pairs, projected together
+            # for each shift fraction
+            shifts = np.array([f for f, _ in rays])
+            angles = np.array([_cone_ray(self.cone_angle, a) for _, a in rays])
+            geos = np.empty((2, len(rays)) + np.shape(orbit_track.t))  # type: ignore
+            for f in np.unique(shifts):
+                index = np.flatnonzero(shifts == f)
+                geos[:, index] = _compute_projected_rays(
                     tracks[f],
                     0,
                     0,
-                    *_cone_ray(self.cone_angle, azimuth),
-                    elevation=elevation,
-                    velocity_frame=self.velocity_frame,
-                    nadir_reference=self.nadir_reference,
-                )
-                for f, azimuth in rays
-            ]
-            return np.stack(
-                [
-                    np.stack([p.longitude.degrees for p in positions]),
-                    np.stack([p.latitude.degrees for p in positions]),
-                ],
-                axis=-1,
-            )
+                    angles[index, :1],
+                    angles[index, 1:],
+                    False,
+                    np.zeros(len(index)),
+                    elevation,
+                    self.velocity_frame,
+                    self.nadir_reference,
+                )[:2]
+            return np.stack([geos[0], geos[1]], axis=-1)
 
         # boundary of each sub-sector: the forward arc, the end of the arc
         # moving aft, the aft arc (reversed), and the start of the arc moving
         # forward
-        rings = []
+        # (with the rays of all sub-sectors projected together)
+        rays = []
         for lower, upper in self._sub_sectors():
             n = max(4, int(np.ceil(number_points * (upper - lower) / 360)) + 1)
             azimuths = np.linspace(lower, upper, n)
-            rays = (
+            rays.append(
                 [(fractions[0], a) for a in azimuths]
                 + [(f, upper) for f in fractions[1:-1]]
                 + [(fractions[-1], a) for a in azimuths[::-1]]
                 + [(f, lower) for f in fractions[::-1][1:-1]]
             )
-            rings.append(project(rays))
+        rings = np.split(
+            project([ray for sector in rays for ray in sector]),
+            np.cumsum([len(sector) for sector in rays])[:-1],
+        )
         is_vectorized = len(np.shape(orbit_track.t)) > 0  # type: ignore
+        # polygons of each sub-sector (one per time), built at once and split
+        # only if they cross the anti-meridian or exceed the poles, or are
+        # invalid (see split_polygon)
+        parts = []
+        for ring in rings:
+            coords = np.swapaxes(ring, 0, 1) if is_vectorized else ring[np.newaxis]
+            polygons = shapely.polygons(coords)
+            longitude, latitude = coords[..., 0], coords[..., 1]
+            closed = np.concatenate([longitude, longitude[:, :1]], axis=1)
+            planar = (
+                np.all(np.abs(longitude) <= 180, axis=1)
+                & np.all(np.abs(latitude) <= 90, axis=1)
+                & np.all(np.abs(np.diff(closed, axis=1)) <= 180, axis=1)
+            )
+            for i in np.flatnonzero(~(planar & shapely.is_valid(polygons))):
+                polygons[i] = split_polygon(polygons[i])
+            parts.append(polygons)
         footprints = []
-        for i in range(np.size(orbit_track.t)) if is_vectorized else [None]:  # type: ignore
-            parts = [
-                split_polygon(Polygon(r[:, i] if is_vectorized else r)) for r in rings
-            ]
-            footprint = parts[0] if len(parts) == 1 else unary_union(parts)
+        for i in range(len(parts[0])):
+            footprint = (
+                parts[0][i] if len(parts) == 1 else unary_union([p[i] for p in parts])
+            )
             footprints.append(project_polygon_to_elevation(footprint, elevation))
         return footprints
 

@@ -196,12 +196,67 @@ def _compute_view_frame(
             cross-track unit vectors, each with shape (3,) or (3, N) in
             Earth-fixed coordinates.
     """
+    p_m, n, a, c = _compute_nadir_axes(orbit_track, velocity_frame, nadir_reference)
+    return (p_m, *_rotate_view_axes(n, a, c, roll_angle, pitch_angle, tilt_angle))
+
+
+def _compute_nadir_axes(
+    orbit_track: Geocentric,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
+    """
+    Compute the Earth-fixed position and the orthonormal unit vectors of an
+    unrotated view (see `_compute_view_frame`): nadir, along-track
+    (forward), and cross-track (left).
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
+        nadir_reference (NadirReference): The definition of the nadir
+            direction.
+
+    Returns:
+        tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
+            the position (meters) and the nadir, along-track, and
+            cross-track unit vectors, each with shape (3,) or (3, N) in
+            Earth-fixed coordinates.
+    """
     p_m, _, n, c = _compute_instrument_frame(
         orbit_track, velocity_frame, nadir_reference
     )
     # orthonormal cross-track (left) and along-track (forward) axes at nadir
     c = c / np.linalg.norm(c, axis=0)
     a = np.cross(n, c, axis=0)
+    return p_m, n, a, c
+
+
+def _rotate_view_axes(
+    n: npt.NDArray,
+    a: npt.NDArray,
+    c: npt.NDArray,
+    roll_angle: npt.ArrayLike = 0,
+    pitch_angle: npt.ArrayLike = 0,
+    tilt_angle: npt.ArrayLike = 0,
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
+    """
+    Rotate the axes of an unrotated view (see `_compute_nadir_axes`) by the
+    tilt, roll, and pitch angles (see `_compute_view_frame`). The angles
+    broadcast against the axes without their first (vector) dimension.
+
+    Args:
+        n (numpy.typing.NDArray): The nadir unit vectors.
+        a (numpy.typing.NDArray): The along-track unit vectors.
+        c (numpy.typing.NDArray): The cross-track unit vectors.
+        roll_angle (numpy.typing.ArrayLike): the roll angle(s) (degrees).
+        pitch_angle (numpy.typing.ArrayLike): the pitch angle(s) (degrees).
+        tilt_angle (numpy.typing.ArrayLike): the tilt angle(s) (degrees).
+
+    Returns:
+        tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
+            the boresight, along-track, and cross-track unit vectors.
+    """
     # tilt about the cross-track axis
     tilt = np.radians(tilt_angle)
     n, a = np.cos(tilt) * n + np.sin(tilt) * a, np.cos(tilt) * a - np.sin(tilt) * n
@@ -214,7 +269,7 @@ def _compute_view_frame(
         np.cos(pitch) * boresight + np.sin(pitch) * a,
         np.cos(pitch) * a - np.sin(pitch) * boresight,
     )
-    return p_m, boresight, along, cross
+    return boresight, along, cross
 
 
 def compute_view_tangents(
@@ -405,60 +460,143 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     Returns:
         (skyfield.toposlib.GeographicPosition): the geographic position of the projected ray
     """
-    # convert to radians for internal use
-    angle = np.radians(angle)
-    # ray pointed at the field of view center (before adding the field of
-    # view extent) and the along-track (v) and cross-track (c) axes of the view
-    p_m, base_ray, v, c = _compute_view_frame(
+    geos = _compute_projected_rays(
         orbit_track,
+        cross_track_field_of_view,
+        along_track_field_of_view,
         roll_angle,
         pitch_angle,
+        is_rectangular,
+        [angle],
+        elevation,
         velocity_frame,
         nadir_reference,
         tilt_angle,
-    )
+    )[:, 0]
+    # return resulting geographic position
+    return wgs84.latlon(geos[1], geos[0], geos[2])
+
+
+def _get_rectangular_ray_coefficients(
+    angle: float, tan_a_2: float, tan_c_2: float
+) -> tuple[float, float]:
+    """
+    Gets the along-track and cross-track coefficients of a ray on the
+    boundary of a rectangular view (see `compute_projected_ray_position`).
+
+    Args:
+        angle (float): ray angle (radians) about the view center.
+        tan_a_2 (float): the tangent of the along-track half field of view.
+        tan_c_2 (float): the tangent of the cross-track half field of view.
+
+    Returns:
+        tuple[float, float]: the along-track and cross-track coefficients.
+    """
+    # find orientation of rectangle corner (the ratio of the half-width
+    # tangents, not of the fields of view, which differ for wide views)
+    theta = np.arctan2(tan_a_2, tan_c_2)
+    # compose the ray by walking around the rectangle boundary: the (v, c)
+    # coefficients are determined together, one segment at a time, rather
+    # than by two independently re-derived branch chains. Corners are at
+    # theta, pi - theta, pi + theta, and 2*pi - theta; the pi/2, pi, and
+    # 3*pi/2 splits are just internal subdivisions of a single flat edge
+    # (each formula is continuous across them) chosen to keep every
+    # tan() argument close to zero.
+    if angle <= theta:
+        # right edge, upper half
+        return tan_c_2 * np.tan(angle), tan_c_2
+    if angle < np.pi / 2:
+        # top edge, right half
+        return tan_a_2, tan_a_2 * np.tan(np.pi / 2 - angle)
+    if angle <= np.pi - theta:
+        # top edge, left half
+        return tan_a_2, -tan_a_2 * np.tan(angle - np.pi / 2)
+    if angle < np.pi:
+        # left edge, upper half
+        return tan_c_2 * np.tan(np.pi - angle), -tan_c_2
+    if angle < np.pi + theta:
+        # left edge, lower half
+        return -tan_c_2 * np.tan(angle - np.pi), -tan_c_2
+    if angle < 3 * np.pi / 2:
+        # bottom edge, right half
+        return -tan_a_2, -tan_a_2 * np.tan(3 * np.pi / 2 - angle)
+    if angle <= 2 * np.pi - theta:
+        # bottom edge, left half
+        return -tan_a_2, tan_a_2 * np.tan(angle - 3 * np.pi / 2)
+    # right edge, lower half
+    return -tan_c_2 * np.tan(2 * np.pi - angle), tan_c_2
+
+
+def _compute_projected_rays(
+    orbit_track: Geocentric,
+    cross_track_field_of_view: float,
+    along_track_field_of_view: float,
+    roll_angle: npt.ArrayLike = 0,
+    pitch_angle: npt.ArrayLike = 0,
+    is_rectangular: bool = False,
+    angles: npt.ArrayLike = (0,),
+    elevation: float = 0,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
+    tilt_angle: float = 0,
+) -> npt.NDArray:
+    """
+    Get the locations of several projected rays from an instrument (see
+    `compute_projected_ray_position`), vectorized across rays and times:
+    the view frame is computed once, and all rays are projected together.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        cross_track_field_of_view (float): the instrument cross-track field
+            of view (degrees).
+        along_track_field_of_view (float): the instrument along-track field
+            of view (degrees).
+        roll_angle (numpy.typing.ArrayLike): the roll angle (degrees): a
+            scalar, an array of one per time (shape (N,)), or an array of one
+            per ray (shape (K, 1)) or per ray and time (shape (K, N)).
+        pitch_angle (numpy.typing.ArrayLike): the pitch angle (degrees),
+            shaped as `roll_angle`.
+        is_rectangular (bool): `True` if the instrument view has a rectangular
+            shape (otherwise elliptical).
+        angles (numpy.typing.ArrayLike): the ray angles (degrees, shape (K,))
+            about the view center.
+        elevation (float): The elevation (meters) at which project the rays.
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
+        nadir_reference (NadirReference): The definition of the nadir
+            direction from which the view is rotated.
+        tilt_angle (float): a rotation (degrees) about the cross-track axis,
+            positive forward, applied before the roll angle.
+
+    Returns:
+        numpy.typing.NDArray: the geodetic longitudes (degrees), latitudes
+            (degrees), and altitudes (meters) of the projected rays, with
+            shape (3, K, N), or (3, K) for a single time.
+    """
+    # convert to radians for internal use (with shape (K, 1) to broadcast
+    # against times)
+    angle = np.radians(np.reshape(np.asarray(angles, dtype=float), (-1, 1)))
+    # the unrotated view axes, with shape (3, 1, N) to broadcast against rays
+    p_m, n, a, c = _compute_nadir_axes(orbit_track, velocity_frame, nadir_reference)
     # whether orbit_track represents a single time or a vector of times
     is_vectorized = len(np.shape(p_m)) > 1
-    # construct projected ray
+    p_m, n, a, c = (np.reshape(x, (3, 1, -1)) for x in (p_m, n, a, c))
+    # ray pointed at the field of view center (before adding the field of
+    # view extent) and the along-track (v) and cross-track (c) axes of the view
+    base_ray, v, c = _rotate_view_axes(n, a, c, roll_angle, pitch_angle, tilt_angle)
+    # construct projected rays
     if is_rectangular:
         # along track half width
         tan_a_2 = np.tan(np.radians(along_track_field_of_view / 2))
         # cross track half width
         tan_c_2 = np.tan(np.radians(cross_track_field_of_view / 2))
-        # find orientation of rectangle corner (the ratio of the half-width
-        # tangents, not of the fields of view, which differ for wide views)
-        theta = np.arctan2(tan_a_2, tan_c_2)
-        # compose the ray by walking around the rectangle boundary: the (v, c)
-        # coefficients are determined together, one segment at a time, rather
-        # than by two independently re-derived branch chains. Corners are at
-        # theta, pi - theta, pi + theta, and 2*pi - theta; the pi/2, pi, and
-        # 3*pi/2 splits are just internal subdivisions of a single flat edge
-        # (each formula is continuous across them) chosen to keep every
-        # tan() argument close to zero.
-        if angle <= theta:
-            # right edge, upper half
-            v_coef, c_coef = tan_c_2 * np.tan(angle), tan_c_2
-        elif angle < np.pi / 2:
-            # top edge, right half
-            v_coef, c_coef = tan_a_2, tan_a_2 * np.tan(np.pi / 2 - angle)
-        elif angle <= np.pi - theta:
-            # top edge, left half
-            v_coef, c_coef = tan_a_2, -tan_a_2 * np.tan(angle - np.pi / 2)
-        elif angle < np.pi:
-            # left edge, upper half
-            v_coef, c_coef = tan_c_2 * np.tan(np.pi - angle), -tan_c_2
-        elif angle < np.pi + theta:
-            # left edge, lower half
-            v_coef, c_coef = -tan_c_2 * np.tan(angle - np.pi), -tan_c_2
-        elif angle < 3 * np.pi / 2:
-            # bottom edge, right half
-            v_coef, c_coef = -tan_a_2, -tan_a_2 * np.tan(3 * np.pi / 2 - angle)
-        elif angle <= 2 * np.pi - theta:
-            # bottom edge, left half
-            v_coef, c_coef = -tan_a_2, tan_a_2 * np.tan(angle - 3 * np.pi / 2)
-        else:
-            # right edge, lower half
-            v_coef, c_coef = -tan_c_2 * np.tan(2 * np.pi - angle), tan_c_2
+        v_coef, c_coef = np.reshape(
+            [
+                _get_rectangular_ray_coefficients(x, tan_a_2, tan_c_2)
+                for x in angle[:, 0]
+            ],
+            (-1, 2, 1),
+        ).transpose(1, 0, 2)
         ray = base_ray + v * v_coef + c * c_coef
     else:
         ray = (
@@ -467,9 +605,10 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
             + c * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
         )
     # find the intersections of the rays and the WGS 84 geoid (at the
-    # elevation), vectorized across times
-    position = np.reshape(p_m, (3, -1))
-    direction = np.reshape(ray, (3, -1))
+    # elevation), vectorized across rays and times
+    shape = np.broadcast_shapes(ray.shape, (3, len(angle), 1))
+    position = np.reshape(np.broadcast_to(p_m, shape), (3, -1))
+    direction = np.reshape(np.broadcast_to(ray, shape), (3, -1))
     points, found = compute_ellipsoid_intersection(position, direction, elevation)
     geos = np.array(rectangular_to_geodetic(points))
     miss = ~found
@@ -477,9 +616,12 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
         # projected points do not fall on the WGS 84 geoid surface: use the
         # points of its limb on the plane of each ray, normal to the ray's
         # angle about the view center
-        normal = np.reshape(v, (3, -1)) * np.sin(np.pi / 2 + angle) + np.reshape(
-            c, (3, -1)
-        ) * np.cos(np.pi / 2 + angle)
+        normal = np.reshape(
+            np.broadcast_to(
+                v * np.sin(np.pi / 2 + angle) + c * np.cos(np.pi / 2 + angle), shape
+            ),
+            (3, -1),
+        )
         geos[:, miss] = np.array(
             rectangular_to_geodetic(
                 _intersect_limb(
@@ -487,10 +629,8 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
                 )
             )
         )
-    if not is_vectorized:
-        geos = geos[:, 0]
-    # return resulting geographic position
-    return wgs84.latlon(geos[1], geos[0], geos[2])
+    geos = np.reshape(geos, shape)
+    return geos if is_vectorized else geos[:, :, 0]
 
 
 def compute_footprint(
@@ -587,45 +727,35 @@ def compute_footprint(
             offsets = np.stack([half_c * np.cos(theta), half_a * np.sin(theta)], axis=1)
         # rays at the angular offsets from the roll angle and the scan plane,
         # which the pitch angle tilts about the cross-track axis
-        points = [
-            compute_projected_ray_position(
-                orbit_track,
-                0,
-                0,
-                roll_angle + cross_offset,
-                along_offset,
-                False,
-                0,
-                elevation,
-                velocity_frame,
-                nadir_reference,
-                pitch_angle,
-            )
-            for cross_offset, along_offset in offsets
-        ]
+        geos = _compute_projected_rays(
+            orbit_track,
+            0,
+            0,
+            roll_angle + offsets[:, :1],
+            offsets[:, 1:],
+            False,
+            np.zeros(len(offsets)),
+            elevation,
+            velocity_frame,
+            nadir_reference,
+            pitch_angle,
+        )
     else:
-        points = [
-            compute_projected_ray_position(
-                orbit_track,
-                cross_track_field_of_view,
-                along_track_field_of_view,
-                roll_angle,
-                pitch_angle,
-                is_rectangular,
-                angle,
-                elevation,
-                velocity_frame,
-                nadir_reference,
-            )
-            for angle in angles
-        ]
+        geos = _compute_projected_rays(
+            orbit_track,
+            cross_track_field_of_view,
+            along_track_field_of_view,
+            roll_angle,
+            pitch_angle,
+            is_rectangular,
+            angles,
+            elevation,
+            velocity_frame,
+            nadir_reference,
+        )
     # footprint polygons (one per time), built at once from their points
-    longitude = np.reshape(
-        [point.longitude.degrees for point in points], (len(points), -1)
-    ).T
-    latitude = np.reshape(
-        [point.latitude.degrees for point in points], (len(points), -1)
-    ).T
+    longitude = np.reshape(geos[0], (len(geos[0]), -1)).T
+    latitude = np.reshape(geos[1], (len(geos[1]), -1)).T
     footprints = shapely.polygons(np.stack([longitude, latitude], axis=-1))
     # split footprints that cross the anti-meridian or exceed the poles, and
     # repair invalid ones (see split_polygon), checking all footprints at once
