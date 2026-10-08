@@ -1497,9 +1497,11 @@ class TestGrazingPasses(unittest.TestCase):
     def test_set_without_rise(self):
         """
         Test that the period of a grazing pass whose rise Skyfield misses (a
-        set without a rise, hours after the start) is its actual period (0.9 s
-        above the minimum elevation angle), not one from the start of the
-        window.
+        set without a rise, hours after the start) is its actual period, about
+        a second around its culmination (05:56:54.76), not one from the start
+        of the window. (Its exact length, 0.9 to 1.3 s, varies with the
+        versions of Skyfield and SGP4, as the pass peaks only 0.0002 deg
+        above the minimum elevation angle.)
         """
         periods = compute_access_periods(
             self.point,
@@ -1509,12 +1511,8 @@ class TestGrazingPasses(unittest.TestCase):
             31.709386564391416,
         )
         self.assertEqual(len(periods), 1)
-        self.assertAlmostEqual(
-            periods[0].left.timestamp(),
-            pd.Timestamp("2026-09-26 05:56:54.322", tz="UTC").timestamp(),
-            delta=0.01,
-        )
-        self.assertAlmostEqual(periods[0].length.total_seconds(), 0.9, delta=0.01)
+        self.assertIn(pd.Timestamp("2026-09-26 05:56:54.762", tz="UTC"), periods[0])
+        self.assertLess(periods[0].length, pd.Timedelta(seconds=2))
 
     def test_no_observations_below_horizon(self):
         """
