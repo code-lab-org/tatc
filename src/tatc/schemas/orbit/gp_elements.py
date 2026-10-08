@@ -11,7 +11,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 from sgp4 import exporter, omm
 from sgp4.api import WGS72, Satrec
 from sgp4.conveniences import sat_epoch_datetime
@@ -33,7 +33,7 @@ class GeneralPerturbationsElements(BaseModel):
     """General perturbations orbital elements for a satellite."""
 
     object_name: str | None = Field(default=None, description="Object name.")
-    epoch: datetime = Field(..., description="Epoch.")
+    epoch: AwareDatetime = Field(..., description="Epoch.")
     mean_motion: float = Field(..., description="Mean motion (degrees/second).", gt=0)
     eccentricity: float = Field(..., description="Eccentricity.", ge=0, le=1)
     inclination: float = Field(..., description="Inclination (degrees).", ge=0, le=180)

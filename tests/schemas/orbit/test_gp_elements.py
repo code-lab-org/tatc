@@ -533,6 +533,15 @@ class TestGetRepeatCycle(unittest.TestCase):
         )
         self.assertIsNone(repeat_cycle)
 
+    def test_naive_epoch(self):
+        """
+        Test that an epoch without a timezone raises a validation error
+        (rather than failing later, as compared to timezone-aware times).
+        """
+        fields = GeneralPerturbationsElements.from_tle(self.landsat_8_tle).model_dump()
+        with self.assertRaisesRegex(ValidationError, "timezone"):
+            GeneralPerturbationsElements(**{**fields, "epoch": datetime(2022, 1, 1)})
+
     def test_perigee_below_surface_has_no_repeat_cycle(self):
         """
         Test that elements with a perigee below the Earth's surface (here,

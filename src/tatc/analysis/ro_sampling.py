@@ -22,7 +22,7 @@ from ..schemas import Satellite
 from ..utils.ellipsoid import _ellipsoidal_tangent_point, _itrs_rotation
 from ..utils.orbital import compute_vnb_frame
 from ..utils.time import _index_orbit_track, _index_time, _to_time_from_offsets
-from .check import _check_satellites
+from .check import _check_satellites, _check_time_window
 from .sampling import _interpolate_profile_point
 
 
@@ -551,6 +551,7 @@ def collect_ro_observations(
     """
     receivers = _check_satellites(receivers, "receivers")
     transmitters = _check_satellites(transmitters, "transmitters")
+    _check_time_window(start, end)
     # find the valid observation periods of all receivers and transmitters
     # together, scanning at half the shortest profile duration we must not skip
     # (decoupled from time_step so long mission durations don't blow up the

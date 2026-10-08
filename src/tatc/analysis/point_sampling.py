@@ -34,9 +34,11 @@ from ..utils.time import _index_orbit_track, _to_time, _to_time_from_offsets
 from .check import (
     _check_satellite,
     _check_satellites,
+    _check_time_window,
     _combine_results,
     _get_instrument_indices,
     _is_single,
+    _warn_low_perigees,
 )
 from .sampling import (
     _build_observation_frame,
@@ -192,7 +194,8 @@ def compute_access_periods(
         pandas.Series: the access periods (`pandas.Interval` of UTC
             timestamps), in time order.
     """
-    _check_satellite(satellite)
+    _warn_low_perigees([_check_satellite(satellite)], stacklevel=3)
+    _check_time_window(start, end)
     return _run(
         _compute_access_periods(point, satellite, start, end, min_elevation_angle)
     )
@@ -533,6 +536,7 @@ def collect_observations(
     """
     single = _is_single(points, satellites, instrument_index=instrument_index)
     satellites = _check_satellites(satellites)
+    _check_time_window(start, end)
     points = list(points) if isinstance(points, (list, tuple)) else [points]
     for point in points:
         if not isinstance(point, (Point, geo.Point)):

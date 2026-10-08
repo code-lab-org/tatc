@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field, model_validator
 
 from ... import constants, utils
 from ...utils.cache import get_cached
@@ -23,10 +23,33 @@ class OrbitBase(BaseModel):
     true_anomaly: float = Field(
         default=0, description="True anomaly (degrees).", ge=0, lt=360
     )
-    epoch: datetime = Field(
+    epoch: AwareDatetime = Field(
         default=datetime(2020, 1, 1, tzinfo=timezone.utc),
         description="Timestamp (epoch) of the initial orbital state.",
     )
+
+    @model_validator(mode="after")
+    def _validate_perigee(self) -> OrbitBase:
+        """
+        Validates that the perigee is above the Earth's (mean) surface, as
+        it would not be for a semimajor axis specified in kilometers rather
+        than meters (which would otherwise silently give invalid results;
+        see `analysis.check._warn_low_perigees` for altitudes in
+        kilometers). A no-op on classes that cannot derive their perigee.
+        """
+        try:
+            perigee = (
+                self.get_semimajor_axis() * (1 - self.get_eccentricity())
+                - constants.EARTH_MEAN_RADIUS
+            )
+        except NotImplementedError:
+            return self
+        if perigee < 0:
+            raise ValueError(
+                f"perigee altitude ({perigee / 1e3:.0f} km) is below the Earth's "
+                "surface: check that altitudes and semimajor axes are in meters"
+            )
+        return self
 
     def get_true_anomaly(self) -> float:
         """

@@ -52,9 +52,11 @@ from ..utils.time import _to_time, _to_time_from_offsets
 from .check import (
     _check_satellite,
     _check_satellites,
+    _check_time_window,
     _combine_results,
     _get_instrument_indices,
     _is_single,
+    _warn_low_perigees,
 )
 from .sampling import _refine_access_periods
 
@@ -290,7 +292,8 @@ def compute_region_access_periods(
         pandas.Series: the access periods (`pandas.Interval` of UTC
             timestamps), in time order.
     """
-    _check_satellite(satellite)
+    _warn_low_perigees([_check_satellite(satellite)], stacklevel=3)
+    _check_time_window(start, end)
     if not isinstance(region, (geo.Polygon, geo.MultiPolygon)):
         raise TypeError(
             f"region must be a Polygon or MultiPolygon, not a {type(region).__name__}"
@@ -871,6 +874,7 @@ def collect_region_observations(
     """
     single = _is_single(regions, satellites, instrument_index=instrument_index)
     satellites = _check_satellites(satellites)
+    _check_time_window(start, end)
     regions = list(regions) if isinstance(regions, (list, tuple)) else [regions]
     for region in regions:
         if not isinstance(region, (geo.Polygon, geo.MultiPolygon)):

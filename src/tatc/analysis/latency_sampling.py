@@ -16,7 +16,7 @@ from shapely import geometry as geo
 
 from ..schemas import GroundStation, Satellite
 from ..utils.computation import _run_together
-from .check import _check_satellites
+from .check import _check_satellites, _check_time_window
 from .coverage_metrics import _get_target_keys
 from .point_sampling import _compute_access_periods
 
@@ -61,6 +61,7 @@ def collect_downlinks(
             sorted by start time.
     """
     satellites = _check_satellites(satellites)
+    _check_time_window(start, end)
     stations = [stations] if isinstance(stations, GroundStation) else stations
     pairs = [(station, satellite) for satellite in satellites for station in stations]
     access_periods = _run_together(
