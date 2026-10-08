@@ -29,6 +29,7 @@ from ..utils.projection import (
     _compute_view_frame,
     compute_cone_and_azimuth,
 )
+from ..utils.propagation import _index_orbit_track, _to_time_from_offsets
 from .observations import (
     _build_observation_frame,
     _find_crossings,
@@ -109,53 +110,41 @@ def _get_visible_interval_series(
             )
         ]
     else:
-        # otherwise, match rise/set events
-        rises = times[events == 0]
-        sets = times[events == 2]
+        # otherwise, match rise/set events (converted to UTC timestamps once,
+        # as converting Skyfield times is costly)
+        utc = pd.DatetimeIndex(np.atleast_1d(times.utc_datetime()))
+        rises = utc[events == 0]
+        sets = utc[events == 2]
         if (
             len(sets) > 0
-            and (len(rises) == 0 or sets[0].utc_datetime() < rises[0].utc_datetime())
-            and start < sets[0].utc_datetime()
+            and (len(rises) == 0 or sets[0] < rises[0])
+            and start < sets[0]
         ):
             # if first event is a set, create a period from the start
             obs_periods += [
                 pd.Interval(
                     left=pd.Timestamp(start.astimezone(tz=timezone.utc)),
-                    right=pd.Timestamp(sets[0].utc_datetime()),
+                    right=sets[0],
                 )
             ]
         # create an observation period to match with each rise event if
         # there is a following set event within twice the maximum access time
+        # (the events are in time order, so the first set after each rise)
+        next_sets = sets.searchsorted(rises, side="right")
         obs_periods += [
-            pd.Interval(
-                left=pd.Timestamp(rise.utc_datetime()),
-                right=pd.Timestamp(
-                    sets[
-                        np.logical_and(
-                            rise.utc_datetime() < sets.utc_datetime(),
-                            sets.utc_datetime()
-                            < rise.utc_datetime() + 2 * max_access_time,
-                        )
-                    ][0].utc_datetime()
-                ),
-            )
-            for rise in rises
-            if np.any(
-                np.logical_and(
-                    rise.utc_datetime() < sets.utc_datetime(),
-                    sets.utc_datetime() < rise.utc_datetime() + 2 * max_access_time,
-                )
-            )
+            pd.Interval(left=rise, right=sets[i])
+            for rise, i in zip(rises, next_sets)
+            if i < len(sets) and sets[i] < rise + 2 * max_access_time
         ]
         if (
             len(rises) > 0
-            and (len(sets) == 0 or rises[-1].utc_datetime() > sets[-1].utc_datetime())
-            and rises[-1].utc_datetime() < end
+            and (len(sets) == 0 or rises[-1] > sets[-1])
+            and rises[-1] < end
         ):
             # if last event is a rise, create a period to the end
             obs_periods += [
                 pd.Interval(
-                    left=pd.Timestamp(rises[-1].utc_datetime()),
+                    left=rises[-1],
                     right=pd.Timestamp(end.astimezone(tz=timezone.utc)),
                 )
             ]
@@ -240,8 +229,8 @@ def _get_view_crossing_times(
 
     def residual(seconds: np.ndarray, _index: np.ndarray) -> np.ndarray:
         # along-track component of the unit line of sight in the view frame
-        orbit_track = orbit.get_orbit_track(
-            [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
+        orbit_track = orbit.get_orbit_track_at_time(
+            _to_time_from_offsets(reference, seconds)
         )
         if instrument.view_geometry == ViewGeometry.SCAN:
             # the target crosses the scan plane (tilted by the pitch angle)
@@ -303,9 +292,7 @@ def _get_cone_crossing_times(
 
     def cone_angle(seconds: np.ndarray, _index: np.ndarray) -> np.ndarray:
         cone, _ = compute_cone_and_azimuth(
-            orbit.get_orbit_track(
-                [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
-            ),
+            orbit.get_orbit_track_at_time(_to_time_from_offsets(reference, seconds)),
             target,
             instrument.velocity_frame,
             instrument.nadir_reference,
@@ -439,26 +426,34 @@ def collect_observations(
     elif isinstance(instrument, ConicalInstrument):
         epochs = _get_cone_crossing_times(target, satellite, instrument, periods)
     else:
-        epochs = [[period.mid] for period in periods]
-    observations = []
-    for period, period_epochs in zip(periods, epochs):
-        for epoch in period_epochs:
-            # instrument validity (illumination, field of view) is only
-            # checked at each period's epoch, as an approximation of the
-            # whole interval; a more general approach would refine the exact
-            # observation period boundaries with Skyfield's find_discrete
-            # using the instrument's own validity condition, but that is out
-            # of scope for now
-            orbit_track = orbit.get_orbit_track([epoch])
-            if (
-                instrument.min_access_time <= period.right - period.left
-                and instrument.is_valid_observation(orbit_track, target).all()
-                and (
-                    not isinstance(instrument, (PointedInstrument, ConicalInstrument))
-                    or instrument.is_in_field_of_view(orbit_track, target).all()
-                )
-            ):
-                observations.append((period, epoch, (longitude, latitude, elevation)))
+        epochs = [[pd.Timestamp(period.mid)] for period in periods]
+    candidates = [
+        (period, epoch)
+        for period, period_epochs in zip(periods, epochs)
+        for epoch in period_epochs
+        if instrument.min_access_time <= period.right - period.left
+    ]
+    observations, orbit_track = [], None
+    if len(candidates) > 0:
+        # instrument validity (illumination, field of view) is only checked
+        # at each period's epoch, as an approximation of the whole interval;
+        # a more general approach would refine the exact observation period
+        # boundaries with Skyfield's find_discrete using the instrument's own
+        # validity condition, but that is out of scope for now. All epochs
+        # are checked in one vectorized call.
+        orbit_track = orbit.get_orbit_track([epoch for _, epoch in candidates])
+        valid = instrument.is_valid_observation(orbit_track, target)
+        if isinstance(instrument, (PointedInstrument, ConicalInstrument)):
+            valid = valid & instrument.is_in_field_of_view(orbit_track, target)
+        valid = np.atleast_1d(valid)
+        observations = [
+            (period, epoch, (longitude, latitude, elevation))
+            for (period, epoch), is_valid in zip(candidates, valid)
+            if is_valid
+        ]
+        if not np.all(valid):
+            # reuse the orbit track of the valid epochs for the data frame
+            orbit_track = _index_orbit_track(orbit_track, np.flatnonzero(valid))
     return _build_observation_frame(
         observations,
         hash_geometry(geometry),
@@ -466,6 +461,7 @@ def collect_observations(
         satellite,
         instrument,
         omit_solar,
+        orbit_track,
     )
 
 

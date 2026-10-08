@@ -23,7 +23,7 @@ from skyfield.toposlib import GeographicPosition
 from ... import config, constants, utils
 from ...utils.cache import get_cached
 from ...utils.geometry import _get_point_coordinates
-from ...utils.propagation import _find_events, _RepeatTrack, _to_time
+from ...utils.propagation import _find_events, _index_time, _RepeatTrack, _to_time
 from ..surface import Point
 from .gp_elements import GeneralPerturbationsElements
 
@@ -777,21 +777,14 @@ class GeneralPerturbationsOrbit(BaseModel):
             return self._propagate(int(unique[0]), t, first, last)
         position_au = np.empty((3,) + t.shape)
         velocity_au_per_d = np.empty((3,) + t.shape)
-        # Skyfield caches per-instant quantities on a `Time` object, but
-        # slicing a `Time` does not carry them over. Compute the costly ones
-        # used to rotate SGP4 (TEME) results into GCRS (sidereal time and the
-        # precession-nutation matrix) once for all of `t` and share them with
-        # each slice, which also leaves them cached on `t` for later frame
-        # conversions (e.g. to ITRS).
-        gast, precession_nutation = t.gast, t.M
         for source in unique:
             # propagate each source across all its assigned times in one
-            # vectorized call, rather than one time at a time
+            # vectorized call, rather than one time at a time, sharing the
+            # costly quantities used to rotate SGP4 (TEME) results into GCRS
+            # with each slice, which also leaves them cached on `t` for later
+            # frame conversions (e.g. to ITRS)
             mask = sources == source
-            t_mask = t[mask]
-            t_mask.gast = gast[mask]
-            t_mask.M = precession_nutation[:, :, mask]
-            track = self._propagate(int(source), t_mask, first, last)
+            track = self._propagate(int(source), _index_time(t, mask), first, last)
             position_au[:, mask] = track.position.au
             velocity_au_per_d[:, mask] = track.velocity.au_per_d
         return Geocentric(position_au, velocity_au_per_d, t)

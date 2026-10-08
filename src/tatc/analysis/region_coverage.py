@@ -47,6 +47,7 @@ from ..utils.ellipsoid import (
     _get_surface_positions,
 )
 from ..utils.projection import NadirReference, VelocityFrame, _compute_view_frame
+from ..utils.propagation import _to_time_from_offsets
 from .observations import _refine_access_periods
 from .validation import _check_satellite, _check_satellites
 
@@ -418,8 +419,8 @@ def _find_footprint_periods(
     def footprints(seconds: np.ndarray) -> np.ndarray:
         if len(seconds) == 0:
             return np.array([], dtype=object)
-        orbit_track = orbit.get_orbit_track(
-            [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
+        orbit_track = orbit.get_orbit_track_at_time(
+            _to_time_from_offsets(reference, seconds)
         )
         return np.array(
             instrument.compute_footprint(orbit_track, elevation=elevation),
@@ -621,8 +622,8 @@ def _get_swath(
     duration = (period.right - period.left).total_seconds()
 
     def footprints(seconds: np.ndarray) -> np.ndarray:
-        orbit_track = orbit.get_orbit_track(
-            [period.left + pd.Timedelta(seconds=float(x)) for x in seconds]
+        orbit_track = orbit.get_orbit_track_at_time(
+            _to_time_from_offsets(period.left, seconds)
         )
         return np.array(
             instrument.compute_footprint(orbit_track, elevation=elevation),

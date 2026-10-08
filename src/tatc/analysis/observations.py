@@ -18,8 +18,9 @@ from shapely import geometry as geo
 from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
 
-from ..constants import de421, timescale
+from ..constants import de421
 from ..schemas import GeneralPerturbationsOrbit, Instrument, Satellite
+from ..utils.propagation import _to_time_from_offsets
 
 
 def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
@@ -61,6 +62,7 @@ def _build_observation_frame(
     satellite: Satellite,
     instrument: Instrument,
     omit_solar: bool,
+    orbit_track: Geocentric | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Builds the data frame of observations of a point or region, with the
@@ -77,6 +79,8 @@ def _build_observation_frame(
         satellite (Satellite): The observing satellite.
         instrument (Instrument): The observing instrument.
         omit_solar (bool): `True`, to omit solar angles to improve performance.
+        orbit_track (skyfield.positionlib.Geocentric | None): The satellite's
+                orbit track at each observation's epoch, if already computed.
 
     Returns:
         geopandas.GeoDataFrame: The data frame with recorded observations.
@@ -111,8 +115,9 @@ def _build_observation_frame(
         [target for _, _, target in observations]
     ).T
     topos = wgs84.latlon(latitude, longitude, elevation)
-    ts = timescale.from_datetimes(gdf.epoch)
-    orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(gdf.epoch.tolist())
+    if orbit_track is None:
+        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(gdf.epoch.tolist())
+    ts = orbit_track.t
     # append satellite altitude/azimuth columns
     sat_altaz = (orbit_track - topos.at(ts)).altaz()
     gdf["sat_alt"] = sat_altaz[0].degrees  # type: ignore
@@ -223,9 +228,7 @@ def _refine_access_periods(
     def evaluate(seconds: np.ndarray, _index: np.ndarray) -> np.ndarray:
         return np.reshape(
             residual(
-                orbit.get_orbit_track(
-                    [reference + pd.Timedelta(seconds=float(x)) for x in seconds]
-                )
+                orbit.get_orbit_track_at_time(_to_time_from_offsets(reference, seconds))
             ),
             -1,
         )

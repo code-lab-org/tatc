@@ -9,7 +9,7 @@ cycle search.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
@@ -288,6 +288,80 @@ def _to_time(times: datetime | list[datetime]) -> Time:
     if isinstance(times, datetime):
         return constants.timescale.from_datetime(times)
     return constants.timescale.from_datetimes(times)
+
+
+def _to_time_from_offsets(reference: datetime, seconds: npt.ArrayLike) -> Time:
+    """
+    Converts offsets from a reference time to a Skyfield `Time`, without
+    building a `datetime` for each offset: equivalent to `_to_time` of
+    `reference + timedelta(seconds=x)` for each offset `x` (as UTC calendar
+    arithmetic, so each time's leap second offset is that of its UTC day).
+
+    Args:
+        reference (datetime): The (timezone-aware) reference time.
+        seconds (numpy.typing.ArrayLike): The offsets (seconds).
+
+    Returns:
+        skyfield.timelib.Time: the Skyfield time(s)
+    """
+    utc = reference.astimezone(timezone.utc)
+    # split each time into whole days after the reference's UTC day and
+    # seconds of its UTC day (Skyfield's UTC calendar dates allow days
+    # beyond the end of the month)
+    days, second = np.divmod(
+        utc.hour * 3600
+        + utc.minute * 60
+        + utc.second
+        + utc.microsecond / 1e6
+        + np.asarray(seconds, dtype=float),
+        86400,
+    )
+    return constants.timescale.utc(
+        utc.year, utc.month, utc.day + days.astype(int), 0, 0, second
+    )
+
+
+def _index_time(t: Time, index: npt.ArrayLike) -> Time:
+    """
+    Indexes a Skyfield `Time`, carrying over its sidereal time and
+    precession-nutation matrix: Skyfield caches these costly per-instant
+    quantities (used to convert between the inertial and Earth-fixed
+    frames) on a `Time`, but indexing a `Time` does not carry them over.
+    Computes them for all of `t` if not already cached.
+
+    Args:
+        t (skyfield.timelib.Time): The time(s).
+        index (numpy.typing.ArrayLike): The index (an integer array or a
+            boolean mask).
+
+    Returns:
+        skyfield.timelib.Time: the indexed time(s)
+    """
+    gast, precession_nutation = t.gast, t.M
+    indexed = t[index]
+    indexed.gast = gast[index]
+    indexed.M = precession_nutation[:, :, index]
+    return indexed
+
+
+def _index_orbit_track(orbit_track: Geocentric, index: npt.ArrayLike) -> Geocentric:
+    """
+    Indexes an orbit track, carrying over the per-instant quantities cached
+    on its times (see `_index_time`).
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): The orbit track.
+        index (numpy.typing.ArrayLike): The index (an integer array or a
+            boolean mask).
+
+    Returns:
+        skyfield.positionlib.Geocentric: the indexed orbit track
+    """
+    return Geocentric(
+        orbit_track.position.au[:, index],
+        orbit_track.velocity.au_per_d[:, index],
+        _index_time(orbit_track.t, index),
+    )
 
 
 def _bisect(
