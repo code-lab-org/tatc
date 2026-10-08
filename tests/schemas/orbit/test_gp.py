@@ -25,7 +25,6 @@ from tatc.schemas import GeneralPerturbationsOrbit, Point
 from tatc.utils.computation import _run
 from tatc.utils.propagation import _find_events
 
-
 REPEATING = {"remove_drag": True, "repeat_cycle": "auto"}
 """Options to propagate an orbit maintained on its (found) repeat ground track."""
 
