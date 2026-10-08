@@ -8,14 +8,16 @@ cycle search.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import warnings
+from collections.abc import Callable, Generator
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
 from skyfield.api import Time
 from skyfield.framelib import itrs
+from skyfield.nutationlib import iau2000a_radians
 from skyfield.positionlib import Geocentric
 from skyfield.searchlib import find_minima
 from skyfield.sgp4lib import EarthSatellite
@@ -341,6 +343,12 @@ def _index_time(t: Time, index: npt.ArrayLike) -> Time:
     indexed = t[index]
     indexed.gast = gast[index]
     indexed.M = precession_nutation[:, :, index]
+    if "_nutation_angles_radians" in vars(t):
+        # and the nutation angles, if set or computed (see _interpolate_nutation)
+        indexed._nutation_angles_radians = tuple(  # pylint: disable=protected-access
+            np.asarray(angle)[index]
+            for angle in t._nutation_angles_radians  # pylint: disable=protected-access
+        )
     return indexed
 
 
@@ -364,6 +372,253 @@ def _index_orbit_track(orbit_track: Geocentric, index: npt.ArrayLike) -> Geocent
     )
 
 
+TimeRequest = Generator[Time | list[Time], None, Any]
+"""
+A computation that yields each Skyfield `Time` (or list of `Time`s) it
+creates before using it, so that the costly Earth orientation quantities of
+the times of several computations can be computed together (see
+`_run_together`), and returns its result.
+"""
+
+
+_NUTATION_TABLES: dict[tuple[int, float], tuple[npt.NDArray, npt.NDArray]] = {}
+"""
+The IAU 2000A nutation angles (radians) at each step of a TT day (with both
+ends), by the number of steps per day and the day (a whole TT Julian date).
+"""
+
+_NUTATION_INTERPOLATION_VERIFIED: bool | None = None
+"""
+Whether interpolated nutation angles are verified to be used by Skyfield as
+expected (see `_verify_nutation_interpolation`), once checked.
+"""
+
+
+def _interpolate_nutation(t: Time) -> None:
+    """
+    Sets the nutation angles of a Skyfield time, if not yet computed, by
+    linear interpolation from a cached table of the IAU 2000A angles at
+    steps of the `nutation_interpolation_minutes` runtime configuration
+    (unless it is None). Skyfield computes the full IAU 2000A series for
+    every time, at a cost of about 20 microseconds per time, which
+    dominates the propagation of orbits at many times; the nutation angles
+    change slowly (their shortest significant periods are days), so
+    interpolating them at 15 minute steps changes them by about a
+    microarcsecond, at a small fraction of the cost.
+
+    This sets Skyfield's private `Time._nutation_angles_radians` attribute
+    (as Skyfield's own `almanac` module does to use the IAU 2000B model), so
+    it is verified once (see `_verify_nutation_interpolation`): if Skyfield
+    no longer uses that attribute as expected, nutation angles are computed
+    by Skyfield as usual, with a warning. To compute them for every time,
+    set the runtime configuration to None.
+
+    Args:
+        t (skyfield.timelib.Time): The time(s).
+    """
+    minutes = config.get_rc().nutation_interpolation_minutes
+    if (
+        minutes is None
+        or "_nutation_angles_radians" in vars(t)
+        or ("gast" in vars(t) and "M" in vars(t))
+        or np.size(t.tt) == 0
+        or not _check_nutation_interpolation()
+    ):
+        return
+    _set_interpolated_nutation(t, max(1, int(round(1440 / minutes))))
+
+
+def _set_interpolated_nutation(t: Time, steps: int) -> None:
+    """
+    Sets the nutation angles of a Skyfield time by linear interpolation from
+    a cached table at a number of steps per day (see `_interpolate_nutation`).
+
+    Args:
+        t (skyfield.timelib.Time): The time(s).
+        steps (int): The number of steps per day.
+    """
+    whole = np.reshape(np.asarray(t.whole, dtype=float), -1)
+    fraction = np.reshape(np.asarray(t.tt_fraction, dtype=float), -1)
+    whole, fraction = np.broadcast_arrays(whole, fraction)
+    day = np.floor(whole + fraction)
+    # position within the day, in steps
+    position = ((whole - day) + fraction) * steps
+    index = np.clip(np.floor(position).astype(int), 0, steps - 1)
+    weight = position - index
+    days, row = np.unique(day, return_inverse=True)
+    missing = [d for d in days if (steps, d) not in _NUTATION_TABLES]
+    if len(missing) > 0:
+        d_psi, d_eps = iau2000a_radians(
+            constants.timescale.tt_jd(
+                np.repeat(missing, steps + 1),
+                np.tile(np.arange(steps + 1) / steps, len(missing)),
+            )
+        )
+        for k, d in enumerate(missing):
+            part = slice(k * (steps + 1), (k + 1) * (steps + 1))
+            _NUTATION_TABLES[(steps, d)] = (d_psi[part], d_eps[part])
+    table_psi = np.array([_NUTATION_TABLES[(steps, d)][0] for d in days])
+    table_eps = np.array([_NUTATION_TABLES[(steps, d)][1] for d in days])
+    shape = np.shape(t.tt)
+    t._nutation_angles_radians = tuple(  # pylint: disable=protected-access
+        np.reshape(
+            table[row, index] * (1 - weight) + table[row, index + 1] * weight, shape
+        )[()]
+        for table in (table_psi, table_eps)
+    )
+
+
+def _check_nutation_interpolation() -> bool:
+    """
+    Checks, once, whether Skyfield uses interpolated nutation angles as
+    expected (see `_verify_nutation_interpolation`), warning if not.
+
+    Returns:
+        bool: True, if it does
+    """
+    global _NUTATION_INTERPOLATION_VERIFIED  # pylint: disable=global-statement
+    if _NUTATION_INTERPOLATION_VERIFIED is None:
+        _NUTATION_INTERPOLATION_VERIFIED = _verify_nutation_interpolation()
+        if not _NUTATION_INTERPOLATION_VERIFIED:
+            warnings.warn(
+                "Skyfield no longer uses the nutation angles set on a time "
+                "(`Time._nutation_angles_radians`) as expected, so they are "
+                "computed for every time rather than interpolated (see the "
+                "`nutation_interpolation_minutes` runtime configuration).",
+                stacklevel=3,
+            )
+    return _NUTATION_INTERPOLATION_VERIFIED
+
+
+def _verify_nutation_interpolation() -> bool:
+    """
+    Verifies that Skyfield uses the nutation angles set on a time
+    (`Time._nutation_angles_radians`) as expected: that setting them
+    changes its sidereal time and precession-nutation matrix, and that
+    interpolated angles (see `_set_interpolated_nutation`) reproduce those
+    computed for every time, to well within a milliarcsecond.
+
+    Returns:
+        bool: True, if verified
+    """
+    try:
+        jd = 2461041.5 + np.array([0.0, 0.2913, 0.5, 0.75, 0.9999])
+        exact = constants.timescale.tt_jd(jd)
+        # setting the angles must change the results
+        perturbed = constants.timescale.tt_jd(jd)
+        d_psi, d_eps = iau2000a_radians(perturbed)
+        perturbed._nutation_angles_radians = (  # pylint: disable=protected-access
+            d_psi + 1e-6,
+            d_eps + 1e-6,
+        )
+        if (
+            np.max(np.abs(perturbed.gast - exact.gast)) < 1e-9
+            or np.max(np.abs(perturbed.M - exact.M)) < 1e-9
+        ):
+            return False
+        # and interpolated angles must reproduce the results (to 1e-9 hours
+        # of sidereal time and 1e-9 in the matrix, about 0.2 milliarcseconds)
+        interpolated = constants.timescale.tt_jd(jd)
+        _set_interpolated_nutation(interpolated, 96)
+        return bool(
+            np.max(np.abs(interpolated.gast - exact.gast)) < 1e-9
+            and np.max(np.abs(interpolated.M - exact.M)) < 1e-9
+        )
+    except Exception:  # pylint: disable=broad-exception-caught
+        return False
+
+
+def _share_earth_orientation(times: list[Time]) -> None:
+    """
+    Computes the sidereal time and precession-nutation matrix of several
+    Skyfield times together and caches them on each (see `_index_time`):
+    Skyfield caches these costly per-instant quantities on each `Time`, but
+    computes them separately for every `Time`, at a cost dominated by a large
+    fixed overhead for each. Times that already have them are skipped.
+
+    Args:
+        times (list[skyfield.timelib.Time]): The times.
+    """
+    unique = {id(t): t for t in times if "gast" not in vars(t) or "M" not in vars(t)}
+    times = [t for t in unique.values() if np.size(t.tt) > 0]
+    if len(times) < 2:
+        # computed as needed
+        return
+    combined = constants.timescale.tt_jd(
+        np.concatenate([np.reshape(t.whole, -1) for t in times]),
+        np.concatenate([np.reshape(t.tt_fraction, -1) for t in times]),
+    )
+    _interpolate_nutation(combined)
+    gast, precession_nutation = combined.gast, combined.M
+    offset = 0
+    for t in times:
+        size = np.size(t.tt)
+        t.gast = np.reshape(gast[offset : offset + size], np.shape(t.tt))
+        t.M = np.reshape(
+            precession_nutation[:, :, offset : offset + size], (3, 3) + np.shape(t.tt)
+        )
+        offset += size
+
+
+def _run_together(computations: list[TimeRequest]) -> list[Any]:
+    """
+    Runs several computations (see `TimeRequest`) together, in steps: at each
+    step, the Earth orientation quantities of all times that the computations
+    yield are computed together (see `_share_earth_orientation`), and each
+    computation then continues to its next time.
+
+    Args:
+        computations (list[TimeRequest]): The computations.
+
+    Returns:
+        list[Any]: the result of each computation
+    """
+    results: list[Any] = [None] * len(computations)
+    pending: dict[int, Time | list[Time]] = {}
+
+    def advance(i: int, first: bool = False) -> None:
+        try:
+            pending[i] = next(computations[i]) if first else computations[i].send(None)
+        except StopIteration as stop:
+            results[i] = stop.value
+            pending.pop(i, None)
+
+    for i in range(len(computations)):
+        advance(i, first=True)
+    while len(pending) > 0:
+        _share_earth_orientation(
+            [
+                t
+                for request in pending.values()
+                for t in (request if isinstance(request, list) else [request])
+            ]
+        )
+        for i in list(pending):
+            advance(i)
+    return results
+
+
+def _run(computation: TimeRequest) -> Any:
+    """
+    Runs a single computation (see `TimeRequest`).
+
+    Args:
+        computation (TimeRequest): The computation.
+
+    Returns:
+        Any: its result
+    """
+    return _run_together([computation])[0]
+
+
+def _value(value: Any) -> TimeRequest:
+    """
+    Wraps a value as a computation (see `TimeRequest`) that yields no times.
+    """
+    return value
+    yield  # pylint: disable=unreachable
+
+
 def _bisect(
     excess: Callable[[npt.NDArray], npt.NDArray],
     lower: npt.NDArray,
@@ -381,18 +636,35 @@ def _bisect(
     Returns:
         numpy.typing.NDArray: the times of the changes of sign
     """
+    return _run(_bisect_steps(lambda x: _value(excess(x)), lower, upper))
+
+
+def _bisect_steps(
+    excess: Callable[[npt.NDArray], TimeRequest],
+    lower: npt.NDArray,
+    upper: npt.NDArray,
+) -> TimeRequest:
+    """
+    Bisects brackets of a change of sign of a function to a millisecond, as
+    a computation (see `_bisect` and `TimeRequest`) of a function that is
+    itself a computation. Each bracket is bisected only until it is
+    narrower than a millisecond.
+    """
+    lower = np.array(lower, dtype=float)
+    upper = np.array(upper, dtype=float)
     if len(lower) == 0:
         return lower
-    f_lower = excess(lower)
+    f_lower = np.array((yield from excess(lower)), dtype=float)
     for _ in range(64):
-        if np.max(upper - lower) < 1e-3 / 86400:
+        active = np.flatnonzero(upper - lower >= 1e-3 / 86400)
+        if len(active) == 0:
             break
-        middle = (lower + upper) / 2
-        f_middle = excess(middle)
-        same = np.sign(f_middle) == np.sign(f_lower)
-        lower = np.where(same, middle, lower)
-        f_lower = np.where(same, f_middle, f_lower)
-        upper = np.where(same, upper, middle)
+        middle = (lower[active] + upper[active]) / 2
+        f_middle = yield from excess(middle)
+        same = np.sign(f_middle) == np.sign(f_lower[active])
+        lower[active] = np.where(same, middle, lower[active])
+        f_lower[active] = np.where(same, f_middle, f_lower[active])
+        upper[active] = np.where(same, upper[active], middle)
     return (lower + upper) / 2
 
 
@@ -413,12 +685,23 @@ def _find_crossing(
     Returns:
         float | None: the time of the crossing, if found
     """
+    return _run(_find_crossing_steps(lambda x: _value(excess(x)), start, stop))
+
+
+def _find_crossing_steps(
+    excess: Callable[[npt.NDArray], TimeRequest], start: float, stop: float
+) -> TimeRequest:
+    """
+    Finds the first crossing of a function, as a computation (see
+    `_find_crossing` and `TimeRequest`) of a function that is itself a
+    computation.
+    """
     samples = np.linspace(start, stop, 26)[:-1]
-    negative = np.flatnonzero(excess(samples) < 0)
+    negative = np.flatnonzero((yield from excess(samples)) < 0)
     if len(negative) == 0:
         return None
     bracket = np.sort(samples[negative[0] - 1 : negative[0] + 1])
-    return float(_bisect(excess, bracket[:1], bracket[1:])[0])
+    return float((yield from _bisect_steps(excess, bracket[:1], bracket[1:]))[0])
 
 
 def _find_events(
@@ -439,7 +722,9 @@ def _find_events(
     periods they do not, so some rise and set times can be several seconds
     early or late. Each rise or set event lies between the preceding event
     (or `t_0`) and the reported time, where the elevation angle crosses the
-    minimum, so that bracket is bisected to a millisecond.
+    minimum, and usually within a minute before the reported time, so the
+    narrower of these brackets that contains it is bisected to a
+    millisecond.
 
     Skyfield finds rise and set events around culminations, so it misses the
     set of a pass that culminates before `t_0` (and the rise of one that
@@ -459,32 +744,63 @@ def _find_events(
         tuple[skyfield.timelib.Time, numpy.ndarray]: event times and their
             rise (0) / culminate (1) / set (2) codes
     """
+    return _run(_find_events_steps(satellite, topos, t_0, t_1, min_elevation_angle))
+
+
+def _find_events_steps(
+    satellite: EarthSatellite,
+    topos: GeographicPosition,
+    t_0: Time,
+    t_1: Time,
+    min_elevation_angle: float,
+) -> TimeRequest:
+    """
+    Finds the rise, culminate, and set events of a satellite with respect to
+    a ground position, as a computation (see `_find_events` and
+    `TimeRequest`). Skyfield's `find_events` itself is not shared.
+    """
     times, events = satellite.find_events(topos, t_0, t_1, min_elevation_angle)
     jd = np.array(times.tt, dtype=float, ndmin=1)
     events = np.array(events, dtype=int, ndmin=1)
     relative = satellite - topos
 
-    def excess(x: npt.NDArray) -> npt.NDArray:
+    def excess(x: npt.NDArray) -> TimeRequest:
         t = constants.timescale.tt_jd(x)
+        yield t
         return relative.at(t).altaz()[0].degrees - min_elevation_angle
 
     refine = np.flatnonzero(events != 1)
     if len(refine) > 0:
         lower = np.concatenate(([t_0.tt], jd))[refine]
         upper = jd[refine]
-        bracketed = np.sign(excess(lower)) != np.sign(excess(upper))
-        jd[refine[bracketed]] = _bisect(excess, lower[bracketed], upper[bracketed])
+        # Skyfield reports the later end of its last bracket, so the change
+        # is usually within a minute before the reported time: bracket it
+        # there if possible, or otherwise from the preceding event
+        near = np.maximum(lower, upper - 60 / 86400)
+        f_near, f_upper = np.split(
+            (yield from excess(np.concatenate([near, upper]))), 2
+        )
+        narrow = np.sign(f_near) != np.sign(f_upper)
+        f_lower = np.array(f_near, dtype=float)
+        wide = np.flatnonzero(~narrow)
+        if len(wide) > 0:
+            f_lower[wide] = yield from excess(lower[wide])
+        lower = np.where(narrow, near, lower)
+        bracketed = np.sign(f_lower) != np.sign(f_upper)
+        jd[refine[bracketed]] = yield from _bisect_steps(
+            excess, lower[bracketed], upper[bracketed]
+        )
     crossing_jd, crossing_events = jd[events != 1], events[events != 1]
-    f_0, f_1 = excess(np.array([t_0.tt, t_1.tt]))
+    f_0, f_1 = yield from excess(np.array([t_0.tt, t_1.tt]))
     added = []
     if f_0 >= 0 and (len(crossing_events) == 0 or crossing_events[0] == 0):
         if len(crossing_events) > 0 or f_1 < 0:
             stop = crossing_jd[0] if len(crossing_events) > 0 else t_1.tt
-            added.append((_find_crossing(excess, t_0.tt, stop), 2))
+            added.append(((yield from _find_crossing_steps(excess, t_0.tt, stop)), 2))
     if f_1 >= 0 and (len(crossing_events) == 0 or crossing_events[-1] == 2):
         if len(crossing_events) > 0 or f_0 < 0:
             stop = crossing_jd[-1] if len(crossing_events) > 0 else t_0.tt
-            added.append((_find_crossing(excess, t_1.tt, stop), 0))
+            added.append(((yield from _find_crossing_steps(excess, t_1.tt, stop)), 0))
     added = [(time, code) for time, code in added if time is not None]
     if len(added) == 0:
         return constants.timescale.tt_jd(jd), events
@@ -552,6 +868,7 @@ class _RepeatTrack:
             skyfield.positionlib.Geocentric: the orbit track position/velocity
         """
         shifted = self.shift(t)
+        _interpolate_nutation(shifted)
         if np.all(shifted.tt_fraction == t.tt_fraction):
             return self.satellite.at(t)  # type: ignore
         position, velocity = self.satellite.at(shifted).frame_xyz_and_velocity(itrs)
@@ -612,6 +929,19 @@ class _RepeatTrack:
         Returns:
             list[tuple[datetime, int]]: event times and their rise (0) / culminate (1) / set (2) codes
         """
+        return _run(self.find_events_steps(topos, start, end, min_elevation_angle))
+
+    def find_events_steps(
+        self,
+        topos: GeographicPosition,
+        start: datetime,
+        end: datetime,
+        min_elevation_angle: float,
+    ) -> TimeRequest:
+        """
+        Finds the observation events between `start` and `end`, as a
+        computation (see `find_events` and `TimeRequest`).
+        """
         after = start >= self.epoch
         cycle = self.repeat_cycle
         # pieces of the period within each repeat cycle, as their shift and
@@ -628,7 +958,7 @@ class _RepeatTrack:
                 pieces.append((shift, lower - shift, upper - shift))
         if len(pieces) == 0:
             return []
-        times, codes = _find_events(
+        times, codes = yield from _find_events_steps(
             self.satellite,
             topos,
             constants.timescale.from_datetime(min(p[1] for p in pieces)),

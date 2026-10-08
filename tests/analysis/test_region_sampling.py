@@ -229,6 +229,63 @@ class TestCollectRegionObservations(IssConstellationTestCase):
         self.assertTrue(observations.start.is_monotonic_increasing)
         self.assertTrue(set(observations.satellite) <= {m.name for m in members})
 
+    def test_observations_of_regions_and_satellites(self):
+        """
+        Test that the observations of several regions by several satellites,
+        computed together, equal those of each region and satellite,
+        concatenated and sorted by start, and that observations by every
+        instrument (`instrument_index=None`) equal those of
+        `collect_multi_region_observations`.
+        """
+        members = self.constellation.generate_members()
+        regions = [box(-114.8, 31.3, -109.0, 37.0), box(-10, 50, 0, 55)]
+        observations = collect_region_observations(
+            regions, members, self.start, self.end
+        )
+        expected = (
+            pd.concat(
+                [
+                    collect_region_observations(region, member, self.start, self.end)
+                    for region in regions
+                    for member in members
+                ]
+            )
+            .sort_values("start")
+            .reset_index(drop=True)
+        )
+        self.assertGreater(len(observations.index), 0)
+        self.assertEqual(
+            set(observations.target_hash), {hash_geometry(r) for r in regions}
+        )
+        pd.testing.assert_frame_equal(
+            observations.drop(columns="geometry"), expected.drop(columns="geometry")
+        )
+        self.assertTrue(
+            shapely.equals_exact(
+                observations.geometry.values, expected.geometry.values, 1e-9
+            ).all()
+        )
+        pd.testing.assert_frame_equal(
+            collect_region_observations(
+                regions[0], members, self.start, self.end, None
+            ).drop(columns="geometry"),
+            collect_multi_region_observations(
+                regions[0], members, self.start, self.end
+            ).drop(columns="geometry"),
+        )
+
+    def test_observations_reject_non_regions(self):
+        """
+        Test that a list of regions containing a point raises a `TypeError`.
+        """
+        with self.assertRaises(TypeError):
+            collect_region_observations(
+                [box(0, 0, 1, 1), ShapelyPoint(0, 0)],
+                self.narrow_satellite,
+                self.start,
+                self.end,
+            )
+
     def test_observations_of_pointed_and_conical_instruments(self):
         """
         Test that the observation periods of pointed and conical instruments

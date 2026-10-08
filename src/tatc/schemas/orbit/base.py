@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, Field
 
-from ... import config, constants, utils
+from ... import constants, utils
 from ...utils.cache import get_cached
 from .gp import GeneralPerturbationsOrbit
 
@@ -157,26 +157,21 @@ class OrbitBase(BaseModel):
             "get_perigee_argument() must be implemented in subclasses."
         )
 
-    def to_gp_orbit(self, lazy_load: bool | None = None) -> GeneralPerturbationsOrbit:
+    def to_gp_orbit(self) -> GeneralPerturbationsOrbit:
         """
         Converts this orbit to a general perturbations orbit representation.
-        Lazy-loads a previously-computed conversion if available, since
+        Reuses a previously-computed conversion (cached on this orbit), since
         `_compute_gp_orbit()` can be expensive (e.g. requires SGP4 fitting).
         Subclasses must implement `_compute_gp_orbit()` rather than
         overriding this method directly.
 
-        Args:
-            lazy_load (bool | None): True, if this gp orbit should be lazy-loaded.
-
         Returns:
             GeneralPerturbationsOrbit: the general perturbations orbit
         """
-        if lazy_load is None:
-            lazy_load = config.get_rc().gp_orbit_lazy_load
         # keyed by the orbit's field values, so that a copy with changed
         # fields is converted again
         return get_cached(
-            self, "gp_orbit", self.model_dump_json(), self._compute_gp_orbit, lazy_load
+            self, "gp_orbit", self.model_dump_json(), self._compute_gp_orbit
         )
 
     def _compute_gp_orbit(self) -> GeneralPerturbationsOrbit:

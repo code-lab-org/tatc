@@ -29,13 +29,20 @@ from ..utils.projection import (
     _compute_view_frame,
     compute_cone_and_azimuth,
 )
-from ..utils.propagation import _index_orbit_track, _to_time_from_offsets
+from ..utils.propagation import (
+    TimeRequest,
+    _index_orbit_track,
+    _run,
+    _run_together,
+    _to_time,
+    _to_time_from_offsets,
+)
 from .check import _check_satellite, _check_satellites
 from .sampling import (
     _build_observation_frame,
-    _find_crossings,
+    _find_crossings_steps,
     _get_empty_coverage_frame,
-    _refine_access_periods,
+    _refine_access_periods_steps,
 )
 
 
@@ -46,9 +53,10 @@ def _get_visible_interval_series(
     max_altitude: float,
     start: datetime,
     end: datetime,
-) -> pd.Series:
+) -> TimeRequest:
     """
-    Get the series of visible intervals based on altitude angle constraints.
+    Get the series of visible intervals based on altitude angle constraints,
+    as a computation (see `tatc.utils.propagation.TimeRequest`).
 
     Args:
         point (Point | shapely.geometry.Point): Point to observe: a TAT-C
@@ -64,14 +72,17 @@ def _get_visible_interval_series(
         end (datetime.datetime): End of analysis period.
 
     Returns:
-        pandas.Series: Series of observation intervals.
+        TimeRequest: the computation of the series of observation intervals.
     """
     # compute the maximum access time to filter bad data
     max_access_time = timedelta(
         seconds=compute_max_access_time(max_altitude, min_elevation_angle)
     )
     # find the set of observation events
-    times, events = satellite.orbit.to_gp_orbit().get_observation_events(
+    (
+        times,
+        events,
+    ) = yield from satellite.orbit.to_gp_orbit().get_observation_events_steps(
         point, start, end, min_elevation_angle
     )
 
@@ -89,10 +100,10 @@ def _get_visible_interval_series(
         mid = start + (end - start) / 2
         longitude, latitude, elevation = _get_point_coordinates(point)
         topos = wgs84.latlon(latitude, longitude, elevation)
-        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track([mid])[0]
-        elevation_angle = (
-            (orbit_track - topos.at(timescale.from_datetime(mid))).altaz()[0].degrees
-        )
+        t_track, t_mid = _to_time([mid]), timescale.from_datetime(mid)
+        yield [t_track, t_mid]
+        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track_at_time(t_track)[0]
+        elevation_angle = (orbit_track - topos.at(t_mid)).altaz()[0].degrees
         if elevation_angle > min_elevation_angle:  # type: ignore
             # continuously visible for the entire window
             obs_periods += [
@@ -181,6 +192,23 @@ def compute_access_periods(
             timestamps), in time order.
     """
     _check_satellite(satellite)
+    return _run(
+        _compute_access_periods(point, satellite, start, end, min_elevation_angle)
+    )
+
+
+def _compute_access_periods(
+    point: Point | geo.Point,
+    satellite: Satellite,
+    start: datetime,
+    end: datetime,
+    min_elevation_angle: float = 0,
+) -> TimeRequest:
+    """
+    Compute the periods when a satellite is in view of a point, as a
+    computation (see `compute_access_periods` and
+    `tatc.utils.propagation.TimeRequest`).
+    """
     _, _, elevation = _get_point_coordinates(point)
     # use the apogee altitude above the polar radius (and above the point,
     # if below the ellipsoid) as a conservative upper bound for pairing rise
@@ -192,8 +220,10 @@ def compute_access_periods(
         - EARTH_POLAR_RADIUS
         - min(elevation, 0)
     )
-    return _get_visible_interval_series(
-        point, satellite, min_elevation_angle, max_altitude, start, end
+    return (
+        yield from _get_visible_interval_series(
+            point, satellite, min_elevation_angle, max_altitude, start, end
+        )
     )
 
 
@@ -202,7 +232,7 @@ def _get_view_crossing_times(
     satellite: Satellite,
     instrument: PointedInstrument,
     periods: list[pd.Interval],
-) -> list[pd.Timestamp]:
+) -> TimeRequest:
     """
     Get the time in each visible period when a pointed instrument's view
     sweeps over a target: when the target crosses the plane of the view's
@@ -220,18 +250,19 @@ def _get_view_crossing_times(
         periods (list[pandas.Interval]): The visible periods.
 
     Returns:
-        list[pandas.Timestamp]: The view crossing time in each period.
+        TimeRequest: the computation of the view crossing time in each
+            period (list[pandas.Timestamp]).
     """
     if len(periods) == 0:
         return []
     orbit = satellite.orbit.to_gp_orbit()
     reference = periods[0].left
 
-    def residual(seconds: np.ndarray, _index: np.ndarray) -> np.ndarray:
+    def residual(seconds: np.ndarray, _index: np.ndarray) -> TimeRequest:
         # along-track component of the unit line of sight in the view frame
-        orbit_track = orbit.get_orbit_track_at_time(
-            _to_time_from_offsets(reference, seconds)
-        )
+        t = _to_time_from_offsets(reference, seconds)
+        yield t
+        orbit_track = orbit.get_orbit_track_at_time(t)
         if instrument.view_geometry == ViewGeometry.SCAN:
             # the target crosses the scan plane (tilted by the pitch angle)
             position, _, along, _ = _compute_view_frame(
@@ -254,7 +285,7 @@ def _get_view_crossing_times(
         los = np.reshape(np.array(target.itrs_xyz.m), (3, 1)) - position
         return np.sum(los * along, axis=0) / np.linalg.norm(los, axis=0)
 
-    crossing, _ = _find_crossings(
+    crossing, _ = yield from _find_crossings_steps(
         residual,
         np.array([(period.left - reference).total_seconds() for period in periods]),
         np.array([(period.right - reference).total_seconds() for period in periods]),
@@ -267,7 +298,7 @@ def _get_cone_crossing_times(
     satellite: Satellite,
     instrument: ConicalInstrument,
     periods: list[pd.Interval],
-) -> list[list[pd.Timestamp]]:
+) -> TimeRequest:
     """
     Get the times in each visible period when a target crosses a conical
     instrument's cone: when the target's angle from nadir equals the cone
@@ -282,7 +313,8 @@ def _get_cone_crossing_times(
         periods (list[pandas.Interval]): The visible periods.
 
     Returns:
-        list[list[pandas.Timestamp]]: The cone crossing times in each period.
+        TimeRequest: the computation of the cone crossing times in each
+            period (list[list[pandas.Timestamp]]).
     """
     if len(periods) == 0:
         return []
@@ -290,14 +322,19 @@ def _get_cone_crossing_times(
     reference = periods[0].left
     n = len(periods)
 
-    def cone_angle(seconds: np.ndarray, _index: np.ndarray) -> np.ndarray:
+    def cone_angle(seconds: np.ndarray, _index: np.ndarray) -> TimeRequest:
+        t = _to_time_from_offsets(reference, seconds)
+        yield t
         cone, _ = compute_cone_and_azimuth(
-            orbit.get_orbit_track_at_time(_to_time_from_offsets(reference, seconds)),
+            orbit.get_orbit_track_at_time(t),
             target,
             instrument.velocity_frame,
             instrument.nadir_reference,
         )
         return np.reshape(cone, -1)
+
+    def residual(seconds: np.ndarray, index: np.ndarray) -> TimeRequest:
+        return (yield from cone_angle(seconds, index)) - instrument.cone_angle
 
     lower = np.array([(period.left - reference).total_seconds() for period in periods])
     upper = np.array([(period.right - reference).total_seconds() for period in periods])
@@ -306,14 +343,14 @@ def _get_cone_crossing_times(
     closest = samples[
         np.arange(n),
         np.argmin(
-            cone_angle(samples.ravel(), np.repeat(np.arange(n), 21)).reshape(
-                samples.shape
-            ),
+            (
+                yield from cone_angle(samples.ravel(), np.repeat(np.arange(n), 21))
+            ).reshape(samples.shape),
             axis=1,
         ),
     ]
-    crossing, bracketed = _find_crossings(
-        lambda seconds, index: cone_angle(seconds, index) - instrument.cone_angle,
+    crossing, bracketed = yield from _find_crossings_steps(
+        residual,
         np.concatenate([lower, closest]),
         np.concatenate([closest, upper]),
     )
@@ -327,56 +364,18 @@ def _get_cone_crossing_times(
     ]
 
 
-def collect_observations(
+def _collect_observations(
     point: Point | geo.Point,
     satellite: Satellite,
     start: datetime,
     end: datetime,
     instrument_index: int = 0,
     omit_solar: bool = True,
-) -> gpd.GeoDataFrame:
+) -> TimeRequest:
     """
-    Collect single satellite observations of a geodetic point of interest:
-    a TAT-C `Point` or a shapely `Point` (whose x, y, and optional z
-    coordinates are its longitude, latitude, and elevation in meters);
-    TAT-C points are expected to be replaced by shapely points in the
-    future. Observations record the point (with its elevation as its z
-    coordinate) as their geometry, identified by its hash, `target_hash` (see
-    `tatc.utils.geometry.hash_geometry`); a TAT-C point's `id` is not
-    recorded. For a region, see
-    `tatc.analysis.region_sampling.collect_region_observations`.
-
-    Each observation spans a period when the point lies within the
-    instrument's field of regard (when its angle from nadir is at most half
-    the field of regard). Its epoch is the period's midpoint or, for
-    a `PointedInstrument`, the time when the instrument's view sweeps over
-    the point (when the point's along-track view angle relative to the view
-    center is zero), or, for a `ConicalInstrument`, a time when the point
-    crosses the scanned cone (up to two per period, entering and leaving the
-    cone); at that time, the point must lie within the field of view.
-
-    If the orbit is propagated with a repeat cycle (see
-    `GeneralPerturbationsOrbit.repeat_cycle`), it is modeled as maintained on
-    its repeat ground track before its first and after its last element's
-    epoch (see `GeneralPerturbationsOrbit.get_orbit_track_at_time`).
-
-    Args:
-        point (Point | shapely.geometry.Point): The ground point of interest.
-        satellite (Satellite): The observing satellite.
-        start (datetime.datetime): Start of analysis period.
-        end (datetime.datetime): End of analysis period.
-        instrument_index (int): The index of the observing instrument in satellite.
-        omit_solar (bool): `True`, to omit solar angles to improve performance.
-
-    Returns:
-        geopandas.GeoDataFrame: The data frame with recorded observations.
+    Collect single satellite observations of a point, as a computation (see
+    `collect_observations` and `tatc.utils.propagation.TimeRequest`).
     """
-    _check_satellite(satellite)
-    if not isinstance(point, (Point, geo.Point)):
-        raise TypeError(
-            "point must be a Point or shapely Point, not a "
-            f"{type(point).__name__} (see collect_region_observations for a region)"
-        )
     longitude, latitude, elevation = _get_point_coordinates(point)
     geometry = geo.Point(longitude, latitude, elevation)
     instrument = satellite.instruments[instrument_index]
@@ -399,13 +398,17 @@ def collect_observations(
     )
     target = wgs84.latlon(latitude, longitude, elevation)
     periods = list(
-        compute_access_periods(point, satellite, start, end, min_elevation_angle)
+        (
+            yield from _compute_access_periods(
+                point, satellite, start, end, min_elevation_angle
+            )
+        )
     )
     # refine the periods to the field of regard: when the point's angle
     # from nadir is at most half the field of regard
     half_angle = instrument.field_of_regard / 2
     if half_angle < 90:
-        periods = _refine_access_periods(
+        periods = yield from _refine_access_periods_steps(
             lambda orbit_track: compute_cone_and_azimuth(
                 orbit_track, target, nadir_reference=instrument.nadir_reference
             )[0]
@@ -419,12 +422,16 @@ def collect_observations(
     if isinstance(instrument, PointedInstrument):
         epochs = [
             [epoch]
-            for epoch in _get_view_crossing_times(
-                target, satellite, instrument, periods
+            for epoch in (
+                yield from _get_view_crossing_times(
+                    target, satellite, instrument, periods
+                )
             )
         ]
     elif isinstance(instrument, ConicalInstrument):
-        epochs = _get_cone_crossing_times(target, satellite, instrument, periods)
+        epochs = yield from _get_cone_crossing_times(
+            target, satellite, instrument, periods
+        )
     else:
         epochs = [[pd.Timestamp(period.mid)] for period in periods]
     candidates = [
@@ -441,7 +448,9 @@ def collect_observations(
         # boundaries with Skyfield's find_discrete using the instrument's own
         # validity condition, but that is out of scope for now. All epochs
         # are checked in one vectorized call.
-        orbit_track = orbit.get_orbit_track([epoch for _, epoch in candidates])
+        t = _to_time([epoch for _, epoch in candidates])
+        yield t
+        orbit_track = orbit.get_orbit_track_at_time(t)
         valid = instrument.is_valid_observation(orbit_track, target)
         if isinstance(instrument, (PointedInstrument, ConicalInstrument)):
             valid = valid & instrument.is_in_field_of_view(orbit_track, target)
@@ -465,6 +474,96 @@ def collect_observations(
     )
 
 
+def collect_observations(
+    points: Point | geo.Point | list[Point | geo.Point],
+    satellites: Satellite | list[Satellite],
+    start: datetime,
+    end: datetime,
+    instrument_index: int | None = 0,
+    omit_solar: bool = True,
+) -> gpd.GeoDataFrame:
+    """
+    Collect observations of one or more geodetic points of interest by one
+    or more satellites. Each point is a TAT-C `Point` or a shapely `Point`
+    (whose x, y, and optional z coordinates are its longitude, latitude, and
+    elevation in meters); TAT-C points are expected to be replaced by
+    shapely points in the future. Observations record the point (with its
+    elevation as its z coordinate) as their geometry, identified by its
+    hash, `target_hash` (see `tatc.utils.geometry.hash_geometry`); a TAT-C
+    point's `id` is not recorded. For a region, see
+    `tatc.analysis.region_sampling.collect_region_observations`.
+
+    Each observation spans a period when the point lies within the
+    instrument's field of regard (when its angle from nadir is at most half
+    the field of regard). Its epoch is the period's midpoint or, for
+    a `PointedInstrument`, the time when the instrument's view sweeps over
+    the point (when the point's along-track view angle relative to the view
+    center is zero), or, for a `ConicalInstrument`, a time when the point
+    crosses the scanned cone (up to two per period, entering and leaving the
+    cone); at that time, the point must lie within the field of view.
+
+    If the orbit is propagated with a repeat cycle (see
+    `GeneralPerturbationsOrbit.repeat_cycle`), it is modeled as maintained on
+    its repeat ground track before its first and after its last element's
+    epoch (see `GeneralPerturbationsOrbit.get_orbit_track_at_time`).
+
+    The observations of every point, satellite, and instrument are computed
+    together, sharing the costly Earth orientation quantities of the times
+    at each step (see `tatc.utils.propagation._run_together`), which is
+    much faster than computing them separately.
+
+    Args:
+        points (Point | shapely.geometry.Point | list[Point | shapely.geometry.Point]):
+                The ground point(s) of interest.
+        satellites (Satellite | list[Satellite]): The observing satellite(s).
+        start (datetime.datetime): Start of analysis period.
+        end (datetime.datetime): End of analysis period.
+        instrument_index (int | None): The index of the observing instrument
+                in each satellite, or `None` for every instrument of each
+                satellite.
+        omit_solar (bool): `True`, to omit solar angles to improve performance.
+
+    Returns:
+        geopandas.GeoDataFrame: The data frame with recorded observations:
+            for a single point, satellite, and instrument (an integer
+            `instrument_index`), in time order; otherwise, those of each
+            point, satellite, and instrument, concatenated and sorted by
+            start time.
+    """
+    single = (
+        not isinstance(points, (list, tuple))
+        and not isinstance(satellites, list)
+        and instrument_index is not None
+    )
+    satellites = _check_satellites(satellites)
+    points = list(points) if isinstance(points, (list, tuple)) else [points]
+    for point in points:
+        if not isinstance(point, (Point, geo.Point)):
+            raise TypeError(
+                "point must be a Point or shapely Point, not a "
+                f"{type(point).__name__} (see collect_region_observations for a region)"
+            )
+    gdfs = _run_together(
+        [
+            _collect_observations(point, satellite, start, end, index, omit_solar)
+            for point in points
+            for satellite in satellites
+            for index in (
+                range(len(satellite.instruments))
+                if instrument_index is None
+                else [instrument_index]
+            )
+        ]
+    )
+    if single:
+        return gdfs[0]
+    if len(gdfs) == 0:
+        # no points or satellites leave nothing to concatenate
+        return _get_empty_coverage_frame(omit_solar)
+    # concatenate into one data frame, sort by start time, and re-index
+    return pd.concat(gdfs).sort_values("start").reset_index(drop=True)
+
+
 def collect_multi_observations(
     point: Point | geo.Point,
     satellites: Satellite | list[Satellite],
@@ -473,9 +572,10 @@ def collect_multi_observations(
     omit_solar: bool = True,
 ) -> gpd.GeoDataFrame:
     """
-    Collect multiple satellite observations of a geodetic point of interest:
-    calls `collect_observations` for every instrument on every satellite in
-    `satellites`, and concatenates the results into one data frame.
+    Collect multiple satellite observations of a geodetic point of interest
+    by every instrument on every satellite in `satellites`: equivalent to
+    `collect_observations` with `instrument_index=None`, kept for backwards
+    compatibility.
 
     Args:
         point (Point | shapely.geometry.Point): The ground point of interest
@@ -489,13 +589,4 @@ def collect_multi_observations(
     Returns:
         geopandas.GeoDataFrame: The data frame with all recorded observations.
     """
-    gdfs = [
-        collect_observations(point, satellite, start, end, instrument_index, omit_solar)
-        for satellite in _check_satellites(satellites)
-        for instrument_index in range(len(satellite.instruments))
-    ]
-    if len(gdfs) == 0:
-        # an empty `satellites` list leaves nothing to concatenate
-        return _get_empty_coverage_frame(omit_solar)
-    # concatenate into one data frame, sort by start time, and re-index
-    return pd.concat(gdfs).sort_values("start").reset_index(drop=True)
+    return collect_observations(point, satellites, start, end, None, omit_solar)

@@ -17,7 +17,7 @@ from sgp4.api import WGS72, Satrec
 from sgp4.conveniences import sat_epoch_datetime
 from skyfield.api import EarthSatellite
 
-from ... import config, constants, utils
+from ... import constants, utils
 from ...utils.cache import get_cached
 from ...utils.propagation import (
     RepeatCycleSearch,
@@ -378,11 +378,10 @@ class GeneralPerturbationsElements(BaseModel):
         max_delta_position: float | None = None,
         max_delta_velocity: float | None = None,
         max_search_duration: timedelta | None = None,
-        lazy_load: bool | None = None,
         max_delta_semimajor_axis: float | None = None,
     ) -> timedelta | None:
         """
-        Compute this element's repeat cycle. Lazy-loads a previously-computed
+        Compute this element's repeat cycle. Reuses a previously-computed
         repeat cycle if available.
 
         Uses the classical repeat-ground-track condition: the orbit
@@ -440,7 +439,6 @@ class GeneralPerturbationsElements(BaseModel):
             max_delta_position (float | None): the maximum difference in position (m) allowed for a repeat.
             max_delta_velocity (float | None): the maximum difference in velocity (m/s) allowed for a repeat.
             max_search_duration (timedelta | None): the maximum period of time to search for repeats.
-            lazy_load (bool | None): True, if the previously-computed repeat cycle should be loaded.
             max_delta_semimajor_axis (float | None): the maximum difference (m) between the
                 semimajor axis and that of an exact repeat for a candidate repeat.
 
@@ -453,14 +451,11 @@ class GeneralPerturbationsElements(BaseModel):
             max_search_duration,
             max_delta_semimajor_axis,
         )
-        if lazy_load is None:
-            lazy_load = config.get_rc().repeat_cycle_lazy_load
         return get_cached(
             self,
             "repeat_cycle",
             (self._get_key(), search),
             lambda: _search_repeat_cycle(self, search),
-            lazy_load,
         )
 
     def refine_repeat_cycle(self, repeat_cycle: timedelta) -> timedelta:

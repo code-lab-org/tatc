@@ -20,7 +20,7 @@ from skyfield.positionlib import Geocentric
 
 from ..constants import de421
 from ..schemas import GeneralPerturbationsOrbit, Instrument, Satellite
-from ..utils.propagation import _to_time_from_offsets
+from ..utils.propagation import TimeRequest, _run, _to_time_from_offsets, _value
 
 
 def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
@@ -160,9 +160,28 @@ def _find_crossings(
             if the residual does not change sign, the end with the smaller
             residual) and whether the interval brackets a zero.
     """
+    return _run(
+        _find_crossings_steps(
+            lambda seconds, index: _value(residual(seconds, index)), lower, upper
+        )
+    )
+
+
+def _find_crossings_steps(
+    residual: Callable[[np.ndarray, np.ndarray], TimeRequest],
+    lower: np.ndarray,
+    upper: np.ndarray,
+) -> TimeRequest:
+    """
+    Find a zero of a residual function within each of a set of intervals, as
+    a computation (see `_find_crossings` and
+    `tatc.utils.propagation.TimeRequest`) of a residual function that is
+    itself a computation.
+    """
     lower, upper = np.array(lower, dtype=float), np.array(upper, dtype=float)
     index = np.arange(len(lower))
-    f_lower, f_upper = residual(lower, index), residual(upper, index)
+    f_lower = yield from residual(lower, index)
+    f_upper = yield from residual(upper, index)
     # without a sign change, use the end with the smaller residual
     crossing = np.where(np.abs(f_lower) <= np.abs(f_upper), lower, upper)
     bracketed = np.sign(f_lower) * np.sign(f_upper) < 0
@@ -177,7 +196,7 @@ def _find_crossings(
                 active, (lower * f_upper - upper * f_lower) / (f_upper - f_lower), lower
             )
         f_x = np.zeros(len(lower))
-        f_x[active] = residual(x[active], index[active])
+        f_x[active] = yield from residual(x[active], index[active])
         replace_lower = active & (np.sign(f_x) == np.sign(f_lower))
         replace_upper = active & ~replace_lower
         # Illinois modification: halve the residual of an end retained twice
@@ -221,17 +240,28 @@ def _refine_access_periods(
     Returns:
         list[pandas.Interval]: The refined periods.
     """
+    return _run(_refine_access_periods_steps(residual, orbit, periods, max_step))
+
+
+def _refine_access_periods_steps(
+    residual: Callable[[Geocentric], np.ndarray],
+    orbit: GeneralPerturbationsOrbit,
+    periods: list[pd.Interval],
+    max_step: timedelta | None = None,
+) -> TimeRequest:
+    """
+    Refine visible periods to the times when a residual function of the
+    orbit track is not positive, as a computation (see
+    `_refine_access_periods` and `tatc.utils.propagation.TimeRequest`).
+    """
     if len(periods) == 0:
         return periods
     reference = periods[0].left
 
-    def evaluate(seconds: np.ndarray, _index: np.ndarray) -> np.ndarray:
-        return np.reshape(
-            residual(
-                orbit.get_orbit_track_at_time(_to_time_from_offsets(reference, seconds))
-            ),
-            -1,
-        )
+    def evaluate(seconds: np.ndarray, _index: np.ndarray) -> TimeRequest:
+        t = _to_time_from_offsets(reference, seconds)
+        yield t
+        return np.reshape(residual(orbit.get_orbit_track_at_time(t)), -1)
 
     lower = np.array([(period.left - reference).total_seconds() for period in periods])
     upper = np.array([(period.right - reference).total_seconds() for period in periods])
@@ -244,7 +274,8 @@ def _refine_access_periods(
         np.linspace(lo, hi, count) for lo, hi, count in zip(lower, upper, counts)
     ]
     values = np.split(
-        evaluate(np.concatenate(samples), np.array([])), np.cumsum(counts)[:-1]
+        (yield from evaluate(np.concatenate(samples), np.array([]))),
+        np.cumsum(counts)[:-1],
     )
     # brackets of each change of sign between samples
     brackets = [
@@ -254,7 +285,7 @@ def _refine_access_periods(
     ]
     crossings = {}
     if len(brackets) > 0:
-        crossing, _ = _find_crossings(
+        crossing, _ = yield from _find_crossings_steps(
             evaluate,
             np.array([samples[i][j] for i, j in brackets]),
             np.array([samples[i][j + 1] for i, j in brackets]),

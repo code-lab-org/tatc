@@ -7,6 +7,7 @@ Unit tests for the ground track analysis functions.
 from datetime import datetime, timedelta, timezone
 
 import geopandas as gpd
+import numpy as np
 from shapely.geometry import MultiPolygon, Point as ShapelyPoint, Polygon, box
 from skyfield.api import wgs84
 
@@ -490,9 +491,14 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
         unmasked = collect_ground_pixels(satellite, times)
         expected = unmasked[[mask.intersects(g) for g in unmasked.geometry]]
         self.assertTrue(masked.time.is_monotonic_increasing)
-        self.assertEqual(
-            [(t, g.wkt) for t, g in zip(masked.time, masked.geometry)],
-            [(t, g.wkt) for t, g in zip(expected.time, expected.geometry)],
+        self.assertEqual(list(masked.time), list(expected.time))
+        # the same pixels, to within rounding (the masked orbit track is
+        # indexed from a longer one)
+        np.testing.assert_allclose(
+            [(g.x, g.y) for g in masked.geometry],
+            [(g.x, g.y) for g in expected.geometry],
+            rtol=0,
+            atol=1e-9,
         )
 
     def test_collect_ground_pixels_mask_as_geodataframe(self):

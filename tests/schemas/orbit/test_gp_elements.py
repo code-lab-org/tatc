@@ -502,27 +502,15 @@ class TestGetRepeatCycle(unittest.TestCase):
         elements = GeneralPerturbationsElements.from_tle(self.iss_tle)
         self.assertIsNone(elements.get_repeat_cycle())
 
-    def test_lazy_load_reuses_cached_result(self):
+    def test_reuses_cached_result(self):
         """
-        Test that calling get_repeat_cycle() twice with lazy_load=True
-        (the default) returns the identical cached timedelta rather than
-        recomputing.
+        Test that calling get_repeat_cycle() twice returns the identical
+        cached timedelta rather than recomputing.
         """
         elements = GeneralPerturbationsElements.from_tle(self.landsat_8_tle)
         first = elements.get_repeat_cycle()
         second = elements.get_repeat_cycle()
         self.assertIs(first, second)
-
-    def test_lazy_load_false_forces_recomputation(self):
-        """
-        Test that lazy_load=False recomputes rather than reusing the
-        cached result (a fresh but equal timedelta).
-        """
-        elements = GeneralPerturbationsElements.from_tle(self.landsat_8_tle)
-        first = elements.get_repeat_cycle()
-        second = elements.get_repeat_cycle(lazy_load=False)
-        self.assertEqual(first, second)
-        self.assertIsNot(first, second)
 
     def test_too_short_search_duration_returns_none(self):
         """
@@ -530,9 +518,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         cycle (16 days) cannot find it.
         """
         elements = GeneralPerturbationsElements.from_tle(self.landsat_8_tle)
-        repeat_cycle = elements.get_repeat_cycle(
-            max_search_duration=timedelta(days=10), lazy_load=False
-        )
+        repeat_cycle = elements.get_repeat_cycle(max_search_duration=timedelta(days=10))
         self.assertIsNone(repeat_cycle)
 
     def test_too_tight_tolerance_returns_none(self):
@@ -542,7 +528,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         """
         elements = GeneralPerturbationsElements.from_tle(self.landsat_8_tle)
         repeat_cycle = elements.get_repeat_cycle(
-            max_delta_position=1, max_delta_velocity=0.001, lazy_load=False
+            max_delta_position=1, max_delta_velocity=0.001
         )
         self.assertIsNone(repeat_cycle)
 

@@ -23,7 +23,15 @@ from skyfield.toposlib import GeographicPosition
 from ... import config, constants, utils
 from ...utils.cache import get_cached
 from ...utils.geometry import _get_point_coordinates
-from ...utils.propagation import _find_events, _index_time, _RepeatTrack, _to_time
+from ...utils.propagation import (
+    TimeRequest,
+    _find_events_steps,
+    _index_time,
+    _interpolate_nutation,
+    _RepeatTrack,
+    _run,
+    _to_time,
+)
 from ..surface import Point
 from .gp_elements import GeneralPerturbationsElements
 
@@ -569,7 +577,6 @@ class GeneralPerturbationsOrbit(BaseModel):
         max_delta_position: float | None = None,
         max_delta_velocity: float | None = None,
         max_search_duration: timedelta | None = None,
-        lazy_load: bool | None = None,
         consistency_threshold: timedelta | None = None,
         max_delta_semimajor_axis: float | None = None,
     ) -> timedelta | None:
@@ -597,7 +604,6 @@ class GeneralPerturbationsOrbit(BaseModel):
             max_delta_position (float | None): the maximum difference in position (m) allowed for a repeat.
             max_delta_velocity (float | None): the maximum difference in velocity (m/s) allowed for a repeat.
             max_search_duration (timedelta | None): the maximum period of time to search for repeats.
-            lazy_load (bool | None): True, if the previously-computed repeat cycle should be loaded.
             consistency_threshold (timedelta | None): the maximum allowed spread between elements' repeat cycles.
             max_delta_semimajor_axis (float | None): the maximum difference (m) between the
                 semimajor axis and that of an exact repeat for a candidate repeat.
@@ -619,7 +625,6 @@ class GeneralPerturbationsOrbit(BaseModel):
                 max_delta_position,
                 max_delta_velocity,
                 max_search_duration,
-                lazy_load,
                 max_delta_semimajor_axis,
             )
             if cycle is None:
@@ -760,6 +765,8 @@ class GeneralPerturbationsOrbit(BaseModel):
         Returns:
             skyfield.positionlib.Geocentric: the orbit track position/velocity
         """
+        # interpolate the costly nutation angles (see _interpolate_nutation)
+        _interpolate_nutation(t)
         first, last = self._get_repeat_tracks()
         # the source of each time: the closest element's index, or a repeat track
         sources = np.asarray(self.get_closest_element_index(t))
@@ -870,7 +877,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         topos: GeographicPosition,
         boundaries: list[datetime],
         min_elevation_angle: float,
-    ) -> list[tuple[datetime, int]]:
+    ) -> TimeRequest:
         """
         Gets the rise and set events at boundaries where the propagation
         switches between sources (elements, repeat tracks, or repeat cycles),
@@ -891,6 +898,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             return []
         epsilon = timedelta(milliseconds=1)
         t = _to_time([b + d for b in boundaries for d in (-epsilon, epsilon)])
+        yield t
         altitude = (self.get_orbit_track_at_time(t) - topos.at(t)).altaz()[0]
         up = np.reshape(altitude.degrees >= min_elevation_angle, (-1, 2))
         return [
@@ -933,6 +941,23 @@ class GeneralPerturbationsOrbit(BaseModel):
         Returns:
             tuple[skyfield.timelib.Time, numpy.ndarray]: event times and their rise (0) / culminate (1) / set (2) codes
         """
+        return _run(
+            self.get_observation_events_steps(point, start, end, min_elevation_angle)
+        )
+
+    def get_observation_events_steps(
+        self,
+        point: Point | ShapelyPoint,
+        start: datetime,
+        end: datetime,
+        min_elevation_angle: float,
+    ) -> TimeRequest:
+        """
+        Gets the observation events of this orbit with respect to a ground
+        point, as a computation (see `get_observation_events` and
+        `tatc.utils.propagation.TimeRequest`), so that those of several
+        orbits or points can be computed together.
+        """
         longitude, latitude, elevation = _get_point_coordinates(point)
         topos = wgs84.latlon(latitude, longitude, elevation)
         first, last = self._get_repeat_tracks()
@@ -940,8 +965,10 @@ class GeneralPerturbationsOrbit(BaseModel):
         events, boundaries = [], []
         if first is not None and start < first.epoch:
             events.extend(
-                first.find_events(
-                    topos, start, min(end, first.epoch), min_elevation_angle
+                (
+                    yield from first.find_events_steps(
+                        topos, start, min(end, first.epoch), min_elevation_angle
+                    )
                 )
             )
             boundaries.extend(first.get_boundaries(start, min(end, first.epoch)))
@@ -959,7 +986,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             parts, indices = self.partition_by_element_index(direct_start, direct_end)
             boundaries.extend(parts[1:-1])
             for i, index in enumerate(indices):
-                times, codes = _find_events(
+                times, codes = yield from _find_events_steps(
                     self.elements[index].to_skyfield(self.remove_drag),
                     topos,
                     constants.timescale.from_datetime(parts[i]),
@@ -972,12 +999,20 @@ class GeneralPerturbationsOrbit(BaseModel):
                     )
         if last is not None and end > last.epoch:
             events.extend(
-                last.find_events(
-                    topos, max(start, last.epoch), end, min_elevation_angle
+                (
+                    yield from last.find_events_steps(
+                        topos, max(start, last.epoch), end, min_elevation_angle
+                    )
                 )
             )
             boundaries.extend(last.get_boundaries(max(start, last.epoch), end))
-        events.extend(self._get_boundary_events(topos, boundaries, min_elevation_angle))
+        events.extend(
+            (
+                yield from self._get_boundary_events(
+                    topos, boundaries, min_elevation_angle
+                )
+            )
+        )
         # sort by time, removing duplicates at the ends of repeated cycles
         events = sorted(set((t, int(code)) for t, code in events))
         if len(events) == 0:
@@ -987,14 +1022,10 @@ class GeneralPerturbationsOrbit(BaseModel):
             np.array([code for _, code in events], dtype=int),
         )
 
-    def to_gp_orbit(self, lazy_load: bool | None = None) -> GeneralPerturbationsOrbit:
+    def to_gp_orbit(self) -> GeneralPerturbationsOrbit:
         """
         Converts this orbit to a general perturbations orbit representation,
         which it already is.
-
-        Args:
-            lazy_load (bool | None): accepted, but has no effect, for
-                interface parity with `OrbitBase.to_gp_orbit`.
 
         Returns:
             GeneralPerturbationsOrbit: this orbit, unchanged

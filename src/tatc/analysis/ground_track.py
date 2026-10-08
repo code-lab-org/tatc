@@ -18,6 +18,7 @@ from skyfield.positionlib import Geocentric
 from ..constants import de421
 from ..schemas import AllInstruments, PointedInstrument, Satellite
 from ..utils.geometry import split_polygon
+from ..utils.propagation import _index_orbit_track
 from .check import _check_satellite
 from .region_sampling import compute_region_access_periods
 
@@ -118,7 +119,8 @@ def _cull_orbit_track(
     mask_intersects_footprint = [mask.intersects(f) for f in footprint]
     if not any(mask_intersects_footprint):
         return None
-    return orbit_track[mask_intersects_footprint], [
+    # keep the Earth orientation quantities cached on the times
+    return _index_orbit_track(orbit_track, np.flatnonzero(mask_intersects_footprint)), [
         f for f, keep in zip(footprint, mask_intersects_footprint) if keep
     ]
 

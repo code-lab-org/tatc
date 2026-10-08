@@ -783,6 +783,61 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         self.assertTrue(results.empty)
         self.assertIn("start", results.columns)
 
+    def test_collect_observations_of_points_and_satellites(self):
+        """
+        Test that the observations of several points by several satellites,
+        computed together, equal those of each point and satellite,
+        concatenated and sorted by start.
+        """
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        end = datetime(2022, 6, 2, tzinfo=timezone.utc)
+        points = [self.point, ShapelyPoint(-74.03, 40.74), ShapelyPoint(10, 60, 500)]
+        members = self.constellation.generate_members()
+        results = collect_observations(points, members, start, end)
+        expected = (
+            pd.concat(
+                [
+                    collect_observations(point, member, start, end)
+                    for point in points
+                    for member in members
+                ]
+            )
+            .sort_values("start")
+            .reset_index(drop=True)
+        )
+        self.assertGreater(len(results.index), 0)
+        pd.testing.assert_frame_equal(results, expected)
+
+    def test_collect_observations_of_every_instrument(self):
+        """
+        Test that observations by every instrument (`instrument_index=None`)
+        equal those of `collect_multi_observations`, and that a list of one
+        point gives the observations of that point.
+        """
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        end = datetime(2022, 6, 2, tzinfo=timezone.utc)
+        members = self.constellation.generate_members()
+        pd.testing.assert_frame_equal(
+            collect_observations(self.point, members, start, end, None),
+            collect_multi_observations(self.point, members, start, end),
+        )
+        pd.testing.assert_frame_equal(
+            collect_observations([self.point], self.satellite, start, end),
+            collect_observations(self.point, self.satellite, start, end),
+        )
+
+    def test_collect_observations_rejects_non_points(self):
+        """
+        Test that a list of points containing a region raises a `TypeError`.
+        """
+        with self.assertRaises(TypeError):
+            collect_observations(
+                [self.point, box(0, 0, 1, 1)],
+                self.satellite,
+                datetime(2022, 6, 1, tzinfo=timezone.utc),
+                datetime(2022, 6, 2, tzinfo=timezone.utc),
+            )
+
     @staticmethod
     def _make_observation(target_hash, satellite, instrument, start, end):
         """

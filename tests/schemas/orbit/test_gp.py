@@ -697,8 +697,13 @@ class TestGetOrbitTrackAtTime(unittest.TestCase):
         actual = self.multi_element_orbit.get_orbit_track_at_time(t)
         for i, (time, element) in enumerate(zip(times, expected_elements)):
             expected = element.to_skyfield().at(constants.timescale.from_datetime(time))
+            # within a millimeter (nutation angles are interpolated in
+            # propagation, see _interpolate_nutation), whereas another element
+            # differs by kilometers
             self.assertTrue(
-                np.array_equal(actual.position.km[:, i], expected.position.km),
+                np.allclose(
+                    actual.position.km[:, i], expected.position.km, rtol=0, atol=1e-6
+                ),
                 f"time index {i} did not match its nearest element",
             )
 
@@ -1409,12 +1414,10 @@ class TestGetRepeatCycle(unittest.TestCase):
         offset = base.model_copy(
             update={"mean_motion": base.mean_motion * ((a + 90) / a) ** -1.5}
         )
-        repeat_cycle = offset.get_repeat_cycle(lazy_load=False)
+        repeat_cycle = offset.get_repeat_cycle()
         self.assertIsNotNone(repeat_cycle)
         self.assertAlmostEqual(repeat_cycle.total_seconds() / 86400, 16, delta=0.1)
-        self.assertIsNone(
-            offset.get_repeat_cycle(lazy_load=False, max_delta_semimajor_axis=0)
-        )
+        self.assertIsNone(offset.get_repeat_cycle(max_delta_semimajor_axis=0))
 
     def test_long_search_does_not_admit_chance_repeat(self):
         """
@@ -1477,27 +1480,15 @@ class TestGetRepeatCycle(unittest.TestCase):
             orbit.elements[0].get_repeat_cycle(max_search_duration=timedelta(days=10))
         )
 
-    def test_lazy_load_reuses_cached_result(self):
+    def test_reuses_cached_result(self):
         """
-        Test that calling get_repeat_cycle() twice with lazy_load=True
-        (the default) returns the identical cached timedelta rather than
-        recomputing.
+        Test that calling get_repeat_cycle() twice returns the identical
+        cached timedelta rather than recomputing.
         """
         orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle, **REPEATING)
         first = orbit.get_repeat_cycle()
         second = orbit.get_repeat_cycle()
         self.assertIs(first, second)
-
-    def test_lazy_load_false_forces_recomputation(self):
-        """
-        Test that lazy_load=False recomputes rather than reusing the
-        cached result (a fresh but equal timedelta).
-        """
-        orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle, **REPEATING)
-        first = orbit.get_repeat_cycle()
-        second = orbit.get_repeat_cycle(lazy_load=False)
-        self.assertEqual(first, second)
-        self.assertIsNot(first, second)
 
     def test_too_short_search_duration_returns_none(self):
         """
@@ -1505,9 +1496,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         cycle (16 days) cannot find it.
         """
         orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle, **REPEATING)
-        repeat_cycle = orbit.get_repeat_cycle(
-            max_search_duration=timedelta(days=10), lazy_load=False
-        )
+        repeat_cycle = orbit.get_repeat_cycle(max_search_duration=timedelta(days=10))
         self.assertIsNone(repeat_cycle)
 
     def test_too_tight_tolerance_returns_none(self):
@@ -1517,7 +1506,7 @@ class TestGetRepeatCycle(unittest.TestCase):
         """
         orbit = GeneralPerturbationsOrbit.from_tle(self.landsat_8_tle, **REPEATING)
         repeat_cycle = orbit.get_repeat_cycle(
-            max_delta_position=1, max_delta_velocity=0.001, lazy_load=False
+            max_delta_position=1, max_delta_velocity=0.001
         )
         self.assertIsNone(repeat_cycle)
 
@@ -1604,23 +1593,14 @@ class TestGetRepeatCycle(unittest.TestCase):
         nearly_identical = base.model_copy(
             update={"inclination": base.inclination + 0.002}
         )
-        difference = abs(
-            base.get_repeat_cycle(lazy_load=False)
-            - nearly_identical.get_repeat_cycle(lazy_load=False)
-        )
+        difference = abs(base.get_repeat_cycle() - nearly_identical.get_repeat_cycle())
         self.assertGreater(difference, timedelta(seconds=1))
         orbit = GeneralPerturbationsOrbit(
             elements=[base, nearly_identical], **REPEATING
         )
-        self.assertIsNone(
-            orbit.get_repeat_cycle(
-                consistency_threshold=difference / 2, lazy_load=False
-            )
-        )
+        self.assertIsNone(orbit.get_repeat_cycle(consistency_threshold=difference / 2))
         self.assertIsNotNone(
-            orbit.get_repeat_cycle(
-                consistency_threshold=difference * 2, lazy_load=False
-            )
+            orbit.get_repeat_cycle(consistency_threshold=difference * 2)
         )
 
 
@@ -2038,17 +2018,6 @@ class TestToGpOrbit(unittest.TestCase):
         already is its own general perturbations representation.
         """
         self.assertIs(self.orbit.to_gp_orbit(), self.orbit)
-
-    def test_accepts_lazy_load_without_effect(self):
-        """
-        Test that to_gp_orbit() accepts the lazy_load parameter (for
-        interface parity with OrbitBase.to_gp_orbit, used polymorphically
-        across the AllOrbits union) without error, and that it has no
-        effect on the result -- still just this instance, regardless of
-        the value passed.
-        """
-        self.assertIs(self.orbit.to_gp_orbit(lazy_load=True), self.orbit)
-        self.assertIs(self.orbit.to_gp_orbit(lazy_load=False), self.orbit)
 
 
 if __name__ == "__main__":

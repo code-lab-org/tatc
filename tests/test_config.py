@@ -35,8 +35,7 @@ class TestRuntimeConfiguration(unittest.TestCase):
         self.assertEqual(rc.repeat_cycle_delta_velocity_m_per_s, 3)
         self.assertEqual(rc.repeat_cycle_search_duration_days, 30)
         self.assertEqual(rc.repeat_cycle_consistency_threshold_s, 3600)
-        self.assertTrue(rc.repeat_cycle_lazy_load)
-        self.assertTrue(rc.gp_orbit_lazy_load)
+        self.assertEqual(rc.nutation_interpolation_minutes, 15)
 
     def test_footprint_points_elliptical_accepts_minimum(self):
         """
@@ -145,6 +144,7 @@ class TestLoadYamlConfig(unittest.TestCase):
             repeat_cycle_for_orbit_track: false
             repeat_cycle_for_observation_events: false
             gp_orbit_lazy_load: false
+            nutation_interpolation_minutes: null
             """,
         )
         rc = load_yaml_config(path)
@@ -155,11 +155,13 @@ class TestLoadYamlConfig(unittest.TestCase):
         self.assertEqual(rc.repeat_cycle_delta_velocity_m_per_s, 1)
         self.assertEqual(rc.repeat_cycle_search_duration_days, 7)
         self.assertEqual(rc.repeat_cycle_consistency_threshold_s, 60)
-        self.assertFalse(rc.repeat_cycle_lazy_load)
-        self.assertFalse(rc.gp_orbit_lazy_load)
-        # removed settings (now `GeneralPerturbationsOrbit.repeat_cycle`) are ignored
+        self.assertIsNone(rc.nutation_interpolation_minutes)
+        # removed settings (now `GeneralPerturbationsOrbit.repeat_cycle`, or
+        # caching that is always used) are ignored
         self.assertFalse(hasattr(rc, "repeat_cycle_for_orbit_track"))
         self.assertFalse(hasattr(rc, "repeat_cycle_for_observation_events"))
+        self.assertFalse(hasattr(rc, "repeat_cycle_lazy_load"))
+        self.assertFalse(hasattr(rc, "gp_orbit_lazy_load"))
 
     def test_partial_yaml_falls_back_to_defaults_for_missing_fields(self):
         """
@@ -279,8 +281,7 @@ class TestPackagedDefaults(unittest.TestCase):
                 "repeat_cycle_delta_semimajor_axis_m": 100,
                 "repeat_cycle_search_duration_days": 30,
                 "repeat_cycle_consistency_threshold_s": 3600,
-                "repeat_cycle_lazy_load": True,
-                "gp_orbit_lazy_load": True,
+                "nutation_interpolation_minutes": 15,
             },
         )
 

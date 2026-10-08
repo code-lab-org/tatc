@@ -47,9 +47,15 @@ from ..utils.geometry import (
     split_polygon,
 )
 from ..utils.projection import NadirReference, VelocityFrame, _compute_view_frame
-from ..utils.propagation import _to_time_from_offsets
+from ..utils.propagation import (
+    TimeRequest,
+    _run,
+    _run_together,
+    _to_time,
+    _to_time_from_offsets,
+)
 from .check import _check_satellite, _check_satellites
-from .sampling import _refine_access_periods
+from .sampling import _refine_access_periods_steps
 
 
 def _get_visible_polygon_interval_series(
@@ -61,7 +67,7 @@ def _get_visible_polygon_interval_series(
     elevation: float = 0,
     margin: float = 0.1,
     coarse_step: float = 10,
-) -> pd.Series:
+) -> TimeRequest:
     """
     Get the series of periods when an instrument's field of regard (a cone
     about nadir) may observe any part of a region: a conservative superset
@@ -112,7 +118,8 @@ def _get_visible_polygon_interval_series(
         coarse_step (float): Angle (degrees) of the satellite's motion between initial samples.
 
     Returns:
-        pandas.Series: Series of observation intervals.
+        TimeRequest: the computation (see `tatc.utils.propagation.TimeRequest`)
+            of the series of observation intervals (pandas.Series).
     """
     geometry = split_polygon(geometry)
     shapely.prepare(geometry)
@@ -161,10 +168,12 @@ def _get_visible_polygon_interval_series(
     threshold = central_angle + nadir_offset + np.radians(margin)
     e2 = EARTH_ECCENTRICITY**2
 
-    def excess(x: np.ndarray) -> np.ndarray:
-        position = np.array(
-            orbit.get_orbit_track_at_time(timescale.tt_jd(x)).frame_xyz(itrs).m
-        ).reshape(3, -1)
+    def excess(x: np.ndarray) -> TimeRequest:
+        t = timescale.tt_jd(x)
+        yield t
+        position = np.array(orbit.get_orbit_track_at_time(t).frame_xyz(itrs).m).reshape(
+            3, -1
+        )
         u = position / np.linalg.norm(position, axis=0)
         distance = _get_angular_distance_to_arcs(u, arcs)
         # geodetic latitude of the surface point in the satellite's direction
@@ -177,7 +186,7 @@ def _get_visible_polygon_interval_series(
     t_end = max(timescale.from_datetime(end).tt, t_start)
     count = int(np.ceil((t_end - t_start) * rate / np.radians(coarse_step))) + 1
     x = np.linspace(t_start, t_end, max(count, 2))
-    f = excess(x)
+    f = yield from excess(x)
     lower, upper, f_lower, f_upper = x[:-1], x[1:], f[:-1], f[1:]
     tolerance = 1e-3 / 86400
     windows = []
@@ -193,7 +202,7 @@ def _get_visible_polygon_interval_series(
         f_lower, f_upper = f_lower[halve], f_upper[halve]
         if len(lower) > 0:
             middle = (lower + upper) / 2
-            f_middle = excess(middle)
+            f_middle = yield from excess(middle)
             lower, upper = np.concatenate((lower, middle)), np.concatenate(
                 (middle, upper)
             )
@@ -287,8 +296,10 @@ def compute_region_access_periods(
         )
     if elevation is None:
         elevation = _get_region_elevation(region)
-    return _get_visible_polygon_interval_series(
-        region, satellite, field_of_regard, start, end, elevation, margin
+    return _run(
+        _get_visible_polygon_interval_series(
+            region, satellite, field_of_regard, start, end, elevation, margin
+        )
     )
 
 
@@ -382,7 +393,7 @@ def _find_footprint_periods(
     elevation: float = 0,
     time_step: timedelta = timedelta(seconds=10),
     tolerance: timedelta = timedelta(milliseconds=1),
-) -> list[pd.Interval]:
+) -> TimeRequest:
     """
     Finds the periods within windows (which must contain them) when an
     instrument's footprint intersects a region. Footprints are sampled at
@@ -409,19 +420,20 @@ def _find_footprint_periods(
         tolerance (datetime.timedelta): The precision of the period bounds.
 
     Returns:
-        list[pandas.Interval]: the periods
+        TimeRequest: the computation (see `tatc.utils.propagation.TimeRequest`)
+            of the periods (list[pandas.Interval]).
     """
     if len(windows) == 0:
         return []
     reference = windows[0].left
     resolution = tolerance.total_seconds()
 
-    def footprints(seconds: np.ndarray) -> np.ndarray:
+    def footprints(seconds: np.ndarray) -> TimeRequest:
         if len(seconds) == 0:
             return np.array([], dtype=object)
-        orbit_track = orbit.get_orbit_track_at_time(
-            _to_time_from_offsets(reference, seconds)
-        )
+        t = _to_time_from_offsets(reference, seconds)
+        yield t
+        orbit_track = orbit.get_orbit_track_at_time(t)
         return np.array(
             instrument.compute_footprint(orbit_track, elevation=elevation),
             dtype=object,
@@ -506,7 +518,7 @@ def _find_footprint_periods(
         for lo, hi in bounds
     ]
     counts = np.cumsum([len(s) for s in samples])[:-1]
-    views = np.split(footprints(np.concatenate(samples)), counts)
+    views = np.split((yield from footprints(np.concatenate(samples))), counts)
     seen = [observes(v) for v in views]
     # search intervals where the footprint may have swept over the region
     # between samples that do not observe it
@@ -520,7 +532,7 @@ def _find_footprint_periods(
     ]
     while len(search) > 0:
         middle = np.array([(lo + hi) / 2 for _, lo, hi, _, _ in search])
-        views_middle = footprints(middle)
+        views_middle = yield from footprints(middle)
         seen_middle = observes(views_middle)
         divided = []
         for (k, lo, hi, view_lo, view_hi), t, view, found in zip(
@@ -554,13 +566,18 @@ def _find_footprint_periods(
         for i in range(len(t) - 1)
         if t[i][1] != t[i + 1][1]
     ]
-    lower = np.array([times[k][i][0] for k, i in brackets])
-    upper = np.array([times[k][i + 1][0] for k, i in brackets])
+    lower = np.array([times[k][i][0] for k, i in brackets], dtype=float)
+    upper = np.array([times[k][i + 1][0] for k, i in brackets], dtype=float)
     state = np.array([times[k][i][1] for k, i in brackets], dtype=bool)
-    while len(lower) > 0 and np.any(upper - lower > resolution):
-        middle = (lower + upper) / 2
-        same = observes(footprints(middle)) == state
-        lower, upper = np.where(same, middle, lower), np.where(same, upper, middle)
+    # bisect each bracket until it is no wider than the resolution
+    while True:
+        active = np.flatnonzero(upper - lower > resolution)
+        if len(active) == 0:
+            break
+        middle = (lower[active] + upper[active]) / 2
+        same = observes((yield from footprints(middle))) == state[active]
+        lower[active] = np.where(same, middle, lower[active])
+        upper[active] = np.where(same, upper[active], middle)
     crossings = dict(zip(brackets, (lower + upper) / 2))
     periods = []
     for k, t in enumerate(times):
@@ -592,7 +609,7 @@ def _get_swaths(
     elevation: float = 0,
     time_step: timedelta = timedelta(seconds=10),
     min_time_step: timedelta = timedelta(milliseconds=100),
-) -> list[geo.Polygon | geo.MultiPolygon]:
+) -> TimeRequest:
     """
     Gets the part of a region swept by an instrument's footprint (see
     `compute_footprint`) during each of a set of periods: the union of
@@ -617,17 +634,18 @@ def _get_swaths(
         min_time_step (datetime.timedelta): The minimum time between samples.
 
     Returns:
-        list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: the
-            swath of each period
+        TimeRequest: the computation (see `tatc.utils.propagation.TimeRequest`)
+            of the swath of each period (list[shapely.geometry.Polygon |
+            shapely.geometry.MultiPolygon]).
     """
     if len(periods) == 0:
         return []
     reference = periods[0].left
 
-    def footprints(seconds: np.ndarray) -> np.ndarray:
-        orbit_track = orbit.get_orbit_track_at_time(
-            _to_time_from_offsets(reference, seconds)
-        )
+    def footprints(seconds: np.ndarray) -> TimeRequest:
+        t = _to_time_from_offsets(reference, seconds)
+        yield t
+        orbit_track = orbit.get_orbit_track_at_time(t)
         return np.array(
             instrument.compute_footprint(orbit_track, elevation=elevation),
             dtype=object,
@@ -646,7 +664,8 @@ def _get_swaths(
             )
         )
     views = np.split(
-        footprints(np.concatenate(seconds)), np.cumsum([len(s) for s in seconds])[:-1]
+        (yield from footprints(np.concatenate(seconds))),
+        np.cumsum([len(s) for s in seconds])[:-1],
     )
     # divide intervals between consecutive footprints that do not intersect
     while True:
@@ -662,7 +681,7 @@ def _get_swaths(
             break
         middles = [(s[g] + s[g + 1]) / 2 for s, g in zip(seconds, gaps)]
         views_middle = np.split(
-            footprints(np.concatenate(middles)), np.cumsum(counts)[:-1]
+            (yield from footprints(np.concatenate(middles))), np.cumsum(counts)[:-1]
         )
         seconds = [np.insert(s, g + 1, m) for s, g, m in zip(seconds, gaps, middles)]
         views = [np.insert(v, g + 1, w) for v, g, w in zip(views, gaps, views_middle)]
@@ -688,20 +707,115 @@ def _get_swaths(
     return swaths
 
 
-def collect_region_observations(
+def _collect_region_observations(
     region: geo.Polygon | geo.MultiPolygon,
     satellite: Satellite,
     start: datetime,
     end: datetime,
     instrument_index: int = 0,
+) -> TimeRequest:
+    """
+    Collect single satellite observations of a region, as a computation (see
+    `collect_region_observations` and `tatc.utils.propagation.TimeRequest`).
+    """
+    elevation = _get_region_elevation(region)
+    target_hash = hash_geometry(region)
+    # split along the anti-meridian and poles (which discards z coordinates),
+    # restoring the region's elevation, if any
+    geometry = split_polygon(region)
+    if region.has_z:
+        geometry = project_polygon_to_elevation(geometry, elevation)
+    instrument = satellite.instruments[instrument_index]
+    orbit = satellite.orbit.to_gp_orbit()
+    shapely.prepare(geometry)
+    windows = list(
+        (
+            yield from _get_visible_polygon_interval_series(
+                geometry, satellite, instrument.field_of_regard, start, end, elevation
+            )
+        )
+    )
+    if isinstance(instrument, (PointedInstrument, ConicalInstrument)):
+        periods = yield from _find_footprint_periods(
+            geometry, orbit, instrument, windows, elevation
+        )
+    else:
+        # refine the windows to the field of regard: when the angle from
+        # nadir of the region's point nearest to nadir is at most half the
+        # field of regard, and the satellite is above that point's horizon
+        arcs = _get_boundary_arcs(geometry, elevation)
+        half_angle = instrument.field_of_regard / 2
+
+        def residual(orbit_track: Geocentric) -> np.ndarray:
+            angle, sat_elevation, _, _ = _get_region_view(
+                geometry, arcs, orbit_track, instrument.nadir_reference, elevation
+            )
+            return np.maximum(angle - half_angle, -sat_elevation)
+
+        periods = yield from _refine_access_periods_steps(
+            residual, orbit, windows, max_step=timedelta(seconds=10)
+        )
+    periods = [
+        period
+        for period in periods
+        if period.right - period.left >= instrument.min_access_time
+    ]
+    if len(periods) == 0:
+        return _get_empty_region_frame()
+    # instrument validity (illumination) is only checked at each period's
+    # midpoint, for a point of the region within the instrument's view, as an
+    # approximation of the whole period (for all periods at once)
+    t = _to_time([period.mid for period in periods])
+    yield t
+    orbit_track = orbit.get_orbit_track_at_time(t)
+    views = np.array(
+        instrument.compute_footprint(orbit_track, elevation=elevation), dtype=object
+    )
+    observed = shapely.intersection(views, geometry)
+    points = shapely.point_on_surface(
+        np.where(shapely.is_empty(observed), geometry, observed)
+    )
+    target = wgs84.latlon(shapely.get_y(points), shapely.get_x(points), elevation)
+    valid = np.atleast_1d(instrument.is_valid_observation(orbit_track, target))
+    periods = [period for period, is_valid in zip(periods, valid) if is_valid]
+    if len(periods) == 0:
+        return _get_empty_region_frame()
+    swaths = yield from _get_swaths(geometry, orbit, instrument, periods, elevation)
+    return gpd.GeoDataFrame(
+        [
+            {
+                "target_hash": target_hash,
+                "geometry": (
+                    project_polygon_to_elevation(swath, elevation)
+                    if region.has_z
+                    else swath
+                ),
+                "satellite": satellite.name,
+                "instrument": instrument.name,
+                "start": period.left,
+                "end": period.right,
+            }
+            for period, swath in zip(periods, swaths)
+        ],
+        crs="EPSG:4326",
+    )
+
+
+def collect_region_observations(
+    regions: geo.Polygon | geo.MultiPolygon | list[geo.Polygon | geo.MultiPolygon],
+    satellites: Satellite | list[Satellite],
+    start: datetime,
+    end: datetime,
+    instrument_index: int | None = 0,
 ) -> gpd.GeoDataFrame:
     """
-    Collect single satellite observations of a region of interest: a
-    shapely `Polygon` or `MultiPolygon` in longitude and latitude (degrees),
-    at the elevation of the mean of its z coordinates (meters above the
-    WGS 84 ellipsoid), if any, or otherwise zero. The region is split along
-    the anti-meridian and poles (see `tatc.utils.geometry.split_polygon`).
-    For a point, see `tatc.analysis.point_sampling.collect_observations`.
+    Collect observations of one or more regions of interest by one or more
+    satellites. Each region is a shapely `Polygon` or `MultiPolygon` in
+    longitude and latitude (degrees), at the elevation of the mean of its z
+    coordinates (meters above the WGS 84 ellipsoid), if any, or otherwise
+    zero. Regions are split along the anti-meridian and poles (see
+    `tatc.utils.geometry.split_polygon`). For a point, see
+    `tatc.analysis.point_sampling.collect_observations`.
 
     Each observation spans a period when the instrument can observe any part
     of the region, from its start to its end (refined to a millisecond):
@@ -731,103 +845,61 @@ def collect_region_observations(
     its repeat ground track before its first and after its last element's
     epoch (see `GeneralPerturbationsOrbit.get_orbit_track_at_time`).
 
+    The observations of every region, satellite, and instrument are computed
+    together, sharing the costly Earth orientation quantities of the times
+    at each step (see `tatc.utils.propagation._run_together`).
+
     Args:
-        region (shapely.geometry.Polygon | shapely.geometry.MultiPolygon):
-                The region of interest.
-        satellite (Satellite): The observing satellite.
+        regions (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]):
+                The region(s) of interest.
+        satellites (Satellite | list[Satellite]): The observing satellite(s).
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
-        instrument_index (int): The index of the observing instrument in satellite.
+        instrument_index (int | None): The index of the observing instrument
+                in each satellite, or `None` for every instrument of each
+                satellite.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of observations, with the
             region's `target_hash`, the swath (`geometry`), the `satellite`
             and `instrument` names, and the `start` and `end` of each
-            observation.
+            observation: for a single region, satellite, and instrument (an
+            integer `instrument_index`), in time order; otherwise, those of
+            each region, satellite, and instrument, concatenated and sorted
+            by start time.
     """
-    _check_satellite(satellite)
-    if not isinstance(region, (geo.Polygon, geo.MultiPolygon)):
-        raise TypeError(
-            "region must be a Polygon or MultiPolygon, not a "
-            f"{type(region).__name__} (see collect_observations for a point)"
-        )
-    elevation = _get_region_elevation(region)
-    target_hash = hash_geometry(region)
-    # split along the anti-meridian and poles (which discards z coordinates),
-    # restoring the region's elevation, if any
-    geometry = split_polygon(region)
-    if region.has_z:
-        geometry = project_polygon_to_elevation(geometry, elevation)
-    instrument = satellite.instruments[instrument_index]
-    orbit = satellite.orbit.to_gp_orbit()
-    shapely.prepare(geometry)
-    windows = list(
-        _get_visible_polygon_interval_series(
-            geometry, satellite, instrument.field_of_regard, start, end, elevation
-        )
+    single = (
+        not isinstance(regions, (list, tuple))
+        and not isinstance(satellites, list)
+        and instrument_index is not None
     )
-    if isinstance(instrument, (PointedInstrument, ConicalInstrument)):
-        periods = _find_footprint_periods(
-            geometry, orbit, instrument, windows, elevation
-        )
-    else:
-        # refine the windows to the field of regard: when the angle from
-        # nadir of the region's point nearest to nadir is at most half the
-        # field of regard, and the satellite is above that point's horizon
-        arcs = _get_boundary_arcs(geometry, elevation)
-        half_angle = instrument.field_of_regard / 2
-
-        def residual(orbit_track: Geocentric) -> np.ndarray:
-            angle, sat_elevation, _, _ = _get_region_view(
-                geometry, arcs, orbit_track, instrument.nadir_reference, elevation
+    satellites = _check_satellites(satellites)
+    regions = list(regions) if isinstance(regions, (list, tuple)) else [regions]
+    for region in regions:
+        if not isinstance(region, (geo.Polygon, geo.MultiPolygon)):
+            raise TypeError(
+                "region must be a Polygon or MultiPolygon, not a "
+                f"{type(region).__name__} (see collect_observations for a point)"
             )
-            return np.maximum(angle - half_angle, -sat_elevation)
-
-        periods = _refine_access_periods(
-            residual, orbit, windows, max_step=timedelta(seconds=10)
-        )
-    periods = [
-        period
-        for period in periods
-        if period.right - period.left >= instrument.min_access_time
-    ]
-    if len(periods) == 0:
-        return _get_empty_region_frame()
-    # instrument validity (illumination) is only checked at each period's
-    # midpoint, for a point of the region within the instrument's view, as an
-    # approximation of the whole period (for all periods at once)
-    orbit_track = orbit.get_orbit_track([period.mid for period in periods])
-    views = np.array(
-        instrument.compute_footprint(orbit_track, elevation=elevation), dtype=object
-    )
-    observed = shapely.intersection(views, geometry)
-    points = shapely.point_on_surface(
-        np.where(shapely.is_empty(observed), geometry, observed)
-    )
-    target = wgs84.latlon(shapely.get_y(points), shapely.get_x(points), elevation)
-    valid = np.atleast_1d(instrument.is_valid_observation(orbit_track, target))
-    periods = [period for period, is_valid in zip(periods, valid) if is_valid]
-    if len(periods) == 0:
-        return _get_empty_region_frame()
-    swaths = _get_swaths(geometry, orbit, instrument, periods, elevation)
-    return gpd.GeoDataFrame(
+    gdfs = _run_together(
         [
-            {
-                "target_hash": target_hash,
-                "geometry": (
-                    project_polygon_to_elevation(swath, elevation)
-                    if region.has_z
-                    else swath
-                ),
-                "satellite": satellite.name,
-                "instrument": instrument.name,
-                "start": period.left,
-                "end": period.right,
-            }
-            for period, swath in zip(periods, swaths)
-        ],
-        crs="EPSG:4326",
+            _collect_region_observations(region, satellite, start, end, index)
+            for region in regions
+            for satellite in satellites
+            for index in (
+                range(len(satellite.instruments))
+                if instrument_index is None
+                else [instrument_index]
+            )
+        ]
     )
+    if single:
+        return gdfs[0]
+    if len(gdfs) == 0:
+        # no regions or satellites leave nothing to concatenate
+        return _get_empty_region_frame()
+    # concatenate into one data frame, sort by start time, and re-index
+    return pd.concat(gdfs).sort_values("start").reset_index(drop=True)
 
 
 def collect_multi_region_observations(
@@ -837,9 +909,10 @@ def collect_multi_region_observations(
     end: datetime,
 ) -> gpd.GeoDataFrame:
     """
-    Collect multiple satellite observations of a region of interest: calls
-    `collect_region_observations` for every instrument on every satellite in
-    `satellites`, and concatenates the results into one data frame.
+    Collect multiple satellite observations of a region of interest by every
+    instrument on every satellite in `satellites`: equivalent to
+    `collect_region_observations` with `instrument_index=None`, kept for
+    backwards compatibility.
 
     Args:
         region (shapely.geometry.Polygon | shapely.geometry.MultiPolygon):
@@ -852,13 +925,4 @@ def collect_multi_region_observations(
     Returns:
         geopandas.GeoDataFrame: The data frame with all recorded observations.
     """
-    gdfs = [
-        collect_region_observations(region, satellite, start, end, instrument_index)
-        for satellite in _check_satellites(satellites)
-        for instrument_index in range(len(satellite.instruments))
-    ]
-    if len(gdfs) == 0:
-        # an empty `satellites` list leaves nothing to concatenate
-        return _get_empty_region_frame()
-    # concatenate into one data frame, sort by start time, and re-index
-    return pd.concat(gdfs).sort_values("start").reset_index(drop=True)
+    return collect_region_observations(region, satellites, start, end, None)

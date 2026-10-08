@@ -34,7 +34,7 @@ class TestGetCached(unittest.TestCase):
     def test_cached_until_key_changes(self):
         """
         Test that a value is computed once per key, and recomputed if the
-        key changes or lazy loading is disabled.
+        key changes.
         """
         model = Model(value=1)
         calls = []
@@ -46,11 +46,9 @@ class TestGetCached(unittest.TestCase):
         self.assertEqual(get_cached(model, "double", model.value, compute), 2)
         self.assertEqual(get_cached(model, "double", model.value, compute), 2)
         self.assertEqual(len(calls), 1)
-        get_cached(model, "double", model.value, compute, lazy_load=False)
-        self.assertEqual(len(calls), 2)
         model.value = 3
         self.assertEqual(get_cached(model, "double", model.value, compute), 6)
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 2)
 
     def test_cache_not_copied_or_pickled(self):
         """
