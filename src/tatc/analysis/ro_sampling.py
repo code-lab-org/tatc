@@ -7,12 +7,12 @@ Methods to perform radio occultation (RO) coverage analysis.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from itertools import chain
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from shapely.geometry import MultiPoint, Point
+import shapely
+from shapely.geometry import Point
 from skyfield.api import Distance, wgs84
 from skyfield.positionlib import Geocentric
 from skyfield.timelib import Time
@@ -21,7 +21,7 @@ from ..constants import timescale
 from ..schemas import Satellite
 from ..utils.ellipsoid import _ellipsoidal_tangent_point, _itrs_rotation
 from ..utils.orbital import compute_vnb_frame
-from ..utils.propagation import _index_orbit_track, _index_time
+from ..utils.propagation import _index_orbit_track, _index_time, _to_time_from_offsets
 from .check import _check_satellites
 
 
@@ -318,6 +318,18 @@ def _tangent_point_tx_azimuth(
     return np.degrees(np.arctan2(east, north)) % 360
 
 
+def _divide_and_round(numerator: np.ndarray, denominator: int) -> np.ndarray:
+    """
+    Divides non-negative integers by a positive integer, rounding to the
+    nearest integer and half to even, as Python's `timedelta` division does.
+    """
+    quotient, remainder = np.divmod(numerator, denominator)
+    twice = 2 * remainder
+    return quotient + (
+        (twice > denominator) | ((twice == denominator) & (quotient % 2 == 1))
+    )
+
+
 def _sample_ro_arcs(
     receivers: list[Satellite],
     transmitters: list[Satellite],
@@ -335,15 +347,30 @@ def _sample_ro_arcs(
     """
     if len(arcs) == 0:
         return []
-    # sample each arc at (at most) the specified time step, including both endpoints
-    arc_times = []
+    # sample each arc at (at most) the specified time step, including both
+    # endpoints: at `start + i * (end - start) / steps`, as with `datetime`
+    # arithmetic (rounded half to even to a microsecond), but computed in
+    # integer microseconds from the earliest start, for all arcs at once
+    reference = min(arc_start for _, _, arc_start, _ in arcs)
+    microsecond = timedelta(microseconds=1)
+    offsets = []
     for _, _, arc_start, arc_end in arcs:
         steps = max(int(np.ceil((arc_end - arc_start) / time_step)), 1)
-        arc_times.append(
-            [arc_start + i * (arc_end - arc_start) / steps for i in range(steps + 1)]
+        offsets.append(
+            (arc_start - reference) // microsecond
+            + _divide_and_round(
+                np.arange(steps + 1, dtype=np.int64)
+                * ((arc_end - arc_start) // microsecond),
+                steps,
+            )
         )
-    bounds = np.cumsum([0] + [len(times) for times in arc_times])
-    t = timescale.from_datetimes(list(chain.from_iterable(arc_times)))
+    bounds = np.cumsum([0] + [len(offset) for offset in offsets])
+    microseconds = np.concatenate(offsets)
+    t = _to_time_from_offsets(reference, microseconds / 1e6)
+    sample_times = [
+        reference + timedelta(microseconds=offset) for offset in microseconds.tolist()
+    ]
+    arc_times = [sample_times[bounds[i] : bounds[i + 1]] for i in range(len(arcs))]
 
     tp_p = np.empty((3, bounds[-1]))
     tx_p = np.empty((3, bounds[-1]))
@@ -570,6 +597,15 @@ def collect_ro_observations(
     )
     if len(obs) == 0:
         return _get_empty_ro_frame()
+    # the sampled points of each observation, built at once
+    profiles = shapely.multipoints(
+        [
+            [point["longitude"], point["latitude"], point["elevation"]]
+            for o in obs
+            for point in o["points"]
+        ],
+        indices=np.repeat(np.arange(len(obs)), [len(o["points"]) for o in obs]),
+    )
     # format results
     return gpd.GeoDataFrame(
         [
@@ -577,12 +613,7 @@ def collect_ro_observations(
                 "receiver": o["rx"],
                 "transmitter": o["tx"],
                 "is_rising": o["is_rising"],
-                "geometry": MultiPoint(
-                    [
-                        [point["longitude"], point["latitude"], point["elevation"]]
-                        for point in o["points"]
-                    ]
-                ),
+                "geometry": profile,
                 "position": Point(
                     sample["longitude"], sample["latitude"], sample["elevation"]
                 ),
@@ -593,7 +624,7 @@ def collect_ro_observations(
                 "end": o["points"][-1]["time"],
                 "time": sample["time"],
             }
-            for o in obs
+            for o, profile in zip(obs, profiles)
             for sample in [_interpolate_ro_point(o["points"], sample_elevation)]
         ],
         crs="EPSG:4326",

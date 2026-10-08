@@ -25,6 +25,7 @@ from ..utils.ellipsoid import (
     rectangular_to_geodetic,
 )
 from ..utils.orbital import compute_vnb_frame
+from ..utils.propagation import _to_time_from_offsets
 from .check import _check_satellites
 
 
@@ -210,15 +211,30 @@ def _sample_limb_scans(
     ]
     target_elevations = np.asarray(scan_elevations, dtype=float)
     num_samples = len(scan_elevations)
-    sample_times = []
+    # sample times (`start + fraction * scan_duration`, rounded to a
+    # microsecond as with `datetime` arithmetic), computed in integer
+    # microseconds from the first start, for all scans at once
+    reference = starts[0]
+    microsecond = timedelta(microseconds=1)
+    duration = scan_duration // microsecond
+    offsets = []
     for start, radius in zip(starts, r_sat0):
         angle0 = np.arccos(
             np.clip((EARTH_MEAN_RADIUS + target_elevations) / radius, -1, 1)
         )
         fractions = _constant_rate_scan_fractions(angle0)
-        sample_times.extend(start + f * scan_duration for f in fractions)
+        offsets.append(
+            (start - reference) // microsecond
+            + np.rint(fractions * duration).astype(np.int64)
+        )
+    microseconds = np.concatenate(offsets)
+    sample_times = [
+        reference + timedelta(microseconds=offset) for offset in microseconds.tolist()
+    ]
 
-    sat_pv = orbit.get_orbit_track(sample_times)
+    sat_pv = orbit.get_orbit_track_at_time(
+        _to_time_from_offsets(reference, microseconds / 1e6)
+    )
     tp_p, in_domain = _limb_tangent_point(
         sat_pv,
         scan_azimuth,
