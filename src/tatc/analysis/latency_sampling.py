@@ -15,9 +15,9 @@ import pandas as pd
 from shapely import geometry as geo
 
 from ..schemas import GroundStation, Satellite
-from .observations import _get_target_keys
-from .point_coverage import compute_access_periods
-from .validation import _check_satellite
+from .check import _check_satellite
+from .coverage_metrics import _get_target_keys
+from .point_sampling import compute_access_periods
 
 
 def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
@@ -252,7 +252,7 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
 def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     Reduce observation latencies: for each unique target (`target_hash`,
-    see `tatc.analysis.observations._get_target_keys`) in
+    see `tatc.analysis.coverage_metrics._get_target_keys`) in
     `latency_observations`, computes the mean latency and the total number
     of samples (observation/downlink pairs). An observation with no
     matching downlink has an undefined (NaT) latency (see

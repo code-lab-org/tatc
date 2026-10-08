@@ -1,5 +1,5 @@
 """
-Methods to perform coverage analysis of points (see `observations` for the
+Methods to perform coverage analysis of points (see `coverage_metrics` for the
 aggregation, reduction, and gridding of observations).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
@@ -30,13 +30,13 @@ from ..utils.projection import (
     compute_cone_and_azimuth,
 )
 from ..utils.propagation import _index_orbit_track, _to_time_from_offsets
-from .observations import (
+from .check import _check_satellite, _check_satellites
+from .sampling import (
     _build_observation_frame,
     _find_crossings,
     _get_empty_coverage_frame,
     _refine_access_periods,
 )
-from .validation import _check_satellite, _check_satellites
 
 
 def _get_visible_interval_series(
@@ -344,7 +344,7 @@ def collect_observations(
     coordinate) as their geometry, identified by its hash, `target_hash` (see
     `tatc.utils.geometry.hash_geometry`); a TAT-C point's `id` is not
     recorded. For a region, see
-    `tatc.analysis.region_coverage.collect_region_observations`.
+    `tatc.analysis.region_sampling.collect_region_observations`.
 
     Each observation spans a period when the point lies within the
     instrument's field of regard (when its angle from nadir is at most half

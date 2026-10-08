@@ -2,47 +2,47 @@
 Defines analysis functions.
 """
 
-from .dop import DopMethod, compute_dop
+from .coverage_metrics import (
+    aggregate_observations,
+    grid_observations,
+    reduce_observations,
+)
+from .dop_sampling import DopMethod, compute_dop
 from .ground_track import (
     collect_ground_pixels,
     collect_ground_track,
     compute_ground_track,
 )
-from .latency import (
+from .latency_sampling import (
     collect_downlinks,
     compute_latencies,
     grid_latencies,
     reduce_latencies,
 )
-from .limb_coverage import (
+from .limb_sampling import (
     ScanDirection,
     collect_limb_observations,
-)
-from .observations import (
-    aggregate_observations,
-    grid_observations,
-    reduce_observations,
 )
 from .orbit_track import (
     OrbitCoordinate,
     OrbitOutput,
     collect_orbit_track,
 )
-from .point_coverage import (
+from .point_sampling import (
     collect_multi_observations,
     collect_observations,
     compute_access_periods,
 )
-from .radar import (
+from .radar_track import (
     collect_radar_track,
     compute_radar_track,
 )
-from .region_coverage import (
+from .region_sampling import (
     collect_multi_region_observations,
     collect_region_observations,
     compute_region_access_periods,
 )
-from .ro_coverage import (
+from .ro_sampling import (
     collect_ro_observations,
 )
 

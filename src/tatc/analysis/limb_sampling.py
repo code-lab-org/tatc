@@ -24,7 +24,7 @@ from ..utils.ellipsoid import (
     rectangular_to_geodetic,
 )
 from ..utils.orbital import compute_vnb_frame
-from .validation import _check_satellite
+from .check import _check_satellite
 
 
 class ScanDirection(str, Enum):

@@ -16,15 +16,15 @@ from skyfield.positionlib import Geocentric
 from skyfield.units import Distance, Velocity
 
 from tatc.analysis import ScanDirection, collect_limb_observations
-from tatc.analysis.limb_coverage import (
+from tatc.analysis.limb_sampling import (
     _constant_rate_scan_fractions,
     _default_scan_direction,
     _interpolate_limb_point,
     _limb_tangent_point,
     _sample_limb_scan,
 )
-from tatc.utils.ellipsoid import rectangular_to_geodetic
 from tatc.constants import EARTH_MEAN_RADIUS, timescale
+from tatc.utils.ellipsoid import rectangular_to_geodetic
 
 from .common import IssConstellationTestCase
 

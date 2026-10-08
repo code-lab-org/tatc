@@ -20,7 +20,7 @@ from skyfield.api import wgs84
 from ..constants import timescale
 from ..schemas import Point, Satellite
 from ..utils.geometry import _get_point_coordinates
-from .validation import _check_satellites
+from .check import _check_satellites
 
 
 class DopMethod(str, Enum):

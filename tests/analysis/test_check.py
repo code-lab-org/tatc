@@ -19,7 +19,7 @@ from tatc.analysis import (
     compute_dop,
     compute_ground_track,
 )
-from tatc.analysis.validation import _check_satellite, _check_satellites
+from tatc.analysis.check import _check_satellite, _check_satellites
 from tatc.schemas import GroundStation, Point
 
 from .common import IssConstellationTestCase

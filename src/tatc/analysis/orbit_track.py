@@ -24,7 +24,7 @@ from skyfield.functions import angle_between
 from ..constants import de421
 from ..schemas import AllInstruments, ConicalInstrument, Satellite
 from ..utils.observation import field_of_regard_to_swath_width
-from .validation import _check_satellite
+from .check import _check_satellite
 
 
 def _swath_width(

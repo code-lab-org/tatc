@@ -22,7 +22,7 @@ from tatc.analysis import (
     grid_observations,
     reduce_observations,
 )
-from tatc.analysis.observations import _refine_access_periods
+from tatc.analysis.sampling import _refine_access_periods
 from tatc.constants import timescale
 from tatc.schemas import (
     ConicalInstrument,

@@ -23,7 +23,7 @@ from ..constants import timescale
 from ..schemas import Satellite
 from ..utils.ellipsoid import _ellipsoidal_tangent_point, _itrs_rotation
 from ..utils.orbital import compute_vnb_frame
-from .validation import _check_satellite, _check_satellites
+from .check import _check_satellite, _check_satellites
 
 
 def _tangent_point_geometry(

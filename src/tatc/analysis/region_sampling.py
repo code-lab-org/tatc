@@ -33,6 +33,11 @@ from ..schemas import (
     PointedInstrument,
     Satellite,
 )
+from ..utils.ellipsoid import (
+    _get_geodetic_coordinates,
+    _get_surface_directions,
+    _get_surface_positions,
+)
 from ..utils.geometry import (
     _get_angular_distance_to_arcs,
     _get_boundary_arcs,
@@ -41,15 +46,10 @@ from ..utils.geometry import (
     project_polygon_to_elevation,
     split_polygon,
 )
-from ..utils.ellipsoid import (
-    _get_geodetic_coordinates,
-    _get_surface_directions,
-    _get_surface_positions,
-)
 from ..utils.projection import NadirReference, VelocityFrame, _compute_view_frame
 from ..utils.propagation import _to_time_from_offsets
-from .observations import _refine_access_periods
-from .validation import _check_satellite, _check_satellites
+from .check import _check_satellite, _check_satellites
+from .sampling import _refine_access_periods
 
 
 def _get_visible_polygon_interval_series(
@@ -77,7 +77,7 @@ def _get_visible_polygon_interval_series(
 
     is not positive. For a single point, this is equivalent to a minimum
     elevation angle condition (see
-    `tatc.analysis.point_coverage.compute_access_periods`). The
+    `tatc.analysis.point_sampling.compute_access_periods`). The
     central angle `lambda` is evaluated at the orbit's apoapsis (its largest
     over the orbit) on a sphere of the region's smallest geocentric radius
     (larger than on the ellipsoid), and widened by the largest separation of
@@ -701,7 +701,7 @@ def collect_region_observations(
     at the elevation of the mean of its z coordinates (meters above the
     WGS 84 ellipsoid), if any, or otherwise zero. The region is split along
     the anti-meridian and poles (see `tatc.utils.geometry.split_polygon`).
-    For a point, see `tatc.analysis.point_coverage.collect_observations`.
+    For a point, see `tatc.analysis.point_sampling.collect_observations`.
 
     Each observation spans a period when the instrument can observe any part
     of the region, from its start to its end (refined to a millisecond):

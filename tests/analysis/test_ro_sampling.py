@@ -14,15 +14,15 @@ from skyfield.positionlib import Geocentric
 from skyfield.units import Distance, Velocity
 
 from tatc.analysis import collect_ro_observations
-from tatc.analysis.ro_coverage import (
+from tatc.analysis.ro_sampling import (
     _interpolate_ro_point,
     _sample_ro_arc,
     _tangent_point_geometry,
 )
-from tatc.utils import compute_vnb_frame
-from tatc.utils.ellipsoid import _itrs_rotation, rectangular_to_geodetic
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Instrument, Satellite
+from tatc.utils import compute_vnb_frame
+from tatc.utils.ellipsoid import _itrs_rotation, rectangular_to_geodetic
 
 
 def _make_geocentric(position_m, velocity_m_per_s, t):
