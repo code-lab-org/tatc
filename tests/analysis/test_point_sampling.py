@@ -4,6 +4,7 @@ Unit tests for the point coverage analysis functions in tatc.analysis.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import unittest
 from datetime import datetime, timedelta, timezone
 
 import geopandas as gpd
@@ -1459,3 +1460,64 @@ class TestComputeAccessPeriods(IssConstellationTestCase):
             compute_access_periods(
                 Point(latitude=0, longitude=0), self.constellation, self.start, self.end
             )
+
+
+class TestGrazingPasses(unittest.TestCase):
+    """
+    Unit tests for passes whose maximum elevation angle barely exceeds the
+    minimum elevation angle (for which Skyfield's find_events can miss the
+    rise or set).
+    """
+
+    def setUp(self):
+        # GCOM-W (AMSR2) and a point of the 500 km Fibonacci lattice (as in
+        # the AMSR2 validation notebook)
+        self.satellite = Satellite(
+            name="GCOM-W",
+            orbit=GeneralPerturbationsOrbit.from_tle(
+                [
+                    "1 38337U 12025A   26277.29678146  .00000240  00000+0  63281-4 0  9990",
+                    "2 38337  98.2100 216.2278 0001644  77.4488  41.8708 14.57111943764929",
+                ]
+            ),
+            instruments=[
+                ConicalInstrument(
+                    name="AMSR2",
+                    cone_angle=47.56447,
+                    scan_center_azimuth=0.497806,
+                    scan_half_width=75.332202,
+                    along_track_field_of_view=1,
+                    velocity_frame="inertial",
+                )
+            ],
+        )
+        self.point = Point(latitude=39.90663459325998, longitude=95.93928126926767)
+        self.start = datetime(2026, 9, 26, 0, 0, 0, 290000, tzinfo=timezone.utc)
+
+    def test_set_without_rise(self):
+        """
+        Test that a grazing pass whose rise is missed (a set without a rise,
+        hours after the start) does not make the point visible from the
+        start of the window.
+        """
+        periods = compute_access_periods(
+            self.point,
+            self.satellite,
+            self.start,
+            self.start + timedelta(hours=6),
+            31.709386564391416,
+        )
+        self.assertEqual(len(periods), 1)
+        self.assertGreater(periods[0].left, pd.Timestamp(self.start))
+        self.assertLess(periods[0].length, pd.Timedelta(minutes=10))
+
+    def test_no_observations_below_horizon(self):
+        """
+        Test that a conical instrument does not observe the point from below
+        its horizon (through the Earth) in a period around a grazing pass.
+        """
+        observations = collect_observations(
+            self.point, self.satellite, self.start, self.start + timedelta(days=1)
+        )
+        self.assertEqual(len(observations), 1)
+        self.assertTrue((observations.sat_alt > 0).all())
