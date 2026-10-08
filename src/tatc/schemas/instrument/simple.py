@@ -201,7 +201,7 @@ class Instrument(BaseModel):
         if target is None:
             # support backwards compatibility
             target = wgs84.subpoint_of(orbit_track)
-        is_valid = np.ones(np.size(orbit_track.t), dtype=bool)  # type: ignore
+        is_valid = np.ones(np.size(orbit_track.t.tt), dtype=bool)  # type: ignore
         if self.req_self_sunlit is not None:
             # compare requirement to satellite sunlit condition
             is_self_sunlit_valid = orbit_track.is_sunlit(de421) == self.req_self_sunlit

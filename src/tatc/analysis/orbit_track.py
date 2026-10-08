@@ -12,11 +12,8 @@ from enum import Enum
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from shapely.geometry import (
-    MultiPolygon,
-    Point,
-    Polygon,
-)
+import shapely
+from shapely.geometry import MultiPolygon, Polygon
 from skyfield.api import wgs84
 from skyfield.framelib import itrs
 from skyfield.functions import angle_between
@@ -24,6 +21,7 @@ from skyfield.functions import angle_between
 from ..constants import de421
 from ..schemas import AllInstruments, ConicalInstrument, Satellite
 from ..utils.observation import field_of_regard_to_swath_width
+from ..utils.propagation import _index_orbit_track
 from .check import _check_satellite
 
 
@@ -151,80 +149,66 @@ def collect_orbit_track(
         # trim orbit track to provided mask; mask is always interpreted in
         # WGS84 (lon/lat) coordinates regardless of the requested output
         # `coordinates`, so this filter applies consistently to all of them
-        mask_contains_sat_pos = [
-            (
-                any(mask.contains(Point(longitude, latitude)))
-                if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries))
-                else mask.contains(Point(longitude, latitude))
-            )
-            for (longitude, latitude) in zip(
-                np.array(sat_pos.longitude.degrees), np.array(sat_pos.latitude.degrees)
-            )
-        ]
+        longitude = np.atleast_1d(sat_pos.longitude.degrees)
+        latitude = np.atleast_1d(sat_pos.latitude.degrees)
+        mask_contains_sat_pos = np.zeros(len(longitude), dtype=bool)
+        for geometry in (
+            mask.geometry
+            if isinstance(mask, (gpd.GeoDataFrame, gpd.GeoSeries))
+            else [mask]
+        ):
+            mask_contains_sat_pos |= shapely.contains_xy(geometry, longitude, latitude)
         if not any(mask_contains_sat_pos):
             return _get_empty_orbit_track()
-        orbit_track = orbit_track[mask_contains_sat_pos]
+        # keep the Earth orientation quantities cached on the times
+        orbit_track = _index_orbit_track(
+            orbit_track, np.flatnonzero(mask_contains_sat_pos)
+        )
         # recompute sat_pos
         sat_pos = wgs84.geographic_position_of(orbit_track)
+    altitude = np.atleast_1d(sat_pos.elevation.m)
     # create shapely points in proper coordinate system
     if coordinates == OrbitCoordinate.WGS84:
-        points = [
-            Point(longitude, latitude, elevation)
-            for (longitude, latitude, elevation) in zip(
-                np.array(sat_pos.longitude.degrees),
-                np.array(sat_pos.latitude.degrees),
-                np.array(sat_pos.elevation.m),
+        points = shapely.points(
+            np.column_stack(
+                [
+                    np.atleast_1d(sat_pos.longitude.degrees),
+                    np.atleast_1d(sat_pos.latitude.degrees),
+                    altitude,
+                ]
             )
-        ]
+        )
     elif coordinates == OrbitCoordinate.ECEF:
-        points = [
-            Point(position[0], position[1], position[2])
-            for position in np.array(sat_pos.itrs_xyz.m).T
-        ]
+        points = shapely.points(np.reshape(sat_pos.itrs_xyz.m, (3, -1)).T)
     else:
-        points = [
-            Point(position[0], position[1], position[2])
-            for position in np.array(orbit_track.xyz.m).T
-        ]
+        points = shapely.points(np.reshape(orbit_track.xyz.m, (3, -1)).T)
     # determine observation validity
     valid_obs = instrument.is_valid_observation(orbit_track)
+    columns = {
+        "time": list(np.atleast_1d(orbit_track.t.utc_datetime())),  # type: ignore
+        "satellite": satellite.name,
+        "instrument": instrument.name,
+        "swath_width": [_swath_width(instrument, h, elevation) for h in altitude],
+        "valid_obs": valid_obs,
+        "geometry": points,
+    }
     # create velocity points if needed
-    if orbit_output == OrbitOutput.POSITION:
-        records = [
-            {
-                "time": time,
-                "satellite": satellite.name,
-                "instrument": instrument.name,
-                "swath_width": _swath_width(
-                    instrument, np.array(sat_pos.elevation.m)[i], elevation
-                ),
-                "valid_obs": valid_obs[i],
-                "geometry": points[i],
-            }
-            for i, time in enumerate(orbit_track.t.utc_datetime())  # type: ignore
-        ]
-    else:
+    if orbit_output != OrbitOutput.POSITION:
         # compute satellite velocity
         if coordinates == OrbitCoordinate.ECI:
-            velocities = [
-                Point(velocity[0], velocity[1], velocity[2])
-                for velocity in np.array(orbit_track.velocity.m_per_s).T
-            ]
+            velocity = np.reshape(orbit_track.velocity.m_per_s, (3, -1))
         elif coordinates == OrbitCoordinate.ECEF:
-            velocities = [
-                Point(velocity[0], velocity[1], velocity[2])
-                for velocity in np.array(
-                    orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s
-                ).T
-            ]
+            velocity = np.reshape(
+                orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s, (3, -1)
+            )
         else:
             # rotate ECEF velocity into local East/North/Up components at the
             # satellite's geodetic longitude/latitude
-            ecef_velocity = np.array(
-                orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s
+            ecef_velocity = np.reshape(
+                orbit_track.frame_xyz_and_velocity(itrs)[1].m_per_s, (3, -1)
             )
-            lon = np.radians(np.array(sat_pos.longitude.degrees))
-            lat = np.radians(np.array(sat_pos.latitude.degrees))
+            lon = np.radians(np.atleast_1d(sat_pos.longitude.degrees))
+            lat = np.radians(np.atleast_1d(sat_pos.latitude.degrees))
             east = -np.sin(lon) * ecef_velocity[0] + np.cos(lon) * ecef_velocity[1]
             north = (
                 -np.sin(lat) * np.cos(lon) * ecef_velocity[0]
@@ -236,22 +220,8 @@ def collect_orbit_track(
                 + np.cos(lat) * np.sin(lon) * ecef_velocity[1]
                 + np.sin(lat) * ecef_velocity[2]
             )
-            velocities = [Point(e, n, u) for e, n, u in zip(east, north, up)]
-
-        records = [
-            {
-                "time": time,
-                "satellite": satellite.name,
-                "instrument": instrument.name,
-                "swath_width": _swath_width(
-                    instrument, np.array(sat_pos.elevation.m)[i], elevation
-                ),
-                "valid_obs": valid_obs[i],
-                "geometry": points[i],
-                "velocity": velocities[i],
-            }
-            for i, time in enumerate(orbit_track.t.utc_datetime())  # type: ignore
-        ]
+            velocity = np.array([east, north, up])
+        columns["velocity"] = shapely.points(velocity.T)
 
     # tag the CRS to match the requested output coordinates: WGS84 is
     # geographic degrees, ECEF is geocentric meters, and ECI (GCRS) is an
@@ -261,7 +231,7 @@ def collect_orbit_track(
         if coordinates == OrbitCoordinate.WGS84
         else "EPSG:4978" if coordinates == OrbitCoordinate.ECEF else None
     )
-    track = gpd.GeoDataFrame(records, crs=track_crs)
+    track = gpd.GeoDataFrame(columns, crs=track_crs)
     if sat_sunlit:
         # append sat_sunlit column
         track["sat_sunlit"] = orbit_track.is_sunlit(de421)

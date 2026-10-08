@@ -486,5 +486,5 @@ class PointedInstrument(Instrument):
                     for point in points
                 ]
             )
-            for i in range(np.size(orbit_track.t))  # type: ignore
+            for i in range(np.size(orbit_track.t.tt))  # type: ignore
         ]

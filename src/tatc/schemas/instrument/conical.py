@@ -353,7 +353,7 @@ class ConicalInstrument(Instrument):
             )
             for f in (-1, 0, 1)
         ]
-        inside = np.zeros(np.size(orbit_track.t), dtype=bool)  # type: ignore
+        inside = np.zeros(np.size(orbit_track.t.tt), dtype=bool)  # type: ignore
         for (cone_a, azimuth_a), (cone_b, azimuth_b) in zip(angles[:-1], angles[1:]):
             cone_a, cone_b = np.atleast_1d(cone_a), np.atleast_1d(cone_b)
             crosses = (cone_a - self.cone_angle) * (cone_b - self.cone_angle) <= 0
