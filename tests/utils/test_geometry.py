@@ -67,6 +67,8 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
             hash_geometry(Polygon([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)])), value
         )
         self.assertEqual(hash_geometry(Point(1, 2)), hash_geometry(Point(1, 2, 0)))
+        # points at the same location but different elevations are distinct
+        self.assertNotEqual(hash_geometry(Point(1, 2)), hash_geometry(Point(1, 2, 100)))
 
     def test_geodesic_distance_same_point(self):
         """
