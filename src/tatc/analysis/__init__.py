@@ -45,6 +45,9 @@ from .region_sampling import (
 from .ro_sampling import (
     collect_ro_observations,
 )
+from .space_sampling import (
+    collect_space_observations,
+)
 
 __all__ = [
     "DopMethod",
@@ -63,6 +66,7 @@ __all__ = [
     "collect_radar_track",
     "collect_region_observations",
     "collect_ro_observations",
+    "collect_space_observations",
     "compute_access_periods",
     "compute_dop",
     "compute_ground_track",

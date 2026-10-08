@@ -1,7 +1,7 @@
 """
 Methods shared by the sampling analyses: observation data frames and the
-refinement of access periods (see `point_sampling` and `region_sampling`),
-and the interpolation of tangent point profiles (see `ro_sampling` and
+refinement of access periods (see `point_sampling`, `region_sampling`, and
+`space_sampling`), and the interpolation of tangent point profiles (see `ro_sampling` and
 `limb_sampling`).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
@@ -264,27 +264,54 @@ def _refine_access_periods(
             np.array([samples[i][j + 1] for i, j in brackets]),
         )
         crossings = dict(zip(brackets, crossing))
-    refined = []
-    for i, (sample, value) in enumerate(zip(samples, values)):
-        inside = value <= 0
-        left = sample[0] if inside[0] else None
-        for j in range(len(sample) - 1):
-            if inside[j] == inside[j + 1]:
-                continue
-            if inside[j + 1]:
-                left = crossings[(i, j)]
-            else:
-                refined.append((left, crossings[(i, j)]))
-                left = None
-        if left is not None:
-            refined.append((left, sample[-1]))
     return [
         pd.Interval(
             left=reference + pd.Timedelta(seconds=float(left)),
             right=reference + pd.Timedelta(seconds=float(right)),
         )
-        for left, right in refined
+        for parts in _assemble_periods(samples, values, crossings)
+        for left, right in parts
     ]
+
+
+def _assemble_periods(
+    samples: list[np.ndarray],
+    values: list[np.ndarray],
+    crossings: dict[tuple[int, int], float],
+) -> list[list[tuple[float, float]]]:
+    """
+    Assembles the periods when a residual function is not positive from its
+    values at several sets of samples (for example, of the periods or pairs
+    of satellites analyzed) and the refined crossings at each of its changes
+    of sign between samples. A period starts at the first sample (or ends at
+    the last sample) of a set if the residual is not positive there.
+
+    Args:
+        samples (list[numpy.ndarray]): The times (seconds) of each set of samples.
+        values (list[numpy.ndarray]): The residual at each set of samples.
+        crossings (dict[tuple[int, int], float]): The time (seconds) of the
+            crossing between samples `j` and `j + 1` of set `i`, by `(i, j)`,
+            for each change of sign.
+
+    Returns:
+        list[list[tuple[float, float]]]: the start and end (seconds) of the
+            periods of each set of samples
+    """
+    periods = []
+    for i, (sample, value) in enumerate(zip(samples, values)):
+        parts = []
+        inside = value <= 0
+        left = sample[0] if inside[0] else None
+        for j in np.flatnonzero(inside[:-1] != inside[1:]):
+            if inside[j + 1]:
+                left = crossings[(i, j)]
+            else:
+                parts.append((left, crossings[(i, j)]))
+                left = None
+        if left is not None:
+            parts.append((left, sample[-1]))
+        periods.append(parts)
+    return periods
 
 
 def _interpolate_profile_point(
