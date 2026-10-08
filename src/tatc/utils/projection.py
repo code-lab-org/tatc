@@ -29,7 +29,11 @@ from .ellipsoid import (
     compute_ellipsoid_intersection,
     rectangular_to_geodetic,
 )
-from .geometry import project_polygon_to_elevation, split_polygon
+from .geometry import (
+    _build_split_polygons,
+    project_polygon_to_elevation,
+    split_polygon,
+)
 from .observation import field_of_regard_to_swath_width
 from .orbital import compute_ground_surface_velocity
 
@@ -754,19 +758,11 @@ def compute_footprint(
             nadir_reference,
         )
     # footprint polygons (one per time), built at once from their points
-    longitude = np.reshape(geos[0], (len(geos[0]), -1)).T
-    latitude = np.reshape(geos[1], (len(geos[1]), -1)).T
-    footprints = shapely.polygons(np.stack([longitude, latitude], axis=-1))
-    # split footprints that cross the anti-meridian or exceed the poles, and
-    # repair invalid ones (see split_polygon), checking all footprints at once
-    ring = np.concatenate([longitude, longitude[:, :1]], axis=1)
-    planar = (
-        np.all(np.abs(longitude) <= 180, axis=1)
-        & np.all(np.abs(latitude) <= 90, axis=1)
-        & np.all(np.abs(np.diff(ring, axis=1)) <= 180, axis=1)
+    # (split along the anti-meridian and poles, and repaired if invalid)
+    footprints = _build_split_polygons(
+        np.reshape(geos[0], (len(geos[0]), -1)).T,
+        np.reshape(geos[1], (len(geos[1]), -1)).T,
     )
-    for i in np.flatnonzero(~(planar & shapely.is_valid(footprints))):
-        footprints[i] = split_polygon(footprints[i])
     # project the footprints to the elevation
     return list(shapely.force_3d(footprints, elevation))
 

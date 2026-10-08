@@ -10,7 +10,6 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-import shapely
 from pydantic import Field, model_validator
 from shapely import MultiPolygon, Polygon, unary_union
 from skyfield.constants import AU_M
@@ -19,7 +18,7 @@ from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
 from ... import config, constants
-from ...utils.geometry import project_polygon_to_elevation, split_polygon
+from ...utils.geometry import _build_split_polygons, project_polygon_to_elevation
 from ...utils.projection import (
     VelocityFrame,
     _compute_projected_rays,
@@ -283,22 +282,11 @@ class ConicalInstrument(Instrument):
         )
         is_vectorized = len(np.shape(orbit_track.t)) > 0  # type: ignore
         # polygons of each sub-sector (one per time), built at once and split
-        # only if they cross the anti-meridian or exceed the poles, or are
-        # invalid (see split_polygon)
+        # along the anti-meridian and poles, and repaired if invalid
         parts = []
         for ring in rings:
             coords = np.swapaxes(ring, 0, 1) if is_vectorized else ring[np.newaxis]
-            polygons = shapely.polygons(coords)
-            longitude, latitude = coords[..., 0], coords[..., 1]
-            closed = np.concatenate([longitude, longitude[:, :1]], axis=1)
-            planar = (
-                np.all(np.abs(longitude) <= 180, axis=1)
-                & np.all(np.abs(latitude) <= 90, axis=1)
-                & np.all(np.abs(np.diff(closed, axis=1)) <= 180, axis=1)
-            )
-            for i in np.flatnonzero(~(planar & shapely.is_valid(polygons))):
-                polygons[i] = split_polygon(polygons[i])
-            parts.append(polygons)
+            parts.append(_build_split_polygons(coords[..., 0], coords[..., 1]))
         footprints = []
         for i in range(len(parts[0])):
             footprint = (

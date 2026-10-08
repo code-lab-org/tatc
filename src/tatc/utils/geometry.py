@@ -487,6 +487,89 @@ def split_polygon(
     return polygon
 
 
+def _build_split_polygons(longitude: npt.NDArray, latitude: npt.NDArray) -> npt.NDArray:
+    """
+    Builds polygons from rings of vertices (one ring per row, without its
+    closing vertex), split along the anti-meridian and poles and repaired if
+    invalid as by `split_polygon`, vectorized across polygons. A polygon
+    whose vertices lie within the standard (-180, -90, 180, 90) domain but
+    whose edges jump across the anti-meridian (without encircling a pole)
+    is split by clipping its unrolled coordinates to each side of the
+    anti-meridian, all such polygons at once; any other polygon that needs
+    splitting or repair is passed to `split_polygon`. The parts of a split
+    polygon may be ordered differently than by `split_polygon`.
+
+    Args:
+        longitude (numpy.typing.NDArray): The vertex longitudes (degrees,
+            shape (M, K)).
+        latitude (numpy.typing.NDArray): The vertex latitudes (degrees,
+            shape (M, K)).
+
+    Returns:
+        numpy.typing.NDArray: the polygons (shape (M,)).
+    """
+    polygons = shapely.polygons(np.stack([longitude, latitude], axis=-1))
+    diff = np.diff(np.concatenate([longitude, longitude[:, :1]], axis=1), axis=1)
+    jump = np.abs(diff) > 180
+    within = np.all(np.abs(longitude) <= 180, axis=1) & np.all(
+        np.abs(latitude) <= 90, axis=1
+    )
+    needs_split = ~(within & ~np.any(jump, axis=1) & shapely.is_valid(polygons))
+    # polygons that only jump across the anti-meridian: within the domain,
+    # with no vertex on the anti-meridian, and not encircling a pole (whose
+    # longitudes, taking each jump the shorter way around, wind 360 degrees)
+    shift = np.where(jump, np.round(diff / 360), 0)
+    candidate = (
+        needs_split
+        & within
+        & np.any(jump, axis=1)
+        & np.all(np.abs(longitude) < 180, axis=1)
+        & (np.abs(np.sum(diff - 360 * shift, axis=1)) <= 180)
+    )
+    index = np.flatnonzero(candidate)
+    if len(index) > 0:
+        # unroll the longitudes past the anti-meridian across each jump
+        unrolled = longitude[index] - 360 * np.concatenate(
+            [np.zeros((len(index), 1)), np.cumsum(shift[index], axis=1)[:, :-1]],
+            axis=1,
+        )
+        west = unrolled.min(axis=1) < -180
+        east = unrolled.max(axis=1) > 180
+        unrolled_polygons = shapely.polygons(
+            np.stack([unrolled, latitude[index]], axis=-1)
+        )
+        # clip to the standard domain and to the other side of the
+        # anti-meridian (on only one side), shifted back by 360 degrees
+        keep = (west != east) & shapely.is_valid(unrolled_polygons)
+        index, west = index[keep], west[keep]
+        unrolled_polygons = unrolled_polygons[keep]
+        inner = shapely.intersection(unrolled_polygons, shapely.box(-180, -90, 180, 90))
+        outer = shapely.intersection(
+            unrolled_polygons,
+            shapely.box(np.where(west, -540, 180), -90, np.where(west, -180, 540), 90),
+        )
+        outer[west] = shapely.transform(outer[west], lambda c: c + [360, 0])
+        outer[~west] = shapely.transform(outer[~west], lambda c: c - [360, 0])
+        # the polygonal parts of each polygon
+        parts, part_index = shapely.get_parts(
+            np.concatenate([inner, outer]), return_index=True
+        )
+        part_index = part_index % len(index)
+        polygonal = (shapely.get_type_id(parts) == 3) & (shapely.area(parts) > 0)
+        grouped = [[] for _ in index]
+        for part, i in zip(parts[polygonal], part_index[polygonal]):
+            grouped[i].append(part)
+        for i, group in zip(index, grouped):
+            split_polygons = group[0] if len(group) == 1 else MultiPolygon(group)
+            if len(group) > 0 and split_polygons.is_valid:
+                polygons[i] = split_polygons
+                needs_split[i] = False
+    # split or repair any others
+    for i in np.flatnonzero(needs_split):
+        polygons[i] = split_polygon(polygons[i])
+    return polygons
+
+
 def get_planar_bounds(
     mask: Polygon | MultiPolygon | None,
 ) -> tuple[float, float, float, float]:
