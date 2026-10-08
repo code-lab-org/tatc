@@ -7,6 +7,7 @@ Unit tests for the GeneralPerturbationsElements schema.
 import csv
 import io
 import json
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -222,7 +223,7 @@ class TestGeneralPerturbationsElements(unittest.TestCase):
         """
         satrec = self.test_elements.to_satrec()
         round_tripped = GeneralPerturbationsElements.from_satrec(satrec)
-        for field in type(self.test_elements).model_fields:
+        for field in GeneralPerturbationsElements.model_fields.keys():
             with self.subTest(field=field):
                 original = getattr(self.test_elements, field)
                 restored = getattr(round_tripped, field)
@@ -531,6 +532,22 @@ class TestGetRepeatCycle(unittest.TestCase):
             max_delta_position=1, max_delta_velocity=0.001
         )
         self.assertIsNone(repeat_cycle)
+
+    def test_perigee_below_surface_has_no_repeat_cycle(self):
+        """
+        Test that elements with a perigee below the Earth's surface (here,
+        from a mean motion of 14 revolutions per day mistaken for radians
+        per minute) have no repeat cycle, with a warning, without searching
+        for one (which would take minutes for such a short period).
+        """
+        elements = GeneralPerturbationsElements.from_tle(self.landsat_8_tle).model_copy(
+            update={"mean_motion": 14.0}
+        )
+        start = time.perf_counter()
+        with self.assertWarnsRegex(UserWarning, "radians per minute"):
+            repeat_cycle = elements.get_repeat_cycle()
+        self.assertIsNone(repeat_cycle)
+        self.assertLess(time.perf_counter() - start, 1)
 
 
 if __name__ == "__main__":

@@ -92,7 +92,7 @@ class TestOrbitBase(unittest.TestCase):
         conversion logic.
         """
         with self.assertRaises(NotImplementedError):
-            OrbitBase()._compute_gp_orbit()
+            OrbitBase()._compute_gp_orbit()  # pylint: disable=protected-access
 
     def test_to_gp_orbit_surfaces_not_implemented_on_base(self):
         """
@@ -104,7 +104,7 @@ class TestOrbitBase(unittest.TestCase):
             OrbitBase().to_gp_orbit()
 
 
-class _OrbitWithFixedSemimajorAxis(OrbitBase):
+class _OrbitWithFixedSemimajorAxis(OrbitBase):  # pylint: disable=abstract-method
     """
     Minimal OrbitBase subclass implementing only get_semimajor_axis, used
     to test OrbitBase's generic get_mean_altitude/get_mean_motion/

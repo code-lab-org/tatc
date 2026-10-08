@@ -15,7 +15,7 @@ import pandas as pd
 from shapely import geometry as geo
 
 from ..schemas import GroundStation, Satellite
-from ..utils.propagation import _run_together
+from ..utils.computation import _run_together
 from .check import _check_satellites
 from .coverage_metrics import _get_target_keys
 from .point_sampling import _compute_access_periods
@@ -48,7 +48,7 @@ def collect_downlinks(
     """
     Collect satellite downlink opportunities to ground station(s) of
     interest. The access periods of every station and satellite are
-    computed together (see `tatc.utils.propagation._run_together`).
+    computed together (see `tatc.utils.computation._run_together`).
 
     Args:
         stations (GroundStation | list[GroundStation]): The ground stations.

@@ -175,6 +175,13 @@ class TestLatencyAnalysis(IssConstellationTestCase):
                 datetime(2022, 6, 10, tzinfo=timezone.utc),
             ),
         )
+        self.assertFalse(results.empty)
+        # every observation is downlinked to one of the stations, no earlier
+        # than it is observed
+        self.assertTrue(
+            set(results.station.dropna()) <= {station.name for station in self.stations}
+        )
+        self.assertTrue((results.latency.dropna() >= pd.Timedelta(0)).all())
 
     def test_reduce_latency(self):
         """

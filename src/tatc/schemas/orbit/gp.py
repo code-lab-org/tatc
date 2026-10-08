@@ -23,15 +23,10 @@ from skyfield.toposlib import GeographicPosition
 from ... import config, constants, utils
 from ...utils.cache import get_cached
 from ...utils.geometry import _get_point_coordinates
-from ...utils.propagation import (
-    TimeRequest,
-    _find_events_steps,
-    _index_time,
-    _interpolate_nutation,
-    _RepeatTrack,
-    _run,
-    _to_time,
-)
+from ...utils.computation import TimeRequest, _run
+from ...utils.earth_orientation import _interpolate_nutation
+from ...utils.propagation import _find_events, _RepeatTrack
+from ...utils.time import _index_time, _to_time
 from ..surface import Point
 from .gp_elements import GeneralPerturbationsElements
 
@@ -942,10 +937,10 @@ class GeneralPerturbationsOrbit(BaseModel):
             tuple[skyfield.timelib.Time, numpy.ndarray]: event times and their rise (0) / culminate (1) / set (2) codes
         """
         return _run(
-            self.get_observation_events_steps(point, start, end, min_elevation_angle)
+            self._get_observation_events(point, start, end, min_elevation_angle)
         )
 
-    def get_observation_events_steps(
+    def _get_observation_events(
         self,
         point: Point | ShapelyPoint,
         start: datetime,
@@ -955,7 +950,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         Gets the observation events of this orbit with respect to a ground
         point, as a computation (see `get_observation_events` and
-        `tatc.utils.propagation.TimeRequest`), so that those of several
+        `tatc.utils.computation.TimeRequest`), so that those of several
         orbits or points can be computed together.
         """
         longitude, latitude, elevation = _get_point_coordinates(point)
@@ -966,7 +961,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         if first is not None and start < first.epoch:
             events.extend(
                 (
-                    yield from first.find_events_steps(
+                    yield from first.find_events(
                         topos, start, min(end, first.epoch), min_elevation_angle
                     )
                 )
@@ -986,7 +981,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             parts, indices = self.partition_by_element_index(direct_start, direct_end)
             boundaries.extend(parts[1:-1])
             for i, index in enumerate(indices):
-                times, codes = yield from _find_events_steps(
+                times, codes = yield from _find_events(
                     self.elements[index].to_skyfield(self.remove_drag),
                     topos,
                     constants.timescale.from_datetime(parts[i]),
@@ -1000,7 +995,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         if last is not None and end > last.epoch:
             events.extend(
                 (
-                    yield from last.find_events_steps(
+                    yield from last.find_events(
                         topos, max(start, last.epoch), end, min_elevation_angle
                     )
                 )

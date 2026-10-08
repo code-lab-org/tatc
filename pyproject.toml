@@ -74,7 +74,8 @@ dev = [
     "coverage",
     "pylint",
     "pylint-pydantic",
-    "pytest"
+    "pytest",
+    "pytest-xdist"
 ]
 docs = [
     "autodoc_pydantic >= 2",

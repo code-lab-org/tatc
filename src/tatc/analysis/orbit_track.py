@@ -22,8 +22,13 @@ from skyfield.timelib import Time
 from ..constants import de421
 from ..schemas import AllInstruments, ConicalInstrument, Satellite
 from ..utils.observation import field_of_regard_to_swath_width
-from ..utils.propagation import _index_orbit_track, _to_time
-from .check import _check_satellites
+from ..utils.time import _index_orbit_track, _to_time
+from .check import (
+    _check_satellites,
+    _combine_results,
+    _get_instrument_indices,
+    _is_single,
+)
 
 
 def _swath_width(
@@ -141,7 +146,7 @@ def collect_orbit_track(
             `instrument_index`), in the order of `times`; otherwise, those of
             each satellite and instrument, concatenated and sorted by time.
     """
-    single = not isinstance(satellites, list) and instrument_index is not None
+    single = _is_single(satellites, instrument_index=instrument_index)
     satellites = _check_satellites(satellites)
     if len(times) == 0:
         return _get_empty_orbit_track()
@@ -161,18 +166,9 @@ def collect_orbit_track(
             solar_beta,
         )
         for satellite in satellites
-        for index in (
-            range(len(satellite.instruments))
-            if instrument_index is None
-            else [instrument_index]
-        )
+        for index in _get_instrument_indices(satellite, instrument_index)
     ]
-    if single:
-        return tracks[0]
-    if len(tracks) == 0:
-        return _get_empty_orbit_track()
-    # concatenate into one data frame, sort by time, and re-index
-    return pd.concat(tracks).sort_values("time", kind="stable").reset_index(drop=True)
+    return _combine_results(tracks, single, "time", _get_empty_orbit_track)
 
 
 def _collect_orbit_track(

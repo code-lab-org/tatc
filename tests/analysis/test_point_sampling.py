@@ -23,6 +23,7 @@ from tatc.analysis import (
     reduce_observations,
 )
 from tatc.analysis.sampling import _refine_access_periods
+from tatc.utils.computation import _run
 from tatc.constants import timescale
 from tatc.schemas import (
     ConicalInstrument,
@@ -1341,10 +1342,12 @@ class TestCollectObservationsGeometry(IssConstellationTestCase):
             ) * 86400
             return np.cos(2 * np.pi * np.asarray(seconds) / 600)
 
-        periods = _refine_access_periods(
-            residual,
-            self.orbit,
-            [pd.Interval(start, start + pd.Timedelta(seconds=1200))],
+        periods = _run(
+            _refine_access_periods(
+                residual,
+                self.orbit,
+                [pd.Interval(start, start + pd.Timedelta(seconds=1200))],
+            )
         )
         self.assertEqual(len(periods), 2)
         for period, (left, right) in zip(periods, [(150, 450), (750, 1050)]):

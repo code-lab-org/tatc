@@ -680,6 +680,7 @@ class TestTiltedScanViewGeometry(unittest.TestCase):
         scan = PointedInstrument(**self.base, view_geometry="scan")
         for index in range(11):
             pixel = scan.compute_projected_pixel_position(self.track, index, 0)
+            # pylint: disable-next=protected-access
             cross_offset, _ = scan._get_pixel_offsets(index, 0)
             plane = compute_projected_ray_position(
                 self.track,

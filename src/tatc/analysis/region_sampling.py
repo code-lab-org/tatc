@@ -47,15 +47,16 @@ from ..utils.geometry import (
     split_polygon,
 )
 from ..utils.projection import NadirReference, VelocityFrame, _compute_view_frame
-from ..utils.propagation import (
-    TimeRequest,
-    _run,
-    _run_together,
-    _to_time,
-    _to_time_from_offsets,
+from ..utils.computation import TimeRequest, _run, _run_together
+from ..utils.time import _to_time, _to_time_from_offsets
+from .check import (
+    _check_satellite,
+    _check_satellites,
+    _combine_results,
+    _get_instrument_indices,
+    _is_single,
 )
-from .check import _check_satellite, _check_satellites
-from .sampling import _refine_access_periods_steps
+from .sampling import _refine_access_periods
 
 
 def _get_visible_polygon_interval_series(
@@ -118,7 +119,7 @@ def _get_visible_polygon_interval_series(
         coarse_step (float): Angle (degrees) of the satellite's motion between initial samples.
 
     Returns:
-        TimeRequest: the computation (see `tatc.utils.propagation.TimeRequest`)
+        TimeRequest: the computation (see `tatc.utils.computation.TimeRequest`)
             of the series of observation intervals (pandas.Series).
     """
     geometry = split_polygon(geometry)
@@ -420,7 +421,7 @@ def _find_footprint_periods(
         tolerance (datetime.timedelta): The precision of the period bounds.
 
     Returns:
-        TimeRequest: the computation (see `tatc.utils.propagation.TimeRequest`)
+        TimeRequest: the computation (see `tatc.utils.computation.TimeRequest`)
             of the periods (list[pandas.Interval]).
     """
     if len(windows) == 0:
@@ -634,7 +635,7 @@ def _get_swaths(
         min_time_step (datetime.timedelta): The minimum time between samples.
 
     Returns:
-        TimeRequest: the computation (see `tatc.utils.propagation.TimeRequest`)
+        TimeRequest: the computation (see `tatc.utils.computation.TimeRequest`)
             of the swath of each period (list[shapely.geometry.Polygon |
             shapely.geometry.MultiPolygon]).
     """
@@ -716,7 +717,7 @@ def _collect_region_observations(
 ) -> TimeRequest:
     """
     Collect single satellite observations of a region, as a computation (see
-    `collect_region_observations` and `tatc.utils.propagation.TimeRequest`).
+    `collect_region_observations` and `tatc.utils.computation.TimeRequest`).
     """
     elevation = _get_region_elevation(region)
     target_hash = hash_geometry(region)
@@ -752,7 +753,7 @@ def _collect_region_observations(
             )
             return np.maximum(angle - half_angle, -sat_elevation)
 
-        periods = yield from _refine_access_periods_steps(
+        periods = yield from _refine_access_periods(
             residual, orbit, windows, max_step=timedelta(seconds=10)
         )
     periods = [
@@ -847,7 +848,7 @@ def collect_region_observations(
 
     The observations of every region, satellite, and instrument are computed
     together, sharing the costly Earth orientation quantities of the times
-    at each step (see `tatc.utils.propagation._run_together`).
+    at each step (see `tatc.utils.computation._run_together`).
 
     Args:
         regions (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]):
@@ -868,11 +869,7 @@ def collect_region_observations(
             each region, satellite, and instrument, concatenated and sorted
             by start time.
     """
-    single = (
-        not isinstance(regions, (list, tuple))
-        and not isinstance(satellites, list)
-        and instrument_index is not None
-    )
+    single = _is_single(regions, satellites, instrument_index=instrument_index)
     satellites = _check_satellites(satellites)
     regions = list(regions) if isinstance(regions, (list, tuple)) else [regions]
     for region in regions:
@@ -886,20 +883,12 @@ def collect_region_observations(
             _collect_region_observations(region, satellite, start, end, index)
             for region in regions
             for satellite in satellites
-            for index in (
-                range(len(satellite.instruments))
-                if instrument_index is None
-                else [instrument_index]
-            )
+            for index in _get_instrument_indices(satellite, instrument_index)
         ]
     )
-    if single:
-        return gdfs[0]
-    if len(gdfs) == 0:
-        # no regions or satellites leave nothing to concatenate
-        return _get_empty_region_frame()
-    # concatenate into one data frame, sort by start time, and re-index
-    return pd.concat(gdfs).sort_values("start").reset_index(drop=True)
+    return _combine_results(
+        gdfs, single, "start", _get_empty_region_frame, stable=False
+    )
 
 
 def collect_multi_region_observations(

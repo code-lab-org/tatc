@@ -25,8 +25,9 @@ from ..utils.ellipsoid import (
     rectangular_to_geodetic,
 )
 from ..utils.orbital import compute_vnb_frame
-from ..utils.propagation import _to_time_from_offsets
+from ..utils.time import _to_time_from_offsets
 from .check import _check_satellites
+from .sampling import _interpolate_profile_point
 
 
 class ScanDirection(str, Enum):
@@ -275,35 +276,7 @@ def _interpolate_limb_point(points: list[dict], sample_elevation: float) -> dict
     Returns:
         dict: interpolated longitude (deg), latitude (deg), elevation (m), and time.
     """
-    elevations = np.array([point["elevation"] for point in points])
-    diffs = elevations - sample_elevation
-    # bracketing indices where the tangent point elevation crosses the sample elevation
-    crossings = np.nonzero(np.diff(np.sign(diffs)))[0]
-    if len(crossings) > 0:
-        i = crossings[0]
-        p0, p1 = points[i], points[i + 1]
-        denom = diffs[i] - diffs[i + 1]
-        frac = diffs[i] / denom if denom != 0 else 0.0
-    else:
-        # sample elevation is outside the observed range: clamp to the nearest endpoint
-        i = 0 if abs(diffs[0]) <= abs(diffs[-1]) else len(points) - 1
-        p0 = p1 = points[i]
-        frac = 0.0
-
-    def lerp(a, b):
-        return a + frac * (b - a)
-
-    def lerp_angle(a, b, low=-180.0):
-        # interpolate along the shortest angular path, then wrap to [low, low + 360)
-        diff = ((b - a + 180) % 360) - 180
-        return (a + frac * diff - low) % 360 + low
-
-    return {
-        "longitude": lerp_angle(p0["longitude"], p1["longitude"]),
-        "latitude": lerp(p0["latitude"], p1["latitude"]),
-        "elevation": lerp(p0["elevation"], p1["elevation"]),
-        "time": p0["time"] + frac * (p1["time"] - p0["time"]),
-    }
+    return _interpolate_profile_point(points, sample_elevation)
 
 
 def _get_empty_limb_frame() -> gpd.GeoDataFrame:

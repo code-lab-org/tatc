@@ -22,6 +22,7 @@ from skyfield.framelib import itrs
 
 from tatc import config, constants
 from tatc.schemas import GeneralPerturbationsOrbit, Point
+from tatc.utils.computation import _run
 from tatc.utils.propagation import _find_events
 
 
@@ -930,8 +931,13 @@ class TestGetGeographicPositionAtTime(unittest.TestCase):
         no_repeat = self.repeat_orbit.model_copy(
             update={
                 "elements": [
+                    # a realistic orbit without a repeat cycle within the
+                    # search duration (mean motion is in radians per minute)
                     self.repeat_orbit.elements[0].model_copy(
-                        update={"mean_motion": 14.0}
+                        update={
+                            "mean_motion": self.repeat_orbit.elements[0].mean_motion
+                            * 1.002
+                        }
                     )
                 ]
             }
@@ -1830,30 +1836,36 @@ class TestGetObservationEvents(unittest.TestCase):
         point = self._get_overhead_point(orbit, culmination)
         topos = wgs84.latlon(point.latitude, point.longitude)
         satellite = self.base.to_skyfield()
-        times, codes = _find_events(
-            satellite,
-            topos,
-            constants.timescale.from_datetime(culmination - timedelta(minutes=30)),
-            constants.timescale.from_datetime(culmination + timedelta(minutes=30)),
-            80,
+        times, codes = _run(
+            _find_events(
+                satellite,
+                topos,
+                constants.timescale.from_datetime(culmination - timedelta(minutes=30)),
+                constants.timescale.from_datetime(culmination + timedelta(minutes=30)),
+                80,
+            )
         )
         self.assertEqual(codes.tolist(), [0, 1, 2])
         rise, _, set_ = times.utc_datetime()
-        after = _find_events(
-            satellite,
-            topos,
-            constants.timescale.from_datetime(culmination + timedelta(seconds=2)),
-            constants.timescale.from_datetime(culmination + timedelta(minutes=30)),
-            80,
+        after = _run(
+            _find_events(
+                satellite,
+                topos,
+                constants.timescale.from_datetime(culmination + timedelta(seconds=2)),
+                constants.timescale.from_datetime(culmination + timedelta(minutes=30)),
+                80,
+            )
         )
         self.assertEqual(after[1].tolist(), [2])
         self.assertLess(abs((after[0].utc_datetime()[0] - set_).total_seconds()), 1e-2)
-        before = _find_events(
-            satellite,
-            topos,
-            constants.timescale.from_datetime(culmination - timedelta(minutes=30)),
-            constants.timescale.from_datetime(culmination - timedelta(seconds=2)),
-            80,
+        before = _run(
+            _find_events(
+                satellite,
+                topos,
+                constants.timescale.from_datetime(culmination - timedelta(minutes=30)),
+                constants.timescale.from_datetime(culmination - timedelta(seconds=2)),
+                80,
+            )
         )
         self.assertEqual(before[1].tolist(), [0])
         self.assertLess(abs((before[0].utc_datetime()[0] - rise).total_seconds()), 1e-2)
@@ -2331,9 +2343,9 @@ class TestRemoveDragAndRepeatCycle(unittest.TestCase):
             self.icesat2_tle, remove_drag=True, repeat_cycle=timedelta(days=91)
         )
         orbit.get_repeat_cycle()
-        copy = orbit.model_copy(update={"repeat_cycle": timedelta(days=30)})
+        copied = orbit.model_copy(update={"repeat_cycle": timedelta(days=30)})
         self.assertEqual(
-            copy.get_repeat_cycle(),
+            copied.get_repeat_cycle(),
             orbit.elements[0]
             .get_repeat_element(timedelta(days=30))
             .refine_repeat_cycle(timedelta(days=30)),

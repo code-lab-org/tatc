@@ -12,7 +12,7 @@ from typing import Literal
 import numpy as np
 from pydantic import Field
 
-from ... import constants, utils
+from ... import utils
 from .base_molniya_tundra import MolniyaTundraOrbitBase
 
 

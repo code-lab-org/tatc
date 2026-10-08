@@ -134,7 +134,9 @@ def compute_dop(
         if n[i] < max(min_count_visible, 3 + len(visible_systems)):
             return np.nan
         # H is a nx(3+k) matrix where n is the number of visible satellites
-        # and k is the number of systems with visible satellites
+        # and k is the number of systems with visible satellites (named as in
+        # the literature)
+        # pylint: disable-next=invalid-name
         H = np.column_stack(
             (
                 x[mask, i] / r[mask, i],
@@ -145,6 +147,7 @@ def compute_dop(
         )
         # calculate the pseudoinverse of H
         try:
+            # pylint: disable-next=invalid-name
             H_inv = np.linalg.solve(H.T @ H, np.eye(H.shape[1]))
         except np.linalg.LinAlgError:
             # If the H matrix nearly singular, linalg will not be able to solve, return NaN and a warning

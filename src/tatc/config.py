@@ -86,7 +86,7 @@ class RuntimeConfiguration(BaseModel):
             "rather than computed by Skyfield for every time (to within about "
             "a microarcsecond, at a small fraction of the cost), or None to "
             "compute them for every time (see "
-            "`tatc.utils.propagation._interpolate_nutation`)."
+            "`tatc.utils.earth_orientation._interpolate_nutation`)."
         ),
         gt=0,
     )

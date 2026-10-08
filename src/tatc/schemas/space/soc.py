@@ -133,7 +133,7 @@ class SOCConstellation(BaseConstellation):
         gamma = self.get_footprint_angle() * self.packing_distance
         if gamma <= 0:
             raise ValueError("Footprint too small for a streets-of-coverage design.")
-        best = None
+        best, best_satellites = None, math.inf
         # the fewest satellites per plane whose footprints overlap
         min_satellites_per_plane = math.floor(180 / gamma) + 1
         for satellites_per_plane in range(
@@ -147,7 +147,8 @@ class SOCConstellation(BaseConstellation):
                 )
             )
             number_planes = 1 + math.ceil((180 - 2 * c) / (gamma + c) - 1e-9)
-            if best is None or satellites_per_plane * number_planes < best[0] * best[1]:
+            if satellites_per_plane * number_planes < best_satellites:
+                best_satellites = satellites_per_plane * number_planes
                 scale = 180 / ((number_planes - 1) * (gamma + c) + 2 * c)
                 best = (
                     satellites_per_plane,

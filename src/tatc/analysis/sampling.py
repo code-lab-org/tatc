@@ -1,7 +1,8 @@
 """
-Methods shared by the point and region sampling analyses (see
-`point_sampling` and `region_sampling`): observation data frames and the
-refinement of access periods.
+Methods shared by the sampling analyses: observation data frames and the
+refinement of access periods (see `point_sampling` and `region_sampling`),
+and the interpolation of tangent point profiles (see `ro_sampling` and
+`limb_sampling`).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -20,7 +21,8 @@ from skyfield.positionlib import Geocentric
 
 from ..constants import de421
 from ..schemas import GeneralPerturbationsOrbit, Instrument, Satellite
-from ..utils.propagation import TimeRequest, _run, _to_time_from_offsets, _value
+from ..utils.computation import TimeRequest
+from ..utils.time import _to_time_from_offsets
 
 
 def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
@@ -139,44 +141,28 @@ def _build_observation_frame(
 
 
 def _find_crossings(
-    residual: Callable[[np.ndarray, np.ndarray], np.ndarray],
-    lower: np.ndarray,
-    upper: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Find a zero of a residual function within each of a set of intervals by
-    the Illinois variant of the regula falsi method, vectorized across the
-    intervals.
-
-    Args:
-        residual (Callable[[numpy.ndarray, numpy.ndarray], numpy.ndarray]):
-                The residual function, evaluated at an array of times
-                (seconds) within the intervals with the given indices.
-        lower (numpy.ndarray): The lower ends of the intervals (seconds).
-        upper (numpy.ndarray): The upper ends of the intervals (seconds).
-
-    Returns:
-        tuple[numpy.ndarray, numpy.ndarray]: The zero in each interval (or,
-            if the residual does not change sign, the end with the smaller
-            residual) and whether the interval brackets a zero.
-    """
-    return _run(
-        _find_crossings_steps(
-            lambda seconds, index: _value(residual(seconds, index)), lower, upper
-        )
-    )
-
-
-def _find_crossings_steps(
     residual: Callable[[np.ndarray, np.ndarray], TimeRequest],
     lower: np.ndarray,
     upper: np.ndarray,
 ) -> TimeRequest:
     """
-    Find a zero of a residual function within each of a set of intervals, as
-    a computation (see `_find_crossings` and
-    `tatc.utils.propagation.TimeRequest`) of a residual function that is
-    itself a computation.
+    Find a zero of a residual function within each of a set of intervals by
+    the Illinois variant of the regula falsi method, vectorized across the
+    intervals, as a computation (see `tatc.utils.computation.TimeRequest`).
+
+    Args:
+        residual (Callable[[numpy.ndarray, numpy.ndarray], TimeRequest]):
+                The computation of the residual function, evaluated at an
+                array of times (seconds) within the intervals with the given
+                indices.
+        lower (numpy.ndarray): The lower ends of the intervals (seconds).
+        upper (numpy.ndarray): The upper ends of the intervals (seconds).
+
+    Returns:
+        TimeRequest: the computation of the zero in each interval (or, if
+            the residual does not change sign, the end with the smaller
+            residual) and whether the interval brackets a zero
+            (tuple[numpy.ndarray, numpy.ndarray]).
     """
     lower, upper = np.array(lower, dtype=float), np.array(upper, dtype=float)
     index = np.arange(len(lower))
@@ -216,7 +202,7 @@ def _refine_access_periods(
     orbit: GeneralPerturbationsOrbit,
     periods: list[pd.Interval],
     max_step: timedelta | None = None,
-) -> list[pd.Interval]:
+) -> TimeRequest:
     """
     Refine visible periods to the times when a residual function of the
     orbit track is not positive: for example, a target's angle from nadir
@@ -228,7 +214,7 @@ def _refine_access_periods(
     satellite passes over separate parts of a region). Periods in which the
     residual is positive at every sample are removed; period ends at which
     it is not positive (for example, at the ends of the analysis period) are
-    kept.
+    kept. As a computation (see `tatc.utils.computation.TimeRequest`).
 
     Args:
         residual (Callable[[skyfield.positionlib.Geocentric], numpy.ndarray]):
@@ -238,21 +224,8 @@ def _refine_access_periods(
         max_step (datetime.timedelta | None): The maximum time between samples.
 
     Returns:
-        list[pandas.Interval]: The refined periods.
-    """
-    return _run(_refine_access_periods_steps(residual, orbit, periods, max_step))
-
-
-def _refine_access_periods_steps(
-    residual: Callable[[Geocentric], np.ndarray],
-    orbit: GeneralPerturbationsOrbit,
-    periods: list[pd.Interval],
-    max_step: timedelta | None = None,
-) -> TimeRequest:
-    """
-    Refine visible periods to the times when a residual function of the
-    orbit track is not positive, as a computation (see
-    `_refine_access_periods` and `tatc.utils.propagation.TimeRequest`).
+        TimeRequest: the computation of the refined periods
+            (list[pandas.Interval]).
     """
     if len(periods) == 0:
         return periods
@@ -285,7 +258,7 @@ def _refine_access_periods_steps(
     ]
     crossings = {}
     if len(brackets) > 0:
-        crossing, _ = yield from _find_crossings_steps(
+        crossing, _ = yield from _find_crossings(
             evaluate,
             np.array([samples[i][j] for i, j in brackets]),
             np.array([samples[i][j + 1] for i, j in brackets]),
@@ -312,3 +285,64 @@ def _refine_access_periods_steps(
         )
         for left, right in refined
     ]
+
+
+def _interpolate_profile_point(
+    points: list[dict],
+    sample_elevation: float,
+    angles: dict[str, float] | None = None,
+) -> dict:
+    """
+    Interpolates the attributes of a tangent point profile (as of a radio
+    occultation or a limb scan) at the specified tangent point elevation:
+    linearly between the points that bracket the first crossing of the
+    elevation, or at the endpoint nearest to it if it is not crossed.
+
+    Args:
+        points (list[dict]): the profile points (ordered by time), with
+            `longitude` (deg), `latitude` (deg), `elevation` (m), and `time`,
+            and any `angles`.
+        sample_elevation (float): the tangent point elevation (m) at which
+            to interpolate.
+        angles (dict[str, float] | None): the other attributes to
+            interpolate, as angles (deg) along the shortest angular path,
+            each with the lower end of the range to which it is wrapped
+            (e.g. -180 or 0).
+
+    Returns:
+        dict: interpolated longitude (deg), latitude (deg), elevation (m),
+            any `angles` (deg), and time.
+    """
+    elevations = np.array([point["elevation"] for point in points])
+    diffs = elevations - sample_elevation
+    # bracketing indices where the tangent point elevation crosses the sample elevation
+    crossings = np.nonzero(np.diff(np.sign(diffs)))[0]
+    if len(crossings) > 0:
+        i = crossings[0]
+        p0, p1 = points[i], points[i + 1]
+        denom = diffs[i] - diffs[i + 1]
+        frac = diffs[i] / denom if denom != 0 else 0.0
+    else:
+        # sample elevation is outside the observed range: clamp to the nearest endpoint
+        i = 0 if abs(diffs[0]) <= abs(diffs[-1]) else len(points) - 1
+        p0 = p1 = points[i]
+        frac = 0.0
+
+    def lerp(a, b):
+        return a + frac * (b - a)
+
+    def lerp_angle(a, b, low=-180.0):
+        # interpolate along the shortest angular path, then wrap to [low, low + 360)
+        diff = ((b - a + 180) % 360) - 180
+        return (a + frac * diff - low) % 360 + low
+
+    return {
+        "longitude": lerp_angle(p0["longitude"], p1["longitude"]),
+        "latitude": lerp(p0["latitude"], p1["latitude"]),
+        "elevation": lerp(p0["elevation"], p1["elevation"]),
+        **{
+            name: lerp_angle(p0[name], p1[name], low=low)
+            for name, low in (angles or {}).items()
+        },
+        "time": p0["time"] + frac * (p1["time"] - p0["time"]),
+    }

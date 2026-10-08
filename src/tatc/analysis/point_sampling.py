@@ -29,20 +29,20 @@ from ..utils.projection import (
     _compute_view_frame,
     compute_cone_and_azimuth,
 )
-from ..utils.propagation import (
-    TimeRequest,
-    _index_orbit_track,
-    _run,
-    _run_together,
-    _to_time,
-    _to_time_from_offsets,
+from ..utils.computation import TimeRequest, _run, _run_together
+from ..utils.time import _index_orbit_track, _to_time, _to_time_from_offsets
+from .check import (
+    _check_satellite,
+    _check_satellites,
+    _combine_results,
+    _get_instrument_indices,
+    _is_single,
 )
-from .check import _check_satellite, _check_satellites
 from .sampling import (
     _build_observation_frame,
-    _find_crossings_steps,
+    _find_crossings,
     _get_empty_coverage_frame,
-    _refine_access_periods_steps,
+    _refine_access_periods,
 )
 
 
@@ -56,7 +56,7 @@ def _get_visible_interval_series(
 ) -> TimeRequest:
     """
     Get the series of visible intervals based on altitude angle constraints,
-    as a computation (see `tatc.utils.propagation.TimeRequest`).
+    as a computation (see `tatc.utils.computation.TimeRequest`).
 
     Args:
         point (Point | shapely.geometry.Point): Point to observe: a TAT-C
@@ -79,11 +79,12 @@ def _get_visible_interval_series(
         seconds=compute_max_access_time(max_altitude, min_elevation_angle)
     )
     # find the set of observation events
-    (
-        times,
-        events,
-    ) = yield from satellite.orbit.to_gp_orbit().get_observation_events_steps(
-        point, start, end, min_elevation_angle
+    orbit = satellite.orbit.to_gp_orbit()
+    # a computation internal to TATC (see get_observation_events)
+    times, events = (
+        yield from orbit._get_observation_events(  # pylint: disable=protected-access
+            point, start, end, min_elevation_angle
+        )
     )
 
     # build the observation periods
@@ -207,7 +208,7 @@ def _compute_access_periods(
     """
     Compute the periods when a satellite is in view of a point, as a
     computation (see `compute_access_periods` and
-    `tatc.utils.propagation.TimeRequest`).
+    `tatc.utils.computation.TimeRequest`).
     """
     _, _, elevation = _get_point_coordinates(point)
     # use the apogee altitude above the polar radius (and above the point,
@@ -285,7 +286,7 @@ def _get_view_crossing_times(
         los = np.reshape(np.array(target.itrs_xyz.m), (3, 1)) - position
         return np.sum(los * along, axis=0) / np.linalg.norm(los, axis=0)
 
-    crossing, _ = yield from _find_crossings_steps(
+    crossing, _ = yield from _find_crossings(
         residual,
         np.array([(period.left - reference).total_seconds() for period in periods]),
         np.array([(period.right - reference).total_seconds() for period in periods]),
@@ -349,7 +350,7 @@ def _get_cone_crossing_times(
             axis=1,
         ),
     ]
-    crossing, bracketed = yield from _find_crossings_steps(
+    crossing, bracketed = yield from _find_crossings(
         residual,
         np.concatenate([lower, closest]),
         np.concatenate([closest, upper]),
@@ -374,7 +375,7 @@ def _collect_observations(
 ) -> TimeRequest:
     """
     Collect single satellite observations of a point, as a computation (see
-    `collect_observations` and `tatc.utils.propagation.TimeRequest`).
+    `collect_observations` and `tatc.utils.computation.TimeRequest`).
     """
     longitude, latitude, elevation = _get_point_coordinates(point)
     geometry = geo.Point(longitude, latitude, elevation)
@@ -408,7 +409,7 @@ def _collect_observations(
     # from nadir is at most half the field of regard
     half_angle = instrument.field_of_regard / 2
     if half_angle < 90:
-        periods = yield from _refine_access_periods_steps(
+        periods = yield from _refine_access_periods(
             lambda orbit_track: compute_cone_and_azimuth(
                 orbit_track, target, nadir_reference=instrument.nadir_reference
             )[0]
@@ -509,7 +510,7 @@ def collect_observations(
 
     The observations of every point, satellite, and instrument are computed
     together, sharing the costly Earth orientation quantities of the times
-    at each step (see `tatc.utils.propagation._run_together`), which is
+    at each step (see `tatc.utils.computation._run_together`), which is
     much faster than computing them separately.
 
     Args:
@@ -530,11 +531,7 @@ def collect_observations(
             point, satellite, and instrument, concatenated and sorted by
             start time.
     """
-    single = (
-        not isinstance(points, (list, tuple))
-        and not isinstance(satellites, list)
-        and instrument_index is not None
-    )
+    single = _is_single(points, satellites, instrument_index=instrument_index)
     satellites = _check_satellites(satellites)
     points = list(points) if isinstance(points, (list, tuple)) else [points]
     for point in points:
@@ -548,20 +545,16 @@ def collect_observations(
             _collect_observations(point, satellite, start, end, index, omit_solar)
             for point in points
             for satellite in satellites
-            for index in (
-                range(len(satellite.instruments))
-                if instrument_index is None
-                else [instrument_index]
-            )
+            for index in _get_instrument_indices(satellite, instrument_index)
         ]
     )
-    if single:
-        return gdfs[0]
-    if len(gdfs) == 0:
-        # no points or satellites leave nothing to concatenate
-        return _get_empty_coverage_frame(omit_solar)
-    # concatenate into one data frame, sort by start time, and re-index
-    return pd.concat(gdfs).sort_values("start").reset_index(drop=True)
+    return _combine_results(
+        gdfs,
+        single,
+        "start",
+        lambda: _get_empty_coverage_frame(omit_solar),
+        stable=False,
+    )
 
 
 def collect_multi_observations(
