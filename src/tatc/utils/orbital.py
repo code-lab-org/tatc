@@ -6,10 +6,16 @@ Orbital utility functions.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
+import numpy.typing as npt
 from numba import njit
 
 from .. import constants
+
+if TYPE_CHECKING:
+    from skyfield.positionlib import Geocentric
 
 
 @njit
@@ -316,3 +322,70 @@ def compute_j2_mean_motion_rate(
         * np.sqrt(1 - eccentricity**2)
         * (3 * np.cos(np.radians(inclination)) ** 2 - 1)
     )
+
+
+def compute_argument_of_latitude(
+    position: npt.ArrayLike, velocity: npt.ArrayLike
+) -> float | npt.NDArray[np.float64]:
+    """
+    Computes the argument of latitude (degrees, from 0 to 360): the angle in
+    the orbit plane from the ascending node to the satellite, in the
+    direction of motion (0 at the ascending node, 90 at the northernmost
+    point, 180 at the descending node, and 270 at the southernmost point).
+
+    Args:
+        position (numpy.typing.ArrayLike): Inertial position(s), with shape
+            (3,) or (3, N).
+        velocity (numpy.typing.ArrayLike): Inertial velocity(ies), with shape
+            (3,) or (3, N).
+
+    Returns:
+        float | numpy.typing.NDArray[numpy.float64]: the argument(s) of latitude (degrees)
+    """
+    r = np.asarray(position, dtype=float)
+    h = np.cross(r, np.asarray(velocity, dtype=float), axis=0)
+    h = h / np.linalg.norm(h, axis=0)
+    # unit vector toward the ascending node (z cross h)
+    node = np.stack([-h[1], h[0], np.zeros_like(h[0])])
+    node = node / np.linalg.norm(node, axis=0)
+    # unit vector 90 degrees ahead of the node in the orbit plane
+    ahead = np.cross(h, node, axis=0)
+    u = np.mod(
+        np.degrees(np.arctan2(np.sum(r * ahead, axis=0), np.sum(r * node, axis=0))),
+        360,
+    )
+    return float(u) if np.ndim(u) == 0 else u
+
+
+def compute_vnb_frame(
+    orbit_track: Geocentric,
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
+    """
+    Computes the unit vectors of a satellite's VNB (velocity, normal,
+    binormal) frame: along its inertial velocity (V), normal to its orbit
+    plane (N, along the angular momentum), and completing the right-handed
+    frame (B, V x N), which coincides with the radial direction only for a
+    circular orbit.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): The satellite orbit track
+            (inertial position and velocity).
+
+    Returns:
+        tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
+            the V, N, and B unit vectors (inertial, shape (3, ...))
+    """
+    rx_pv = orbit_track
+    rx_p_m = np.array(rx_pv.position.m)
+    rx_v_m_per_s = np.array(rx_pv.velocity.m_per_s)
+    # unit vector tangent to receiver orbit plane (VNB x-axis)
+    rx_v_u = np.divide(rx_v_m_per_s, np.linalg.norm(rx_v_m_per_s, axis=0))
+    # unit vector normal to receiver orbit plane (VNB y-axis)
+    rx_n_u = np.cross(rx_p_m, rx_v_m_per_s, 0, 0, -1).T
+    rx_n_u = np.divide(rx_n_u, np.linalg.norm(rx_n_u, axis=0))
+    # unit vector completing the right-handed VNB frame (V x N),
+    # perpendicular to both V and N by construction. This is NOT the same
+    # as the position unit vector (r-hat): the two coincide only for a
+    # circular orbit.
+    rx_b_u = np.cross(rx_v_u, rx_n_u, 0, 0, -1).T
+    return rx_v_u, rx_n_u, rx_b_u

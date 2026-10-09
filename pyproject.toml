@@ -74,7 +74,8 @@ dev = [
     "coverage",
     "pylint",
     "pylint-pydantic",
-    "pytest"
+    "pytest",
+    "pytest-xdist"
 ]
 docs = [
     "autodoc_pydantic >= 2",
@@ -103,9 +104,12 @@ validation = [
     "tatc[examples,preprocess]",
     "awsgnssroutils",
     "earthaccess",
+    "h5py",
+    "hatanaka",
     "metpy",
     "netcdf4",
-    "requests"
+    "requests",
+    "scipy"
 ]
 
 [tool.setuptools.dynamic]

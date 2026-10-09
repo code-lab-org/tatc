@@ -13,3 +13,4 @@ Analysis functions simulate mission operation to compute key performance metrics
   dop
   ro_coverage
   limb_coverage
+  space_coverage

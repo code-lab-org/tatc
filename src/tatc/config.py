@@ -52,9 +52,22 @@ class RuntimeConfiguration(BaseModel):
         description="Maximum difference in velocity (meters/second) for a valid repeat.",
         gt=0,
     )
+    repeat_cycle_delta_semimajor_axis_m: float = Field(
+        default=100,
+        description=(
+            "Maximum difference (meters) between an element's semimajor axis "
+            "and that of an exact repeat for a valid repeat, as for an element "
+            "set taken within an orbit's maintenance band."
+        ),
+        ge=0,
+    )
     repeat_cycle_search_duration_days: float = Field(
         default=30,
-        description="Maximum duration for which to search for repeat cycles.",
+        description=(
+            "Maximum duration for which to search for repeat cycles. Repeat "
+            "cycles longer than about 40 days cannot be identified reliably "
+            "from a single element set and should be declared instead."
+        ),
     )
     repeat_cycle_consistency_threshold_s: float = Field(
         default=3600,
@@ -65,21 +78,17 @@ class RuntimeConfiguration(BaseModel):
         ),
         gt=0,
     )
-    repeat_cycle_lazy_load: bool = Field(
-        default=True,
-        description="True, if a previously-computed repeat cycle should be used.",
-    )
-    repeat_cycle_for_orbit_track: bool = Field(
-        default=True,
-        description="True, if a repeat cycle should be used to generate orbit tracks.",
-    )
-    repeat_cycle_for_observation_events: bool = Field(
-        default=True,
-        description="True, if a repeat cycle should be used to generate observation events.",
-    )
-    gp_orbit_lazy_load: bool = Field(
-        default=True,
-        description="True, if a previously-computed general perturbations orbit should be used.",
+    nutation_interpolation_minutes: float | None = Field(
+        default=15,
+        description=(
+            "Step (minutes) of a cached table from which the IAU 2000A nutation "
+            "angles of orbit propagation times are interpolated linearly, "
+            "rather than computed by Skyfield for every time (to within about "
+            "a microarcsecond, at a small fraction of the cost), or None to "
+            "compute them for every time (see "
+            "`tatc.utils.earth_orientation._interpolate_nutation`)."
+        ),
+        gt=0,
     )
 
 

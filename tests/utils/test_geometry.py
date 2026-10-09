@@ -7,6 +7,7 @@ Unit tests for the tatc.utils.geometry module.
 import unittest
 
 import geopandas as gpd
+import numpy as np
 from pyproj import Geod
 from shapely.geometry import MultiPolygon, Point, Polygon
 
@@ -14,9 +15,23 @@ from tatc.utils import (
     geodesic_destination,
     geodesic_distance,
     get_planar_bounds,
+    hash_geometry,
     normalize_geometry,
     project_polygon_to_elevation,
     split_polygon,
+)
+from tatc.constants import EARTH_EQUATORIAL_RADIUS, EARTH_POLAR_RADIUS
+from tatc.schemas import Point as TatcPoint
+from tatc.utils.ellipsoid import (
+    _get_geodetic_coordinates,
+    _get_surface_directions,
+    _get_surface_positions,
+)
+from tatc.utils.geometry import (
+    _get_angular_distance_to_arcs,
+    _get_boundary_arcs,
+    _get_nearest_arc_points,
+    _get_point_coordinates,
 )
 
 
@@ -24,6 +39,36 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
     """
     Unit tests for the tatc.utils.geometry module.
     """
+
+    def test_hash_geometry(self):
+        """
+        Test that a geometry's hash is 16 hexadecimal digits, the same for
+        equal geometries with vertices in a different order or orientation,
+        or without z coordinates at zero elevation, and different for
+        different geometries.
+        """
+        polygon = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        value = hash_geometry(polygon)
+        self.assertEqual(len(value), 16)
+        int(value, 16)
+        self.assertEqual(
+            hash_geometry(Polygon([(1, 1), (1, 0), (0, 0), (0, 1)])), value
+        )
+        self.assertNotEqual(
+            hash_geometry(Polygon([(0, 0), (1, 0), (1, 2), (0, 2)])), value
+        )
+        self.assertNotEqual(
+            hash_geometry(
+                Polygon([(0, 0, 100), (1, 0, 100), (1, 1, 100), (0, 1, 100)])
+            ),
+            value,
+        )
+        self.assertEqual(
+            hash_geometry(Polygon([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)])), value
+        )
+        self.assertEqual(hash_geometry(Point(1, 2)), hash_geometry(Point(1, 2, 0)))
+        # points at the same location but different elevations are distinct
+        self.assertNotEqual(hash_geometry(Point(1, 2)), hash_geometry(Point(1, 2, 100)))
 
     def test_geodesic_distance_same_point(self):
         """
@@ -240,9 +285,10 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
         self.assertIsInstance(result, MultiPolygon)
         self.assertTrue(result.is_valid)
         wrapped_part = next(g for g in result.geoms if len(g.interiors) > 0)
-        self.assertEqual(
-            list(wrapped_part.interiors[0].coords),
-            [(135, 89), (140, 89), (140, 87), (135, 87), (135, 89)],
+        self.assertTrue(
+            Polygon(wrapped_part.interiors[0]).equals(
+                Polygon([(135, 89), (140, 89), (140, 87), (135, 87), (135, 89)])
+            )
         )
 
     def test_split_polygon_north_pole_multipolygon(self):
@@ -468,9 +514,10 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
         self.assertIsInstance(result, MultiPolygon)
         self.assertTrue(result.is_valid)
         wrapped_part = next(g for g in result.geoms if len(g.interiors) > 0)
-        self.assertEqual(
-            list(wrapped_part.interiors[0].coords),
-            [(175, 2), (177, 2), (177, 4), (175, 4), (175, 2)],
+        self.assertTrue(
+            Polygon(wrapped_part.interiors[0]).equals(
+                Polygon([(175, 2), (177, 2), (177, 4), (175, 4), (175, 2)])
+            )
         )
 
     def test_split_polygon_antimeridian_multipolygon(self):
@@ -556,6 +603,327 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
         result = split_polygon(polygon)
         self.assertTrue(result.is_valid)
         self.assertFalse(result.has_z)
+
+    def test_split_polygon_antimeridian_beyond_180(self):
+        """
+        Test that a polygon whose coordinates continue past 180 degrees
+        longitude (without a jump between adjacent vertices) is split into
+        two polygons on the standard longitude range.
+        """
+        polygon = Polygon([(170, -10), (190, -10), (190, 10), (170, 10), (170, -10)])
+        result = MultiPolygon(
+            [
+                Polygon([(170, -10), (170, 10), (180, 10), (180, -10), (170, -10)]),
+                Polygon(
+                    [(-180, -10), (-180, 10), (-170, 10), (-170, -10), (-180, -10)]
+                ),
+            ]
+        )
+        self.assertTrue(split_polygon(polygon).equals(result))
+
+    def test_split_polygon_antimeridian_beyond_negative_180(self):
+        """
+        Test that a polygon whose coordinates continue past -180 degrees
+        longitude is split into two polygons on the standard longitude range.
+        """
+        polygon = Polygon(
+            [(-190, -10), (-170, -10), (-170, 10), (-190, 10), (-190, -10)]
+        )
+        result = MultiPolygon(
+            [
+                Polygon([(170, -10), (170, 10), (180, 10), (180, -10), (170, -10)]),
+                Polygon(
+                    [(-180, -10), (-180, 10), (-170, 10), (-170, -10), (-180, -10)]
+                ),
+            ]
+        )
+        self.assertTrue(split_polygon(polygon).equals(result))
+
+    def test_split_polygon_antimeridian_entirely_beyond_180(self):
+        """
+        Test that a polygon lying entirely past 180 degrees longitude is
+        wrapped to the standard longitude range.
+        """
+        polygon = Polygon([(190, -10), (200, -10), (200, 10), (190, 10), (190, -10)])
+        result = Polygon(
+            [(-170, -10), (-160, -10), (-160, 10), (-170, 10), (-170, -10)]
+        )
+        self.assertTrue(split_polygon(polygon).equals(result))
+
+    def test_split_polygon_antimeridian_beyond_180_with_hole(self):
+        """
+        Test that a hole past 180 degrees longitude is wrapped along with the
+        piece that contains it.
+        """
+        polygon = Polygon(
+            [(170, -10), (190, -10), (190, 10), (170, 10), (170, -10)],
+            [[(183, -2), (187, -2), (187, 2), (183, 2), (183, -2)]],
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.area, polygon.area)
+        self.assertFalse(result.contains(Point(-175, 0)))
+        self.assertTrue(result.contains(Point(-171, 0)))
+        self.assertTrue(result.contains(Point(175, 0)))
+
+    def test_split_polygon_all_longitudes_south_cap(self):
+        """
+        Test that a polygon spanning exactly -180 to 180 degrees longitude
+        down to the south pole is not split: its edges between -180 and 180
+        degrees are seams, not anti-meridian crossings.
+        """
+        polygon = Polygon(
+            [(-180, -90), (180, -90), (180, -70), (-180, -70), (-180, -90)]
+        )
+        self.assertEqual(split_polygon(polygon), polygon)
+
+    def test_split_polygon_all_longitudes_north_cap(self):
+        """
+        Test that a polygon spanning exactly -180 to 180 degrees longitude
+        up to the north pole is not split.
+        """
+        polygon = Polygon([(-180, 70), (180, 70), (180, 90), (-180, 90), (-180, 70)])
+        self.assertEqual(split_polygon(polygon), polygon)
+
+    def test_split_polygon_polar_cap_with_seam_vertices(self):
+        """
+        Test that a ring encircling a pole with vertices on both sides of
+        the anti-meridian (-180 and 180 degrees) is still split as a polar
+        cap: the seam edge between them is crossed the shorter way.
+        """
+        polygon = Polygon(
+            [(-180, -70), (-90, -70), (0, -70), (90, -70), (180, -70), (-180, -70)]
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertTrue(result.contains(Point(10, -80)))
+        self.assertFalse(result.contains(Point(10, -60)))
+
+    def test_get_surface_directions(self):
+        """
+        Test that surface directions are geocentric unit vectors, which
+        coincide with geodetic directions at the equator and poles.
+        """
+        directions = _get_surface_directions([0, 90, 0], [0, 0, 90])
+        np.testing.assert_allclose(directions, np.eye(3), atol=1e-12)
+        # the geocentric latitude is less than the geodetic latitude
+        direction = _get_surface_directions(0, 45)
+        self.assertLess(np.degrees(np.arcsin(direction[2])), 45)
+
+    def test_get_boundary_arcs_omits_seams(self):
+        """
+        Test that the boundary arcs of a polygon spanning all longitudes
+        omit its seams along the anti-meridian and its degenerate edge along
+        the pole, leaving only its 1-degree segments along -70 degrees.
+        """
+        start, end = _get_boundary_arcs(
+            Polygon([(-180, -90), (180, -90), (180, -70), (-180, -70), (-180, -90)])
+        )
+        self.assertEqual(start.shape, (3, 360))
+        self.assertEqual(end.shape, (3, 360))
+
+    def test_get_boundary_arcs_keeps_anti_meridian_boundary(self):
+        """
+        Test that an edge along the anti-meridian is kept when the polygon
+        does not continue across it.
+        """
+        start, _ = _get_boundary_arcs(
+            Polygon([(170, -10), (180, -10), (180, 10), (170, 10), (170, -10)])
+        )
+        self.assertEqual(start.shape, (3, 60))
+
+    def test_get_angular_distance_to_arcs(self):
+        """
+        Test the angular distance to an arc along the equator from 0 to 10
+        degrees longitude: to its great circle beside it, and to its nearest
+        end beyond it.
+        """
+
+        def unit(lon, lat):
+            lon, lat = np.radians(lon), np.radians(lat)
+            return np.array(
+                [np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)]
+            )
+
+        arcs = (unit([0], [0]), unit([10], [0]))
+        distance = np.degrees(
+            _get_angular_distance_to_arcs(unit([5, 15, -4, 5], [3, 0, 3, 0]), arcs)
+        )
+        expected = [
+            3,
+            5,
+            np.degrees(np.arccos(np.cos(np.radians(4)) * np.cos(np.radians(3)))),
+            0,
+        ]
+        np.testing.assert_allclose(distance, expected, atol=1e-9)
+
+    def test_get_nearest_arc_points(self):
+        """
+        Test that the nearest point on an arc along the equator (from 0 to
+        10 degrees longitude) is the projection onto it beside the arc, or
+        its nearest end beyond it.
+        """
+
+        def unit(lon, lat):
+            lon, lat = np.radians(lon), np.radians(lat)
+            return np.array(
+                [np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)]
+            )
+
+        arcs = (unit([0], [0]), unit([10], [0]))
+        _, nearest = _get_nearest_arc_points(unit([5, 15, -4], [3, 0, 3]), arcs)
+        np.testing.assert_allclose(nearest, unit([5, 10, 0], [0, 0, 0]), atol=1e-12)
+
+    def test_get_surface_positions_and_geodetic_coordinates(self):
+        """
+        Test that surface positions lie on the WGS 84 ellipsoid at the
+        equatorial and polar radii, and that geodetic coordinates invert
+        surface directions.
+        """
+        positions = _get_surface_positions(np.eye(3))
+        np.testing.assert_allclose(
+            np.linalg.norm(positions, axis=0),
+            [EARTH_EQUATORIAL_RADIUS, EARTH_EQUATORIAL_RADIUS, EARTH_POLAR_RADIUS],
+        )
+        longitude, latitude = _get_geodetic_coordinates(
+            _get_surface_directions([-120, 30, 170], [-60, 15, 45])
+        )
+        np.testing.assert_allclose(longitude, [-120, 30, 170], atol=1e-9)
+        np.testing.assert_allclose(latitude, [-60, 15, 45], atol=1e-9)
+
+    def test_get_point_coordinates(self):
+        """
+        Test that the coordinates of a TAT-C point and of a shapely point
+        (with or without elevation) are the same.
+        """
+        self.assertEqual(
+            _get_point_coordinates(
+                TatcPoint(latitude=40.7, longitude=-74.0, elevation=10)
+            ),
+            (-74.0, 40.7, 10.0),
+        )
+        self.assertEqual(
+            _get_point_coordinates(Point(-74.0, 40.7, 10)), (-74.0, 40.7, 10.0)
+        )
+        self.assertEqual(_get_point_coordinates(Point(-74.0, 40.7)), (-74.0, 40.7, 0.0))
+
+    def test_get_point_coordinates_invalid_latitude(self):
+        """
+        Test that a shapely point with a latitude beyond the poles raises a
+        ValueError.
+        """
+        with self.assertRaises(ValueError):
+            _get_point_coordinates(Point(0, 91))
+
+    def test_get_angular_distance_to_no_arcs(self):
+        """
+        Test that the angular distance to no arcs is a half circle.
+        """
+        distance = _get_angular_distance_to_arcs(
+            np.array([[1.0], [0.0], [0.0]]), (np.empty((3, 0)), np.empty((3, 0)))
+        )
+        np.testing.assert_allclose(distance, [np.pi])
+
+    def test_split_polygon_polar_cap_with_hole_across_antimeridian(self):
+        """
+        Test that a hole across the anti-meridian in a polar cap is split
+        like the cap, rather than spanning the other way around the pole.
+        """
+        polygon = Polygon(
+            [(-180, 60), (-90, 60), (0, 60), (90, 60), (180, 60), (-180, 60)],
+            [[(175, 70), (-175, 70), (-175, 75), (175, 75), (175, 70)]],
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.area, 360 * 30 - 10 * 5)
+        for point in [(178, 72), (-178, 72)]:
+            self.assertFalse(result.contains(Point(*point)))
+        for point in [(0, 72), (170, 72), (-170, 72), (0, 85)]:
+            self.assertTrue(result.contains(Point(*point)))
+
+    def test_split_polygon_hole_across_antimeridian(self):
+        """
+        Test that a hole across the anti-meridian, in a polygon across the
+        anti-meridian, is split along with it.
+        """
+        polygon = Polygon(
+            [(160, -10), (-160, -10), (-160, 10), (160, 10), (160, -10)],
+            [[(175, -5), (-175, -5), (-175, 5), (175, 5), (175, -5)]],
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.area, 40 * 20 - 10 * 10)
+        for point in [(178, 0), (-178, 0)]:
+            self.assertFalse(result.contains(Point(*point)))
+        for point in [(165, 0), (-165, 0)]:
+            self.assertTrue(result.contains(Point(*point)))
+
+    def test_split_polygon_hole_around_pole(self):
+        """
+        Test that a hole around a pole (in a ring of latitudes around it) is
+        split like a polar cap.
+        """
+        polygon = Polygon(
+            [(-180, 60), (-90, 60), (0, 60), (90, 60), (180, 60), (-180, 60)],
+            [[(-180, 80), (90, 80), (0, 80), (-90, 80), (-180, 80)]],
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.area, 360 * 20)
+        self.assertFalse(result.contains(Point(0, 85)))
+        self.assertTrue(result.contains(Point(0, 70)))
+
+    def test_split_polygon_wraps_hole_past_180(self):
+        """
+        Test that a hole lying entirely past 180 degrees longitude is wrapped
+        to the standard longitude range along with its polygon.
+        """
+        polygon = Polygon(
+            [(170, -10), (200, -10), (200, 10), (170, 10), (170, -10)],
+            [[(185, -5), (195, -5), (195, 5), (185, 5), (185, -5)]],
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.area, 30 * 20 - 10 * 10)
+        self.assertFalse(result.contains(Point(-170, 0)))
+        for point in [(175, 0), (-178, 0), (-162, 0)]:
+            self.assertTrue(result.contains(Point(*point)))
+
+    def test_split_polygon_wraps_hole_beyond_pole_past_180(self):
+        """
+        Test that a hole beyond the south pole and past 180 degrees
+        longitude is wrapped over both along with its polygon.
+        """
+        polygon = Polygon(
+            [(170, -95), (200, -95), (200, -85), (170, -85), (170, -95)],
+            [[(185, -93), (195, -93), (195, -91), (185, -91), (185, -93)]],
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.area, 30 * 10 - 10 * 2)
+        self.assertFalse(result.contains(Point(10, -88)))
+        for point in [(175, -87), (-175, -87), (0, -86)]:
+            self.assertTrue(result.contains(Point(*point)))
+
+    def test_split_polygon_multipolygon_with_island_in_hole(self):
+        """
+        Test that an island within another part's hole, across the
+        anti-meridian, is kept.
+        """
+        polygon = MultiPolygon(
+            [
+                Polygon(
+                    [(160, -10), (-160, -10), (-160, 10), (160, 10), (160, -10)],
+                    [[(175, -5), (-175, -5), (-175, 5), (175, 5), (175, -5)]],
+                ),
+                Polygon([(178, -1), (-178, -1), (-178, 1), (178, 1), (178, -1)]),
+            ]
+        )
+        result = split_polygon(polygon)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.area, 40 * 20 - 10 * 10 + 4 * 2)
+        self.assertTrue(result.contains(Point(179, 0)))
+        self.assertFalse(result.contains(Point(176, 0)))
 
     def test_split_polygon_unknown_geometry(self):
         """

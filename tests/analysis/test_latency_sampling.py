@@ -19,6 +19,7 @@ from tatc.analysis import (
     reduce_latencies,
 )
 from tatc.schemas import GroundStation, Point
+from tatc.utils import hash_geometry
 
 from .common import IssConstellationTestCase
 
@@ -30,7 +31,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
 
     def setUp(self):
         super().setUp()
-        self.point = Point(id=0, latitude=0, longitude=0, min_elevation_angle=10)
+        self.point = Point(id=0, latitude=0, longitude=0)
         self.station = GroundStation(
             name="Station 1", latitude=0, longitude=180, min_elevation_angle=10
         )
@@ -174,6 +175,13 @@ class TestLatencyAnalysis(IssConstellationTestCase):
                 datetime(2022, 6, 10, tzinfo=timezone.utc),
             ),
         )
+        self.assertFalse(results.empty)
+        # every observation is downlinked to one of the stations, no earlier
+        # than it is observed
+        self.assertTrue(
+            set(results.station.dropna()) <= {station.name for station in self.stations}
+        )
+        self.assertTrue((results.latency.dropna() >= pd.Timedelta(0)).all())
 
     def test_reduce_latency(self):
         """
@@ -251,6 +259,29 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         self.assertTrue(matched.any())
         self.assertTrue((results.station[matched] == self.station.name).all())
 
+    def test_reduce_latencies_separates_points(self):
+        """
+        Test that latencies of distinct points are reduced separately for
+        each point, by its hash.
+        """
+        latencies = gpd.GeoDataFrame(
+            [
+                {
+                    "target_hash": hash_geometry(ShapelyPoint(lon, 0)),
+                    "geometry": ShapelyPoint(lon, 0),
+                    "latency": pd.Timedelta(minutes=minutes),
+                }
+                for lon, minutes in [(0, 10), (0, 20), (90, 60)]
+            ],
+            crs="EPSG:4326",
+        )
+        reduced = reduce_latencies(latencies).sort_values("samples")
+        self.assertEqual(list(reduced.samples), [1, 2])
+        self.assertEqual(
+            list(reduced.latency), [pd.Timedelta(minutes=60), pd.Timedelta(minutes=15)]
+        )
+        self.assertEqual([g.x for g in reduced.geometry], [90, 0])
+
     def test_reduce_latencies_all_unmatched(self):
         """
         Test that observations with no matching downlink (NaT latency)
@@ -261,7 +292,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         observations = gpd.GeoDataFrame(
             [
                 {
-                    "point_id": 0,
+                    "target_hash": 0,
                     "geometry": ShapelyPoint(0, 0),
                     "satellite": "A",
                     "instrument": "I",
@@ -272,7 +303,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
                     "sat_az": 90.0,
                 },
                 {
-                    "point_id": 0,
+                    "target_hash": 0,
                     "geometry": ShapelyPoint(0, 0),
                     "satellite": "A",
                     "instrument": "I",
@@ -306,6 +337,161 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         self.assertTrue(pd.isna(result.iloc[0].latency))
 
     @staticmethod
+    def _make_observation(target_hash, start, epoch, end):
+        """
+        Build a synthetic observation record for satellite "A" (times are
+        minutes after 2022-06-01T00:00Z).
+        """
+        t_0 = pd.Timestamp("2022-06-01T00:00", tz="UTC")
+        return {
+            "target_hash": target_hash,
+            "geometry": ShapelyPoint(0, 0),
+            "satellite": "A",
+            "instrument": "I",
+            "start": t_0 + pd.Timedelta(minutes=start),
+            "epoch": t_0 + pd.Timedelta(minutes=epoch),
+            "end": t_0 + pd.Timedelta(minutes=end),
+            "sat_alt": 45.0,
+            "sat_az": 90.0,
+        }
+
+    @staticmethod
+    def _make_downlink(station, start, end):
+        """
+        Build a synthetic downlink record for satellite "A" (times are
+        minutes after 2022-06-01T00:00Z).
+        """
+        t_0 = pd.Timestamp("2022-06-01T00:00", tz="UTC")
+        return {
+            "station": station,
+            "geometry": ShapelyPoint(1, 1),
+            "satellite": "A",
+            "start": t_0 + pd.Timedelta(minutes=start),
+            "epoch": t_0 + pd.Timedelta(minutes=(start + end) / 2),
+            "end": t_0 + pd.Timedelta(minutes=end),
+        }
+
+    def _synthetic_latencies(self, during_contact, downlinks=None):
+        """
+        Compute latencies (in minutes, by target_hash) of three synthetic
+        observations: one before, one during, and one partly during a
+        downlink from 10 to 20 minutes, which is followed by a downlink from
+        100 to 110 minutes.
+        """
+        observations = gpd.GeoDataFrame(
+            [
+                self._make_observation(0, 2, 3, 4),
+                self._make_observation(1, 12, 13, 14),
+                self._make_observation(2, 6, 8, 11),
+            ],
+            crs="EPSG:4326",
+        )
+        if downlinks is None:
+            downlinks = [
+                self._make_downlink("S1", 10, 20),
+                self._make_downlink("S2", 100, 110),
+            ]
+        latencies = compute_latencies(
+            observations,
+            gpd.GeoDataFrame(downlinks, crs="EPSG:4326"),
+            during_contact=during_contact,
+        ).set_index("target_hash")
+        return latencies.latency.dt.total_seconds() / 60, latencies.station
+
+    def test_compute_latencies_during_contact_next(self):
+        """
+        Test that an observation that ends during a downlink waits for the
+        midpoint of the next downlink with the "next" option.
+        """
+        latency, station = self._synthetic_latencies("next")
+        self.assertEqual(latency[0], 15 - 3)
+        self.assertEqual(latency[1], 105 - 13)
+        self.assertEqual(latency[2], 105 - 8)
+        self.assertEqual(list(station), ["S1", "S2", "S2"])
+
+    def test_compute_latencies_during_contact_end(self):
+        """
+        Test that an observation that ends during a downlink is downlinked
+        at its end with the "end" option (the default).
+        """
+        latency, station = self._synthetic_latencies("end")
+        self.assertEqual(latency[0], 15 - 3)
+        self.assertEqual(latency[1], 20 - 13)
+        self.assertEqual(latency[2], 20 - 8)
+        self.assertEqual(list(station), ["S1", "S1", "S1"])
+
+    def test_compute_latencies_during_contact_default(self):
+        """
+        Test that the default during_contact option is "end".
+        """
+        observations = gpd.GeoDataFrame(
+            [self._make_observation(1, 12, 13, 14)], crs="EPSG:4326"
+        )
+        downlinks = gpd.GeoDataFrame(
+            [self._make_downlink("S1", 10, 20), self._make_downlink("S2", 100, 110)],
+            crs="EPSG:4326",
+        )
+        latencies = compute_latencies(observations, downlinks)
+        self.assertEqual(latencies.latency.iloc[0], pd.Timedelta(minutes=20 - 13))
+
+    def test_compute_latencies_during_contact_immediate(self):
+        """
+        Test that an observation that ends during a downlink is downlinked
+        at the later of its epoch and the downlink start with the
+        "immediate" option.
+        """
+        latency, station = self._synthetic_latencies("immediate")
+        self.assertEqual(latency[0], 15 - 3)
+        self.assertEqual(latency[1], 0)
+        self.assertEqual(latency[2], 10 - 8)
+        self.assertEqual(list(station), ["S1", "S1", "S1"])
+
+    def test_compute_latencies_during_contact_earliest_downlink(self):
+        """
+        Test that an observation that ends during a long downlink is
+        downlinked at the midpoint of a shorter downlink at another station
+        that starts after it and ends first.
+        """
+        latency, station = self._synthetic_latencies(
+            "end",
+            [
+                self._make_downlink("S1", 10, 60),
+                self._make_downlink("S2", 15, 25),
+                self._make_downlink("S3", 100, 110),
+            ],
+        )
+        self.assertEqual(latency[1], 20 - 13)
+        self.assertEqual(station[1], "S2")
+        self.assertEqual(latency[2], 20 - 8)
+        self.assertEqual(station[2], "S2")
+
+    def test_compute_latencies_during_contact_invalid(self):
+        """
+        Test that an unknown during_contact option raises a ValueError.
+        """
+        with self.assertRaises(ValueError):
+            self._synthetic_latencies("later")
+
+    def test_compute_latencies_during_contact_never_later(self):
+        """
+        Test that the "end" and "immediate" options never give a longer
+        latency than the default for a realistic scenario.
+        """
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        end = datetime(2022, 6, 10, tzinfo=timezone.utc)
+        observations = collect_observations(
+            self.point, self.satellite, start, end, instrument_index=0
+        )
+        downlinks = collect_downlinks(self.stations, self.satellite, start, end)
+        latency = {
+            option: compute_latencies(observations, downlinks, option).latency
+            for option in ("next", "end", "immediate")
+        }
+        self.assertTrue((latency["end"] <= latency["next"]).all())
+        self.assertTrue((latency["immediate"] <= latency["end"]).all())
+        self.assertTrue((latency["immediate"] >= pd.Timedelta(0)).all())
+
+    @staticmethod
     def _make_cell(cell_id, min_lon, min_lat, max_lon, max_lat):
         """
         Build a synthetic cell record matching the schema expected by
@@ -314,14 +500,14 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         return {"cell_id": cell_id, "geometry": box(min_lon, min_lat, max_lon, max_lat)}
 
     @staticmethod
-    def _make_reduced_latency(point_id, lon, lat, latency_seconds, samples):
+    def _make_reduced_latency(target_hash, lon, lat, latency_seconds, samples):
         """
         Build a synthetic reduced-latency record (matching
         `reduce_latencies`'s output schema) for direct, deterministic
         control over `grid_latencies` inputs.
         """
         return {
-            "point_id": point_id,
+            "target_hash": target_hash,
             "geometry": ShapelyPoint(lon, lat),
             "latency": pd.Timedelta(seconds=latency_seconds),
             "samples": samples,
@@ -337,7 +523,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
             crs="EPSG:4326",
         )
         reduced = gpd.GeoDataFrame(
-            columns=["point_id", "geometry", "latency", "samples"], crs="EPSG:4326"
+            columns=["target_hash", "geometry", "latency", "samples"], crs="EPSG:4326"
         )
         result = grid_latencies(reduced, cells)
         self.assertEqual(len(result.index), 2)
@@ -380,3 +566,27 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         self.assertAlmostEqual(
             result.iloc[0].latency.total_seconds(), expected_latency, places=6
         )
+
+
+class TestDownlinksOfSatellites(IssConstellationTestCase):
+    """
+    Unit tests for the downlinks of several satellites.
+    """
+
+    def test_satellites_equal_each_satellite(self):
+        """
+        Test that the downlinks of several satellites, computed together,
+        equal those of each satellite, concatenated and sorted by start.
+        """
+        station = GroundStation(name="Wallops", latitude=37.9, longitude=-75.5)
+        members = self.constellation.generate_members()
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        end = start + timedelta(days=1)
+        downlinks = collect_downlinks(station, members, start, end)
+        expected = (
+            pd.concat([collect_downlinks(station, m, start, end) for m in members])
+            .sort_values("start")
+            .reset_index(drop=True)
+        )
+        self.assertGreater(len(downlinks.index), 0)
+        pd.testing.assert_frame_equal(downlinks, expected)

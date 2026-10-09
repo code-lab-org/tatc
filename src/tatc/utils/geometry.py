@@ -6,10 +6,13 @@ Geometry utility functions.
 
 from __future__ import annotations
 
-from typing import overload
+import hashlib
+from typing import Any, overload
 
 import geopandas as gpd
 import numpy as np
+import numpy.typing as npt
+import shapely
 from pyproj import Geod
 from shapely import make_valid
 from shapely.geometry import (
@@ -19,7 +22,10 @@ from shapely.geometry import (
     Point,
     Polygon,
 )
+from shapely.geometry.base import BaseGeometry
 from shapely.ops import split
+
+from .ellipsoid import _get_surface_directions
 
 # WGS 84 ellipsoid geodesic solver, shared across calls
 _WGS84_GEOD = Geod(ellps="WGS84")
@@ -101,14 +107,7 @@ def project_polygon_to_elevation(
         shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The projected
         polygon, matching the input type.
     """
-    if isinstance(polygon, Polygon):
-        return Polygon(
-            [(p[0], p[1], elevation) for p in polygon.exterior.coords],
-            [[(p[0], p[1], elevation) for p in i.coords] for i in polygon.interiors],
-        )
-    return MultiPolygon(
-        [project_polygon_to_elevation(g, elevation) for g in polygon.geoms]
-    )
+    return shapely.force_3d(shapely.force_2d(polygon), elevation)
 
 
 def _flatten_polygons(pgons: list[Polygon | MultiPolygon]) -> list[Polygon]:
@@ -153,30 +152,23 @@ def _wrap_polygon_over_pole(
        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon.
     """
     if isinstance(polygon, Polygon):
-        if all(c[1] * pole <= 90 for c in polygon.exterior.coords):
+        exterior = shapely.get_coordinates(polygon.exterior)
+        if np.all(exterior[:, 1] * pole <= 90):
             # no wrapping necessary
             return polygon
         # map latitudes beyond the pole back between -90 and 90, adjusting longitude by 180 degrees
-        lat_shift = 180 if all(c[0] <= 0 for c in polygon.exterior.coords) else -180
-        return Polygon(
-            [
+        lat_shift = 180 if np.all(exterior[:, 0] <= 0) else -180
+
+        def wrap(coords: npt.NDArray) -> npt.NDArray:
+            beyond = coords[:, 1] * pole >= 90
+            return np.column_stack(
                 [
-                    c[0] + lat_shift if c[1] * pole >= 90 else c[0],
-                    pole * 180 - c[1] if c[1] * pole >= 90 else c[1],
+                    np.where(beyond, coords[:, 0] + lat_shift, coords[:, 0]),
+                    np.where(beyond, pole * 180 - coords[:, 1], coords[:, 1]),
                 ]
-                for c in polygon.exterior.coords
-            ],
-            [
-                [
-                    [
-                        c[0] + lat_shift if c[1] * pole >= 90 else c[0],
-                        pole * 180 - c[1] if c[1] * pole >= 90 else c[1],
-                    ]
-                    for c in i.coords
-                ]
-                for i in polygon.interiors
-            ],
-        )
+            )
+
+        return shapely.transform(polygon, wrap)
     # recursive call for each polygon
     return MultiPolygon(
         _flatten_polygons([_wrap_polygon_over_pole(p, pole) for p in polygon.geoms])
@@ -205,7 +197,7 @@ def _split_polygon_over_pole(
        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The split polygon.
     """
     if isinstance(polygon, Polygon):
-        if all(c[1] * pole <= 90 for c in polygon.exterior.coords):
+        if np.all(shapely.get_coordinates(polygon.exterior)[:, 1] * pole <= 90):
             # no splitting necessary
             return polygon
         # split polygon along the pole
@@ -262,20 +254,14 @@ def _wrap_polygon_over_antimeridian(
        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The wrapped polygon.
     """
     if isinstance(polygon, Polygon):
-        if all(c[0] >= -180 and c[0] <= 180 for c in polygon.exterior.coords):
+        longitude = shapely.get_coordinates(polygon.exterior)[:, 0]
+        if np.all((longitude >= -180) & (longitude <= 180)):
             # no wrapping necessary
             return polygon
-        if all(c[0] <= -180 for c in polygon.exterior.coords):
-            # map longitudes from (-540, -180] to (-180, 180]
-            return Polygon(
-                [[c[0] + 360, c[1]] for c in polygon.exterior.coords],
-                [[[c[0] + 360, c[1]] for c in i.coords] for i in polygon.interiors],
-            )
-        # map longitudes from [180, 540) to [-180, 180)
-        return Polygon(
-            [[c[0] - 360, c[1]] for c in polygon.exterior.coords],
-            [[[c[0] - 360, c[1]] for c in i.coords] for i in polygon.interiors],
-        )
+        # map longitudes from (-540, -180] to (-180, 180], or from [180, 540)
+        # to [-180, 180)
+        offset = 360 if np.all(longitude <= -180) else -360
+        return shapely.transform(polygon, lambda coords: coords + [offset, 0])
     # recursive call for each polygon
     return MultiPolygon(
         _flatten_polygons([_wrap_polygon_over_antimeridian(p) for p in polygon.geoms])
@@ -313,24 +299,32 @@ def _split_polygon_antimeridian(
     """
     Splits a polygon that crosses the antimeridian (180 degrees longitude)
     into a valid MultiPolygon on the standard (-180, 180) longitude range.
-    A crossing is detected when adjacent exterior vertices jump by 180
-    degrees of longitude or more.
+    A crossing is either a jump, where adjacent exterior vertices differ by
+    more than 180 degrees of longitude (the shorter way around the globe
+    crosses the antimeridian), or a coordinate beyond +/-180 degrees (the
+    exterior continues past the antimeridian). A seam edge between vertices
+    both on the antimeridian (e.g. from -180 to 180 degrees along the edge of
+    a polygon spanning all longitudes) is not a jump, unless the exterior
+    encircles a pole.
 
     Two cases are handled differently:
 
-    - If the polygon's vertex longitudes wrap all the way around the globe
-      (e.g. a polar cap that does not itself exceed +/-90 degrees
-      latitude), it is reconstructed with a flattened edge at the pole and
-      split along the prime meridian instead of the antimeridian. Note:
-      the raw result of this case may be reported as invalid (the two
-      pieces touch along the shared prime-meridian cut edge); the public
-      `split_polygon` function repairs this via `shapely.make_valid`.
+    - If the exterior encircles a pole (its longitude winds a full 360
+      degrees around the globe, e.g. a polar cap that does not itself
+      exceed +/-90 degrees latitude), it is reconstructed with a flattened
+      edge at the pole and split along the prime meridian instead of the
+      antimeridian. Note: the raw result of this case may be reported as
+      invalid (the two pieces touch along the shared prime-meridian cut
+      edge); the public `split_polygon` function repairs this via
+      `shapely.make_valid`.
     - Otherwise, coordinates are "unrolled" past +/-180 degrees according to
-      the cumulative crossing direction, split along the antimeridian, and
-      wrapped back with `_wrap_polygon_over_antimeridian`.
+      the cumulative jump direction, split along the antimeridian that the
+      unrolled coordinates cross, and wrapped back with
+      `_wrap_polygon_over_antimeridian`.
 
-    A polygon with no detected crossing is returned unchanged. Note: this
-    function only supports polygons that span LESS than 360 degrees longitude.
+    A polygon with no crossing is returned unchanged. Note: this function
+    only supports polygons that span LESS than 360 degrees longitude, other
+    than polar caps and polygons spanning exactly -180 to 180 degrees.
 
     Args:
        polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to split.
@@ -339,63 +333,64 @@ def _split_polygon_antimeridian(
        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The split polygon.
     """
     if isinstance(polygon, Polygon):
-        lon = np.array([c[0] for c in polygon.exterior.coords])
-        # check if any longitudes cross the anti-meridian
-        # (adjacent coordinate longitude differs by more than 180 degrees)
-        if all(np.abs(np.diff(lon)) < 180):
-            return polygon
+        exterior = shapely.get_coordinates(polygon.exterior)
+        lon = exterior[:, 0]
+        diff = np.diff(lon)
+        # jumps: adjacent coordinate longitudes differ by more than 180 degrees,
+        # distinguishing seam edges between vertices both on the anti-meridian
+        jump = np.abs(diff) > 180
+        seam = (np.abs(lon[:-1]) == 180) & (np.abs(lon[1:]) == 180)
+        # net longitude winding of the exterior (+/-360 degrees around a pole),
+        # taking each jump (including seam edges) the shorter way around
+        winding = np.sum(diff - 360 * np.where(jump, np.round(diff / 360), 0))
         # check if this polygon contains a pole
-        if Polygon(zip(np.cos(np.radians(lon)), np.sin(np.radians(lon)))).contains(
-            Point(0, 0)
-        ):
+        if np.abs(winding) > 180:
             # extract (lon, lat) only, discarding any z-dimension, and sort by longitude
-            coords = [(c[0], c[1]) for c in polygon.exterior.coords[0:-1]]
-            coords.sort(key=lambda r: r[0])
+            coords = exterior[:-1][np.argsort(exterior[:-1, 0], kind="stable")]
             # determine if contains north or south pole based on sign of mean latitude
-            n_s = 1 if np.array(coords)[:, 1].mean() > 0 else -1
+            n_s = 1 if coords[:, 1].mean() > 0 else -1
             # interpolate latitude at antimeridian
             lat = np.interp(
-                180, [coords[-1][0], coords[0][0] + 180], [coords[-1][1], coords[0][1]]
+                180, [coords[-1, 0], coords[0, 0] + 180], [coords[-1, 1], coords[0, 1]]
             )
-            # reconstruct polygon (ccw) with added coords on antimeridian
-            pgon = Polygon(
-                [(-180, 90 * n_s), (-180, lat)]
-                + coords
-                + [(180, lat), (180, 90 * n_s), (-180, 90 * n_s)],
-                [
-                    [(c[0], c[1]) for c in interior.coords]
-                    for interior in polygon.interiors
-                ],
+            # reconstruct polygon (ccw) with added coords on antimeridian and a
+            # flattened edge along the pole, spanning -180 to 180 degrees
+            return Polygon(
+                np.concatenate(
+                    [
+                        [[-180, 90 * n_s], [-180, lat]],
+                        coords,
+                        [[180, lat], [180, 90 * n_s], [-180, 90 * n_s]],
+                    ]
+                ),
+                [shapely.get_coordinates(interior) for interior in polygon.interiors],
             )
-            # return polygon split down prime meridian to improve handling
-            parts = split(pgon, LineString([(0, -180), (0, 180)]))
-            # convert to multi polygon
-            if isinstance(parts, GeometryCollection):
-                parts = _convert_collection_to_polygon(parts)
-            return parts
         # find anti-meridian crossings and calculate shift direction
         # coords from W -> E (shift < 0) will add 360 degrees to E component
         # coords from E -> W (shift > 0) will subtract 360 degrees from W component
-        shift = np.insert(np.cumsum(np.around(np.diff(lon) / 360)), 0, 0)
+        # (seam edges are not crossings outside of a polar cap)
+        jump &= ~seam
+        shift = np.insert(np.cumsum(np.where(jump, np.round(diff / 360), 0)), 0, 0)
+        unrolled = lon - 360 * shift
+        if np.all(np.abs(unrolled) <= 180):
+            # no jumps and no coordinates beyond the anti-meridian
+            return polygon
         pgon = Polygon(
+            np.column_stack([unrolled, exterior[:, 1]]),
             [
-                (c[0] - 360 * shift[i], c[1])
-                for i, c in enumerate(polygon.exterior.coords)
-            ],
-            [
-                [
-                    (
-                        ic[0]
-                        - 360 * np.interp(ic[0], np.sort(lon), shift[np.argsort(lon)]),
-                        ic[1],
-                    )
-                    for ic in i.coords
-                ]
-                for i in polygon.interiors
+                np.column_stack(
+                    [
+                        ic[:, 0]
+                        - 360
+                        * np.interp(ic[:, 0], np.sort(lon), shift[np.argsort(lon)]),
+                        ic[:, 1],
+                    ]
+                )
+                for ic in (shapely.get_coordinates(i) for i in polygon.interiors)
             ],
         )
-        # split along the anti-meridian (-180 for shift > 0; 180 for shift < 0)
-        shift_dir = -180 if shift.max() >= 1 else 180
+        # split along the anti-meridian that the unrolled coordinates cross
+        shift_dir = -180 if unrolled.min() < -180 else 180
         parts = split(pgon, LineString([(shift_dir, -180), (shift_dir, 180)]))
         # convert to multi polygon
         if isinstance(parts, GeometryCollection):
@@ -410,15 +405,42 @@ def _split_polygon_antimeridian(
     raise ValueError("Unknown geometry: " + str(type(polygon)))
 
 
+def _is_within_planar_domain(polygon: Polygon | MultiPolygon) -> bool:
+    """
+    Checks, vectorized across coordinates, whether a polygon lies within the
+    standard (-180, -90, 180, 90) longitude and latitude domain without
+    crossing the anti-meridian (no adjacent coordinates, even across rings,
+    differ by more than 180 degrees of longitude), in which case it needs no
+    splitting (see `split_polygon`).
+
+    Args:
+        polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon.
+
+    Returns:
+        bool: True, if the polygon needs no splitting
+    """
+    if not isinstance(polygon, (Polygon, MultiPolygon)):
+        return False
+    coordinates = shapely.get_coordinates(polygon)
+    return bool(
+        np.all(np.abs(coordinates[:, 0]) <= 180)
+        and np.all(np.abs(coordinates[:, 1]) <= 90)
+        and np.all(np.abs(np.diff(coordinates[:, 0])) <= 180)
+    )
+
+
 def split_polygon(
     polygon: Polygon | MultiPolygon,
 ) -> Polygon | MultiPolygon:
     """
     Splits a Polygon into a MultiPolygon if it crosses the anti-meridian
     (180 degrees longitude), exceeds the north pole (90 degrees latitude), or
-    exceeds the south pole (-90 degrees latitude). Note: this function
-    only supports polygons that span LESS than 360 degrees longitude.
-    Operates on (longitude, latitude) only: any z-dimension on the input
+    exceeds the south pole (-90 degrees latitude). The anti-meridian may be
+    crossed either by a jump between adjacent vertices (e.g. from 170 to
+    -170 degrees) or by coordinates beyond +/-180 degrees (e.g. from 170 to
+    190 degrees). Note: this function only supports polygons that span LESS
+    than 360 degrees longitude, other than polar caps (encircling a pole)
+    and polygons spanning exactly -180 to 180 degrees. Operates on (longitude, latitude) only: any z-dimension on the input
     is discarded. Use `project_polygon_to_elevation` to add elevation back
     after splitting.
 
@@ -428,17 +450,124 @@ def split_polygon(
     Returns:
         shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The split polygon.
     """
-    polygon = _split_polygon_over_pole(
-        _split_polygon_over_pole(_split_polygon_antimeridian(polygon), pole=-1),
-        pole=1,
-    )
+    if not _is_within_planar_domain(polygon):
+        if isinstance(polygon, MultiPolygon) and any(
+            len(part.interiors) > 0 for part in polygon.geoms
+        ):
+            # split each part (with its holes) separately
+            polygon = MultiPolygon(
+                _flatten_polygons([split_polygon(part) for part in polygon.geoms])
+            )
+        elif isinstance(polygon, Polygon) and len(polygon.interiors) > 0:
+            # split the exterior and each hole as polygons of their own (so
+            # that holes across the anti-meridian or around a pole are split
+            # like exteriors) and subtract the holes from the exterior
+            polygon = split_polygon(Polygon(polygon.exterior)).difference(
+                shapely.union_all(
+                    [split_polygon(Polygon(ring)) for ring in polygon.interiors]
+                )
+            )
+            if isinstance(polygon, GeometryCollection):
+                polygon = _convert_collection_to_polygon(polygon)
+        else:
+            polygon = _split_polygon_over_pole(
+                _split_polygon_over_pole(_split_polygon_antimeridian(polygon), pole=-1),
+                pole=1,
+            )
     # invalid polygons can arise from narrow sensor geometries in polar regions
     if not polygon.is_valid:
         # try to fix geometry
         polygon = make_valid(polygon)  # type: ignore
         if isinstance(polygon, GeometryCollection):
             polygon = _convert_collection_to_polygon(polygon)
+        if isinstance(polygon, MultiPolygon):
+            # drop degenerate (zero-area) parts left by the repair
+            parts = [p for p in polygon.geoms if p.area > 1e-20]
+            polygon = parts[0] if len(parts) == 1 else MultiPolygon(parts)
     return polygon
+
+
+def _build_split_polygons(longitude: npt.NDArray, latitude: npt.NDArray) -> npt.NDArray:
+    """
+    Builds polygons from rings of vertices (one ring per row, without its
+    closing vertex), split along the anti-meridian and poles and repaired if
+    invalid as by `split_polygon`, vectorized across polygons. A polygon
+    whose vertices lie within the standard (-180, -90, 180, 90) domain but
+    whose edges jump across the anti-meridian (without encircling a pole)
+    is split by clipping its unrolled coordinates to each side of the
+    anti-meridian, all such polygons at once; any other polygon that needs
+    splitting or repair is passed to `split_polygon`. The parts of a split
+    polygon may be ordered differently than by `split_polygon`.
+
+    Args:
+        longitude (numpy.typing.NDArray): The vertex longitudes (degrees,
+            shape (M, K)).
+        latitude (numpy.typing.NDArray): The vertex latitudes (degrees,
+            shape (M, K)).
+
+    Returns:
+        numpy.typing.NDArray: the polygons (shape (M,)).
+    """
+    polygons = shapely.polygons(np.stack([longitude, latitude], axis=-1))
+    diff = np.diff(np.concatenate([longitude, longitude[:, :1]], axis=1), axis=1)
+    jump = np.abs(diff) > 180
+    within = np.all(np.abs(longitude) <= 180, axis=1) & np.all(
+        np.abs(latitude) <= 90, axis=1
+    )
+    needs_split = ~(within & ~np.any(jump, axis=1) & shapely.is_valid(polygons))
+    # polygons that only jump across the anti-meridian: within the domain,
+    # with no vertex on the anti-meridian, and not encircling a pole (whose
+    # longitudes, taking each jump the shorter way around, wind 360 degrees)
+    shift = np.where(jump, np.round(diff / 360), 0)
+    candidate = (
+        needs_split
+        & within
+        & np.any(jump, axis=1)
+        & np.all(np.abs(longitude) < 180, axis=1)
+        & (np.abs(np.sum(diff - 360 * shift, axis=1)) <= 180)
+    )
+    index = np.flatnonzero(candidate)
+    if len(index) > 0:
+        # unroll the longitudes past the anti-meridian across each jump
+        unrolled = longitude[index] - 360 * np.concatenate(
+            [np.zeros((len(index), 1)), np.cumsum(shift[index], axis=1)[:, :-1]],
+            axis=1,
+        )
+        west = unrolled.min(axis=1) < -180
+        east = unrolled.max(axis=1) > 180
+        unrolled_polygons = shapely.polygons(
+            np.stack([unrolled, latitude[index]], axis=-1)
+        )
+        # clip to the standard domain and to the other side of the
+        # anti-meridian (on only one side), shifted back by 360 degrees
+        keep = (west != east) & shapely.is_valid(unrolled_polygons)
+        index, west = index[keep], west[keep]
+        unrolled_polygons = unrolled_polygons[keep]
+        inner = shapely.intersection(unrolled_polygons, shapely.box(-180, -90, 180, 90))
+        outer = shapely.intersection(
+            unrolled_polygons,
+            shapely.box(np.where(west, -540, 180), -90, np.where(west, -180, 540), 90),
+        )
+        outer[west] = shapely.transform(outer[west], lambda c: c + [360, 0])
+        outer[~west] = shapely.transform(outer[~west], lambda c: c - [360, 0])
+        # the polygonal parts of each polygon
+        parts, part_index = shapely.get_parts(
+            np.concatenate([inner, outer]), return_index=True
+        )
+        part_index = part_index % len(index)
+        polygonal = (shapely.get_type_id(parts) == 3) & (shapely.area(parts) > 0)
+        grouped = [[] for _ in index]
+        for part, i in zip(parts[polygonal], part_index[polygonal]):
+            grouped[i].append(part)
+        for i, group in zip(index, grouped):
+            split_polygons = group[0] if len(group) == 1 else MultiPolygon(group)
+            if len(group) > 0 and split_polygons.is_valid:
+                polygons[i] = split_polygons
+                needs_split[i] = False
+    # split or repair any others
+    for i in np.flatnonzero(needs_split):
+        polygons[i] = split_polygon(polygons[i])
+    return polygons
 
 
 def get_planar_bounds(
@@ -503,3 +632,180 @@ def normalize_geometry(
             axis=1,
         )
     return geometry
+
+
+def hash_geometry(geometry: BaseGeometry) -> str:
+    """
+    Computes a compact hash of a geometry, to identify it (for example, the
+    region of interest of an observation) without storing it: the first 16
+    hexadecimal digits (64 bits) of the BLAKE2b digest of its normalized
+    well-known binary (little-endian, with z coordinates, which are zero if
+    missing). Geometries with the same normalized coordinates have the same
+    hash, regardless of the order of their vertices, rings, or parts, and a
+    geometry without z coordinates has the same hash as at zero elevation.
+
+    Args:
+        geometry (shapely.geometry.base.BaseGeometry): The geometry.
+
+    Returns:
+        str: The hash, as 16 hexadecimal digits.
+    """
+    return hashlib.blake2b(
+        shapely.to_wkb(shapely.normalize(shapely.force_3d(geometry)), byte_order=1),
+        digest_size=8,
+    ).hexdigest()
+
+
+def _get_boundary_arcs(
+    geometry: Polygon | MultiPolygon, elevation: float = 0, max_segment: float = 1
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """
+    Gets the boundary of a (split, see `split_polygon`) geometry as great
+    circle arcs between geocentric unit vectors (see
+    `tatc.utils.ellipsoid._get_surface_directions`). Edges, straight in longitude and latitude,
+    are first divided into segments of at most `max_segment` degrees, over
+    which a great circle arc departs from them by about a thousandth of a
+    degree at most. Degenerate edges (for example, along a pole) and seams
+    along the anti-meridian between parts of a split geometry, which are
+    not boundaries, are omitted.
+
+    Args:
+        geometry (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The geometry.
+        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
+        max_segment (float): The maximum length (degrees) of a segment.
+
+    Returns:
+        tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]:
+            the unit vectors (shape (3, E)) at the start and end of each arc
+    """
+    densified = shapely.segmentize(geometry, max_segment)
+    polygons = densified.geoms if isinstance(densified, MultiPolygon) else [densified]
+    rings = [
+        np.asarray(ring.coords)[:, :2]
+        for polygon in polygons
+        for ring in [polygon.exterior, *polygon.interiors]
+    ]
+    if len(rings) == 0:
+        return np.empty((3, 0)), np.empty((3, 0))
+    start = np.concatenate([ring[:-1] for ring in rings])
+    end = np.concatenate([ring[1:] for ring in rings])
+    # seams: edges along the anti-meridian where the geometry continues
+    # across it (on the opposite side of the anti-meridian)
+    on_meridian = (np.abs(start[:, 0]) == 180) & (end[:, 0] == start[:, 0])
+    seam = np.zeros(len(start), dtype=bool)
+    seam[on_meridian] = shapely.intersects_xy(
+        geometry,
+        -start[on_meridian, 0],
+        (start[on_meridian, 1] + end[on_meridian, 1]) / 2,
+    )
+    start_u = _get_surface_directions(start[:, 0], start[:, 1], elevation)
+    end_u = _get_surface_directions(end[:, 0], end[:, 1], elevation)
+    degenerate = np.linalg.norm(np.cross(start_u.T, end_u.T), axis=1) < 1e-12
+    keep = ~seam & ~degenerate
+    return start_u[:, keep], end_u[:, keep]
+
+
+def _get_nearest_arc_points(
+    directions: npt.NDArray[np.float64],
+    arcs: tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]],
+    chunk_size: int = 1024,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """
+    Computes the minimum angular distance from each of a set of directions
+    to a set of great circle arcs (see `_get_boundary_arcs`), each shorter
+    than a half circle, and the nearest point on the arcs.
+
+    Args:
+        directions (numpy.typing.NDArray[numpy.float64]): The unit vectors (shape (3, N)).
+        arcs (tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]):
+            The unit vectors (shape (3, E)) at the start and end of each arc.
+        chunk_size (int): The number of directions processed at once, to limit memory.
+
+    Returns:
+        tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]:
+            the angular distances (radians, shape (N,)) and the unit vectors
+            toward the nearest points (shape (3, N); the directions
+            themselves if there are no arcs)
+    """
+    start, end = arcs
+    distance = np.full(directions.shape[1], np.pi)
+    nearest = np.array(directions, dtype=float, copy=True)
+    if start.shape[1] == 0:
+        return distance, nearest
+    # unit normal to each arc's great circle and, within its plane, the
+    # normals to the arc's ends (pointing into the arc)
+    normal = np.cross(start.T, end.T).T
+    normal /= np.linalg.norm(normal, axis=0)
+    after_start = np.cross(normal.T, start.T).T
+    before_end = np.cross(end.T, normal.T).T
+    for i in range(0, directions.shape[1], chunk_size):
+        u = directions[:, i : i + chunk_size]
+        # sine of the distance to each great circle (shape (E, M))
+        sine = normal.T @ u
+        # the direction's projection onto a great circle lies within its
+        # arc if on the inner side of both of the arc's ends
+        within = (after_start.T @ u >= 0) & (before_end.T @ u >= 0)
+        to_circle = np.arcsin(np.clip(np.abs(sine), 0, 1))
+        cos_start, cos_end = start.T @ u, end.T @ u
+        to_ends = np.arccos(np.clip(np.maximum(cos_start, cos_end), -1, 1))
+        candidates = np.where(within, to_circle, to_ends)
+        arc = np.argmin(candidates, axis=0)
+        column = np.arange(u.shape[1])
+        distance[i : i + chunk_size] = candidates[arc, column]
+        # nearest point: the projection onto the great circle within the
+        # arc, or otherwise the nearer end of the arc
+        projection = u - normal[:, arc] * sine[arc, column]
+        projection /= np.linalg.norm(projection, axis=0)
+        end_point = np.where(
+            cos_start[arc, column] >= cos_end[arc, column], start[:, arc], end[:, arc]
+        )
+        nearest[:, i : i + chunk_size] = np.where(
+            within[arc, column], projection, end_point
+        )
+    return distance, nearest
+
+
+def _get_angular_distance_to_arcs(
+    directions: npt.NDArray[np.float64],
+    arcs: tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]],
+    chunk_size: int = 1024,
+) -> npt.NDArray[np.float64]:
+    """
+    Computes the minimum angular distance from each of a set of directions
+    to a set of great circle arcs (see `_get_nearest_arc_points`).
+
+    Args:
+        directions (numpy.typing.NDArray[numpy.float64]): The unit vectors (shape (3, N)).
+        arcs (tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]):
+            The unit vectors (shape (3, E)) at the start and end of each arc.
+        chunk_size (int): The number of directions processed at once, to limit memory.
+
+    Returns:
+        numpy.typing.NDArray[numpy.float64]: the angular distances (radians, shape (N,))
+    """
+    return _get_nearest_arc_points(directions, arcs, chunk_size)[0]
+
+
+def _get_point_coordinates(point: Any) -> tuple[float, float, float]:
+    """
+    Gets the geodetic coordinates of a point: either a TAT-C `Point` (or a
+    subclass, such as `GroundStation`) or a shapely `Point`, whose x, y, and
+    (optional) z coordinates are its longitude (degrees), latitude
+    (degrees), and elevation (meters) in the WGS 84 coordinate system.
+
+    Args:
+        point (tatc.schemas.Point | shapely.geometry.Point): The point.
+
+    Returns:
+        tuple[float, float, float]: the longitude (degrees), latitude
+            (degrees), and elevation (meters)
+    """
+    if isinstance(point, Point):
+        if point.is_empty:
+            raise ValueError("Point is empty.")
+        longitude, latitude = point.x, point.y
+        elevation = point.z if point.has_z else 0.0
+        if not -90 <= latitude <= 90:
+            raise ValueError(f"Point latitude {latitude} is not within [-90, 90].")
+        return float(longitude), float(latitude), float(elevation)
+    return float(point.longitude), float(point.latitude), float(point.elevation)

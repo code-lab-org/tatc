@@ -13,6 +13,12 @@ Pointed Instrument
 .. autopydantic_model:: tatc.schemas.PointedInstrument
   :members:
 
+Conical Instrument
+------------------
+
+.. autopydantic_model:: tatc.schemas.ConicalInstrument
+  :members:
+
 Satellite
 ---------
 

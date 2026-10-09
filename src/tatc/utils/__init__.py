@@ -5,16 +5,24 @@ Utility functions for the TATC library.
 """
 
 from .atmosphere import altitude_to_pressure, pressure_to_altitude
+from .ellipsoid import (
+    compute_ellipsoid_intersection,
+    compute_tangent_point,
+    geodetic_to_rectangular,
+    rectangular_to_geodetic,
+)
 from .formatting import zero_pad
 from .geometry import (
     geodesic_destination,
     geodesic_distance,
     get_planar_bounds,
+    hash_geometry,
     normalize_geometry,
     project_polygon_to_elevation,
     split_polygon,
 )
 from .observation import (
+    compute_along_track_field_of_view,
     compute_field_of_regard,
     compute_max_access_time,
     compute_max_transit_time,
@@ -26,12 +34,14 @@ from .observation import (
 )
 from .orbital import (
     compute_apoapsis_radius,
+    compute_argument_of_latitude,
     compute_ground_inertial_velocity,
     compute_ground_surface_velocity,
     compute_j2_aop_rate,
     compute_j2_mean_motion_rate,
     compute_j2_raan_rate,
     compute_orbit_inertial_velocity,
+    compute_vnb_frame,
     mean_anomaly_to_true_anomaly,
     mean_motion_to_orbit_period,
     mean_motion_to_semimajor_axis,
@@ -40,16 +50,22 @@ from .orbital import (
     true_anomaly_to_mean_anomaly,
 )
 from .projection import (
+    NadirReference,
+    VelocityFrame,
+    ViewGeometry,
     buffer_footprint,
     buffer_target,
+    compute_cone_and_azimuth,
     compute_footprint,
     compute_limb,
     compute_projected_ray_position,
-    compute_radar_footprint,
-    compute_radar_footprint_profile,
+    compute_view_angles,
+    compute_view_tangents,
 )
 from .radar import (
     compute_radar_beam_height,
+    compute_radar_footprint,
+    compute_radar_footprint_profile,
     compute_radar_ground_range,
     compute_radar_ground_range_bounds,
     compute_radar_slant_range,
@@ -59,10 +75,16 @@ from .surface import compute_number_samples
 from .time import to_datetime64_ns
 
 __all__ = [
+    "compute_along_track_field_of_view",
+    "NadirReference",
+    "VelocityFrame",
+    "ViewGeometry",
     "altitude_to_pressure",
     "buffer_footprint",
     "buffer_target",
     "compute_apoapsis_radius",
+    "compute_argument_of_latitude",
+    "compute_cone_and_azimuth",
     "compute_field_of_regard",
     "compute_footprint",
     "compute_ground_inertial_velocity",
@@ -85,10 +107,13 @@ __all__ = [
     "compute_radar_ground_range_bounds",
     "compute_radar_slant_range",
     "compute_terrain_elevation_angle",
+    "compute_view_angles",
+    "compute_view_tangents",
     "field_of_regard_to_swath_width",
     "geodesic_destination",
     "geodesic_distance",
     "get_planar_bounds",
+    "hash_geometry",
     "mean_anomaly_to_true_anomaly",
     "mean_motion_to_orbit_period",
     "mean_motion_to_semimajor_axis",
@@ -103,4 +128,9 @@ __all__ = [
     "to_datetime64_ns",
     "true_anomaly_to_mean_anomaly",
     "zero_pad",
+    "compute_ellipsoid_intersection",
+    "compute_tangent_point",
+    "geodetic_to_rectangular",
+    "rectangular_to_geodetic",
+    "compute_vnb_frame",
 ]

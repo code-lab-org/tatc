@@ -5,28 +5,45 @@ Unit tests for the tatc.utils.projection module.
 """
 
 import unittest
+import warnings
 from datetime import datetime, timezone
 
 import numpy as np
 from pyproj import Transformer
 from shapely.geometry import Point
-from skyfield.api import EarthSatellite
+from skyfield.api import EarthSatellite, wgs84
+from skyfield.framelib import itrs
 
 from tatc import config, constants
 from tatc.constants import timescale
 from tatc.schemas import CircularOrbit
+from tatc.utils import geodesic_distance
 from tatc.utils.observation import (
     compute_field_of_regard,
     field_of_regard_to_swath_width,
 )
 from tatc.utils.orbital import compute_ground_surface_velocity
 from tatc.utils.projection import (
+    NadirReference,
+    VelocityFrame,
     buffer_footprint,
     buffer_target,
     compute_footprint,
+    compute_cone_and_azimuth,
     compute_limb,
     compute_projected_ray_position,
+    compute_view_angles,
+    compute_view_tangents,
 )
+
+
+def _deprecated_buffer_target(*args, **kwargs):
+    """
+    Calls the deprecated `buffer_target`, ignoring its deprecation warning.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        return buffer_target(*args, **kwargs)
 
 
 def _great_circle_distance(lat1, lon1, lat2, lon2):
@@ -287,6 +304,321 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 vectorized.longitude.degrees[i], scalar.longitude.degrees, delta=1e-9
             )
 
+    def _line_of_sight_dot_velocity(self, orbit_track, velocity_frame):
+        """
+        Cosines between the cross-track direction of a roll-pointed (20 deg)
+        ray (its line of sight less the nadir component) and the Earth-fixed
+        and inertial velocity vectors (both in Earth-fixed coordinates).
+        """
+        p, v = orbit_track.frame_xyz_and_velocity(itrs)
+        p_m, v_m_per_s = np.array(p.m), np.array(v.m_per_s)
+        v_inertial = v_m_per_s + constants.EARTH_ROTATION_RATE * np.array(
+            [-p_m[1], p_m[0], np.zeros_like(p_m[2])]
+        )
+
+        def line_of_sight(roll_angle):
+            position = compute_projected_ray_position(
+                orbit_track, 0, 0, roll_angle, 0, False, 0, 0, velocity_frame
+            )
+            los = np.array(position.itrs_xyz.m) - p_m
+            return los / np.linalg.norm(los, axis=0)
+
+        nadir, los = line_of_sight(0), line_of_sight(20)
+        cross_track = los / np.sum(los * nadir, axis=0) - nadir
+        cross_track = cross_track / np.linalg.norm(cross_track, axis=0)
+        return (
+            np.sum(cross_track * v_m_per_s, axis=0) / np.linalg.norm(v_m_per_s, axis=0),
+            np.sum(cross_track * v_inertial, axis=0)
+            / np.linalg.norm(v_inertial, axis=0),
+        )
+
+    def test_compute_projected_ray_position_earth_fixed_velocity_frame(self):
+        """
+        Test that by default a cross-track (roll) ray is orthogonal to the
+        Earth-fixed velocity but not to the inertial velocity.
+        """
+        earth_fixed, inertial = self._line_of_sight_dot_velocity(
+            self.orbit_track, VelocityFrame.EARTH_FIXED
+        )
+        self.assertAlmostEqual(earth_fixed, 0, delta=1e-9)
+        self.assertGreater(abs(inertial), 0.01)
+
+    def test_compute_projected_ray_position_inertial_velocity_frame(self):
+        """
+        Test that with an inertial velocity frame a cross-track (roll) ray is
+        orthogonal to the inertial velocity but not to the Earth-fixed
+        velocity, for both scalar and vectorized orbit tracks.
+        """
+        earth_fixed, inertial = self._line_of_sight_dot_velocity(
+            self.orbit_track, VelocityFrame.INERTIAL
+        )
+        self.assertAlmostEqual(inertial, 0, delta=1e-9)
+        self.assertGreater(abs(earth_fixed), 0.01)
+        orbit_track = self.satellite.at(timescale.utc(2020, 3, 20, 12, [0, 600, 1200]))
+        _, inertial = self._line_of_sight_dot_velocity(
+            orbit_track, VelocityFrame.INERTIAL
+        )
+        np.testing.assert_allclose(inertial, 0, atol=1e-9)
+
+    def test_compute_projected_ray_position_geocentric_nadir(self):
+        """
+        Test that a geocentric nadir ray lands on the line from the satellite
+        to the Earth's center, which coincides with the geodetic sub-satellite
+        point near the equator but is kilometers away from it at middle
+        latitudes, while a geodetic nadir ray matches the sub-satellite point
+        everywhere.
+        """
+        # near the ascending node (equator) and about 45 degrees north
+        for seconds, min_km, max_km in [(0, 0, 0.1), (1100, 1.5, 3.5)]:
+            orbit_track = self.satellite.at(timescale.utc(2020, 3, 20, 12, 0, seconds))
+            subpoint = wgs84.subpoint_of(orbit_track)
+            geocentric = compute_projected_ray_position(
+                orbit_track, 0, 0, nadir_reference=NadirReference.GEOCENTRIC
+            )
+            geodetic = compute_projected_ray_position(
+                orbit_track, 0, 0, nadir_reference=NadirReference.GEODETIC
+            )
+            position = np.array(orbit_track.frame_xyz(itrs).m)
+            ground = np.array(geocentric.itrs_xyz.m)
+            # the geocentric nadir point is parallel to the satellite position
+            self.assertLess(
+                np.linalg.norm(np.cross(position, ground))
+                / np.linalg.norm(position)
+                / np.linalg.norm(ground),
+                1e-9,
+            )
+            offset = _great_circle_distance(
+                geocentric.latitude.degrees,
+                geocentric.longitude.degrees,
+                subpoint.latitude.degrees,
+                subpoint.longitude.degrees,
+            )
+            self.assertGreaterEqual(offset / 1e3, min_km, seconds)
+            self.assertLessEqual(offset / 1e3, max_km, seconds)
+            self.assertLess(
+                _great_circle_distance(
+                    geodetic.latitude.degrees,
+                    geodetic.longitude.degrees,
+                    subpoint.latitude.degrees,
+                    subpoint.longitude.degrees,
+                ),
+                1,
+            )
+
+    def test_compute_view_frames_geocentric_nadir(self):
+        """
+        Test that view angles and cone angles are measured from the chosen
+        nadir: a target on the geocentric nadir ray has zero geocentric view
+        angles and cone angle, and nonzero geodetic ones (about 0.17 degrees
+        at 46 degrees latitude).
+        """
+        orbit_track = self.satellite.at(timescale.utc(2020, 3, 20, 12, 0, 1100))
+        target = compute_projected_ray_position(
+            orbit_track, 0, 0, nadir_reference=NadirReference.GEOCENTRIC
+        )
+        for reference, expected_min, expected_max in [
+            (NadirReference.GEOCENTRIC, 0, 1e-6),
+            (NadirReference.GEODETIC, 0.1, 0.25),
+        ]:
+            along, cross = compute_view_tangents(
+                orbit_track, target, nadir_reference=reference
+            )
+            angle = np.degrees(np.arctan(np.hypot(along, cross)))
+            cone, _ = compute_cone_and_azimuth(
+                orbit_track, target, nadir_reference=reference
+            )
+            for value in (float(angle), float(cone)):
+                self.assertGreaterEqual(value, expected_min, reference)
+                self.assertLessEqual(value, expected_max, reference)
+
+    def test_compute_footprint_geocentric_nadir_shifts_footprint(self):
+        """
+        Test that a geocentric nadir reference shifts a footprint without
+        changing its size.
+        """
+        orbit_track = self.satellite.at(timescale.utc(2020, 3, 20, 12, 0, 1100))
+        geodetic = compute_footprint(orbit_track, 20, 1, is_rectangular=True)[0]
+        geocentric = compute_footprint(
+            orbit_track,
+            20,
+            1,
+            is_rectangular=True,
+            nadir_reference=NadirReference.GEOCENTRIC,
+        )[0]
+        self.assertAlmostEqual(geocentric.area / geodetic.area, 1, delta=1e-2)
+        self.assertGreater(geocentric.centroid.distance(geodetic.centroid), 0.01)
+
+    def test_compute_projected_ray_position_velocity_frame_nadir_unchanged(self):
+        """
+        Test that the velocity frame does not affect a nadir ray.
+        """
+        earth_fixed = compute_projected_ray_position(
+            self.orbit_track, 0, 0, velocity_frame=VelocityFrame.EARTH_FIXED
+        )
+        inertial = compute_projected_ray_position(
+            self.orbit_track, 0, 0, velocity_frame=VelocityFrame.INERTIAL
+        )
+        self.assertAlmostEqual(
+            earth_fixed.latitude.degrees, inertial.latitude.degrees, delta=1e-9
+        )
+        self.assertAlmostEqual(
+            earth_fixed.longitude.degrees, inertial.longitude.degrees, delta=1e-9
+        )
+
+    def test_compute_footprint_velocity_frame_rotates_footprint(self):
+        """
+        Test that an inertial velocity frame rotates a rectangular footprint
+        about nadir: same area and center, different shape.
+        """
+        earth_fixed = compute_footprint(self.orbit_track, 40, 1, is_rectangular=True)[0]
+        inertial = compute_footprint(
+            self.orbit_track,
+            40,
+            1,
+            is_rectangular=True,
+            velocity_frame=VelocityFrame.INERTIAL,
+        )[0]
+        self.assertAlmostEqual(inertial.area / earth_fixed.area, 1, delta=1e-3)
+        self.assertLess(inertial.centroid.distance(earth_fixed.centroid), 1e-3)
+        self.assertLess(inertial.intersection(earth_fixed).area / earth_fixed.area, 0.5)
+
+    def test_compute_projected_ray_position_rectangular_continuous_at_corners(self):
+        """
+        Test that the rectangular boundary is continuous at its corners for a
+        wide, elongated view (where the field of view ratio and the ratio of
+        half-width tangents differ).
+        """
+        cross, along = 105, 2
+        # check the true corner angle and the field of view ratio angle
+        for corner in (
+            np.degrees(
+                np.arctan2(np.tan(np.radians(along / 2)), np.tan(np.radians(cross / 2)))
+            ),
+            np.degrees(np.arctan(along / cross)),
+        ):
+            self._assert_continuous_at(cross, along, corner)
+
+    def _assert_continuous_at(self, cross, along, corner):
+        """
+        Asserts that the rectangular boundary is continuous at the four
+        clock angles symmetric to an angle.
+        """
+        for base in (corner, 180 - corner, 180 + corner, 360 - corner):
+            before, after = (
+                compute_projected_ray_position(
+                    self.orbit_track, cross, along, 0, 0, True, angle, 0
+                )
+                for angle in (base - 1e-6, base + 1e-6)
+            )
+            self.assertLess(
+                _great_circle_distance(
+                    before.latitude.degrees,
+                    before.longitude.degrees,
+                    after.latitude.degrees,
+                    after.longitude.degrees,
+                ),
+                100,
+            )
+
+    def test_compute_footprint_elongated_rectangle_contains_center_line(self):
+        """
+        Test that a wide, thin rectangular footprint contains points along
+        its cross-track center line out to near its edges, at a middle
+        latitude where the edges curve in longitude/latitude coordinates.
+        """
+        orbit_track = self.satellite.at(timescale.utc(2020, 3, 20, 12, 12))
+        footprint = compute_footprint(orbit_track, 105, 1.2, is_rectangular=True)[0]
+        for roll in (-52, -45, -30, -15, 0, 15, 30, 45, 52):
+            position = compute_projected_ray_position(
+                orbit_track, 0, 0, roll_angle=roll
+            )
+            self.assertTrue(
+                footprint.contains(
+                    Point(position.longitude.degrees, position.latitude.degrees)
+                ),
+                f"roll angle {roll}",
+            )
+
+    def test_compute_view_tangents_inverts_projected_ray_position(self):
+        """
+        Test that a rolled and pitched view's center has zero view angle
+        tangents relative to that view, and the expected tangents relative to
+        nadir (roll in the cross-track tangent, pitch in the along-track
+        tangent scaled by the roll's secant), for both velocity frames and
+        for scalar and vectorized orbit tracks.
+        """
+        orbit_track = self.satellite.at(timescale.utc(2020, 3, 20, 12, [0, 600]))
+        roll, pitch = 30, -10
+        for velocity_frame in VelocityFrame:
+            position = compute_projected_ray_position(
+                orbit_track, 0, 0, roll, pitch, velocity_frame=velocity_frame
+            )
+            for i in range(2):
+                target = wgs84.latlon(
+                    position.latitude.degrees[i], position.longitude.degrees[i]
+                )
+                along, cross = compute_view_tangents(
+                    orbit_track[i], target, velocity_frame, roll, pitch
+                )
+                self.assertAlmostEqual(along, 0, delta=1e-8)
+                self.assertAlmostEqual(cross, 0, delta=1e-8)
+                along, cross = compute_view_tangents(
+                    orbit_track[i], target, velocity_frame
+                )
+                self.assertAlmostEqual(
+                    along,
+                    np.tan(np.radians(pitch)) / np.cos(np.radians(roll)),
+                    delta=1e-8,
+                )
+                self.assertAlmostEqual(cross, np.tan(np.radians(roll)), delta=1e-8)
+            along, cross = compute_view_tangents(
+                orbit_track,
+                wgs84.latlon(
+                    position.latitude.degrees[0], position.longitude.degrees[0]
+                ),
+                velocity_frame,
+            )
+            self.assertEqual(np.shape(along), (2,))
+            self.assertAlmostEqual(cross[0], np.tan(np.radians(roll)), delta=1e-8)
+
+    def test_compute_projected_ray_position_rigid_rotation(self):
+        """
+        Test that roll rotates a view rigidly: a ray at the edge of a 40 deg
+        view rolled by 10 deg lands at the same place as a nadir-centered
+        ray rolled by 30 deg.
+        """
+        for velocity_frame in VelocityFrame:
+            edge = compute_projected_ray_position(
+                self.orbit_track, 40, 10, 10, 0, True, 0, 0, velocity_frame
+            )
+            rolled = compute_projected_ray_position(
+                self.orbit_track, 0, 0, 30, 0, velocity_frame=velocity_frame
+            )
+            self.assertLess(
+                _great_circle_distance(
+                    edge.latitude.degrees,
+                    edge.longitude.degrees,
+                    rolled.latitude.degrees,
+                    rolled.longitude.degrees,
+                ),
+                1,
+            )
+
+    def test_compute_view_tangents_above_satellite_is_nan(self):
+        """
+        Test that a target above the satellite (outside the nadir
+        hemisphere) has undefined view angle tangents.
+        """
+        along, cross = compute_view_tangents(
+            self.orbit_track,
+            wgs84.latlon(
+                self.subpoint.latitude.degrees,
+                self.subpoint.longitude.degrees,
+                2 * self.subpoint.elevation.m,
+            ),
+        )
+        self.assertTrue(np.isnan(along) and np.isnan(cross))
+
     def test_compute_footprint_scalar_orbit_track(self):
         """
         Test that a scalar (single-time) orbit_track produces a single
@@ -505,12 +837,19 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         result = buffer_footprint(point, to_crs, from_crs, 0, 0)
         self.assertTrue(result.is_empty)
 
+    def test_buffer_target_is_deprecated(self):
+        """
+        Test that `buffer_target` warns that it is deprecated.
+        """
+        with self.assertWarns(DeprecationWarning):
+            buffer_target(Point(0, 0), 705000, 51.6, 20, 60)
+
     def test_buffer_target_contains_original_geometry(self):
         """
         Test that the buffered target contains the original geometry.
         """
         point = Point(0, 0)
-        result = buffer_target(point, 705000, 51.6, 20, 60)
+        result = _deprecated_buffer_target(point, 705000, 51.6, 20, 60)
         self.assertTrue(result.contains(point))
 
     def test_buffer_target_matches_expected_distance(self):
@@ -533,7 +872,9 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         swath_width = field_of_regard_to_swath_width(altitude, field_of_regard)
         ground_velocity = compute_ground_surface_velocity(altitude, 0, inclination)
         expected_distance = ground_velocity * time_step + swath_width / 2
-        result = buffer_target(point, altitude, inclination, field_of_regard, time_step)
+        result = _deprecated_buffer_target(
+            point, altitude, inclination, field_of_regard, time_step
+        )
         for x, y, *_ in result.exterior.coords:
             distance = _great_circle_distance(0, 0, y, x)
             self.assertAlmostEqual(
@@ -559,7 +900,9 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         )
         expected_distance = ground_velocity * time_step + swath_width / 2
         point = Point(0, 51.6)
-        result = buffer_target(point, altitude, inclination, field_of_regard, time_step)
+        result = _deprecated_buffer_target(
+            point, altitude, inclination, field_of_regard, time_step
+        )
         distances = [
             _great_circle_distance(51.6, 0, y, x) for x, y, *_ in result.exterior.coords
         ]
@@ -583,7 +926,7 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         )
         expected_distance = ground_velocity * time_step + swath_width / 2
         point = Point(0, 51.6)
-        result = buffer_target(
+        result = _deprecated_buffer_target(
             point,
             altitude,
             inclination,
@@ -604,8 +947,8 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         the time step (more distance traveled).
         """
         point = Point(0, 0)
-        smaller = buffer_target(point, 705000, 51.6, 20, 10)
-        larger = buffer_target(point, 705000, 51.6, 20, 200)
+        smaller = _deprecated_buffer_target(point, 705000, 51.6, 20, 10)
+        larger = _deprecated_buffer_target(point, 705000, 51.6, 20, 200)
         self.assertGreater(larger.area, smaller.area)
 
     def test_buffer_target_increases_with_field_of_regard(self):
@@ -614,8 +957,8 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         the field of regard (wider swath).
         """
         point = Point(0, 0)
-        smaller = buffer_target(point, 705000, 51.6, 5, 60)
-        larger = buffer_target(point, 705000, 51.6, 60, 60)
+        smaller = _deprecated_buffer_target(point, 705000, 51.6, 5, 60)
+        larger = _deprecated_buffer_target(point, 705000, 51.6, 60, 60)
         self.assertGreater(larger.area, smaller.area)
 
     def test_buffer_target_distance_scaling(self):
@@ -625,8 +968,12 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         original point.
         """
         point = Point(0, 0)
-        result_1x = buffer_target(point, 705000, 51.6, 20, 60, distance_scaling=1.0)
-        result_2x = buffer_target(point, 705000, 51.6, 20, 60, distance_scaling=2.0)
+        result_1x = _deprecated_buffer_target(
+            point, 705000, 51.6, 20, 60, distance_scaling=1.0
+        )
+        result_2x = _deprecated_buffer_target(
+            point, 705000, 51.6, 20, 60, distance_scaling=2.0
+        )
         coords_1x = list(result_1x.exterior.coords)
         coords_2x = list(result_2x.exterior.coords)
         max_dist_1x = max(_great_circle_distance(0, 0, y, x) for x, y in coords_1x)
@@ -638,3 +985,81 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
             self.orbit_track, 0, 0, roll_angle, pitch_angle, False, 0, 0
         )
         return position.latitude.degrees, position.longitude.degrees
+
+
+class TestComputeViewAngles(unittest.TestCase):
+    """
+    Unit tests for compute_view_angles.
+    """
+
+    def test_inverts_rigid_rotation(self):
+        """
+        Test that the view angles of the point where a ray with given roll
+        and pitch angles meets the ellipsoid are those angles, in both
+        velocity frames.
+        """
+        epoch = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        satellite = EarthSatellite.from_satrec(
+            CircularOrbit(mean_altitude=834e3, inclination=98.7, epoch=epoch)
+            .to_gp_orbit()
+            .elements[0]
+            .to_satrec(),
+            timescale,
+        )
+        track = satellite.at(timescale.from_datetime(epoch))
+        for frame in VelocityFrame:
+            for roll, pitch in [(0, 0), (30, 0), (-56, 0.4), (20, -10), (-40, 25)]:
+                ray = compute_projected_ray_position(
+                    track, 0, 0, roll, pitch, velocity_frame=frame
+                )
+                target = wgs84.latlon(ray.latitude.degrees, ray.longitude.degrees)
+                angles = compute_view_angles(track, target, velocity_frame=frame)
+                np.testing.assert_allclose(angles, (roll, pitch), atol=1e-6)
+
+    def test_inverts_tilted_rotation(self):
+        """
+        Test that, with a tilt angle, the view angles of the point where a ray
+        with given roll and pitch angles (after the tilt) meets the ellipsoid
+        are those angles, and that the rays of a tilted scan line (zero pitch)
+        lie in the plane containing the cross-track axis and the tilted nadir:
+        they coincide with the rays of a frame view pitched by the tilt angle.
+        """
+        epoch = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        satellite = EarthSatellite.from_satrec(
+            CircularOrbit(mean_altitude=676e3, inclination=98.1, epoch=epoch)
+            .to_gp_orbit()
+            .elements[0]
+            .to_satrec(),
+            timescale,
+        )
+        track = satellite.at(timescale.from_datetime(epoch))
+        for tilt in (20, -20):
+            for roll, pitch in [(0, 0), (30, 0), (-56, 0.4), (40, -2)]:
+                ray = compute_projected_ray_position(
+                    track, 0, 0, roll, pitch, tilt_angle=tilt
+                )
+                target = wgs84.latlon(ray.latitude.degrees, ray.longitude.degrees)
+                angles = compute_view_angles(track, target, tilt_angle=tilt)
+                np.testing.assert_allclose(angles, (roll, pitch), atol=1e-6)
+            for roll in (-56, -30, 0, 30, 56):
+                scan = compute_projected_ray_position(
+                    track, 0, 0, roll, 0, tilt_angle=tilt
+                )
+                frame = compute_projected_ray_position(
+                    track,
+                    2 * abs(roll),
+                    2 * abs(roll),
+                    0,
+                    tilt,
+                    False,
+                    0 if roll >= 0 else 180,
+                )
+                self.assertLess(
+                    geodesic_distance(
+                        scan.longitude.degrees,
+                        scan.latitude.degrees,
+                        frame.longitude.degrees,
+                        frame.latitude.degrees,
+                    ),
+                    1,
+                )

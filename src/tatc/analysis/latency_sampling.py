@@ -8,15 +8,17 @@ Methods to perform latency analysis.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 import geopandas as gpd
 import pandas as pd
 from shapely import geometry as geo
 
-from ..constants import EARTH_MEAN_RADIUS
 from ..schemas import GroundStation, Satellite
-from ..utils.orbital import compute_apoapsis_radius
-from .coverage import _get_visible_interval_series
+from ..utils.computation import _run_together
+from .check import _check_satellites, _check_time_window
+from .coverage_metrics import _get_target_keys
+from .point_sampling import _compute_access_periods
 
 
 def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
@@ -39,28 +41,36 @@ def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
 
 def collect_downlinks(
     stations: GroundStation | list[GroundStation],
-    satellite: Satellite,
+    satellites: Satellite | list[Satellite],
     start: datetime,
     end: datetime,
 ) -> gpd.GeoDataFrame:
     """
-    Collect satellite downlink opportunities to ground station(s) of interest.
+    Collect satellite downlink opportunities to ground station(s) of
+    interest. The access periods of every station and satellite are
+    computed together (see `tatc.utils.computation._run_together`).
 
     Args:
         stations (GroundStation | list[GroundStation]): The ground stations.
-        satellite (Satellite): The observing satellite.
+        satellites (Satellite | list[Satellite]): The observing satellite(s).
         start (datetime.datetime): Start of analysis period.
         end (datetime.datetime): End of analysis period.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame of collected downlink results.
+        geopandas.GeoDataFrame: The data frame of collected downlink results,
+            sorted by start time.
     """
-    # use the orbit's apogee altitude as a conservative upper bound
-    max_altitude = (
-        compute_apoapsis_radius(
-            satellite.orbit.get_semimajor_axis(), satellite.orbit.get_eccentricity()
-        )
-        - EARTH_MEAN_RADIUS
+    satellites = _check_satellites(satellites)
+    _check_time_window(start, end)
+    stations = [stations] if isinstance(stations, GroundStation) else stations
+    pairs = [(station, satellite) for satellite in satellites for station in stations]
+    access_periods = _run_together(
+        [
+            _compute_access_periods(
+                station, satellite, start, end, station.min_elevation_angle
+            )
+            for station, satellite in pairs
+        ]
     )
     # collect the records of ground station overpasses
     records = [
@@ -74,15 +84,8 @@ def collect_downlinks(
             "end": period.right,
             "epoch": period.mid,
         }
-        for station in ([stations] if isinstance(stations, GroundStation) else stations)
-        for period in _get_visible_interval_series(
-            station,
-            satellite,
-            station.min_elevation_angle,
-            max_altitude,
-            start,
-            end,
-        )
+        for (station, satellite), periods in zip(pairs, access_periods)
+        for period in periods
         if (station.min_access_time <= period.right - period.left)
     ]
     # build the dataframe
@@ -99,38 +102,56 @@ def collect_downlinks(
 
 def _get_empty_latency_frame() -> gpd.GeoDataFrame:
     """
-    Gets an empty data frame for downlink results.
+    Gets an empty data frame for latency results.
 
     Returns:
         geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
-        "point_id": pd.Series([], dtype="int"),
+        "target_hash": pd.Series([], dtype="str"),
         "geometry": pd.Series([], dtype="object"),
         "satellite": pd.Series([], dtype="str"),
         "instrument": pd.Series([], dtype="str"),
-        "observed": pd.Series([], dtype="datetime64[ns, utc]"),
+        "sat_alt": pd.Series([], dtype="float"),
+        "sat_az": pd.Series([], dtype="float"),
         "station": pd.Series([], dtype="str"),
         "downlinked": pd.Series([], dtype="datetime64[ns, utc]"),
         "latency": pd.Series([], dtype="timedelta64[ns]"),
+        "observed": pd.Series([], dtype="datetime64[ns, utc]"),
     }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
 def compute_latencies(
-    observations: gpd.GeoDataFrame, downlinks: gpd.GeoDataFrame
+    observations: gpd.GeoDataFrame,
+    downlinks: gpd.GeoDataFrame,
+    during_contact: Literal["next", "end", "immediate"] = "end",
 ) -> gpd.GeoDataFrame:
     """
     Collect latencies between an observation and the first downlink opportunity.
 
+    An observation that ends before a downlink starts is downlinked at that
+    downlink's epoch (midpoint). The `during_contact` option sets how an
+    observation that ends while a downlink is in progress is downlinked:
+    `"end"` (default) downlinks it at the end of the downlink in progress
+    (stored data is played back after the data recorded before the contact);
+    `"next"` waits for the next downlink to start (stored data is only
+    played back from the start of a contact); `"immediate"` downlinks it as it is
+    observed (real-time downlink), at the later of the observation epoch and
+    the start of the downlink in progress. Each observation is assigned the
+    earliest of these downlink times.
+
     Args:
         observations (geopandas.GeoDataFrame): The data frame of observations to downlink.
         downlinks (geopandas.GeoDataFrame): The data frame of downlink opportunities.
+        during_contact (str): Downlink of observations that end during a
+            downlink opportunity: `"end"` (default), `"next"`, or `"immediate"`.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected latency results, sorted by the 'observed'
         column in ascending order. It includes the following columns:
-        - 'point_id' (int64): Identifier for the observation point.
+        - 'target_hash' (str): Hash of the observation point (see
+          `tatc.utils.geometry.hash_geometry`).
         - 'geometry' (geometry): Geometry representing the observation point.
         - 'satellite' (object): Name or identifier of the satellite.
         - 'instrument' (object): Name or identifier of the instrument.
@@ -141,39 +162,62 @@ def compute_latencies(
         - 'latency' (timedelta64[ns]): Latency between observation and downlink.
         - 'observed' (datetime64[ns, UTC]): Timestamp when the observation was made.
     """
+    if during_contact not in ("next", "end", "immediate"):
+        raise ValueError(
+            f"during_contact must be 'next', 'end', or 'immediate', not {during_contact!r}"
+        )
     if observations.empty or downlinks.empty:
         return _get_empty_latency_frame()
 
-    # merge observations with downlinks to find matching satellite downlinks
+    obs = observations.sort_values(by="end").reset_index(drop=True)
+    contacts = downlinks[["satellite", "station", "start", "epoch", "end"]].rename(
+        columns={
+            "start": "downlink_start",
+            "epoch": "downlinked",
+            "end": "downlink_end",
+        }
+    )
+    # pair each observation with the first downlink that starts after it ends
     obs = pd.merge_asof(
-        observations.sort_values(by="end"),
-        downlinks.sort_values(by="start"),
+        obs,
+        contacts.sort_values(by="downlink_start"),
         by="satellite",
         left_on="end",
-        right_on="start",
+        right_on="downlink_start",
         direction="forward",
     )
+    if during_contact != "next":
+        # find the first downlink that ends after the observation ends, which
+        # is in progress if it started before the observation ends
+        current = pd.merge_asof(
+            obs[["satellite", "end"]],
+            contacts.sort_values(by="downlink_end"),
+            by="satellite",
+            left_on="end",
+            right_on="downlink_end",
+            direction="forward",
+        )
+        in_progress = current["downlink_start"] <= current["end"]
+        if during_contact == "end":
+            downlinked = current["downlink_end"]
+        else:
+            downlinked = current["downlink_start"].where(
+                current["downlink_start"] > obs["epoch"], obs["epoch"]
+            )
+        earlier = in_progress & (
+            obs["downlinked"].isna() | (downlinked < obs["downlinked"])
+        )
+        obs.loc[earlier, "station"] = current.loc[earlier, "station"]
+        obs.loc[earlier, "downlinked"] = downlinked[earlier]
 
     # compute latency
-    obs["latency"] = obs["epoch_y"] - obs["epoch_x"]
+    obs["latency"] = obs["downlinked"] - obs["epoch"]
+    obs.rename(columns={"epoch": "observed"}, inplace=True)
 
-    # rename and select relevant columns. Only "epoch" and "geometry" exist
-    # in both `observations` and `downlinks`, so merge_asof only suffixes
-    # those two with "_x"/"_y"; "station", "sat_alt", and "sat_az" exist in
-    # just one of the two frames each and so are never suffixed at all.
-    obs.rename(
-        columns={
-            "epoch_y": "downlinked",
-            "epoch_x": "observed",
-            "geometry_x": "geometry",
-        },
-        inplace=True,
-    )
-
-    # reorder columns
+    # select relevant columns
     obs = obs[
         [
-            "point_id",
+            "target_hash",
             "geometry",
             "satellite",
             "instrument",
@@ -184,28 +228,21 @@ def compute_latencies(
             "latency",
             "observed",
         ]
-    ].copy()
+    ]
 
-    # handle rows without matching downlinks (if any)
-    no_downlink_rows = obs["downlinked"].isna()
-    if no_downlink_rows.any():
-        obs.loc[no_downlink_rows, ["station", "downlinked", "latency"]] = [
-            None,
-            pd.NaT,
-            pd.NaT,
-        ]
-
-    # ensure result_df is a GeoDataFrame with geometry set
-    obs = gpd.GeoDataFrame(obs, geometry="geometry")
-
-    # set CRS if observations is a GeoDataFrame and has a defined CRS
-    if isinstance(observations, gpd.GeoDataFrame) and observations.crs:
-        obs.set_crs(observations.crs)
+    # ensure the result is a GeoDataFrame with the observations' CRS
+    obs = gpd.GeoDataFrame(
+        obs,
+        geometry="geometry",
+        crs=(
+            observations.crs
+            if isinstance(observations, gpd.GeoDataFrame) and observations.crs
+            else "EPSG:4326"
+        ),
+    )
 
     # sort observations by observed time
-    obs.sort_values(by="observed", inplace=True)
-
-    obs.reset_index(drop=True, inplace=True)
+    obs = obs.sort_values(by="observed").reset_index(drop=True)
     return obs
 
 
@@ -217,7 +254,7 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
         geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
-        "point_id": pd.Series([], dtype="int"),
+        "target_hash": pd.Series([], dtype="str"),
         "geometry": pd.Series([], dtype="object"),
         "latency": pd.Series([], dtype="timedelta64[ns]"),
         "samples": pd.Series([], dtype="int"),
@@ -227,7 +264,8 @@ def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
 
 def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
-    Reduce observation latencies: for each unique point_id in
+    Reduce observation latencies: for each unique target (`target_hash`,
+    see `tatc.analysis.coverage_metrics._get_target_keys`) in
     `latency_observations`, computes the mean latency and the total number
     of samples (observation/downlink pairs). An observation with no
     matching downlink has an undefined (NaT) latency (see
@@ -250,7 +288,7 @@ def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame
     gdf["samples"] = 1
     # perform the aggregation operation
     gdf = gdf.dissolve(
-        "point_id",
+        _get_target_keys(gdf),
         aggfunc={
             "latency": "mean",
             "samples": "sum",

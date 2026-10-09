@@ -24,6 +24,16 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_projected_ray_position
 
+.. autofunction:: tatc.utils.compute_view_tangents
+
+.. autofunction:: tatc.utils.compute_cone_and_azimuth
+
+.. autoclass:: tatc.utils.VelocityFrame
+  :members:
+
+.. autoclass:: tatc.utils.NadirReference
+  :members:
+
 .. autofunction:: tatc.utils.compute_field_of_regard
 
 .. autofunction:: tatc.utils.compute_min_elevation_angle
@@ -44,6 +54,8 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_ground_surface_velocity
 
+.. autofunction:: tatc.utils.compute_vnb_frame
+
 .. autofunction:: tatc.utils.compute_j2_raan_rate
 
 .. autofunction:: tatc.utils.compute_j2_aop_rate
@@ -56,11 +68,15 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_min_along_track_distance
 
+.. autofunction:: tatc.utils.compute_along_track_field_of_view
+
 .. autofunction:: tatc.utils.project_polygon_to_elevation
 
 .. autofunction:: tatc.utils.split_polygon
 
 .. autofunction:: tatc.utils.normalize_geometry
+
+.. autofunction:: tatc.utils.hash_geometry
 
 .. autofunction:: tatc.utils.geodesic_distance
 
@@ -73,3 +89,11 @@ Utility Functions
 .. autofunction:: tatc.utils.altitude_to_pressure
 
 .. autofunction:: tatc.utils.pressure_to_altitude
+
+.. autofunction:: tatc.utils.geodetic_to_rectangular
+
+.. autofunction:: tatc.utils.rectangular_to_geodetic
+
+.. autofunction:: tatc.utils.compute_ellipsoid_intersection
+
+.. autofunction:: tatc.utils.compute_tangent_point

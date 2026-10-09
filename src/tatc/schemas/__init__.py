@@ -3,7 +3,7 @@ Defines object schemas.
 """
 
 from .architecture import Architecture
-from .instrument import AllInstruments, Instrument, PointedInstrument
+from .instrument import AllInstruments, ConicalInstrument, Instrument, PointedInstrument
 from .orbit import (
     AllOrbits,
     CircularOrbit,
@@ -40,6 +40,7 @@ __all__ = [
     "AllSurfaceObjects",
     "Architecture",
     "CircularOrbit",
+    "ConicalInstrument",
     "GeneralPerturbationsOrbit",
     "GeosynchronousOrbit",
     "GroundStation",

@@ -7,7 +7,6 @@ Unit tests for the tatc.schemas.orbit.base module.
 import unittest
 from datetime import datetime, timezone
 
-from tatc import config
 from tatc.constants import EARTH_MEAN_RADIUS
 from tatc.schemas import CircularOrbit
 from tatc.schemas.orbit.base import OrbitBase
@@ -93,7 +92,7 @@ class TestOrbitBase(unittest.TestCase):
         conversion logic.
         """
         with self.assertRaises(NotImplementedError):
-            OrbitBase()._compute_gp_orbit()
+            OrbitBase()._compute_gp_orbit()  # pylint: disable=protected-access
 
     def test_to_gp_orbit_surfaces_not_implemented_on_base(self):
         """
@@ -105,7 +104,7 @@ class TestOrbitBase(unittest.TestCase):
             OrbitBase().to_gp_orbit()
 
 
-class _OrbitWithFixedSemimajorAxis(OrbitBase):
+class _OrbitWithFixedSemimajorAxis(OrbitBase):  # pylint: disable=abstract-method
     """
     Minimal OrbitBase subclass implementing only get_semimajor_axis, used
     to test OrbitBase's generic get_mean_altitude/get_mean_motion/
@@ -162,7 +161,7 @@ class TestOrbitBaseDerivedDefaults(unittest.TestCase):
 
 class TestOrbitBaseToGpOrbitCaching(unittest.TestCase):
     """
-    Unit tests for the lazy-load caching behavior of
+    Unit tests for the caching behavior of
     OrbitBase.to_gp_orbit, shared by every concrete orbit subclass
     (CircularOrbit, KeplerianOrbit, SunSynchronousOrbit, MolniyaOrbit,
     TundraOrbit). Uses CircularOrbit as a concrete vehicle to exercise the
@@ -172,63 +171,15 @@ class TestOrbitBaseToGpOrbitCaching(unittest.TestCase):
 
     def setUp(self):
         self.orbit = CircularOrbit(mean_altitude=500000)
-        self._original_lazy_load = config.rc.gp_orbit_lazy_load
-
-    def tearDown(self):
-        config.rc.gp_orbit_lazy_load = self._original_lazy_load
 
     def test_repeat_call_reuses_cached_result(self):
         """
-        Test that calling to_gp_orbit() twice with lazy_load=True (the
-        default) returns the identical cached object rather than
-        recomputing.
+        Test that calling to_gp_orbit() twice returns the identical cached
+        object rather than recomputing.
         """
         first = self.orbit.to_gp_orbit()
         second = self.orbit.to_gp_orbit()
         self.assertIs(first, second)
-
-    def test_lazy_load_false_forces_recomputation(self):
-        """
-        Test that lazy_load=False always recomputes a fresh gp orbit, even
-        if a cached result already exists.
-        """
-        first = self.orbit.to_gp_orbit()
-        second = self.orbit.to_gp_orbit(lazy_load=False)
-        self.assertIsNot(first, second)
-
-    def test_lazy_load_false_still_updates_the_cache(self):
-        """
-        Test that a lazy_load=False call still stores its result in the
-        cache, so a subsequent lazy_load=True call reuses that new result
-        rather than the original.
-        """
-        first = self.orbit.to_gp_orbit()
-        second = self.orbit.to_gp_orbit(lazy_load=False)
-        third = self.orbit.to_gp_orbit()
-        self.assertIs(third, second)
-        self.assertIsNot(third, first)
-
-    def test_lazy_load_none_follows_config_rc_true(self):
-        """
-        Test that lazy_load=None (the default) follows config.rc's
-        gp_orbit_lazy_load setting when it is True: repeat calls reuse the
-        cached result.
-        """
-        config.rc.gp_orbit_lazy_load = True
-        first = self.orbit.to_gp_orbit()
-        second = self.orbit.to_gp_orbit()
-        self.assertIs(first, second)
-
-    def test_lazy_load_none_follows_config_rc_false(self):
-        """
-        Test that lazy_load=None (the default) follows config.rc's
-        gp_orbit_lazy_load setting when it is False: repeat calls always
-        recompute.
-        """
-        config.rc.gp_orbit_lazy_load = False
-        first = self.orbit.to_gp_orbit()
-        second = self.orbit.to_gp_orbit()
-        self.assertIsNot(first, second)
 
 
 if __name__ == "__main__":

@@ -221,3 +221,21 @@ class TestKeplerianOrbit(unittest.TestCase):
             gp_orbit.get_perigee_argument(),
             self.test_data.get("perigee_argument"),
         )
+
+    def test_perigee_below_surface(self):
+        """
+        Test that a perigee below the Earth's surface, as from a semimajor
+        axis mistakenly specified in kilometers, raises a validation error.
+        """
+        with self.assertRaisesRegex(ValidationError, "below the Earth's surface"):
+            KeplerianOrbit(**{**self.test_data, "semimajor_axis": 7000})
+        with self.assertRaisesRegex(ValidationError, "below the Earth's surface"):
+            KeplerianOrbit(**{**self.test_data, "eccentricity": 0.5})
+
+    def test_naive_epoch(self):
+        """
+        Test that an epoch without a timezone raises a validation error
+        (rather than failing later, as compared to timezone-aware times).
+        """
+        with self.assertRaisesRegex(ValidationError, "timezone"):
+            KeplerianOrbit(**{**self.test_data, "epoch": datetime(2022, 1, 1)})

@@ -5,11 +5,30 @@ Unit tests for the TundraOrbit schema.
 """
 
 import unittest
+from datetime import datetime, timedelta, timezone
 
+import numpy as np
 from pydantic import ValidationError
+from skyfield.api import wgs84
 
-from tatc.constants import EARTH_MEAN_RADIUS, EARTH_SIDEREAL_DAY_S
+from tatc.constants import (
+    EARTH_J2_CRITICAL_INCLINATION,
+    EARTH_MEAN_RADIUS,
+    EARTH_SIDEREAL_DAY_S,
+)
 from tatc.schemas import TundraOrbit
+
+
+def sampled_apogee_longitudes(orbit, hours):
+    """
+    Longitudes (degrees) of the apogees found by sampling the propagated
+    orbit every 20 s from its epoch.
+    """
+    times = [orbit.epoch + timedelta(seconds=20 * k) for k in range(hours * 180)]
+    track = orbit.to_gp_orbit().get_orbit_track(times)
+    radius = np.linalg.norm(track.position.m, axis=0)
+    k = np.nonzero((radius[1:-1] > radius[:-2]) & (radius[1:-1] >= radius[2:]))[0] + 1
+    return wgs84.subpoint_of(track[k]).longitude.degrees
 
 
 class TestTundraOrbit(unittest.TestCase):
@@ -133,6 +152,50 @@ class TestTundraOrbit(unittest.TestCase):
         o = TundraOrbit(perigee_altitude=24480000, true_anomaly=0)
         self.assertAlmostEqual(o.get_mean_anomaly(), 0, delta=1e-6)
 
+    def test_inclination_default(self):
+        """
+        Test that the inclination defaults to the critical inclination.
+        """
+        self.assertEqual(self.test_orbit.inclination, EARTH_J2_CRITICAL_INCLINATION)
+        self.assertEqual(
+            self.test_orbit.get_inclination(), EARTH_J2_CRITICAL_INCLINATION
+        )
+
+    def test_bad_inclination(self):
+        """
+        Test that the TundraOrbit schema raises a ValidationError for an
+        inclination outside [0, 180).
+        """
+        for inclination in (-1, 180):
+            with self.assertRaises(ValidationError):
+                TundraOrbit(perigee_altitude=24480000, inclination=inclination)
+
+    def test_quasi_zenith_orbit(self):
+        """
+        Test a quasi-zenith orbit like QZSS's (eccentricity 0.075, 41 deg
+        inclination): its derived orbits and general perturbations
+        representation keep the inclination, its apogee is at 41 deg
+        latitude, and the apogee longitude drifts by less than 0.03 deg per
+        day over 20 days.
+        """
+        epoch = datetime(2026, 10, 4, tzinfo=timezone.utc)
+        orbit = TundraOrbit(perigee_altitude=32600e3, inclination=41, epoch=epoch)
+        self.assertAlmostEqual(orbit.get_eccentricity(), 0.075, delta=0.001)
+        self.assertEqual(orbit.get_derived_orbit(20, 10).inclination, 41)
+        self.assertAlmostEqual(orbit.to_gp_orbit().get_inclination(), 41, delta=0.01)
+        times = [epoch + timedelta(minutes=5 * k) for k in range(20 * 288)]
+        track = orbit.to_gp_orbit().get_orbit_track(times)
+        radius = np.linalg.norm(track.position.m, axis=0)
+        apogees = (
+            np.nonzero((radius[1:-1] > radius[:-2]) & (radius[1:-1] >= radius[2:]))[0]
+            + 1
+        )
+        subpoint = wgs84.subpoint_of(track[apogees])
+        days = np.array([(times[k] - epoch) / timedelta(days=1) for k in apogees])
+        rate = np.polyfit(days, np.degrees(np.unwrap(subpoint.longitude.radians)), 1)[0]
+        self.assertLess(abs(rate), 0.03)
+        self.assertAlmostEqual(subpoint.latitude.degrees[0], 41, delta=0.2)
+
     def test_get_derived_orbit_preserves_other_fields(self):
         """
         Test that get_derived_orbit preserves perigee_altitude,
@@ -156,6 +219,55 @@ class TestTundraOrbit(unittest.TestCase):
             derived_orbit.right_ascension_ascending_node,
             self.test_orbit.right_ascension_ascending_node + 10,
             delta=0.001,
+        )
+
+    def test_get_apogee_longitude(self):
+        """
+        Test that the apogee longitude is that of the first apogee after the
+        epoch found by sampling the propagated orbit, and moves with the
+        right ascension of ascending node (approximately, as the node's
+        precession and the period also change slightly).
+        """
+        longitude = self.test_orbit.get_apogee_longitude()
+        self.assertAlmostEqual(
+            longitude, sampled_apogee_longitudes(self.test_orbit, 25)[0], delta=0.02
+        )
+        self.assertAlmostEqual(
+            self.test_orbit.get_derived_orbit(0, 10).get_apogee_longitude(),
+            longitude + 10,
+            delta=0.1,
+        )
+
+    def test_from_apogee_longitude_quasi_zenith(self):
+        """
+        Test that a quasi-zenith orbit placed by longitude (like QZSS's
+        figure-8 ground track centered near 137 deg east) has its apogees over
+        that longitude.
+        """
+        orbit = TundraOrbit.from_apogee_longitude(
+            137,
+            perigee_altitude=32600e3,
+            inclination=41,
+            true_anomaly=10,
+            epoch=datetime(2026, 10, 4, tzinfo=timezone.utc),
+        )
+        self.assertIsInstance(orbit, TundraOrbit)
+        self.assertEqual(orbit.inclination, 41)
+        self.assertEqual(orbit.true_anomaly, 10)
+        self.assertAlmostEqual(orbit.get_apogee_longitude(), 137, delta=1e-5)
+        np.testing.assert_allclose(sampled_apogee_longitudes(orbit, 49), 137, atol=0.02)
+
+    def test_from_apogee_longitude_southern_coverage(self):
+        """
+        Test placement by longitude for southern hemisphere coverage, with an
+        epoch past apogee.
+        """
+        orbit = TundraOrbit.from_apogee_longitude(
+            -100, perigee_altitude=24480e3, northern_coverage=False, true_anomaly=250
+        )
+        self.assertFalse(orbit.northern_coverage)
+        np.testing.assert_allclose(
+            sampled_apogee_longitudes(orbit, 49), -100, atol=0.04
         )
 
     def test_to_gp_orbit(self):

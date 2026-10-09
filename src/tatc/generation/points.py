@@ -12,8 +12,9 @@ from numba import njit
 from shapely.geometry import MultiPolygon, Point, Polygon
 
 from ..constants import EARTH_MEAN_RADIUS
+from ..utils.geometry import hash_geometry
 from ..utils.surface import compute_number_samples
-from ._grid import compute_point_id_uniform_spacing, generate_indices_uniform_spacing
+from ._grid import generate_indices_uniform_spacing
 
 
 @njit
@@ -76,7 +77,9 @@ def generate_points_fibonacci_lattice(
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
-        geopandas.GeoDataFrame: the data frame of generated points
+        geopandas.GeoDataFrame: the data frame of generated points, each
+            identified by the hash of its geometry (`point_id`, see
+            `tatc.utils.geometry.hash_geometry`)
     """
 
     # determine the number of global samples to achieve average sample distance
@@ -120,7 +123,6 @@ def generate_points_fibonacci_lattice(
     # create a geodataframe in the WGS84 coordinate reference system (EPSG:4326)
     gdf = gpd.GeoDataFrame(
         {
-            "point_id": indices,
             "geometry": [
                 Point(
                     (
@@ -141,6 +143,8 @@ def generate_points_fibonacci_lattice(
     # clip the geodataframe to the supplied mask, if required
     if mask is not None:
         gdf = gpd.clip(gdf, mask).reset_index(drop=True)
+    # identify each point by the hash of its geometry
+    gdf.insert(0, "point_id", [hash_geometry(g) for g in gdf.geometry])
     # return the final geodataframe
     return gdf
 
@@ -166,7 +170,9 @@ def generate_points_uniform_spacing(
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
-        geopandas.GeoDataFrame: the data frame of generated points
+        geopandas.GeoDataFrame: the data frame of generated points, each
+            identified by the hash of its geometry (`point_id`, see
+            `tatc.utils.geometry.hash_geometry`)
     """
     # compute the angular disance of each sample (assuming sphere)
     theta_longitude = np.degrees(distance / EARTH_MEAN_RADIUS)
@@ -200,7 +206,9 @@ def generate_points_uniform_angular_distance(
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
     Returns:
-        geopandas.GeoDataFrame: the data frame of generated points
+        geopandas.GeoDataFrame: the data frame of generated points, each
+            identified by the hash of its geometry (`point_id`, see
+            `tatc.utils.geometry.hash_geometry`)
     """
 
     # generate grid cells over the filtered region
@@ -212,10 +220,6 @@ def generate_points_uniform_angular_distance(
     # create a geodataframe in the WGS84 reference frame
     gdf = gpd.GeoDataFrame(
         {
-            "point_id": [
-                compute_point_id_uniform_spacing(i, j, theta_longitude)
-                for (i, j) in indices
-            ],
             "geometry": [
                 Point(
                     -180 + (i + 0.5) * theta_longitude,
@@ -230,5 +234,7 @@ def generate_points_uniform_angular_distance(
     # clip the geodataframe to the supplied mask, if required
     if mask is not None:
         gdf = gpd.clip(gdf, mask).reset_index(drop=True)
+    # identify each point by the hash of its geometry
+    gdf.insert(0, "point_id", [hash_geometry(g) for g in gdf.geometry])
     # return the final geodataframe
     return gdf

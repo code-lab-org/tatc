@@ -6,7 +6,12 @@ Unit tests for the tatc.utils.observation module.
 
 import unittest
 
+import numpy as np
+
 from tatc.utils import (
+    compute_along_track_field_of_view,
+    compute_ground_inertial_velocity,
+    compute_ground_surface_velocity,
     compute_field_of_regard,
     compute_max_access_time,
     compute_max_transit_time,
@@ -335,3 +340,48 @@ class TestObservation(unittest.TestCase):  # pylint: disable=too-many-public-met
                         along_track,
                         delta=1e-6,
                     )
+
+    def test_compute_along_track_field_of_view(self):
+        """
+        Test that the along-track field of view subtends the distance the
+        ground track advances in one time step at the given latitude, and by
+        default at the fastest ground track velocity over the orbit, which
+        exceeds the inertial ground velocity for a retrograde orbit.
+        """
+        altitude, time_step = 700e3, 10
+        for inclination in (51.6, 98.2):
+            for latitude in (0, 30, -45):
+                velocity = compute_ground_surface_velocity(
+                    altitude, 0, inclination, latitude
+                )
+                self.assertAlmostEqual(
+                    compute_along_track_field_of_view(
+                        altitude, time_step, inclination, latitude
+                    ),
+                    np.degrees(2 * np.arctan(velocity * time_step / 2 / altitude)),
+                    delta=1e-9,
+                )
+                self.assertGreaterEqual(
+                    compute_along_track_field_of_view(altitude, time_step, inclination),
+                    compute_along_track_field_of_view(
+                        altitude, time_step, inclination, latitude
+                    ),
+                )
+        # retrograde: faster than the ground track of a non-rotating Earth
+        inertial = compute_ground_inertial_velocity(altitude)
+        self.assertGreater(
+            compute_along_track_field_of_view(altitude, time_step, 98.2),
+            np.degrees(2 * np.arctan(inertial * time_step / 2 / altitude)),
+        )
+        # an eccentric orbit is evaluated at perigee (lower and faster)
+        self.assertGreater(
+            compute_along_track_field_of_view(altitude, time_step, 98.2, None, 0.01),
+            compute_along_track_field_of_view(altitude, time_step, 98.2),
+        )
+        # proportional to the time step for small angles
+        self.assertAlmostEqual(
+            compute_along_track_field_of_view(altitude, 2, 98.2)
+            / compute_along_track_field_of_view(altitude, 1, 98.2),
+            2,
+            delta=1e-4,
+        )

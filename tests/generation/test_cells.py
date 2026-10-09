@@ -11,12 +11,28 @@ from tatc.generation import (
     generate_cells_uniform_angular_spacing,
     generate_cells_uniform_spacing,
 )
+from tatc.utils import hash_geometry
 
 
 class TestCellGenerators(unittest.TestCase):
     """
     Unit tests for the cell generation functions.
     """
+
+    def test_generated_cell_ids_are_geometry_hashes(self):
+        """
+        Test that every cell_id returned by the cell generators is the hash
+        of the cell's (clipped) geometry, and unique.
+        """
+        mask = Polygon([(-10, -10), (10, -10), (10, 10), (-10, 10)])
+        for cells in [
+            generate_cells_uniform_angular_spacing(10, 10),
+            generate_cells_uniform_spacing(500000, mask=mask),
+        ]:
+            self.assertEqual(
+                list(cells.cell_id), [hash_geometry(g) for g in cells.geometry]
+            )
+            self.assertTrue(cells.cell_id.is_unique)
 
     def test_generate_equally_spaced_cells_no_mask_count(self):
         """

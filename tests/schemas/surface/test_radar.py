@@ -521,6 +521,45 @@ class TestRadarStationTerrainMask(unittest.TestCase):
         footprint = station.compute_footprint(elevation=100000, number_points=36)
         self.assertTrue(footprint.is_empty)
 
+    def test_compute_footprint_with_terrain_mask_across_anti_meridian(self):
+        """
+        Test that a terrain-masked footprint crossing the anti-meridian, with
+        a cone of silence (a uniform inner circle, for a target above the
+        station) or an inner profile (for a target below it), is split along
+        the anti-meridian and has the same area as that of the same station
+        180 degrees of longitude away.
+        """
+        below_mask = TerrainMask(
+            azimuth=[0, 90, 180, 270], min_elevation_angle=[-1, -0.3, 0.5, -1]
+        )
+        cases = [
+            (3048, {"terrain_mask": self.mask}),
+            (
+                2000,
+                {
+                    "terrain_mask": below_mask,
+                    "elevation": 2290,
+                    "min_elevation_angle": -0.2,
+                },
+            ),
+        ]
+        for elevation, fields in cases:
+            with self.subTest(elevation=elevation):
+                near = RadarStation(
+                    name="test", latitude=52.9, longitude=179.9, **fields
+                )
+                far = RadarStation(name="test", latitude=52.9, longitude=-0.1, **fields)
+                footprint = near.compute_footprint(elevation, number_points=72)
+                reference = far.compute_footprint(elevation, number_points=72)
+                self.assertTrue(footprint.is_valid)
+                self.assertIsInstance(footprint, MultiPolygon)
+                min_longitude, _, max_longitude, _ = footprint.bounds
+                self.assertGreaterEqual(min_longitude, -180)
+                self.assertLessEqual(max_longitude, 180)
+                self.assertAlmostEqual(
+                    footprint.area, reference.area, delta=1e-9 * reference.area
+                )
+
 
 class TestRadarBand(unittest.TestCase):
     """

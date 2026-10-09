@@ -10,7 +10,7 @@ from datetime import timedelta
 
 import numpy as np
 import numpy.typing as npt
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from shapely import MultiPolygon, Polygon
 from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
@@ -22,6 +22,7 @@ from ...utils.observation import (
     field_of_regard_to_swath_width,
 )
 from ...utils.projection import (
+    NadirReference,
     compute_footprint,
     compute_projected_ray_position,
 )
@@ -53,11 +54,54 @@ class Instrument(BaseModel):
     req_target_sunlit: bool | None = Field(
         default=None,
         description="Required target sunlit state for valid observation "
-        + "(`True`: sunlit, `False`: eclipse, `None`: no requirement).",
+        + "(`True`: sunlit, `False`: eclipse, `None`: no requirement). "
+        + "Equivalent to a minimum (`True`) or maximum (`False`) target "
+        + "solar elevation angle of 0 degrees.",
+    )
+    min_target_solar_elevation: float | None = Field(
+        default=None,
+        description="Minimum solar elevation angle (degrees) at the target "
+        + "for valid observation (`None`: no requirement), for example to "
+        + "require daylight imaging conditions.",
+        ge=-90,
+        le=90,
+        examples=[10],
+    )
+    max_target_solar_elevation: float | None = Field(
+        default=None,
+        description="Maximum solar elevation angle (degrees) at the target "
+        + "for valid observation (`None`: no requirement), for example to "
+        + "require night-time imaging conditions.",
+        ge=-90,
+        le=90,
+        examples=[-12],
     )
     access_time_fixed: bool = Field(
         default=False, description="`True`, if access time is fixed to minimum value."
     )
+    nadir_reference: NadirReference = Field(
+        default=NadirReference.GEODETIC,
+        description="Definition of the nadir direction from which the view "
+        + "is rotated (`geodetic`: the WGS 84 ellipsoid normal; `geocentric`: "
+        + "toward the Earth's center). The two differ by up to about 0.19 "
+        + "degrees at middle latitudes.",
+    )
+
+    @model_validator(mode="after")
+    def check_target_solar_elevation_range(self) -> "Instrument":
+        """
+        Check that the minimum target solar elevation angle does not exceed
+        the maximum.
+        """
+        if (
+            self.min_target_solar_elevation is not None
+            and self.max_target_solar_elevation is not None
+            and self.min_target_solar_elevation > self.max_target_solar_elevation
+        ):
+            raise ValueError(
+                "min_target_solar_elevation must not exceed max_target_solar_elevation"
+            )
+        return self
 
     def get_swath_width(self, height: float) -> float:
         """
@@ -109,6 +153,7 @@ class Instrument(BaseModel):
             is_rectangular=False,
             number_points=number_points,
             elevation=elevation,
+            nadir_reference=self.nadir_reference,
         )
 
     def compute_footprint_center(
@@ -135,12 +180,16 @@ class Instrument(BaseModel):
             is_rectangular=False,
             angle=0,
             elevation=elevation,
+            nadir_reference=self.nadir_reference,
         )
 
     def is_valid_observation(
         self, orbit_track: Geocentric, target: GeographicPosition | None = None
     ) -> npt.NDArray[np.bool_]:
-        """Determines if an instrument can provide a valid observations.
+        """Determines if an instrument can provide a valid observations: the
+        instrument's sunlit state and the target's sunlit state and solar
+        elevation angle (without atmospheric refraction) must satisfy any
+        requirements.
 
         Args:
             orbit_track (skyfield.positionlib.Geocentric): orbit track position/velocity from Skyfield
@@ -152,13 +201,17 @@ class Instrument(BaseModel):
         if target is None:
             # support backwards compatibility
             target = wgs84.subpoint_of(orbit_track)
-        is_valid = np.ones(np.size(orbit_track.t), dtype=bool)  # type: ignore
+        is_valid = np.ones(np.size(orbit_track.t.tt), dtype=bool)  # type: ignore
         if self.req_self_sunlit is not None:
             # compare requirement to satellite sunlit condition
             is_self_sunlit_valid = orbit_track.is_sunlit(de421) == self.req_self_sunlit
             is_valid = np.logical_and(is_valid, is_self_sunlit_valid)
-        if self.req_target_sunlit is not None:
-            # compute solar altitude angle at sub-satellite points
+        if (
+            self.req_target_sunlit is not None
+            or self.min_target_solar_elevation is not None
+            or self.max_target_solar_elevation is not None
+        ):
+            # compute solar altitude angle at the target
             solar_alt = (
                 (de421["earth"] + target)
                 .at(orbit_track.t)
@@ -167,7 +220,16 @@ class Instrument(BaseModel):
                 .altaz()[0]
                 .degrees
             )
-            # compare requirement to sub-satellite point sunlit conditions
-            is_target_sunlit_valid = (solar_alt > 0) == self.req_target_sunlit
-            is_valid = np.logical_and(is_valid, is_target_sunlit_valid)
+            if self.req_target_sunlit is not None:
+                # compare requirement to target sunlit conditions
+                is_target_sunlit_valid = (solar_alt > 0) == self.req_target_sunlit
+                is_valid = np.logical_and(is_valid, is_target_sunlit_valid)
+            if self.min_target_solar_elevation is not None:
+                is_valid = np.logical_and(
+                    is_valid, solar_alt >= self.min_target_solar_elevation
+                )
+            if self.max_target_solar_elevation is not None:
+                is_valid = np.logical_and(
+                    is_valid, solar_alt <= self.max_target_solar_elevation
+                )
         return is_valid

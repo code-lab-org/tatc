@@ -9,11 +9,12 @@ from __future__ import annotations
 from enum import Enum
 
 import numpy as np
+import numpy.typing as npt
 from pydantic import BaseModel, Field, model_validator
 from shapely.geometry import MultiPolygon, Polygon
 
 from ... import config
-from ...utils.projection import compute_radar_footprint, compute_radar_footprint_profile
+from ...utils.radar import compute_radar_footprint, compute_radar_footprint_profile
 from ...utils.radar import compute_radar_ground_range_bounds
 from .point import Point
 
@@ -79,8 +80,23 @@ class TerrainMask(BaseModel):
         Returns:
             float: The interpolated minimum usable elevation angle (degrees).
         """
-        wrapped_azimuth = azimuth % 360
-        azimuths = np.concatenate(
+        return float(self.get_min_elevation_angles(azimuth))
+
+    def get_min_elevation_angles(self, azimuths: npt.ArrayLike) -> npt.NDArray:
+        """
+        Interpolates (periodically, wrapping at 0/360 degrees) the minimum
+        usable elevation angles at specified azimuths, vectorized across
+        azimuths (see `get_min_elevation_angle`).
+
+        Args:
+            azimuths (numpy.typing.ArrayLike): Azimuths (decimal degrees,
+                clockwise from north).
+
+        Returns:
+            numpy.typing.NDArray: The interpolated minimum usable elevation
+            angles (degrees).
+        """
+        samples = np.concatenate(
             ([self.azimuth[-1] - 360], self.azimuth, [self.azimuth[0] + 360])
         )
         angles = np.concatenate(
@@ -90,7 +106,7 @@ class TerrainMask(BaseModel):
                 [self.min_elevation_angle[0]],
             )
         )
-        return float(np.interp(wrapped_azimuth, azimuths, angles))
+        return np.interp(np.asarray(azimuths) % 360, samples, angles)
 
 
 class RadarBand(str, Enum):
@@ -350,16 +366,34 @@ class RadarStation(Point):
         """
         if number_points is None:
             number_points = config.get_rc().footprint_points_radar_azimuthal
-        profile = []
-        for azimuth in np.linspace(0, 360, number_points, endpoint=False):
-            bounds = compute_radar_ground_range_bounds(
-                self.get_effective_min_elevation_angle(azimuth),
-                self.get_effective_max_elevation_angle(),
-                self.max_range,
-                elevation,
-                self.elevation,
+        azimuths = np.linspace(0, 360, number_points, endpoint=False)
+        # effective minimum elevation angle at every azimuth at once (see
+        # get_effective_min_elevation_angle)
+        min_elevation_angles = np.full(
+            len(azimuths), max(self.min_elevation_angle - self.beam_width / 2, -90)
+        )
+        if self.terrain_mask is not None:
+            min_elevation_angles = np.maximum(
+                min_elevation_angles,
+                self.terrain_mask.get_min_elevation_angles(azimuths),
             )
-            inner_ground_range, outer_ground_range = bounds if bounds else (0.0, 0.0)
+        min_elevation_angles = np.minimum(
+            min_elevation_angles, self.get_effective_max_elevation_angle()
+        )
+        # ground range bounds, computed once per distinct elevation angle
+        bounds = {}
+        profile = []
+        for azimuth, min_elevation_angle in zip(azimuths, min_elevation_angles):
+            min_elevation_angle = float(min_elevation_angle)
+            if min_elevation_angle not in bounds:
+                bounds[min_elevation_angle] = compute_radar_ground_range_bounds(
+                    min_elevation_angle,
+                    self.get_effective_max_elevation_angle(),
+                    self.max_range,
+                    elevation,
+                    self.elevation,
+                ) or (0.0, 0.0)
+            inner_ground_range, outer_ground_range = bounds[min_elevation_angle]
             profile.append((float(azimuth), inner_ground_range, outer_ground_range))
         return profile
 

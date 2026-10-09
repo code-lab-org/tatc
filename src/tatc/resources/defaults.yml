@@ -8,11 +8,9 @@ footprint_points_radar_azimuthal: 360
 # orbit repeat cycle-related settings
 repeat_cycle_delta_position_m: 10000
 repeat_cycle_delta_velocity_m_per_s: 3
+repeat_cycle_delta_semimajor_axis_m: 100
 repeat_cycle_search_duration_days: 30
 repeat_cycle_consistency_threshold_s: 3600
-repeat_cycle_lazy_load: True
-repeat_cycle_for_orbit_track: True
-repeat_cycle_for_observation_events: True
 
-# orbit tle-related settings
-gp_orbit_lazy_load: True
+# Earth orientation settings (null to compute nutation for every time)
+nutation_interpolation_minutes: 15

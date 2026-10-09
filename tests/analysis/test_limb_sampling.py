@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
+import pandas as pd
 from shapely.geometry import MultiPoint
 from shapely.geometry import Point as ShapelyPoint
 from skyfield.api import wgs84
@@ -16,15 +17,15 @@ from skyfield.positionlib import Geocentric
 from skyfield.units import Distance, Velocity
 
 from tatc.analysis import ScanDirection, collect_limb_observations
-from tatc.analysis.limb_coverage import (
+from tatc.analysis.limb_sampling import (
     _constant_rate_scan_fractions,
     _default_scan_direction,
     _interpolate_limb_point,
     _limb_tangent_point,
     _sample_limb_scan,
 )
-from tatc.analysis.tangent_point import _geodetic_altitude
 from tatc.constants import EARTH_MEAN_RADIUS, timescale
+from tatc.utils.ellipsoid import rectangular_to_geodetic
 
 from .common import IssConstellationTestCase
 
@@ -70,9 +71,9 @@ class TestLimbTangentPoint(unittest.TestCase):
         the satellite. (Altitude varies only quadratically with distance
         along a near-horizontal ray, so the position tolerance is loose.)
         """
-        sat_geodetic_altitude = _geodetic_altitude(
+        sat_geodetic_altitude = rectangular_to_geodetic(
             itrs.rotation_at(self.t) @ np.array([self.r_sat, 0, 0])
-        )
+        )[2]
         tp_p, in_domain = _limb_tangent_point(self.sat, 0.0, [sat_geodetic_altitude])
         self.assertTrue(in_domain[0])
         np.testing.assert_allclose(tp_p.ravel(), [self.r_sat, 0, 0], atol=500)
@@ -129,11 +130,11 @@ class TestLimbTangentPoint(unittest.TestCase):
                 d = (tp_p - sat_p) / np.linalg.norm(tp_p - sat_p)
                 offsets = np.linspace(-50e3, 50e3, 20001)
                 ray = tp_p[:, np.newaxis] + offsets * d[:, np.newaxis]
-                altitudes = _geodetic_altitude(rotation @ ray)
+                altitudes = rectangular_to_geodetic(rotation @ ray)[2]
                 # minimum sits at the reported tangent point (5 m sampling)
                 self.assertLess(abs(offsets[np.argmin(altitudes)]), 100.0)
                 self.assertLess(
-                    _geodetic_altitude(rotation @ tp_p) - altitudes.min(), 1e-3
+                    rectangular_to_geodetic(rotation @ tp_p)[2] - altitudes.min(), 1e-3
                 )
                 # whereas the geocentric closest approach is well off it
                 geocentric_offset = -np.dot(tp_p, d)
@@ -615,6 +616,41 @@ class TestCollectLimbObservations(IssConstellationTestCase):
         for geometry in results.geometry:
             elevations = [point.z for point in geometry.geoms]
             self.assertEqual(elevations, sorted(elevations, reverse=True))
+
+
+class TestLimbObservationsOfSatellites(IssConstellationTestCase):
+    """
+    Unit tests for the limb observations of several satellites.
+    """
+
+    def test_satellites_equal_each_satellite(self):
+        """
+        Test that the limb observations of several satellites equal those of
+        each satellite, concatenated and sorted by time.
+        """
+        members = self.constellation.generate_members()
+        times = [
+            datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(seconds=30 * i)
+            for i in range(20)
+        ]
+        elevations = list(np.linspace(0, 90e3, 10))
+        observations = collect_limb_observations(
+            members, times, 0, elevations, timedelta(seconds=20)
+        )
+        expected = (
+            pd.concat(
+                [
+                    collect_limb_observations(
+                        m, times, 0, elevations, timedelta(seconds=20)
+                    )
+                    for m in members
+                ]
+            )
+            .sort_values("time", kind="stable")
+            .reset_index(drop=True)
+        )
+        self.assertEqual(len(observations.index), len(members) * len(times))
+        pd.testing.assert_frame_equal(observations, expected)
 
 
 if __name__ == "__main__":

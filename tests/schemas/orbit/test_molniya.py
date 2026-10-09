@@ -5,11 +5,31 @@ Unit tests for the MolniyaOrbit schema.
 """
 
 import unittest
+from datetime import datetime, timedelta, timezone
+
+import numpy as np
 
 from pydantic import ValidationError
+from skyfield.api import wgs84
 
-from tatc.constants import EARTH_MEAN_RADIUS, EARTH_SIDEREAL_DAY_S
+from tatc.constants import (
+    EARTH_J2_CRITICAL_INCLINATION,
+    EARTH_MEAN_RADIUS,
+    EARTH_SIDEREAL_DAY_S,
+)
 from tatc.schemas import MolniyaOrbit
+
+
+def sampled_apogee_longitudes(orbit, hours):
+    """
+    Longitudes (degrees) of the apogees found by sampling the propagated
+    orbit every 20 s from its epoch.
+    """
+    times = [orbit.epoch + timedelta(seconds=20 * k) for k in range(hours * 180)]
+    track = orbit.to_gp_orbit().get_orbit_track(times)
+    radius = np.linalg.norm(track.position.m, axis=0)
+    k = np.nonzero((radius[1:-1] > radius[:-2]) & (radius[1:-1] >= radius[2:]))[0] + 1
+    return wgs84.subpoint_of(track[k]).longitude.degrees
 
 
 class TestMolniyaOrbit(unittest.TestCase):
@@ -98,15 +118,101 @@ class TestMolniyaOrbit(unittest.TestCase):
         """
         Regression test: get_orbit_period must not simply return the
         naive, uncorrected half sidereal day -- it should be shifted by a
-        small (order 1-10 second), nonzero correction accounting for
+        small (order 10 second), nonzero correction accounting for
         Earth's J2 oblateness perturbation to the true rate of mean
-        anomaly advance. This exercises the fix for the historical
-        "TODO this needs to be corrected to account for J2 effects".
+        anomaly advance and the precession of the ascending node. This
+        exercises the fix for the historical "TODO this needs to be
+        corrected to account for J2 effects".
         """
         naive_period_s = EARTH_SIDEREAL_DAY_S / 2
         corrected_period_s = self.test_orbit.get_orbit_period().total_seconds()
         self.assertNotAlmostEqual(corrected_period_s, naive_period_s, delta=1e-6)
-        self.assertAlmostEqual(corrected_period_s, naive_period_s, delta=10)
+        self.assertAlmostEqual(corrected_period_s, naive_period_s, delta=30)
+
+    def test_inclination_default(self):
+        """
+        Test that the inclination defaults to the critical inclination.
+        """
+        self.assertEqual(self.test_orbit.inclination, EARTH_J2_CRITICAL_INCLINATION)
+        self.assertEqual(
+            self.test_orbit.get_inclination(), EARTH_J2_CRITICAL_INCLINATION
+        )
+
+    def test_inclination_custom(self):
+        """
+        Test that a custom inclination is used by the orbit, its derived
+        orbits, and its general perturbations representation.
+        """
+        orbit = MolniyaOrbit(perigee_altitude=600e3, inclination=50)
+        self.assertEqual(orbit.get_inclination(), 50)
+        self.assertEqual(orbit.get_derived_orbit(20, 10).inclination, 50)
+        self.assertAlmostEqual(orbit.to_gp_orbit().get_inclination(), 50, delta=0.01)
+        self.assertAlmostEqual(orbit.get_mean_motion() * 86400 / 360, 2.0, delta=0.01)
+
+    def test_period_cache_follows_fields(self):
+        """
+        Test that the cached orbit period is recomputed for a copy with a
+        changed inclination or perigee altitude (which model_copy copies
+        along with the cache).
+        """
+        orbit = MolniyaOrbit(perigee_altitude=600e3)
+        orbit.get_orbit_period()
+        for update in ({"inclination": 50}, {"perigee_altitude": 1500e3}):
+            self.assertEqual(
+                orbit.model_copy(update=update).get_orbit_period(),
+                MolniyaOrbit(
+                    **{"perigee_altitude": 600e3, **update}
+                ).get_orbit_period(),
+            )
+
+    def test_bad_inclination(self):
+        """
+        Test that the MolniyaOrbit schema raises a ValidationError for an
+        inclination outside [0, 180).
+        """
+        for inclination in (-1, 180):
+            with self.assertRaises(ValidationError):
+                MolniyaOrbit(perigee_altitude=600e3, inclination=inclination)
+
+    def test_apogee_longitudes_repeat(self):
+        """
+        Test that the ground track repeats as propagated: the longitudes of
+        each of the two daily apogees drift by less than 0.01 deg per day
+        over 20 days (without accounting for the precession of the
+        ascending node, they drift westward by about 0.1 deg per day; at
+        50 deg inclination, without accounting for the precession of the
+        argument of perigee, eastward by about 0.3 deg per day), and the
+        apogees are at the latitude of the inclination.
+        """
+        epoch = datetime(2026, 10, 4, tzinfo=timezone.utc)
+        for perigee_altitude, inclination in (
+            (600e3, EARTH_J2_CRITICAL_INCLINATION),
+            (1500e3, EARTH_J2_CRITICAL_INCLINATION),
+            (600e3, 50),
+        ):
+            orbit = MolniyaOrbit(
+                perigee_altitude=perigee_altitude, inclination=inclination, epoch=epoch
+            )
+            times = [epoch + timedelta(minutes=2 * k) for k in range(20 * 720)]
+            track = orbit.to_gp_orbit().get_orbit_track(times)
+            radius = np.linalg.norm(track.position.m, axis=0)
+            apogees = (
+                np.nonzero((radius[1:-1] > radius[:-2]) & (radius[1:-1] >= radius[2:]))[
+                    0
+                ]
+                + 1
+            )
+            subpoint = wgs84.subpoint_of(track[apogees])
+            longitude = subpoint.longitude.degrees
+            days = np.array([(times[k] - epoch) / timedelta(days=1) for k in apogees])
+            for first in (0, 1):
+                rate = np.polyfit(
+                    days[first::2],
+                    np.degrees(np.unwrap(np.radians(longitude[first::2]))),
+                    1,
+                )[0]
+                self.assertLess(abs(rate), 0.01, (perigee_altitude, inclination))
+            self.assertAlmostEqual(subpoint.latitude.degrees[0], inclination, delta=0.2)
 
     def test_get_semimajor_axis_and_mean_motion(self):
         """
@@ -150,6 +256,23 @@ class TestMolniyaOrbit(unittest.TestCase):
             derived_orbit.right_ascension_ascending_node,
             self.test_orbit.right_ascension_ascending_node + 10,
             delta=0.001,
+        )
+
+    def test_from_apogee_longitude(self):
+        """
+        Test that a Molniya orbit placed by longitude has its first apogee
+        over that longitude and its second apogee 180 degrees away.
+        """
+        orbit = MolniyaOrbit.from_apogee_longitude(
+            40,
+            perigee_altitude=600e3,
+            true_anomaly=200,
+            epoch=datetime(2026, 10, 4, tzinfo=timezone.utc),
+        )
+        self.assertIsInstance(orbit, MolniyaOrbit)
+        self.assertAlmostEqual(orbit.get_apogee_longitude(), 40, delta=1e-5)
+        np.testing.assert_allclose(
+            sampled_apogee_longitudes(orbit, 25), [40, -140], atol=0.02
         )
 
     def test_to_gp_orbit(self):

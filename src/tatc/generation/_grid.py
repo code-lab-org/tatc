@@ -8,32 +8,9 @@ by the points and cells generation modules.
 from __future__ import annotations
 
 import numpy as np
-from numba import njit
 from shapely.geometry import MultiPolygon, Polygon
 
 from ..utils.geometry import get_planar_bounds
-
-
-@njit
-def compute_point_id_uniform_spacing(i: int, j: int, theta_i: float) -> int:
-    """
-    Fast method to compute the flattened id for an equally spaced grid point.
-    Indices increment west-to-east followed by south-to-north with a first
-    point at -180 degrees latitude and close to -90 degrees latitude.
-
-    Args:
-        i (int): The zero-based longitude index.
-        j (int): The zero-based latitude index.
-        theta_i (float): The angular step in longitude (degrees).
-
-    Returns:
-        int: The id of this point.
-    """
-    # the row multiplier must use theta_i (longitude step), since that
-    # determines how many longitude bins actually exist per row; using
-    # the latitude step here previously caused id collisions whenever the
-    # longitude and latitude steps differed
-    return int(j * int(360 / theta_i) + np.mod(i, int(360 / theta_i)))
 
 
 def generate_indices_uniform_spacing(

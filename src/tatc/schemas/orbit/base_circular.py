@@ -12,9 +12,10 @@ from ... import constants
 from .base import OrbitBase
 
 
-class CircularOrbitBase(OrbitBase):
+class CircularOrbitBase(OrbitBase):  # pylint: disable=abstract-method
     """
-    Base class for circular orbits.
+    Base class for circular orbits. Its subclasses define the inclination
+    and right ascension of ascending node.
     """
 
     model_config = ConfigDict(populate_by_name=True)

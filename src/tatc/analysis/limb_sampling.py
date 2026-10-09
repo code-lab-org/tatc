@@ -12,18 +12,22 @@ from enum import Enum
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from shapely.geometry import MultiPoint, Point
+import shapely
+from shapely.geometry import Point
 from skyfield.api import Distance, wgs84
 from skyfield.positionlib import Geocentric
 
-from ..constants import EARTH_MEAN_RADIUS, timescale
+from ..constants import EARTH_MEAN_RADIUS
 from ..schemas import Satellite
-from .ro_coverage import _receiver_frame_vectors
-from .tangent_point import (
+from ..utils.ellipsoid import (
     _ellipsoidal_tangent_distance,
-    _geodetic_altitude,
     _itrs_rotation,
+    rectangular_to_geodetic,
 )
+from ..utils.orbital import compute_vnb_frame
+from ..utils.time import _to_time_from_offsets
+from .check import _check_satellites
+from .sampling import _interpolate_profile_point
 
 
 class ScanDirection(str, Enum):
@@ -63,6 +67,7 @@ def _limb_tangent_point(
     scan_elevations: list[float],
     tolerance: float = 1e-3,
     max_iterations: int = 10,
+    scans: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Computes the limb sounder's tangent point position and per-sample
@@ -74,7 +79,10 @@ def _limb_tangent_point(
     geodetic altitude (see `_ellipsoidal_tangent_distance`) -- and the
     viewing (depression) angle is solved iteratively so that this point's
     geodetic altitude matches the requested elevation (to within
-    `tolerance` meters).
+    `tolerance` meters). The samples of each scan (given by `scans`, the
+    integer index of each sample's scan; by default, all samples are one
+    scan) are refined until all of them converge, independently of other
+    scans.
 
     Returns:
         tuple[numpy.ndarray, numpy.ndarray]: tangent point positions (m,
@@ -83,7 +91,7 @@ def _limb_tangent_point(
             satellite's own altitude at that sample (no valid viewing
             angle exists).
     """
-    v_u, n_u, b_u = _receiver_frame_vectors(sat_pv)
+    v_u, n_u, b_u = compute_vnb_frame(sat_pv)
 
     # satellite position and geocentric radius at each sample
     sat_p = np.array(sat_pv.position.m)
@@ -97,7 +105,7 @@ def _limb_tangent_point(
 
     # a valid viewing angle exists only for elevations up to the
     # satellite's own geodetic altitude
-    in_domain = target_elevations <= _geodetic_altitude(sat_p_itrs) + tolerance
+    in_domain = target_elevations <= rectangular_to_geodetic(sat_p_itrs)[2] + tolerance
 
     # look direction: rotate from the velocity direction toward the
     # orbit-normal by scan_azimuth (staying in the local horizontal
@@ -110,16 +118,26 @@ def _limb_tangent_point(
     # sample, iteratively corrected by the achieved geodetic altitude error
     # (starting from the mean Earth radius; converges in a few iterations)
     reference_radius = np.full(target_elevations.shape, EARTH_MEAN_RADIUS)
+    scans = np.zeros(target_elevations.shape, dtype=int) if scans is None else scans
     for _ in range(max_iterations):
         cos_el = (reference_radius + target_elevations) / r_sat
         el = np.arccos(np.clip(cos_el, -1, 1))
         d = np.cos(el) * horizontal - np.sin(el) * b_u
         d_itrs = np.einsum("ij...,j...->i...", rotation, d)
         s = _ellipsoidal_tangent_distance(sat_p_itrs, d_itrs, target_elevations)
-        error = _geodetic_altitude(sat_p_itrs + s * d_itrs) - target_elevations
-        if not np.any(np.abs(error[in_domain]) > tolerance):
+        error = rectangular_to_geodetic(sat_p_itrs + s * d_itrs)[2] - target_elevations
+        # scans with a sample (in the viewing domain) not yet converged
+        unconverged = np.zeros(np.max(scans, initial=-1) + 1, dtype=bool)
+        np.logical_or.at(
+            unconverged, scans[in_domain], np.abs(error[in_domain]) > tolerance
+        )
+        if not np.any(unconverged):
             break
-        reference_radius = reference_radius - error
+        # refine only those scans (the others are unchanged, so their next
+        # look directions and tangent points are the same)
+        reference_radius = np.where(
+            unconverged[scans], reference_radius - error, reference_radius
+        )
 
     # tangent point: the same distance s along the (inertial) ray
     tp_p = sat_p + s * d
@@ -159,39 +177,91 @@ def _sample_limb_scan(
     angular-rate scan mirror would reach them (see
     `_constant_rate_scan_fractions`), and computed using that sample's own
     satellite position (so a long scan, with significant along-track
-    motion, stays accurate throughout).
+    motion, stays accurate throughout). See `_sample_limb_scans`.
     """
+    return _sample_limb_scans(
+        satellite, [start], scan_azimuth, scan_elevations, scan_duration
+    )[0]
+
+
+def _sample_limb_scans(
+    satellite: Satellite,
+    starts: list[datetime],
+    scan_azimuth: float,
+    scan_elevations: list[float],
+    scan_duration: timedelta,
+) -> list[list[dict]]:
+    """
+    Samples tangent points across vertical scans starting at each of
+    `starts` (see `_sample_limb_scan`), computing the samples of all scans
+    together.
+    """
+    if len(starts) == 0:
+        return []
     orbit = satellite.orbit.to_gp_orbit()
-    # reference satellite radius at the scan's start, used only to convert
+    # reference satellite radius at each scan's start, used only to convert
     # target elevations to reference viewing angles for timing purposes
     # (altitude changes negligibly over one scan's duration; the tangent
     # points actually reported are still computed exactly, per sample,
     # below)
-    r_sat0 = np.linalg.norm(np.array(orbit.get_orbit_track([start]).position.m).ravel())
+    r_sat0 = [
+        np.linalg.norm(position)
+        for position in np.reshape(
+            orbit.get_orbit_track(list(starts)).position.m, (3, -1)
+        ).T
+    ]
     target_elevations = np.asarray(scan_elevations, dtype=float)
-    angle0 = np.arccos(np.clip((EARTH_MEAN_RADIUS + target_elevations) / r_sat0, -1, 1))
-    fractions = _constant_rate_scan_fractions(angle0)
-    sample_times = [start + f * scan_duration for f in fractions]
     num_samples = len(scan_elevations)
+    # sample times (`start + fraction * scan_duration`, rounded to a
+    # microsecond as with `datetime` arithmetic), computed in integer
+    # microseconds from the first start, for all scans at once
+    reference = starts[0]
+    microsecond = timedelta(microseconds=1)
+    duration = scan_duration // microsecond
+    offsets = []
+    for start, radius in zip(starts, r_sat0):
+        angle0 = np.arccos(
+            np.clip((EARTH_MEAN_RADIUS + target_elevations) / radius, -1, 1)
+        )
+        fractions = _constant_rate_scan_fractions(angle0)
+        offsets.append(
+            (start - reference) // microsecond
+            + np.rint(fractions * duration).astype(np.int64)
+        )
+    microseconds = np.concatenate(offsets)
+    sample_times = [
+        reference + timedelta(microseconds=offset) for offset in microseconds.tolist()
+    ]
 
-    t = timescale.from_datetimes(sample_times)
-    sat_pv = orbit.get_orbit_track(sample_times)
-    tp_p, in_domain = _limb_tangent_point(sat_pv, scan_azimuth, scan_elevations)
+    sat_pv = orbit.get_orbit_track_at_time(
+        _to_time_from_offsets(reference, microseconds / 1e6)
+    )
+    tp_p, in_domain = _limb_tangent_point(
+        sat_pv,
+        scan_azimuth,
+        np.tile(target_elevations, len(starts)),
+        scans=np.repeat(np.arange(len(starts)), num_samples),
+    )
 
-    tpp_geo = wgs84.geographic_position_of(Geocentric(Distance(m=tp_p).au, None, t))
+    tpp_geo = wgs84.geographic_position_of(
+        Geocentric(Distance(m=tp_p).au, None, sat_pv.t)
+    )
     longitude = np.array(tpp_geo.longitude.degrees)
     latitude = np.array(tpp_geo.latitude.degrees)
     elevation = np.array(tpp_geo.elevation.m)
 
     return [
-        {
-            "time": sample_times[i],
-            "longitude": longitude[i],
-            "latitude": latitude[i],
-            "elevation": elevation[i],
-        }
-        for i in range(num_samples)
-        if in_domain[i]
+        [
+            {
+                "time": sample_times[i],
+                "longitude": longitude[i],
+                "latitude": latitude[i],
+                "elevation": elevation[i],
+            }
+            for i in range(k * num_samples, (k + 1) * num_samples)
+            if in_domain[i]
+        ]
+        for k in range(len(starts))
     ]
 
 
@@ -206,35 +276,7 @@ def _interpolate_limb_point(points: list[dict], sample_elevation: float) -> dict
     Returns:
         dict: interpolated longitude (deg), latitude (deg), elevation (m), and time.
     """
-    elevations = np.array([point["elevation"] for point in points])
-    diffs = elevations - sample_elevation
-    # bracketing indices where the tangent point elevation crosses the sample elevation
-    crossings = np.nonzero(np.diff(np.sign(diffs)))[0]
-    if len(crossings) > 0:
-        i = crossings[0]
-        p0, p1 = points[i], points[i + 1]
-        denom = diffs[i] - diffs[i + 1]
-        frac = diffs[i] / denom if denom != 0 else 0.0
-    else:
-        # sample elevation is outside the observed range: clamp to the nearest endpoint
-        i = 0 if abs(diffs[0]) <= abs(diffs[-1]) else len(points) - 1
-        p0 = p1 = points[i]
-        frac = 0.0
-
-    def lerp(a, b):
-        return a + frac * (b - a)
-
-    def lerp_angle(a, b, low=-180.0):
-        # interpolate along the shortest angular path, then wrap to [low, low + 360)
-        diff = ((b - a + 180) % 360) - 180
-        return (a + frac * diff - low) % 360 + low
-
-    return {
-        "longitude": lerp_angle(p0["longitude"], p1["longitude"]),
-        "latitude": lerp(p0["latitude"], p1["latitude"]),
-        "elevation": lerp(p0["elevation"], p1["elevation"]),
-        "time": p0["time"] + frac * (p1["time"] - p0["time"]),
-    }
+    return _interpolate_profile_point(points, sample_elevation)
 
 
 def _get_empty_limb_frame() -> gpd.GeoDataFrame:
@@ -256,7 +298,7 @@ def _get_empty_limb_frame() -> gpd.GeoDataFrame:
 
 
 def collect_limb_observations(
-    satellite: Satellite,
+    satellites: Satellite | list[Satellite],
     times: list[datetime],
     scan_azimuth: float,
     scan_elevations: list[float],
@@ -274,7 +316,9 @@ def collect_limb_observations(
     for details.
 
     Args:
-        satellite (Satellite): the satellite carrying the limb-sounding instrument.
+        satellites (Satellite | list[Satellite]): the satellite(s) carrying the
+            limb-sounding instrument, each scanning at every time (results
+            are concatenated and sorted by time).
         times (list[datetime.datetime]): the start time of each vertical scan.
         scan_azimuth (float): the sensor's fixed viewing azimuth (deg),
             relative to the satellite's velocity direction, measured in
@@ -307,6 +351,7 @@ def collect_limb_observations(
             each scan. Defaults to the midpoint of `scan_elevations`
             (`(min + max) / 2`) when `None`.
     """
+    satellites = _check_satellites(satellites)
     if scan_direction is None:
         scan_direction = _default_scan_direction(scan_azimuth)
     scan_elevations = sorted(
@@ -315,29 +360,32 @@ def collect_limb_observations(
     if sample_elevation is None:
         sample_elevation = (min(scan_elevations) + max(scan_elevations)) / 2
 
+    # sample all scans of each satellite together
     scans = [
-        points
-        for start in times
-        for points in [
-            _sample_limb_scan(
-                satellite, start, scan_azimuth, scan_elevations, scan_duration
-            )
-        ]
+        (satellite.name, points)
+        for satellite in satellites
+        for points in _sample_limb_scans(
+            satellite, times, scan_azimuth, scan_elevations, scan_duration
+        )
         if len(points) > 0
     ]
     if len(scans) == 0:
         return _get_empty_limb_frame()
+    # the sampled points of each scan, built at once
+    geometry = shapely.multipoints(
+        [
+            [point["longitude"], point["latitude"], point["elevation"]]
+            for _, scan in scans
+            for point in scan
+        ],
+        indices=np.repeat(np.arange(len(scans)), [len(scan) for _, scan in scans]),
+    )
     # format results
     return gpd.GeoDataFrame(
         [
             {
-                "satellite": satellite.name,
-                "geometry": MultiPoint(
-                    [
-                        [point["longitude"], point["latitude"], point["elevation"]]
-                        for point in scan
-                    ]
-                ),
+                "satellite": name,
+                "geometry": points,
                 "position": Point(
                     sample["longitude"], sample["latitude"], sample["elevation"]
                 ),
@@ -345,8 +393,8 @@ def collect_limb_observations(
                 "end": scan[-1]["time"],
                 "time": sample["time"],
             }
-            for scan in scans
+            for (name, scan), points in zip(scans, geometry)
             for sample in [_interpolate_limb_point(scan, sample_elevation)]
         ],
         crs="EPSG:4326",
-    ).sort_values("time", ignore_index=True)
+    ).sort_values("time", kind="stable", ignore_index=True)

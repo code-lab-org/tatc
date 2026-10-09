@@ -5,15 +5,21 @@ Unit tests for the PointedInstrument schema.
 """
 
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+import numpy as np
 from pydantic import ValidationError
 from skyfield.api import EarthSatellite, wgs84
 
 from tatc.constants import timescale
 from tatc.schemas import CircularOrbit, PointedInstrument
 from tatc.utils import field_of_regard_to_swath_width, geodesic_distance
-from tatc.utils.projection import compute_projected_ray_position
+from tatc.utils.projection import (
+    VelocityFrame,
+    ViewGeometry,
+    compute_projected_ray_position,
+    compute_view_angles,
+)
 
 
 class TestPointedInstrument(unittest.TestCase):
@@ -91,6 +97,7 @@ class TestPointedInstrument(unittest.TestCase):
         self.assertEqual(o.along_track_pixels, 1)
         self.assertEqual(o.cross_track_oversampling, 0)
         self.assertEqual(o.along_track_oversampling, 0)
+        self.assertEqual(o.velocity_frame, VelocityFrame.EARTH_FIXED)
 
     def test_field_of_view_bounds(self):
         """
@@ -219,13 +226,15 @@ class TestPointedInstrument(unittest.TestCase):
     def test_get_pixel_cone_and_clock_angle_single_pixel(self):
         """
         Test that a single pixel (spanning the full field of view) is
-        centered on boresight: zero cone angle.
+        centered on boresight: zero cone angle, with a clock angle of zero
+        (the arctangent of zero along-track and cross-track offsets).
         """
         o = PointedInstrument(
             name="t", cross_track_field_of_view=20.0, along_track_field_of_view=10.0
         )
         cone, clock = o.get_pixel_cone_and_clock_angle(0, 0)
         self.assertAlmostEqual(cone, 0.0)
+        self.assertAlmostEqual(clock, 0.0)
 
     def test_get_pixel_cone_and_clock_angle_cross_track(self):
         """
@@ -314,6 +323,116 @@ class TestPointedInstrument(unittest.TestCase):
         self.assertEqual(distances, sorted(distances))
         distances_negative = [distance_for_roll(r) for r in (0, -5, -10, -20)]
         self.assertEqual(distances_negative, sorted(distances_negative))
+
+    def test_compute_footprint_center_velocity_frame(self):
+        """
+        Test that the velocity frame passes through to projections: in an
+        inclined orbit, a pitched footprint center moves with an inertial
+        velocity frame, while an unpointed center does not.
+        """
+        orbit_track = EarthSatellite.from_satrec(
+            CircularOrbit(
+                mean_altitude=500000,
+                true_anomaly=0,
+                epoch=self.test_time.utc_datetime(),
+                inclination=51.6,
+                right_ascension_ascending_node=0.0,
+            )
+            .to_gp_orbit()
+            .elements[0]
+            .to_satrec(),
+            timescale,
+        ).at(self.test_time)
+
+        def center(velocity_frame, pitch):
+            o = PointedInstrument(
+                name="t",
+                cross_track_field_of_view=1.0,
+                along_track_field_of_view=1.0,
+                pitch_angle=pitch,
+                velocity_frame=velocity_frame,
+            )
+            return o.compute_footprint_center(orbit_track)
+
+        for pitch, moves in [(0, False), (20, True)]:
+            earth_fixed = center(VelocityFrame.EARTH_FIXED, pitch)
+            inertial = center("inertial", pitch)
+            distance = geodesic_distance(
+                earth_fixed.longitude.degrees,
+                earth_fixed.latitude.degrees,
+                inertial.longitude.degrees,
+                inertial.latitude.degrees,
+            )
+            if moves:
+                self.assertGreater(distance, 1e3)
+            else:
+                self.assertAlmostEqual(distance, 0, delta=1e-3)
+
+    def test_is_in_field_of_view_rolled_edges(self):
+        """
+        Test that a rolled view is rotated rigidly: a 40 deg view rolled by 10
+        deg spans scan angles from -10 to 30 deg.
+        """
+        o = PointedInstrument(
+            name="t",
+            cross_track_field_of_view=40.0,
+            along_track_field_of_view=10.0,
+            roll_angle=10,
+            is_rectangular=True,
+        )
+        for roll, expected in [
+            (29.9, True),
+            (30.1, False),
+            (-9.9, True),
+            (-10.1, False),
+        ]:
+            target = compute_projected_ray_position(self.orbit_track, 0, 0, roll)
+            self.assertEqual(
+                o.is_in_field_of_view(self.orbit_track, target).tolist(),
+                [expected],
+                f"roll {roll}",
+            )
+
+    def test_is_in_field_of_view(self):
+        """
+        Test that targets just inside (outside) the edges of rectangular and
+        elliptical rolled and pitched views are (are not) in the field of
+        view, with targets placed relative to the view center.
+        """
+        for is_rectangular in (True, False):
+            o = PointedInstrument(
+                name="t",
+                cross_track_field_of_view=40.0,
+                along_track_field_of_view=10.0,
+                roll_angle=10,
+                pitch_angle=-5,
+                is_rectangular=is_rectangular,
+            )
+
+            def target(cross, along, rectangular=False, angle=0):
+                # a ray offset from the view center by the given half widths
+                return compute_projected_ray_position(
+                    self.orbit_track, 2 * cross, 2 * along, 10, -5, rectangular, angle
+                )
+
+            for position, expected in [
+                (target(0, 0), True),
+                (target(19.9, 0), True),
+                (target(20.1, 0), False),
+                (target(19.9, 0, angle=180), True),
+                (target(20.1, 0, angle=180), False),
+                (target(0, 4.9, angle=90), True),
+                (target(0, 5.1, angle=90), False),
+                (target(0, 4.9, angle=270), True),
+                (target(0, 5.1, angle=270), False),
+                # near a corner: inside the rectangle, outside the ellipse
+                (target(19.5, 4.8, True, 15), is_rectangular),
+            ]:
+                self.assertEqual(
+                    o.is_in_field_of_view(self.orbit_track, position).tolist(),
+                    [expected],
+                    f"rectangular {is_rectangular}",
+                )
 
     def test_compute_projected_pixel_position_matches_direct_cone_offset(self):
         """
@@ -409,3 +528,462 @@ class TestPointedInstrument(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRollAngleProfile(unittest.TestCase):
+    """
+    Unit tests for a PointedInstrument roll angle that varies around the
+    orbit (roll_angle_profile).
+    """
+
+    def setUp(self):
+        epoch = datetime(2020, 3, 20, 12, tzinfo=timezone.utc)
+        self.satellite = EarthSatellite.from_satrec(
+            CircularOrbit(
+                mean_altitude=700000,
+                true_anomaly=0,
+                epoch=epoch,
+                inclination=98.0,
+                right_ascension_ascending_node=0.0,
+            )
+            .to_gp_orbit()
+            .elements[0]
+            .to_satrec(),
+            timescale,
+        )
+        period = 2 * np.pi * np.sqrt((6378137.0 + 700000) ** 3 / 3.986004418e14)
+        # a quarter orbit apart: arguments of latitude near 0, 90, 180, 270 deg
+        self.track = self.satellite.at(
+            timescale.from_datetimes(
+                [epoch + timedelta(seconds=float(k * period / 4)) for k in range(4)]
+            )
+        )
+        self.base = dict(
+            name="radar",
+            field_of_regard=90,
+            cross_track_field_of_view=10,
+            along_track_field_of_view=1,
+            roll_angle=-30,
+            is_rectangular=True,
+        )
+
+    def test_default_uses_roll_angle(self):
+        """
+        Test that, without a profile, the roll angle is constant.
+        """
+        instrument = PointedInstrument(**self.base)
+        self.assertEqual(instrument.get_roll_angle(self.track), -30)
+
+    def test_profile_sorted_and_interpolated_periodically(self):
+        """
+        Test that the profile is sorted by argument of latitude and
+        interpolated linearly, wrapping around 360 degrees.
+        """
+        instrument = PointedInstrument(
+            **self.base, roll_angle_profile=[(270, -32), (90, -28)]
+        )
+        self.assertEqual(instrument.roll_angle_profile, [(90, -28), (270, -32)])
+        roll = instrument.get_roll_angle(self.track)
+        # 0 and 180 deg are midway between the profile points (wrapping at 360)
+        np.testing.assert_allclose(roll, [-30, -28, -30, -32], atol=0.05)
+
+    def test_profile_validation(self):
+        """
+        Test that arguments of latitude outside [0, 360) and roll angles
+        outside [-180, 180] are rejected.
+        """
+        for profile in ([(360, -30)], [(-1, -30)], [(10, 181)], []):
+            with self.assertRaises(ValidationError):
+                PointedInstrument(**self.base, roll_angle_profile=profile)
+
+    def test_constant_profile_matches_fixed_roll(self):
+        """
+        Test that a constant profile gives the same footprints and fields
+        of view as the fixed roll angle.
+        """
+        fixed = PointedInstrument(**self.base)
+        steered = PointedInstrument(**self.base, roll_angle_profile=[(0, -30)])
+        for a, b in zip(
+            fixed.compute_footprint(self.track), steered.compute_footprint(self.track)
+        ):
+            self.assertTrue(a.equals(b))
+        target = fixed.compute_footprint_center(self.track[1])
+        self.assertTrue(steered.is_in_field_of_view(self.track[1], target)[0])
+
+    def test_profile_moves_view(self):
+        """
+        Test that the view center follows the profile: rolling 5 degrees
+        farther to the right in the northern part of the orbit moves the
+        footprint center farther from the ground track there only.
+        """
+        fixed = PointedInstrument(**self.base)
+        steered = PointedInstrument(
+            **self.base,
+            roll_angle_profile=[(0, -30), (90, -35), (180, -30), (270, -30)],
+        )
+        sub = wgs84.subpoint_of(self.track)
+        distance = {}
+        for name, instrument in [("fixed", fixed), ("steered", steered)]:
+            center = instrument.compute_footprint_center(self.track)
+            distance[name] = [
+                geodesic_distance(
+                    sub.longitude.degrees[k],
+                    sub.latitude.degrees[k],
+                    center.longitude.degrees[k],
+                    center.latitude.degrees[k],
+                )
+                for k in range(4)
+            ]
+        self.assertGreater(distance["steered"][1], distance["fixed"][1] + 50e3)
+        for k in (0, 2, 3):
+            self.assertAlmostEqual(
+                distance["steered"][k], distance["fixed"][k], delta=1e3
+            )
+
+
+class TestTiltedScanViewGeometry(unittest.TestCase):
+    """
+    Unit tests for a pitched PointedInstrument in scan geometry: the pitch
+    angle tilts the scan plane, as for a scanner that tilts fore or aft
+    (such as PACE OCI).
+    """
+
+    def setUp(self):
+        epoch = datetime(2026, 10, 4, tzinfo=timezone.utc)
+        satellite = EarthSatellite.from_satrec(
+            CircularOrbit(mean_altitude=676e3, inclination=98.1, epoch=epoch)
+            .to_gp_orbit()
+            .elements[0]
+            .to_satrec(),
+            timescale,
+        )
+        self.track = satellite.at(timescale.from_datetime(epoch))
+        # an OCI-like scanner tilted 20 deg forward
+        self.base = dict(
+            name="tilted scanner",
+            field_of_regard=120,
+            cross_track_field_of_view=112.9,
+            along_track_field_of_view=0.1,
+            pitch_angle=20,
+            is_rectangular=True,
+            cross_track_pixels=11,
+        )
+
+    def test_scan_line_matches_tilted_frame(self):
+        """
+        Test that the pixels of a tilted scan lie on the same line as those
+        of a frame view pitched by the same angle (the plane containing the
+        cross-track axis and the tilted boresight), rather than on a cone of
+        constant along-track angle, which would be up to hundreds of
+        kilometers farther forward at the swath edges.
+        """
+        scan = PointedInstrument(**self.base, view_geometry="scan")
+        for index in range(11):
+            pixel = scan.compute_projected_pixel_position(self.track, index, 0)
+            # pylint: disable-next=protected-access
+            cross_offset, _ = scan._get_pixel_offsets(index, 0)
+            plane = compute_projected_ray_position(
+                self.track,
+                2 * abs(cross_offset),
+                2 * abs(cross_offset),
+                0,
+                20,
+                False,
+                0 if cross_offset >= 0 else 180,
+            )
+            self.assertLess(
+                geodesic_distance(
+                    pixel.longitude.degrees,
+                    pixel.latitude.degrees,
+                    plane.longitude.degrees,
+                    plane.latitude.degrees,
+                ),
+                1,
+            )
+
+    def test_field_of_view_follows_tilted_scan_plane(self):
+        """
+        Test that targets on the tilted scan line are in the field of view
+        at all scan angles, and that targets displaced along track by more
+        than half the along-track field of view are not.
+        """
+        scan = PointedInstrument(**self.base, view_geometry="scan")
+        for roll in (-55, -30, 0, 30, 55):
+            for pitch, inside in [(0, True), (0.04, True), (0.06, False)]:
+                ray = compute_projected_ray_position(
+                    self.track, 0, 0, roll, pitch, tilt_angle=20
+                )
+                target = wgs84.latlon(ray.latitude.degrees, ray.longitude.degrees)
+                self.assertEqual(
+                    bool(scan.is_in_field_of_view(self.track, target)[0]), inside
+                )
+
+
+class TestPitchAngleProfile(unittest.TestCase):
+    """
+    Unit tests for a PointedInstrument pitch angle that varies around the
+    orbit (pitch_angle_profile).
+    """
+
+    def setUp(self):
+        epoch = datetime(2020, 3, 20, 12, tzinfo=timezone.utc)
+        self.satellite = EarthSatellite.from_satrec(
+            CircularOrbit(
+                mean_altitude=700000,
+                true_anomaly=0,
+                epoch=epoch,
+                inclination=98.0,
+                right_ascension_ascending_node=0.0,
+            )
+            .to_gp_orbit()
+            .elements[0]
+            .to_satrec(),
+            timescale,
+        )
+        period = 2 * np.pi * np.sqrt((6378137.0 + 700000) ** 3 / 3.986004418e14)
+        # a quarter orbit apart: arguments of latitude near 0, 90, 180, 270 deg
+        self.track = self.satellite.at(
+            timescale.from_datetimes(
+                [epoch + timedelta(seconds=float(k * period / 4)) for k in range(4)]
+            )
+        )
+        self.base = dict(
+            name="imager",
+            field_of_regard=120,
+            cross_track_field_of_view=100,
+            along_track_field_of_view=1,
+            pitch_angle=20,
+            is_rectangular=True,
+        )
+
+    def test_default_uses_pitch_angle(self):
+        """
+        Test that, without a profile, the pitch angle is constant.
+        """
+        instrument = PointedInstrument(**self.base)
+        self.assertEqual(instrument.get_pitch_angle(self.track), 20)
+        self.assertEqual(instrument.get_pitch_angle(), 20)
+
+    def test_profile_sorted_and_interpolated_periodically(self):
+        """
+        Test that the profile is sorted by argument of latitude and
+        interpolated linearly, wrapping around 360 degrees.
+        """
+        instrument = PointedInstrument(
+            **self.base, pitch_angle_profile=[(270, -20), (90, 20)]
+        )
+        self.assertEqual(instrument.pitch_angle_profile, [(90, 20), (270, -20)])
+        pitch = instrument.get_pitch_angle(self.track)
+        # 0 and 180 deg are midway between the profile points (wrapping at 360)
+        np.testing.assert_allclose(pitch, [0, 20, 0, -20], atol=0.2)
+        # the roll angle is unaffected
+        self.assertEqual(instrument.get_roll_angle(self.track), 0)
+
+    def test_profile_validation(self):
+        """
+        Test that arguments of latitude outside [0, 360) and pitch angles
+        outside [-180, 180] are rejected.
+        """
+        for profile in ([(360, 20)], [(-1, 20)], [(10, -181)], []):
+            with self.assertRaises(ValidationError) as context:
+                PointedInstrument(**self.base, pitch_angle_profile=profile)
+            if profile == [(10, -181)]:
+                self.assertIn("Pitch angles", str(context.exception))
+
+    def test_constant_profile_matches_fixed_pitch(self):
+        """
+        Test that a constant profile gives the same footprints, footprint
+        centers, pixel positions, and fields of view as the fixed pitch angle,
+        in both view geometries.
+        """
+        for view_geometry in ("frame", "scan"):
+            fixed = PointedInstrument(**self.base, view_geometry=view_geometry)
+            steered = PointedInstrument(
+                **{**self.base, "pitch_angle": 0},
+                view_geometry=view_geometry,
+                pitch_angle_profile=[(0, 20)],
+            )
+            for a, b in zip(
+                fixed.compute_footprint(self.track),
+                steered.compute_footprint(self.track),
+            ):
+                self.assertTrue(a.equals(b))
+            target = fixed.compute_footprint_center(self.track[1])
+            self.assertAlmostEqual(
+                steered.compute_footprint_center(self.track[1]).latitude.degrees,
+                target.latitude.degrees,
+            )
+            self.assertTrue(steered.is_in_field_of_view(self.track[1], target)[0])
+            pixel = fixed.compute_projected_pixel_position(self.track, 0, 0)
+            np.testing.assert_allclose(
+                steered.compute_projected_pixel_position(
+                    self.track, 0, 0
+                ).latitude.degrees,
+                pixel.latitude.degrees,
+            )
+
+    def test_profile_moves_view(self):
+        """
+        Test that the view center follows the profile: pitching forward in
+        the northern part of the orbit and aft in the southern part moves the
+        footprint center ahead of the satellite in the north and behind it in
+        the south, by about 700 km * tan(20 deg) = 255 km.
+        """
+        instrument = PointedInstrument(
+            **{**self.base, "pitch_angle": 0},
+            pitch_angle_profile=[(0, 0), (90, 20), (180, 0), (270, -20)],
+        )
+        sub = wgs84.subpoint_of(self.track)
+        center = instrument.compute_footprint_center(self.track)
+        offsets = [
+            geodesic_distance(
+                sub.longitude.degrees[k],
+                sub.latitude.degrees[k],
+                center.longitude.degrees[k],
+                center.latitude.degrees[k],
+            )
+            for k in range(4)
+        ]
+        np.testing.assert_allclose(offsets, [0, 255e3, 0, 255e3], atol=15e3)
+        # the center is near the subsatellite point 36 s (255 km) later in
+        # the north (forward) and 36 s earlier in the south (aft)
+        times = self.track.t.utc_datetime()
+        for k, sign in [(1, 1), (3, -1)]:
+            ahead, behind = (
+                wgs84.subpoint_of(
+                    self.satellite.at(
+                        timescale.from_datetime(
+                            times[k] + timedelta(seconds=float(direction * 36))
+                        )
+                    )
+                )
+                for direction in (sign, -sign)
+            )
+            to_ahead, to_behind = (
+                geodesic_distance(
+                    position.longitude.degrees,
+                    position.latitude.degrees,
+                    center.longitude.degrees[k],
+                    center.latitude.degrees[k],
+                )
+                for position in (ahead, behind)
+            )
+            self.assertLess(to_ahead, 20e3)
+            self.assertGreater(to_behind, 400e3)
+
+
+class TestScanViewGeometry(unittest.TestCase):
+    """
+    Unit tests for PointedInstrument views defined in scan (angular)
+    geometry, as for cross-track scanners.
+    """
+
+    def setUp(self):
+        epoch = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        satellite = EarthSatellite.from_satrec(
+            CircularOrbit(mean_altitude=834e3, inclination=98.7, epoch=epoch)
+            .to_gp_orbit()
+            .elements[0]
+            .to_satrec(),
+            timescale,
+        )
+        self.track = satellite.at(timescale.from_datetime(epoch))
+        # a VIIRS-like scanner: 112.1 deg across track, 0.814 deg along track
+        self.base = dict(
+            name="scanner",
+            field_of_regard=115,
+            cross_track_field_of_view=112.1,
+            along_track_field_of_view=0.814,
+            is_rectangular=True,
+        )
+
+    def along_track_extent(self, instrument, cross_angle):
+        """
+        Distance (km) between the footprint's fore and aft edges at a
+        cross-track angle (degrees): between the polygon vertices nearest
+        that cross-track angle ahead of and behind the cross-track plane.
+        """
+        footprint = instrument.compute_footprint(self.track, number_points=200)[0]
+        best = {}
+        for lon, lat in np.array(footprint.exterior.coords)[:, :2]:
+            roll, pitch = compute_view_angles(self.track, wgs84.latlon(lat, lon))
+            side = pitch > 0
+            if side not in best or abs(roll - cross_angle) < best[side][0]:
+                best[side] = (abs(roll - cross_angle), lon, lat)
+        (_, lon_0, lat_0), (_, lon_1, lat_1) = best[True], best[False]
+        return geodesic_distance(lon_0, lat_0, lon_1, lat_1) / 1e3
+
+    def test_default_frame_geometry(self):
+        """
+        Test that views are defined in frame geometry by default.
+        """
+        self.assertEqual(
+            PointedInstrument(**self.base).view_geometry, ViewGeometry.FRAME
+        )
+
+    def test_scan_footprint_widens_away_from_nadir(self):
+        """
+        Test that, in scan geometry, the footprint's along-track extent is
+        that of the rays at the edges of the along-track field of view: at
+        nadir, about 11.8 km in both geometries; 50 deg across track, wider
+        in scan geometry (where the along-track angular extent is constant)
+        than in frame geometry (where it narrows with the cosine of the
+        cross-track angle) by about 1 / cos(50 deg).
+        """
+        scan = PointedInstrument(**self.base, view_geometry=ViewGeometry.SCAN)
+        frame = PointedInstrument(**self.base)
+        half = self.base["along_track_field_of_view"] / 2
+        fore = compute_projected_ray_position(self.track, 0, 0, 50, half)
+        aft = compute_projected_ray_position(self.track, 0, 0, 50, -half)
+        expected = (
+            geodesic_distance(
+                fore.longitude.degrees,
+                fore.latitude.degrees,
+                aft.longitude.degrees,
+                aft.latitude.degrees,
+            )
+            / 1e3
+        )
+        self.assertAlmostEqual(self.along_track_extent(scan, 0), 11.8, delta=0.5)
+        self.assertAlmostEqual(self.along_track_extent(frame, 0), 11.8, delta=0.5)
+        self.assertAlmostEqual(self.along_track_extent(scan, 50), expected, delta=0.5)
+        self.assertAlmostEqual(
+            self.along_track_extent(scan, 50) / self.along_track_extent(frame, 50),
+            1 / np.cos(np.radians(50)),
+            delta=0.1,
+        )
+
+    def test_scan_field_of_view_bounds(self):
+        """
+        Test that, in scan geometry, a target just inside the angular
+        bounds at the swath edge is in the field of view, and one just
+        outside is not (in frame geometry, the along-track bound narrows
+        there, so the inside target is outside).
+        """
+        scan = PointedInstrument(**self.base, view_geometry=ViewGeometry.SCAN)
+        frame = PointedInstrument(**self.base)
+        for pitch, inside in [(0.39, True), (0.42, False)]:
+            ray = compute_projected_ray_position(self.track, 0, 0, 55, pitch)
+            target = wgs84.latlon(ray.latitude.degrees, ray.longitude.degrees)
+            self.assertEqual(scan.is_in_field_of_view(self.track, target)[0], inside)
+            self.assertFalse(frame.is_in_field_of_view(self.track, target)[0])
+
+    def test_scan_pixel_positions(self):
+        """
+        Test that, in scan geometry, pixel centers are evenly spaced in
+        cross-track angle (the rays at the pixels' angular offsets).
+        """
+        scan = PointedInstrument(
+            **{**self.base, "cross_track_field_of_view": 100},
+            cross_track_pixels=5,
+            view_geometry=ViewGeometry.SCAN,
+        )
+        for index, angle in enumerate([-40, -20, 0, 20, 40]):
+            pixel = scan.compute_projected_pixel_position(self.track, index, 0)
+            ray = compute_projected_ray_position(self.track, 0, 0, angle, 0)
+            self.assertAlmostEqual(
+                pixel.latitude.degrees, ray.latitude.degrees, places=8
+            )
+            self.assertAlmostEqual(
+                pixel.longitude.degrees, ray.longitude.degrees, places=8
+            )

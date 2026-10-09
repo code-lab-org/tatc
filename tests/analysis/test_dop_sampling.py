@@ -5,9 +5,10 @@ Unit tests for the DOP analysis functions in the tatc.analysis module.
 """
 
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
+from shapely.geometry import Point as ShapelyPoint
 
 from tatc.analysis import DopMethod, compute_dop
 from tatc.schemas import (
@@ -43,6 +44,25 @@ class TestDopAnalysis(unittest.TestCase):
             number_satellites=24,
             number_planes=6,
         )
+
+    def test_compute_dop_shapely_point_matches_point(self):
+        """
+        Test that the DOP at a shapely point (with elevation) is that at the
+        equivalent TAT-C point.
+        """
+        satellites = self.gps_constellation.generate_members()
+        expected = compute_dop(
+            self.times,
+            Point(latitude=40, longitude=-105, elevation=1600),
+            satellites,
+            10,
+            DopMethod.PDOP,
+        )
+        actual = compute_dop(
+            self.times, ShapelyPoint(-105, 40, 1600), satellites, 10, DopMethod.PDOP
+        )
+        np.testing.assert_array_equal(actual.dop.values, expected.dop.values)
+        self.assertTrue(actual.geometry.equals(expected.geometry))
 
     def test_compute_gdop(self):
         """
@@ -288,6 +308,129 @@ class TestDopAnalysis(unittest.TestCase):
                 min_count_visible=1,
             )
         self.assertTrue(np.isnan(results.dop.iloc[0]))
+
+    def _multi_gnss(self):
+        """
+        Gets hourly times over a day and the members and system labels of
+        two Walker constellations (GPS-like and Galileo-like).
+        """
+        galileo = WalkerConstellation(
+            name="Galileo",
+            orbit=CircularOrbit(
+                mean_altitude=23222e3,
+                inclination=56,
+                epoch=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            ),
+            number_satellites=24,
+            number_planes=3,
+            relative_spacing=1,
+        )
+        satellites = (
+            self.gps_constellation.generate_members() + galileo.generate_members()
+        )
+        systems = ["GPS"] * 24 + ["Galileo"] * 24
+        times = [self.times[0] + timedelta(hours=k) for k in range(24)]
+        return times, satellites, systems
+
+    def test_compute_dop_single_system_matches_single_clock(self):
+        """
+        Test that labeling every satellite with the same system gives the
+        same DOP as the default single clock bias, for every method.
+        """
+        times, satellites, _ = self._multi_gnss()
+        for method in DopMethod:
+            np.testing.assert_allclose(
+                compute_dop(times, self.null_island, satellites, 10, method).dop,
+                compute_dop(
+                    times,
+                    self.null_island,
+                    satellites,
+                    10,
+                    method,
+                    systems=["GNSS"] * len(satellites),
+                ).dop,
+                rtol=1e-12,
+            )
+
+    def test_compute_dop_clock_per_system(self):
+        """
+        Test that estimating a clock bias per system never decreases the
+        position DOPs, and that GDOP combines PDOP with the reference
+        system's TDOP.
+        """
+        times, satellites, systems = self._multi_gnss()
+
+        def dop(method, systems=None):
+            return compute_dop(
+                times, self.null_island, satellites, 10, method, systems=systems
+            ).dop.to_numpy()
+
+        for method in (DopMethod.PDOP, DopMethod.HDOP, DopMethod.VDOP):
+            single, multiple = dop(method), dop(method, systems)
+            self.assertTrue(np.all(multiple >= single - 1e-12), method)
+            self.assertTrue(np.any(multiple > single * 1.001), method)
+        np.testing.assert_allclose(
+            dop(DopMethod.GDOP, systems) ** 2,
+            dop(DopMethod.PDOP, systems) ** 2 + dop(DopMethod.TDOP, systems) ** 2,
+        )
+
+    def test_compute_dop_reference_system_not_visible(self):
+        """
+        Test that TDOP and GDOP are undefined when no satellite of the
+        reference (first) system is visible, while position DOPs are not;
+        and that a system with a single satellite does not contribute to
+        the position DOPs.
+        """
+        times, satellites, _ = self._multi_gnss()
+        satellites = satellites[:24]
+        systems = ["REF"] + ["GPS"] * 23
+
+        def dop(method, satellites, systems=None):
+            return compute_dop(
+                times, self.null_island, satellites, 10, method, systems=systems
+            ).dop.to_numpy()
+
+        tdop = dop(DopMethod.TDOP, satellites, systems)
+        gdop = dop(DopMethod.GDOP, satellites, systems)
+        self.assertTrue(np.any(np.isnan(tdop)))
+        self.assertTrue(np.any(~np.isnan(tdop)))
+        np.testing.assert_array_equal(np.isnan(tdop), np.isnan(gdop))
+        np.testing.assert_allclose(
+            dop(DopMethod.PDOP, satellites, systems),
+            dop(DopMethod.PDOP, satellites[1:]),
+        )
+
+    def test_compute_dop_too_few_satellites_for_clocks(self):
+        """
+        Test that times with fewer visible satellites than 3 plus the
+        number of visible systems return NaN (here, every satellite has
+        its own system).
+        """
+        times, satellites, _ = self._multi_gnss()
+        results = compute_dop(
+            times,
+            self.null_island,
+            satellites,
+            10,
+            DopMethod.PDOP,
+            systems=[f"S{i}" for i in range(len(satellites))],
+        )
+        self.assertTrue(results.dop.isna().all())
+
+    def test_compute_dop_systems_length_mismatch_raises(self):
+        """
+        Test that a `systems` list whose length differs from the number of
+        satellites raises a ValueError.
+        """
+        with self.assertRaises(ValueError):
+            compute_dop(
+                self.times,
+                self.null_island,
+                self.gps_constellation.generate_members(),
+                10,
+                DopMethod.PDOP,
+                systems=["GPS"],
+            )
 
     def test_compute_dop_invalid_method_raises(self):
         """

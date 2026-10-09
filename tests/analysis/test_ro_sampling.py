@@ -8,21 +8,27 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
+import pandas as pd
 from shapely.geometry import MultiPoint
 from shapely.geometry import Point as ShapelyPoint
 from skyfield.positionlib import Geocentric
 from skyfield.units import Distance, Velocity
 
 from tatc.analysis import collect_ro_observations
-from tatc.analysis.ro_coverage import (
+from tatc.analysis.ro_sampling import (
     _interpolate_ro_point,
-    _receiver_frame_vectors,
-    _sample_ro_arc,
+    _sample_ro_arcs,
     _tangent_point_geometry,
 )
-from tatc.analysis.tangent_point import _geodetic_altitude, _itrs_rotation
 from tatc.constants import timescale
-from tatc.schemas import GeneralPerturbationsOrbit, Instrument, Satellite
+from tatc.schemas import (
+    CircularOrbit,
+    GeneralPerturbationsOrbit,
+    Instrument,
+    Satellite,
+)
+from tatc.utils import compute_vnb_frame
+from tatc.utils.ellipsoid import _itrs_rotation, rectangular_to_geodetic
 
 
 def _make_geocentric(position_m, velocity_m_per_s, t):
@@ -42,7 +48,7 @@ def _make_geocentric(position_m, velocity_m_per_s, t):
 
 class TestReceiverFrameVectors(unittest.TestCase):
     """
-    Unit tests for `_receiver_frame_vectors`.
+    Unit tests for `compute_vnb_frame`.
     """
 
     def setUp(self):
@@ -58,7 +64,7 @@ class TestReceiverFrameVectors(unittest.TestCase):
         tangential.
         """
         rx = _make_geocentric([[7000e3], [0], [0]], [[0], [7.5e3], [0]], self.t)
-        v_u, n_u, b_u = _receiver_frame_vectors(rx)
+        v_u, n_u, b_u = compute_vnb_frame(rx)
         np.testing.assert_allclose(v_u.ravel(), [0, 1, 0], atol=1e-12)
         np.testing.assert_allclose(n_u.ravel(), [0, 0, 1], atol=1e-12)
         np.testing.assert_allclose(b_u.ravel(), [1, 0, 0], atol=1e-12)
@@ -82,7 +88,7 @@ class TestReceiverFrameVectors(unittest.TestCase):
             [datetime(2022, 6, 20, i, tzinfo=timezone.utc) for i in range(5)]
         )
         track = orbit.to_gp_orbit().get_orbit_track_at_time(t)
-        v_u, n_u, b_u = _receiver_frame_vectors(track)
+        v_u, n_u, b_u = compute_vnb_frame(track)
         np.testing.assert_allclose(np.einsum("ij,ij->j", v_u, n_u), 0, atol=1e-9)
         np.testing.assert_allclose(np.einsum("ij,ij->j", v_u, b_u), 0, atol=1e-9)
         np.testing.assert_allclose(np.einsum("ij,ij->j", n_u, b_u), 0, atol=1e-9)
@@ -105,7 +111,7 @@ class TestTangentPointGeometry(unittest.TestCase):
         """
         rx = _make_geocentric([[7000e3], [0], [0]], [[0], [7.5e3], [0]], self.t)
         tx = _make_geocentric([[-7000e3], [0], [0]], [[0], [-3.0e3], [0]], self.t)
-        v_u, n_u, b_u = _receiver_frame_vectors(rx)
+        v_u, n_u, b_u = compute_vnb_frame(rx)
         tp_p, tp_sign, _, _ = _tangent_point_geometry(tx, rx, v_u, n_u, b_u)
         np.testing.assert_allclose(tp_p.ravel(), [0, 0, 0], atol=1e-6)
         self.assertEqual(tp_sign[0], -1)
@@ -118,7 +124,7 @@ class TestTangentPointGeometry(unittest.TestCase):
         """
         rx = _make_geocentric([[7000e3], [0], [0]], [[0], [7.5e3], [0]], self.t)
         tx = _make_geocentric([[8000e3], [2000e3], [0]], [[0], [3.0e3], [0]], self.t)
-        v_u, n_u, b_u = _receiver_frame_vectors(rx)
+        v_u, n_u, b_u = compute_vnb_frame(rx)
         _, tp_sign, _, _ = _tangent_point_geometry(tx, rx, v_u, n_u, b_u)
         self.assertEqual(tp_sign[0], 1)
 
@@ -143,7 +149,7 @@ class TestTangentPointGeometry(unittest.TestCase):
         rx_p, tx_p = tp_guess - north * 2800e3, tp_guess + north * 25500e3
         rx = _make_geocentric(rx_p.reshape(3, 1), [[0], [7.5e3], [1e3]], self.t)
         tx = _make_geocentric(tx_p.reshape(3, 1), [[1e3], [-3.0e3], [0]], self.t)
-        v_u, n_u, b_u = _receiver_frame_vectors(rx)
+        v_u, n_u, b_u = compute_vnb_frame(rx)
         tp_p, tp_sign, _, _ = _tangent_point_geometry(tx, rx, v_u, n_u, b_u)
         tp_p = tp_p.ravel()
         self.assertEqual(tp_sign[0], -1)
@@ -151,10 +157,12 @@ class TestTangentPointGeometry(unittest.TestCase):
         d = (tx_p - rx_p) / np.linalg.norm(tx_p - rx_p)
         offsets = np.linspace(-50e3, 50e3, 10001)
         line = tp_p[:, np.newaxis] + offsets * d[:, np.newaxis]
-        altitudes = _geodetic_altitude(rotation @ line)
+        altitudes = rectangular_to_geodetic(rotation @ line)[2]
         # minimum sits at the reported tangent point (10 m sampling)
         self.assertLess(abs(offsets[np.argmin(altitudes)]), 100.0)
-        self.assertLess(_geodetic_altitude(rotation @ tp_p) - altitudes.min(), 1e-3)
+        self.assertLess(
+            rectangular_to_geodetic(rotation @ tp_p)[2] - altitudes.min(), 1e-3
+        )
         # whereas the geocentric closest approach is kilometers away
         geocentric_tp = rx_p - d * np.dot(rx_p, d)
         self.assertGreater(np.linalg.norm(geocentric_tp - tp_p), 5e3)
@@ -401,7 +409,7 @@ class TestCollectRoObservations(unittest.TestCase):
         self.assertGreater(len(results), 0)
         self.assertTrue(results.is_rising.isin([True, False]).all())
 
-    def test_sample_ro_arc_closes_at_arc_boundary_when_still_in_range(self):
+    def test_sample_ro_arcs_closes_at_arc_boundary_when_still_in_range(self):
         """
         Test that an observation correctly closes at the sampled arc's own
         boundary, not just via exiting the elevation range -- using an
@@ -409,16 +417,75 @@ class TestCollectRoObservations(unittest.TestCase):
         point never leaves it, so the only way the sampled window's single
         observation can end is by reaching the last sample.
         """
-        observations = _sample_ro_arc(
-            self.transmitter,
-            self.receiver,
-            self.start,
-            self.start + timedelta(minutes=5),
+        observations = _sample_ro_arcs(
+            [self.receiver],
+            [self.transmitter],
+            [(0, 0, self.start, self.start + timedelta(minutes=5))],
             timedelta(seconds=30),
             (-1e9, 1e9),
         )
         self.assertEqual(len(observations), 1)
         self.assertEqual(len(observations[0]["points"]), 11)
+
+
+class TestRoObservationsOfReceivers(unittest.TestCase):
+    """
+    Unit tests for the RO observations of several receivers.
+    """
+
+    def test_receivers_equal_each_receiver(self):
+        """
+        Test that the RO observations of several receivers, computed
+        together, equal those of each receiver (matched by receiver,
+        transmitter, and start).
+        """
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        end = start + timedelta(hours=6)
+        receivers = [
+            Satellite(
+                name=f"RX{i}",
+                orbit=CircularOrbit(
+                    altitude=520e3,
+                    inclination=24,
+                    right_ascension_ascending_node=90 * i,
+                    epoch=start,
+                ),
+                instruments=[Instrument(name="RO Receiver")],
+            )
+            for i in range(2)
+        ]
+        transmitters = [
+            Satellite(
+                name=f"TX{i}",
+                orbit=CircularOrbit(
+                    altitude=20200e3,
+                    inclination=55,
+                    right_ascension_ascending_node=60 * i,
+                    epoch=start,
+                ),
+                instruments=[Instrument(name="RO Transmitter")],
+            )
+            for i in range(3)
+        ]
+        key = ["receiver", "transmitter", "start"]
+        observations = (
+            collect_ro_observations(receivers, transmitters, start, end)
+            .sort_values(key)
+            .reset_index(drop=True)
+        )
+        expected = (
+            pd.concat(
+                [
+                    collect_ro_observations(receiver, transmitters, start, end)
+                    for receiver in receivers
+                ]
+            )
+            .sort_values(key)
+            .reset_index(drop=True)
+        )
+        self.assertGreater(len(observations.index), 0)
+        self.assertEqual(set(observations.receiver), {"RX0", "RX1"})
+        pd.testing.assert_frame_equal(observations, expected)
 
 
 if __name__ == "__main__":

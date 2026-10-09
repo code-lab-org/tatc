@@ -224,6 +224,69 @@ class TestWalkerConstellation(unittest.TestCase):
             180 / self.s420_con.number_planes,
         )
 
+    def test_seam_spacing_defaults_to_equal_spacing(self):
+        """
+        Test that, by default, star planes are spaced equally, including
+        across the seam, and a delta configuration reports its plane spacing.
+        """
+        self.assertIsNone(self.s420_con.seam_spacing)
+        self.assertAlmostEqual(self.s420_con.get_seam_spacing(), 90)
+        self.assertAlmostEqual(self.d420_con.get_seam_spacing(), 180)
+
+    def test_seam_spacing_iridium(self):
+        """
+        Test that a seam spacing narrows the seam and widens the spacing
+        between co-rotating planes so that the planes span 180 degrees, as
+        for Iridium (six planes 31.6 degrees apart with a 22 degree seam).
+        """
+        con = WalkerConstellation(
+            name="Iridium",
+            configuration="star",
+            orbit=CircularOrbit(altitude=780000, inclination=86.4),
+            number_satellites=66,
+            number_planes=6,
+            relative_spacing=3,
+            seam_spacing=22,
+        )
+        self.assertAlmostEqual(con.get_delta_raan_between_planes(), 31.6)
+        self.assertAlmostEqual(con.get_seam_spacing(), 22)
+        members = con.generate_members()
+        raan = sorted(
+            {round(m.orbit.right_ascension_ascending_node, 6) for m in members}
+        )
+        np.testing.assert_allclose(np.diff(raan), 31.6)
+        # the seam is between the last plane's ascending node and the
+        # first plane's descending node (180 degrees from its ascending node)
+        self.assertAlmostEqual(raan[0] + 180 - raan[-1], 22)
+
+    def test_seam_spacing_single_plane(self):
+        """
+        Test that a seam spacing has no effect for a single plane.
+        """
+        con = WalkerConstellation(**{**self.s420_data, "number_planes": 1})
+        con_seam = WalkerConstellation(
+            **{**self.s420_data, "number_planes": 1, "seam_spacing": 20}
+        )
+        self.assertEqual(
+            [m.orbit for m in con.generate_members()],
+            [m.orbit for m in con_seam.generate_members()],
+        )
+
+    def test_seam_spacing_requires_star(self):
+        """
+        Test that a seam spacing is rejected for a delta configuration.
+        """
+        with self.assertRaises(ValidationError):
+            WalkerConstellation(**self.d420_data, seam_spacing=20)
+
+    def test_seam_spacing_bounds(self):
+        """
+        Test that a seam spacing must be between 0 and 180 degrees.
+        """
+        for value in (0, 180, -10):
+            with self.assertRaises(ValidationError):
+                WalkerConstellation(**self.s420_data, seam_spacing=value)
+
     def helper_test_generate_members(self, constellation):
         """
         Helper function to test that the WalkerConstellation schema correctly

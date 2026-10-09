@@ -7,15 +7,21 @@ Object schemas for off-nadir pointing instruments.
 from __future__ import annotations
 
 import numpy as np
-from pydantic import Field
+import numpy.typing as npt
+from pydantic import Field, ValidationInfo, field_validator
 from shapely import MultiPolygon, Polygon
 from shapely.geometry import MultiPoint, Point
 from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
+from ...utils.orbital import compute_argument_of_latitude
 from ...utils.projection import (
+    VelocityFrame,
+    ViewGeometry,
     compute_footprint,
     compute_projected_ray_position,
+    compute_view_angles,
+    compute_view_tangents,
 )
 from .simple import Instrument
 
@@ -40,15 +46,47 @@ class PointedInstrument(Instrument):
     )
     roll_angle: float = Field(
         default=0,
-        description="Left/right look angle (degrees) orthogonal to instrument motion.",
+        description="Left/right look angle (degrees): a rotation of the view about the "
+        + "along-track axis, positive to the left of the direction of motion.",
         ge=-180,
         le=180,
     )
+    roll_angle_profile: list[tuple[float, float]] | None = Field(
+        default=None,
+        description="Roll angle (degrees) as a function of the satellite's "
+        + "argument of latitude (degrees from the ascending node, 0 to 360, in "
+        + "the direction of motion), as (argument of latitude, roll angle) pairs "
+        + "interpolated linearly and periodically, for an instrument whose roll "
+        + "varies around the orbit (for example, the roll steering of a "
+        + "synthetic aperture radar). If given, it overrides `roll_angle`.",
+        min_length=1,
+    )
     pitch_angle: float = Field(
         default=0,
-        description="Fore/aft look angle (degrees) in direction of instrument motion.",
+        description="Fore/aft look angle (degrees): a rotation of the view about the "
+        + "rolled cross-track axis (after roll), positive forward. In scan "
+        + "geometry, the tilt of the scan plane: a rotation about the cross-track "
+        + "axis before roll, as for a scanner that tilts fore or aft.",
         ge=-180,
         le=180,
+    )
+    pitch_angle_profile: list[tuple[float, float]] | None = Field(
+        default=None,
+        description="Pitch angle (degrees) as a function of the satellite's "
+        + "argument of latitude (degrees from the ascending node, 0 to 360, in "
+        + "the direction of motion), as (argument of latitude, pitch angle) pairs "
+        + "interpolated linearly and periodically, for an instrument whose pitch "
+        + "varies around the orbit (for example, an imager that tilts fore or aft "
+        + "to avoid sun glint). If given, it overrides `pitch_angle`.",
+        min_length=1,
+    )
+    view_geometry: ViewGeometry = Field(
+        default=ViewGeometry.FRAME,
+        description="Geometry in which the fields of view and pixels are defined: "
+        + "in a plane perpendicular to the boresight (`frame`, as for a framing "
+        + "camera or a pushbroom array), or in cross-track and along-track angles "
+        + "(`scan`, as for a cross-track scanner, whose along-track angular extent "
+        + "is constant across the scan).",
     )
     is_rectangular: bool = Field(
         default=False,
@@ -71,6 +109,13 @@ class PointedInstrument(Instrument):
         description="Fraction of pixel overlap in along-track direction.",
         ge=0,
         lt=1,
+    )
+    velocity_frame: VelocityFrame = Field(
+        default=VelocityFrame.EARTH_FIXED,
+        description="Reference frame of the velocity vector that defines the "
+        + "along-track direction (`earth_fixed`: aligned with the ground track, "
+        + "as for a yaw-steered spacecraft; `inertial`: aligned with the orbit "
+        + "plane, as for a spacecraft without yaw steering).",
     )
 
     def get_cross_track_instantaneous_field_of_view(self) -> float:
@@ -120,12 +165,149 @@ class PointedInstrument(Instrument):
             orbit_track=orbit_track,
             cross_track_field_of_view=self.cross_track_field_of_view,
             along_track_field_of_view=self.along_track_field_of_view,
-            roll_angle=self.roll_angle,
-            pitch_angle=self.pitch_angle,
+            roll_angle=self.get_roll_angle(orbit_track),
+            pitch_angle=self.get_pitch_angle(orbit_track),
             is_rectangular=self.is_rectangular,
             number_points=number_points,
             elevation=elevation,
+            velocity_frame=self.velocity_frame,
+            nadir_reference=self.nadir_reference,
+            view_geometry=self.view_geometry,
         )
+
+    @field_validator("roll_angle_profile", "pitch_angle_profile")
+    @classmethod
+    def _validate_angle_profile(
+        cls, profile: list[tuple[float, float]] | None, info: ValidationInfo
+    ) -> list[tuple[float, float]] | None:
+        """
+        Validates that a roll or pitch angle profile's arguments of latitude
+        lie in [0, 360) and its angles in [-180, 180], and sorts it by
+        argument of latitude.
+        """
+        if profile is None:
+            return None
+        kind = "Roll" if info.field_name == "roll_angle_profile" else "Pitch"
+        for argument, angle in profile:
+            if not 0 <= argument < 360:
+                raise ValueError("Arguments of latitude must be in [0, 360).")
+            if not -180 <= angle <= 180:
+                raise ValueError(f"{kind} angles must be in [-180, 180].")
+        return sorted(profile)
+
+    @staticmethod
+    def _interpolate_angle_profile(
+        profile: list[tuple[float, float]], orbit_track: Geocentric
+    ) -> float | npt.NDArray[np.float64]:
+        """
+        Interpolates an angle profile linearly and periodically at the
+        satellite's argument(s) of latitude.
+
+        Args:
+            profile (list[tuple[float, float]]): (argument of latitude, angle) pairs.
+            orbit_track (skyfield.positionlib.Geocentric): The satellite
+                position/velocity (in an inertial frame).
+
+        Returns:
+            float | numpy.typing.NDArray[numpy.float64]: the angle(s) (degrees)
+        """
+        argument = compute_argument_of_latitude(
+            orbit_track.position.m, orbit_track.velocity.m_per_s
+        )
+        arguments, angles = zip(*profile)
+        angle = np.interp(argument, arguments, angles, period=360)
+        return float(angle) if np.ndim(angle) == 0 else angle
+
+    def get_roll_angle(
+        self, orbit_track: Geocentric | None = None
+    ) -> float | npt.NDArray[np.float64]:
+        """
+        Gets the roll angle (degrees) at the satellite position(s) of an orbit
+        track: interpolated from `roll_angle_profile` at the satellite's
+        argument of latitude, if given, or otherwise `roll_angle`.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric | None): The
+                satellite position/velocity (in an inertial frame).
+
+        Returns:
+            float | numpy.typing.NDArray[numpy.float64]: the roll angle(s) (degrees)
+        """
+        if self.roll_angle_profile is None or orbit_track is None:
+            return self.roll_angle
+        return self._interpolate_angle_profile(self.roll_angle_profile, orbit_track)
+
+    def get_pitch_angle(
+        self, orbit_track: Geocentric | None = None
+    ) -> float | npt.NDArray[np.float64]:
+        """
+        Gets the pitch angle (degrees) at the satellite position(s) of an orbit
+        track: interpolated from `pitch_angle_profile` at the satellite's
+        argument of latitude, if given, or otherwise `pitch_angle`.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric | None): The
+                satellite position/velocity (in an inertial frame).
+
+        Returns:
+            float | numpy.typing.NDArray[numpy.float64]: the pitch angle(s) (degrees)
+        """
+        if self.pitch_angle_profile is None or orbit_track is None:
+            return self.pitch_angle
+        return self._interpolate_angle_profile(self.pitch_angle_profile, orbit_track)
+
+    def is_in_field_of_view(
+        self,
+        orbit_track: Geocentric,
+        target: GeographicPosition,
+    ) -> npt.NDArray[np.bool_]:
+        """
+        Determines if a target lies within the instantaneous field of view.
+        Does not check whether the target is above the satellite's horizon.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+            target (skyfield.toposlib.GeographicPosition): The target position.
+
+        Returns:
+            numpy.typing.NDArray: Array of indicators: `True` if the target is in the field of view.
+        """
+        if self.view_geometry == ViewGeometry.SCAN:
+            # angles in the scan plane, tilted by the pitch angle
+            roll, pitch = compute_view_angles(
+                orbit_track,
+                target,
+                self.velocity_frame,
+                self.nadir_reference,
+                self.get_pitch_angle(orbit_track),
+            )
+            # angular offsets from the view center, normalized by the half widths
+            cross_offset = (
+                (roll - self.get_roll_angle(orbit_track) + 180) % 360 - 180
+            ) / (self.cross_track_field_of_view / 2)
+            along_offset = pitch / (self.along_track_field_of_view / 2)
+        else:
+            along, cross = compute_view_tangents(
+                orbit_track,
+                target,
+                self.velocity_frame,
+                self.get_roll_angle(orbit_track),
+                self.get_pitch_angle(orbit_track),
+                self.nadir_reference,
+            )
+            # offsets from the view center, normalized by the view half widths
+            along_offset = along / np.tan(
+                np.radians(self.along_track_field_of_view / 2)
+            )
+            cross_offset = cross / np.tan(
+                np.radians(self.cross_track_field_of_view / 2)
+            )
+        with np.errstate(invalid="ignore"):
+            if self.is_rectangular:
+                inside = (np.abs(along_offset) <= 1) & (np.abs(cross_offset) <= 1)
+            else:
+                inside = along_offset**2 + cross_offset**2 <= 1
+        return np.atleast_1d(inside)
 
     def compute_footprint_center(
         self,
@@ -146,11 +328,13 @@ class PointedInstrument(Instrument):
             orbit_track=orbit_track,
             cross_track_field_of_view=0,
             along_track_field_of_view=0,
-            roll_angle=self.roll_angle,
-            pitch_angle=self.pitch_angle,
+            roll_angle=self.get_roll_angle(orbit_track),
+            pitch_angle=self.get_pitch_angle(orbit_track),
             is_rectangular=False,
             angle=0,
             elevation=elevation,
+            velocity_frame=self.velocity_frame,
+            nadir_reference=self.nadir_reference,
         )
 
     def compute_projected_pixel_position(
@@ -165,13 +349,29 @@ class PointedInstrument(Instrument):
 
         Args:
             orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
-            cross_track_index (int): cross-track pixel index (left-to-right).
+            cross_track_index (int): cross-track pixel index (right to left:
+                index 0 is on the right of the direction of motion).
             along_track_index (int): along-track pixel index (fore-to-aft).
             elevation (float): The elevation (meters) at which project the pixel.
 
         Returns:
             (skyfield.toposlib.GeographicPosition): the geographic position of the projected pixel
         """
+        if self.view_geometry == ViewGeometry.SCAN:
+            cross_offset, along_offset = self._get_pixel_offsets(
+                cross_track_index, along_track_index
+            )
+            return compute_projected_ray_position(
+                orbit_track=orbit_track,
+                cross_track_field_of_view=0,
+                along_track_field_of_view=0,
+                roll_angle=self.get_roll_angle(orbit_track) + cross_offset,
+                pitch_angle=along_offset,
+                elevation=elevation,
+                velocity_frame=self.velocity_frame,
+                nadir_reference=self.nadir_reference,
+                tilt_angle=self.get_pitch_angle(orbit_track),
+            )
         cone, clock = self.get_pixel_cone_and_clock_angle(
             cross_track_index, along_track_index
         )
@@ -185,29 +385,29 @@ class PointedInstrument(Instrument):
             # pixel lands at its true cone-angle offset.
             cross_track_field_of_view=2 * cone,
             along_track_field_of_view=2 * cone,
-            roll_angle=self.roll_angle,
-            pitch_angle=self.pitch_angle,
+            roll_angle=self.get_roll_angle(orbit_track),
+            pitch_angle=self.get_pitch_angle(orbit_track),
             is_rectangular=False,
             angle=clock,
             elevation=elevation,
+            velocity_frame=self.velocity_frame,
+            nadir_reference=self.nadir_reference,
         )
 
-    def get_pixel_cone_and_clock_angle(
+    def _get_pixel_offsets(
         self, cross_track_index: int, along_track_index: int
     ) -> tuple[float, float]:
         """
-        Gets the cone and clock angles (degrees) for a given pixel: its
-        angular offset from the instrument boresight (after roll/pitch),
-        expressed in polar form.
+        Gets a pixel's angular offsets (degrees) from the view center, across
+        track (positive left) and along track (positive forward).
 
         Args:
-            cross_track_index (int): pixel index in cross-track dimension (left to right).
+            cross_track_index (int): pixel index in cross-track dimension
+                (right to left: index 0 is on the right of the direction of motion).
             along_track_index (int): pixel index in along-track dimension (fore to aft).
 
         Returns:
-            tuple[float, float]: cone (the pixel's total angular
-                displacement from boresight) and clock (counter-clockwise
-                from right-looking, about the boresight) angles (degrees).
+            tuple[float, float]: the cross-track and along-track offsets (degrees).
         """
         cross_track_offset = (
             (0.5 + cross_track_index - self.cross_track_pixels / 2)
@@ -220,6 +420,30 @@ class PointedInstrument(Instrument):
             * (1 - self.along_track_oversampling)
             * self.along_track_field_of_view
             / self.along_track_pixels
+        )
+        return cross_track_offset, along_track_offset
+
+    def get_pixel_cone_and_clock_angle(
+        self, cross_track_index: int, along_track_index: int
+    ) -> tuple[float, float]:
+        """
+        Gets the cone and clock angles (degrees) for a given pixel: its
+        angular offset from the instrument boresight (after roll/pitch),
+        expressed in polar form.
+
+        Args:
+            cross_track_index (int): pixel index in cross-track dimension
+                (right to left: index 0 is on the right of the direction of motion).
+            along_track_index (int): pixel index in along-track dimension (fore to aft).
+
+        Returns:
+            tuple[float, float]: cone (the pixel's total angular
+                displacement from boresight) and clock (about the boresight,
+                from the cross-track axis on the left of the direction of
+                motion toward the along-track axis forward) angles (degrees).
+        """
+        cross_track_offset, along_track_offset = self._get_pixel_offsets(
+            cross_track_index, along_track_index
         )
         return (
             np.sqrt(cross_track_offset**2 + along_track_offset**2),
@@ -262,5 +486,5 @@ class PointedInstrument(Instrument):
                     for point in points
                 ]
             )
-            for i in range(np.size(orbit_track.t))  # type: ignore
+            for i in range(np.size(orbit_track.t.tt))  # type: ignore
         ]

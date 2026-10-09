@@ -12,7 +12,7 @@ from typing import Literal
 import numpy as np
 from pydantic import Field
 
-from ... import constants, utils
+from ... import utils
 from .base_molniya_tundra import MolniyaTundraOrbitBase
 
 
@@ -27,16 +27,13 @@ class MolniyaOrbit(MolniyaTundraOrbitBase):
 
     def get_orbit_period(self) -> timedelta:
         """
-        Gets the orbit period, targeting half a sidereal day (so the
-        ground track repeats twice daily) and corrected for Earth's J2
-        oblateness perturbation to the true rate of mean anomaly advance.
+        Gets the orbit period, for which the ground track repeats twice daily and corrected for the Earth's oblateness
+        (see `_compute_repeat_orbit_period`).
 
         Returns:
             timedelta: the orbit period
         """
-        return self._compute_j2_corrected_orbit_period(
-            constants.EARTH_SIDEREAL_DAY_S / 2
-        )
+        return self._compute_repeat_orbit_period(2)
 
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float
@@ -61,6 +58,7 @@ class MolniyaOrbit(MolniyaTundraOrbitBase):
             true_anomaly=true_anomaly,
             epoch=self.epoch,
             perigee_altitude=self.perigee_altitude,
+            inclination=self.inclination,
             right_ascension_ascending_node=raan,
             northern_coverage=self.northern_coverage,
         )
