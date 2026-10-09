@@ -8,6 +8,7 @@ The following provide examples of TAT-C use in a Jupyter notebook environment.
   :maxdepth: 1
 
   CollectObservations.ipynb
+  GenerateRandomPoints.ipynb
   CollectOrbitGroundTrack.ipynb
   CollectRadarTrack.ipynb
   ComputeCoverage.ipynb

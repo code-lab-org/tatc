@@ -8,12 +8,13 @@ import unittest
 
 import numpy as np
 import pyproj
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, box
 from shapely.ops import transform
 
 from tatc import constants, utils
 from tatc.generation import (
     generate_points_fibonacci_lattice,
+    generate_points_random,
     generate_points_uniform_angular_distance,
     generate_points_uniform_spacing,
 )
@@ -285,3 +286,213 @@ class TestPointGenerators(unittest.TestCase):
                 [utils.hash_geometry(g) for g in points.geometry],
             )
             self.assertTrue(points.point_id.is_unique)
+
+
+class TestGeneratePointsRandom(unittest.TestCase):
+    """
+    Unit tests for the tatc.generation.generate_points_random function.
+    Statistical tests use a fixed seed and a tolerance of four standard
+    deviations of a binomial proportion.
+    """
+
+    def assertProportion(self, actual, expected, count):
+        """
+        Asserts that a sample proportion is within four standard deviations
+        of its expected value.
+        """
+        self.assertAlmostEqual(
+            actual, expected, delta=4 * np.sqrt(expected * (1 - expected) / count)
+        )
+
+    def test_count_and_ids(self):
+        """
+        Test that the requested number of points is generated, each
+        identified by the hash of its geometry.
+        """
+        points = generate_points_random(1000, seed=0)
+        self.assertEqual(len(points), 1000)
+        self.assertEqual(points.crs, "EPSG:4326")
+        self.assertEqual(
+            list(points.point_id), [utils.hash_geometry(g) for g in points.geometry]
+        )
+
+    def test_zero_count(self):
+        """
+        Test that no points are generated for a count of zero.
+        """
+        self.assertEqual(len(generate_points_random(0)), 0)
+
+    def test_negative_count(self):
+        """
+        Test that a negative count raises a ValueError.
+        """
+        with self.assertRaises(ValueError):
+            generate_points_random(-1)
+
+    def test_elevation(self):
+        """
+        Test that the elevation argument is propagated to the z-coordinate
+        of every generated point.
+        """
+        points = generate_points_random(100, elevation=500, seed=0)
+        self.assertTrue((points.geometry.z == 500).all())
+
+    def test_seed_reproducible(self):
+        """
+        Test that the same seed generates the same points, and a different
+        seed different points.
+        """
+        mask = Polygon([[-100, 25], [-50, 25], [-50, 45], [-100, 45], [-100, 25]])
+        first = generate_points_random(100, mask=mask, seed=42)
+        second = generate_points_random(100, mask=mask, seed=np.random.default_rng(42))
+        third = generate_points_random(100, mask=mask, seed=43)
+        self.assertEqual(list(first.point_id), list(second.point_id))
+        self.assertNotEqual(list(first.point_id), list(third.point_id))
+
+    def test_uniform_by_area(self):
+        """
+        Test that unweighted points are distributed uniformly by area: a
+        quarter of the sphere lies north of 30 degrees latitude.
+        """
+        count = 20000
+        points = generate_points_random(count, seed=0)
+        self.assertProportion((points.geometry.y > 30).mean(), 0.25, count)
+
+    def test_mask_contains(self):
+        """
+        Test that every point generated with a (non-convex) mask lies within
+        the mask.
+        """
+        mask = Polygon([[0, 0], [20, 0], [20, 20], [10, 5], [0, 20], [0, 0]])
+        points = generate_points_random(1000, mask=mask, seed=0)
+        self.assertEqual(len(points), 1000)
+        self.assertTrue(points.intersects(mask).all())
+
+    def test_mask_invalid(self):
+        """
+        Test that an invalid mask raises a ValueError.
+        """
+        mask = Polygon([[-100, 25], [-50, 25], [-100, -25], [-50, -25], [-100, 25]])
+        with self.assertRaises(ValueError):
+            generate_points_random(10, mask=mask)
+
+    def test_antimeridian_crossing_mask(self):
+        """
+        Test a mask crossing the antimeridian expressed in unwrapped
+        longitude (170 to 190 degrees), with and without weights: points
+        keep the mask's longitudes, including those beyond 180 degrees
+        from the western hemisphere of a global raster.
+        """
+        mask = Polygon([[170, -10], [190, -10], [190, 10], [170, 10], [170, -10]])
+        for weights in [None, np.ones((180, 360))]:
+            points = generate_points_random(1000, mask=mask, weights=weights, seed=0)
+            self.assertTrue(points.intersects(mask).all())
+            self.assertProportion((points.geometry.x > 180).mean(), 0.5, 1000)
+
+    def test_weights_single_cell(self):
+        """
+        Test that all points lie within the only cell with positive weight.
+        """
+        weights = np.zeros((18, 36))
+        weights[4, 30] = 1  # 120 to 130 degrees longitude, 40 to 50 latitude
+        points = generate_points_random(500, weights=weights, seed=0)
+        self.assertTrue(points.within(box(120, 40, 130, 50)).all())
+
+    def test_weights_proportional(self):
+        """
+        Test that cells are sampled in proportion to their weights.
+        """
+        count = 10000
+        weights = np.zeros((18, 36))
+        weights[4, 30] = 1
+        weights[12, 2] = 3
+        points = generate_points_random(count, weights=weights, seed=0)
+        self.assertProportion((points.geometry.x > 0).mean(), 0.25, count)
+
+    def test_weights_density(self):
+        """
+        Test that weights per unit area (density) are scaled by cell area,
+        while totals per cell are not: equal weights at the equator and at
+        60 degrees latitude.
+        """
+        count = 10000
+        weights = np.zeros((180, 360))
+        weights[29, 0] = 1  # 60 to 61 degrees latitude
+        weights[89, 0] = 1  # 0 to 1 degrees latitude
+        high = np.sin(np.radians(61)) - np.sin(np.radians(60))
+        low = np.sin(np.radians(1))
+        points = generate_points_random(count, weights=weights, density=True, seed=0)
+        self.assertProportion(
+            (points.geometry.y > 30).mean(), high / (high + low), count
+        )
+        points = generate_points_random(count, weights=weights, seed=0)
+        self.assertProportion((points.geometry.y > 30).mean(), 0.5, count)
+
+    def test_weights_bounds(self):
+        """
+        Test weights covering a region, including a raster with longitudes
+        from 0 to 360 degrees sampled within a mask from -180 to 180.
+        """
+        points = generate_points_random(
+            200, weights=np.ones((2, 2)), weights_bounds=(10, 20, 30, 40), seed=0
+        )
+        self.assertTrue(points.within(box(10, 20, 30, 40)).all())
+        mask = box(-100, 0, -80, 10)
+        points = generate_points_random(
+            200,
+            mask=mask,
+            weights=np.ones((180, 360)),
+            weights_bounds=(0, -90, 360, 90),
+            seed=0,
+        )
+        self.assertTrue(points.intersects(mask).all())
+
+    def test_weights_wrapped_without_mask(self):
+        """
+        Test that, without a mask, points in a cell crossing 180 degrees
+        longitude are wrapped to the interval [-180, 180].
+        """
+        points = generate_points_random(
+            500, weights=np.ones((1, 1)), weights_bounds=(179, 0, 181, 1), seed=0
+        )
+        self.assertTrue((points.geometry.x.abs() <= 180).all())
+        self.assertTrue((points.geometry.x.abs() >= 179).all())
+        self.assertProportion((points.geometry.x < 0).mean(), 0.5, 500)
+
+    def test_weights_nan_zero(self):
+        """
+        Test that not-a-number weights have zero weight.
+        """
+        weights = np.full((18, 36), np.nan)
+        weights[4, 30] = 1
+        points = generate_points_random(100, weights=weights, seed=0)
+        self.assertTrue(points.within(box(120, 40, 130, 50)).all())
+
+    def test_weights_masked(self):
+        """
+        Test that weighted points respect a mask cutting through cells.
+        """
+        mask = Polygon([[122, 42], [128, 42], [125, 48], [122, 42]])
+        weights = np.zeros((18, 36))
+        weights[4, 30] = 1
+        weights[12, 2] = 100
+        points = generate_points_random(500, mask=mask, weights=weights, seed=0)
+        self.assertTrue(points.intersects(mask).all())
+
+    def test_weights_invalid(self):
+        """
+        Test that negative, infinite, or non-two-dimensional weights, invalid
+        bounds, and no positive weight within the mask raise a ValueError.
+        """
+        weights = np.zeros((18, 36))
+        weights[4, 30] = 1
+        for kwargs in [
+            {"weights": -weights},
+            {"weights": np.where(weights > 0, np.inf, 0)},
+            {"weights": np.ones(10)},
+            {"weights": weights, "weights_bounds": (10, 0, 0, 10)},
+            {"weights": weights, "mask": box(0, 0, 10, 10)},
+            {"weights": np.zeros((18, 36))},
+        ]:
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                generate_points_random(10, **kwargs)
