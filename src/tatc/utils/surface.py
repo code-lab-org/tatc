@@ -10,7 +10,7 @@ from numba import njit
 from .. import constants
 
 
-@njit
+@njit(cache=True)
 def compute_number_samples(distance: float) -> int:
     """
     Compute the number of global samples required to achieve a typical
@@ -27,6 +27,8 @@ def compute_number_samples(distance: float) -> int:
     Returns:
         int: The number of global samples.
     """
+    # as floats, since integers can overflow when compiled
+    distance = distance * 1.0
     if distance <= 0:
         raise ValueError("distance must be positive, got " + str(distance))
     # compute the angular distance of each sample (assuming mean sphere)

@@ -60,7 +60,7 @@ class TestGenerateEquallySpacedIndices(unittest.TestCase):
         Test that a global grid produces no duplicate (i, j) index pairs.
         """
         indices = generate_indices_uniform_spacing(10, 10)
-        self.assertEqual(len(indices), len(set(indices)))
+        self.assertEqual(len(indices), len(set(map(tuple, indices))))
 
 
 if __name__ == "__main__":

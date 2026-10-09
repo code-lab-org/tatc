@@ -25,7 +25,7 @@ from ..utils.ellipsoid import (
     _itrs_rotation,
     rectangular_to_geodetic,
 )
-from ..utils.geometry import hash_geometry
+from ..utils.geometry import _hash_geometries
 from ..utils.time import _index_time, _to_time_from_offsets
 from .check import _check_satellites, _check_time_window
 from .sampling import _assemble_periods, _find_crossings
@@ -347,7 +347,7 @@ def collect_space_observations(
     return (
         gpd.GeoDataFrame(
             {
-                "target_hash": [hash_geometry(line) for line in geometry],
+                "target_hash": _hash_geometries(geometry),
                 "geometry": geometry,
                 "from_satellite": [satellites[pair_from[p]].name for p in period_pair],
                 "to_satellite": [satellites[pair_to[p]].name for p in period_pair],

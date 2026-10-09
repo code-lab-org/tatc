@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from skyfield.positionlib import Geocentric
 
 
-@njit
+@njit(cache=True)
 def compute_orbit_inertial_velocity(mean_altitude: float) -> float:
     """
     Fast computation of orbit inertial velocity (the orbital speed relative
@@ -31,10 +31,12 @@ def compute_orbit_inertial_velocity(mean_altitude: float) -> float:
     Returns:
         float: Inertial orbit velocity (meters/second).
     """
+    # as floats, since integers can overflow when compiled
+    mean_altitude = mean_altitude * 1.0
     return np.sqrt(constants.EARTH_MU / (constants.EARTH_MEAN_RADIUS + mean_altitude))
 
 
-@njit
+@njit(cache=True)
 def compute_ground_inertial_velocity(
     mean_altitude: float, elevation: float = 0
 ) -> float:
@@ -55,6 +57,8 @@ def compute_ground_inertial_velocity(
     Returns:
         float: Ground point inertial velocity (meters/second).
     """
+    # as floats, since integers can overflow when compiled
+    mean_altitude, elevation = mean_altitude * 1.0, elevation * 1.0
     v_orbital = compute_orbit_inertial_velocity(mean_altitude)
     return (
         v_orbital
@@ -63,7 +67,7 @@ def compute_ground_inertial_velocity(
     )
 
 
-@njit
+@njit(cache=True)
 def compute_ground_surface_velocity(
     mean_altitude: float,
     elevation: float = 0,
@@ -85,6 +89,13 @@ def compute_ground_surface_velocity(
     Returns:
         float: Ground surface velocity (meters/second), relative to the rotating Earth.
     """
+    # as floats, since integers can overflow when compiled
+    mean_altitude, elevation, inclination, latitude = (
+        mean_altitude * 1.0,
+        elevation * 1.0,
+        inclination * 1.0,
+        latitude * 1.0,
+    )
     v_inertial = compute_ground_inertial_velocity(mean_altitude, elevation)
     # compute flight path angle beta relative to due North
     sin_beta = np.cos(np.deg2rad(inclination)) / np.cos(np.deg2rad(latitude))
@@ -102,7 +113,7 @@ def compute_ground_surface_velocity(
     return np.sqrt((v_surface_east - v_earth_west) ** 2 + v_surface_north**2)
 
 
-@njit
+@njit(cache=True)
 def semimajor_axis_to_mean_motion(semimajor_axis: float) -> float:
     """
     Fast computation of mean motion (average angular rate) from Kepler's
@@ -114,10 +125,12 @@ def semimajor_axis_to_mean_motion(semimajor_axis: float) -> float:
     Returns:
         float: Orbit mean motion (degrees/second).
     """
+    # as floats, since integers can overflow when compiled
+    semimajor_axis = semimajor_axis * 1.0
     return np.degrees(np.sqrt(constants.EARTH_MU / semimajor_axis**3))
 
 
-@njit
+@njit(cache=True)
 def mean_motion_to_orbit_period(mean_motion: float) -> float:
     """
     Fast computation of orbital period: the time (360 degrees of mean
@@ -131,10 +144,12 @@ def mean_motion_to_orbit_period(mean_motion: float) -> float:
     Returns:
         float: Orbital period (seconds).
     """
+    # as floats, since integers can overflow when compiled
+    mean_motion = mean_motion * 1.0
     return 360 / mean_motion
 
 
-@njit
+@njit(cache=True)
 def mean_motion_to_semimajor_axis(mean_motion: float) -> float:
     """
     Fast computation of semimajor axis from Kepler's third law, assuming a
@@ -147,10 +162,12 @@ def mean_motion_to_semimajor_axis(mean_motion: float) -> float:
     Returns:
         float: The semimajor axis (meters).
     """
+    # as floats, since integers can overflow when compiled
+    mean_motion = mean_motion * 1.0
     return np.cbrt(constants.EARTH_MU / (np.radians(mean_motion) ** 2))
 
 
-@njit
+@njit(cache=True)
 def semimajor_axis_to_orbit_period(semimajor_axis: float) -> float:
     """
     Fast computation of orbital period from Kepler's third law, assuming a
@@ -162,10 +179,12 @@ def semimajor_axis_to_orbit_period(semimajor_axis: float) -> float:
     Returns:
         float: Orbital period (seconds).
     """
+    # as floats, since integers can overflow when compiled
+    semimajor_axis = semimajor_axis * 1.0
     return mean_motion_to_orbit_period(semimajor_axis_to_mean_motion(semimajor_axis))
 
 
-@njit
+@njit(cache=True)
 def mean_anomaly_to_true_anomaly(mean_anomaly: float, eccentricity: float = 0) -> float:
     """
     Approximates orbit true anomaly using a third-order series expansion.
@@ -177,6 +196,8 @@ def mean_anomaly_to_true_anomaly(mean_anomaly: float, eccentricity: float = 0) -
     Returns:
         float: Orbit true anomaly (degrees).
     """
+    # as floats, since integers can overflow when compiled
+    mean_anomaly, eccentricity = mean_anomaly * 1.0, eccentricity * 1.0
     mean_anomaly_rad = np.radians(mean_anomaly)
     true_anomaly_rad = (
         mean_anomaly_rad
@@ -187,7 +208,7 @@ def mean_anomaly_to_true_anomaly(mean_anomaly: float, eccentricity: float = 0) -
     return np.degrees(true_anomaly_rad)
 
 
-@njit
+@njit(cache=True)
 def true_anomaly_to_mean_anomaly(true_anomaly: float, eccentricity: float = 0) -> float:
     """
     Approximates orbit mean anomaly using a third-order series expansion.
@@ -199,6 +220,8 @@ def true_anomaly_to_mean_anomaly(true_anomaly: float, eccentricity: float = 0) -
     Returns:
         float: Orbit mean anomaly (degrees).
     """
+    # as floats, since integers can overflow when compiled
+    true_anomaly, eccentricity = true_anomaly * 1.0, eccentricity * 1.0
     true_anomaly_rad = np.radians(true_anomaly)
     mean_anomaly_rad = (
         true_anomaly_rad
@@ -211,7 +234,7 @@ def true_anomaly_to_mean_anomaly(true_anomaly: float, eccentricity: float = 0) -
     return np.degrees(mean_anomaly_rad)
 
 
-@njit
+@njit(cache=True)
 def compute_apoapsis_radius(semimajor_axis: float, eccentricity: float) -> float:
     """
     Fast computation of the apoapsis radius: the maximum orbit-to-Earth's-
@@ -224,10 +247,12 @@ def compute_apoapsis_radius(semimajor_axis: float, eccentricity: float) -> float
     Returns:
         float: The apoapsis radius (meters).
     """
+    # as floats, since integers can overflow when compiled
+    semimajor_axis, eccentricity = semimajor_axis * 1.0, eccentricity * 1.0
     return semimajor_axis * (1 + eccentricity)
 
 
-@njit
+@njit(cache=True)
 def compute_j2_raan_rate(
     semimajor_axis: float, inclination: float, eccentricity: float
 ) -> float:
@@ -248,6 +273,12 @@ def compute_j2_raan_rate(
     Returns:
         float: The right ascension of ascending node precession rate (degrees/second).
     """
+    # as floats, since integers can overflow when compiled
+    semimajor_axis, inclination, eccentricity = (
+        semimajor_axis * 1.0,
+        inclination * 1.0,
+        eccentricity * 1.0,
+    )
     return (
         -3
         / 2
@@ -258,7 +289,7 @@ def compute_j2_raan_rate(
     )
 
 
-@njit
+@njit(cache=True)
 def compute_j2_aop_rate(
     semimajor_axis: float, inclination: float, eccentricity: float
 ) -> float:
@@ -279,6 +310,12 @@ def compute_j2_aop_rate(
     Returns:
         float: The argument of periapsis rate (degrees/second).
     """
+    # as floats, since integers can overflow when compiled
+    semimajor_axis, inclination, eccentricity = (
+        semimajor_axis * 1.0,
+        inclination * 1.0,
+        eccentricity * 1.0,
+    )
     return (
         3
         / 4
@@ -289,7 +326,7 @@ def compute_j2_aop_rate(
     )
 
 
-@njit
+@njit(cache=True)
 def compute_j2_mean_motion_rate(
     semimajor_axis: float, inclination: float, eccentricity: float
 ) -> float:
@@ -313,6 +350,12 @@ def compute_j2_mean_motion_rate(
     Returns:
         float: The correction to the mean anomaly rate (degrees/second).
     """
+    # as floats, since integers can overflow when compiled
+    semimajor_axis, inclination, eccentricity = (
+        semimajor_axis * 1.0,
+        inclination * 1.0,
+        eccentricity * 1.0,
+    )
     return (
         3
         / 4

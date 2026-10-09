@@ -9,6 +9,12 @@ import os
 import numpy as np
 from skyfield.api import Loader, load
 
+# Note for developers: functions compiled with `numba.njit(cache=True)` (in
+# `tatc.utils`) store the values of these constants in their cached machine
+# code, and numba only recompiles a function if its own source file changes.
+# After editing a constant in an editable install, clear the cache (see the
+# README) or the cached functions will continue to use the old values.
+
 # load ephemeris file
 resources_dir = os.path.join(os.path.dirname(__file__), "resources")
 de421_loader = Loader(resources_dir)

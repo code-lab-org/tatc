@@ -22,6 +22,16 @@ Equal Angular Distance
 
 .. autofunction:: tatc.generation.generate_points_uniform_angular_distance
 
+Random
+------
+
+.. autofunction:: tatc.generation.generate_points_random
+
+Weights for random points can be read from a GeoTIFF raster (requires the
+optional `preprocess` dependencies, ``pip install tatc[preprocess]``):
+
+.. autofunction:: tatc.preprocess.read_raster_weights
+
 Cells
 =====
 

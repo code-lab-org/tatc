@@ -24,7 +24,7 @@ from .. import constants
 from .geometry import geodesic_destination, project_polygon_to_elevation, split_polygon
 
 
-@njit
+@njit(cache=True)
 def compute_radar_beam_height(
     slant_range: float, elevation_angle: float, station_height: float = 0
 ) -> float:
@@ -45,6 +45,12 @@ def compute_radar_beam_height(
         float: The beam height (meters), in the same vertical reference as
         `station_height`.
     """
+    # as floats, since integers can overflow when compiled
+    slant_range, elevation_angle, station_height = (
+        slant_range * 1.0,
+        elevation_angle * 1.0,
+        station_height * 1.0,
+    )
     effective_radius = (
         constants.EFFECTIVE_EARTH_RADIUS_FACTOR * constants.EARTH_MEAN_RADIUS
     )
@@ -60,7 +66,7 @@ def compute_radar_beam_height(
     )
 
 
-@njit
+@njit(cache=True)
 def compute_radar_ground_range(
     slant_range: float, elevation_angle: float, station_height: float = 0
 ) -> float:
@@ -80,6 +86,12 @@ def compute_radar_ground_range(
         float: The ground range (meters), measured along the Earth's
         surface from the station, to the point reached by `slant_range`.
     """
+    # as floats, since integers can overflow when compiled
+    slant_range, elevation_angle, station_height = (
+        slant_range * 1.0,
+        elevation_angle * 1.0,
+        station_height * 1.0,
+    )
     effective_radius = (
         constants.EFFECTIVE_EARTH_RADIUS_FACTOR * constants.EARTH_MEAN_RADIUS
     )
@@ -91,7 +103,7 @@ def compute_radar_ground_range(
     return effective_radius * np.arcsin(sin_arg)
 
 
-@njit
+@njit(cache=True)
 def compute_radar_slant_range(
     elevation_angle: float, target_height: float, station_height: float = 0
 ) -> float:
@@ -119,6 +131,12 @@ def compute_radar_slant_range(
         descends and then climbs, so it can cross a height twice; this
         returns the farther (climbing) crossing.
     """
+    # as floats, since integers can overflow when compiled
+    elevation_angle, target_height, station_height = (
+        elevation_angle * 1.0,
+        target_height * 1.0,
+        station_height * 1.0,
+    )
     effective_radius = (
         constants.EFFECTIVE_EARTH_RADIUS_FACTOR * constants.EARTH_MEAN_RADIUS
     )
@@ -236,7 +254,7 @@ def compute_radar_ground_range_bounds(
     return (inner_ground_range, outer_ground_range)
 
 
-@njit
+@njit(cache=True)
 def compute_terrain_elevation_angle(
     ground_distance: float, terrain_elevation: float, station_elevation: float = 0
 ) -> float:
@@ -265,6 +283,12 @@ def compute_terrain_elevation_angle(
         float: The elevation angle (degrees) to the terrain point, as seen
         from the station; positive above local horizontal, negative below.
     """
+    # as floats, since integers can overflow when compiled
+    ground_distance, terrain_elevation, station_elevation = (
+        ground_distance * 1.0,
+        terrain_elevation * 1.0,
+        station_elevation * 1.0,
+    )
     effective_radius = (
         constants.EFFECTIVE_EARTH_RADIUS_FACTOR * constants.EARTH_MEAN_RADIUS
     )
