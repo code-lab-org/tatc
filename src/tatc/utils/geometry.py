@@ -656,6 +656,24 @@ def hash_geometry(geometry: BaseGeometry) -> str:
     ).hexdigest()
 
 
+def _hash_geometries(geometries: Any) -> list[str]:
+    """
+    Computes the compact hash of each of many geometries, equal to
+    `hash_geometry` of each but with the geometry operations vectorized.
+
+    Args:
+        geometries (Any): The geometries (an array-like of shapely geometries,
+            such as a `geopandas.GeoSeries`).
+
+    Returns:
+        list[str]: The hashes, each as 16 hexadecimal digits.
+    """
+    wkb = shapely.to_wkb(
+        shapely.normalize(shapely.force_3d(np.asarray(geometries))), byte_order=1
+    )
+    return [hashlib.blake2b(b, digest_size=8).hexdigest() for b in wkb]
+
+
 def _get_boundary_arcs(
     geometry: Polygon | MultiPolygon, elevation: float = 0, max_segment: float = 1
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:

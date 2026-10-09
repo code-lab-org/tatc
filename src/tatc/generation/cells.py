@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import geopandas as gpd
 import numpy as np
+import shapely
 from shapely.geometry import MultiPolygon, Polygon
 
 from ..constants import EARTH_MEAN_RADIUS
-from ..utils.geometry import get_planar_bounds, hash_geometry
-from ._grid import generate_indices_uniform_spacing
+from ..utils.geometry import _hash_geometries, get_planar_bounds
+from ._grid import clip_to_mask, generate_indices_uniform_spacing
 
 
 def generate_cells_uniform_spacing(
@@ -89,92 +90,46 @@ def generate_cells_uniform_angular_spacing(
         mask,
         strips,
     )
+    i = indices[:, 0]
+    j = indices[:, 1]
     # get the bounds of the mask
     min_longitude, min_latitude, max_longitude, max_latitude = get_planar_bounds(mask)
+    # compute the bounds of each cell, spanning the mask for strips
+    west = (
+        np.full(len(i), min_longitude)
+        if strips == "lat"
+        else -180 + i * theta_longitude
+    )
+    east = (
+        np.full(len(i), max_longitude)
+        if strips == "lat"
+        else -180 + (i + 1) * theta_longitude
+    )
+    south = (
+        np.full(len(j), min_latitude) if strips == "lon" else -90 + j * theta_latitude
+    )
+    north = (
+        np.full(len(j), max_latitude)
+        if strips == "lon"
+        else -90 + (j + 1) * theta_latitude
+    )
+    # trace each cell clockwise from its south-east corner
+    longitudes = np.column_stack((east, east, west, west, east))
+    latitudes = np.column_stack((south, north, north, south, south))
+    elevations = np.full_like(longitudes, elevation)
     # create a geodataframe in the WGS84 reference frame
     gdf = gpd.GeoDataFrame(
-        {
-            "geometry": [
-                Polygon(
-                    [
-                        (
-                            (
-                                max_longitude
-                                if strips == "lat"
-                                else -180 + (i + 1) * theta_longitude
-                            ),
-                            (
-                                min_latitude
-                                if strips == "lon"
-                                else -90 + j * theta_latitude
-                            ),
-                            elevation,
-                        ),
-                        (
-                            (
-                                max_longitude
-                                if strips == "lat"
-                                else -180 + (i + 1) * theta_longitude
-                            ),
-                            (
-                                max_latitude
-                                if strips == "lon"
-                                else -90 + (j + 1) * theta_latitude
-                            ),
-                            elevation,
-                        ),
-                        (
-                            (
-                                min_longitude
-                                if strips == "lat"
-                                else -180 + i * theta_longitude
-                            ),
-                            (
-                                max_latitude
-                                if strips == "lon"
-                                else -90 + (j + 1) * theta_latitude
-                            ),
-                            elevation,
-                        ),
-                        (
-                            (
-                                min_longitude
-                                if strips == "lat"
-                                else -180 + i * theta_longitude
-                            ),
-                            (
-                                min_latitude
-                                if strips == "lon"
-                                else -90 + j * theta_latitude
-                            ),
-                            elevation,
-                        ),
-                        (
-                            (
-                                max_longitude
-                                if strips == "lat"
-                                else -180 + (i + 1) * theta_longitude
-                            ),
-                            (
-                                min_latitude
-                                if strips == "lon"
-                                else -90 + j * theta_latitude
-                            ),
-                            elevation,
-                        ),
-                    ]
-                )
-                for (i, j) in indices
-            ],
-        },
+        geometry=shapely.polygons(
+            np.stack((longitudes, latitudes, elevations), axis=-1)
+        ),
         crs="EPSG:4326",
     )
     # clip the geodataframe to the supplied mask, if required
     if mask is not None:
-        gdf = gpd.clip(gdf, mask).reset_index(drop=True)
+        gdf = clip_to_mask(gdf, mask)
         # convert each cell to a convex hull to simplify presentation
         gdf.geometry = gdf.geometry.convex_hull
     # identify each cell by the hash of its geometry
-    gdf.insert(0, "cell_id", [hash_geometry(g) for g in gdf.geometry])
+    gdf.insert(0, "cell_id", _hash_geometries(gdf.geometry))
     # return the final geodataframe
     return gdf

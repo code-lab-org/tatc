@@ -43,6 +43,7 @@ Changed:
  - `collect_ground_track` and `collect_ground_pixels` cull times with a mask using the periods when the instrument's field of regard may observe it, which no longer misses footprints near the poles or across the anti-meridian. Masks are split along the anti-meridian and poles before use, and results are sorted by time.
  - Observations of points (`collect_observations`, `collect_multi_observations`, and `compute_latencies`) identify each point by the hash of its geometry (`target_hash`, see `hash_geometry`) rather than a `point_id`, and `aggregate_observations`, `reduce_observations`, and `reduce_latencies` group observations by `target_hash`. The `id` of a TAT-C `Point` is no longer used.
  - Generated points and cells are identified by the hashes of their geometries (`point_id` and `cell_id`) rather than integer indices, so that a generated point's `point_id` equals the `target_hash` of its observations.
+ - Generating points and cells is about 3 to 15 times faster (vectorized geometry construction, hashing, and clipping). Points and cells clipped to a mask keep the grid or lattice order rather than the arbitrary order of `geopandas.clip`.
  - Analysis methods that accept satellites raise a `TypeError` for a constellation (use its `generate_members` method).
  - Deprecated utility method `buffer_target`.
  - Fixed `SunSynchronousOrbit` to place the ascending node in local mean solar time and to keep the local time of its equator crossings constant as propagated.

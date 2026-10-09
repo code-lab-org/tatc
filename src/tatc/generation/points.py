@@ -8,49 +8,13 @@ from __future__ import annotations
 
 import geopandas as gpd
 import numpy as np
-from numba import njit
-from shapely.geometry import MultiPolygon, Point, Polygon
+import shapely
+from shapely.geometry import MultiPolygon, Polygon
 
 from ..constants import EARTH_MEAN_RADIUS
-from ..utils.geometry import hash_geometry
+from ..utils.geometry import _hash_geometries
 from ..utils.surface import compute_number_samples
-from ._grid import generate_indices_uniform_spacing
-
-
-@njit
-def _compute_fibonacci_lattice_point_latitude(index: int, count: int) -> float:
-    """
-    Fast method to compute the latitude for a Fibonacci lattice point.
-
-    Args:
-        index (int): The zero-based point index.
-        count (int): The number of global samples.
-
-    Returns:
-        float: The latitude (degrees) of this point.
-    """
-    # compute latitude, starting from the southern hemisphere and placing
-    # neither first nor last points at poles
-    return np.degrees(np.arcsin(2 * (index + 1) / (count + 2) - 1))
-
-
-@njit
-def _compute_fibonacci_lattice_point_longitude(index: int) -> float:
-    """
-    Fast method to compute the latitude for a Fibonacci lattice point.
-
-    Args:
-        index (int): The zero-based point index.
-
-    Returns:
-        float: The longitude (degrees) of this point.
-    """
-    phi = (1 + np.sqrt(5)) / 2  # golden ratio
-    # compute longitude and return value on interval [-180, 180]
-    longitude = np.mod(360 * index / phi, 360)
-    if longitude > 180:
-        longitude -= 360
-    return longitude
+from ._grid import clip_to_mask, generate_indices_uniform_spacing
 
 
 def generate_points_fibonacci_lattice(
@@ -84,67 +48,49 @@ def generate_points_fibonacci_lattice(
 
     # determine the number of global samples to achieve average sample distance
     samples = compute_number_samples(distance)
-    if isinstance(mask, (Polygon, MultiPolygon)):
-        if not mask.is_valid:
-            raise ValueError("Mask is not a valid Polygon or MultiPolygon.")
-        total_bounds = mask.bounds
-    else:
-        total_bounds = [-180, -90, 180, 90]
-    min_longitude = total_bounds[0]
-    # if mask, use the total_bounds to filter relevant points
-    min_longitude = total_bounds[0]
-    min_latitude = total_bounds[1]
-    max_longitude = 180 if total_bounds[2] == -180 else total_bounds[2]
-    max_latitude = total_bounds[3]
-    # enumerate the indices within the bounding box region
-    if mask is None:
-        # if no mask, enumerate the indices for global coverage
-        indices = range(samples)
-    else:
-        indices = [
-            i
-            for i in range(samples)
-            if (
-                min_latitude
-                <= _compute_fibonacci_lattice_point_latitude(i, samples)
-                <= max_latitude
-            )
-            and (
-                min_longitude
-                <= (
-                    _compute_fibonacci_lattice_point_longitude(i) + 360
-                    if max_longitude > 180
-                    and _compute_fibonacci_lattice_point_longitude(i) < 0
-                    else _compute_fibonacci_lattice_point_longitude(i)
-                )
-                <= max_longitude
-            )
-        ]
+    index = np.arange(samples)
+    # compute latitudes, starting from the southern hemisphere and placing
+    # neither first nor last points at poles
+    latitudes = np.degrees(np.arcsin(2 * (index + 1) / (samples + 2) - 1))
+    # compute longitudes on the interval [-180, 180]
+    phi = (1 + np.sqrt(5)) / 2  # golden ratio
+    longitudes = np.mod(360 * index / phi, 360)
+    longitudes = np.where(longitudes > 180, longitudes - 360, longitudes)
+    if mask is not None:
+        if isinstance(mask, (Polygon, MultiPolygon)):
+            if not mask.is_valid:
+                raise ValueError("Mask is not a valid Polygon or MultiPolygon.")
+            total_bounds = mask.bounds
+        else:
+            total_bounds = [-180, -90, 180, 90]
+        # use the total_bounds to filter relevant points
+        min_longitude = total_bounds[0]
+        min_latitude = total_bounds[1]
+        max_longitude = 180 if total_bounds[2] == -180 else total_bounds[2]
+        max_latitude = total_bounds[3]
+        # shift longitudes to the interval [0, 360] for masks beyond 180
+        if max_longitude > 180:
+            longitudes = np.where(longitudes < 0, longitudes + 360, longitudes)
+        in_bounds = (
+            (min_latitude <= latitudes)
+            & (latitudes <= max_latitude)
+            & (min_longitude <= longitudes)
+            & (longitudes <= max_longitude)
+        )
+        longitudes = longitudes[in_bounds]
+        latitudes = latitudes[in_bounds]
     # create a geodataframe in the WGS84 coordinate reference system (EPSG:4326)
     gdf = gpd.GeoDataFrame(
-        {
-            "geometry": [
-                Point(
-                    (
-                        _compute_fibonacci_lattice_point_longitude(i) + 360
-                        if mask is not None
-                        and max_longitude > 180
-                        and _compute_fibonacci_lattice_point_longitude(i) < 0
-                        else _compute_fibonacci_lattice_point_longitude(i)
-                    ),
-                    _compute_fibonacci_lattice_point_latitude(i, samples),
-                    elevation,
-                )
-                for i in indices
-            ],
-        },
+        geometry=shapely.points(
+            longitudes, latitudes, np.full_like(longitudes, elevation)
+        ),
         crs="EPSG:4326",
     )
     # clip the geodataframe to the supplied mask, if required
     if mask is not None:
-        gdf = gpd.clip(gdf, mask).reset_index(drop=True)
+        gdf = clip_to_mask(gdf, mask)
     # identify each point by the hash of its geometry
-    gdf.insert(0, "point_id", [hash_geometry(g) for g in gdf.geometry])
+    gdf.insert(0, "point_id", _hash_geometries(gdf.geometry))
     # return the final geodataframe
     return gdf
 
@@ -217,24 +163,19 @@ def generate_points_uniform_angular_distance(
         theta_latitude,
         mask,
     )
+    longitudes = -180 + (indices[:, 0] + 0.5) * theta_longitude
+    latitudes = -90 + (indices[:, 1] + 0.5) * theta_latitude
     # create a geodataframe in the WGS84 reference frame
     gdf = gpd.GeoDataFrame(
-        {
-            "geometry": [
-                Point(
-                    -180 + (i + 0.5) * theta_longitude,
-                    -90 + (j + 0.5) * theta_latitude,
-                    elevation,
-                )
-                for (i, j) in indices
-            ],
-        },
+        geometry=shapely.points(
+            longitudes, latitudes, np.full_like(longitudes, elevation)
+        ),
         crs="EPSG:4326",
     )
     # clip the geodataframe to the supplied mask, if required
     if mask is not None:
-        gdf = gpd.clip(gdf, mask).reset_index(drop=True)
+        gdf = clip_to_mask(gdf, mask)
     # identify each point by the hash of its geometry
-    gdf.insert(0, "point_id", [hash_geometry(g) for g in gdf.geometry])
+    gdf.insert(0, "point_id", _hash_geometries(gdf.geometry))
     # return the final geodataframe
     return gdf
