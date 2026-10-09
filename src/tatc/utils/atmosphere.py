@@ -32,7 +32,7 @@ _MAX_ALTITUDE = 86000.0  # m, upper bound of the standard atmosphere model
 _MIN_PRESSURE = 0.3023942287612965  # Pa, pressure at _MAX_ALTITUDE (layer 6 formula)
 
 
-@njit
+@njit(cache=True)
 def altitude_to_pressure(altitude: float) -> float:
     """
     Fast computation of atmospheric pressure at a specified altitude, using
@@ -46,6 +46,8 @@ def altitude_to_pressure(altitude: float) -> float:
         float: Atmospheric pressure (Pa). Divide by 100 to convert to the
             hPa (millibar) units common in atmospheric science.
     """
+    # as floats, since integers can overflow when compiled
+    altitude = altitude * 1.0
     h = min(max(altitude, 0.0), _MAX_ALTITUDE)
     # select the highest layer whose base altitude is at or below h
     layer = 0
@@ -65,7 +67,7 @@ def altitude_to_pressure(altitude: float) -> float:
     )
 
 
-@njit
+@njit(cache=True)
 def pressure_to_altitude(pressure: float) -> float:
     """
     Fast computation of altitude at a specified atmospheric pressure, using
@@ -81,6 +83,8 @@ def pressure_to_altitude(pressure: float) -> float:
     Returns:
         float: Altitude (meters) above mean sea level.
     """
+    # as floats, since integers can overflow when compiled
+    pressure = pressure * 1.0
     p = min(max(pressure, _MIN_PRESSURE), _LAYER_BASE_PRESSURE[0])
     # select the highest layer whose base pressure is at or above p
     # (pressure decreases monotonically with altitude/layer)

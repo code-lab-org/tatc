@@ -13,7 +13,7 @@ from .. import constants
 from .orbital import compute_ground_surface_velocity, semimajor_axis_to_mean_motion
 
 
-@njit
+@njit(cache=True)
 def swath_width_to_field_of_regard(
     altitude: float, swath_width: float, elevation: float = 0
 ) -> float:
@@ -34,6 +34,12 @@ def swath_width_to_field_of_regard(
         float: The field of regard (degrees): the full angular width, centered on
         nadir, that the instrument must be able to point across to observe the swath.
     """
+    # as floats, since integers can overflow when compiled
+    altitude, swath_width, elevation = (
+        altitude * 1.0,
+        swath_width * 1.0,
+        elevation * 1.0,
+    )
     # rho is the angular radius of the earth viewed by the satellite
     sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
         constants.EARTH_MEAN_RADIUS + altitude
@@ -45,7 +51,7 @@ def swath_width_to_field_of_regard(
     return np.degrees(2 * np.arctan(tan_eta))
 
 
-@njit
+@njit(cache=True)
 def swath_width_to_field_of_view(
     altitude: float, swath_width: float, look_angle: float = 0, elevation: float = 0
 ) -> float:
@@ -72,6 +78,13 @@ def swath_width_to_field_of_view(
         float: The field of view (degrees): the angular extent, as seen from the
         satellite, spanning the near to far edge of the swath.
     """
+    # as floats, since integers can overflow when compiled
+    altitude, swath_width, look_angle, elevation = (
+        altitude * 1.0,
+        swath_width * 1.0,
+        look_angle * 1.0,
+        elevation * 1.0,
+    )
     # rho is the angular radius of the earth viewed by the satellite
     sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
         constants.EARTH_MEAN_RADIUS + altitude
@@ -94,7 +107,7 @@ def swath_width_to_field_of_view(
     return np.degrees(np.arctan(tan_eta_2) - np.arctan(tan_eta_1))
 
 
-@njit
+@njit(cache=True)
 def field_of_regard_to_swath_width(
     altitude: float, field_of_regard: float, elevation: float = 0
 ) -> float:
@@ -117,6 +130,12 @@ def field_of_regard_to_swath_width(
         float: The ground swath width (meters): the cross-track distance,
         measured along the Earth's surface, at the specified elevation.
     """
+    # as floats, since integers can overflow when compiled
+    altitude, field_of_regard, elevation = (
+        altitude * 1.0,
+        field_of_regard * 1.0,
+        elevation * 1.0,
+    )
     # rho is the angular radius of the earth viewed by the satellite
     sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
         constants.EARTH_MEAN_RADIUS + altitude
@@ -130,7 +149,7 @@ def field_of_regard_to_swath_width(
     return 2 * (constants.EARTH_MEAN_RADIUS + elevation) * _lambda
 
 
-@njit
+@njit(cache=True)
 def compute_field_of_regard(
     altitude: float, min_elevation_angle: float, elevation: float = 0
 ) -> float:
@@ -145,6 +164,12 @@ def compute_field_of_regard(
     Returns:
         float: Angular width (degrees) of observation.
     """
+    # as floats, since integers can overflow when compiled
+    altitude, min_elevation_angle, elevation = (
+        altitude * 1.0,
+        min_elevation_angle * 1.0,
+        elevation * 1.0,
+    )
     # rho is the angular radius of the earth viewed by the satellite
     sin_rho = (constants.EARTH_MEAN_RADIUS + elevation) / (
         constants.EARTH_MEAN_RADIUS + altitude
@@ -156,7 +181,7 @@ def compute_field_of_regard(
     return np.degrees(np.arcsin(sin_eta) * 2)
 
 
-@njit
+@njit(cache=True)
 def compute_min_elevation_angle(
     altitude: float, field_of_regard: float, elevation: float = 0
 ) -> float:
@@ -171,6 +196,12 @@ def compute_min_elevation_angle(
     Returns:
         float: The minimum elevation angle (degrees) for observation.
     """
+    # as floats, since integers can overflow when compiled
+    altitude, field_of_regard, elevation = (
+        altitude * 1.0,
+        field_of_regard * 1.0,
+        elevation * 1.0,
+    )
     # eta is the angular radius of the region viewable by the satellite
     sin_eta = np.sin(np.radians(field_of_regard) / 2)
     # rho is the angular radius of the earth viewed by the satellite
@@ -184,7 +215,7 @@ def compute_min_elevation_angle(
     return np.degrees(np.arccos(cos_epsilon))
 
 
-@njit
+@njit(cache=True)
 def compute_max_access_time(altitude: float, min_elevation_angle: float) -> float:
     """
     Fast computation of maximum access time to observe a point.
@@ -196,6 +227,8 @@ def compute_max_access_time(altitude: float, min_elevation_angle: float) -> floa
     Returns:
         float: The maximum access time (seconds) for observation.
     """
+    # as floats, since integers can overflow when compiled
+    altitude, min_elevation_angle = altitude * 1.0, min_elevation_angle * 1.0
     # angular distance from sub-satellite point to edge of viewable region
     earth_angle = np.degrees(
         np.arccos(
@@ -213,7 +246,7 @@ def compute_max_access_time(altitude: float, min_elevation_angle: float) -> floa
     )
 
 
-@njit
+@njit(cache=True)
 def compute_max_transit_time(
     mean_altitude: float, inclination: float, along_track: float
 ) -> float:
@@ -231,6 +264,12 @@ def compute_max_transit_time(
     Returns:
         float: The maximum access time (seconds) to traverse the along track distance.
     """
+    # as floats, since integers can overflow when compiled
+    mean_altitude, inclination, along_track = (
+        mean_altitude * 1.0,
+        inclination * 1.0,
+        along_track * 1.0,
+    )
     # slowest velocity occurs at the orbit's extreme latitude
     extreme_latitude = min(inclination, 180 - inclination)
     v_slowest = compute_ground_surface_velocity(
@@ -239,7 +278,7 @@ def compute_max_transit_time(
     return along_track / v_slowest
 
 
-@njit
+@njit(cache=True)
 def compute_min_along_track_distance(
     mean_altitude: float, inclination: float, access_time: float
 ) -> float:
@@ -258,6 +297,12 @@ def compute_min_along_track_distance(
     Returns:
         float: The minimum along track distance (meters) observed during the access time.
     """
+    # as floats, since integers can overflow when compiled
+    mean_altitude, inclination, access_time = (
+        mean_altitude * 1.0,
+        inclination * 1.0,
+        access_time * 1.0,
+    )
     # slowest velocity occurs at the orbit's extreme latitude
     extreme_latitude = min(inclination, 180 - inclination)
     v_slowest = compute_ground_surface_velocity(

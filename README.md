@@ -50,13 +50,20 @@ Run unit tests with:
 python -m unittest
 ```
 
-Optionally, run a test coverage report:
+Unit tests run numba-compiled functions (see below) compiled, which coverage cannot trace. To include them in a test coverage report, run the tests with the environment variable `NUMBA_DISABLE_JIT=1` (e.g., in bash):
 ```shell
-coverage run -m unittest
+NUMBA_DISABLE_JIT=1 coverage run -m unittest
 ```
 including html output:
 ```shell
 coverage html
+```
+
+### Compiled Functions
+
+Numerical functions in `tatc.utils` are compiled with numba (`njit(cache=True)`), which caches the compiled machine code in `__pycache__` directories next to the source files (or in the directory set by the `NUMBA_CACHE_DIR` environment variable). Numba recompiles a function only if its own source file changes, so after editing values it uses from other modules (e.g., in `tatc/constants.py`) or other compiled functions it calls (e.g., in `tatc/utils/orbital.py`), clear the cache from the project root with:
+```shell
+python -c "import pathlib; [p.unlink() for p in pathlib.Path('src').rglob('*.nb[ci]')]"
 ```
 
 ### Documentation

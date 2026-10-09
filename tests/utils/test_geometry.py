@@ -774,6 +774,49 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
         _, nearest = _get_nearest_arc_points(unit([5, 15, -4], [3, 0, 3]), arcs)
         np.testing.assert_allclose(nearest, unit([5, 10, 0], [0, 0, 0]), atol=1e-12)
 
+    def test_get_nearest_arc_points_matches_all_pairs(self):
+        """
+        Test that the nearest arc points of random directions to the
+        boundary arcs of an irregular region match the minimum over all
+        pairs of directions and arcs, and that there are none without arcs.
+        """
+        rng = np.random.default_rng(0)
+        theta = np.linspace(0, 2 * np.pi, 400, endpoint=False)
+        radius = 15 + 4 * np.sin(7 * theta)
+        start, end = _get_boundary_arcs(
+            Polygon(np.c_[radius * np.cos(theta), 30 + radius * np.sin(theta)])
+        )
+        directions = rng.normal(size=(3, 500))
+        directions /= np.linalg.norm(directions, axis=0)
+        distance, nearest = _get_nearest_arc_points(directions, (start, end))
+        # all pairs (shape (E, N)): the distance to each arc's great circle
+        # within the arc, or otherwise to the arc's nearer end
+        normal = np.cross(start.T, end.T).T
+        normal /= np.linalg.norm(normal, axis=0)
+        sine = normal.T @ directions
+        within = (np.cross(normal.T, start.T) @ directions >= 0) & (
+            np.cross(end.T, normal.T) @ directions >= 0
+        )
+        cos_start, cos_end = start.T @ directions, end.T @ directions
+        candidates = np.where(
+            within,
+            np.arcsin(np.clip(np.abs(sine), 0, 1)),
+            np.arccos(np.clip(np.maximum(cos_start, cos_end), -1, 1)),
+        )
+        np.testing.assert_allclose(distance, np.min(candidates, axis=0), atol=1e-12)
+        # the nearest points are on the arcs at those distances
+        np.testing.assert_allclose(np.linalg.norm(nearest, axis=0), 1, atol=1e-12)
+        np.testing.assert_allclose(
+            np.arccos(np.clip(np.sum(directions * nearest, axis=0), -1, 1)),
+            distance,
+            atol=1e-7,
+        )
+        distance, nearest = _get_nearest_arc_points(
+            directions, (np.empty((3, 0)), np.empty((3, 0)))
+        )
+        np.testing.assert_array_equal(distance, np.pi)
+        np.testing.assert_array_equal(nearest, directions)
+
     def test_get_surface_positions_and_geodetic_coordinates(self):
         """
         Test that surface positions lie on the WGS 84 ellipsoid at the

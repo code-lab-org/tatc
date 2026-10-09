@@ -231,6 +231,26 @@ class TestOrbital(unittest.TestCase):  # pylint: disable=too-many-public-methods
             delta=1.0,
         )
 
+    def test_integer_inputs_match_float_inputs(self):
+        """
+        Test that integer inputs, which can overflow in compiled arithmetic
+        (for example, the cube of a semimajor axis), give the same results
+        as float inputs.
+        """
+        for function, args in [
+            (semimajor_axis_to_mean_motion, (42164000,)),
+            (semimajor_axis_to_orbit_period, (7000000,)),
+            (compute_j2_raan_rate, (7000000, 98, 0)),
+            (compute_j2_aop_rate, (7000000, 98, 0)),
+            (compute_j2_mean_motion_rate, (7000000, 98, 0)),
+            (compute_apoapsis_radius, (7000000, 0)),
+            (compute_orbit_inertial_velocity, (500000,)),
+        ]:
+            with self.subTest(function=function.__name__):
+                self.assertEqual(
+                    function(*args), function(*(float(arg) for arg in args))
+                )
+
     def test_semimajor_axis_to_orbit_period_iss(self):
         """
         Test against the commonly cited ISS orbital period of

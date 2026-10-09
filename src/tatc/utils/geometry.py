@@ -13,6 +13,7 @@ import geopandas as gpd
 import numpy as np
 import numpy.typing as npt
 import shapely
+from numba import njit
 from pyproj import Geod
 from shapely import make_valid
 from shapely.geometry import (
@@ -726,7 +727,6 @@ def _get_boundary_arcs(
 def _get_nearest_arc_points(
     directions: npt.NDArray[np.float64],
     arcs: tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]],
-    chunk_size: int = 1024,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """
     Computes the minimum angular distance from each of a set of directions
@@ -737,7 +737,6 @@ def _get_nearest_arc_points(
         directions (numpy.typing.NDArray[numpy.float64]): The unit vectors (shape (3, N)).
         arcs (tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]):
             The unit vectors (shape (3, E)) at the start and end of each arc.
-        chunk_size (int): The number of directions processed at once, to limit memory.
 
     Returns:
         tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]:
@@ -746,47 +745,100 @@ def _get_nearest_arc_points(
             themselves if there are no arcs)
     """
     start, end = arcs
-    distance = np.full(directions.shape[1], np.pi)
-    nearest = np.array(directions, dtype=float, copy=True)
+    directions = np.array(directions, dtype=float, copy=True, order="C")
     if start.shape[1] == 0:
-        return distance, nearest
+        return np.full(directions.shape[1], np.pi), directions
     # unit normal to each arc's great circle and, within its plane, the
     # normals to the arc's ends (pointing into the arc)
     normal = np.cross(start.T, end.T).T
     normal /= np.linalg.norm(normal, axis=0)
     after_start = np.cross(normal.T, start.T).T
     before_end = np.cross(end.T, normal.T).T
-    for i in range(0, directions.shape[1], chunk_size):
-        u = directions[:, i : i + chunk_size]
-        # sine of the distance to each great circle (shape (E, M))
-        sine = normal.T @ u
-        # the direction's projection onto a great circle lies within its
-        # arc if on the inner side of both of the arc's ends
-        within = (after_start.T @ u >= 0) & (before_end.T @ u >= 0)
-        to_circle = np.arcsin(np.clip(np.abs(sine), 0, 1))
-        cos_start, cos_end = start.T @ u, end.T @ u
-        to_ends = np.arccos(np.clip(np.maximum(cos_start, cos_end), -1, 1))
-        candidates = np.where(within, to_circle, to_ends)
-        arc = np.argmin(candidates, axis=0)
-        column = np.arange(u.shape[1])
-        distance[i : i + chunk_size] = candidates[arc, column]
-        # nearest point: the projection onto the great circle within the
-        # arc, or otherwise the nearer end of the arc
-        projection = u - normal[:, arc] * sine[arc, column]
-        projection /= np.linalg.norm(projection, axis=0)
-        end_point = np.where(
-            cos_start[arc, column] >= cos_end[arc, column], start[:, arc], end[:, arc]
-        )
-        nearest[:, i : i + chunk_size] = np.where(
-            within[arc, column], projection, end_point
-        )
+    return _find_nearest_arc_points(
+        directions,
+        *(
+            np.ascontiguousarray(x, dtype=float)
+            for x in (start, end, normal, after_start, before_end)
+        ),
+    )
+
+
+@njit(cache=True)
+def _find_nearest_arc_points(  # pylint: disable=too-many-arguments,too-many-locals,too-many-positional-arguments
+    directions: npt.NDArray[np.float64],
+    start: npt.NDArray[np.float64],
+    end: npt.NDArray[np.float64],
+    normal: npt.NDArray[np.float64],
+    after_start: npt.NDArray[np.float64],
+    before_end: npt.NDArray[np.float64],
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """
+    Finds the nearest of a (non-empty) set of great circle arcs to each
+    direction (see `_get_nearest_arc_points`), given the unit normal to each
+    arc's great circle (`normal`) and the normals to its ends pointing into
+    it (`after_start` and `before_end`). Compares a candidate by the sine
+    (to its great circle) or cosine (to its nearer end) of its distance
+    against those of the nearest so far, evaluating its distance only if it
+    may be nearer.
+
+    Returns:
+        tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]:
+            the angular distances (radians, shape (N,)) and the unit vectors
+            toward the nearest points (shape (3, N))
+    """
+    distance = np.empty(directions.shape[1])
+    nearest = np.empty_like(directions)
+    for j in range(directions.shape[1]):
+        x, y, z = directions[0, j], directions[1, j], directions[2, j]
+        best, sin_best, cos_best = np.inf, 0.0, -2.0
+        nearest_x, nearest_y, nearest_z = x, y, z
+        for k in range(start.shape[1]):
+            # the direction's projection onto a great circle lies within its
+            # arc if on the inner side of both of the arc's ends
+            if (
+                after_start[0, k] * x + after_start[1, k] * y + after_start[2, k] * z
+                >= 0
+                and before_end[0, k] * x + before_end[1, k] * y + before_end[2, k] * z
+                >= 0
+            ):
+                sine = normal[0, k] * x + normal[1, k] * y + normal[2, k] * z
+                # the distance to a great circle (at most a right angle)
+                # is nearer than any of at least a right angle
+                if best >= np.pi / 2 or abs(sine) < sin_best:
+                    angle = np.arcsin(min(abs(sine), 1.0))
+                    if angle < best:
+                        best, sin_best, cos_best = angle, np.sin(angle), np.cos(angle)
+                        nearest_x = x - normal[0, k] * sine
+                        nearest_y = y - normal[1, k] * sine
+                        nearest_z = z - normal[2, k] * sine
+                        norm = np.sqrt(nearest_x**2 + nearest_y**2 + nearest_z**2)
+                        nearest_x, nearest_y, nearest_z = (
+                            nearest_x / norm,
+                            nearest_y / norm,
+                            nearest_z / norm,
+                        )
+            else:
+                cos_start = start[0, k] * x + start[1, k] * y + start[2, k] * z
+                cos_end = end[0, k] * x + end[1, k] * y + end[2, k] * z
+                cosine = min(max(cos_start, cos_end), 1.0)
+                if cosine > cos_best:
+                    angle = np.arccos(max(cosine, -1.0))
+                    if angle < best:
+                        best, sin_best, cos_best = angle, np.sin(angle), np.cos(angle)
+                        point = start if cos_start >= cos_end else end
+                        nearest_x, nearest_y, nearest_z = (
+                            point[0, k],
+                            point[1, k],
+                            point[2, k],
+                        )
+        distance[j] = best
+        nearest[0, j], nearest[1, j], nearest[2, j] = nearest_x, nearest_y, nearest_z
     return distance, nearest
 
 
 def _get_angular_distance_to_arcs(
     directions: npt.NDArray[np.float64],
     arcs: tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]],
-    chunk_size: int = 1024,
 ) -> npt.NDArray[np.float64]:
     """
     Computes the minimum angular distance from each of a set of directions
@@ -796,12 +848,11 @@ def _get_angular_distance_to_arcs(
         directions (numpy.typing.NDArray[numpy.float64]): The unit vectors (shape (3, N)).
         arcs (tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]):
             The unit vectors (shape (3, E)) at the start and end of each arc.
-        chunk_size (int): The number of directions processed at once, to limit memory.
 
     Returns:
         numpy.typing.NDArray[numpy.float64]: the angular distances (radians, shape (N,))
     """
-    return _get_nearest_arc_points(directions, arcs, chunk_size)[0]
+    return _get_nearest_arc_points(directions, arcs)[0]
 
 
 def _get_point_coordinates(point: Any) -> tuple[float, float, float]:
