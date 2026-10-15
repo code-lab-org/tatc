@@ -13,6 +13,7 @@ The following compare TAT-C analysis results with reference data from operationa
   ValidateROPlanetiQ.ipynb
   ValidateRadarNEXRAD.ipynb
   ValidateImagerATMS.ipynb
+  ValidateImagerCrIS.ipynb
   ValidateImagerVIIRS.ipynb
   ValidateSARSentinel1.ipynb
   ValidateSARNISAR.ipynb

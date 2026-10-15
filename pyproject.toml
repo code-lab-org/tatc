@@ -90,12 +90,14 @@ examples = [
     "cartopy"
 ]
 osse = [
+    "tatc[examples]",
     "netcdf4",
     "pydap",
     "rioxarray",
     "scipy",
     "scikit-learn",
-    "seaborn"
+    "seaborn",
+    "xarray"
 ]
 preprocess = [
     "rasterio"
