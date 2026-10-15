@@ -25,6 +25,7 @@ Added:
  - Utility methods for the WGS 84 ellipsoid (module `tatc.utils.ellipsoid`): `geodetic_to_rectangular`, `rectangular_to_geodetic`, `compute_ellipsoid_intersection` (intersections of rays with the ellipsoid), and `compute_tangent_point` (the point of minimum geodetic altitude on a line), utility method `compute_vnb_frame` (a satellite's velocity, normal, and binormal frame), and utility method `hash_geometry` (a compact hash identifying a geometry).
  - Runtime configurations `footprint_points_radar_azimuthal`, `repeat_cycle_delta_semimajor_axis_m`, and `nutation_interpolation_minutes` (the step of a cached table from which nutation angles are interpolated, or `null` to compute them for every time), and constants `EFFECTIVE_EARTH_RADIUS_FACTOR`, `EARTH_ROTATION_RATE`, and `TROPICAL_YEAR_S`.
  - Validation notebooks in `docs/validation` comparing TAT-C with data from operational missions.
+ - Example notebook `docs/examples/RunOSSEMonsoon.ipynb`, an observing system simulation experiment (OSSE) that samples cold cloud top features of the 7-km GEOS-5 Nature Run over the American Southwest with the swaths of current (ATMS, CrIS) and notional future sounders, and compares their horizontal resolution.
  - Optional dependencies `preprocess` and `validation`, and development dependency `pytest-xdist` to run tests in parallel (e.g. `pytest -n 8`).
 
 Changed:
