@@ -12,3 +12,9 @@ Ground Station
 
 .. autopydantic_model:: tatc.schemas.GroundStation
   :members:
+
+Surface Platform
+----------------
+
+.. autopydantic_model:: tatc.schemas.SurfacePlatform
+  :members:

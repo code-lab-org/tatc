@@ -2,12 +2,13 @@
 
 ## 3.6.0
 
-Added new observing capabilities for limb sounding, ground-based radar, and regions (polygons), with support for shapely points. Changed how general perturbations orbits are propagated, with options to model orbits maintained on a repeat ground track. Also changed the tangent point for GNSS radio occultation (RO) and limb sounding to the point of minimum WGS 84 geodetic altitude along the line of sight.
+Added new observing capabilities for limb sounding, ground-based radar, fixed surface platforms, and regions (polygons), with support for shapely points. Changed how general perturbations orbits are propagated, with options to model orbits maintained on a repeat ground track. Also changed the tangent point for GNSS radio occultation (RO) and limb sounding to the point of minimum WGS 84 geodetic altitude along the line of sight.
 
 Added:
  - Analysis method `collect_limb_observations` (with enumeration `ScanDirection`) for limb sounding observations from periodic scans at a constant angular rate.
  - Analysis method `collect_space_observations` for the periods when satellites can observe other satellites (as by a sensor or a radio frequency link), subject to slant range limits and Earth occlusion (a minimum WGS 84 geodetic altitude of the line of sight). Each observation records the lines of sight at its start and end as its geometry.
  - Object schemas `RadarStation` (with `RadarBand` and `RadarStation.from_band`) and `TerrainMask`, and analysis methods `collect_radar_track` and `compute_radar_track`, for ground-based radar coverage. `AllSurfaceObjects` includes `RadarStation`.
+ - Object schema `SurfacePlatform` (included in `AllSurfaceObjects`) for instruments on platforms fixed above the Earth's surface, such as towers or tethered balloons, with a `heading` that orients their views, and analysis methods `collect_platform_track` and `compute_platform_track` for the static footprints of their `Instrument` and `PointedInstrument` views at a target elevation. Utility method `compute_static_track` gives a fixed position the form of an orbit track, from which instruments project their views as from a satellite.
  - Module `preprocess` to derive inputs from external datasets, including terrain masks from Copernicus DEM data (`compute_terrain_mask`, `compute_terrain_mask_for_station`, `get_copernicus_dem_tile_urls`, and `sample_dem_elevation`), and gridded weights from GeoTIFF rasters (`read_raster_weights`).
  - Generation method `generate_points_random` for random points, uniform by area or weighted by a raster (for example, of population counts or densities), optionally within a mask, with a seed for reproducibility.
  - Analysis methods `collect_region_observations` and `collect_multi_region_observations` to collect the periods (start and end) when an instrument observes any part of a region (shapely `Polygon` or `MultiPolygon`), using the footprints of pointed and conical instruments and the field of regard of other instruments. Each observation records its swath (the part of the region swept by the footprint) as its geometry and identifies the region by the hash of its geometry (`target_hash`). Methods `aggregate_observations` and `reduce_observations` combine the swaths of a region into the part of it observed.
@@ -50,6 +51,7 @@ Changed:
  - Fixed `SunSynchronousOrbit` to place the ascending node in local mean solar time and to keep the local time of its equator crossings constant as propagated.
  - Fixed `TrainConstellation` for long intervals between members, and `MolniyaOrbit` and `TundraOrbit` periods to repeat the ground track as propagated.
  - Fixed rectangular footprints of wide, elongated views.
+ - Fixed `PointedInstrument.compute_footprint_pixel_array` for a single-time (scalar) orbit track.
  - Fixed `split_polygon` for longitudes beyond 180 degrees, for polygons spanning -180 to 180 degrees of longitude, and for holes across the anti-meridian or around a pole (holes are now split like exteriors), and to drop degenerate (zero-area) parts left by repairing invalid polygons.
  - Fixed cached orbit computations for copies with changed fields, and orbits and satellites to be picklable after propagation.
  - Fixed numba-compiled utility methods (in `tatc.utils.orbital`, `observation`, `radar`, `atmosphere`, and `surface`) returning `nan` for integer inputs, which overflowed in compiled integer arithmetic (for example, `semimajor_axis_to_mean_motion(7000000)`): inputs are now converted to floats.

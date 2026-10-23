@@ -475,15 +475,20 @@ class PointedInstrument(Instrument):
             for i in range(self.cross_track_pixels)
             for j in range(self.along_track_pixels)
         ]
+        # coordinates of each pixel, with shape (N,) for one or more times
+        coordinates = [
+            (
+                np.atleast_1d(point.longitude.degrees),
+                np.atleast_1d(point.latitude.degrees),
+                np.atleast_1d(point.elevation.m),
+            )
+            for point in points
+        ]
         return [
             MultiPoint(
                 [
-                    Point(
-                        point.longitude.degrees[i],
-                        point.latitude.degrees[i],
-                        point.elevation.m[i],
-                    )
-                    for point in points
+                    Point(longitude[i], latitude[i], elevation[i])
+                    for longitude, latitude, elevation in coordinates
                 ]
             )
             for i in range(np.size(orbit_track.t.tt))  # type: ignore

@@ -24,6 +24,8 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_projected_ray_position
 
+.. autofunction:: tatc.utils.compute_static_track
+
 .. autofunction:: tatc.utils.compute_view_tangents
 
 .. autofunction:: tatc.utils.compute_cone_and_azimuth

@@ -18,8 +18,11 @@ from shapely import Geometry
 from shapely.geometry import MultiPolygon, Point, Polygon
 from shapely.ops import transform
 from skyfield.api import wgs84
+from skyfield.constants import AU_M, DAY_S
 from skyfield.framelib import itrs
+from skyfield.functions import _T, mxv
 from skyfield.positionlib import Geocentric
+from skyfield.timelib import Time
 from skyfield.toposlib import GeographicPosition
 from spiceypy.spiceypy import edlimb, recgeo
 
@@ -845,6 +848,67 @@ def compute_limb(
             for i in range(np.size(p_m, axis=1))
         ]
     return [_compute_limb_for_position(p_m, number_points, elevation)]
+
+
+def compute_static_track(
+    longitude: float,
+    latitude: float,
+    elevation: float = 0,
+    heading: float = 0,
+    t: Time | None = None,
+) -> Geocentric:
+    """
+    Compute the track of an instrument fixed in the Earth-fixed (ITRS) frame,
+    as for a tower or a tethered balloon: a position and velocity, in the
+    form of a satellite's orbit track, from which instruments project their
+    views (see `compute_footprint`). Its Earth-fixed velocity is a unit
+    vector (1 m/s) in the local horizontal plane toward the heading, which
+    only orients the view: the along-track axis points toward the heading,
+    so that a positive roll angle looks to its left and a positive pitch
+    angle looks toward it. The track is static: its Earth-fixed position and
+    view do not change with time, while its inertial (GCRS) position and
+    velocity rotate with the Earth (for example, to evaluate sunlit
+    conditions).
+
+    Args:
+        longitude (float): The geodetic longitude (degrees).
+        latitude (float): The geodetic latitude (degrees).
+        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
+        heading (float): The azimuth (degrees, clockwise from north) of the
+            along-track (forward) direction.
+        t (skyfield.timelib.Time | None): The time(s), a scalar or a vector.
+            Defaults to 2020-01-01 00:00:00 UTC.
+
+    Returns:
+        skyfield.positionlib.Geocentric: The position/velocity (with shape
+            (3,) for a scalar time or (3, N) for N times).
+    """
+    if t is None:
+        t = constants.timescale.utc(2020, 1, 1)
+    lat, lon, azimuth = np.radians([latitude, longitude, heading])
+    position = np.array(wgs84.latlon(latitude, longitude, elevation).itrs_xyz.m)
+    # unit vector toward the heading in the local (geodetic) horizontal plane
+    east = np.array([-np.sin(lon), np.cos(lon), 0])
+    north = np.array(
+        [-np.sin(lat) * np.cos(lon), -np.sin(lat) * np.sin(lon), np.cos(lat)]
+    )
+    velocity = np.sin(azimuth) * east + np.cos(azimuth) * north
+    if np.ndim(t.tt) > 0:
+        position = np.repeat(position[:, np.newaxis], np.size(t.tt), axis=1)
+        velocity = np.repeat(velocity[:, np.newaxis], np.size(t.tt), axis=1)
+    r_au = position / AU_M
+    v_au_per_d = velocity / AU_M * DAY_S
+    # invert Skyfield's conversion to the Earth-fixed frame (see
+    # `ICRF.frame_xyz_and_velocity`), which adds the velocity of the rotating
+    # frame, so that the track converts back to this position and velocity
+    rotation = itrs.rotation_at(t)
+    rate = itrs._dRdt_times_RT_at(t)  # pylint: disable=protected-access
+    return Geocentric(
+        mxv(_T(rotation), r_au),
+        mxv(_T(rotation), v_au_per_d - mxv(rate, r_au)),
+        t,
+        center=399,
+    )
 
 
 def buffer_footprint(
