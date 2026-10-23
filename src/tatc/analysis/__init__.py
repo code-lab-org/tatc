@@ -2,6 +2,10 @@
 Defines analysis functions.
 """
 
+from .coincidence import (
+    find_coincident_ground_track,
+    find_coincident_observations,
+)
 from .coverage_metrics import (
     aggregate_observations,
     grid_observations,
@@ -73,6 +77,8 @@ __all__ = [
     "compute_latencies",
     "compute_radar_track",
     "compute_region_access_periods",
+    "find_coincident_ground_track",
+    "find_coincident_observations",
     "grid_latencies",
     "grid_observations",
     "reduce_latencies",
