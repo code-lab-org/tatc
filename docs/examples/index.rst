@@ -11,7 +11,9 @@ The following provide examples of TAT-C use in a Jupyter notebook environment.
   GenerateRandomPoints.ipynb
   CollectOrbitGroundTrack.ipynb
   CollectRadarTrack.ipynb
+  CollectPlatformTrack.ipynb
   ComputeCoverage.ipynb
+  FindCoincidentObservations.ipynb
   ComputeLatency.ipynb
   ComputeDOP.ipynb
   CollectRO.ipynb

@@ -30,6 +30,7 @@ from .surface import (
     Point,
     RadarBand,
     RadarStation,
+    SurfacePlatform,
     TerrainMask,
 )
 
@@ -55,6 +56,7 @@ __all__ = [
     "SOCConstellation",
     "Satellite",
     "SunSynchronousOrbit",
+    "SurfacePlatform",
     "TerrainMask",
     "TrainConstellation",
     "TundraOrbit",

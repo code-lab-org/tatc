@@ -2,6 +2,10 @@
 Defines analysis functions.
 """
 
+from .coincidence import (
+    find_coincident_ground_track,
+    find_coincident_observations,
+)
 from .coverage_metrics import (
     aggregate_observations,
     grid_observations,
@@ -27,6 +31,10 @@ from .orbit_track import (
     OrbitCoordinate,
     OrbitOutput,
     collect_orbit_track,
+)
+from .platform_track import (
+    collect_platform_track,
+    compute_platform_track,
 )
 from .point_sampling import (
     collect_multi_observations,
@@ -63,6 +71,7 @@ __all__ = [
     "collect_multi_region_observations",
     "collect_observations",
     "collect_orbit_track",
+    "collect_platform_track",
     "collect_radar_track",
     "collect_region_observations",
     "collect_ro_observations",
@@ -71,8 +80,11 @@ __all__ = [
     "compute_dop",
     "compute_ground_track",
     "compute_latencies",
+    "compute_platform_track",
     "compute_radar_track",
     "compute_region_access_periods",
+    "find_coincident_ground_track",
+    "find_coincident_observations",
     "grid_latencies",
     "grid_observations",
     "reduce_latencies",

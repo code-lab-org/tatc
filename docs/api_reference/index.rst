@@ -10,4 +10,5 @@ The following provide documentation on the Python API to TAT-C.
   schemas/index
   generation/index
   analysis/index
+  preprocess/index
   utils/index

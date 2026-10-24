@@ -59,6 +59,7 @@ from .projection import (
     compute_footprint,
     compute_limb,
     compute_projected_ray_position,
+    compute_static_track,
     compute_view_angles,
     compute_view_tangents,
 )
@@ -106,6 +107,7 @@ __all__ = [
     "compute_radar_ground_range",
     "compute_radar_ground_range_bounds",
     "compute_radar_slant_range",
+    "compute_static_track",
     "compute_terrain_elevation_angle",
     "compute_view_angles",
     "compute_view_tangents",

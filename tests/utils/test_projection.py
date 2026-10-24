@@ -9,7 +9,7 @@ import warnings
 from datetime import datetime, timezone
 
 import numpy as np
-from pyproj import Transformer
+from pyproj import Geod, Transformer
 from shapely.geometry import Point
 from skyfield.api import EarthSatellite, wgs84
 from skyfield.framelib import itrs
@@ -32,6 +32,7 @@ from tatc.utils.projection import (
     compute_cone_and_azimuth,
     compute_limb,
     compute_projected_ray_position,
+    compute_static_track,
     compute_view_angles,
     compute_view_tangents,
 )
@@ -1063,3 +1064,96 @@ class TestComputeViewAngles(unittest.TestCase):
                     ),
                     1,
                 )
+
+
+class TestComputeStaticTrack(unittest.TestCase):
+    """
+    Unit tests for compute_static_track.
+    """
+
+    def test_earth_fixed_position_and_heading(self):
+        """
+        Test that the track converts back to the Earth-fixed position and a
+        unit velocity toward the heading in the local horizontal plane.
+        """
+        track = compute_static_track(-112.07, 33.45, 800, heading=45)
+        position, velocity = track.frame_xyz_and_velocity(itrs)
+        expected = wgs84.latlon(33.45, -112.07, 800).itrs_xyz.m
+        np.testing.assert_allclose(position.m, expected, atol=1e-3)
+        lat, lon = np.radians(33.45), np.radians(-112.07)
+        east = [-np.sin(lon), np.cos(lon), 0]
+        north = [-np.sin(lat) * np.cos(lon), -np.sin(lat) * np.sin(lon), np.cos(lat)]
+        up = np.cross(east, north)
+        v = np.array(velocity.m_per_s)
+        self.assertAlmostEqual(np.linalg.norm(v), 1, delta=1e-9)
+        self.assertAlmostEqual(np.dot(v, up), 0, delta=1e-9)
+        self.assertAlmostEqual(
+            np.degrees(np.arctan2(np.dot(v, east), np.dot(v, north))), 45, delta=1e-6
+        )
+
+    def test_static_over_time(self):
+        """
+        Test that a vector of times gives the same Earth-fixed position at
+        each time, while the inertial position rotates with the Earth.
+        """
+        t = timescale.from_datetimes(
+            [datetime(2020, 1, 1, hour, tzinfo=timezone.utc) for hour in (0, 6, 12)]
+        )
+        track = compute_static_track(10, 45, 100, heading=90, t=t)
+        position, _ = track.frame_xyz_and_velocity(itrs)
+        self.assertEqual(np.shape(position.m), (3, 3))
+        np.testing.assert_allclose(
+            position.m, np.repeat(position.m[:, :1], 3, axis=1), atol=1e-3
+        )
+        self.assertGreater(
+            np.linalg.norm(track.position.m[:, 0] - track.position.m[:, 1]), 1e6
+        )
+
+    def test_default_time(self):
+        """
+        Test that the default time is 2020-01-01 00:00:00 UTC.
+        """
+        track = compute_static_track(0, 0, 100)
+        self.assertEqual(
+            track.t.utc_datetime(), datetime(2020, 1, 1, tzinfo=timezone.utc)
+        )
+
+    def test_view_orientation(self):
+        """
+        Test that a positive roll angle looks to the left of the heading and a
+        positive pitch angle looks toward the heading.
+        """
+        track = compute_static_track(-112.07, 33.45, 1000, heading=30)
+        geod = Geod(ellps="WGS84")
+        for roll, pitch, azimuth in [
+            (45, 0, 300),
+            (-45, 0, 120),
+            (0, 45, 30),
+            (0, -45, 210),
+        ]:
+            center = compute_projected_ray_position(track, 0, 0, roll, pitch)
+            forward, _, distance = geod.inv(
+                -112.07, 33.45, center.longitude.degrees, center.latitude.degrees
+            )
+            self.assertAlmostEqual(forward % 360, azimuth, delta=1e-4)
+            self.assertAlmostEqual(distance, 1000, delta=0.1)
+
+    def test_footprint_radius(self):
+        """
+        Test that a nadir cone projects to a circle of radius height times the
+        tangent of the half angle, and a hemisphere to the horizon.
+        """
+        geod = Geod(ellps="WGS84")
+        track = compute_static_track(-112.07, 33.45, 800)
+        for field_of_view, expected, delta in [
+            (60, 500 * np.tan(np.radians(30)), 0.1),
+            (180, np.sqrt(2 * constants.EARTH_MEAN_RADIUS * 500), 200),
+        ]:
+            footprint = compute_footprint(
+                track, field_of_view, field_of_view, elevation=300
+            )[0]
+            lon, lat, *_ = zip(*footprint.exterior.coords)
+            distances = geod.inv(
+                np.full(len(lon), -112.07), np.full(len(lat), 33.45), lon, lat
+            )[2]
+            np.testing.assert_allclose(distances, expected, atol=delta)
