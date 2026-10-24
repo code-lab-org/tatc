@@ -256,7 +256,10 @@ def compute_radar_ground_range_bounds(
 
 @njit(cache=True)
 def compute_terrain_elevation_angle(
-    ground_distance: float, terrain_elevation: float, station_elevation: float = 0
+    ground_distance: float,
+    terrain_elevation: float,
+    station_elevation: float = 0,
+    effective_earth_radius_factor: float = constants.EFFECTIVE_EARTH_RADIUS_FACTOR,
 ) -> float:
     """
     Fast computation of the curvature-corrected elevation angle, as seen
@@ -278,6 +281,10 @@ def compute_terrain_elevation_angle(
             in the same vertical reference as `station_elevation`.
         station_elevation (float): Elevation (meters) of the station
             (antenna).
+        effective_earth_radius_factor (float): The ratio of the effective
+            Earth radius to the mean Earth radius, accounting for refraction:
+            4/3 for radio waves in a standard atmosphere (the default), or 1
+            for straight lines of sight (without refraction).
 
     Returns:
         float: The elevation angle (degrees) to the terrain point, as seen
@@ -289,9 +296,7 @@ def compute_terrain_elevation_angle(
         terrain_elevation * 1.0,
         station_elevation * 1.0,
     )
-    effective_radius = (
-        constants.EFFECTIVE_EARTH_RADIUS_FACTOR * constants.EARTH_MEAN_RADIUS
-    )
+    effective_radius = effective_earth_radius_factor * constants.EARTH_MEAN_RADIUS
     curvature_drop = ground_distance**2 / (2 * effective_radius)
     return np.degrees(
         np.arctan2(

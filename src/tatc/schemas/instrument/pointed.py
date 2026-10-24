@@ -149,6 +149,7 @@ class PointedInstrument(Instrument):
         orbit_track: Geocentric,
         number_points: int | None = None,
         elevation: float = 0,
+        ground_elevation: float = 0,
     ) -> list[Polygon | MultiPolygon]:
         """
         Compute the instanteous instrument footprint.
@@ -157,6 +158,8 @@ class PointedInstrument(Instrument):
             orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
             number_points (int | None): The required number of polygon points to generate.
             elevation (float): The elevation (meters) at which project the footprint.
+            ground_elevation (float): The elevation (meters) of the ground,
+                which blocks rays toward an elevation above the instrument.
 
         Returns:
             list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The instrument footprint(s).
@@ -173,6 +176,7 @@ class PointedInstrument(Instrument):
             velocity_frame=self.velocity_frame,
             nadir_reference=self.nadir_reference,
             view_geometry=self.view_geometry,
+            ground_elevation=ground_elevation,
         )
 
     @field_validator("roll_angle_profile", "pitch_angle_profile")
@@ -313,6 +317,7 @@ class PointedInstrument(Instrument):
         self,
         orbit_track: Geocentric,
         elevation: float = 0,
+        ground_elevation: float = 0,
     ) -> GeographicPosition:
         """
         Compute the center of an instaneous instrument footprint.
@@ -320,6 +325,8 @@ class PointedInstrument(Instrument):
         Args:
             orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
             elevation (float): The elevation (meters) at which project the footprint.
+            ground_elevation (float): The elevation (meters) of the ground,
+                which blocks rays toward an elevation above the instrument.
 
         Returns:
             skyfield.toposlib.GeographicPosition: The instrument footprint center.
@@ -335,6 +342,7 @@ class PointedInstrument(Instrument):
             elevation=elevation,
             velocity_frame=self.velocity_frame,
             nadir_reference=self.nadir_reference,
+            ground_elevation=ground_elevation,
         )
 
     def compute_projected_pixel_position(
@@ -343,6 +351,7 @@ class PointedInstrument(Instrument):
         cross_track_index: int,
         along_track_index: int,
         elevation: float = 0,
+        ground_elevation: float = 0,
     ) -> GeographicPosition:
         """
         Get the location of a projected pixel.
@@ -353,6 +362,8 @@ class PointedInstrument(Instrument):
                 index 0 is on the right of the direction of motion).
             along_track_index (int): along-track pixel index (fore-to-aft).
             elevation (float): The elevation (meters) at which project the pixel.
+            ground_elevation (float): The elevation (meters) of the ground,
+                which blocks rays toward an elevation above the instrument.
 
         Returns:
             (skyfield.toposlib.GeographicPosition): the geographic position of the projected pixel
@@ -371,6 +382,7 @@ class PointedInstrument(Instrument):
                 velocity_frame=self.velocity_frame,
                 nadir_reference=self.nadir_reference,
                 tilt_angle=self.get_pitch_angle(orbit_track),
+                ground_elevation=ground_elevation,
             )
         cone, clock = self.get_pixel_cone_and_clock_angle(
             cross_track_index, along_track_index
@@ -392,6 +404,7 @@ class PointedInstrument(Instrument):
             elevation=elevation,
             velocity_frame=self.velocity_frame,
             nadir_reference=self.nadir_reference,
+            ground_elevation=ground_elevation,
         )
 
     def _get_pixel_offsets(
@@ -454,6 +467,7 @@ class PointedInstrument(Instrument):
         self,
         orbit_track: Geocentric,
         elevation: float = 0,
+        ground_elevation: float = 0,
     ) -> list[MultiPoint]:
         """
         Compute the instanteous footprint pixel array.
@@ -461,6 +475,8 @@ class PointedInstrument(Instrument):
         Args:
             orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
             elevation (float): The elevation (meters) at which project the footprint.
+            ground_elevation (float): The elevation (meters) of the ground,
+                which blocks rays toward an elevation above the instrument.
 
         Returns:
             list[shapely.geometry.MultiPoint]: The instrument pixel array(s).
@@ -471,19 +487,25 @@ class PointedInstrument(Instrument):
                 cross_track_index=i,
                 along_track_index=j,
                 elevation=elevation,
+                ground_elevation=ground_elevation,
             )
             for i in range(self.cross_track_pixels)
             for j in range(self.along_track_pixels)
         ]
+        # coordinates of each pixel, with shape (N,) for one or more times
+        coordinates = [
+            (
+                np.atleast_1d(point.longitude.degrees),
+                np.atleast_1d(point.latitude.degrees),
+                np.atleast_1d(point.elevation.m),
+            )
+            for point in points
+        ]
         return [
             MultiPoint(
                 [
-                    Point(
-                        point.longitude.degrees[i],
-                        point.latitude.degrees[i],
-                        point.elevation.m[i],
-                    )
-                    for point in points
+                    Point(longitude[i], latitude[i], elevation[i])
+                    for longitude, latitude, elevation in coordinates
                 ]
             )
             for i in range(np.size(orbit_track.t.tt))  # type: ignore

@@ -1,7 +1,7 @@
 """
 Terrain-based preprocessing utilities: derive a `TerrainMask` for a
-ground-based radar station by sampling a digital elevation model (DEM) for
-terrain obstructions.
+ground-based radar station or a fixed surface platform by sampling a
+digital elevation model (DEM) for terrain obstructions.
 
 A convenient, public, global, 30-meter-resolution DEM requiring no
 authentication is the Copernicus DEM GLO-30 dataset, hosted on AWS Open
@@ -32,7 +32,7 @@ except ImportError as error:
     ) from error
 
 from .. import constants
-from ..schemas.surface.radar import RadarStation, TerrainMask
+from ..schemas.surface import RadarStation, SurfacePlatform, TerrainMask
 from ..utils.geometry import geodesic_destination
 from ..utils.radar import compute_terrain_elevation_angle
 
@@ -242,10 +242,12 @@ def compute_terrain_mask(
     number_azimuths: int = 360,
     number_range_samples: int = 400,
     range_spacing: str = "geometric",
+    effective_earth_radius_factor: float = constants.EFFECTIVE_EARTH_RADIUS_FACTOR,
 ) -> TerrainMask:
     """
-    Computes a `TerrainMask` for a ground-based radar station by ray-
-    tracing a digital elevation model (DEM): at each sampled azimuth,
+    Computes a `TerrainMask` for a ground-based radar station (or other
+    fixed antenna or instrument) by ray-tracing a digital elevation model
+    (DEM): at each sampled azimuth,
     terrain elevation is sampled at a series of ranges out to
     `search_radius`, converted to a curvature-corrected elevation angle as
     seen from the station (`tatc.utils.compute_terrain_elevation_angle`),
@@ -300,6 +302,11 @@ def compute_terrain_mask(
             densely near the station and sparsely far away, so a missed
             ridge crest causes a similar angle error at every range;
             `"linear"` spaces samples evenly.
+        effective_earth_radius_factor (float): The ratio of the effective
+            Earth radius to the mean Earth radius, accounting for refraction
+            (see `tatc.utils.compute_terrain_elevation_angle`): 4/3 for radio
+            waves in a standard atmosphere (the default), or 1 for straight
+            lines of sight (as for the footprints of a `SurfacePlatform`).
 
     Returns:
         TerrainMask: The resulting azimuthal terrain blockage mask. An
@@ -354,7 +361,7 @@ def compute_terrain_mask(
     )
     terrain_elevations = _lookup_elevations(tiles, sample_longitudes, sample_latitudes)
     angles = compute_terrain_elevation_angle(
-        range_grid, terrain_elevations, station_elevation
+        range_grid, terrain_elevations, station_elevation, effective_earth_radius_factor
     )
     # the highest obstruction along each azimuth (-90 if no valid DEM data)
     min_elevation_angles = np.max(np.where(np.isnan(angles), -90.0, angles), axis=1)
@@ -400,4 +407,53 @@ def compute_terrain_mask_for_station(
         number_azimuths=number_azimuths,
         number_range_samples=number_range_samples,
         range_spacing=range_spacing,
+    )
+
+
+def compute_terrain_mask_for_platform(
+    dem_paths: str | list[str],
+    platform: SurfacePlatform,
+    search_radius: float = 100000,
+    min_range: float = 1000,
+    number_azimuths: int = 360,
+    number_range_samples: int = 400,
+    range_spacing: str = "geometric",
+    effective_earth_radius_factor: float = 1,
+) -> TerrainMask:
+    """
+    Convenience wrapper around `compute_terrain_mask` for the instruments of
+    a `SurfacePlatform`, a `height` above the ground at its location. The
+    ground elevation is sampled from the DEM (see `sample_dem_elevation`),
+    in the DEM's own vertical datum, rather than taken from the platform's
+    `elevation` (above the WGS 84 ellipsoid), so the instruments' height
+    above the surrounding terrain does not depend on the geoid undulation.
+
+    Args:
+        dem_paths (str | list[str]): See `compute_terrain_mask`.
+        platform (SurfacePlatform): The platform (its `longitude`,
+            `latitude`, and `height` are used).
+        search_radius (float): See `compute_terrain_mask`.
+        min_range (float): See `compute_terrain_mask`.
+        number_azimuths (int): See `compute_terrain_mask`.
+        number_range_samples (int): See `compute_terrain_mask`.
+        range_spacing (str): See `compute_terrain_mask`.
+        effective_earth_radius_factor (float): See `compute_terrain_mask`.
+            Defaults to 1 (straight lines of sight, without refraction), as
+            for the platform's footprints.
+
+    Returns:
+        TerrainMask: The resulting azimuthal terrain blockage mask.
+    """
+    ground = sample_dem_elevation(dem_paths, platform.longitude, platform.latitude)
+    return compute_terrain_mask(
+        dem_paths,
+        platform.longitude,
+        platform.latitude,
+        ground + platform.height,
+        search_radius=search_radius,
+        min_range=min_range,
+        number_azimuths=number_azimuths,
+        number_range_samples=number_range_samples,
+        range_spacing=range_spacing,
+        effective_earth_radius_factor=effective_earth_radius_factor,
     )

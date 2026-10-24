@@ -13,7 +13,7 @@ from datetime import datetime
 import geopandas as gpd
 import pandas as pd
 
-from ..schemas import Satellite
+from ..schemas import Satellite, SurfacePlatform
 from .. import constants
 from ..schemas.space.base_constellation import BaseConstellation
 
@@ -145,14 +145,19 @@ def _check_time_window(start: datetime, end: datetime) -> None:
         )
 
 
-def _check_instrument_index(satellite: Satellite, instrument_index: int) -> int:
+def _check_instrument_index(
+    satellite: Satellite | SurfacePlatform,
+    instrument_index: int,
+    kind: str = "satellite",
+) -> int:
     """
-    Checks that `instrument_index` indexes one of a satellite's instruments,
-    raising an `IndexError` that names the satellite otherwise.
+    Checks that `instrument_index` indexes one of a satellite's (or other
+    platform's) instruments, raising an `IndexError` that names it otherwise.
 
     Args:
-        satellite (Satellite): the satellite.
+        satellite (Satellite | SurfacePlatform): the satellite or platform.
         instrument_index (int): the instrument index.
+        kind (str): the kind of platform, as named in the error.
 
     Returns:
         int: the checked instrument index.
@@ -160,7 +165,7 @@ def _check_instrument_index(satellite: Satellite, instrument_index: int) -> int:
     count = len(satellite.instruments)
     if not -count <= instrument_index < count:
         raise IndexError(
-            f"instrument_index {instrument_index} is out of range for satellite "
+            f"instrument_index {instrument_index} is out of range for {kind} "
             f"{satellite.name!r}, which has {count} "
             f"instrument{'' if count == 1 else 's'}"
         )
@@ -189,23 +194,27 @@ def _is_single(*values: object, instrument_index: int | None = 0) -> bool:
 
 
 def _get_instrument_indices(
-    satellite: Satellite, instrument_index: int | None
+    satellite: Satellite | SurfacePlatform,
+    instrument_index: int | None,
+    kind: str = "satellite",
 ) -> range | list[int]:
     """
-    Gets the indices of a satellite's observing instruments: the given
-    index (see `_check_instrument_index`), or every instrument's if None.
+    Gets the indices of a satellite's (or other platform's) observing
+    instruments: the given index (see `_check_instrument_index`), or every
+    instrument's if None.
 
     Args:
-        satellite (Satellite): The satellite.
+        satellite (Satellite | SurfacePlatform): The satellite or platform.
         instrument_index (int | None): The instrument index (None for every
             instrument).
+        kind (str): the kind of platform, as named in an error.
 
     Returns:
         range | list[int]: the instrument indices
     """
     if instrument_index is None:
         return range(len(satellite.instruments))
-    return [_check_instrument_index(satellite, instrument_index)]
+    return [_check_instrument_index(satellite, instrument_index, kind)]
 
 
 def _combine_results(
