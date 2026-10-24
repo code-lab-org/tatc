@@ -18,11 +18,12 @@ from rasterio.transform import from_origin
 
 from tatc.preprocess import (
     compute_terrain_mask,
+    compute_terrain_mask_for_platform,
     compute_terrain_mask_for_station,
     get_copernicus_dem_tile_urls,
     sample_dem_elevation,
 )
-from tatc.schemas import RadarStation
+from tatc.schemas import RadarStation, SurfacePlatform
 
 
 def _write_ridge_dem(path: str) -> None:
@@ -320,6 +321,36 @@ class TestComputeTerrainMask(unittest.TestCase):
         )
         self.assertEqual(direct.azimuth, wrapped.azimuth)
         self.assertEqual(direct.min_elevation_angle, wrapped.min_elevation_angle)
+
+    def test_compute_terrain_mask_for_platform_matches_direct_call(self):
+        """
+        Test that the SurfacePlatform convenience wrapper places the
+        instruments a platform height above the DEM ground, without
+        refraction by default.
+        """
+        platform = SurfacePlatform(
+            name="test", latitude=0.0, longitude=0.0, elevation=-30, height=30
+        )
+        kwargs = {"search_radius": 50000, "number_azimuths": 36}
+        kwargs["number_range_samples"] = 50
+        direct = compute_terrain_mask(
+            self.dem_path, 0.0, 0.0, 30, effective_earth_radius_factor=1, **kwargs
+        )
+        wrapped = compute_terrain_mask_for_platform(self.dem_path, platform, **kwargs)
+        self.assertEqual(direct.azimuth, wrapped.azimuth)
+        self.assertEqual(direct.min_elevation_angle, wrapped.min_elevation_angle)
+        # refraction (4/3) raises the apparent terrain
+        refracted = compute_terrain_mask_for_platform(
+            self.dem_path, platform, effective_earth_radius_factor=4 / 3, **kwargs
+        )
+        self.assertTrue(
+            all(
+                a > b
+                for a, b in zip(
+                    refracted.min_elevation_angle, wrapped.min_elevation_angle
+                )
+            )
+        )
 
     def test_terrain_mask_usable_by_radar_station(self):
         """

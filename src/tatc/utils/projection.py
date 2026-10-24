@@ -28,8 +28,10 @@ from spiceypy.spiceypy import edlimb, recgeo
 
 from .. import config, constants
 from .ellipsoid import (
+    _get_axes,
     _intersect_limb,
     compute_ellipsoid_intersection,
+    geodetic_to_rectangular,
     rectangular_to_geodetic,
 )
 from .geometry import (
@@ -419,13 +421,17 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     tilt_angle: float = 0,
+    ground_elevation: float = 0,
 ) -> GeographicPosition:
     """
     Get the location of a projected ray from an instrument. The ray is cast
     from the satellite position toward the WGS 84 geoid at the specified
     elevation; if it misses the geoid entirely (e.g. an off-nadir angle
     pointing past the horizon), the projected position instead falls back
-    to the nearest point on the visible Earth limb. Zero roll, pitch, and
+    to the nearest point on the visible Earth limb. Toward an elevation
+    above the instrument (for example, from a surface platform), a ray
+    blocked by the ground below the horizon instead falls back to the line
+    of sight tangent to the ground in the same azimuth. Zero roll, pitch, and
     field of view center on nadir: by default, the geodetic nadir (the WGS 84
     ellipsoid surface normal through the satellite), matching Skyfield's
     `wgs84.subpoint_of`/`wgs84.geographic_position_of`.
@@ -463,6 +469,8 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
             positive forward, applied before the roll angle (tilting the
             plane in which the roll angle is measured, as for the scan plane
             of a `ViewGeometry.SCAN` view).
+        ground_elevation (float): The elevation (meters) of the ground, which
+            blocks rays toward an elevation above the instrument.
 
     Returns:
         (skyfield.toposlib.GeographicPosition): the geographic position of the projected ray
@@ -479,6 +487,7 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
         velocity_frame,
         nadir_reference,
         tilt_angle,
+        ground_elevation,
     )[:, 0]
     # return resulting geographic position
     return wgs84.latlon(geos[1], geos[0], geos[2])
@@ -534,6 +543,345 @@ def _get_rectangular_ray_coefficients(
     return -tan_c_2 * np.tan(2 * np.pi - angle), tan_c_2
 
 
+def _is_looking_up(
+    position: npt.NDArray, elevation: float, ground_elevation: float
+) -> npt.NDArray[np.bool_]:
+    """
+    Determines whether positions lie between the ground and a target
+    elevation above them (inside the WGS 84 ellipsoid with semi-axes
+    extended by the target elevation, and outside the one extended by the
+    ground elevation), so that views of the target look up.
+
+    Args:
+        position (numpy.typing.NDArray): The positions (meters, Earth-fixed, shape (3, N)).
+        elevation (float): The target elevation (meters) above the WGS 84 ellipsoid.
+        ground_elevation (float): The ground elevation (meters) above the WGS 84 ellipsoid.
+
+    Returns:
+        numpy.typing.NDArray[numpy.bool_]: whether each position looks up
+    """
+    inside = np.sum((position / _get_axes(elevation)) ** 2, axis=0) < 1
+    above = np.sum((position / _get_axes(ground_elevation)) ** 2, axis=0) > 1
+    return inside & above
+
+
+def _is_blocked_by_ground(
+    position: npt.NDArray,
+    direction: npt.NDArray,
+    elevation: float,
+    ground_elevation: float,
+) -> npt.NDArray[np.bool_]:
+    """
+    Determines whether rays toward a target elevation above their origins
+    (see `_is_looking_up`) intersect the ground below their origins before
+    reaching it.
+
+    Args:
+        position (numpy.typing.NDArray): The rays' origins (meters, Earth-fixed, shape (3, N)).
+        direction (numpy.typing.NDArray): The rays' directions (Earth-fixed, shape (3, N)).
+        elevation (float): The target elevation (meters) above the WGS 84 ellipsoid.
+        ground_elevation (float): The ground elevation (meters) above the WGS 84 ellipsoid.
+
+    Returns:
+        numpy.typing.NDArray[numpy.bool_]: whether each ray is blocked
+    """
+    looking_up = _is_looking_up(position, elevation, ground_elevation)
+    if not np.any(looking_up):
+        return looking_up
+    _, hits = compute_ellipsoid_intersection(position, direction, ground_elevation)
+    return looking_up & hits
+
+
+def _compute_rays(
+    orbit_track: Geocentric,
+    cross_track_field_of_view: float,
+    along_track_field_of_view: float,
+    roll_angle: npt.ArrayLike = 0,
+    pitch_angle: npt.ArrayLike = 0,
+    is_rectangular: bool = False,
+    angles: npt.ArrayLike = (0,),
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
+    tilt_angle: float = 0,
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray, bool]:
+    """
+    Get several rays from an instrument (see `_compute_projected_rays` for
+    the arguments), vectorized across rays and times.
+
+    Returns:
+        tuple: the rays' origins (meters, Earth-fixed) and directions, the
+            normals of the planes of each ray about the view center, and the
+            unrotated nadir and along-track unit vectors, each with shape
+            (3, K, N); and whether `orbit_track` has a vector of times
+    """
+    # convert to radians for internal use (with shape (K, 1) to broadcast
+    # against times)
+    angle = np.radians(np.reshape(np.asarray(angles, dtype=float), (-1, 1)))
+    # the unrotated view axes, with shape (3, 1, N) to broadcast against rays
+    p_m, n, a, c = _compute_nadir_axes(orbit_track, velocity_frame, nadir_reference)
+    # whether orbit_track represents a single time or a vector of times
+    is_vectorized = len(np.shape(p_m)) > 1
+    p_m, n, a, c = (np.reshape(x, (3, 1, -1)) for x in (p_m, n, a, c))
+    # ray pointed at the field of view center (before adding the field of
+    # view extent) and the along-track (v) and cross-track (u) axes of the view
+    base_ray, v, u = _rotate_view_axes(n, a, c, roll_angle, pitch_angle, tilt_angle)
+    # construct projected rays
+    if is_rectangular:
+        # along track half width
+        tan_a_2 = np.tan(np.radians(along_track_field_of_view / 2))
+        # cross track half width
+        tan_c_2 = np.tan(np.radians(cross_track_field_of_view / 2))
+        v_coef, c_coef = np.reshape(
+            [
+                _get_rectangular_ray_coefficients(x, tan_a_2, tan_c_2)
+                for x in angle[:, 0]
+            ],
+            (-1, 2, 1),
+        ).transpose(1, 0, 2)
+        ray = base_ray + v * v_coef + u * c_coef
+    else:
+        ray = (
+            base_ray
+            + v * np.sin(angle) * np.tan(np.radians(along_track_field_of_view / 2))
+            + u * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
+        )
+    shape = np.broadcast_shapes(ray.shape, (3, len(angle), 1))
+    # the planes of each ray, normal to the ray's angle about the view center
+    normal = v * np.sin(np.pi / 2 + angle) + u * np.cos(np.pi / 2 + angle)
+    return (
+        *(np.broadcast_to(x, shape) for x in (p_m, ray, normal, n, a)),
+        is_vectorized,
+    )
+
+
+def _project_rays(
+    position: npt.NDArray,
+    direction: npt.NDArray,
+    normal: npt.NDArray,
+    nadir: npt.NDArray,
+    elevation: float = 0,
+    ground_elevation: float = 0,
+) -> tuple[npt.NDArray, npt.NDArray[np.bool_]]:
+    """
+    Project rays from an instrument to an elevation (see
+    `compute_projected_ray_position`), vectorized across rays.
+
+    Args:
+        position (numpy.typing.NDArray): The rays' origins (meters, Earth-fixed, shape (3, M)).
+        direction (numpy.typing.NDArray): The rays' directions (Earth-fixed, shape (3, M)).
+        normal (numpy.typing.NDArray): The normals of the planes of each ray
+            about the view center (Earth-fixed, shape (3, M)).
+        nadir (numpy.typing.NDArray): The nadir unit vectors (Earth-fixed, shape (3, M)).
+        elevation (float): The elevation (meters) at which project the rays.
+        ground_elevation (float): The elevation (meters) of the ground, which
+            blocks rays toward an elevation above the instrument.
+
+    Returns:
+        tuple[numpy.typing.NDArray, numpy.typing.NDArray[numpy.bool_]]: the
+            geodetic longitudes (degrees), latitudes (degrees), and altitudes
+            (meters) of the projected rays (shape (3, M)), and whether each
+            ray is blocked by the ground
+    """
+    # find the intersections of the rays and the WGS 84 geoid (at the
+    # elevation), vectorized across rays
+    points, found = compute_ellipsoid_intersection(position, direction, elevation)
+    geos = np.array(rectangular_to_geodetic(points))
+    miss = ~found
+    if np.any(miss):
+        # projected points do not fall on the WGS 84 geoid surface: use the
+        # points of its limb on the plane of each ray
+        geos[:, miss] = np.array(
+            rectangular_to_geodetic(
+                _intersect_limb(
+                    position[:, miss], direction[:, miss], normal[:, miss], elevation
+                )
+            )
+        )
+    blocked = _is_blocked_by_ground(position, direction, elevation, ground_elevation)
+    if np.any(blocked):
+        # rays toward a target above the instrument are blocked by the ground
+        # below the horizon: use the lines of sight tangent to the ground at
+        # the points of its limb in the same azimuth (on the vertical plane
+        # through each ray and nadir, or the plane of the ray about the view
+        # center for a ray toward nadir), extended to the target elevation
+        origin, toward = position[:, blocked], direction[:, blocked]
+        vertical = np.cross(nadir[:, blocked], toward, axis=0)
+        toward_nadir = np.linalg.norm(vertical, axis=0) <= 1e-9 * np.linalg.norm(
+            toward, axis=0
+        )
+        vertical[:, toward_nadir] = normal[:, blocked][:, toward_nadir]
+        limb = _intersect_limb(origin, toward, vertical, ground_elevation)
+        horizon, _ = compute_ellipsoid_intersection(origin, limb - origin, elevation)
+        geos[:, blocked] = np.array(rectangular_to_geodetic(horizon))
+    return geos, blocked
+
+
+def _compute_horizon_region(
+    longitude: float,
+    latitude: float,
+    altitude: float,
+    elevation: float,
+    ground_elevation: float,
+    azimuths: npt.ArrayLike,
+    min_elevation_angles: npt.ArrayLike,
+) -> Polygon | MultiPolygon:
+    """
+    Compute the region at an elevation above an instrument that is visible
+    over the horizon: the lines of sight at azimuths and minimum elevation
+    angles (for example, from a terrain mask) projected to the elevation,
+    where those below the horizon of the ground are projected along the
+    lines of sight tangent to the ground in the same azimuth.
+
+    Args:
+        longitude (float): The instrument longitude (degrees).
+        latitude (float): The instrument latitude (degrees).
+        altitude (float): The instrument elevation (meters) above the WGS 84 ellipsoid.
+        elevation (float): The elevation (meters) at which project the region,
+            above the instrument.
+        ground_elevation (float): The elevation (meters) of the ground.
+        azimuths (numpy.typing.ArrayLike): The azimuths (degrees, clockwise
+            from north) of the lines of sight.
+        min_elevation_angles (numpy.typing.ArrayLike): The elevation angles
+            (degrees, above local horizontal) of the lines of sight, limited
+            to [-89, 89].
+
+    Returns:
+        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The region.
+    """
+    lon, lat = np.radians(longitude), np.radians(latitude)
+    up = np.array([np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)])
+    east = np.array([-np.sin(lon), np.cos(lon), 0])
+    north = np.cross(up, east)
+    azimuth = np.radians(np.asarray(azimuths, dtype=float))
+    angle = np.radians(np.clip(np.asarray(min_elevation_angles, dtype=float), -89, 89))
+    direction = (
+        np.outer(east, np.cos(angle) * np.sin(azimuth))
+        + np.outer(north, np.cos(angle) * np.cos(azimuth))
+        + np.outer(up, np.sin(angle))
+    )
+    position = geodetic_to_rectangular(longitude, latitude, altitude)
+    position = np.repeat(position[:, np.newaxis], len(azimuth), axis=1)
+    nadir = np.repeat(-up[:, np.newaxis], len(azimuth), axis=1)
+    geos, _ = _project_rays(
+        position,
+        direction,
+        np.cross(nadir, direction, axis=0),
+        nadir,
+        elevation,
+        ground_elevation,
+    )
+    return _build_split_polygons(geos[0][np.newaxis], geos[1][np.newaxis])[0]
+
+
+def _clip_to_horizon(
+    position: npt.NDArray,
+    direction: npt.NDArray,
+    nadir: npt.NDArray,
+    along: npt.NDArray,
+    elevation: float,
+    ground_elevation: float,
+) -> Polygon | MultiPolygon | None:
+    """
+    Compute the footprint of a view toward an elevation above the instrument
+    that is partly blocked by the ground: the part of the view above the
+    horizon. The view is clipped to the horizon (the lines of sight tangent
+    to the ground) in an azimuthal equidistant projection of directions about
+    zenith, which preserves the azimuth of each direction.
+
+    Args:
+        position (numpy.typing.NDArray): The instrument position (meters, Earth-fixed, shape (3,)).
+        direction (numpy.typing.NDArray): The directions of the rays on the
+            boundary of the view (Earth-fixed, shape (3, K)).
+        nadir (numpy.typing.NDArray): The nadir unit vector (Earth-fixed, shape (3,)).
+        along (numpy.typing.NDArray): The along-track unit vector (Earth-fixed, shape (3,)).
+        elevation (float): The elevation (meters) at which project the footprint.
+        ground_elevation (float): The elevation (meters) of the ground.
+
+    Returns:
+        shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None: The
+            footprint (empty if the view is entirely below the horizon), or
+            None if the view cannot be projected about zenith (if it contains
+            nadir).
+    """
+    cross = np.cross(nadir, along)
+
+    def to_plane(rays: npt.NDArray) -> npt.NDArray:
+        # zenith angles (degrees) and azimuths of the directions
+        rays = rays / np.linalg.norm(rays, axis=0)
+        zenith = np.degrees(np.arccos(np.clip(-nadir @ rays, -1, 1)))
+        azimuth = np.arctan2(cross @ rays, along @ rays)
+        return np.stack([zenith * np.cos(azimuth), zenith * np.sin(azimuth)], axis=1)
+
+    def from_plane(xy: npt.NDArray) -> npt.NDArray:
+        zenith = np.radians(np.hypot(xy[:, 0], xy[:, 1]))
+        azimuth = np.arctan2(xy[:, 1], xy[:, 0])
+        level = np.outer(along, np.cos(azimuth)) + np.outer(cross, np.sin(azimuth))
+        return np.sin(zenith) * level - np.cos(zenith) * nadir[:, np.newaxis]
+
+    def project(xy: npt.NDArray) -> npt.NDArray:
+        # longitudes and latitudes (degrees) of directions projected to the elevation
+        rays = from_plane(xy)
+        geos, _ = _project_rays(
+            np.repeat(position[:, np.newaxis], rays.shape[1], axis=1),
+            rays,
+            np.cross(nadir[:, np.newaxis], rays, axis=0),
+            np.repeat(nadir[:, np.newaxis], rays.shape[1], axis=1),
+            elevation,
+            ground_elevation,
+        )
+        return geos[:2]
+
+    # interpolate the boundary of the view along great circles at most one
+    # degree apart, whose straight segments in the projection would
+    # otherwise cut across wide views
+    unit = direction / np.linalg.norm(direction, axis=0)
+    following = np.roll(unit, -1, axis=1)
+    count = np.maximum(
+        1,
+        np.ceil(
+            np.degrees(np.arccos(np.clip(np.sum(unit * following, axis=0), -1, 1)))
+        ).astype(int),
+    )
+    index = np.repeat(np.arange(unit.shape[1]), count)
+    fraction = (np.arange(len(index)) - np.repeat(np.cumsum(count) - count, count)) / (
+        count[index]
+    )
+    direction = unit[:, index] * (1 - fraction) + following[:, index] * fraction
+    view = Polygon(to_plane(direction))
+    if not view.is_valid:
+        return None
+    # the horizon: lines of sight tangent to the ground, sampled in azimuth
+    azimuth = np.linspace(0, 2 * np.pi, 360, endpoint=False)
+    level = np.outer(along, np.cos(azimuth)) + np.outer(cross, np.sin(azimuth))
+    origin = np.repeat(position[:, np.newaxis], len(azimuth), axis=1)
+    limb = _intersect_limb(
+        origin, level, np.cross(nadir[:, np.newaxis], level, axis=0), ground_elevation
+    )
+    horizon = Polygon(to_plane(limb - origin))
+    # a view whose center (the mean direction of its boundary) projects
+    # outside its boundary contains nadir, and lies outside its boundary
+    center = np.sum(direction / np.linalg.norm(direction, axis=0), axis=1)
+    if view.contains(Point(to_plane(center[:, np.newaxis])[0])):
+        visible = shapely.intersection(view, horizon)
+    else:
+        visible = shapely.difference(horizon, view)
+    parts = []
+    for part in shapely.get_parts(visible):
+        if not isinstance(part, Polygon) or part.is_empty:
+            continue
+        shell = project(np.array(part.exterior.coords)[:-1])
+        if len(part.interiors) > 0:
+            # a view about nadir that reaches above the horizon: an annulus
+            holes = [project(np.array(ring.coords)[:-1]).T for ring in part.interiors]
+            parts.append(Polygon(shell.T, holes))
+        else:
+            footprint = _build_split_polygons(shell[:1], shell[1:])[0]
+            parts.extend(shapely.get_parts(footprint))
+    if len(parts) == 0:
+        return Polygon()
+    return parts[0] if len(parts) == 1 else MultiPolygon(parts)
+
+
 def _compute_projected_rays(
     orbit_track: Geocentric,
     cross_track_field_of_view: float,
@@ -546,6 +894,7 @@ def _compute_projected_rays(
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     tilt_angle: float = 0,
+    ground_elevation: float = 0,
 ) -> npt.NDArray:
     """
     Get the locations of several projected rays from an instrument (see
@@ -574,69 +923,30 @@ def _compute_projected_rays(
             direction from which the view is rotated.
         tilt_angle (float): a rotation (degrees) about the cross-track axis,
             positive forward, applied before the roll angle.
+        ground_elevation (float): The elevation (meters) of the ground, which
+            blocks rays toward an elevation above the instrument.
 
     Returns:
         numpy.typing.NDArray: the geodetic longitudes (degrees), latitudes
             (degrees), and altitudes (meters) of the projected rays, with
             shape (3, K, N), or (3, K) for a single time.
     """
-    # convert to radians for internal use (with shape (K, 1) to broadcast
-    # against times)
-    angle = np.radians(np.reshape(np.asarray(angles, dtype=float), (-1, 1)))
-    # the unrotated view axes, with shape (3, 1, N) to broadcast against rays
-    p_m, n, a, c = _compute_nadir_axes(orbit_track, velocity_frame, nadir_reference)
-    # whether orbit_track represents a single time or a vector of times
-    is_vectorized = len(np.shape(p_m)) > 1
-    p_m, n, a, c = (np.reshape(x, (3, 1, -1)) for x in (p_m, n, a, c))
-    # ray pointed at the field of view center (before adding the field of
-    # view extent) and the along-track (v) and cross-track (c) axes of the view
-    base_ray, v, c = _rotate_view_axes(n, a, c, roll_angle, pitch_angle, tilt_angle)
-    # construct projected rays
-    if is_rectangular:
-        # along track half width
-        tan_a_2 = np.tan(np.radians(along_track_field_of_view / 2))
-        # cross track half width
-        tan_c_2 = np.tan(np.radians(cross_track_field_of_view / 2))
-        v_coef, c_coef = np.reshape(
-            [
-                _get_rectangular_ray_coefficients(x, tan_a_2, tan_c_2)
-                for x in angle[:, 0]
-            ],
-            (-1, 2, 1),
-        ).transpose(1, 0, 2)
-        ray = base_ray + v * v_coef + c * c_coef
-    else:
-        ray = (
-            base_ray
-            + v * np.sin(angle) * np.tan(np.radians(along_track_field_of_view / 2))
-            + c * np.cos(angle) * np.tan(np.radians(cross_track_field_of_view / 2))
-        )
-    # find the intersections of the rays and the WGS 84 geoid (at the
-    # elevation), vectorized across rays and times
-    shape = np.broadcast_shapes(ray.shape, (3, len(angle), 1))
-    position = np.reshape(np.broadcast_to(p_m, shape), (3, -1))
-    direction = np.reshape(np.broadcast_to(ray, shape), (3, -1))
-    points, found = compute_ellipsoid_intersection(position, direction, elevation)
-    geos = np.array(rectangular_to_geodetic(points))
-    miss = ~found
-    if np.any(miss):
-        # projected points do not fall on the WGS 84 geoid surface: use the
-        # points of its limb on the plane of each ray, normal to the ray's
-        # angle about the view center
-        normal = np.reshape(
-            np.broadcast_to(
-                v * np.sin(np.pi / 2 + angle) + c * np.cos(np.pi / 2 + angle), shape
-            ),
-            (3, -1),
-        )
-        geos[:, miss] = np.array(
-            rectangular_to_geodetic(
-                _intersect_limb(
-                    position[:, miss], direction[:, miss], normal[:, miss], elevation
-                )
-            )
-        )
-    geos = np.reshape(geos, shape)
+    *rays, is_vectorized = _compute_rays(
+        orbit_track,
+        cross_track_field_of_view,
+        along_track_field_of_view,
+        roll_angle,
+        pitch_angle,
+        is_rectangular,
+        angles,
+        velocity_frame,
+        nadir_reference,
+        tilt_angle,
+    )
+    geos, _ = _project_rays(
+        *(np.reshape(x, (3, -1)) for x in rays[:4]), elevation, ground_elevation
+    )
+    geos = np.reshape(geos, rays[0].shape)
     return geos if is_vectorized else geos[:, :, 0]
 
 
@@ -652,12 +962,17 @@ def compute_footprint(
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     view_geometry: ViewGeometry = ViewGeometry.FRAME,
+    ground_elevation: float = 0,
 ) -> list[Polygon | MultiPolygon]:
     """
     Compute the instantaneous instrument footprint. Supports both a scalar
     (single-time) and vectorized (multi-time) `orbit_track`; the result is
     always a list, with one footprint per time (length 1 for a scalar
-    `orbit_track`).
+    `orbit_track`). Toward an elevation above the instrument (for example,
+    from a surface platform), the footprint is the part of the view above
+    the horizon, clipped to the lines of sight tangent to the ground: empty
+    for a view entirely below the horizon, or an annulus for a view about
+    nadir that reaches above it.
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
@@ -681,6 +996,8 @@ def compute_footprint(
             direction from which the view is rotated.
         view_geometry (ViewGeometry): The geometry in which the fields of view
             are defined.
+        ground_elevation (float): The elevation (meters) of the ground, which
+            blocks rays toward an elevation above the instrument.
 
     Returns:
         list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The instrument footprint(s).
@@ -734,7 +1051,7 @@ def compute_footprint(
             offsets = np.stack([half_c * np.cos(theta), half_a * np.sin(theta)], axis=1)
         # rays at the angular offsets from the roll angle and the scan plane,
         # which the pitch angle tilts about the cross-track axis
-        geos = _compute_projected_rays(
+        *rays, _ = _compute_rays(
             orbit_track,
             0,
             0,
@@ -742,13 +1059,12 @@ def compute_footprint(
             offsets[:, 1:],
             False,
             np.zeros(len(offsets)),
-            elevation,
             velocity_frame,
             nadir_reference,
             pitch_angle,
         )
     else:
-        geos = _compute_projected_rays(
+        *rays, _ = _compute_rays(
             orbit_track,
             cross_track_field_of_view,
             along_track_field_of_view,
@@ -756,16 +1072,32 @@ def compute_footprint(
             pitch_angle,
             is_rectangular,
             angles,
-            elevation,
             velocity_frame,
             nadir_reference,
         )
+    position, direction, _, nadir, along = rays
+    geos, _ = _project_rays(
+        *(np.reshape(x, (3, -1)) for x in rays[:4]), elevation, ground_elevation
+    )
+    geos = np.reshape(geos, position.shape)
     # footprint polygons (one per time), built at once from their points
     # (split along the anti-meridian and poles, and repaired if invalid)
-    footprints = _build_split_polygons(
-        np.reshape(geos[0], (len(geos[0]), -1)).T,
-        np.reshape(geos[1], (len(geos[1]), -1)).T,
-    )
+    footprints = _build_split_polygons(geos[0].T, geos[1].T)
+    for i in np.flatnonzero(
+        _is_looking_up(position[:, 0], elevation, ground_elevation)
+    ):
+        # clip views toward a target above the instrument to the horizon
+        # (including views about nadir, whose boundaries may be visible)
+        clipped = _clip_to_horizon(
+            position[:, 0, i],
+            direction[:, :, i],
+            nadir[:, 0, i],
+            along[:, 0, i],
+            elevation,
+            ground_elevation,
+        )
+        if clipped is not None:
+            footprints[i] = clipped
     # project the footprints to the elevation
     return list(shapely.force_3d(footprints, elevation))
 

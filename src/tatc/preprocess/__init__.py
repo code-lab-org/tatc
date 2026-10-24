@@ -8,6 +8,7 @@ require additional dependencies not installed by default; install them via
 from .raster import read_raster_weights
 from .terrain import (
     compute_terrain_mask,
+    compute_terrain_mask_for_platform,
     compute_terrain_mask_for_station,
     get_copernicus_dem_tile_urls,
     sample_dem_elevation,
@@ -15,6 +16,7 @@ from .terrain import (
 
 __all__ = [
     "compute_terrain_mask",
+    "compute_terrain_mask_for_platform",
     "compute_terrain_mask_for_station",
     "get_copernicus_dem_tile_urls",
     "read_raster_weights",

@@ -36,3 +36,11 @@ Collect Platform Track
 Compute Platform Track
 ----------------------
 .. autofunction:: tatc.analysis.compute_platform_track
+
+Collect Radar Track
+-------------------
+.. autofunction:: tatc.analysis.collect_radar_track
+
+Compute Radar Track
+-------------------
+.. autofunction:: tatc.analysis.compute_radar_track

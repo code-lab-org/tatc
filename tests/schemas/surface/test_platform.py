@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 from pydantic import ValidationError
+from pyproj import Geod
 from skyfield.api import wgs84
 from skyfield.framelib import itrs
 
@@ -17,6 +18,7 @@ from tatc.schemas import (
     Instrument,
     PointedInstrument,
     SurfacePlatform,
+    TerrainMask,
 )
 from tatc.utils import VelocityFrame
 
@@ -148,3 +150,40 @@ class TestSurfacePlatform(unittest.TestCase):
             o.get_track(times), wgs84.latlon(0, 0)
         )
         self.assertListEqual(list(valid), [False, True])
+
+    def test_compute_visible_region(self):
+        """
+        Test that the region visible from a platform at a target elevation
+        above it reaches the horizon of the ground without a terrain mask,
+        and only as far as the lines of sight clearing a terrain mask.
+        """
+        o = SurfacePlatform(
+            name="Tower", latitude=33.45, longitude=-112.07, elevation=300, height=30
+        )
+        geod = Geod(ellps="WGS84")
+
+        def distances(region):
+            lon, lat = np.array(region.exterior.coords).T
+            return geod.inv(
+                np.full(len(lon), o.longitude), np.full(len(lat), o.latitude), lon, lat
+            )
+
+        # lines of sight tangent to the ground, extended to 1 km above it
+        _, _, d = distances(o.compute_visible_region(1300))
+        horizon = np.sqrt(2 * 6371e3 * 30) + np.sqrt(2 * 6371e3 * 1000)
+        np.testing.assert_allclose(d, horizon, rtol=0.005)
+        # a 2 degree ridge to the west
+        o.terrain_mask = TerrainMask(
+            azimuth=[0, 240, 250, 290, 300], min_elevation_angle=[-1, -1, 2, 2, -1]
+        )
+        azimuth, _, d = distances(o.compute_visible_region(1300))
+        west = (azimuth % 360 >= 250) & (azimuth % 360 <= 290)
+        # lines of sight 2 degrees above horizontal rise 970 m (with the
+        # curvature drop) at the distance d: d tan(2) + d^2 / 2R = 970
+        slope, curvature = np.tan(np.radians(2)), 1 / (2 * 6371e3)
+        reach = (np.sqrt(slope**2 + 4 * curvature * 970) - slope) / (2 * curvature)
+        np.testing.assert_allclose(d[west], reach, rtol=0.005)
+        east = (azimuth > 0) & (azimuth < 180)
+        np.testing.assert_allclose(d[east], horizon, rtol=0.005)
+        with self.assertRaises(ValueError):
+            o.compute_visible_region(330)

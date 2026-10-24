@@ -8,10 +8,16 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import numpy as np
 from pydantic import Field, model_validator
+from shapely.geometry import MultiPolygon, Polygon
 from skyfield.positionlib import Geocentric
 
-from ...utils.projection import VelocityFrame, compute_static_track
+from ...utils.projection import (
+    VelocityFrame,
+    _compute_horizon_region,
+    compute_static_track,
+)
 from ...utils.time import _to_time
 from ..instrument import (
     AllInstruments,
@@ -20,6 +26,7 @@ from ..instrument import (
     PointedInstrument,
 )
 from .point import Point
+from .terrain import TerrainMask
 
 
 class SurfacePlatform(Point):
@@ -33,9 +40,11 @@ class SurfacePlatform(Point):
     Instruments are oriented as on a satellite whose direction of motion is
     the platform's `heading`: a view at zero roll and pitch looks straight
     down (nadir), a positive roll angle looks to the left of the heading,
-    and a positive pitch angle looks toward the heading. A generic
-    `Instrument` observes a cone about nadir; a `PointedInstrument` observes
-    a view rotated from nadir by fixed roll and pitch angles.
+    a positive pitch angle looks toward the heading, and a roll angle of 180
+    degrees looks straight up (zenith). A generic `Instrument` observes a
+    cone about nadir; a `PointedInstrument` observes a view rotated from
+    nadir by fixed roll and pitch angles, for example looking up at a
+    target above the instruments (such as clouds).
     """
 
     name: str = Field(..., description="Platform name.", examples=["tower 1"])
@@ -66,6 +75,15 @@ class SurfacePlatform(Point):
         min_length=1,
         description="List of hosted instruments (`Instrument` or "
         + "`PointedInstrument`).",
+    )
+    terrain_mask: TerrainMask | None = Field(
+        default=None,
+        description="Optional azimuthal terrain blockage mask as seen from the "
+        + "instruments (e.g. from "
+        + "`tatc.preprocess.compute_terrain_mask_for_platform`), which, with "
+        + "the horizon of the ground, blocks views toward a target above the "
+        + "instruments (see `compute_visible_region`). It does not apply to "
+        + "targets below the instruments.",
     )
 
     @model_validator(mode="after")
@@ -109,6 +127,50 @@ class SurfacePlatform(Point):
             float: the elevation (meters) above the WGS 84 ellipsoid
         """
         return self.elevation + self.height
+
+    def compute_visible_region(
+        self, elevation: float, number_azimuths: int = 360
+    ) -> Polygon | MultiPolygon:
+        """
+        Computes the region at a target elevation above the instruments that
+        is visible over the horizon: bounded at each azimuth by the lowest
+        line of sight that clears both the terrain mask (if any) and the
+        horizon of the ground, projected to the target elevation. Footprints
+        toward a target above the instruments are clipped to this region
+        (see `tatc.analysis.collect_platform_track`).
+
+        Args:
+            elevation (float): The target elevation (meters) above the WGS 84
+                ellipsoid, above the instruments.
+            number_azimuths (int): The number of evenly spaced azimuths at
+                which to sample the region (in addition to those of the
+                terrain mask).
+
+        Returns:
+            shapely.geometry.Polygon | shapely.geometry.MultiPolygon: The
+                visible region.
+        """
+        if elevation <= self.get_altitude():
+            raise ValueError(
+                f"target elevation ({elevation} m) must be above the "
+                f"instruments of platform {self.name!r} ({self.get_altitude()} m)"
+            )
+        azimuths = np.linspace(0, 360, number_azimuths, endpoint=False)
+        if self.terrain_mask is None:
+            # below the horizon of the ground at every azimuth
+            angles = np.full(len(azimuths), -89.0)
+        else:
+            azimuths = np.union1d(azimuths, self.terrain_mask.azimuth)
+            angles = self.terrain_mask.get_min_elevation_angles(azimuths)
+        return _compute_horizon_region(
+            self.longitude,
+            self.latitude,
+            self.get_altitude(),
+            elevation,
+            self.elevation,
+            azimuths,
+            angles,
+        )
 
     def get_track(self, times: datetime | list[datetime] | None = None) -> Geocentric:
         """

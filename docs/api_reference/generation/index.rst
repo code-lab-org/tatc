@@ -27,10 +27,9 @@ Random
 
 .. autofunction:: tatc.generation.generate_points_random
 
-Weights for random points can be read from a GeoTIFF raster (requires the
-optional `preprocess` dependencies, ``pip install tatc[preprocess]``):
-
-.. autofunction:: tatc.preprocess.read_raster_weights
+Weights for random points can be read from a GeoTIFF raster with
+:func:`tatc.preprocess.read_raster_weights` (requires the optional
+`preprocess` dependencies, ``pip install tatc[preprocess]``).
 
 Cells
 =====

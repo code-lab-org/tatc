@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 from pyproj import Geod
-from shapely.geometry import box
+from shapely.geometry import Polygon, box
 from skyfield.api import wgs84
 from skyfield.framelib import itrs
 
@@ -23,6 +23,7 @@ from tatc.schemas import (
     PointedInstrument,
     Satellite,
     SurfacePlatform,
+    TerrainMask,
 )
 from tatc.utils import ViewGeometry
 
@@ -190,10 +191,173 @@ class TestPlatformAnalysis(IssConstellationTestCase):
         )
         self.assertAlmostEqual(azimuth % 360, 315, delta=0.1)
 
-    def test_collect_platform_track_elevation_above_instruments(self):
+    def test_collect_platform_track_zenith_footprint(self):
         """
-        Test that a target elevation at or above a platform's instruments
-        raises a ValueError.
+        Test that a zenith cone projects to a circle of radius the height of
+        a target above the instruments times the tangent of the half angle.
+        """
+        platform = self.platforms[1].model_copy(
+            update={
+                "instruments": [
+                    PointedInstrument(
+                        cross_track_field_of_view=60,
+                        along_track_field_of_view=60,
+                        roll_angle=180,
+                    )
+                ]
+            }
+        )
+        track = collect_platform_track(platform, elevation=1340)
+        distances = _distances(platform, track.geometry.iloc[0])
+        # geodesic distances on the ellipsoid, below the target elevation, to
+        # the points on the circle and between them (on great circles)
+        radius = 1000 * np.tan(np.radians(30))
+        self.assertAlmostEqual(max(distances), radius, delta=1e-3 * radius)
+        self.assertGreater(min(distances), 0.99 * radius)
+        elevations = [z for *_, z in track.geometry.iloc[0].exterior.coords]
+        np.testing.assert_allclose(elevations, 1340)
+
+    def test_collect_platform_track_ground_horizon(self):
+        """
+        Test that a view toward a target above the instruments that is partly
+        blocked by the ground is clipped to the horizon, spanning the view's
+        azimuths along the lines of sight tangent to the ground.
+        """
+        platform = self.platforms[1].model_copy(
+            update={
+                "instruments": [
+                    PointedInstrument(
+                        cross_track_field_of_view=40,
+                        along_track_field_of_view=40,
+                        roll_angle=90,
+                        is_rectangular=True,
+                    )
+                ]
+            }
+        )
+        footprint = collect_platform_track(platform, elevation=1310).geometry.iloc[0]
+        self.assertEqual(footprint.geom_type, "Polygon")
+        self.assertTrue(footprint.is_valid)
+        distances = _distances(platform, footprint)
+        # the upper edge of the view, 20 degrees above horizontal
+        self.assertAlmostEqual(
+            min(distances), 970 / np.tan(np.radians(20)), delta=0.01 * 970
+        )
+        # the line of sight tangent to the ground, extended to 1 km above it
+        horizon = np.sqrt(2 * 6371e3 * 30) + np.sqrt(2 * 6371e3 * 1000)
+        np.testing.assert_allclose(max(distances), horizon, rtol=0.005)
+        # the horizon spans the view's azimuths, to the left of the heading
+        lon, lat, *_ = zip(*footprint.exterior.coords)
+        azimuths = GEOD.inv(
+            np.full(len(lon), platform.longitude),
+            np.full(len(lat), platform.latitude),
+            lon,
+            lat,
+        )[0][distances > 0.995 * horizon]
+        self.assertAlmostEqual(min(azimuths), -110, delta=0.5)
+        self.assertAlmostEqual(max(azimuths), -70, delta=0.5)
+
+    def test_collect_platform_track_ground_horizon_tilted(self):
+        """
+        Test that tilted views toward a target above the instruments that are
+        partly blocked by the ground project to valid polygons.
+        """
+        for roll_angle, pitch_angle in [(95, -60), (100, 30), (90, 45), (120, -15)]:
+            platform = self.platforms[1].model_copy(
+                update={
+                    "instruments": [
+                        PointedInstrument(
+                            cross_track_field_of_view=30,
+                            along_track_field_of_view=20,
+                            roll_angle=roll_angle,
+                            pitch_angle=pitch_angle,
+                            is_rectangular=True,
+                        )
+                    ]
+                }
+            )
+            footprint = collect_platform_track(platform, elevation=1310).geometry
+            self.assertEqual(footprint.iloc[0].geom_type, "Polygon")
+            self.assertTrue(footprint.iloc[0].is_valid)
+
+    def test_collect_platform_track_ground_blocked(self):
+        """
+        Test that a view about nadir toward a target above the instruments
+        is blocked by the ground: entirely, with an empty footprint, or
+        except for an annulus between the horizontal and the horizon.
+        """
+        platform = self.platforms[1].model_copy(
+            update={
+                "instruments": [
+                    Instrument(field_of_regard=60),
+                    Instrument(field_of_regard=180),
+                ]
+            }
+        )
+        footprints = collect_platform_track(
+            platform, instrument_index=None, elevation=1310
+        ).geometry
+        self.assertTrue(footprints.iloc[0].is_empty)
+        annulus = footprints.iloc[1]
+        self.assertTrue(annulus.is_valid)
+        self.assertEqual(len(annulus.interiors), 1)
+        # horizontal lines of sight reach 970 m above the instruments
+        hole = Polygon(annulus.interiors[0])
+        np.testing.assert_allclose(
+            _distances(platform, hole), np.sqrt(2 * 6371e3 * 970), rtol=0.005
+        )
+        np.testing.assert_allclose(
+            _distances(platform, annulus),
+            np.sqrt(2 * 6371e3 * 30) + np.sqrt(2 * 6371e3 * 1000),
+            rtol=0.005,
+        )
+
+    def test_collect_platform_track_terrain_mask(self):
+        """
+        Test that a terrain mask clips footprints toward a target above the
+        instruments to the region visible over it, but not footprints toward
+        a target below the instruments.
+        """
+        mask = TerrainMask(
+            azimuth=[0, 240, 250, 290, 300], min_elevation_angle=[-1, -1, 2, 2, -1]
+        )
+        platform = self.platforms[1].model_copy(
+            update={
+                "terrain_mask": mask,
+                "instruments": [
+                    PointedInstrument(
+                        cross_track_field_of_view=40,
+                        along_track_field_of_view=40,
+                        roll_angle=90,
+                        is_rectangular=True,
+                    )
+                ],
+            }
+        )
+        unmasked = platform.model_copy(update={"terrain_mask": None})
+        footprint = collect_platform_track(platform, elevation=1310).geometry.iloc[0]
+        self.assertTrue(footprint.is_valid)
+        self.assertTrue(footprint.has_z)
+        self.assertTrue(
+            footprint.equals(
+                collect_platform_track(unmasked, elevation=1310)
+                .geometry.iloc[0]
+                .intersection(platform.compute_visible_region(1310))
+            )
+        )
+        # the ridge (2 degrees above horizontal) limits the view to the west
+        self.assertLess(max(_distances(platform, footprint)), 30000)
+        # but not toward a target below the instruments
+        self.assertTrue(
+            collect_platform_track(platform)
+            .geometry.iloc[0]
+            .equals(collect_platform_track(unmasked).geometry.iloc[0])
+        )
+
+    def test_collect_platform_track_elevation_at_instruments(self):
+        """
+        Test that a target elevation at a platform's instruments raises a
+        ValueError.
         """
         with self.assertRaisesRegex(ValueError, "Tower"):
             collect_platform_track(self.platforms, elevation=340)
