@@ -132,6 +132,7 @@ class Instrument(BaseModel):
         orbit_track: Geocentric,
         number_points: int | None = None,
         elevation: float = 0,
+        ground_elevation: float = 0,
     ) -> list[Polygon | MultiPolygon]:
         """
         Compute the instanteous instrument footprint.
@@ -140,6 +141,8 @@ class Instrument(BaseModel):
             orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
             number_points (int | None): The required number of polygon points to generate.
             elevation (float): The elevation (meters) at which project the footprint.
+            ground_elevation (float): The elevation (meters) of the ground,
+                which blocks rays toward an elevation above the instrument.
 
         Returns:
             list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The instrument footprint(s).
@@ -154,12 +157,14 @@ class Instrument(BaseModel):
             number_points=number_points,
             elevation=elevation,
             nadir_reference=self.nadir_reference,
+            ground_elevation=ground_elevation,
         )
 
     def compute_footprint_center(
         self,
         orbit_track: Geocentric,
         elevation: float = 0,
+        ground_elevation: float = 0,
     ) -> GeographicPosition:
         """
         Compute the center of an instaneous instrument footprint.
@@ -167,6 +172,8 @@ class Instrument(BaseModel):
         Args:
             orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
             elevation (float): The elevation (meters) at which project the footprint.
+            ground_elevation (float): The elevation (meters) of the ground,
+                which blocks rays toward an elevation above the instrument.
 
         Returns:
             skyfield.toposlib.GeographicPosition: The instrument footprint center.
@@ -181,6 +188,7 @@ class Instrument(BaseModel):
             angle=0,
             elevation=elevation,
             nadir_reference=self.nadir_reference,
+            ground_elevation=ground_elevation,
         )
 
     def is_valid_observation(

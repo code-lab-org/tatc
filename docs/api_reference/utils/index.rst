@@ -24,7 +24,11 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_projected_ray_position
 
+.. autofunction:: tatc.utils.compute_static_track
+
 .. autofunction:: tatc.utils.compute_view_tangents
+
+.. autofunction:: tatc.utils.compute_view_angles
 
 .. autofunction:: tatc.utils.compute_cone_and_azimuth
 
@@ -32,6 +36,9 @@ Utility Functions
   :members:
 
 .. autoclass:: tatc.utils.NadirReference
+  :members:
+
+.. autoclass:: tatc.utils.ViewGeometry
   :members:
 
 .. autofunction:: tatc.utils.compute_field_of_regard
@@ -55,6 +62,8 @@ Utility Functions
 .. autofunction:: tatc.utils.compute_ground_surface_velocity
 
 .. autofunction:: tatc.utils.compute_vnb_frame
+
+.. autofunction:: tatc.utils.compute_argument_of_latitude
 
 .. autofunction:: tatc.utils.compute_j2_raan_rate
 
@@ -80,6 +89,8 @@ Utility Functions
 
 .. autofunction:: tatc.utils.geodesic_distance
 
+.. autofunction:: tatc.utils.geodesic_destination
+
 .. autofunction:: tatc.utils.get_planar_bounds
 
 .. autofunction:: tatc.utils.to_datetime64_ns
@@ -97,3 +108,17 @@ Utility Functions
 .. autofunction:: tatc.utils.compute_ellipsoid_intersection
 
 .. autofunction:: tatc.utils.compute_tangent_point
+
+.. autofunction:: tatc.utils.compute_radar_beam_height
+
+.. autofunction:: tatc.utils.compute_radar_ground_range
+
+.. autofunction:: tatc.utils.compute_radar_slant_range
+
+.. autofunction:: tatc.utils.compute_radar_ground_range_bounds
+
+.. autofunction:: tatc.utils.compute_terrain_elevation_angle
+
+.. autofunction:: tatc.utils.compute_radar_footprint
+
+.. autofunction:: tatc.utils.compute_radar_footprint_profile

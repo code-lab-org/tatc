@@ -248,6 +248,20 @@ class TestRadar(unittest.TestCase):
             compute_terrain_elevation_angle(0, 100, 0), 90.0, delta=1e-6
         )
 
+    def test_compute_terrain_elevation_angle_refraction(self):
+        """
+        Test that, without refraction (an effective Earth radius factor of
+        1), the curvature drop is the geometric one, larger than with the
+        default (4/3) refraction.
+        """
+        straight = compute_terrain_elevation_angle(50000, 0, 0, 1)
+        self.assertAlmostEqual(
+            straight,
+            math.degrees(math.atan2(-(50000**2) / (2 * 6371008.8), 50000)),
+            delta=1e-3,
+        )
+        self.assertLess(straight, compute_terrain_elevation_angle(50000, 0, 0))
+
     def test_compute_terrain_elevation_angle_increases_with_height(self):
         """
         Test that, for a fixed ground distance, the elevation angle

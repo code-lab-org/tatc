@@ -218,6 +218,7 @@ class ConicalInstrument(Instrument):
         orbit_track: Geocentric,
         number_points: int | None = None,
         elevation: float = 0,
+        ground_elevation: float = 0,
     ) -> list[Polygon | MultiPolygon]:
         """
         Compute the instanteous instrument footprint: the region swept by the
@@ -230,6 +231,8 @@ class ConicalInstrument(Instrument):
                 rotation of each edge of the arc. Defaults to the runtime
                 configuration.
             elevation (float): The elevation (meters) at which project the footprint.
+            ground_elevation (float): The elevation (meters) of the ground,
+                which blocks rays toward an elevation above the instrument.
 
         Returns:
             list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The instrument footprint(s).
@@ -259,6 +262,7 @@ class ConicalInstrument(Instrument):
                     elevation,
                     self.velocity_frame,
                     self.nadir_reference,
+                    ground_elevation=ground_elevation,
                 )[:2]
             return np.stack([geos[0], geos[1]], axis=-1)
 
@@ -299,6 +303,7 @@ class ConicalInstrument(Instrument):
         self,
         orbit_track: Geocentric,
         elevation: float = 0,
+        ground_elevation: float = 0,
     ) -> GeographicPosition:
         """
         Compute the center of an instaneous instrument footprint: the point
@@ -307,6 +312,8 @@ class ConicalInstrument(Instrument):
         Args:
             orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
             elevation (float): The elevation (meters) at which project the footprint.
+            ground_elevation (float): The elevation (meters) of the ground,
+                which blocks rays toward an elevation above the instrument.
 
         Returns:
             skyfield.toposlib.GeographicPosition: The instrument footprint center.
@@ -321,6 +328,7 @@ class ConicalInstrument(Instrument):
             elevation=elevation,
             velocity_frame=self.velocity_frame,
             nadir_reference=self.nadir_reference,
+            ground_elevation=ground_elevation,
         )
 
     def is_in_field_of_view(

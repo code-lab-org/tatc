@@ -494,6 +494,24 @@ class TestPointedInstrument(unittest.TestCase):
         for pixel_array in pixel_arrays:
             self.assertEqual(len(pixel_array.geoms), 6)
 
+    def test_compute_footprint_pixel_array_scalar_time(self):
+        """
+        Test that the pixel array of a single-time (scalar) orbit track
+        matches that of the same time in a vector of times.
+        """
+        o = PointedInstrument(
+            name="t",
+            cross_track_field_of_view=20.0,
+            along_track_field_of_view=10.0,
+            cross_track_pixels=3,
+            along_track_pixels=2,
+        )
+        times = timescale.utc(2020, 3, 20, 12, 0, [0, 1])  # type: ignore
+        pixel_arrays = o.compute_footprint_pixel_array(self.test_sat.at(times[0]))
+        self.assertEqual(len(pixel_arrays), 1)
+        expected = o.compute_footprint_pixel_array(self.test_sat.at(times))[0]
+        self.assertTrue(pixel_arrays[0].equals_exact(expected, 1e-9))
+
     def test_compute_footprint_cross_track_extent_matches_swath_width(self):
         """
         Test that the cross-track and along-track extents of a computed
