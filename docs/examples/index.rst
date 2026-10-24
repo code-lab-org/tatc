@@ -19,6 +19,7 @@ The following provide examples of TAT-C use in a Jupyter notebook environment.
   CollectRO.ipynb
   CollectLimb.ipynb
   CollectSpace.ipynb
+  RunOSSEMonsoon.ipynb
 
 Note that running the above examples in a local Python environment requires additional dependencies which can be installed via::
 
