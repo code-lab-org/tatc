@@ -21,9 +21,13 @@ from skyfield.api import wgs84
 from skyfield.framelib import itrs
 
 from tatc import config, constants
-from tatc.schemas import GeneralPerturbationsOrbit, Point
+from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point, Satellite
 from tatc.utils.computation import _run
-from tatc.utils.propagation import _complete_passes, _find_events
+from tatc.utils.propagation import (
+    _complete_passes,
+    _find_events,
+    align_element_switches,
+)
 
 REPEATING = {"remove_drag": True, "repeat_cycle": "auto"}
 """Options to propagate an orbit maintained on its (found) repeat ground track."""
@@ -2473,3 +2477,295 @@ class TestCompletePasses(unittest.TestCase):
         jd, events = self.complete([10.5, 11], [1, 2], t_1=15.0)
         self.assertEqual(len(jd), 0)
         self.assertEqual(len(events), 0)
+
+
+def _orbit_with_epochs(epochs, **options):
+    """
+    Builds a GP orbit with an element at each epoch, each with a distinct
+    mean anomaly (10 deg times its index) so that the elements propagate to
+    distinct positions.
+    """
+    tle = [
+        "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
+        "2 25544  51.6455  41.4969 0003508  68.0432  78.3395 15.48957534286754",
+    ]
+    base = GeneralPerturbationsOrbit.from_tle(tle).elements[0]
+    return GeneralPerturbationsOrbit(
+        elements=[
+            base.model_copy(update={"epoch": epoch, "mean_anomaly": 10.0 * k})
+            for k, epoch in enumerate(epochs)
+        ],
+        **options,
+    )
+
+
+class TestElementSwitchTimes(unittest.TestCase):
+    """
+    Unit tests for GeneralPerturbationsOrbit.element_switch_times and
+    get_element_index.
+    """
+
+    def setUp(self):
+        self.epochs = [datetime(2022, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5)]
+        self.switches = [
+            datetime(2022, 1, 1, 6, tzinfo=timezone.utc),
+            datetime(2022, 1, 4, 18, tzinfo=timezone.utc),
+        ]
+        self.orbit = _orbit_with_epochs(self.epochs, element_switch_times=self.switches)
+
+    def test_default_selects_closest_element(self):
+        """
+        Test that without switch times, the element used is the closest one.
+        """
+        orbit = _orbit_with_epochs(self.epochs)
+        times = [self.epochs[0] + timedelta(hours=h) for h in range(0, 120, 7)]
+        self.assertEqual(
+            orbit.get_element_index(times), orbit.get_closest_element_index(times)
+        )
+
+    def test_switch_times_select_elements(self):
+        """
+        Test that each time uses the element between the switches before and
+        after it (the later element exactly at a switch), rather than the
+        closest element.
+        """
+        cases = {
+            datetime(2022, 1, 1, 5, 59, tzinfo=timezone.utc): 0,
+            self.switches[0]: 1,
+            datetime(2022, 1, 2, tzinfo=timezone.utc): 1,  # closest is element 0
+            datetime(2022, 1, 4, 12, tzinfo=timezone.utc): 1,  # closest is element 2
+            self.switches[1]: 2,
+        }
+        for time, index in cases.items():
+            self.assertEqual(self.orbit.get_element_index(time), index)
+        self.assertEqual(
+            self.orbit.get_element_index(list(cases)), list(cases.values())
+        )
+        self.assertEqual(
+            self.orbit.get_element_index(
+                constants.timescale.from_datetimes(list(cases))
+            ),
+            list(cases.values()),
+        )
+        self.assertEqual(self.orbit.get_element_index(None), 0)
+
+    def test_switch_times_must_number_one_fewer_than_elements(self):
+        """
+        Test that switch times must number one fewer than the elements.
+        """
+        with self.assertRaises(ValidationError):
+            _orbit_with_epochs(self.epochs, element_switch_times=self.switches[:1])
+
+    def test_switch_times_must_lie_between_epochs(self):
+        """
+        Test that each switch time must lie between the epochs of the
+        elements before and after it.
+        """
+        with self.assertRaises(ValidationError):
+            _orbit_with_epochs(
+                self.epochs,
+                element_switch_times=[
+                    datetime(2022, 1, 3, 6, tzinfo=timezone.utc),
+                    self.switches[1],
+                ],
+            )
+
+    def test_coinciding_switches_skip_an_element(self):
+        """
+        Test that an element between two coinciding switch times is never
+        used, and that the partition into segments skips it.
+        """
+        orbit = _orbit_with_epochs(
+            self.epochs, element_switch_times=[self.epochs[1], self.epochs[1]]
+        )
+        self.assertEqual(orbit.get_element_index(self.epochs[1]), 2)
+        boundaries, indices = orbit.partition_by_element_index(
+            datetime(2022, 1, 1, tzinfo=timezone.utc),
+            datetime(2022, 1, 6, tzinfo=timezone.utc),
+        )
+        self.assertEqual(boundaries[1:-1], [self.epochs[1]])
+        self.assertEqual(indices, [0, 2])
+
+    def test_partition_uses_switch_times(self):
+        """
+        Test that the partition into segments switches elements at the
+        switch times.
+        """
+        start = datetime(2022, 1, 1, tzinfo=timezone.utc)
+        end = datetime(2022, 1, 6, tzinfo=timezone.utc)
+        boundaries, indices = self.orbit.partition_by_element_index(start, end)
+        self.assertEqual(boundaries, [start, *self.switches, end])
+        self.assertEqual(indices, [0, 1, 2])
+
+    def test_propagation_uses_switched_element(self):
+        """
+        Test that the orbit is propagated with the element selected by the
+        switch times, not the closest element.
+        """
+        t = constants.timescale.from_datetime(datetime(2022, 1, 2, tzinfo=timezone.utc))
+        expected = self.orbit.elements[1].to_skyfield().at(t).position.m
+        closest = self.orbit.elements[0].to_skyfield().at(t).position.m
+        actual = self.orbit.get_orbit_track_at_time(t).position.m
+        np.testing.assert_allclose(actual, expected, atol=1e-6)
+        self.assertGreater(np.linalg.norm(actual - closest), 1e3)
+
+    def test_switch_times_carried_by_derived_and_serialized_orbits(self):
+        """
+        Test that derived orbits and serialized orbits keep the switch times.
+        """
+        self.assertEqual(
+            self.orbit.get_derived_orbit(10, 20).element_switch_times, self.switches
+        )
+        restored = GeneralPerturbationsOrbit.model_validate_json(
+            self.orbit.model_dump_json()
+        )
+        self.assertEqual(restored.element_switch_times, self.switches)
+
+
+class TestAlignElementSwitches(unittest.TestCase):
+    """
+    Unit tests for align_element_switches.
+    """
+
+    def setUp(self):
+        self.t0 = datetime(2022, 1, 1, tzinfo=timezone.utc)
+
+    def hours(self, *values, offset=0.0):
+        """
+        Epochs at the given hours after t0, shifted by offset seconds.
+        """
+        return [self.t0 + timedelta(hours=h, seconds=offset) for h in values]
+
+    @staticmethod
+    def satellite(name, epochs):
+        return Satellite(name=name, orbit=_orbit_with_epochs(epochs))
+
+    @staticmethod
+    def midpoint(a, b):
+        return a + (b - a) / 2
+
+    def test_satellites_switch_at_common_times(self):
+        """
+        Test that three satellites whose elements are published seconds
+        apart switch at common times, midway between the events' mean epochs,
+        keeping all their elements, and that the inputs are unchanged.
+        """
+        satellites = [
+            self.satellite("A", self.hours(0, 8, 16)),
+            self.satellite("B", self.hours(0, 8, 16, offset=20)),
+            self.satellite("C", self.hours(0, 8, 16, offset=-35)),
+        ]
+        aligned = align_element_switches(satellites)
+        means = self.hours(0, 8, 16, offset=-5)
+        expected = [
+            self.midpoint(means[0], means[1]),
+            self.midpoint(means[1], means[2]),
+        ]
+        for satellite in aligned:
+            self.assertEqual(len(satellite.orbit.elements), 3)
+            self.assertEqual(satellite.orbit.element_switch_times, expected)
+        for satellite in satellites:
+            self.assertIsNone(satellite.orbit.element_switch_times)
+        times = [self.t0 + timedelta(minutes=m) for m in range(0, 24 * 60, 7)]
+        indices = [satellite.orbit.get_element_index(times) for satellite in aligned]
+        self.assertEqual(indices[0], indices[1])
+        self.assertEqual(indices[0], indices[2])
+
+    def test_missing_event_is_dropped_when_shared_only(self):
+        """
+        Test that, with shared_only, an element published by only some
+        satellites is removed, so that all use elements of the same events.
+        """
+        a, b = align_element_switches(
+            [
+                self.satellite("A", self.hours(0, 8, 16)),
+                self.satellite("B", self.hours(0, 16, offset=20)),
+            ]
+        )
+        self.assertEqual(a.orbit.get_element_epochs(), self.hours(0, 16))
+        self.assertEqual(a.orbit.element_switch_times, b.orbit.element_switch_times)
+        self.assertEqual(
+            a.orbit.element_switch_times,
+            [self.midpoint(*self.hours(0, 16, offset=10))],
+        )
+
+    def test_missing_event_switches_at_latest_common_time(self):
+        """
+        Test that, without shared_only, every event is used, and a satellite
+        without an element in an event switches at the latest common time
+        between the events of its elements.
+        """
+        a, b = align_element_switches(
+            [
+                self.satellite("A", self.hours(0, 8, 16)),
+                self.satellite("B", self.hours(0, 16, offset=20)),
+            ],
+            shared_only=False,
+        )
+        self.assertEqual(len(a.orbit.elements), 3)
+        self.assertEqual(len(a.orbit.element_switch_times), 2)
+        self.assertEqual(b.orbit.element_switch_times, a.orbit.element_switch_times[1:])
+
+    def test_latest_element_of_an_event_is_used(self):
+        """
+        Test that a satellite with several elements in one event (such as a
+        duplicate) uses its latest and the others are removed.
+        """
+        a, _ = align_element_switches(
+            [
+                self.satellite("A", self.hours(0) + self.hours(0, 8, offset=1)),
+                self.satellite("B", self.hours(0, 8, offset=20)),
+            ]
+        )
+        self.assertEqual(a.orbit.get_element_epochs(), self.hours(0, 8, offset=1))
+        self.assertEqual(a.orbit.elements[0].mean_anomaly, 10.0)
+
+    def test_single_element_satellites_are_unchanged(self):
+        """
+        Test that satellites without more than one GP element are returned
+        unchanged and do not affect the others.
+        """
+        circular = Satellite(
+            name="circular", orbit=CircularOrbit(altitude=500e3, inclination=45)
+        )
+        single = self.satellite("single", self.hours(4))
+        aligned = align_element_switches(
+            [circular, single, self.satellite("A", self.hours(0, 8))]
+        )
+        self.assertIs(aligned[0], circular)
+        self.assertIs(aligned[1], single)
+        self.assertEqual(len(aligned[2].orbit.element_switch_times), 1)
+
+    def test_chained_epochs_raise(self):
+        """
+        Test that epochs spread through time, chaining into an event longer
+        than the tolerance, raise an error.
+        """
+        minutes = [self.t0 + timedelta(minutes=m) for m in (0, 8, 16, 24)]
+        satellites = [
+            self.satellite("A", [minutes[0], minutes[2]]),
+            self.satellite("B", [minutes[1], minutes[3]]),
+        ]
+        with self.assertRaises(ValueError):
+            align_element_switches(satellites)
+
+    def test_close_events_raise(self):
+        """
+        Test that events whose mean epochs are not more than twice the
+        tolerance apart raise an error.
+        """
+        satellites = [self.satellite("A", [self.t0, self.t0 + timedelta(minutes=15)])]
+        with self.assertRaises(ValueError):
+            align_element_switches(satellites)
+
+    def test_no_shared_event_raises(self):
+        """
+        Test that, with shared_only, satellites without any event in common
+        raise an error.
+        """
+        satellites = [
+            self.satellite("A", self.hours(0, 8)),
+            self.satellite("B", self.hours(4, 12)),
+        ]
+        with self.assertRaises(ValueError):
+            align_element_switches(satellites)

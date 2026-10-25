@@ -66,6 +66,7 @@ from .projection import (
     compute_view_angles,
     compute_view_tangents,
 )
+from .propagation import align_element_switches
 from .radar import (
     compute_radar_beam_height,
     compute_radar_footprint,
@@ -83,6 +84,7 @@ __all__ = [
     "NadirReference",
     "VelocityFrame",
     "ViewGeometry",
+    "align_element_switches",
     "altitude_to_pressure",
     "buffer_footprint",
     "buffer_target",

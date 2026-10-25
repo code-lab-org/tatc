@@ -838,7 +838,7 @@ def _warn_if_propagating_with_drag(
     if direct_start < direct_end:
         orbit._warn_if_propagating_with_drag(  # pylint: disable=protected-access
             _to_time([direct_start, direct_end]),
-            np.array(orbit.get_closest_element_index([direct_start, direct_end])),
+            np.array(orbit.get_element_index([direct_start, direct_end])),
         )
 
 

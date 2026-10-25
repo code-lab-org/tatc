@@ -1,7 +1,7 @@
 """
 Orbit propagation utilities for general perturbations (SGP4) orbits:
-observation event search, propagation on a repeat ground track, and repeat
-cycle search (see `time` for conversions of times, `earth_orientation` for
+observation event search, propagation on a repeat ground track, repeat
+cycle search, and alignment of element switches among satellites (see `time` for conversions of times, `earth_orientation` for
 interpolated nutation angles, and `computation` for computations run
 together).
 
@@ -30,6 +30,7 @@ from .earth_orientation import _interpolate_nutation
 
 if TYPE_CHECKING:
     from ..schemas.orbit.gp_elements import GeneralPerturbationsElements
+    from ..schemas.space.satellite import Satellite
 
 
 class RepeatCycleSearch(NamedTuple):
@@ -687,3 +688,130 @@ class _RepeatTrack:
             selected = (times_py >= lower) & (times_py <= upper)
             events.extend(zip(times_py[selected] + shift, codes[selected]))
         return events
+
+
+def align_element_switches(
+    satellites: list[Satellite],
+    tolerance: timedelta = timedelta(minutes=10),
+    shared_only: bool = True,
+) -> list[Satellite]:
+    """
+    Aligns the times at which the satellites' general perturbations (GP)
+    orbits switch from one element to the next (see
+    `GeneralPerturbationsOrbit.element_switch_times`), so that satellites
+    whose elements are published together, as for a formation or a
+    constellation, switch at common times.
+
+    By default, each satellite switches elements midway between its own
+    consecutive epochs. When the satellites' elements are published at
+    slightly different times (for example, 20 s apart), for that long after
+    each switch their positions come from elements of different epochs,
+    whose errors no longer cancel, so their relative positions jump by up to
+    the difference between successive elements.
+
+    The satellites' epochs are grouped into publication events, each of
+    epochs within `tolerance` of the next, and switches are placed midway
+    between the mean epochs of consecutive events. Each satellite uses its
+    latest element in each event and switches at the common time between
+    the events of its consecutive elements (if it has no element in the
+    events between, at the latest common time). With `shared_only`, only the
+    events in which every satellite has an element are used, so the
+    satellites always use elements of the same event, at the cost of using
+    older elements when one satellite lacks an element in an event;
+    otherwise, every event is used. Elements that are not used are removed.
+
+    Only satellites whose orbits have more than one GP element take part;
+    the others are returned unchanged.
+
+    Args:
+        satellites (list[Satellite]): The satellites.
+        tolerance (datetime.timedelta): The maximum difference between the
+            epochs of a publication event.
+        shared_only (bool): True, to use only the publication events in
+            which every satellite has an element.
+
+    Returns:
+        list[Satellite]: copies of the satellites, with aligned element switch
+            times (or unchanged, if they do not take part)
+
+    Raises:
+        ValueError: if a publication event spans more than `tolerance` (as
+            when epochs are spread through time rather than published
+            together), if the mean epochs of consecutive events used are not
+            more than twice `tolerance` apart, or if, with `shared_only`, no
+            event is shared by every satellite.
+    """
+    orbits = [satellite.orbit.to_gp_orbit() for satellite in satellites]
+    members = [i for i, orbit in enumerate(orbits) if len(orbit.elements) > 1]
+    if len(members) == 0:
+        return list(satellites)
+    # publication events: epochs within tolerance of the next, as (epoch, satellite, element)
+    epochs = sorted(
+        (element.epoch, i, k)
+        for i in members
+        for k, element in enumerate(orbits[i].elements)
+    )
+    events = [[epochs[0]]]
+    for previous, current in zip(epochs[:-1], epochs[1:]):
+        if current[0] - previous[0] > tolerance:
+            events.append([])
+        events[-1].append(current)
+    for event in events:
+        if event[-1][0] - event[0][0] > tolerance:
+            raise ValueError(
+                f"Element epochs from {event[0][0]} to {event[-1][0]} form one "
+                f"publication event longer than the tolerance ({tolerance})."
+            )
+    if shared_only:
+        used = [
+            j
+            for j, event in enumerate(events)
+            if {i for _, i, _ in event} == set(members)
+        ]
+        if len(used) == 0:
+            raise ValueError("No publication event is shared by every satellite.")
+    else:
+        used = list(range(len(events)))
+    means = [
+        events[j][0][0]
+        + sum((epoch - events[j][0][0] for epoch, _, _ in events[j]), timedelta(0))
+        / len(events[j])
+        for j in used
+    ]
+    for earlier, later in zip(means[:-1], means[1:]):
+        if later - earlier <= 2 * tolerance:
+            raise ValueError(
+                f"Publication events at {earlier} and {later} are not more than "
+                f"twice the tolerance ({tolerance}) apart."
+            )
+    # the common switch time before each event used (but the first)
+    switch_before = {
+        j: means[n - 1] + (means[n] - means[n - 1]) / 2
+        for n, j in enumerate(used)
+        if n > 0
+    }
+    aligned = list(satellites)
+    for i in members:
+        # each satellite's latest element in each event used, in time order
+        latest = {}
+        for j in used:
+            for _, satellite, k in events[j]:
+                if satellite == i:
+                    latest[j] = k
+        events_used = sorted(latest)
+        orbit = orbits[i]
+        aligned[i] = satellites[i].model_copy(
+            update={
+                "orbit": type(orbit)(
+                    **{
+                        **dict(orbit),
+                        "elements": [orbit.elements[latest[j]] for j in events_used],
+                        "element_switch_times": [
+                            switch_before[j] for j in events_used[1:]
+                        ]
+                        or None,
+                    }
+                )
+            }
+        )
+    return aligned
