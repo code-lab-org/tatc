@@ -17,6 +17,7 @@ from skyfield.units import Distance, Velocity
 from tatc.analysis import collect_ro_observations
 from tatc.analysis.ro_sampling import (
     _interpolate_ro_point,
+    _is_rising,
     _sample_ro_arcs,
     _tangent_point_geometry,
 )
@@ -275,6 +276,65 @@ class TestInterpolateRoPoint(unittest.TestCase):
         self.assertAlmostEqual(abs(result["longitude"]), 180.0)
 
 
+class TestIsRising(unittest.TestCase):
+    """
+    Unit tests for `_is_rising`.
+    """
+
+    @staticmethod
+    def _points(elevations, pitch=0.0):
+        """
+        Builds profile points at the given tangent point elevations (m),
+        10 s apart, with a constant transmitter pitch angle (deg).
+        """
+        return [
+            {
+                "time": datetime(2024, 1, 1, tzinfo=timezone.utc)
+                + timedelta(seconds=10 * i),
+                "longitude": 0.0,
+                "latitude": 0.0,
+                "elevation": elevation,
+                "rx_tx_pitch": pitch,
+                "rx_tx_yaw": 90.0,
+                "tp_tx_azimuth": 0.0,
+            }
+            for i, elevation in enumerate(elevations)
+        ]
+
+    def test_direction_through_sample_elevation(self):
+        """
+        Test that the direction is that of the tangent point through the
+        sample elevation, regardless of the transmitter's pitch angle.
+        """
+        self.assertFalse(_is_rising(self._points([60e3, -100e3], pitch=0.0), -80e3))
+        self.assertTrue(_is_rising(self._points([-100e3, 60e3], pitch=-180.0), -80e3))
+
+    def test_direction_at_first_crossing_of_grazing_profile(self):
+        """
+        Test that a profile crossing the sample elevation twice (dipping
+        below it and rising again) takes the direction of its first crossing,
+        at which its time is interpolated.
+        """
+        self.assertFalse(_is_rising(self._points([60e3, -90e3, 60e3]), -80e3))
+        self.assertTrue(_is_rising(self._points([-90e3, 60e3, -90e3]), -80e3))
+
+    def test_direction_from_endpoints_when_never_crossed(self):
+        """
+        Test that a profile that never crosses the sample elevation takes
+        the direction from its first to its last point.
+        """
+        self.assertTrue(_is_rising(self._points([20e3, 10e3, 50e3]), -80e3))
+        self.assertFalse(_is_rising(self._points([50e3, 10e3, 20e3]), -80e3))
+
+    def test_pitch_fallback_for_single_point(self):
+        """
+        Test that a single point is rising if the transmitter's pitch angle
+        is above -90 deg.
+        """
+        self.assertTrue(_is_rising(self._points([0.0], pitch=-80.0), -80e3))
+        self.assertFalse(_is_rising(self._points([0.0], pitch=-100.0), -80e3))
+
+
 class TestCollectRoObservations(unittest.TestCase):
     """
     Integration tests for `collect_ro_observations`.
@@ -408,6 +468,25 @@ class TestCollectRoObservations(unittest.TestCase):
         )
         self.assertGreater(len(results), 0)
         self.assertTrue(results.is_rising.isin([True, False]).all())
+
+    def test_collect_ro_observations_is_rising_follows_profile(self):
+        """
+        Test that `is_rising` agrees with the direction of each observation's
+        sampled profile through the sample elevation (-80 km by default),
+        including for transmitters nearly abeam of the receiver.
+        """
+        results = collect_ro_observations(
+            self.receiver, self.transmitter, self.start, self.end, max_yaw=90
+        )
+        checked = 0
+        for _, row in results.iterrows():
+            elevations = np.array([point.z for point in row.geometry.geoms])
+            crossings = np.nonzero(np.diff(np.sign(elevations + 80e3)))[0]
+            if len(crossings) > 0:
+                i = crossings[0]
+                self.assertEqual(row.is_rising, elevations[i + 1] > elevations[i])
+                checked += 1
+        self.assertGreater(checked, 0)
 
     def test_sample_ro_arcs_closes_at_arc_boundary_when_still_in_range(self):
         """

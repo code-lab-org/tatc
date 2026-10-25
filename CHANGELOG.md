@@ -65,6 +65,7 @@ Changed:
  - Fixed `PointedInstrument.compute_footprint_pixel_array` for a single-time (scalar) orbit track.
  - Fixed `collect_observations` missing short observations (and misplacing the ends of long ones) when a field of regard extends to the horizon of a long access period, as near the perigee of a Molniya orbit, which were refined from too few samples of the access period.
  - Fixed the pixel positions of a `PointedInstrument` with oversampling (`compute_projected_pixel_position`, `compute_footprint_pixel_array`, and `collect_ground_pixels`), which spaced the pixels by a fraction of the field of view rather than across all of it.
+ - Fixed `collect_ro_observations` labeling some occultations of transmitters nearly abeam of the receiver (yaw angles near 90 degrees) as setting rather than rising: `is_rising` follows the direction of the tangent point through `sample_elevation`.
  - Fixed `compute_latencies` for observations and downlinks whose times have different units (for example, microseconds and nanoseconds).
  - Fixed `split_polygon` for longitudes beyond 180 degrees, for polygons spanning -180 to 180 degrees of longitude, and for holes across the anti-meridian or around a pole (holes are now split like exteriors), and to drop degenerate (zero-area) parts left by repairing invalid polygons.
  - Fixed cached orbit computations for copies with changed fields, and orbits and satellites to be picklable after propagation.

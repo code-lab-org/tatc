@@ -426,21 +426,10 @@ def _sample_ro_arcs(
         for j, time in enumerate(times, start=offset):
             if in_range[j]:
                 if occ_arc is None:
-                    # start of new RO observation. rx_tx_pitch is the
-                    # transmitter's pitch angle relative to the receiver,
-                    # where -90 deg points at the geocenter (never actually
-                    # reached by a real RO profile, since the signal must
-                    # pass through the atmosphere); pitch above -90 deg means
-                    # the transmitter is "ahead" of the receiver (a
-                    # rising/emersion occultation), below -90 deg means
-                    # "behind" (a setting/immersion one). This is an
-                    # approximation of the more direct (but more expensive)
-                    # definition -- the sign of the tangent point's own
-                    # elevation rate -- using this arc's first sample only.
+                    # start of new RO observation
                     occ_arc = {
                         "rx": receivers[r].name,
                         "tx": transmitters[k].name,
-                        "is_rising": rx_tx_pitch[j] > -90,
                         "points": [],
                     }
                 occ_arc["points"].append(
@@ -482,6 +471,39 @@ def _interpolate_ro_point(points: list[dict], sample_elevation: float) -> dict:
         sample_elevation,
         {"rx_tx_pitch": -180.0, "rx_tx_yaw": -180.0, "tp_tx_azimuth": 0.0},
     )
+
+
+def _is_rising(points: list[dict], sample_elevation: float) -> bool:
+    """
+    Determines whether an RO observation is rising (emersion), with its
+    tangent point ascending, or setting (immersion), with it descending:
+    between the points that bracket the first crossing of the specified
+    elevation (at which `_interpolate_ro_point` interpolates), or, if it is
+    not crossed, from the first to the last point.
+
+    A single point (or a profile that ends at the elevation it starts) is
+    rising if the transmitter is ahead of the receiver: if its pitch angle
+    relative to the receiver is above -90 deg (which points at the
+    geocenter). This approximation fails for transmitters nearly abeam of
+    the receiver (yaw angles near 90 deg).
+
+    Args:
+        points (list[dict]): the RO observation points (ordered by time).
+        sample_elevation (float): the tangent point elevation (m) at which
+            the observation is interpolated.
+
+    Returns:
+        bool: True, if the observation is rising.
+    """
+    elevations = np.array([point["elevation"] for point in points])
+    # bracketing indices where the tangent point elevation crosses the sample elevation
+    crossings = np.nonzero(np.diff(np.sign(elevations - sample_elevation)))[0]
+    if len(crossings) > 0:
+        i = crossings[0]
+        return bool(elevations[i + 1] > elevations[i])
+    if elevations[-1] != elevations[0]:
+        return bool(elevations[-1] > elevations[0])
+    return bool(points[0]["rx_tx_pitch"] > -90)
 
 
 def _get_empty_ro_frame() -> gpd.GeoDataFrame:
@@ -587,7 +609,7 @@ def collect_ro_observations(
             {
                 "receiver": o["rx"],
                 "transmitter": o["tx"],
-                "is_rising": o["is_rising"],
+                "is_rising": _is_rising(o["points"], sample_elevation),
                 "geometry": profile,
                 "position": Point(
                     sample["longitude"], sample["latitude"], sample["elevation"]
