@@ -170,6 +170,32 @@ def _compute_instrument_frame(
     return p_m, v, n, c
 
 
+def _compute_line_of_sight(
+    target: GeographicPosition | npt.NDArray, p_m: npt.NDArray
+) -> npt.NDArray:
+    """
+    Compute the Earth-fixed line of sight from a satellite to a target: a
+    single target, seen from each position, or one target for each position
+    (with the same number of positions as targets).
+
+    Args:
+        target (skyfield.toposlib.GeographicPosition | numpy.typing.NDArray):
+            the target position(s), or their Earth-fixed coordinates (meters),
+            with shape (3,) or (3, N).
+        p_m (numpy.typing.NDArray): the satellite position(s) (meters), with
+            shape (3,) or (3, N).
+
+    Returns:
+        numpy.typing.NDArray: the line(s) of sight (meters).
+    """
+    xyz = np.asarray(
+        target.itrs_xyz.m if isinstance(target, GeographicPosition) else target
+    )
+    if xyz.ndim == 1:
+        xyz = np.reshape(xyz, (3,) + (1,) * (p_m.ndim - 1))
+    return xyz - p_m
+
+
 def _compute_view_frame(
     orbit_track: Geocentric,
     roll_angle: float = 0,
@@ -302,7 +328,8 @@ def compute_view_tangents(
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
-        target (skyfield.toposlib.GeographicPosition): the target position.
+        target (skyfield.toposlib.GeographicPosition): the target position
+            (a single target, or one target for each time of the orbit track).
         velocity_frame (VelocityFrame): The reference frame of the velocity
             vector that defines the along-track direction.
         roll_angle (float): the instrument roll angle (degrees).
@@ -319,7 +346,7 @@ def compute_view_tangents(
         orbit_track, roll_angle, pitch_angle, velocity_frame, nadir_reference
     )
     # line of sight from the satellite to the target
-    los = np.reshape(np.array(target.itrs_xyz.m), (3,) + (1,) * (p_m.ndim - 1)) - p_m
+    los = _compute_line_of_sight(target, p_m)
     with np.errstate(divide="ignore", invalid="ignore"):
         scale = np.sum(los * boresight, axis=0)
         scale = np.where(scale > 0, scale, np.nan)
@@ -345,7 +372,8 @@ def compute_view_angles(
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
-        target (skyfield.toposlib.GeographicPosition): the target position.
+        target (skyfield.toposlib.GeographicPosition): the target position
+            (a single target, or one target for each time of the orbit track).
         velocity_frame (VelocityFrame): The reference frame of the velocity
             vector that defines the along-track direction.
         nadir_reference (NadirReference): The definition of the nadir
@@ -360,7 +388,7 @@ def compute_view_angles(
     p_m, nadir, along, cross = _compute_view_frame(
         orbit_track, 0, 0, velocity_frame, nadir_reference, tilt_angle
     )
-    los = np.reshape(np.array(target.itrs_xyz.m), (3,) + (1,) * (p_m.ndim - 1)) - p_m
+    los = _compute_line_of_sight(target, p_m)
     los = los / np.linalg.norm(los, axis=0)
     roll = np.degrees(
         np.arctan2(np.sum(los * cross, axis=0), np.sum(los * nadir, axis=0))
@@ -384,7 +412,8 @@ def compute_cone_and_azimuth(
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
-        target (skyfield.toposlib.GeographicPosition): the target position.
+        target (skyfield.toposlib.GeographicPosition): the target position
+            (a single target, or one target for each time of the orbit track).
         velocity_frame (VelocityFrame): The reference frame of the velocity
             vector that defines the along-track direction.
         nadir_reference (NadirReference): The definition of the nadir
@@ -399,7 +428,7 @@ def compute_cone_and_azimuth(
         orbit_track, 0, 0, velocity_frame, nadir_reference
     )
     # line of sight from the satellite to the target
-    los = np.reshape(np.array(target.itrs_xyz.m), (3,) + (1,) * (p_m.ndim - 1)) - p_m
+    los = _compute_line_of_sight(target, p_m)
     down = np.sum(los * nadir, axis=0)
     forward = np.sum(los * along, axis=0)
     left = np.sum(los * cross, axis=0)

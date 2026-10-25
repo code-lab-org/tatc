@@ -23,6 +23,8 @@ from tatc.analysis import (
     grid_observations,
     reduce_observations,
 )
+from tatc.analysis.point_sampling import _get_screening_angle
+from tatc.utils.projection import _compute_nadir_axes
 from tatc.analysis.sampling import _refine_access_periods
 from tatc.utils.computation import _run
 from tatc.constants import timescale
@@ -30,9 +32,11 @@ from tatc.schemas import (
     ConicalInstrument,
     GeneralPerturbationsOrbit,
     Instrument,
+    MolniyaOrbit,
     Point,
     PointedInstrument,
     Satellite,
+    SunSynchronousOrbit,
 )
 from tatc.utils import (
     compute_cone_and_azimuth,
@@ -808,7 +812,21 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             .reset_index(drop=True)
         )
         self.assertGreater(len(results.index), 0)
-        pd.testing.assert_frame_equal(results, expected)
+        # observations that start together (such as those in progress at the
+        # start) may be in any order, and times computed with other points
+        # may differ in their last bits (below a microsecond)
+        keys = ["start", "target_hash", "satellite", "instrument", "epoch"]
+        results = results.sort_values(keys).reset_index(drop=True)
+        expected = expected.sort_values(keys).reset_index(drop=True)
+        times = ["start", "epoch", "end"]
+        pd.testing.assert_frame_equal(
+            results.drop(columns=times), expected.drop(columns=times)
+        )
+        for column in times:
+            self.assertLess(
+                (results[column] - expected[column]).abs().max(),
+                pd.Timedelta(microseconds=1),
+            )
 
     def test_collect_observations_of_every_instrument(self):
         """
@@ -1524,3 +1542,180 @@ class TestGrazingPasses(unittest.TestCase):
         )
         self.assertEqual(len(observations), 1)
         self.assertTrue((observations.sat_alt > 0).all())
+
+
+class TestBatchObservations(unittest.TestCase):
+    """
+    Unit tests for the observations of many points collected together (see
+    `tatc.analysis.point_sampling._collect_batch_observations`).
+    """
+
+    def setUp(self):
+        self.start = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        self.orbit = SunSynchronousOrbit(
+            altitude=700e3, equator_crossing_time="10:30", epoch=self.start
+        )
+        rng = np.random.default_rng(1)
+        latitude = np.degrees(np.arcsin(rng.uniform(-1, 1, 200)))
+        longitude = rng.uniform(-180, 180, 200)
+        self.points = [ShapelyPoint(x, y) for x, y in zip(longitude, latitude)]
+
+    def _brute_force_periods(self, satellite, points, end, step=1.0):
+        """
+        The runs of samples at 1 s steps at which each point lies within the
+        field of regard and above the horizon (as start, end), by its hash,
+        from one orbit track evaluated against all points.
+        """
+        instrument = satellite.instruments[0]
+        seconds = np.arange(0, (end - self.start).total_seconds() + step, step)
+        t = timescale.from_datetimes(
+            [self.start + timedelta(seconds=x) for x in seconds]
+        )
+        track = satellite.orbit.to_gp_orbit().get_orbit_track_at_time(t)
+        position, nadir = _compute_nadir_axes(track)[:2]
+        latitude = np.array([point.y for point in points])
+        longitude = np.array([point.x for point in points])
+        xyz = np.array(wgs84.latlon(latitude, longitude).itrs_xyz.m)
+        up = np.array(
+            [
+                np.cos(np.radians(latitude)) * np.cos(np.radians(longitude)),
+                np.cos(np.radians(latitude)) * np.sin(np.radians(longitude)),
+                np.sin(np.radians(latitude)),
+            ]
+        )
+        periods = {}
+        for i, point in enumerate(points):
+            los = xyz[:, i : i + 1] - position
+            distance = np.linalg.norm(los, axis=0)
+            cone = np.degrees(np.arccos(np.sum(los * nadir, axis=0) / distance))
+            elevation = -np.sum(los * up[:, i : i + 1], axis=0) / distance
+            inside = (cone <= instrument.field_of_regard / 2) & (elevation >= 0)
+            edges = np.flatnonzero(np.diff(inside.astype(int)))
+            starts = list(edges[inside[edges + 1]] + 1)
+            ends = list(edges[~inside[edges + 1]])
+            if inside[0]:
+                starts = [0] + starts
+            if inside[-1]:
+                ends = ends + [len(inside) - 1]
+            periods[hash_geometry(point)] = [
+                (
+                    self.start + timedelta(seconds=seconds[a]),
+                    self.start + timedelta(seconds=seconds[b]),
+                )
+                for a, b in zip(starts, ends)
+            ]
+        return periods
+
+    def test_narrow_field_of_regard_brute_force(self):
+        """
+        Test that the passes of a narrow field of regard (about 12 km wide,
+        crossed in a second or two), which fall between the samples of the
+        screened windows, are found and agree with a brute-force search at
+        1 s steps.
+        """
+        satellite = Satellite(
+            name="narrow",
+            orbit=self.orbit,
+            instruments=[Instrument(name="narrow", field_of_regard=1)],
+        )
+        end = self.start + timedelta(days=1)
+        points = [
+            ShapelyPoint(x, y)
+            for x, y in zip(np.linspace(-180, 180, 1500), np.linspace(-80, 80, 1500))
+        ]
+        observations = collect_observations(points, satellite, self.start, end)
+        expected = self._brute_force_periods(satellite, points, end)
+        found = 0
+        for target_hash, periods in expected.items():
+            observed = observations[observations.target_hash == target_hash]
+            for left, right in periods:
+                # each brute-force run lies within an observed period
+                matches = observed[
+                    (observed.start <= pd.Timestamp(left) + pd.Timedelta(seconds=1))
+                    & (observed.end >= pd.Timestamp(right) - pd.Timedelta(seconds=1))
+                ]
+                self.assertEqual(len(matches), 1)
+                found += 1
+        self.assertGreater(found, 0)
+        # every observed period of at least a second contains a sample
+        self.assertLessEqual(
+            int(
+                (
+                    (observations.end - observations.start) >= pd.Timedelta(seconds=1)
+                ).sum()
+            ),
+            found,
+        )
+
+    def test_molniya_perigee_passes(self):
+        """
+        Test that short passes near the perigee of a Molniya orbit are
+        found, and that the long passes near apogee end where a brute-force
+        search at 1 s steps ends them.
+        """
+        satellite = Satellite(
+            name="molniya",
+            orbit=MolniyaOrbit(epoch=self.start, perigee_altitude=1000e3),
+            instruments=[Instrument(name="wide", field_of_regard=30)],
+        )
+        end = self.start + timedelta(days=2)
+        for point in [
+            ShapelyPoint(156.699291, -49.799425),
+            ShapelyPoint(76.092856, 38.356215),
+        ]:
+            observations = collect_observations(point, satellite, self.start, end)
+            expected = self._brute_force_periods(satellite, [point], end)[
+                hash_geometry(point)
+            ]
+            self.assertEqual(len(observations), len(expected))
+            for (left, right), (_, row) in zip(expected, observations.iterrows()):
+                self.assertLess(
+                    abs((row.start - pd.Timestamp(left)).total_seconds()), 1
+                )
+                self.assertLess(abs((row.end - pd.Timestamp(right)).total_seconds()), 1)
+
+    def test_independent_of_other_points(self):
+        """
+        Test that the observations of a point do not depend on the other
+        points collected with it, including points below the ellipsoid (which
+        loosen the bounds used to screen them), to within a microsecond.
+        """
+        satellite = Satellite(
+            name="sat",
+            orbit=self.orbit,
+            instruments=[Instrument(name="wide", field_of_regard=100)],
+        )
+        end = self.start + timedelta(days=1)
+        others = self.points[1:50] + [
+            ShapelyPoint(35.5, 31.5, -430),
+            ShapelyPoint(-90, 0, -5000),
+        ]
+        alone = collect_observations(self.points[0], satellite, self.start, end)
+        together = collect_observations(
+            [self.points[0]] + others, satellite, self.start, end
+        )
+        together = together[together.target_hash == hash_geometry(self.points[0])]
+        self.assertGreater(len(alone), 0)
+        self.assertEqual(len(alone), len(together))
+        for column in ["start", "epoch", "end"]:
+            difference = (alone[column].values - together[column].values).astype(
+                "int64"
+            )
+            self.assertLess(np.abs(difference).max(), 1000)
+
+    def test_screening_angle(self):
+        """
+        Test that the screening angle is the Earth central angle of the edge
+        of the field of regard, or of the horizon for a field of regard that
+        extends beyond it.
+        """
+        radius, sat_radius = 6356752.0, 7071000.0
+        horizon = np.degrees(np.arccos(radius / sat_radius))
+        self.assertAlmostEqual(_get_screening_angle(sat_radius, radius, 90), horizon)
+        self.assertAlmostEqual(_get_screening_angle(sat_radius, radius, 80), horizon)
+        # at a nadir angle of 45 deg, the central angle follows the law of sines
+        expected = (
+            np.degrees(np.arcsin(sat_radius / radius * np.sin(np.radians(45)))) - 45
+        )
+        self.assertAlmostEqual(_get_screening_angle(sat_radius, radius, 45), expected)
+        self.assertAlmostEqual(_get_screening_angle(sat_radius, radius, 0), 0)

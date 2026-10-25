@@ -12,6 +12,7 @@ from .coverage_metrics import (
     reduce_observations,
 )
 from .dop_sampling import DopMethod, compute_dop
+from .feature_sampling import collect_feature_observations
 from .ground_track import (
     collect_ground_pixels,
     collect_ground_track,
@@ -64,6 +65,7 @@ __all__ = [
     "ScanDirection",
     "aggregate_observations",
     "collect_downlinks",
+    "collect_feature_observations",
     "collect_ground_pixels",
     "collect_ground_track",
     "collect_limb_observations",

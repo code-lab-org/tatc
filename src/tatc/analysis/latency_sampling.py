@@ -90,11 +90,11 @@ def collect_downlinks(
     ]
     # build the dataframe
     if len(records) > 0:
-        gdf = (
-            gpd.GeoDataFrame(records, crs="EPSG:4326")
-            .sort_values("start")
-            .reset_index(drop=True)
-        )
+        gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
+        # times in nanoseconds (as in the empty frame and the observations)
+        for column in ["start", "end", "epoch"]:
+            gdf[column] = gdf[column].dt.as_unit("ns")
+        gdf = gdf.sort_values("start").reset_index(drop=True)
     else:
         gdf = _get_empty_downlinks_frame()
     return gdf
@@ -177,6 +177,10 @@ def compute_latencies(
             "end": "downlink_end",
         }
     )
+    # merge keys must share a unit (frames may come from other sources, such as files)
+    obs["end"] = obs["end"].dt.as_unit("ns")
+    for column in ["downlink_start", "downlinked", "downlink_end"]:
+        contacts[column] = contacts[column].dt.as_unit("ns")
     # pair each observation with the first downlink that starts after it ends
     obs = pd.merge_asof(
         obs,

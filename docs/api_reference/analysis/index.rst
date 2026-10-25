@@ -10,6 +10,7 @@ Analysis functions simulate mission operation to compute key performance metrics
   coverage
   track
   coincidence
+  feature_coverage
   latency
   dop
   ro_coverage
