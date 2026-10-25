@@ -25,6 +25,12 @@ Attitude
 .. autopydantic_model:: tatc.schemas.Attitude
   :members:
 
+Target Attitude
+---------------
+
+.. autopydantic_model:: tatc.schemas.TargetAttitude
+  :members:
+
 Attitude Schedule
 -----------------
 

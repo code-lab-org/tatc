@@ -9,64 +9,23 @@ instruments, and schedules of attitudes over time.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 import numpy as np
 import numpy.typing as npt
 from pydantic import AwareDatetime, BaseModel, Field, field_validator
+from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
 
-from ..utils.orbital import compute_argument_of_latitude
-from ..utils.projection import VelocityFrame
+from ..utils.orbital import _check_angle_profile, _interpolate_angle_profile
+from ..utils.projection import (
+    VelocityFrame,
+    _compute_line_of_sight,
+    _compute_nadir_axes,
+    compute_view_angles,
+)
 from ..utils.time import _index_orbit_track
-
-
-def _check_angle_profile(
-    profile: list[tuple[float, float]] | None, kind: str
-) -> list[tuple[float, float]] | None:
-    """
-    Checks that an angle profile's arguments of latitude lie in [0, 360) and
-    its angles in [-180, 180], and sorts it by argument of latitude.
-
-    Args:
-        profile (list[tuple[float, float]] | None): (argument of latitude,
-            angle) pairs (degrees).
-        kind (str): The kind of angle (for example, "Roll"), for messages.
-
-    Returns:
-        list[tuple[float, float]] | None: the sorted profile
-    """
-    if profile is None:
-        return None
-    for argument, angle in profile:
-        if not 0 <= argument < 360:
-            raise ValueError("Arguments of latitude must be in [0, 360).")
-        if not -180 <= angle <= 180:
-            raise ValueError(f"{kind} angles must be in [-180, 180].")
-    return sorted(profile)
-
-
-def _interpolate_angle_profile(
-    profile: list[tuple[float, float]], orbit_track: Geocentric
-) -> float | npt.NDArray[np.float64]:
-    """
-    Interpolates an angle profile linearly and periodically at the
-    satellite's argument(s) of latitude.
-
-    Args:
-        profile (list[tuple[float, float]]): (argument of latitude, angle) pairs.
-        orbit_track (skyfield.positionlib.Geocentric): The satellite
-            position/velocity (in an inertial frame).
-
-    Returns:
-        float | numpy.typing.NDArray[numpy.float64]: the angle(s) (degrees)
-    """
-    argument = compute_argument_of_latitude(
-        orbit_track.position.m, orbit_track.velocity.m_per_s
-    )
-    arguments, angles = zip(*profile)
-    angle = np.interp(argument, arguments, angles, period=360)
-    return float(angle) if np.ndim(angle) == 0 else angle
+from .surface.point import Point
 
 
 class Attitude(BaseModel):
@@ -209,6 +168,158 @@ class Attitude(BaseModel):
         return yaw, roll, pitch, inertial
 
 
+class TargetAttitude(BaseModel):
+    """
+    Attitude of a spacecraft's body that points its nadir axis at ground
+    targets, as for an agile satellite imaging sites or a target mode: at
+    each time, at the target closest to nadir (with the smallest off-nadir
+    angle) among those within `max_off_nadir_angle` of nadir and above the
+    horizon, and otherwise along nadir. The body is rotated by the yaw angle
+    about the nadir axis and then by the roll and pitch angles that point
+    its nadir axis at the target (see `tatc.utils.compute_view_angles`), so
+    that its along-track axis stays close to the direction of motion. The
+    body turns instantly between targets and nadir (slews are not modeled).
+
+    The fields of regard of its instruments (measured from nadir) should
+    include the off-nadir angles at which the body points. As an
+    instrument's view stays on a target while the body points at it, the
+    epoch of an observation of the target is a time while the body points
+    at it (rather than the time a view sweeps over it).
+    """
+
+    type: Literal["target"] = Field(
+        default="target", description="Attitude type discriminator."
+    )
+    targets: list[Point] = Field(
+        ..., min_length=1, description="The ground targets at which to point."
+    )
+    max_off_nadir_angle: float = Field(
+        default=30,
+        description="Maximum angle (degrees) from nadir at which the body "
+        + "points at a target.",
+        gt=0,
+        lt=90,
+    )
+    velocity_frame: VelocityFrame = Field(
+        default=VelocityFrame.EARTH_FIXED,
+        description="Reference frame of the velocity vector that defines the "
+        + "along-track axis (see `Attitude.velocity_frame`).",
+    )
+    yaw_angle: float = Field(
+        default=0,
+        description="Rotation (degrees) of the body about the nadir axis "
+        + "before pointing (see `Attitude.yaw_angle`).",
+        ge=-180,
+        le=180,
+    )
+
+    def _get_targets(self) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
+        """
+        Gets the targets' longitudes, latitudes (degrees), and elevations (meters).
+        """
+        return tuple(
+            np.array([getattr(target, name) for target in self.targets], dtype=float)
+            for name in ("longitude", "latitude", "elevation")
+        )
+
+    def get_target_index(self, orbit_track: Geocentric) -> npt.NDArray:
+        """
+        Gets the index of the target at which the body points at each time of
+        an orbit track, or -1 if it points along nadir.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite
+                position/velocity (in an inertial frame).
+
+        Returns:
+            numpy.typing.NDArray: the target indices, with the shape of the
+                orbit track's times
+        """
+        shape = np.shape(orbit_track.t.tt)
+        p_m, nadir, _, _ = _compute_nadir_axes(orbit_track, self.velocity_frame)
+        p_m, nadir = np.reshape(p_m, (3, -1)), np.reshape(nadir, (3, -1))
+        longitude, latitude, elevation = self._get_targets()
+        xyz = np.array(wgs84.latlon(latitude, longitude, elevation).itrs_xyz.m)
+        up = np.array(
+            [
+                np.cos(np.radians(latitude)) * np.cos(np.radians(longitude)),
+                np.cos(np.radians(latitude)) * np.sin(np.radians(longitude)),
+                np.sin(np.radians(latitude)),
+            ]
+        )
+        off_nadir = np.full((len(self.targets), p_m.shape[1]), np.inf)
+        for k in range(len(self.targets)):
+            los = _compute_line_of_sight(xyz[:, k], p_m)
+            distance = np.linalg.norm(los, axis=0)
+            angle = np.degrees(
+                np.arccos(np.clip(np.sum(los * nadir, axis=0) / distance, -1, 1))
+            )
+            # above the target's horizon and within the maximum off-nadir angle
+            visible = (np.sum(-los * up[:, k : k + 1], axis=0) > 0) & (
+                angle <= self.max_off_nadir_angle
+            )
+            off_nadir[k] = np.where(visible, angle, np.inf)
+        index = np.where(
+            np.isfinite(off_nadir.min(axis=0)), np.argmin(off_nadir, axis=0), -1
+        )
+        return np.reshape(index, shape)
+
+    def get_body_angles(
+        self, orbit_track: Geocentric
+    ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
+        """
+        Gets the yaw, roll, and pitch angles (degrees) of the body and whether
+        its velocity frame is inertial, at each time of an orbit track (see
+        `Attitude.get_body_angles`): the roll and pitch angles that point its
+        nadir axis at the target of each time (see `get_target_index`), or
+        zero.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite
+                position/velocity (in an inertial frame).
+
+        Returns:
+            tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
+                the yaw, roll, and pitch angles (degrees), and whether the
+                velocity frame is inertial
+        """
+        shape = np.shape(orbit_track.t.tt)
+        index = np.reshape(self.get_target_index(orbit_track), -1)
+        roll, pitch = np.zeros(index.shape), np.zeros(index.shape)
+        pointing = np.flatnonzero(index >= 0)
+        if len(pointing) > 0:
+            longitude, latitude, elevation = (
+                values[index[pointing]] for values in self._get_targets()
+            )
+            if len(shape) == 0:
+                track = orbit_track
+                target = wgs84.latlon(latitude[0], longitude[0], elevation[0])
+            else:
+                track = _index_orbit_track(orbit_track, pointing)
+                target = wgs84.latlon(latitude, longitude, elevation)
+            # the roll and pitch angles of the target in the yawed body frame
+            roll_angle, pitch_angle = compute_view_angles(
+                track,
+                target,
+                self.velocity_frame,
+                attitude=Attitude(
+                    yaw_angle=self.yaw_angle, velocity_frame=self.velocity_frame
+                ),
+            )
+            roll[pointing] = np.reshape(roll_angle, -1)
+            pitch[pointing] = np.reshape(pitch_angle, -1)
+        return (
+            np.full(shape, float(self.yaw_angle)),
+            np.reshape(roll, shape),
+            np.reshape(pitch, shape),
+            np.full(shape, self.velocity_frame == VelocityFrame.INERTIAL),
+        )
+
+
+ScheduledAttitudes = Annotated[Attitude | TargetAttitude, Field(discriminator="type")]
+"""Attitudes that a schedule may switch between."""
+
+
 class AttitudeSegment(BaseModel):
     """
     An attitude that applies from a start time (until the start of the next
@@ -218,7 +329,7 @@ class AttitudeSegment(BaseModel):
     start: AwareDatetime = Field(
         ..., description="Time (timezone-aware) from which the attitude applies."
     )
-    attitude: Attitude = Field(..., description="The attitude.")
+    attitude: ScheduledAttitudes = Field(..., description="The attitude.")
 
 
 class AttitudeSchedule(BaseModel):
@@ -249,14 +360,14 @@ class AttitudeSchedule(BaseModel):
 
     @classmethod
     def from_attitudes(
-        cls, starts: list[datetime], attitudes: list[Attitude]
+        cls, starts: list[datetime], attitudes: list[Attitude | TargetAttitude]
     ) -> AttitudeSchedule:
         """
         Creates a schedule from the start times and attitudes of its segments.
 
         Args:
             starts (list[datetime.datetime]): The start times (timezone-aware).
-            attitudes (list[Attitude]): The attitude of each segment.
+            attitudes (list[Attitude | TargetAttitude]): The attitude of each segment.
 
         Returns:
             AttitudeSchedule: the schedule
@@ -270,7 +381,7 @@ class AttitudeSchedule(BaseModel):
             ]
         )
 
-    def get_attitude(self, time: datetime) -> Attitude:
+    def get_attitude(self, time: datetime) -> Attitude | TargetAttitude:
         """
         Gets the attitude that applies at a time.
 
@@ -278,7 +389,7 @@ class AttitudeSchedule(BaseModel):
             time (datetime.datetime): The time (timezone-aware).
 
         Returns:
-            Attitude: the attitude
+            Attitude | TargetAttitude: the attitude
         """
         index = 0
         for i, segment in enumerate(self.segments):
@@ -306,8 +417,8 @@ class AttitudeSchedule(BaseModel):
         """
         tt = np.asarray(orbit_track.t.tt, dtype=float)
         shape = np.shape(tt)
-        starts = np.array(
-            [orbit_track.t.ts.from_datetime(s.start).tt for s in self.segments]
+        starts = np.atleast_1d(
+            orbit_track.t.ts.from_datetimes([s.start for s in self.segments]).tt
         )
         segment = np.maximum(
             np.searchsorted(starts, np.reshape(tt, -1), "right") - 1, 0

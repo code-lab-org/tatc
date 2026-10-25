@@ -14,6 +14,7 @@ from shapely.geometry import MultiPoint, Point
 from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
+from ...utils.orbital import _check_angle_profile, _interpolate_angle_profile
 from ...utils.projection import (
     VelocityFrame,
     ViewGeometry,
@@ -23,7 +24,6 @@ from ...utils.projection import (
     compute_view_angles,
     compute_view_tangents,
 )
-from ..attitude import _check_angle_profile, _interpolate_angle_profile
 from .simple import Instrument
 
 

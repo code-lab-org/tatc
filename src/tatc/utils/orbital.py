@@ -432,3 +432,51 @@ def compute_vnb_frame(
     # circular orbit.
     rx_b_u = np.cross(rx_v_u, rx_n_u, 0, 0, -1).T
     return rx_v_u, rx_n_u, rx_b_u
+
+
+def _check_angle_profile(
+    profile: list[tuple[float, float]] | None, kind: str
+) -> list[tuple[float, float]] | None:
+    """
+    Checks that an angle profile's arguments of latitude lie in [0, 360) and
+    its angles in [-180, 180], and sorts it by argument of latitude.
+
+    Args:
+        profile (list[tuple[float, float]] | None): (argument of latitude,
+            angle) pairs (degrees).
+        kind (str): The kind of angle (for example, "Roll"), for messages.
+
+    Returns:
+        list[tuple[float, float]] | None: the sorted profile
+    """
+    if profile is None:
+        return None
+    for argument, angle in profile:
+        if not 0 <= argument < 360:
+            raise ValueError("Arguments of latitude must be in [0, 360).")
+        if not -180 <= angle <= 180:
+            raise ValueError(f"{kind} angles must be in [-180, 180].")
+    return sorted(profile)
+
+
+def _interpolate_angle_profile(
+    profile: list[tuple[float, float]], orbit_track: Geocentric
+) -> float | npt.NDArray[np.float64]:
+    """
+    Interpolates an angle profile linearly and periodically at the
+    satellite's argument(s) of latitude.
+
+    Args:
+        profile (list[tuple[float, float]]): (argument of latitude, angle) pairs.
+        orbit_track (skyfield.positionlib.Geocentric): The satellite
+            position/velocity (in an inertial frame).
+
+    Returns:
+        float | numpy.typing.NDArray[numpy.float64]: the angle(s) (degrees)
+    """
+    argument = compute_argument_of_latitude(
+        orbit_track.position.m, orbit_track.velocity.m_per_s
+    )
+    arguments, angles = zip(*profile)
+    angle = np.interp(argument, arguments, angles, period=360)
+    return float(angle) if np.ndim(angle) == 0 else angle

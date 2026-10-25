@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 from pydantic import ValidationError
 from shapely.geometry import Point as ShapelyPoint
+from skyfield.api import wgs84
 
 from tatc.analysis import collect_ground_track, collect_observations
 from tatc.schemas import (
@@ -18,12 +19,14 @@ from tatc.schemas import (
     AttitudeSegment,
     CircularOrbit,
     ConicalInstrument,
+    Point,
     PointedInstrument,
     Satellite,
     SunSynchronousOrbit,
+    TargetAttitude,
     WalkerConstellation,
 )
-from tatc.utils import VelocityFrame
+from tatc.utils import VelocityFrame, geodesic_distance
 from tatc.utils.time import _to_time
 
 
@@ -293,3 +296,144 @@ class TestAttitude(unittest.TestCase):
         )
         self.assertGreater(tracks[0].distance(tracks[180]), 5)
         self.assertLess(tracks[180].distance(mirrored), 1e-6)
+
+
+class TestTargetAttitude(unittest.TestCase):
+    """
+    Unit tests for the TargetAttitude schema.
+    """
+
+    def setUp(self):
+        self.start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        self.orbit = SunSynchronousOrbit(
+            altitude=700e3, equator_crossing_time="10:30", epoch=self.start
+        )
+        self.times = [self.start + timedelta(minutes=30 + 0.5 * i) for i in range(12)]
+        self.track = self.orbit.to_gp_orbit().get_orbit_track_at_time(
+            _to_time(self.times)
+        )
+        subpoint = wgs84.subpoint_of(self.track)
+        self.subpoint = subpoint
+        # a target about 250 km east of the ground track near the middle time
+        self.target = Point(
+            latitude=float(subpoint.latitude.degrees[6]),
+            longitude=float(subpoint.longitude.degrees[6]) + 2.5,
+        )
+        self.instrument = PointedInstrument(
+            name="p",
+            field_of_regard=80,
+            cross_track_field_of_view=1,
+            along_track_field_of_view=1,
+        )
+
+    def _satellite(self, attitude):
+        return Satellite(
+            name="s", orbit=self.orbit, instruments=[self.instrument], attitude=attitude
+        )
+
+    def test_validation(self):
+        """
+        Test that a target attitude needs targets and a maximum off-nadir
+        angle in (0, 90).
+        """
+        with self.assertRaises(ValidationError):
+            TargetAttitude(targets=[])
+        with self.assertRaises(ValidationError):
+            TargetAttitude(targets=[self.target], max_off_nadir_angle=90)
+
+    def test_points_at_target_within_reach(self):
+        """
+        Test that the body points at the target while it is within the
+        maximum off-nadir angle (the view center on the target), and along
+        nadir otherwise, choosing the target closest to nadir.
+        """
+        far = Point(
+            latitude=-self.target.latitude, longitude=self.target.longitude + 120
+        )
+        attitude = TargetAttitude(targets=[far, self.target], max_off_nadir_angle=40)
+        index = attitude.get_target_index(self.track)
+        self.assertTrue(np.all(np.isin(index, [-1, 1])))
+        self.assertGreater(np.sum(index == 1), 0)
+        self.assertGreater(np.sum(index == -1), 0)
+        center = (
+            self._satellite(attitude)
+            .get_instrument()
+            .compute_footprint_center(self.track)
+        )
+        n = len(self.times)
+        to_target = geodesic_distance(
+            np.full(n, self.target.longitude),
+            np.full(n, self.target.latitude),
+            center.longitude.degrees,
+            center.latitude.degrees,
+        )
+        to_nadir = geodesic_distance(
+            self.subpoint.longitude.degrees,
+            self.subpoint.latitude.degrees,
+            center.longitude.degrees,
+            center.latitude.degrees,
+        )
+        np.testing.assert_array_less(to_target[index == 1], 1)
+        np.testing.assert_array_less(to_nadir[index == -1], 1)
+
+    def test_yaw_keeps_pointing(self):
+        """
+        Test that a yaw of the body does not move a boresight view off the
+        target, but mirrors the views of instruments rolled from it.
+        """
+        attitude = TargetAttitude(
+            targets=[self.target], max_off_nadir_angle=40, yaw_angle=180
+        )
+        index = attitude.get_target_index(self.track)
+        center = (
+            self._satellite(attitude)
+            .get_instrument()
+            .compute_footprint_center(self.track)
+        )
+        pointing = index == 0
+        n = int(np.sum(pointing))
+        distance = geodesic_distance(
+            np.full(n, self.target.longitude),
+            np.full(n, self.target.latitude),
+            center.longitude.degrees[pointing],
+            center.latitude.degrees[pointing],
+        )
+        np.testing.assert_array_less(distance, 1)
+
+    def test_observes_off_track_target(self):
+        """
+        Test that a narrow instrument observes a target off its ground track
+        only while the body points at it.
+        """
+        end = self.start + timedelta(hours=2)
+        point = ShapelyPoint(self.target.longitude, self.target.latitude)
+        self.assertEqual(
+            len(collect_observations(point, self._satellite(None), self.start, end)), 0
+        )
+        observations = collect_observations(
+            point,
+            self._satellite(
+                TargetAttitude(targets=[self.target], max_off_nadir_angle=40)
+            ),
+            self.start,
+            end,
+        )
+        self.assertEqual(len(observations), 1)
+
+    def test_scheduled_and_serialized(self):
+        """
+        Test that a schedule may switch to target pointing, and that a
+        satellite with it round-trips through JSON.
+        """
+        target = TargetAttitude(targets=[self.target], max_off_nadir_angle=40)
+        schedule = AttitudeSchedule.from_attitudes(
+            [self.start, self.times[5]], [Attitude(), target]
+        )
+        _, roll, _, _ = schedule.get_body_angles(self.track)
+        index = target.get_target_index(self.track)
+        self.assertTrue(np.all(roll[:5] == 0))
+        self.assertTrue(np.any(roll[5:][index[5:] == 0] != 0))
+        satellite = self._satellite(schedule)
+        copy = Satellite.model_validate_json(satellite.model_dump_json())
+        self.assertEqual(copy.attitude, schedule)
+        self.assertIsInstance(copy.attitude.segments[1].attitude, TargetAttitude)
