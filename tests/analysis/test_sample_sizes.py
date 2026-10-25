@@ -17,7 +17,13 @@ from tatc.analysis import (
     collect_observations,
     compute_sample_sizes,
 )
-from tatc.schemas import Instrument, PointedInstrument, Satellite, SunSynchronousOrbit
+from tatc.schemas import (
+    ConicalInstrument,
+    Instrument,
+    PointedInstrument,
+    Satellite,
+    SunSynchronousOrbit,
+)
 from tatc.utils import VelocityFrame, compute_along_track_field_of_view
 
 
@@ -145,3 +151,26 @@ class TestSampleSizes(unittest.TestCase):
         sizes = compute_sample_sizes(observations, self.satellite)
         self.assertEqual(len(sizes), 0)
         self.assertIn("sample_cross", sizes.columns)
+
+    def test_conical_observations(self):
+        """
+        Test that the samples of a conical scanner with a beam width are
+        computed, and longer along track (the oblique direction of a forward
+        view) than across track.
+        """
+        conical = ConicalInstrument(
+            name="conical",
+            cone_angle=47.5,
+            along_track_field_of_view=0.82,
+            scan_half_width=75,
+            beam_width=1.8,
+            scan_sample_spacing=0.8,
+        )
+        satellite = self.satellite.model_copy(update={"instruments": [conical]})
+        observations = collect_observations(
+            self.points, satellite, self.start, self.end
+        )
+        sizes = compute_sample_sizes(observations, satellite)
+        self.assertGreater(len(sizes), 0)
+        self.assertTrue(sizes[["sample_along", "sample_cross"]].notna().all().all())
+        self.assertTrue((sizes.spacing_along > 0).all())

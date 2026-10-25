@@ -23,6 +23,7 @@ from ...utils.projection import (
     VelocityFrame,
     _compute_projected_rays,
     compute_cone_and_azimuth,
+    compute_ground_sample_size,
     compute_projected_ray_position,
 )
 from .simple import Instrument
@@ -107,6 +108,22 @@ class ConicalInstrument(Instrument):
         default=180,
         description="Half width (degrees) of the scan sector on either side of "
         + "its center (180: a full rotation).",
+        gt=0,
+        le=180,
+    )
+    beam_width: float | None = Field(
+        default=None,
+        description="Angular width (degrees) of the beam (for example, its "
+        + "half-power width), which sets the size of a sample on the ground "
+        + "(see `compute_sample_size`), or `None` if not modeled.",
+        gt=0,
+        lt=90,
+    )
+    scan_sample_spacing: float | None = Field(
+        default=None,
+        description="Scan azimuth (degrees) between the centers of neighboring "
+        + "samples along the scanned arc (see `compute_sample_spacing`), or "
+        + "`None` if not modeled.",
         gt=0,
         le=180,
     )
@@ -298,6 +315,99 @@ class ConicalInstrument(Instrument):
             )
             footprints.append(project_polygon_to_elevation(footprint, elevation))
         return footprints
+
+    def compute_sample_size(
+        self, orbit_track: Geocentric, target: GeographicPosition
+    ) -> tuple[npt.NDArray, npt.NDArray]:
+        """
+        Computes the size on the ground (meters) of the beam viewing a
+        target, along track and across track (see
+        `tatc.utils.compute_ground_sample_size`): the beam is circular, but
+        its footprint is longer in the direction of the view (along track,
+        for a view ahead of the satellite), as the view is oblique. The sizes
+        are `NaN` if the beam width is not modeled.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+            target (skyfield.toposlib.GeographicPosition): The target position
+                (a single target, or one target for each time of the orbit track).
+
+        Returns:
+            tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track
+                and cross-track sizes (meters).
+        """
+        if self.beam_width is None:
+            nan = np.full(
+                np.broadcast(
+                    np.asarray(orbit_track.t.tt), np.asarray(target.latitude.degrees)
+                ).shape,
+                np.nan,
+            )
+            return nan, nan.copy()
+        return compute_ground_sample_size(
+            orbit_track,
+            target,
+            self.beam_width,
+            self.beam_width,
+            self.velocity_frame,
+            nadir_reference=self.nadir_reference,
+        )
+
+    def compute_sample_spacing(
+        self, orbit_track: Geocentric, target: GeographicPosition
+    ) -> tuple[npt.NDArray, npt.NDArray]:
+        """
+        Computes the spacing on the ground (meters) between the centers of
+        neighboring samples viewing a target: along track, the distance the
+        scanned arc advances between scans (subtended at nadir by the
+        along-track field of view), and across track, the distance between
+        samples along the scanned arc (the scan sample spacing times the
+        arc's radius on the ground, from the sub-satellite point to the
+        target). The cross-track spacing is `NaN` if the scan sample spacing
+        is not modeled.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+            target (skyfield.toposlib.GeographicPosition): The target position
+                (a single target, or one target for each time of the orbit track).
+
+        Returns:
+            tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track
+                and cross-track spacings (meters).
+        """
+        position = np.reshape(np.array(orbit_track.frame_xyz(itrs).m), (3, -1))
+        radius = np.linalg.norm(position, axis=0)
+        # the along-track distance swept per scan (see _sweep_time)
+        along = (
+            2
+            * (radius - constants.EARTH_MEAN_RADIUS)
+            * np.tan(np.radians(self.along_track_field_of_view / 2))
+        )
+        target_xyz = np.reshape(np.array(target.itrs_xyz.m), (3, -1))
+        # the Earth central angle from the sub-satellite point to the target
+        central = np.arccos(
+            np.clip(
+                np.sum(position * target_xyz, axis=0)
+                / radius
+                / np.linalg.norm(target_xyz, axis=0),
+                -1,
+                1,
+            )
+        )
+        along, central = np.broadcast_arrays(along, central)
+        cross = np.full(central.shape, np.nan)
+        if self.scan_sample_spacing is not None:
+            cross = (
+                central
+                * np.linalg.norm(target_xyz, axis=0)
+                * np.radians(self.scan_sample_spacing)
+            )
+        if (
+            np.ndim(np.asarray(orbit_track.t.tt)) == 0
+            and np.ndim(target.latitude.degrees) == 0
+        ):
+            return along[0], cross[0]
+        return along, cross
 
     def compute_footprint_center(
         self,

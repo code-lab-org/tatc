@@ -42,8 +42,12 @@ def compute_sample_sizes(
     oversampling). An observation cannot resolve detail finer than the
     larger of the two. The sizes are those of a `PointedInstrument`'s
     pixels (see `PointedInstrument.compute_sample_size` and
-    `PointedInstrument.compute_sample_spacing`), and `NaN` for other
-    instruments, whose pixels are not defined.
+    `PointedInstrument.compute_sample_spacing`) or of a
+    `ConicalInstrument`'s beam and samples along its scanned arc (see
+    `ConicalInstrument.compute_sample_size` and
+    `ConicalInstrument.compute_sample_spacing`, `NaN` unless its
+    `beam_width` and `scan_sample_spacing` are given), and `NaN` for other
+    instruments, whose samples are not defined.
 
     Also computes the satellite's slant range from the target (`sat_range`,
     meters) and the target's scan angle (`scan_angle`, degrees): its angle
@@ -111,7 +115,7 @@ def compute_sample_sizes(
             orbit_track, target, velocity_frame, instrument.nadir_reference
         )
         result.iloc[index, result.columns.get_loc("scan_angle")] = np.atleast_1d(roll)
-        if isinstance(instrument, PointedInstrument):
+        if isinstance(instrument, (PointedInstrument, ConicalInstrument)):
             for prefix, method in (
                 ("sample", instrument.compute_sample_size),
                 ("spacing", instrument.compute_sample_spacing),
