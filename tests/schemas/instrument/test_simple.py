@@ -14,7 +14,7 @@ from skyfield.framelib import itrs
 
 from tatc.constants import de421, timescale
 from tatc.schemas import CircularOrbit, Instrument
-from tatc.utils import geodesic_distance
+from tatc.utils import compute_glint_angle, geodesic_distance
 
 
 class TestInstrument(unittest.TestCase):
@@ -360,6 +360,50 @@ class TestInstrument(unittest.TestCase):
             np.testing.assert_array_equal(
                 o.is_valid_observation(orbit_track, subpoint), expected, str(kwargs)
             )
+
+    def test_target_glint_angle_bounds(self):
+        """
+        Test that target glint angles are bounded and that the minimum cannot
+        exceed the maximum.
+        """
+        for kwargs in [
+            {"min_target_glint_angle": -1},
+            {"max_target_glint_angle": 181},
+            {"min_target_glint_angle": 30, "max_target_glint_angle": 10},
+        ]:
+            with self.assertRaises(ValidationError):
+                Instrument(name="Test Instrument", **kwargs)
+        o = Instrument(name="Test Instrument", min_target_glint_angle=25)
+        self.assertEqual(o.min_target_glint_angle, 25)
+        self.assertIsNone(o.max_target_glint_angle)
+
+    def test_valid_observation_target_glint_angle(self):
+        """
+        Test that an observation is valid when the target's glint angle lies
+        within the required range, for a vector of times over half a day.
+        """
+        times = timescale.utc(2020, 3, 20, 6, range(0, 720, 5))  # type: ignore
+        orbit_track = self.test_sat_5.at(times)  # type: ignore
+        subpoint = wgs84.subpoint_of(orbit_track)
+        glint_angle = compute_glint_angle(orbit_track, subpoint)
+        # the sample spans small and large glint angles
+        self.assertTrue(np.any(glint_angle < 25))
+        self.assertTrue(np.any(glint_angle > 60))
+        for kwargs, expected in [
+            ({"min_target_glint_angle": 25}, glint_angle >= 25),
+            ({"max_target_glint_angle": 25}, glint_angle <= 25),
+            (
+                {"min_target_glint_angle": 25, "req_target_sunlit": True},
+                glint_angle >= 25,
+            ),
+        ]:
+            o = Instrument(name="Test Instrument", **kwargs)
+            valid = o.is_valid_observation(orbit_track, subpoint)
+            if "req_target_sunlit" in kwargs:
+                expected = expected & o.model_copy(
+                    update={"min_target_glint_angle": None}
+                ).is_valid_observation(orbit_track, subpoint)
+            np.testing.assert_array_equal(valid, expected, str(kwargs))
 
     def test_compute_footprint_center_geocentric_nadir(self):
         """

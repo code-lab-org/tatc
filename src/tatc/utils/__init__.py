@@ -21,6 +21,7 @@ from .geometry import (
     project_polygon_to_elevation,
     split_polygon,
 )
+from .glint import compute_glint_angle, compute_specular_point
 from .observation import (
     compute_along_track_field_of_view,
     compute_field_of_regard,
@@ -90,6 +91,7 @@ __all__ = [
     "compute_cone_and_azimuth",
     "compute_field_of_regard",
     "compute_footprint",
+    "compute_glint_angle",
     "compute_ground_inertial_velocity",
     "compute_ground_surface_velocity",
     "compute_j2_aop_rate",
@@ -109,6 +111,7 @@ __all__ = [
     "compute_radar_ground_range",
     "compute_radar_ground_range_bounds",
     "compute_radar_slant_range",
+    "compute_specular_point",
     "compute_static_track",
     "compute_terrain_elevation_angle",
     "compute_ground_advance",

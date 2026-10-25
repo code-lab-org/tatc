@@ -16,7 +16,10 @@ import numpy.typing as npt
 from pydantic import AwareDatetime, BaseModel, Field, field_validator
 from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
+from skyfield.toposlib import GeographicPosition
 
+from ..utils.ellipsoid import compute_ellipsoid_intersection, rectangular_to_geodetic
+from ..utils.glint import compute_specular_point
 from ..utils.orbital import _check_angle_profile, _interpolate_angle_profile
 from ..utils.projection import (
     VelocityFrame,
@@ -316,7 +319,216 @@ class TargetAttitude(BaseModel):
         )
 
 
-ScheduledAttitudes = Annotated[Attitude | TargetAttitude, Field(discriminator="type")]
+class GlintAttitude(BaseModel):
+    """
+    Attitude of a spacecraft's body that points its nadir axis at the sun
+    glint (the specular point, see `tatc.utils.compute_specular_point`), as
+    for the glint mode of a greenhouse gas sounder observing the ocean: at
+    each time, toward the specular point, or short of it toward nadir by an
+    offset angle (in the plane of the nadir axis and the line of sight to
+    the specular point), while the Sun is at least `min_solar_elevation`
+    above the horizon at the specular point (equal to the satellite's
+    elevation angle seen from it) and the body points within
+    `max_off_nadir_angle` of nadir, and otherwise along nadir. The body is
+    rotated by the yaw angle about the nadir axis and then by the roll and
+    pitch angles that point its nadir axis (see
+    `tatc.utils.compute_view_angles`), which follows the glint as it moves
+    with the satellite and the Sun.
+
+    The fields of regard of its instruments (measured from nadir) should
+    include the off-nadir angles at which the body points.
+    """
+
+    type: Literal["glint"] = Field(
+        default="glint", description="Attitude type discriminator."
+    )
+    max_off_nadir_angle: float = Field(
+        default=60,
+        description="Maximum angle (degrees) from nadir at which the body "
+        + "points toward the glint.",
+        gt=0,
+        lt=90,
+    )
+    offset_angle: float = Field(
+        default=0,
+        description="Angle (degrees) by which the body points short of the "
+        + "specular point, toward nadir, as for an instrument that observes "
+        + "near the glint rather than at its center.",
+        ge=0,
+        lt=90,
+    )
+    offset_angle_profile: list[tuple[float, float]] | None = Field(
+        default=None,
+        description="Offset angle (degrees, see `offset_angle`) as a function "
+        + "of the specular point's angle from nadir (degrees), as (off-nadir "
+        + "angle, offset angle) pairs interpolated linearly (and held at the "
+        + "first and last offsets beyond them). If given, it overrides "
+        + "`offset_angle`.",
+        min_length=1,
+    )
+    min_solar_elevation: float = Field(
+        default=0,
+        description="Minimum solar elevation angle (degrees) at the specular "
+        + "point at which the body points at it.",
+        ge=0,
+        lt=90,
+    )
+    velocity_frame: VelocityFrame = Field(
+        default=VelocityFrame.EARTH_FIXED,
+        description="Reference frame of the velocity vector that defines the "
+        + "along-track axis (see `Attitude.velocity_frame`).",
+    )
+    yaw_angle: float = Field(
+        default=0,
+        description="Rotation (degrees) of the body about the nadir axis "
+        + "before pointing (see `Attitude.yaw_angle`).",
+        ge=-180,
+        le=180,
+    )
+
+    @field_validator("offset_angle_profile")
+    @classmethod
+    def _validate_offset_angle_profile(
+        cls, profile: list[tuple[float, float]] | None
+    ) -> list[tuple[float, float]] | None:
+        """
+        Sorts an offset angle profile by off-nadir angle and checks its angles.
+        """
+        if profile is None:
+            return None
+        for off_nadir, offset in profile:
+            if not 0 <= off_nadir < 90:
+                raise ValueError("Off-nadir angles must be in [0, 90).")
+            if not 0 <= offset < 90:
+                raise ValueError("Offset angles must be in [0, 90).")
+        return sorted(profile)
+
+    def get_offset_angle(self, off_nadir_angle: npt.ArrayLike) -> npt.NDArray:
+        """
+        Gets the offset angle (degrees) toward nadir for specular points at
+        angles (degrees) from nadir (see `offset_angle_profile`).
+
+        Args:
+            off_nadir_angle (numpy.typing.ArrayLike): The specular points'
+                angles from nadir (degrees).
+
+        Returns:
+            numpy.typing.NDArray: the offset angles (degrees).
+        """
+        if self.offset_angle_profile is None:
+            return np.full(np.shape(off_nadir_angle), float(self.offset_angle))
+        angles, offsets = np.array(self.offset_angle_profile, dtype=float).T
+        return np.interp(off_nadir_angle, angles, offsets)
+
+    def get_aim_point(self, orbit_track: Geocentric) -> GeographicPosition:
+        """
+        Gets the point on the WGS 84 ellipsoid at which the body points at
+        each time of an orbit track: the specular point, or the point short
+        of it toward nadir by the offset angle, where the criteria are met,
+        or `NaN` where the body points along nadir.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite
+                position/velocity (in an inertial frame).
+
+        Returns:
+            skyfield.toposlib.GeographicPosition: the aim points.
+        """
+        point = compute_specular_point(orbit_track)
+        latitude = np.reshape(point.latitude.degrees, -1)
+        longitude = np.reshape(point.longitude.degrees, -1)
+        p_m, nadir, _, _ = _compute_nadir_axes(orbit_track, self.velocity_frame)
+        p_m, nadir = np.reshape(p_m, (3, -1)), np.reshape(nadir, (3, -1))
+        los = np.reshape(np.array(point.itrs_xyz.m), (3, -1)) - p_m
+        distance = np.linalg.norm(los, axis=0)
+        with np.errstate(invalid="ignore"):
+            los = los / distance
+            off_nadir = np.degrees(np.arccos(np.clip(np.sum(los * nadir, axis=0), -1, 1)))
+            # the elevation of the satellite (and of the Sun) seen from the point
+            up = np.array(
+                [
+                    np.cos(np.radians(latitude)) * np.cos(np.radians(longitude)),
+                    np.cos(np.radians(latitude)) * np.sin(np.radians(longitude)),
+                    np.sin(np.radians(latitude)),
+                ]
+            )
+            elevation = np.degrees(np.arcsin(np.sum(-los * up, axis=0)))
+            # the direction offset toward nadir in the plane of nadir and the line of sight
+            angle = np.maximum(off_nadir - self.get_offset_angle(off_nadir), 0)
+            across = los - np.sum(los * nadir, axis=0) * nadir
+            across = across / np.linalg.norm(across, axis=0)
+            direction = np.cos(np.radians(angle)) * nadir + np.sin(
+                np.radians(angle)
+            ) * np.nan_to_num(across)
+            pointing = (
+                np.isfinite(latitude)
+                & (angle <= self.max_off_nadir_angle)
+                & (elevation >= self.min_solar_elevation)
+            )
+        aim = np.full(p_m.shape, np.nan)
+        if np.any(pointing):
+            position, found = compute_ellipsoid_intersection(
+                p_m[:, pointing], direction[:, pointing]
+            )
+            aim[:, pointing] = np.where(found, position, np.nan)
+        longitude, latitude, _ = rectangular_to_geodetic(aim)
+        if np.ndim(orbit_track.t.tt) == 0:
+            return wgs84.latlon(latitude[0], longitude[0])
+        return wgs84.latlon(latitude, longitude)
+
+    def get_body_angles(
+        self, orbit_track: Geocentric
+    ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
+        """
+        Gets the yaw, roll, and pitch angles (degrees) of the body and whether
+        its velocity frame is inertial, at each time of an orbit track (see
+        `Attitude.get_body_angles`): the roll and pitch angles that point its
+        nadir axis at the aim point (see `get_aim_point`), or zero.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite
+                position/velocity (in an inertial frame).
+
+        Returns:
+            tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
+                the yaw, roll, and pitch angles (degrees), and whether the
+                velocity frame is inertial
+        """
+        shape = np.shape(orbit_track.t.tt)
+        point = self.get_aim_point(orbit_track)
+        latitude = np.reshape(point.latitude.degrees, -1)
+        longitude = np.reshape(point.longitude.degrees, -1)
+        roll, pitch = np.zeros(latitude.shape), np.zeros(latitude.shape)
+        pointing = np.flatnonzero(np.isfinite(latitude))
+        if len(pointing) > 0:
+            if len(shape) == 0:
+                track = orbit_track
+                target = wgs84.latlon(latitude[0], longitude[0])
+            else:
+                track = _index_orbit_track(orbit_track, pointing)
+                target = wgs84.latlon(latitude[pointing], longitude[pointing])
+            # the roll and pitch angles of the aim point in the yawed body frame
+            roll_angle, pitch_angle = compute_view_angles(
+                track,
+                target,
+                self.velocity_frame,
+                attitude=Attitude(
+                    yaw_angle=self.yaw_angle, velocity_frame=self.velocity_frame
+                ),
+            )
+            roll[pointing] = np.reshape(roll_angle, -1)
+            pitch[pointing] = np.reshape(pitch_angle, -1)
+        return (
+            np.full(shape, float(self.yaw_angle)),
+            np.reshape(roll, shape),
+            np.reshape(pitch, shape),
+            np.full(shape, self.velocity_frame == VelocityFrame.INERTIAL),
+        )
+
+
+ScheduledAttitudes = Annotated[
+    Attitude | TargetAttitude | GlintAttitude, Field(discriminator="type")
+]
 """Attitudes that a schedule may switch between."""
 
 
@@ -360,14 +572,17 @@ class AttitudeSchedule(BaseModel):
 
     @classmethod
     def from_attitudes(
-        cls, starts: list[datetime], attitudes: list[Attitude | TargetAttitude]
+        cls,
+        starts: list[datetime],
+        attitudes: list[Attitude | TargetAttitude | GlintAttitude],
     ) -> AttitudeSchedule:
         """
         Creates a schedule from the start times and attitudes of its segments.
 
         Args:
             starts (list[datetime.datetime]): The start times (timezone-aware).
-            attitudes (list[Attitude | TargetAttitude]): The attitude of each segment.
+            attitudes (list[Attitude | TargetAttitude | GlintAttitude]): The
+                attitude of each segment.
 
         Returns:
             AttitudeSchedule: the schedule
@@ -381,7 +596,9 @@ class AttitudeSchedule(BaseModel):
             ]
         )
 
-    def get_attitude(self, time: datetime) -> Attitude | TargetAttitude:
+    def get_attitude(
+        self, time: datetime
+    ) -> Attitude | TargetAttitude | GlintAttitude:
         """
         Gets the attitude that applies at a time.
 
@@ -389,7 +606,7 @@ class AttitudeSchedule(BaseModel):
             time (datetime.datetime): The time (timezone-aware).
 
         Returns:
-            Attitude | TargetAttitude: the attitude
+            Attitude | TargetAttitude | GlintAttitude: the attitude
         """
         index = 0
         for i, segment in enumerate(self.segments):

@@ -60,7 +60,8 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     instant), not the mean of the constituent observations' own epochs.
     Per-observation columns that lose their meaning once merged across
     satellites and over a potentially much longer period -- e.g. `sat_alt`,
-    `sat_az`, `sat_sunlit`, `solar_alt`, `solar_az`, `solar_time` -- are
+    `sat_az`, `sat_sunlit`, `solar_alt`, `solar_az`, `solar_time`,
+    `glint_angle` -- are
     intentionally dropped, even if present on `observations`.
 
     Args:

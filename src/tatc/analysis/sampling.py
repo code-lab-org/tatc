@@ -22,6 +22,7 @@ from skyfield.positionlib import Geocentric
 from ..constants import de421
 from ..schemas import GeneralPerturbationsOrbit, Instrument, Satellite
 from ..utils.computation import TimeRequest
+from ..utils.glint import compute_glint_angle
 from ..utils.time import _to_time_from_offsets
 
 
@@ -53,6 +54,7 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
             "solar_alt": pd.Series(dtype="float"),
             "solar_az": pd.Series(dtype="float"),
             "solar_time": pd.Series(dtype="float"),
+            "glint_angle": pd.Series(dtype="float"),
         }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
@@ -147,6 +149,8 @@ def _build_observation_frame(
         gdf["solar_time"] = (de421["earth"] + topos).at(ts).observe(
             de421["sun"]
         ).apparent().hadec()[0].hours + 12
+        # append glint angle column
+        gdf["glint_angle"] = np.atleast_1d(compute_glint_angle(orbit_track, topos))
     return gdf
 
 

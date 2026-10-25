@@ -19,6 +19,7 @@ from skyfield.timelib import Time
 from ..constants import de421
 from ..schemas import AllInstruments, PointedInstrument, Satellite
 from ..utils.geometry import split_polygon
+from ..utils.glint import compute_glint_angle
 from ..utils.time import _index_orbit_track, _to_time
 from .check import (
     _check_satellite,
@@ -163,6 +164,7 @@ def collect_ground_track(
         sat_altaz (bool): `True` to include satellite altitude/azimuth angles
                 for the sub-satellite point.
         solar_altaz (bool): `True` to include solar altitude/azimuth angles
+                and the glint angle (see `tatc.utils.compute_glint_angle`)
                 for the sub-satellite point.
 
     Returns:
@@ -249,6 +251,8 @@ def _collect_ground_track(
         )
         track["solar_alt"] = solar_altaz_data[0].degrees  # type: ignore
         track["solar_az"] = solar_altaz_data[1].degrees  # type: ignore
+        # append glint angle column (at the footprint center)
+        track["glint_angle"] = np.atleast_1d(compute_glint_angle(orbit_track, target))
 
     if mask is not None:
         track = gpd.clip(track, mask)
@@ -333,7 +337,8 @@ def collect_ground_pixels(
                 the propagated orbit to the (buffered) region of interest,
                 improving performance for small areas.
         sat_altaz (bool): `True` to include satellite altitude/azimuth angles.
-        solar_altaz (bool): `True` to include solar altitude/azimuth angles.
+        solar_altaz (bool): `True` to include solar altitude/azimuth angles
+                and the glint angle (see `tatc.utils.compute_glint_angle`).
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected ground pixels results:
@@ -448,6 +453,18 @@ def _collect_ground_pixels(
         ]
         gdf["solar_alt"] = [altaz[0].degrees for altaz in solar_altaz_data]  # type: ignore
         gdf["solar_az"] = [altaz[1].degrees for altaz in solar_altaz_data]  # type: ignore
+        # append glint angle column (at each pixel)
+        gdf["glint_angle"] = [
+            float(
+                compute_glint_angle(
+                    orbit_track[i],
+                    wgs84.latlon(
+                        record["geometry"].y, record["geometry"].x, record["geometry"].z
+                    ),
+                )
+            )
+            for i, record in indexed_records
+        ]
 
     if mask is not None:
         gdf = gpd.clip(gdf, mask)

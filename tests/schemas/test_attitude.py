@@ -11,6 +11,7 @@ import numpy as np
 from pydantic import ValidationError
 from shapely.geometry import Point as ShapelyPoint
 from skyfield.api import wgs84
+from skyfield.framelib import itrs
 
 from tatc.analysis import collect_ground_track, collect_observations
 from tatc.schemas import (
@@ -19,6 +20,7 @@ from tatc.schemas import (
     AttitudeSegment,
     CircularOrbit,
     ConicalInstrument,
+    GlintAttitude,
     Point,
     PointedInstrument,
     Satellite,
@@ -26,7 +28,7 @@ from tatc.schemas import (
     TargetAttitude,
     WalkerConstellation,
 )
-from tatc.utils import VelocityFrame, geodesic_distance
+from tatc.utils import VelocityFrame, compute_glint_angle, geodesic_distance
 from tatc.utils.time import _to_time
 
 
@@ -437,3 +439,172 @@ class TestTargetAttitude(unittest.TestCase):
         copy = Satellite.model_validate_json(satellite.model_dump_json())
         self.assertEqual(copy.attitude, schedule)
         self.assertIsInstance(copy.attitude.segments[1].attitude, TargetAttitude)
+
+
+class TestGlintAttitude(unittest.TestCase):
+    """
+    Unit tests for the GlintAttitude schema.
+    """
+
+    def setUp(self):
+        self.start = datetime(2026, 3, 20, 12, tzinfo=timezone.utc)
+        self.orbit = CircularOrbit(altitude=705e3, inclination=98.2, epoch=self.start)
+        self.times = [self.start + timedelta(minutes=m) for m in range(0, 100, 4)]
+        self.track = self.orbit.to_gp_orbit().get_orbit_track_at_time(
+            _to_time(self.times)
+        )
+        self.instrument = PointedInstrument(
+            name="p",
+            field_of_regard=120,
+            cross_track_field_of_view=1,
+            along_track_field_of_view=1,
+            max_target_glint_angle=1,
+        )
+
+    def _satellite(self, attitude):
+        return Satellite(
+            name="s", orbit=self.orbit, instruments=[self.instrument], attitude=attitude
+        )
+
+    def test_validation(self):
+        """
+        Test the bounds of the maximum off-nadir and minimum solar elevation
+        angles.
+        """
+        with self.assertRaises(ValidationError):
+            GlintAttitude(max_off_nadir_angle=90)
+        with self.assertRaises(ValidationError):
+            GlintAttitude(min_solar_elevation=-1)
+
+    def test_points_at_glint(self):
+        """
+        Test that the view center lies on the specular point (a zero glint
+        angle) while the body points at it, and at nadir otherwise.
+        """
+        attitude = GlintAttitude(max_off_nadir_angle=50)
+        point = attitude.get_aim_point(self.track)
+        pointing = np.isfinite(point.latitude.degrees)
+        self.assertGreater(np.sum(pointing), 0)
+        self.assertGreater(np.sum(~pointing), 0)
+        center = (
+            self._satellite(attitude).get_instrument().compute_footprint_center(self.track)
+        )
+        np.testing.assert_array_less(
+            compute_glint_angle(self.track, center)[pointing], 1e-3
+        )
+        subpoint = wgs84.subpoint_of(self.track)
+        to_nadir = geodesic_distance(
+            subpoint.longitude.degrees,
+            subpoint.latitude.degrees,
+            center.longitude.degrees,
+            center.latitude.degrees,
+        )
+        np.testing.assert_array_less(to_nadir[~pointing], 1)
+        # a smaller maximum off-nadir angle or a larger minimum solar elevation points less
+        fewer = GlintAttitude(max_off_nadir_angle=20).get_aim_point(self.track)
+        self.assertLess(np.sum(np.isfinite(fewer.latitude.degrees)), np.sum(pointing))
+        higher = GlintAttitude(max_off_nadir_angle=50, min_solar_elevation=60)
+        higher_point = higher.get_aim_point(self.track)
+        self.assertLess(np.sum(np.isfinite(higher_point.latitude.degrees)), np.sum(pointing))
+
+    def test_offset_toward_nadir(self):
+        """
+        Test that an offset angle points the body short of the specular point
+        toward nadir, on the line from nadir to it, by the offset (constant
+        or from a profile of the specular point's off-nadir angle).
+        """
+        glint = GlintAttitude(max_off_nadir_angle=80)
+        specular = glint.get_aim_point(self.track)
+        pointing = np.flatnonzero(np.isfinite(specular.latitude.degrees))
+        track = self.track[pointing]
+        specular = wgs84.latlon(
+            specular.latitude.degrees[pointing], specular.longitude.degrees[pointing]
+        )
+        subpoint = wgs84.subpoint_of(track)
+
+        def off_nadir(point):
+            # the angle from nadir: 90 deg less the angle of the line of sight below the horizon
+            return np.degrees(
+                np.arccos(
+                    np.sum(
+                        np.array((point.at(track.t) - track).frame_xyz(itrs).m)
+                        * -np.array(subpoint.itrs_xyz.m)
+                        / np.linalg.norm(np.array(subpoint.itrs_xyz.m), axis=0),
+                        axis=0,
+                    )
+                    / np.linalg.norm(
+                        np.array((point.at(track.t) - track).frame_xyz(itrs).m), axis=0
+                    )
+                )
+            )
+
+        glint_angle = off_nadir(specular)
+        for attitude, expected in [
+            (GlintAttitude(max_off_nadir_angle=80, offset_angle=5), glint_angle - 5),
+            (
+                GlintAttitude(
+                    max_off_nadir_angle=80, offset_angle_profile=[(60, 10), (20, 2)]
+                ),
+                glint_angle - np.interp(glint_angle, [20, 60], [2, 10]),
+            ),
+        ]:
+            aim = attitude.get_aim_point(track)
+            # (at nadir where the offset exceeds the specular point's angle from nadir)
+            np.testing.assert_allclose(off_nadir(aim), np.maximum(expected, 0), atol=0.3)
+            # on the line from nadir to the specular point
+            detour = (
+                geodesic_distance(
+                    subpoint.longitude.degrees, subpoint.latitude.degrees,
+                    aim.longitude.degrees, aim.latitude.degrees,
+                )
+                + geodesic_distance(
+                    aim.longitude.degrees, aim.latitude.degrees,
+                    specular.longitude.degrees, specular.latitude.degrees,
+                )
+                - geodesic_distance(
+                    subpoint.longitude.degrees, subpoint.latitude.degrees,
+                    specular.longitude.degrees, specular.latitude.degrees,
+                )
+            )
+            np.testing.assert_array_less(detour, 100)
+        self.assertEqual(
+            GlintAttitude(offset_angle_profile=[(60, 10), (20, 2)]).offset_angle_profile,
+            [(20, 2), (60, 10)],
+        )
+        with self.assertRaises(ValidationError):
+            GlintAttitude(offset_angle_profile=[(95, 1)])
+
+    def test_glint_observations(self):
+        """
+        Test that an instrument requiring a small glint angle observes the
+        specular point only with a glint attitude, and that its observations
+        report the glint angle.
+        """
+        attitude = GlintAttitude(max_off_nadir_angle=50)
+        k = int(np.flatnonzero(np.isfinite(attitude.get_aim_point(self.track).latitude.degrees))[2])
+        point = attitude.get_aim_point(self.track[k])
+        target = ShapelyPoint(float(point.longitude.degrees), float(point.latitude.degrees))
+        start, end = self.times[k] - timedelta(minutes=10), self.times[k] + timedelta(minutes=10)
+        self.assertEqual(len(collect_observations(target, self._satellite(None), start, end)), 0)
+        observations = collect_observations(
+            target, self._satellite(attitude), start, end, omit_solar=False
+        )
+        self.assertGreater(len(observations), 0)
+        np.testing.assert_array_less(observations.glint_angle, 1)
+
+    def test_scheduled_and_serialized(self):
+        """
+        Test that a schedule may switch to glint pointing, and that a
+        satellite with it round-trips through JSON.
+        """
+        schedule = AttitudeSchedule.from_attitudes(
+            [self.start, self.times[10]], [Attitude(), GlintAttitude()]
+        )
+        satellite = self._satellite(schedule)
+        copy = Satellite.model_validate_json(satellite.model_dump_json())
+        self.assertEqual(copy.attitude, schedule)
+        self.assertIsInstance(copy.attitude.segments[1].attitude, GlintAttitude)
+        self.assertIsInstance(
+            Satellite.model_validate_json(self._satellite(GlintAttitude()).model_dump_json()).attitude,
+            GlintAttitude,
+        )

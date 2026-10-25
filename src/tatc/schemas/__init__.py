@@ -3,7 +3,13 @@ Defines object schemas.
 """
 
 from .architecture import Architecture
-from .attitude import Attitude, AttitudeSchedule, AttitudeSegment, TargetAttitude
+from .attitude import (
+    Attitude,
+    AttitudeSchedule,
+    AttitudeSegment,
+    GlintAttitude,
+    TargetAttitude,
+)
 from .instrument import AllInstruments, ConicalInstrument, Instrument, PointedInstrument
 from .orbit import (
     AllOrbits,
@@ -62,6 +68,7 @@ __all__ = [
     "SunSynchronousOrbit",
     "SurfacePlatform",
     "TargetAttitude",
+    "GlintAttitude",
     "TerrainMask",
     "TrainConstellation",
     "TundraOrbit",

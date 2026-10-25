@@ -36,6 +36,10 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_ground_advance
 
+.. autofunction:: tatc.utils.compute_specular_point
+
+.. autofunction:: tatc.utils.compute_glint_angle
+
 .. autoclass:: tatc.utils.VelocityFrame
   :members:
 

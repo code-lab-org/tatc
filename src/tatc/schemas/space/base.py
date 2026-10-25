@@ -10,13 +10,14 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, model_validator
 
-from ..attitude import Attitude, AttitudeSchedule, TargetAttitude
+from ..attitude import Attitude, AttitudeSchedule, GlintAttitude, TargetAttitude
 from ..instrument import AllInstruments, Instrument
 
 AllAttitudes = Annotated[
-    Attitude | TargetAttitude | AttitudeSchedule, Field(discriminator="type")
+    Attitude | TargetAttitude | GlintAttitude | AttitudeSchedule,
+    Field(discriminator="type"),
 ]
-"""Attitudes of a space system: about nadir, pointed at targets, or scheduled."""
+"""Attitudes of a space system: about nadir, pointed at targets or the sun glint, or scheduled."""
 
 
 class SpaceSystem(BaseModel):
