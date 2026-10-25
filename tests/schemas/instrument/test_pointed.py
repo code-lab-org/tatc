@@ -17,6 +17,7 @@ from tatc.utils import field_of_regard_to_swath_width, geodesic_distance
 from tatc.utils.projection import (
     VelocityFrame,
     ViewGeometry,
+    compute_ground_advance,
     compute_projected_ray_position,
     compute_view_angles,
 )
@@ -296,6 +297,89 @@ class TestPointedInstrument(unittest.TestCase):
         zenith = np.radians(90 - altitude.degrees)
         self.assertAlmostEqual(along / (distance.m * np.radians(1.0)), 1, places=2)
         self.assertAlmostEqual(cross * np.cos(zenith) / along, 1, places=2)
+
+    def test_scan_period_bounds(self):
+        """
+        Test that the scan period defaults to None and must be positive.
+        """
+        o = PointedInstrument(
+            name="t", cross_track_field_of_view=100.0, along_track_field_of_view=1.0
+        )
+        self.assertIsNone(o.scan_period)
+        for value in (0, -1):
+            with self.assertRaises(ValidationError):
+                PointedInstrument(
+                    name="t",
+                    cross_track_field_of_view=100.0,
+                    along_track_field_of_view=1.0,
+                    scan_period=value,
+                )
+
+    def test_compute_ground_advance_matches_subpoints(self):
+        """
+        Test that the ground advance at the sub-satellite point over a short
+        period matches the distance between the sub-satellite points at the
+        start and end of the period.
+        """
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        orbit = CircularOrbit(altitude=800e3, inclination=98, epoch=start).to_gp_orbit()
+        track = orbit.get_orbit_track(start)
+        later = wgs84.subpoint_of(orbit.get_orbit_track(start + timedelta(seconds=2)))
+        target = wgs84.subpoint_of(track)
+        advance = compute_ground_advance(track, target, 2)
+        expected = geodesic_distance(
+            target.longitude.degrees,
+            target.latitude.degrees,
+            later.longitude.degrees,
+            later.latitude.degrees,
+        )
+        self.assertIsInstance(float(advance), float)
+        self.assertAlmostEqual(advance / expected, 1, places=3)
+
+    def test_compute_sample_spacing_with_scan_period(self):
+        """
+        Test that the along-track spacing of a scanner with one pixel along
+        track is the advance of its scans, nearly constant across the scan,
+        while its angular spacing grows toward the edges; and that the
+        spacing of an array of detectors is the larger of its pitch and the
+        advance per detector.
+        """
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        orbit = CircularOrbit(altitude=800e3, inclination=98, epoch=start)
+        track = orbit.to_gp_orbit().get_orbit_track(start)
+        scanner = PointedInstrument(
+            name="t",
+            cross_track_field_of_view=100.0,
+            along_track_field_of_view=1.0,
+            cross_track_pixels=100,
+            view_geometry=ViewGeometry.SCAN,
+            scan_period=2.0,
+        )
+        angular = scanner.model_copy(update={"scan_period": None})
+        nadir = wgs84.subpoint_of(track)
+        edge = compute_projected_ray_position(track, 0, 0, 50)
+        advance = compute_ground_advance(track, nadir, 2.0)
+        along_nadir, _ = scanner.compute_sample_spacing(track, nadir)
+        along_edge, _ = scanner.compute_sample_spacing(track, edge)
+        self.assertAlmostEqual(along_nadir, advance)
+        self.assertGreater(along_edge / along_nadir, 0.95)
+        self.assertLess(along_edge / along_nadir, 1.0)
+        angular_nadir, _ = angular.compute_sample_spacing(track, nadir)
+        angular_edge, _ = angular.compute_sample_spacing(track, edge)
+        self.assertGreater(angular_edge / angular_nadir, 1.5)
+        # an array of 10 detectors whose pitch matches the advance per detector at nadir
+        pitch = np.degrees(advance / 10 / wgs84.height_of(track).m)
+        array = scanner.model_copy(
+            update={"along_track_field_of_view": 10 * pitch, "along_track_pixels": 10}
+        )
+        array_nadir, _ = array.compute_sample_spacing(track, nadir)
+        array_edge, _ = array.compute_sample_spacing(track, edge)
+        self.assertAlmostEqual(array_nadir / (advance / 10), 1, places=2)
+        pitch_edge, _ = array.model_copy(
+            update={"scan_period": None}
+        ).compute_sample_spacing(track, edge)
+        self.assertAlmostEqual(array_edge, pitch_edge)
+        self.assertGreater(array_edge, along_edge / 10)
 
     def test_get_pixel_cone_and_clock_angle_single_pixel(self):
         """

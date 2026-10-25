@@ -19,6 +19,7 @@ from ...utils.projection import (
     VelocityFrame,
     ViewGeometry,
     compute_footprint,
+    compute_ground_advance,
     compute_ground_sample_size,
     compute_projected_ray_position,
     compute_view_angles,
@@ -115,6 +116,14 @@ class PointedInstrument(Instrument):
         + "instantaneous field of view).",
         lt=1,
     )
+    scan_period: float | None = Field(
+        default=None,
+        description="Period (seconds) between consecutive scans of a scanning "
+        + "instrument (for example, 8/3 s for ATMS), whose scans are spaced along "
+        + "track by the distance they advance on the ground in one period (see "
+        + "`compute_sample_spacing`), or `None` if not modeled.",
+        gt=0,
+    )
     velocity_frame: VelocityFrame = Field(
         default=VelocityFrame.EARTH_FIXED,
         description="Reference frame of the velocity vector that defines the "
@@ -180,6 +189,19 @@ class PointedInstrument(Instrument):
         negative oversampling) leaves gaps between pixels, and a sensor
         cannot resolve detail finer than the larger of the two.
 
+        The spacing is that of the angles between pixels, projected around
+        the line of sight to the target. For a scanning instrument with a
+        `scan_period`, the spacing along track is instead the larger of the
+        angular spacing between its pixels within a scan (if it has more than
+        one along track) and the distance the scan advances on the ground at
+        the target in one period, divided among its pixels along track (see
+        `tatc.utils.compute_ground_advance`). The advance, nearly constant
+        across the scan, spaces the scans of an instrument with one pixel
+        along track (such as a microwave sounder); toward the edges of the
+        swath, where the pixels of an array of detectors grow larger than the
+        advance, consecutive scans overlap and the spacing within a scan
+        dominates.
+
         Args:
             orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
             target (skyfield.toposlib.GeographicPosition): The target position
@@ -189,12 +211,24 @@ class PointedInstrument(Instrument):
             tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track
                 and cross-track spacings (meters).
         """
-        return self._compute_ground_extent(
+        along, cross = self._compute_ground_extent(
             orbit_track,
             target,
             self.get_along_track_sample_spacing(),
             self.get_cross_track_sample_spacing(),
         )
+        if self.scan_period is None:
+            return along, cross
+        advance = compute_ground_advance(
+            orbit_track,
+            target,
+            self.scan_period,
+            self.velocity_frame,
+            self.nadir_reference,
+            self._attitude,
+        )
+        within_scan = along if self.along_track_pixels > 1 else 0
+        return np.maximum(within_scan, advance / self.along_track_pixels), cross
 
     def _compute_ground_extent(
         self,

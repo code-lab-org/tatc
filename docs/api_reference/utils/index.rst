@@ -32,6 +32,10 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_cone_and_azimuth
 
+.. autofunction:: tatc.utils.compute_ground_sample_size
+
+.. autofunction:: tatc.utils.compute_ground_advance
+
 .. autoclass:: tatc.utils.VelocityFrame
   :members:
 

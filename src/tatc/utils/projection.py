@@ -483,6 +483,104 @@ def compute_ground_sample_size(
     return sizes[0], sizes[1]
 
 
+def _shift_along_track(orbit_track: Geocentric, seconds: npt.ArrayLike) -> Geocentric:
+    """
+    Shifts satellite positions along their Earth-fixed velocity (a linear
+    approximation of the motion relative to the ground over a short time).
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+        seconds (numpy.typing.ArrayLike): The shift (seconds) at each time.
+
+    Returns:
+        skyfield.positionlib.Geocentric: The shifted satellite position/velocity.
+    """
+    position, velocity = orbit_track.frame_xyz_and_velocity(itrs)
+    shifted = np.array(position.m) + np.array(velocity.m_per_s) * seconds
+    # rotate from Earth-fixed to inertial (GCRS) coordinates at the same times
+    gcrs = np.einsum("ji...,j...->i...", itrs.rotation_at(orbit_track.t), shifted)
+    return Geocentric(
+        gcrs / AU_M, orbit_track.velocity.au_per_d, orbit_track.t, center=399
+    )
+
+
+def compute_ground_advance(
+    orbit_track: Geocentric,
+    target: GeographicPosition,
+    seconds: float,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
+    attitude: Any = None,
+) -> npt.NDArray:
+    """
+    Compute the distance on the ground (meters) that a view fixed to the
+    spacecraft advances at a target in a period of time: from the target to
+    the point where the line of sight to it, held fixed relative to the
+    view's axes (the nadir frame, or the body's axes with an attitude),
+    meets the WGS 84 ellipsoid (raised to the target's elevation) after the
+    satellite moves along its Earth-fixed velocity for that period (a linear
+    approximation over a short period, such as that of a scan). For a
+    cross-track scanner, it is the spacing along track between the samples
+    of consecutive scans, which is nearly constant across the scan. Rays
+    that miss the Earth give `NaN`.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        target (skyfield.toposlib.GeographicPosition): the target position
+            (a single target, or one target for each time of the orbit track).
+        seconds (float): the period (seconds).
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
+        nadir_reference (NadirReference): The definition of the nadir
+            direction.
+        attitude (Any): The attitude of the spacecraft's body (see
+            `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), or
+            `None` for a body aligned with the nadir frame (in `velocity_frame`).
+
+    Returns:
+        numpy.typing.NDArray: the distance (meters).
+    """
+    p_m, nadir, along, cross = (
+        np.reshape(v, (3, -1))
+        for v in _compute_nadir_axes(
+            orbit_track, velocity_frame, nadir_reference, attitude
+        )
+    )
+    target_m = np.reshape(np.array(target.itrs_xyz.m), (3, -1))
+    los = target_m - p_m
+    los = los / np.linalg.norm(los, axis=0)
+    # the line of sight on the axes, which move with the satellite
+    components = [np.sum(los * axis, axis=0) for axis in (nadir, along, cross)]
+    q_m, nadir, along, cross = (
+        np.reshape(v, (3, -1))
+        for v in _compute_nadir_axes(
+            _shift_along_track(orbit_track, seconds),
+            velocity_frame,
+            nadir_reference,
+            attitude,
+        )
+    )
+    direction = components[0] * nadir + components[1] * along + components[2] * cross
+    q_m = np.broadcast_to(q_m, direction.shape)
+    elevation = np.broadcast_to(
+        np.atleast_1d(target.elevation.m).astype(float), direction.shape[1:]
+    )
+    end = np.full(direction.shape, np.nan)
+    for value in np.unique(elevation):
+        selected = elevation == value
+        point, found = compute_ellipsoid_intersection(
+            q_m[:, selected], direction[:, selected], value
+        )
+        end[:, selected] = np.where(found, point, np.nan)
+    distance = np.linalg.norm(end - target_m, axis=0)
+    if (
+        np.ndim(np.asarray(orbit_track.t.tt)) == 0
+        and np.ndim(target.latitude.degrees) == 0
+    ):
+        return distance[0]
+    return distance
+
+
 def compute_view_angles(
     orbit_track: Geocentric,
     target: GeographicPosition,

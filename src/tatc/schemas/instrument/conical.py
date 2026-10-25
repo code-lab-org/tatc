@@ -12,7 +12,6 @@ import numpy as np
 import numpy.typing as npt
 from pydantic import Field, model_validator
 from shapely import MultiPolygon, Polygon, unary_union
-from skyfield.constants import AU_M
 from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
@@ -22,6 +21,7 @@ from ...utils.geometry import _build_split_polygons, project_polygon_to_elevatio
 from ...utils.projection import (
     VelocityFrame,
     _compute_projected_rays,
+    _shift_along_track,
     compute_cone_and_azimuth,
     compute_ground_sample_size,
     compute_projected_ray_position,
@@ -46,27 +46,6 @@ def _cone_ray(cone_angle: float, azimuth: float) -> tuple[float, float]:
     return (
         float(np.degrees(np.arctan2(np.sin(cone) * np.sin(azimuth), np.cos(cone)))),
         float(np.degrees(np.arcsin(np.sin(cone) * np.cos(azimuth)))),
-    )
-
-
-def _shift_along_track(orbit_track: Geocentric, seconds: npt.ArrayLike) -> Geocentric:
-    """
-    Shifts satellite positions along their Earth-fixed velocity (a linear
-    approximation of the motion relative to the ground over a short time).
-
-    Args:
-        orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
-        seconds (numpy.typing.ArrayLike): The shift (seconds) at each time.
-
-    Returns:
-        skyfield.positionlib.Geocentric: The shifted satellite position/velocity.
-    """
-    position, velocity = orbit_track.frame_xyz_and_velocity(itrs)
-    shifted = np.array(position.m) + np.array(velocity.m_per_s) * seconds
-    # rotate from Earth-fixed to inertial (GCRS) coordinates at the same times
-    gcrs = np.einsum("ji...,j...->i...", itrs.rotation_at(orbit_track.t), shifted)
-    return Geocentric(
-        gcrs / AU_M, orbit_track.velocity.au_per_d, orbit_track.t, center=399
     )
 
 
