@@ -164,15 +164,16 @@ class TestPointedInstrument(unittest.TestCase):
 
     def test_oversampling_bounds(self):
         """
-        Test that cross/along track oversampling must be in [0, 1).
+        Test that cross/along track oversampling must be less than 1, and
+        may be negative (a gap between pixels).
         """
-        with self.assertRaises(ValidationError):
-            PointedInstrument(
-                name="t",
-                cross_track_field_of_view=10.0,
-                along_track_field_of_view=10.0,
-                cross_track_oversampling=-0.1,
-            )
+        gaps = PointedInstrument(
+            name="t",
+            cross_track_field_of_view=10.0,
+            along_track_field_of_view=10.0,
+            cross_track_oversampling=-1.5,
+        )
+        self.assertEqual(gaps.cross_track_oversampling, -1.5)
         with self.assertRaises(ValidationError):
             PointedInstrument(
                 name="t",
@@ -222,6 +223,79 @@ class TestPointedInstrument(unittest.TestCase):
         )
         # pitch = 10 / 2 = 5 degrees; ifov = pitch / (1 - 0.5) = 10 degrees
         self.assertAlmostEqual(o.get_along_track_instantaneous_field_of_view(), 10.0)
+
+    def test_pixel_offsets_span_field_of_view_with_oversampling(self):
+        """
+        Test that the pixel centers are spaced evenly across the field of
+        view (by its share per pixel), whatever the oversampling, so that the
+        outermost centers lie half a spacing inside its edges.
+        """
+        for oversampling in (-0.5, 0, 0.5):
+            o = PointedInstrument(
+                name="t",
+                cross_track_field_of_view=96.0,
+                along_track_field_of_view=1.0,
+                cross_track_pixels=96,
+                cross_track_oversampling=oversampling,
+            )
+            first, _ = o._get_pixel_offsets(0, 0)
+            last, _ = o._get_pixel_offsets(95, 0)
+            self.assertAlmostEqual(first, -47.5)
+            self.assertAlmostEqual(last, 47.5)
+            self.assertAlmostEqual(o.get_cross_track_sample_spacing(), 1.0)
+            self.assertAlmostEqual(
+                o.get_cross_track_instantaneous_field_of_view(),
+                1.0 / (1 - oversampling),
+            )
+
+    def test_compute_sample_size_at_nadir(self):
+        """
+        Test that a pixel viewing the sub-satellite point spans about its
+        instantaneous field of view times the altitude, along and across
+        track, and that a gap between pixels makes the spacing larger than
+        the pixel.
+        """
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        orbit = CircularOrbit(altitude=800e3, inclination=98, epoch=start)
+        track = orbit.to_gp_orbit().get_orbit_track(start)
+        target = wgs84.subpoint_of(track)
+        height = wgs84.height_of(track).m
+        o = PointedInstrument(
+            name="t",
+            cross_track_field_of_view=100.0,
+            along_track_field_of_view=1.0,
+            cross_track_pixels=100,
+            cross_track_oversampling=-1.0,
+        )
+        along, cross = o.compute_sample_size(track, target)
+        self.assertAlmostEqual(along / (height * np.radians(1.0)), 1, places=3)
+        self.assertAlmostEqual(cross / (height * np.radians(0.5)), 1, places=3)
+        along_spacing, cross_spacing = o.compute_sample_spacing(track, target)
+        self.assertAlmostEqual(along_spacing, along, delta=1)
+        self.assertAlmostEqual(cross_spacing / cross, 2, places=3)
+
+    def test_compute_sample_size_off_nadir(self):
+        """
+        Test that a pixel viewing a target off nadir, across track, is longer
+        across track than along track by about the secant of the target's
+        zenith angle, and that both grow with the slant range.
+        """
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        orbit = CircularOrbit(altitude=800e3, inclination=98, epoch=start)
+        track = orbit.to_gp_orbit().get_orbit_track(start)
+        o = PointedInstrument(
+            name="t",
+            cross_track_field_of_view=100.0,
+            along_track_field_of_view=1.0,
+            cross_track_pixels=100,
+            roll_angle=40,
+        )
+        target = o.compute_footprint_center(track)
+        along, cross = o.compute_sample_size(track, target)
+        altitude, _, distance = (track - target.at(track.t)).altaz()
+        zenith = np.radians(90 - altitude.degrees)
+        self.assertAlmostEqual(along / (distance.m * np.radians(1.0)), 1, places=2)
+        self.assertAlmostEqual(cross * np.cos(zenith) / along, 1, places=2)
 
     def test_get_pixel_cone_and_clock_angle_single_pixel(self):
         """

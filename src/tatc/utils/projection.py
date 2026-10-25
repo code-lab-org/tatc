@@ -353,6 +353,89 @@ def compute_view_tangents(
         return np.sum(los * along, axis=0) / scale, np.sum(los * cross, axis=0) / scale
 
 
+def compute_ground_sample_size(
+    orbit_track: Geocentric,
+    target: GeographicPosition,
+    along_track_angle: float,
+    cross_track_angle: float,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    roll_angle: npt.ArrayLike = 0,
+    pitch_angle: npt.ArrayLike = 0,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
+    tilt_angle: npt.ArrayLike = 0,
+) -> tuple[npt.NDArray, npt.NDArray]:
+    """
+    Compute the size on the ground of an angular extent centered on the line
+    of sight to a target, such as the instantaneous field of view of an
+    instrument's sample (or the angle between neighboring samples): the
+    distances between the points where rays at half the extent on either
+    side of the line of sight meet the WGS 84 ellipsoid (raised to the
+    target's elevation), along track and across track. The extents lie
+    along the view's along-track and cross-track axes (rotated from nadir by
+    the tilt, roll, and pitch angles, see `_compute_view_frame`), each made
+    perpendicular to the line of sight, so the sizes include the
+    lengthening of a view off nadir and the curvature of the Earth. Rays
+    that miss the Earth (beyond its limb) give `NaN`.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        target (skyfield.toposlib.GeographicPosition): the target position
+            (a single target, or one target for each time of the orbit track).
+        along_track_angle (float): the along-track angular extent (degrees).
+        cross_track_angle (float): the cross-track angular extent (degrees).
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
+        roll_angle (numpy.typing.ArrayLike): the view's roll angle (degrees).
+        pitch_angle (numpy.typing.ArrayLike): the view's pitch angle (degrees).
+        nadir_reference (NadirReference): The definition of the nadir
+            direction from which the view is rotated.
+        tilt_angle (numpy.typing.ArrayLike): the tilt angle (degrees) of a
+            scan plane about the cross-track axis (positive forward).
+
+    Returns:
+        tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track
+            and cross-track sizes (meters).
+    """
+    p_m, _, along, cross = _compute_view_frame(
+        orbit_track,
+        roll_angle,
+        pitch_angle,
+        velocity_frame,
+        nadir_reference,
+        tilt_angle,
+    )
+    p_m, along, cross = (np.reshape(v, (3, -1)) for v in (p_m, along, cross))
+    los = np.reshape(_compute_line_of_sight(target, p_m), (3, -1))
+    los = los / np.linalg.norm(los, axis=0)
+    elevation = np.broadcast_to(
+        np.atleast_1d(target.elevation.m).astype(float), los.shape[1:]
+    )
+    sizes = []
+    for axis, angle in ((along, along_track_angle), (cross, cross_track_angle)):
+        # the axis made perpendicular to the line of sight
+        normal = axis - np.sum(axis * los, axis=0) * los
+        normal = normal / np.linalg.norm(normal, axis=0)
+        half = np.radians(angle) / 2
+        ends = []
+        for sign in (-1, 1):
+            direction = np.cos(half) * los + sign * np.sin(half) * normal
+            end = np.full(direction.shape, np.nan)
+            for value in np.unique(elevation):
+                selected = elevation == value
+                point, found = compute_ellipsoid_intersection(
+                    p_m[:, selected], direction[:, selected], value
+                )
+                end[:, selected] = np.where(found, point, np.nan)
+            ends.append(end)
+        sizes.append(np.linalg.norm(ends[1] - ends[0], axis=0))
+    if (
+        np.ndim(np.asarray(orbit_track.t.tt)) == 0
+        and np.ndim(target.latitude.degrees) == 0
+    ):
+        return sizes[0][0], sizes[1][0]
+    return sizes[0], sizes[1]
+
+
 def compute_view_angles(
     orbit_track: Geocentric,
     target: GeographicPosition,

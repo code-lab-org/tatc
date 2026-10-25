@@ -60,6 +60,7 @@ from .projection import (
     compute_limb,
     compute_projected_ray_position,
     compute_static_track,
+    compute_ground_sample_size,
     compute_view_angles,
     compute_view_tangents,
 )
@@ -109,6 +110,7 @@ __all__ = [
     "compute_radar_slant_range",
     "compute_static_track",
     "compute_terrain_elevation_angle",
+    "compute_ground_sample_size",
     "compute_view_angles",
     "compute_view_tangents",
     "field_of_regard_to_swath_width",
