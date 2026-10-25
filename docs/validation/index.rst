@@ -36,8 +36,10 @@ The following compare TAT-C analysis results with reference data from operationa
   ValidateDriftMODIS.ipynb
   ValidatePointingOCO2.ipynb
   ValidateYawFlipGPM.ipynb
+  ValidateSampleSizes.ipynb
+  ValidateFeaturesTCPRIMED.ipynb
 
-These notebooks download reference data on first run (the MLS, NISAR, AMSR2, GMI, SWOT, ICESat-2, ECOSTRESS, PACE, MODIS, OCO-2, and GPM data require a free `NASA Earthdata Login <https://urs.earthdata.nasa.gov/>`_ account, and the Landsat 9 orbit history a free `Space-Track.org <https://www.space-track.org/>`_ account) and require additional dependencies, which can be installed via::
+These notebooks download reference data on first run, except ``ValidateSampleSizes``, which reuses the data of the imager and conical scanner notebooks. The MLS, NISAR, AMSR2, GMI, SWOT, ICESat-2, ECOSTRESS, PACE, MODIS, OCO-2, and GPM data require a free `NASA Earthdata Login <https://urs.earthdata.nasa.gov/>`_ account, and the orbit histories of the Landsat 9 and TC PRIMED notebooks a free `Space-Track.org <https://www.space-track.org/>`_ account. The notebooks require additional dependencies, which can be installed via::
 
   pip install tatc[validation]
 
