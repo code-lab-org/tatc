@@ -14,7 +14,6 @@ from shapely.geometry import MultiPoint, Point
 from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
-from ...utils.orbital import compute_argument_of_latitude
 from ...utils.projection import (
     VelocityFrame,
     ViewGeometry,
@@ -24,6 +23,7 @@ from ...utils.projection import (
     compute_view_angles,
     compute_view_tangents,
 )
+from ..attitude import _check_angle_profile, _interpolate_angle_profile
 from .simple import Instrument
 
 
@@ -218,6 +218,7 @@ class PointedInstrument(Instrument):
                 self.velocity_frame,
                 nadir_reference=self.nadir_reference,
                 tilt_angle=self.get_pitch_angle(orbit_track),
+                attitude=self._attitude,
             )
         return compute_ground_sample_size(
             orbit_track,
@@ -228,6 +229,7 @@ class PointedInstrument(Instrument):
             self.get_roll_angle(orbit_track),
             self.get_pitch_angle(orbit_track),
             self.nadir_reference,
+            attitude=self._attitude,
         )
 
     def get_cross_track_instantaneous_field_of_view(self) -> float:
@@ -289,6 +291,7 @@ class PointedInstrument(Instrument):
             nadir_reference=self.nadir_reference,
             view_geometry=self.view_geometry,
             ground_elevation=ground_elevation,
+            attitude=self._attitude,
         )
 
     @field_validator("roll_angle_profile", "pitch_angle_profile")
@@ -301,15 +304,8 @@ class PointedInstrument(Instrument):
         lie in [0, 360) and its angles in [-180, 180], and sorts it by
         argument of latitude.
         """
-        if profile is None:
-            return None
         kind = "Roll" if info.field_name == "roll_angle_profile" else "Pitch"
-        for argument, angle in profile:
-            if not 0 <= argument < 360:
-                raise ValueError("Arguments of latitude must be in [0, 360).")
-            if not -180 <= angle <= 180:
-                raise ValueError(f"{kind} angles must be in [-180, 180].")
-        return sorted(profile)
+        return _check_angle_profile(profile, kind)
 
     @staticmethod
     def _interpolate_angle_profile(
@@ -327,12 +323,7 @@ class PointedInstrument(Instrument):
         Returns:
             float | numpy.typing.NDArray[numpy.float64]: the angle(s) (degrees)
         """
-        argument = compute_argument_of_latitude(
-            orbit_track.position.m, orbit_track.velocity.m_per_s
-        )
-        arguments, angles = zip(*profile)
-        angle = np.interp(argument, arguments, angles, period=360)
-        return float(angle) if np.ndim(angle) == 0 else angle
+        return _interpolate_angle_profile(profile, orbit_track)
 
     def get_roll_angle(
         self, orbit_track: Geocentric | None = None
@@ -396,6 +387,7 @@ class PointedInstrument(Instrument):
                 self.velocity_frame,
                 self.nadir_reference,
                 self.get_pitch_angle(orbit_track),
+                attitude=self._attitude,
             )
             # angular offsets from the view center, normalized by the half widths
             cross_offset = (
@@ -410,6 +402,7 @@ class PointedInstrument(Instrument):
                 self.get_roll_angle(orbit_track),
                 self.get_pitch_angle(orbit_track),
                 self.nadir_reference,
+                attitude=self._attitude,
             )
             # offsets from the view center, normalized by the view half widths
             along_offset = along / np.tan(
@@ -455,6 +448,7 @@ class PointedInstrument(Instrument):
             velocity_frame=self.velocity_frame,
             nadir_reference=self.nadir_reference,
             ground_elevation=ground_elevation,
+            attitude=self._attitude,
         )
 
     def compute_projected_pixel_position(
@@ -495,6 +489,7 @@ class PointedInstrument(Instrument):
                 nadir_reference=self.nadir_reference,
                 tilt_angle=self.get_pitch_angle(orbit_track),
                 ground_elevation=ground_elevation,
+                attitude=self._attitude,
             )
         cone, clock = self.get_pixel_cone_and_clock_angle(
             cross_track_index, along_track_index
@@ -517,6 +512,7 @@ class PointedInstrument(Instrument):
             velocity_frame=self.velocity_frame,
             nadir_reference=self.nadir_reference,
             ground_elevation=ground_elevation,
+            attitude=self._attitude,
         )
 
     def _get_pixel_offsets(

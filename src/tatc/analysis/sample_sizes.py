@@ -52,8 +52,8 @@ def compute_sample_sizes(
     Also computes the satellite's slant range from the target (`sat_range`,
     meters) and the target's scan angle (`scan_angle`, degrees): its angle
     across track from nadir, positive to the left of the direction of motion
-    (see `tatc.utils.compute_view_angles`), which gives its position in the
-    swath.
+    (see `tatc.utils.compute_view_angles`), measured from the body's axes
+    if the satellite has an attitude, which gives its position in the swath.
 
     The observations are those of points (see `collect_observations`), at
     their `epoch`, or of features (see `collect_feature_observations`), at
@@ -90,13 +90,20 @@ def compute_sample_sizes(
         satellite = by_name.get(satellite_name)
         if satellite is None:
             raise ValueError(f"no satellite named {satellite_name!r}")
-        instrument = next(
-            (i for i in satellite.instruments if i.name == instrument_name), None
+        instrument_index = next(
+            (
+                i
+                for i, instrument in enumerate(satellite.instruments)
+                if instrument.name == instrument_name
+            ),
+            None,
         )
-        if instrument is None:
+        if instrument_index is None:
             raise ValueError(
                 f"satellite {satellite_name!r} has no instrument named {instrument_name!r}"
             )
+        # the instrument, with its views rotated from the body's axes
+        instrument = satellite.get_instrument(instrument_index)
         index = position[observations.index.get_indexer(group.index)]
         orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track_at_time(
             _to_time(list(group[time_column]))
@@ -112,7 +119,11 @@ def compute_sample_sizes(
             else VelocityFrame.EARTH_FIXED
         )
         roll, _ = compute_view_angles(
-            orbit_track, target, velocity_frame, instrument.nadir_reference
+            orbit_track,
+            target,
+            velocity_frame,
+            instrument.nadir_reference,
+            attitude=instrument.platform_attitude,
         )
         result.iloc[index, result.columns.get_loc("scan_angle")] = np.atleast_1d(roll)
         if isinstance(instrument, (PointedInstrument, ConicalInstrument)):

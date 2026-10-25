@@ -192,6 +192,7 @@ class WalkerConstellation(BaseConstellation):
                     * self.get_delta_raan_between_planes(),
                 ),
                 instruments=copy.deepcopy(self.instruments),
+                attitude=copy.deepcopy(self.attitude),
             )
             for i in range(self.number_satellites)
         ]

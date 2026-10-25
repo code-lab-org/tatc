@@ -110,6 +110,7 @@ class TrainConstellation(BaseConstellation):
                     i * self.get_delta_mean_anomaly(), i * self.get_delta_raan()
                 ),
                 instruments=copy.deepcopy(self.instruments),
+                attitude=copy.deepcopy(self.attitude),
             )
             for i in range(self.number_satellites)
         ]

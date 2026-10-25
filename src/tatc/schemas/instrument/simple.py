@@ -7,10 +7,12 @@ Object schemas for nadir-pointing instruments.
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-from pydantic import BaseModel, Field, model_validator
+
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from shapely import MultiPolygon, Polygon
 from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
@@ -86,6 +88,35 @@ class Instrument(BaseModel):
         + "toward the Earth's center). The two differ by up to about 0.19 "
         + "degrees at middle latitudes.",
     )
+    # the attitude of the space system that carries this instrument (see
+    # `bind_attitude`), from which its views are rotated
+    _attitude: Any = PrivateAttr(default=None)
+
+    @property
+    def platform_attitude(self) -> Any:
+        """
+        The attitude of the space system that carries this instrument, from
+        which its views are rotated (see `SpaceSystem.get_instrument`), or
+        `None` for a body aligned with the nadir frame.
+        """
+        return self._attitude
+
+    def bind_attitude(self, attitude: Any) -> "Instrument":
+        """
+        Gets a copy of this instrument carried by a space system with an
+        attitude (see `tatc.schemas.Attitude` and
+        `tatc.schemas.AttitudeSchedule`): its views (but not its field of
+        regard, measured from nadir) are rotated from the body's axes.
+
+        Args:
+            attitude (Any): The attitude, or `None`.
+
+        Returns:
+            Instrument: the bound copy
+        """
+        bound = self.model_copy()
+        bound._attitude = attitude  # pylint: disable=protected-access
+        return bound
 
     @model_validator(mode="after")
     def check_target_solar_elevation_range(self) -> "Instrument":

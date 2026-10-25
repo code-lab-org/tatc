@@ -205,7 +205,7 @@ def _collect_ground_track(
     and poles (see `_get_mask_geometry`).
     """
     # select the observing instrument
-    instrument = satellite.instruments[instrument_index]
+    instrument = satellite.get_instrument(instrument_index)
     if mask is not None and len(times) > 1:
         # propagate orbit only where the footprint intersects the mask,
         # reusing the footprints computed to cull it
@@ -375,7 +375,7 @@ def _collect_ground_pixels(
     and poles (see `_get_mask_geometry`).
     """
     # select the observing instrument
-    instrument = satellite.instruments[instrument_index]
+    instrument = satellite.get_instrument(instrument_index)
     if not isinstance(instrument, PointedInstrument) or not instrument.is_rectangular:
         raise ValueError(
             "Ground pixels are only compatible with rectangular PointedInstrument instances"

@@ -158,6 +158,7 @@ class MOGConstellation(BaseConstellation):
                 name=zero_pad(self.name, self.number_satellites, i + 1),
                 orbit=orbit,
                 instruments=copy.deepcopy(self.instruments),
+                attitude=copy.deepcopy(self.attitude),
             )
             for i, orbit in enumerate(orbits)
         ]

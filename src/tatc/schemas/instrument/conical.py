@@ -280,6 +280,7 @@ class ConicalInstrument(Instrument):
                     self.velocity_frame,
                     self.nadir_reference,
                     ground_elevation=ground_elevation,
+                    attitude=self._attitude,
                 )[:2]
             return np.stack([geos[0], geos[1]], axis=-1)
 
@@ -351,6 +352,7 @@ class ConicalInstrument(Instrument):
             self.beam_width,
             self.velocity_frame,
             nadir_reference=self.nadir_reference,
+            attitude=self._attitude,
         )
 
     def compute_sample_spacing(
@@ -439,6 +441,7 @@ class ConicalInstrument(Instrument):
             velocity_frame=self.velocity_frame,
             nadir_reference=self.nadir_reference,
             ground_elevation=ground_elevation,
+            attitude=self._attitude,
         )
 
     def is_in_field_of_view(
@@ -468,6 +471,7 @@ class ConicalInstrument(Instrument):
                 target,
                 self.velocity_frame,
                 self.nadir_reference,
+                attitude=self._attitude,
             )
             for f in (-1, 0, 1)
         ]

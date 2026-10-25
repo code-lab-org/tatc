@@ -657,7 +657,7 @@ def _collect_batch_observations(
     3. the epochs (view or cone crossings) and validity of the observations
        are computed with one target for each time.
     """
-    instrument = satellite.instruments[instrument_index]
+    instrument = satellite.get_instrument(instrument_index)
     orbit = satellite.orbit.to_gp_orbit()
     coordinates = np.array([_get_point_coordinates(point) for point in points])
     longitude, latitude, elevation = coordinates.T
@@ -892,6 +892,7 @@ def _get_batch_view_crossing_times(
                 instrument.velocity_frame,
                 instrument.nadir_reference,
                 instrument.get_pitch_angle(orbit_track),
+                instrument.platform_attitude,
             )
         else:
             position, _, along, _ = _compute_view_frame(
@@ -900,6 +901,7 @@ def _get_batch_view_crossing_times(
                 instrument.get_pitch_angle(orbit_track),
                 instrument.velocity_frame,
                 instrument.nadir_reference,
+                attitude=instrument.platform_attitude,
             )
         los = _compute_line_of_sight(xyz[:, point[index]], position)
         return np.sum(los * along, axis=0) / np.linalg.norm(los, axis=0)
@@ -950,6 +952,7 @@ def _get_batch_cone_crossing_times(
             orbit.get_orbit_track_at_time(t),
             instrument.velocity_frame,
             instrument.nadir_reference,
+            instrument.platform_attitude,
         )
         los = _compute_line_of_sight(xyz[:, point[index % n]], p_m)
         return np.degrees(
