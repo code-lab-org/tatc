@@ -14,11 +14,13 @@ from shapely.geometry import MultiPoint, Point
 from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
-from ...utils.orbital import compute_argument_of_latitude
+from ...utils.orbital import _check_angle_profile, _interpolate_angle_profile
 from ...utils.projection import (
     VelocityFrame,
     ViewGeometry,
     compute_footprint,
+    compute_ground_advance,
+    compute_ground_sample_size,
     compute_projected_ray_position,
     compute_view_angles,
     compute_view_tangents,
@@ -100,15 +102,27 @@ class PointedInstrument(Instrument):
     )
     cross_track_oversampling: float = Field(
         default=0,
-        description="Fraction of pixel overlap in cross-track direction.",
-        ge=0,
+        description="Fraction of pixel overlap in cross-track direction: the "
+        + "fraction of a pixel's instantaneous field of view shared with its "
+        + "neighbor (negative for a gap between pixels, as a fraction of the "
+        + "instantaneous field of view).",
         lt=1,
     )
     along_track_oversampling: float = Field(
         default=0,
-        description="Fraction of pixel overlap in along-track direction.",
-        ge=0,
+        description="Fraction of pixel overlap in along-track direction: the "
+        + "fraction of a pixel's instantaneous field of view shared with its "
+        + "neighbor (negative for a gap between pixels, as a fraction of the "
+        + "instantaneous field of view).",
         lt=1,
+    )
+    scan_period: float | None = Field(
+        default=None,
+        description="Period (seconds) between consecutive scans of a scanning "
+        + "instrument (for example, 8/3 s for ATMS), whose scans are spaced along "
+        + "track by the distance they advance on the ground in one period (see "
+        + "`compute_sample_spacing`), or `None` if not modeled.",
+        gt=0,
     )
     velocity_frame: VelocityFrame = Field(
         default=VelocityFrame.EARTH_FIXED,
@@ -117,6 +131,140 @@ class PointedInstrument(Instrument):
         + "as for a yaw-steered spacecraft; `inertial`: aligned with the orbit "
         + "plane, as for a spacecraft without yaw steering).",
     )
+
+    def get_cross_track_sample_spacing(self) -> float:
+        """
+        Gets the angular spacing (degrees) between the centers of neighboring
+        cross-track pixels: the field of view divided among the pixels.
+
+        Returns:
+            float: the cross-track sample spacing (degrees)
+        """
+        return self.cross_track_field_of_view / self.cross_track_pixels
+
+    def get_along_track_sample_spacing(self) -> float:
+        """
+        Gets the angular spacing (degrees) between the centers of neighboring
+        along-track pixels: the field of view divided among the pixels.
+
+        Returns:
+            float: the along-track sample spacing (degrees)
+        """
+        return self.along_track_field_of_view / self.along_track_pixels
+
+    def compute_sample_size(
+        self, orbit_track: Geocentric, target: GeographicPosition
+    ) -> tuple[npt.NDArray, npt.NDArray]:
+        """
+        Computes the size on the ground (meters) of a pixel viewing a target:
+        the extent of its instantaneous field of view along track and across
+        track, centered on the line of sight to the target (see
+        `tatc.utils.compute_ground_sample_size`). The sizes grow with the
+        slant range and, in the direction of a view off nadir, with the
+        obliquity of the view.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+            target (skyfield.toposlib.GeographicPosition): The target position
+                (a single target, or one target for each time of the orbit track).
+
+        Returns:
+            tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track
+                and cross-track sizes (meters).
+        """
+        return self._compute_ground_extent(
+            orbit_track,
+            target,
+            self.get_along_track_instantaneous_field_of_view(),
+            self.get_cross_track_instantaneous_field_of_view(),
+        )
+
+    def compute_sample_spacing(
+        self, orbit_track: Geocentric, target: GeographicPosition
+    ) -> tuple[npt.NDArray, npt.NDArray]:
+        """
+        Computes the spacing on the ground (meters) between the centers of
+        neighboring pixels viewing a target, along track and across track
+        (see `compute_sample_size`). A pixel smaller than the spacing (a
+        negative oversampling) leaves gaps between pixels, and a sensor
+        cannot resolve detail finer than the larger of the two.
+
+        The spacing is that of the angles between pixels, projected around
+        the line of sight to the target. For a scanning instrument with a
+        `scan_period`, the spacing along track is instead the larger of the
+        angular spacing between its pixels within a scan (if it has more than
+        one along track) and the distance the scan advances on the ground at
+        the target in one period, divided among its pixels along track (see
+        `tatc.utils.compute_ground_advance`). The advance, nearly constant
+        across the scan, spaces the scans of an instrument with one pixel
+        along track (such as a microwave sounder); toward the edges of the
+        swath, where the pixels of an array of detectors grow larger than the
+        advance, consecutive scans overlap and the spacing within a scan
+        dominates.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+            target (skyfield.toposlib.GeographicPosition): The target position
+                (a single target, or one target for each time of the orbit track).
+
+        Returns:
+            tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track
+                and cross-track spacings (meters).
+        """
+        along, cross = self._compute_ground_extent(
+            orbit_track,
+            target,
+            self.get_along_track_sample_spacing(),
+            self.get_cross_track_sample_spacing(),
+        )
+        if self.scan_period is None:
+            return along, cross
+        advance = compute_ground_advance(
+            orbit_track,
+            target,
+            self.scan_period,
+            self.velocity_frame,
+            self.nadir_reference,
+            self._attitude,
+        )
+        within_scan = along if self.along_track_pixels > 1 else 0
+        return np.maximum(within_scan, advance / self.along_track_pixels), cross
+
+    def _compute_ground_extent(
+        self,
+        orbit_track: Geocentric,
+        target: GeographicPosition,
+        along_track_angle: float,
+        cross_track_angle: float,
+    ) -> tuple[npt.NDArray, npt.NDArray]:
+        """
+        Computes the size on the ground (meters) of angular extents centered
+        on the line of sight to a target, along this instrument's view axes:
+        those of the rolled and pitched view, or, for a `ViewGeometry.SCAN`
+        view, of the scan plane tilted by the pitch angle.
+        """
+        if self.view_geometry == ViewGeometry.SCAN:
+            return compute_ground_sample_size(
+                orbit_track,
+                target,
+                along_track_angle,
+                cross_track_angle,
+                self.velocity_frame,
+                nadir_reference=self.nadir_reference,
+                tilt_angle=self.get_pitch_angle(orbit_track),
+                attitude=self._attitude,
+            )
+        return compute_ground_sample_size(
+            orbit_track,
+            target,
+            along_track_angle,
+            cross_track_angle,
+            self.velocity_frame,
+            self.get_roll_angle(orbit_track),
+            self.get_pitch_angle(orbit_track),
+            self.nadir_reference,
+            attitude=self._attitude,
+        )
 
     def get_cross_track_instantaneous_field_of_view(self) -> float:
         """
@@ -177,6 +325,7 @@ class PointedInstrument(Instrument):
             nadir_reference=self.nadir_reference,
             view_geometry=self.view_geometry,
             ground_elevation=ground_elevation,
+            attitude=self._attitude,
         )
 
     @field_validator("roll_angle_profile", "pitch_angle_profile")
@@ -189,15 +338,8 @@ class PointedInstrument(Instrument):
         lie in [0, 360) and its angles in [-180, 180], and sorts it by
         argument of latitude.
         """
-        if profile is None:
-            return None
         kind = "Roll" if info.field_name == "roll_angle_profile" else "Pitch"
-        for argument, angle in profile:
-            if not 0 <= argument < 360:
-                raise ValueError("Arguments of latitude must be in [0, 360).")
-            if not -180 <= angle <= 180:
-                raise ValueError(f"{kind} angles must be in [-180, 180].")
-        return sorted(profile)
+        return _check_angle_profile(profile, kind)
 
     @staticmethod
     def _interpolate_angle_profile(
@@ -215,12 +357,7 @@ class PointedInstrument(Instrument):
         Returns:
             float | numpy.typing.NDArray[numpy.float64]: the angle(s) (degrees)
         """
-        argument = compute_argument_of_latitude(
-            orbit_track.position.m, orbit_track.velocity.m_per_s
-        )
-        arguments, angles = zip(*profile)
-        angle = np.interp(argument, arguments, angles, period=360)
-        return float(angle) if np.ndim(angle) == 0 else angle
+        return _interpolate_angle_profile(profile, orbit_track)
 
     def get_roll_angle(
         self, orbit_track: Geocentric | None = None
@@ -284,6 +421,7 @@ class PointedInstrument(Instrument):
                 self.velocity_frame,
                 self.nadir_reference,
                 self.get_pitch_angle(orbit_track),
+                attitude=self._attitude,
             )
             # angular offsets from the view center, normalized by the half widths
             cross_offset = (
@@ -298,6 +436,7 @@ class PointedInstrument(Instrument):
                 self.get_roll_angle(orbit_track),
                 self.get_pitch_angle(orbit_track),
                 self.nadir_reference,
+                attitude=self._attitude,
             )
             # offsets from the view center, normalized by the view half widths
             along_offset = along / np.tan(
@@ -343,6 +482,7 @@ class PointedInstrument(Instrument):
             velocity_frame=self.velocity_frame,
             nadir_reference=self.nadir_reference,
             ground_elevation=ground_elevation,
+            attitude=self._attitude,
         )
 
     def compute_projected_pixel_position(
@@ -383,6 +523,7 @@ class PointedInstrument(Instrument):
                 nadir_reference=self.nadir_reference,
                 tilt_angle=self.get_pitch_angle(orbit_track),
                 ground_elevation=ground_elevation,
+                attitude=self._attitude,
             )
         cone, clock = self.get_pixel_cone_and_clock_angle(
             cross_track_index, along_track_index
@@ -405,6 +546,7 @@ class PointedInstrument(Instrument):
             velocity_frame=self.velocity_frame,
             nadir_reference=self.nadir_reference,
             ground_elevation=ground_elevation,
+            attitude=self._attitude,
         )
 
     def _get_pixel_offsets(
@@ -422,18 +564,13 @@ class PointedInstrument(Instrument):
         Returns:
             tuple[float, float]: the cross-track and along-track offsets (degrees).
         """
+        # pixel centers are spaced evenly across the field of view
         cross_track_offset = (
-            (0.5 + cross_track_index - self.cross_track_pixels / 2)
-            * (1 - self.cross_track_oversampling)
-            * self.cross_track_field_of_view
-            / self.cross_track_pixels
-        )
+            0.5 + cross_track_index - self.cross_track_pixels / 2
+        ) * self.get_cross_track_sample_spacing()
         along_track_offset = (
-            (self.along_track_pixels / 2 - 0.5 - along_track_index)
-            * (1 - self.along_track_oversampling)
-            * self.along_track_field_of_view
-            / self.along_track_pixels
-        )
+            self.along_track_pixels / 2 - 0.5 - along_track_index
+        ) * self.get_along_track_sample_spacing()
         return cross_track_offset, along_track_offset
 
     def get_pixel_cone_and_clock_angle(

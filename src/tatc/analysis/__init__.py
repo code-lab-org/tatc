@@ -12,6 +12,7 @@ from .coverage_metrics import (
     reduce_observations,
 )
 from .dop_sampling import DopMethod, compute_dop
+from .feature_sampling import collect_feature_observations
 from .ground_track import (
     collect_ground_pixels,
     collect_ground_track,
@@ -53,6 +54,7 @@ from .region_sampling import (
 from .ro_sampling import (
     collect_ro_observations,
 )
+from .sample_sizes import compute_sample_sizes
 from .space_sampling import (
     collect_space_observations,
 )
@@ -64,6 +66,7 @@ __all__ = [
     "ScanDirection",
     "aggregate_observations",
     "collect_downlinks",
+    "collect_feature_observations",
     "collect_ground_pixels",
     "collect_ground_track",
     "collect_limb_observations",
@@ -81,6 +84,7 @@ __all__ = [
     "compute_ground_track",
     "compute_latencies",
     "compute_platform_track",
+    "compute_sample_sizes",
     "compute_radar_track",
     "compute_region_access_periods",
     "find_coincident_ground_track",

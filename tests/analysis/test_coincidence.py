@@ -125,6 +125,34 @@ class TestFindCoincidentObservations(IssConstellationTestCase):
         self.assertEqual(results.iloc[0].start, _minutes(10))
         self.assertEqual(results.iloc[0].end, _minutes(12))
 
+    def test_instantaneous(self):
+        """
+        Test that instantaneous observations coincide if their epochs differ
+        by at most the maximum time difference, regardless of their periods,
+        and that each coincident observation spans the contributing epochs.
+        """
+        # periods overlap (minutes 8 to 10), epochs (minutes 5 and 19) do not
+        observations = gpd.GeoDataFrame(
+            [_make_observation("A", 0, 10), _make_observation("B", 8, 30)],
+            crs="EPSG:4326",
+        )
+        self.assertEqual(len(find_coincident_observations(observations).index), 1)
+        self.assertTrue(
+            find_coincident_observations(
+                observations,
+                max_time_difference=timedelta(minutes=10),
+                instantaneous=True,
+            ).empty
+        )
+        results = find_coincident_observations(
+            observations, max_time_difference=timedelta(minutes=15), instantaneous=True
+        )
+        self.assertEqual(len(results.index), 1)
+        self.assertEqual(results.iloc[0].satellite, "A, B")
+        self.assertEqual(results.iloc[0].start, _minutes(5))
+        self.assertEqual(results.iloc[0].end, _minutes(19))
+        self.assertEqual(results.iloc[0].epoch, _minutes(12))
+
     def test_same_satellite(self):
         """
         Test that observations by different instruments on the same

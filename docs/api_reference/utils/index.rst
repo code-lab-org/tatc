@@ -32,6 +32,14 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_cone_and_azimuth
 
+.. autofunction:: tatc.utils.compute_ground_sample_size
+
+.. autofunction:: tatc.utils.compute_ground_advance
+
+.. autofunction:: tatc.utils.compute_specular_point
+
+.. autofunction:: tatc.utils.compute_glint_angle
+
 .. autoclass:: tatc.utils.VelocityFrame
   :members:
 
@@ -70,6 +78,8 @@ Utility Functions
 .. autofunction:: tatc.utils.compute_j2_aop_rate
 
 .. autofunction:: tatc.utils.compute_j2_mean_motion_rate
+
+.. autofunction:: tatc.utils.align_element_switches
 
 .. autofunction:: tatc.utils.compute_max_access_time
 

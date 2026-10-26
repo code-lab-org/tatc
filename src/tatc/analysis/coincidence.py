@@ -57,41 +57,64 @@ def _get_empty_coincidence_frame() -> gpd.GeoDataFrame:
 
 
 def _find_coincident_periods(
-    periods: pd.DataFrame, min_platforms: int
-) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    target: np.ndarray,
+    platform: np.ndarray,
+    start: np.ndarray,
+    end: np.ndarray,
+    min_platforms: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Finds the maximal periods when at least a minimum number of platforms
-    observe at once, sweeping over the start and end of each platform's
-    (closed) observation periods.
+    observe each target at once, sweeping over the start and end of each
+    platform's (closed) observation periods, for all targets together.
 
     Args:
-        periods (pandas.DataFrame): The observation periods, with columns
-                `platform`, `start`, and `end`.
+        target (numpy.ndarray): The target code of each observation period.
+        platform (numpy.ndarray): The platform code of each observation period.
+        start (numpy.ndarray): The start of each observation period
+                (`numpy.datetime64`).
+        end (numpy.ndarray): The end of each observation period
+                (`numpy.datetime64`).
         min_platforms (int): The minimum number of platforms.
 
     Returns:
-        list[tuple[pandas.Timestamp, pandas.Timestamp]]: the start and end
-            of each coincident period, in time order
+        tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]: the target code,
+            start, and end of each coincident period, in order of target and
+            time
     """
-    starts, ends = [], []
-    for _, platform in periods.groupby("platform"):
-        # merge the platform's overlapping periods so that it counts once
-        platform = platform.sort_values("start")
-        group = (platform["start"] > platform["end"].shift().cummax()).cumsum()
-        merged = platform.groupby(group).agg(start=("start", "min"), end=("end", "max"))
-        starts.append(merged["start"])
-        ends.append(merged["end"])
-    times = pd.concat(starts + ends, ignore_index=True)
-    events = pd.DataFrame(
-        {"time": times, "change": np.repeat([1, -1], len(times) // 2)}
+    # merge the overlapping periods of each platform at each target so that
+    # it counts once
+    order = np.lexsort((start, platform, target))
+    target, platform = target[order], platform[order]
+    start, end = start[order], end[order]
+    first = np.r_[True, (target[1:] != target[:-1]) | (platform[1:] != platform[:-1])]
+    reach = pd.Series(end).groupby(np.cumsum(first)).cummax().to_numpy()
+    merged = np.cumsum(first | (start > np.r_[reach[:1], reach[:-1]]))
+    merged_target = target[np.r_[True, merged[1:] != merged[:-1]]]
+    merged_start = pd.Series(start).groupby(merged).min().to_numpy()
+    merged_end = pd.Series(end).groupby(merged).max().to_numpy()
+    # sweep the events of each target in time order, with starts before ends
+    # at the same time so that periods which touch count as coincident at
+    # that instant
+    event_target = np.concatenate((merged_target, merged_target))
+    event_time = np.concatenate((merged_start, merged_end))
+    change = np.repeat([1, -1], len(merged_target))
+    order = np.lexsort((-change, event_time, event_target))
+    event_target, event_time, change = (
+        event_target[order],
+        event_time[order],
+        change[order],
     )
-    # sweep the events in time order, with starts before ends at the same
-    # time so that periods which touch count as coincident at that instant
-    events = events.sort_values(["time", "change"], ascending=[True, False])
-    active = events["change"].cumsum().to_numpy() >= min_platforms
-    was_active = np.concatenate(([False], active[:-1]))
-    return list(
-        zip(events["time"][active & ~was_active], events["time"][~active & was_active])
+    active = (
+        pd.Series(change).groupby(event_target).cumsum().to_numpy() >= min_platforms
+    )
+    was_active = (
+        np.r_[False, active[:-1]] & np.r_[False, event_target[1:] == event_target[:-1]]
+    )
+    return (
+        event_target[active & ~was_active],
+        event_time[active & ~was_active],
+        event_time[~active & was_active],
     )
 
 
@@ -99,6 +122,7 @@ def find_coincident_observations(
     observations: gpd.GeoDataFrame,
     min_platforms: int = 2,
     max_time_difference: timedelta = timedelta(0),
+    instantaneous: bool = False,
 ) -> gpd.GeoDataFrame:
     """
     Find coincident observations of points: the periods when at least
@@ -118,6 +142,15 @@ def find_coincident_observations(
     that period, comma-separated and paired, in order of their start time.
     `epoch` is the midpoint of the coincident period.
 
+    With `instantaneous`, each observation is reduced to its `epoch` (for a
+    scanning instrument, such as a `ConicalInstrument` or a
+    `PointedInstrument`, the time it samples the point, while its period is
+    the time the point is within its field of regard), so that observations
+    coincide if their epochs differ by at most `max_time_difference`. Each
+    coincident observation then spans the epochs of the observations that
+    contribute to it, from the first to the last (for two observations,
+    `end` less `start` is their time difference).
+
     The result has the columns of `aggregate_observations` inputs, so
     `aggregate_observations` and `reduce_observations` compute the access
     and revisit of coincident observations.
@@ -129,6 +162,8 @@ def find_coincident_observations(
                 observing at once.
         max_time_difference (datetime.timedelta): The maximum time
                 difference between coincident observations.
+        instantaneous (bool): True, to compare the observations' epochs
+                rather than their periods.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of coincident observations,
@@ -144,40 +179,75 @@ def find_coincident_observations(
             "observations must be of points (see find_coincident_ground_track "
             "for the footprints of ground tracks)"
         )
-    records = []
-    for _, gdf in observations.groupby(_get_target_keys(observations)):
-        periods = pd.DataFrame(
-            {
-                "platform": gdf["satellite"],
-                "start": gdf["start"] - half_difference,
-                "end": gdf["end"] + half_difference,
-            }
-        )
-        for start, end in _find_coincident_periods(periods, min_platforms):
-            # each observation overlapping the period contributes to it
-            contributors = gdf[
-                (periods["start"] <= end) & (periods["end"] >= start)
-            ].sort_values("start", kind="stable")
-            pairs = list(
-                dict.fromkeys(
-                    zip(contributors["satellite"], contributors["instrument"])
-                )
-            )
-            records.append(
-                {
-                    "target_hash": gdf["target_hash"].iloc[0],
-                    "geometry": gdf.geometry.iloc[0],
-                    "satellite": ", ".join(satellite for satellite, _ in pairs),
-                    "instrument": ", ".join(instrument for _, instrument in pairs),
-                    "start": start,
-                    "epoch": start + (end - start) / 2,
-                    "end": end,
-                }
-            )
-    if len(records) == 0:
+    gdf = observations.reset_index(drop=True)
+    # targets (in sorted order of their keys) and platforms of the observations
+    target, _ = pd.MultiIndex.from_arrays(_get_target_keys(gdf)).factorize(sort=True)
+    platform, _ = pd.factorize(gdf["satellite"])
+
+    def naive_utc(times: pd.Series) -> np.ndarray:
+        return times.dt.tz_convert("UTC").dt.tz_localize(None).to_numpy()
+
+    # observation times: each period, or each epoch if instantaneous
+    observed_start = gdf["epoch"] if instantaneous else gdf["start"]
+    observed_end = gdf["epoch"] if instantaneous else gdf["end"]
+    start = naive_utc(observed_start - half_difference)
+    end = naive_utc(observed_end + half_difference)
+    period_target, period_start, period_end = _find_coincident_periods(
+        target, platform, start, end, min_platforms
+    )
+    if len(period_target) == 0:
         return _get_empty_coincidence_frame()
+    # each observation overlapping a period contributes to it, in order of
+    # its start time
+    candidates = pd.DataFrame(
+        {
+            "target": target,
+            "widened_start": start,
+            "widened_end": end,
+            "start": naive_utc(observed_start),
+            "satellite": gdf["satellite"].to_numpy(),
+            "instrument": gdf["instrument"].to_numpy(),
+        }
+    )
+    contributors = pd.DataFrame(
+        {
+            "period": np.arange(len(period_target)),
+            "target": period_target,
+            "period_start": period_start,
+            "period_end": period_end,
+        }
+    ).merge(candidates, on="target")
+    contributors = contributors[
+        (contributors["widened_start"] <= contributors["period_end"])
+        & (contributors["widened_end"] >= contributors["period_start"])
+    ]
+    if instantaneous:
+        # each coincident observation spans the epochs of its contributors
+        period_start = contributors.groupby("period")["start"].min().to_numpy()
+        period_end = contributors.groupby("period")["start"].max().to_numpy()
+    contributors = (
+        contributors.sort_values(["period", "start"], kind="stable")
+        .drop_duplicates(["period", "satellite", "instrument"])
+        .groupby("period")
+        .agg(satellite=("satellite", ", ".join), instrument=("instrument", ", ".join))
+    )
+    # each target's hash and geometry, from its first observation
+    first = gdf.groupby(target).head(1).set_index(pd.Index(target).unique())
+    start = pd.Series(period_start).dt.tz_localize("UTC")
+    end = pd.Series(period_end).dt.tz_localize("UTC")
     return (
-        gpd.GeoDataFrame(records, crs=observations.crs)
+        gpd.GeoDataFrame(
+            {
+                "target_hash": first["target_hash"].loc[period_target].to_numpy(),
+                "geometry": first.geometry.loc[period_target].to_numpy(),
+                "satellite": contributors["satellite"].to_numpy(),
+                "instrument": contributors["instrument"].to_numpy(),
+                "start": start,
+                "epoch": start + (end - start) / 2,
+                "end": end,
+            },
+            crs=observations.crs,
+        )
         .sort_values("start", kind="stable")
         .reset_index(drop=True)
     )

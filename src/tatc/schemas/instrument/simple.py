@@ -7,16 +7,19 @@ Object schemas for nadir-pointing instruments.
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-from pydantic import BaseModel, Field, model_validator
+
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from shapely import MultiPolygon, Polygon
 from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
 from ...constants import de421
+from ...utils.glint import compute_glint_angle
 from ...utils.observation import (
     compute_min_elevation_angle,
     field_of_regard_to_swath_width,
@@ -76,6 +79,26 @@ class Instrument(BaseModel):
         le=90,
         examples=[-12],
     )
+    min_target_glint_angle: float | None = Field(
+        default=None,
+        description="Minimum glint angle (degrees) at the target for valid "
+        + "observation (`None`: no requirement): the angle between the "
+        + "directions toward the satellite and of the Sun's specular "
+        + "reflection (see `tatc.utils.compute_glint_angle`), for example to "
+        + "avoid sun glint over water.",
+        ge=0,
+        le=180,
+        examples=[25],
+    )
+    max_target_glint_angle: float | None = Field(
+        default=None,
+        description="Maximum glint angle (degrees) at the target for valid "
+        + "observation (`None`: no requirement), for example to observe in "
+        + "sun glint over water.",
+        ge=0,
+        le=180,
+        examples=[10],
+    )
     access_time_fixed: bool = Field(
         default=False, description="`True`, if access time is fixed to minimum value."
     )
@@ -86,6 +109,35 @@ class Instrument(BaseModel):
         + "toward the Earth's center). The two differ by up to about 0.19 "
         + "degrees at middle latitudes.",
     )
+    # the attitude of the space system that carries this instrument (see
+    # `bind_attitude`), from which its views are rotated
+    _attitude: Any = PrivateAttr(default=None)
+
+    @property
+    def platform_attitude(self) -> Any:
+        """
+        The attitude of the space system that carries this instrument, from
+        which its views are rotated (see `SpaceSystem.get_instrument`), or
+        `None` for a body aligned with the nadir frame.
+        """
+        return self._attitude
+
+    def bind_attitude(self, attitude: Any) -> "Instrument":
+        """
+        Gets a copy of this instrument carried by a space system with an
+        attitude (see `tatc.schemas.Attitude` and
+        `tatc.schemas.AttitudeSchedule`): its views (but not its field of
+        regard, measured from nadir) are rotated from the body's axes.
+
+        Args:
+            attitude (Any): The attitude, or `None`.
+
+        Returns:
+            Instrument: the bound copy
+        """
+        bound = self.model_copy()
+        bound._attitude = attitude  # pylint: disable=protected-access
+        return bound
 
     @model_validator(mode="after")
     def check_target_solar_elevation_range(self) -> "Instrument":
@@ -100,6 +152,14 @@ class Instrument(BaseModel):
         ):
             raise ValueError(
                 "min_target_solar_elevation must not exceed max_target_solar_elevation"
+            )
+        if (
+            self.min_target_glint_angle is not None
+            and self.max_target_glint_angle is not None
+            and self.min_target_glint_angle > self.max_target_glint_angle
+        ):
+            raise ValueError(
+                "min_target_glint_angle must not exceed max_target_glint_angle"
             )
         return self
 
@@ -195,9 +255,9 @@ class Instrument(BaseModel):
         self, orbit_track: Geocentric, target: GeographicPosition | None = None
     ) -> npt.NDArray[np.bool_]:
         """Determines if an instrument can provide a valid observations: the
-        instrument's sunlit state and the target's sunlit state and solar
-        elevation angle (without atmospheric refraction) must satisfy any
-        requirements.
+        instrument's sunlit state and the target's sunlit state, solar
+        elevation angle (without atmospheric refraction), and glint angle
+        must satisfy any requirements.
 
         Args:
             orbit_track (skyfield.positionlib.Geocentric): orbit track position/velocity from Skyfield
@@ -239,5 +299,18 @@ class Instrument(BaseModel):
             if self.max_target_solar_elevation is not None:
                 is_valid = np.logical_and(
                     is_valid, solar_alt <= self.max_target_solar_elevation
+                )
+        if (
+            self.min_target_glint_angle is not None
+            or self.max_target_glint_angle is not None
+        ):
+            glint_angle = compute_glint_angle(orbit_track, target)
+            if self.min_target_glint_angle is not None:
+                is_valid = np.logical_and(
+                    is_valid, glint_angle >= self.min_target_glint_angle
+                )
+            if self.max_target_glint_angle is not None:
+                is_valid = np.logical_and(
+                    is_valid, glint_angle <= self.max_target_glint_angle
                 )
         return is_valid

@@ -729,7 +729,7 @@ def _collect_region_observations(
     geometry = split_polygon(region)
     if region.has_z:
         geometry = project_polygon_to_elevation(geometry, elevation)
-    instrument = satellite.instruments[instrument_index]
+    instrument = satellite.get_instrument(instrument_index)
     orbit = satellite.orbit.to_gp_orbit()
     shapely.prepare(geometry)
     windows = list(

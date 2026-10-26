@@ -162,6 +162,77 @@ def _get_pair_positions(
     return from_p, to_p
 
 
+def _find_closest_approaches(
+    satellites: list[Satellite],
+    from_index: np.ndarray,
+    to_index: np.ndarray,
+    left: np.ndarray,
+    right: np.ndarray,
+    samples: np.ndarray,
+    positions: list[np.ndarray],
+    start: datetime,
+    tolerance: float = 1e-4,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Finds the closest approach of the observing and observed satellites
+    (indices `from_index` and `to_index` of `satellites`) during each of a
+    set of periods (from `left` to `right`, seconds from `start`): the sample
+    (seconds `samples`, at which the satellites' Earth-fixed positions are
+    `positions`) of least range within the period, refined by a
+    golden-section search between its neighboring samples (within the
+    period) to `tolerance` (seconds), for all periods together.
+
+    Returns:
+        tuple[numpy.ndarray, numpy.ndarray]: the time (seconds from `start`)
+            and range (meters) of each closest approach
+    """
+    first = np.searchsorted(samples, left, side="left")
+    last = np.searchsorted(samples, right, side="right")
+    lower, upper = left.copy(), right.copy()
+    for k in np.flatnonzero(last > first):
+        # bracket the sample of least range within the period by its neighbors
+        span = slice(first[k], last[k])
+        j = first[k] + np.argmin(
+            np.linalg.norm(
+                positions[to_index[k]][:, span] - positions[from_index[k]][:, span],
+                axis=0,
+            )
+        )
+        lower[k] = max(left[k], samples[j - 1]) if j > 0 else left[k]
+        upper[k] = min(right[k], samples[j + 1]) if j + 1 < len(samples) else right[k]
+
+    def slant_range(seconds: np.ndarray, index: np.ndarray) -> np.ndarray:
+        from_p, to_p = _get_pair_positions(
+            satellites,
+            from_index[index],
+            to_index[index],
+            _to_time_from_offsets(start, seconds),
+        )
+        return np.linalg.norm(to_p - from_p, axis=0)
+
+    # golden-section search for the minimum range within each bracket
+    ratio = (np.sqrt(5) - 1) / 2
+    index = np.arange(len(left))
+    c = upper - ratio * (upper - lower)
+    d = lower + ratio * (upper - lower)
+    f_c, f_d = slant_range(c, index), slant_range(d, index)
+    while np.any(upper - lower > tolerance):
+        # keep the part of each bracket that contains the smaller value
+        smaller = f_c < f_d
+        upper = np.where(smaller, d, upper)
+        lower = np.where(smaller, lower, c)
+        c, d = np.where(smaller, upper - ratio * (upper - lower), d), np.where(
+            smaller, c, lower + ratio * (upper - lower)
+        )
+        f_c, f_d = np.where(smaller, 0.0, f_d), np.where(smaller, f_c, 0.0)
+        new = np.where(smaller, c, d)
+        f_new = slant_range(new, index)
+        f_c = np.where(smaller, f_new, f_c)
+        f_d = np.where(smaller, f_d, f_new)
+    seconds = (lower + upper) / 2
+    return seconds, slant_range(seconds, index)
+
+
 def _get_empty_space_frame() -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for space-based coverage analysis results.
@@ -176,6 +247,8 @@ def _get_empty_space_frame() -> gpd.GeoDataFrame:
         "to_satellite": pd.Series([], dtype="str"),
         "start": pd.Series([], dtype="datetime64[ns, utc]"),
         "end": pd.Series([], dtype="datetime64[ns, utc]"),
+        "closest_time": pd.Series([], dtype="datetime64[ns, utc]"),
+        "closest_range": pd.Series([], dtype="float"),
     }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
@@ -209,6 +282,14 @@ def collect_space_observations(
     `tatc.utils.hash_geometry`). The lines join only the satellite positions,
     so they do not follow the line of sight across the Earth's surface and
     are not divided at the antimeridian.
+
+    Each observation also records the closest approach of the satellites
+    during the period: its time (`closest_time`) and slant range
+    (`closest_range`, meters), the least range among the samples of the
+    search within the period (see `min_duration`) and its start and end,
+    refined to 0.1 milliseconds between the neighboring samples. A period
+    whose range has several minima closer together than the samples may
+    report one that is not the least.
 
     Args:
         from_satellites (Satellite | list[Satellite]): The observing satellite(s).
@@ -338,6 +419,23 @@ def collect_space_observations(
     )
     from_geo = np.array(rectangular_to_geodetic(from_p)).T
     to_geo = np.array(rectangular_to_geodetic(to_p)).T
+    # closest approach within each period: between its samples, or at its
+    # start or end if closer
+    left, right = seconds[0::2], seconds[1::2]
+    closest, closest_range = _find_closest_approaches(
+        satellites,
+        pair_from[period_pair],
+        pair_to[period_pair],
+        left,
+        right,
+        samples,
+        positions,
+        start,
+    )
+    end_range = np.linalg.norm(to_p - from_p, axis=0).reshape(-1, 2)
+    nearer = np.argmin(np.column_stack([closest_range, end_range]), axis=1)
+    closest = np.choose(nearer, [closest, left, right])
+    closest_range = np.choose(nearer, [closest_range, end_range[:, 0], end_range[:, 1]])
     # lines of sight at the start and end of each period
     geometry = shapely.multilinestrings(
         shapely.linestrings(np.stack((from_geo, to_geo), axis=1)),
@@ -353,6 +451,8 @@ def collect_space_observations(
                 "to_satellite": [satellites[pair_to[p]].name for p in period_pair],
                 "start": reference + pd.to_timedelta(seconds[0::2], unit="s"),
                 "end": reference + pd.to_timedelta(seconds[1::2], unit="s"),
+                "closest_time": reference + pd.to_timedelta(closest, unit="s"),
+                "closest_range": closest_range,
             },
             crs="EPSG:4326",
         )

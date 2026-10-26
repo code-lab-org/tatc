@@ -9,6 +9,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Iterable
 from enum import Enum
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -170,6 +171,32 @@ def _compute_instrument_frame(
     return p_m, v, n, c
 
 
+def _compute_line_of_sight(
+    target: GeographicPosition | npt.NDArray, p_m: npt.NDArray
+) -> npt.NDArray:
+    """
+    Compute the Earth-fixed line of sight from a satellite to a target: a
+    single target, seen from each position, or one target for each position
+    (with the same number of positions as targets).
+
+    Args:
+        target (skyfield.toposlib.GeographicPosition | numpy.typing.NDArray):
+            the target position(s), or their Earth-fixed coordinates (meters),
+            with shape (3,) or (3, N).
+        p_m (numpy.typing.NDArray): the satellite position(s) (meters), with
+            shape (3,) or (3, N).
+
+    Returns:
+        numpy.typing.NDArray: the line(s) of sight (meters).
+    """
+    xyz = np.asarray(
+        target.itrs_xyz.m if isinstance(target, GeographicPosition) else target
+    )
+    if xyz.ndim == 1:
+        xyz = np.reshape(xyz, (3,) + (1,) * (p_m.ndim - 1))
+    return xyz - p_m
+
+
 def _compute_view_frame(
     orbit_track: Geocentric,
     roll_angle: float = 0,
@@ -177,6 +204,7 @@ def _compute_view_frame(
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     tilt_angle: float = 0,
+    attitude: Any = None,
 ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
     """
     Compute the Earth-fixed position and the orthonormal unit vectors that
@@ -198,6 +226,10 @@ def _compute_view_frame(
         tilt_angle (float): the tilt angle (degrees) of the plane in which
             the roll angle is measured, as for the scan plane of a scanner
             that tilts fore or aft.
+        attitude (Any): The attitude of the spacecraft's body (see
+            `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
+            which the view is rotated, or `None` for a body aligned with the
+            nadir frame (in `velocity_frame`).
 
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
@@ -205,7 +237,9 @@ def _compute_view_frame(
             cross-track unit vectors, each with shape (3,) or (3, N) in
             Earth-fixed coordinates.
     """
-    p_m, n, a, c = _compute_nadir_axes(orbit_track, velocity_frame, nadir_reference)
+    p_m, n, a, c = _compute_nadir_axes(
+        orbit_track, velocity_frame, nadir_reference, attitude
+    )
     return (p_m, *_rotate_view_axes(n, a, c, roll_angle, pitch_angle, tilt_angle))
 
 
@@ -213,18 +247,27 @@ def _compute_nadir_axes(
     orbit_track: Geocentric,
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
     nadir_reference: NadirReference = NadirReference.GEODETIC,
+    attitude: Any = None,
 ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
     """
     Compute the Earth-fixed position and the orthonormal unit vectors of an
     unrotated view (see `_compute_view_frame`): nadir, along-track
-    (forward), and cross-track (left).
+    (forward), and cross-track (left). With an attitude, these are the axes
+    of the spacecraft's body: the nadir frame (in the attitude's velocity
+    frame at each time) rotated by the body's yaw angle about the nadir
+    axis, then by its roll and pitch angles (see `_rotate_view_axes`).
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
         velocity_frame (VelocityFrame): The reference frame of the velocity
-            vector that defines the along-track direction.
+            vector that defines the along-track direction (without an
+            attitude).
         nadir_reference (NadirReference): The definition of the nadir
             direction.
+        attitude (Any): The attitude of the spacecraft's body (see
+            `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
+            which the view is rotated, or `None` for a body aligned with the
+            nadir frame (in `velocity_frame`).
 
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
@@ -232,13 +275,27 @@ def _compute_nadir_axes(
             cross-track unit vectors, each with shape (3,) or (3, N) in
             Earth-fixed coordinates.
     """
-    p_m, _, n, c = _compute_instrument_frame(
-        orbit_track, velocity_frame, nadir_reference
+    if attitude is None:
+        p_m, _, n, c = _compute_instrument_frame(
+            orbit_track, velocity_frame, nadir_reference
+        )
+        # orthonormal cross-track (left) and along-track (forward) axes at nadir
+        c = c / np.linalg.norm(c, axis=0)
+        return p_m, n, np.cross(n, c, axis=0), c
+    yaw, roll, pitch, inertial = attitude.get_body_angles(orbit_track)
+    p_m, n, a, c = _compute_nadir_axes(
+        orbit_track, VelocityFrame.EARTH_FIXED, nadir_reference
     )
-    # orthonormal cross-track (left) and along-track (forward) axes at nadir
-    c = c / np.linalg.norm(c, axis=0)
-    a = np.cross(n, c, axis=0)
-    return p_m, n, a, c
+    if np.any(inertial):
+        _, _, a_inertial, c_inertial = _compute_nadir_axes(
+            orbit_track, VelocityFrame.INERTIAL, nadir_reference
+        )
+        a = np.where(inertial, a_inertial, a)
+        c = np.where(inertial, c_inertial, c)
+    # yaw about the nadir axis, turning the along-track axis to the left
+    yaw = np.radians(yaw)
+    a, c = np.cos(yaw) * a + np.sin(yaw) * c, np.cos(yaw) * c - np.sin(yaw) * a
+    return (p_m, *_rotate_view_axes(n, a, c, roll, pitch))
 
 
 def _rotate_view_axes(
@@ -288,6 +345,7 @@ def compute_view_tangents(
     roll_angle: float = 0,
     pitch_angle: float = 0,
     nadir_reference: NadirReference = NadirReference.GEODETIC,
+    attitude: Any = None,
 ) -> tuple[npt.NDArray, npt.NDArray]:
     """
     Compute the tangents of the along-track and cross-track view angles of a
@@ -302,7 +360,8 @@ def compute_view_tangents(
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
-        target (skyfield.toposlib.GeographicPosition): the target position.
+        target (skyfield.toposlib.GeographicPosition): the target position
+            (a single target, or one target for each time of the orbit track).
         velocity_frame (VelocityFrame): The reference frame of the velocity
             vector that defines the along-track direction.
         roll_angle (float): the instrument roll angle (degrees).
@@ -310,20 +369,216 @@ def compute_view_tangents(
         nadir_reference (NadirReference): The definition of the nadir
             direction from which the view is rotated.
 
+        attitude (Any): The attitude of the spacecraft's body (see
+            `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
+            which the view is rotated, or `None` for a body aligned with the
+            nadir frame (in `velocity_frame`).
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track and
             cross-track (positive left) view angle tangents (`NaN` if the
             target is not in front of the view).
     """
     p_m, boresight, along, cross = _compute_view_frame(
-        orbit_track, roll_angle, pitch_angle, velocity_frame, nadir_reference
+        orbit_track,
+        roll_angle,
+        pitch_angle,
+        velocity_frame,
+        nadir_reference,
+        attitude=attitude,
     )
     # line of sight from the satellite to the target
-    los = np.reshape(np.array(target.itrs_xyz.m), (3,) + (1,) * (p_m.ndim - 1)) - p_m
+    los = _compute_line_of_sight(target, p_m)
     with np.errstate(divide="ignore", invalid="ignore"):
         scale = np.sum(los * boresight, axis=0)
         scale = np.where(scale > 0, scale, np.nan)
         return np.sum(los * along, axis=0) / scale, np.sum(los * cross, axis=0) / scale
+
+
+def compute_ground_sample_size(
+    orbit_track: Geocentric,
+    target: GeographicPosition,
+    along_track_angle: float,
+    cross_track_angle: float,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    roll_angle: npt.ArrayLike = 0,
+    pitch_angle: npt.ArrayLike = 0,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
+    tilt_angle: npt.ArrayLike = 0,
+    attitude: Any = None,
+) -> tuple[npt.NDArray, npt.NDArray]:
+    """
+    Compute the size on the ground of an angular extent centered on the line
+    of sight to a target, such as the instantaneous field of view of an
+    instrument's sample (or the angle between neighboring samples): the
+    distances between the points where rays at half the extent on either
+    side of the line of sight meet the WGS 84 ellipsoid (raised to the
+    target's elevation), along track and across track. The extents lie
+    along the view's along-track and cross-track axes (rotated from nadir by
+    the tilt, roll, and pitch angles, see `_compute_view_frame`), each made
+    perpendicular to the line of sight, so the sizes include the
+    lengthening of a view off nadir and the curvature of the Earth. Rays
+    that miss the Earth (beyond its limb) give `NaN`.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        target (skyfield.toposlib.GeographicPosition): the target position
+            (a single target, or one target for each time of the orbit track).
+        along_track_angle (float): the along-track angular extent (degrees).
+        cross_track_angle (float): the cross-track angular extent (degrees).
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
+        roll_angle (numpy.typing.ArrayLike): the view's roll angle (degrees).
+        pitch_angle (numpy.typing.ArrayLike): the view's pitch angle (degrees).
+        nadir_reference (NadirReference): The definition of the nadir
+            direction from which the view is rotated.
+        tilt_angle (numpy.typing.ArrayLike): the tilt angle (degrees) of a
+            scan plane about the cross-track axis (positive forward).
+
+        attitude (Any): The attitude of the spacecraft's body (see
+            `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
+            which the view is rotated, or `None` for a body aligned with the
+            nadir frame (in `velocity_frame`).
+    Returns:
+        tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track
+            and cross-track sizes (meters).
+    """
+    p_m, _, along, cross = _compute_view_frame(
+        orbit_track,
+        roll_angle,
+        pitch_angle,
+        velocity_frame,
+        nadir_reference,
+        tilt_angle,
+        attitude,
+    )
+    p_m, along, cross = (np.reshape(v, (3, -1)) for v in (p_m, along, cross))
+    los = np.reshape(_compute_line_of_sight(target, p_m), (3, -1))
+    los = los / np.linalg.norm(los, axis=0)
+    elevation = np.broadcast_to(
+        np.atleast_1d(target.elevation.m).astype(float), los.shape[1:]
+    )
+    sizes = []
+    for axis, angle in ((along, along_track_angle), (cross, cross_track_angle)):
+        # the axis made perpendicular to the line of sight
+        normal = axis - np.sum(axis * los, axis=0) * los
+        normal = normal / np.linalg.norm(normal, axis=0)
+        half = np.radians(angle) / 2
+        ends = []
+        for sign in (-1, 1):
+            direction = np.cos(half) * los + sign * np.sin(half) * normal
+            end = np.full(direction.shape, np.nan)
+            for value in np.unique(elevation):
+                selected = elevation == value
+                point, found = compute_ellipsoid_intersection(
+                    p_m[:, selected], direction[:, selected], value
+                )
+                end[:, selected] = np.where(found, point, np.nan)
+            ends.append(end)
+        sizes.append(np.linalg.norm(ends[1] - ends[0], axis=0))
+    if (
+        np.ndim(np.asarray(orbit_track.t.tt)) == 0
+        and np.ndim(target.latitude.degrees) == 0
+    ):
+        return sizes[0][0], sizes[1][0]
+    return sizes[0], sizes[1]
+
+
+def _shift_along_track(orbit_track: Geocentric, seconds: npt.ArrayLike) -> Geocentric:
+    """
+    Shifts satellite positions along their Earth-fixed velocity (a linear
+    approximation of the motion relative to the ground over a short time).
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+        seconds (numpy.typing.ArrayLike): The shift (seconds) at each time.
+
+    Returns:
+        skyfield.positionlib.Geocentric: The shifted satellite position/velocity.
+    """
+    position, velocity = orbit_track.frame_xyz_and_velocity(itrs)
+    shifted = np.array(position.m) + np.array(velocity.m_per_s) * seconds
+    # rotate from Earth-fixed to inertial (GCRS) coordinates at the same times
+    gcrs = np.einsum("ji...,j...->i...", itrs.rotation_at(orbit_track.t), shifted)
+    return Geocentric(
+        gcrs / AU_M, orbit_track.velocity.au_per_d, orbit_track.t, center=399
+    )
+
+
+def compute_ground_advance(
+    orbit_track: Geocentric,
+    target: GeographicPosition,
+    seconds: float,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
+    attitude: Any = None,
+) -> npt.NDArray:
+    """
+    Compute the distance on the ground (meters) that a view fixed to the
+    spacecraft advances at a target in a period of time: from the target to
+    the point where the line of sight to it, held fixed relative to the
+    view's axes (the nadir frame, or the body's axes with an attitude),
+    meets the WGS 84 ellipsoid (raised to the target's elevation) after the
+    satellite moves along its Earth-fixed velocity for that period (a linear
+    approximation over a short period, such as that of a scan). For a
+    cross-track scanner, it is the spacing along track between the samples
+    of consecutive scans, which is nearly constant across the scan. Rays
+    that miss the Earth give `NaN`.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        target (skyfield.toposlib.GeographicPosition): the target position
+            (a single target, or one target for each time of the orbit track).
+        seconds (float): the period (seconds).
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
+        nadir_reference (NadirReference): The definition of the nadir
+            direction.
+        attitude (Any): The attitude of the spacecraft's body (see
+            `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), or
+            `None` for a body aligned with the nadir frame (in `velocity_frame`).
+
+    Returns:
+        numpy.typing.NDArray: the distance (meters).
+    """
+    p_m, nadir, along, cross = (
+        np.reshape(v, (3, -1))
+        for v in _compute_nadir_axes(
+            orbit_track, velocity_frame, nadir_reference, attitude
+        )
+    )
+    target_m = np.reshape(np.array(target.itrs_xyz.m), (3, -1))
+    los = target_m - p_m
+    los = los / np.linalg.norm(los, axis=0)
+    # the line of sight on the axes, which move with the satellite
+    components = [np.sum(los * axis, axis=0) for axis in (nadir, along, cross)]
+    q_m, nadir, along, cross = (
+        np.reshape(v, (3, -1))
+        for v in _compute_nadir_axes(
+            _shift_along_track(orbit_track, seconds),
+            velocity_frame,
+            nadir_reference,
+            attitude,
+        )
+    )
+    direction = components[0] * nadir + components[1] * along + components[2] * cross
+    q_m = np.broadcast_to(q_m, direction.shape)
+    elevation = np.broadcast_to(
+        np.atleast_1d(target.elevation.m).astype(float), direction.shape[1:]
+    )
+    end = np.full(direction.shape, np.nan)
+    for value in np.unique(elevation):
+        selected = elevation == value
+        point, found = compute_ellipsoid_intersection(
+            q_m[:, selected], direction[:, selected], value
+        )
+        end[:, selected] = np.where(found, point, np.nan)
+    distance = np.linalg.norm(end - target_m, axis=0)
+    if (
+        np.ndim(np.asarray(orbit_track.t.tt)) == 0
+        and np.ndim(target.latitude.degrees) == 0
+    ):
+        return distance[0]
+    return distance
 
 
 def compute_view_angles(
@@ -332,6 +587,7 @@ def compute_view_angles(
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     tilt_angle: float = 0,
+    attitude: Any = None,
 ) -> tuple[npt.NDArray, npt.NDArray]:
     """
     Compute the roll and pitch angles (degrees) that point a view's center at
@@ -345,7 +601,8 @@ def compute_view_angles(
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
-        target (skyfield.toposlib.GeographicPosition): the target position.
+        target (skyfield.toposlib.GeographicPosition): the target position
+            (a single target, or one target for each time of the orbit track).
         velocity_frame (VelocityFrame): The reference frame of the velocity
             vector that defines the along-track direction.
         nadir_reference (NadirReference): The definition of the nadir
@@ -353,14 +610,18 @@ def compute_view_angles(
         tilt_angle (float): the tilt angle (degrees) of the scan plane about
             the cross-track axis (positive forward).
 
+        attitude (Any): The attitude of the spacecraft's body (see
+            `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
+            which the view is rotated, or `None` for a body aligned with the
+            nadir frame (in `velocity_frame`).
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the roll (positive
             left) and pitch (positive forward) angles (degrees).
     """
     p_m, nadir, along, cross = _compute_view_frame(
-        orbit_track, 0, 0, velocity_frame, nadir_reference, tilt_angle
+        orbit_track, 0, 0, velocity_frame, nadir_reference, tilt_angle, attitude
     )
-    los = np.reshape(np.array(target.itrs_xyz.m), (3,) + (1,) * (p_m.ndim - 1)) - p_m
+    los = _compute_line_of_sight(target, p_m)
     los = los / np.linalg.norm(los, axis=0)
     roll = np.degrees(
         np.arctan2(np.sum(los * cross, axis=0), np.sum(los * nadir, axis=0))
@@ -374,6 +635,7 @@ def compute_cone_and_azimuth(
     target: GeographicPosition,
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
     nadir_reference: NadirReference = NadirReference.GEODETIC,
+    attitude: Any = None,
 ) -> tuple[npt.NDArray, npt.NDArray]:
     """
     Compute the cone angle (from nadir) and the scan azimuth
@@ -384,22 +646,27 @@ def compute_cone_and_azimuth(
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
-        target (skyfield.toposlib.GeographicPosition): the target position.
+        target (skyfield.toposlib.GeographicPosition): the target position
+            (a single target, or one target for each time of the orbit track).
         velocity_frame (VelocityFrame): The reference frame of the velocity
             vector that defines the along-track direction.
         nadir_reference (NadirReference): The definition of the nadir
             direction.
 
+        attitude (Any): The attitude of the spacecraft's body (see
+            `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
+            which the view is rotated, or `None` for a body aligned with the
+            nadir frame (in `velocity_frame`).
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the cone angle
             (degrees, from 0 to 180) and scan azimuth (degrees, from -180 to
             180).
     """
     p_m, nadir, along, cross = _compute_view_frame(
-        orbit_track, 0, 0, velocity_frame, nadir_reference
+        orbit_track, 0, 0, velocity_frame, nadir_reference, attitude=attitude
     )
     # line of sight from the satellite to the target
-    los = np.reshape(np.array(target.itrs_xyz.m), (3,) + (1,) * (p_m.ndim - 1)) - p_m
+    los = _compute_line_of_sight(target, p_m)
     down = np.sum(los * nadir, axis=0)
     forward = np.sum(los * along, axis=0)
     left = np.sum(los * cross, axis=0)
@@ -422,6 +689,7 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     tilt_angle: float = 0,
     ground_elevation: float = 0,
+    attitude: Any = None,
 ) -> GeographicPosition:
     """
     Get the location of a projected ray from an instrument. The ray is cast
@@ -472,6 +740,10 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
         ground_elevation (float): The elevation (meters) of the ground, which
             blocks rays toward an elevation above the instrument.
 
+        attitude (Any): The attitude of the spacecraft's body (see
+            `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
+            which the view is rotated, or `None` for a body aligned with the
+            nadir frame (in `velocity_frame`).
     Returns:
         (skyfield.toposlib.GeographicPosition): the geographic position of the projected ray
     """
@@ -488,6 +760,7 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
         nadir_reference,
         tilt_angle,
         ground_elevation,
+        attitude,
     )[:, 0]
     # return resulting geographic position
     return wgs84.latlon(geos[1], geos[0], geos[2])
@@ -603,6 +876,7 @@ def _compute_rays(
     velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     tilt_angle: float = 0,
+    attitude: Any = None,
 ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray, bool]:
     """
     Get several rays from an instrument (see `_compute_projected_rays` for
@@ -618,7 +892,9 @@ def _compute_rays(
     # against times)
     angle = np.radians(np.reshape(np.asarray(angles, dtype=float), (-1, 1)))
     # the unrotated view axes, with shape (3, 1, N) to broadcast against rays
-    p_m, n, a, c = _compute_nadir_axes(orbit_track, velocity_frame, nadir_reference)
+    p_m, n, a, c = _compute_nadir_axes(
+        orbit_track, velocity_frame, nadir_reference, attitude
+    )
     # whether orbit_track represents a single time or a vector of times
     is_vectorized = len(np.shape(p_m)) > 1
     p_m, n, a, c = (np.reshape(x, (3, 1, -1)) for x in (p_m, n, a, c))
@@ -895,6 +1171,7 @@ def _compute_projected_rays(
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     tilt_angle: float = 0,
     ground_elevation: float = 0,
+    attitude: Any = None,
 ) -> npt.NDArray:
     """
     Get the locations of several projected rays from an instrument (see
@@ -926,6 +1203,10 @@ def _compute_projected_rays(
         ground_elevation (float): The elevation (meters) of the ground, which
             blocks rays toward an elevation above the instrument.
 
+        attitude (Any): The attitude of the spacecraft's body (see
+            `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
+            which the view is rotated, or `None` for a body aligned with the
+            nadir frame (in `velocity_frame`).
     Returns:
         numpy.typing.NDArray: the geodetic longitudes (degrees), latitudes
             (degrees), and altitudes (meters) of the projected rays, with
@@ -942,6 +1223,7 @@ def _compute_projected_rays(
         velocity_frame,
         nadir_reference,
         tilt_angle,
+        attitude,
     )
     geos, _ = _project_rays(
         *(np.reshape(x, (3, -1)) for x in rays[:4]), elevation, ground_elevation
@@ -963,6 +1245,7 @@ def compute_footprint(
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     view_geometry: ViewGeometry = ViewGeometry.FRAME,
     ground_elevation: float = 0,
+    attitude: Any = None,
 ) -> list[Polygon | MultiPolygon]:
     """
     Compute the instantaneous instrument footprint. Supports both a scalar
@@ -999,6 +1282,10 @@ def compute_footprint(
         ground_elevation (float): The elevation (meters) of the ground, which
             blocks rays toward an elevation above the instrument.
 
+        attitude (Any): The attitude of the spacecraft's body (see
+            `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
+            which the view is rotated, or `None` for a body aligned with the
+            nadir frame (in `velocity_frame`).
     Returns:
         list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The instrument footprint(s).
     """
@@ -1062,6 +1349,7 @@ def compute_footprint(
             velocity_frame,
             nadir_reference,
             pitch_angle,
+            attitude,
         )
     else:
         *rays, _ = _compute_rays(
@@ -1074,6 +1362,7 @@ def compute_footprint(
             angles,
             velocity_frame,
             nadir_reference,
+            attitude=attitude,
         )
     position, direction, _, nadir, along = rays
     geos, _ = _project_rays(

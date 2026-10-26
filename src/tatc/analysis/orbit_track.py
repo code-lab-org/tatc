@@ -188,7 +188,7 @@ def _collect_orbit_track(
     `collect_orbit_track`).
     """
     # select the observing instrument
-    instrument = satellite.instruments[instrument_index]
+    instrument = satellite.get_instrument(instrument_index)
     # propagate orbit
     orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track_at_time(t)
     # geodetic (WGS84) position of the satellite itself (not the zero-elevation

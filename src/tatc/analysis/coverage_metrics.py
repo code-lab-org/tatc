@@ -8,7 +8,9 @@ regions: the aggregation, reduction, and gridding of observations.
 from __future__ import annotations
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
+import shapely
 
 
 def _get_target_keys(gdf: gpd.GeoDataFrame) -> list[pd.Series]:
@@ -60,7 +62,8 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     instant), not the mean of the constituent observations' own epochs.
     Per-observation columns that lose their meaning once merged across
     satellites and over a potentially much longer period -- e.g. `sat_alt`,
-    `sat_az`, `sat_sunlit`, `solar_alt`, `solar_az`, `solar_time` -- are
+    `sat_az`, `sat_sunlit`, `solar_alt`, `solar_az`, `solar_time`,
+    `glint_angle` -- are
     intentionally dropped, even if present on `observations`.
 
     Args:
@@ -71,35 +74,63 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     if observations.empty:
         return _get_empty_aggregate_frame()
-    gdfs = []
-    # split into constituent data frames for each target
-    for _, gdf in observations.groupby(_get_target_keys(observations)):
-        # sort the values by start datetime
-        gdf = gdf.sort_values("start")
-        # assign the observation group number based on overlapping start/end times
-        gdf["obs"] = (gdf["start"] > gdf["end"].shift().cummax()).cumsum()
-        # perform the aggregation to group overlapping observations
-        gdf = gdf.dissolve(
-            "obs",
-            aggfunc={
-                "target_hash": "first",
-                "satellite": ", ".join,  # type: ignore
-                "instrument": ", ".join,  # type: ignore
-                "start": "min",
-                "end": "max",
-            },
-        )
-        # reassign epoch to the midpoint of the merged period, as a single
-        # representative instant, rather than the mean of the constituent
-        # observations' own (pre-merge) epochs
-        gdf["epoch"] = gdf["start"] + (gdf["end"] - gdf["start"]) / 2
-        # compute access and revisit metrics
-        gdf["access"] = gdf["end"] - gdf["start"]
-        gdf["revisit"] = gdf["start"] - gdf["end"].shift()
-        # append to the list of data frames
-        gdfs.append(gdf)
-    # return a concatenated data frame and re-index
-    return pd.concat(gdfs).reset_index(drop=True)
+    # targets (in sorted order of their keys), with each target's observations
+    # sorted by start (stably), for all targets together
+    target, _ = pd.MultiIndex.from_arrays(_get_target_keys(observations)).factorize(
+        sort=True
+    )
+    start = observations["start"].dt.tz_convert("UTC").dt.tz_localize(None).to_numpy()
+    end = observations["end"].dt.tz_convert("UTC").dt.tz_localize(None).to_numpy()
+    order = np.lexsort((start, target))
+    gdf = observations.iloc[order].reset_index(drop=True)
+    target, start, end = target[order], start[order], end[order]
+    # assign the observation group number based on overlapping start/end times:
+    # a group starts with each target, and with each observation starting after
+    # every earlier observation of the target has ended
+    first = np.concatenate([[True], target[1:] != target[:-1]])
+    reach = pd.Series(end).groupby(target).cummax().to_numpy()
+    group = np.cumsum(first | (start > np.concatenate([reach[:1], reach[:-1]]))) - 1
+    grouped = gdf.groupby(group, sort=False)
+    # the geometry of each group: the union of its observations' (for a region,
+    # the part of it observed during the period)
+    geometry = grouped.geometry.first().to_numpy()
+    counts = np.bincount(group)
+    members = np.split(gdf.geometry.to_numpy(), np.cumsum(counts)[:-1])
+    for g in np.flatnonzero(counts > 1):
+        geometry[g] = shapely.union_all(members[g])
+    aggregated = gpd.GeoDataFrame(
+        {
+            "target_hash": grouped["target_hash"].first(),
+            "satellite": grouped["satellite"]
+            .agg(", ".join)
+            .astype(gdf["satellite"].dtype),
+            "instrument": grouped["instrument"]
+            .agg(", ".join)
+            .astype(gdf["instrument"].dtype),
+            "start": grouped["start"].min(),
+            "end": grouped["end"].max(),
+        },
+        geometry=gpd.GeoSeries(
+            geometry, index=grouped["start"].min().index, crs=observations.crs
+        ),
+    )
+    aggregated = aggregated[
+        ["geometry", "target_hash", "satellite", "instrument", "start", "end"]
+    ]
+    # reassign epoch to the midpoint of the merged period, as a single
+    # representative instant, rather than the mean of the constituent
+    # observations' own (pre-merge) epochs
+    aggregated["epoch"] = (
+        aggregated["start"] + (aggregated["end"] - aggregated["start"]) / 2
+    )
+    # compute access and revisit metrics (the revisit of each target's first
+    # period is undefined)
+    aggregated["access"] = aggregated["end"] - aggregated["start"]
+    group_target = target[np.concatenate([[True], group[1:] != group[:-1]])]
+    revisit = aggregated["start"] - aggregated["end"].shift()
+    revisit[np.concatenate([[True], group_target[1:] != group_target[:-1]])] = pd.NaT
+    aggregated["revisit"] = revisit
+    return aggregated.reset_index(drop=True)
 
 
 def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
@@ -172,7 +203,9 @@ def grid_observations(
     Both access (a per-event duration) and revisit (a time-between-events
     duration, i.e. the reciprocal of a sampling rate) use a sample-weighted
     mean -- arithmetic for access, harmonic for revisit, since revisit
-    needs to be averaged as a rate to stay a representative statistic.
+    needs to be averaged as a rate to stay a representative statistic. The
+    revisit is averaged over the points with a revisit (at least two
+    samples), and is undefined (NaT) for a cell with none.
 
     Args:
         reduced_observations (geopandas.GeoDataFrame): The reduced observations.
@@ -196,9 +229,11 @@ def grid_observations(
     # with a dict of {column: function} only ever hands a custom callable
     # its own column's Series, never a sibling column like "samples" needed
     # to compute a weighted statistic within the callable. The weighted
-    # harmonic mean of revisit is sum(samples) / sum(samples/revisit).
+    # harmonic mean of revisit is sum(samples) / sum(samples/revisit), over
+    # the points with a revisit.
     gdf["access_x_samples"] = gdf["access"] * gdf["samples"]
-    gdf["samples_over_revisit"] = gdf["samples"] / gdf["revisit"]
+    gdf["revisit_samples"] = gdf["samples"].where(gdf["revisit"].notna(), 0)
+    gdf["samples_over_revisit"] = (gdf["samples"] / gdf["revisit"]).fillna(0)
     gdf = (
         cells.sjoin(gdf, how="inner", predicate="contains")
         .dissolve(
@@ -206,6 +241,7 @@ def grid_observations(
             aggfunc={
                 "samples": "sum",
                 "access_x_samples": "sum",
+                "revisit_samples": "sum",
                 "samples_over_revisit": "sum",
             },
         )
@@ -214,8 +250,12 @@ def grid_observations(
     # finish the aggregation: sample-weighted arithmetic mean for access,
     # sample-weighted harmonic mean for revisit
     gdf["access"] = gdf["access_x_samples"] / gdf["samples"]
-    gdf["revisit"] = gdf["samples"] / gdf["samples_over_revisit"]
-    gdf = gdf.drop(columns=["access_x_samples", "samples_over_revisit"])
+    gdf["revisit"] = (gdf["revisit_samples"] / gdf["samples_over_revisit"]).where(
+        gdf["samples_over_revisit"] > 0
+    )
+    gdf = gdf.drop(
+        columns=["access_x_samples", "revisit_samples", "samples_over_revisit"]
+    )
     # convert access and revisit from numeric values after aggregation
     gdf["access"] = pd.to_timedelta(gdf["access"], unit="s")
     gdf["revisit"] = pd.to_timedelta(gdf["revisit"], unit="s")

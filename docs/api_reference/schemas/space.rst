@@ -19,6 +19,33 @@ Conical Instrument
 .. autopydantic_model:: tatc.schemas.ConicalInstrument
   :members:
 
+Attitude
+--------
+
+.. autopydantic_model:: tatc.schemas.Attitude
+  :members:
+
+Target Attitude
+---------------
+
+.. autopydantic_model:: tatc.schemas.TargetAttitude
+  :members:
+
+Glint Attitude
+--------------
+
+.. autopydantic_model:: tatc.schemas.GlintAttitude
+  :members:
+
+Attitude Schedule
+-----------------
+
+.. autopydantic_model:: tatc.schemas.AttitudeSchedule
+  :members:
+
+.. autopydantic_model:: tatc.schemas.AttitudeSegment
+  :members:
+
 Satellite
 ---------
 

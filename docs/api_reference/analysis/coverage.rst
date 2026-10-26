@@ -25,6 +25,10 @@ Compute Region Access Periods
 -----------------------------
 .. autofunction:: tatc.analysis.compute_region_access_periods
 
+Compute Sample Sizes
+--------------------
+.. autofunction:: tatc.analysis.compute_sample_sizes
+
 Aggregate Observations
 ----------------------
 .. autofunction:: tatc.analysis.aggregate_observations

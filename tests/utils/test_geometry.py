@@ -901,6 +901,31 @@ class TestGeometry(unittest.TestCase):  # pylint: disable=too-many-public-method
         for point in [(165, 0), (-165, 0)]:
             self.assertTrue(result.contains(Point(*point)))
 
+    def test_split_polygon_polar_coastline_not_monotonic_in_longitude(self):
+        """
+        Test that a polygon around a pole whose boundary is not monotonic in
+        longitude (as a coastline with a peninsula, such as Antarctica's) keeps
+        its shape, whether or not it already includes edges along the pole and
+        the anti-meridian.
+        """
+        coast = [(-60, -80), (-60, -63), (-66, -63), (-66, -60), (60, -60)]
+        with_pole_edges = Polygon(
+            [(180, -80), (180, -90), (-180, -90), (-180, -80), *coast, (180, -80)]
+        )
+        result = split_polygon(with_pole_edges)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.symmetric_difference(with_pole_edges).area, 0)
+        # the same region, as a ring of latitudes around the pole
+        ring = Polygon([(-180, -80), *coast, (180, -80), (-180, -80)])
+        result = split_polygon(ring)
+        self.assertTrue(result.is_valid)
+        self.assertAlmostEqual(result.symmetric_difference(with_pole_edges).area, 0)
+        # the strip above the doubled-back coast is included, and the bay below
+        # it is not
+        self.assertTrue(result.contains(Point(-63, -61.5)))
+        self.assertFalse(result.contains(Point(-63, -70)))
+        self.assertTrue(result.contains(Point(0, -70)))
+
     def test_split_polygon_hole_around_pole(self):
         """
         Test that a hole around a pole (in a ring of latitudes around it) is

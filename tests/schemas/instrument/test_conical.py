@@ -238,3 +238,85 @@ class TestConicalInstrument(unittest.TestCase):
             self.assertAlmostEqual(
                 ((float(a) - azimuth + 180) % 360) - 180, 0, delta=1e-6
             )
+
+    def test_sample_size_of_forward_view(self):
+        """
+        Test that the beam of a forward conical view (as of AMSR2's 6.9 GHz
+        channel, 1.8 deg from 700 km at a cone angle of 47.5 deg, about 35 by
+        62 km) is longer along track, in the oblique direction of the view, by
+        about the secant of its zenith angle, and spans the beam width times
+        the slant range across track.
+        """
+        instrument = ConicalInstrument(
+            name="amsr2",
+            cone_angle=47.5,
+            along_track_field_of_view=0.82,
+            scan_half_width=75,
+            beam_width=1.8,
+            scan_sample_spacing=0.8,
+        )
+        target = instrument.compute_footprint_center(self.orbit_track)
+        altitude, _, distance = (
+            self.orbit_track - target.at(self.orbit_track.t)
+        ).altaz()
+        along, cross = instrument.compute_sample_size(self.orbit_track, target)
+        self.assertAlmostEqual(cross / (distance.m * np.radians(1.8)), 1, places=2)
+        self.assertAlmostEqual(
+            along * np.cos(np.radians(90 - altitude.degrees)) / cross, 1, delta=0.03
+        )
+        self.assertAlmostEqual(cross / 35e3, 1, delta=0.05)
+        self.assertAlmostEqual(along / 62e3, 1, delta=0.05)
+
+    def test_sample_spacing(self):
+        """
+        Test that samples are spaced along track by the distance the arc
+        advances per scan, and across track by the scan sample spacing times
+        the arc's radius on the ground.
+        """
+        instrument = ConicalInstrument(
+            name="amsr2",
+            cone_angle=47.5,
+            along_track_field_of_view=0.82,
+            beam_width=1.8,
+            scan_sample_spacing=0.8,
+        )
+        target = instrument.compute_footprint_center(self.orbit_track)
+        along, cross = instrument.compute_sample_spacing(self.orbit_track, target)
+        self.assertAlmostEqual(
+            along / (2 * 700e3 * np.tan(np.radians(0.41))), 1, delta=0.01
+        )
+        subpoint = wgs84.subpoint_of(self.orbit_track)
+        radius = (
+            np.radians(
+                np.degrees(
+                    np.arccos(
+                        np.sin(np.radians(subpoint.latitude.degrees))
+                        * np.sin(np.radians(target.latitude.degrees))
+                        + np.cos(np.radians(subpoint.latitude.degrees))
+                        * np.cos(np.radians(target.latitude.degrees))
+                        * np.cos(
+                            np.radians(
+                                target.longitude.degrees - subpoint.longitude.degrees
+                            )
+                        )
+                    )
+                )
+            )
+            * 6371e3
+        )
+        self.assertAlmostEqual(cross / (radius * np.radians(0.8)), 1, delta=0.01)
+
+    def test_sample_size_not_modeled(self):
+        """
+        Test that the sample sizes are undefined without a beam width, and the
+        cross-track spacing without a scan sample spacing.
+        """
+        instrument = ConicalInstrument(
+            name="c", cone_angle=47.5, along_track_field_of_view=0.82
+        )
+        target = instrument.compute_footprint_center(self.orbit_track)
+        along, cross = instrument.compute_sample_size(self.orbit_track, target)
+        self.assertTrue(np.isnan(along) and np.isnan(cross))
+        along, cross = instrument.compute_sample_spacing(self.orbit_track, target)
+        self.assertGreater(along, 0)
+        self.assertTrue(np.isnan(cross))

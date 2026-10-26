@@ -14,7 +14,7 @@ from typing import Annotated, Literal, overload
 
 import numpy as np
 import numpy.typing as npt
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, model_validator
 from shapely.geometry import Point as ShapelyPoint
 from skyfield.api import Time, wgs84
 from skyfield.positionlib import Geocentric
@@ -44,7 +44,9 @@ class GeneralPerturbationsOrbit(BaseModel):
     Orbit defined with general perturbations (GP) elements.
 
     The orbit is propagated with SGP4, using whichever element's epoch is
-    closest to each time. Optionally (with `repeat_cycle` and `remove_drag`),
+    closest to each time, or, if `element_switch_times` are given, the
+    element between the switches before and after each time (see
+    `get_element_index`). Optionally (with `repeat_cycle` and `remove_drag`),
     it is propagated as an orbit maintained against drag on a repeat ground
     track, which SGP4 does not model: if the orbit declares a repeat cycle or
     one is found (see `GeneralPerturbationsElements.get_repeat_cycle`), times
@@ -80,6 +82,18 @@ class GeneralPerturbationsOrbit(BaseModel):
         + "A repeat cycle requires `remove_drag`, as the orbit is maintained "
         + "against drag.",
     )
+    element_switch_times: list[AwareDatetime] | None = Field(
+        default=None,
+        description="Times at which propagation switches from each element "
+        + "(sorted by epoch) to the next, one fewer than the elements, each "
+        + "between the epochs of the elements before and after it: element "
+        + "k is used from switch k - 1 until switch k. None (the default) "
+        + "switches midway between consecutive epochs, using the element whose "
+        + "epoch is closest to each time. Common switch times keep satellites "
+        + "whose elements are published at slightly different times (as in a "
+        + "formation) on elements of the same epochs; see "
+        + "`tatc.utils.align_element_switches`.",
+    )
 
     @model_validator(mode="after")
     def _sort_elements_by_epoch(self) -> GeneralPerturbationsOrbit:
@@ -101,6 +115,30 @@ class GeneralPerturbationsOrbit(BaseModel):
         """
         if self.repeat_cycle is not None and not self.remove_drag:
             raise ValueError("repeat_cycle requires remove_drag=True.")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_element_switch_times(self) -> GeneralPerturbationsOrbit:
+        """
+        Validates that element switch times, if any, number one fewer than
+        the elements and that each lies between the epochs of the elements
+        (sorted by epoch) before and after it, which also orders them.
+        """
+        if self.element_switch_times is None:
+            return self
+        if len(self.element_switch_times) != len(self.elements) - 1:
+            raise ValueError(
+                f"element_switch_times must have one fewer entry than elements "
+                f"({len(self.elements) - 1}), not {len(self.element_switch_times)}."
+            )
+        epochs = self.get_element_epochs()
+        for k, switch in enumerate(self.element_switch_times):
+            if not epochs[k] <= switch <= epochs[k + 1]:
+                raise ValueError(
+                    f"element_switch_times[{k}] ({switch}) is not between the "
+                    f"epochs of elements {k} ({epochs[k]}) and {k + 1} "
+                    f"({epochs[k + 1]})."
+                )
         return self
 
     def get_semimajor_axis(self, index: int = 0) -> float:
@@ -442,6 +480,7 @@ class GeneralPerturbationsOrbit(BaseModel):
             elements=derived_elements,
             remove_drag=self.remove_drag,
             repeat_cycle=self.repeat_cycle,
+            element_switch_times=self.element_switch_times,
         )
 
     @overload
@@ -498,6 +537,66 @@ class GeneralPerturbationsOrbit(BaseModel):
         closest = np.where(use_preceding, indices - 1, indices)
         return int(closest[0]) if is_scalar else closest.tolist()
 
+    def _get_element_switch_times_ns(self) -> npt.NDArray[np.datetime64]:
+        """
+        Gets the element switch times as a cached array (see
+        `element_switch_times`), which must not be None.
+
+        Returns:
+            numpy.typing.NDArray[numpy.datetime64]: the switch times
+        """
+        return get_cached(
+            self,
+            "element_switch_times_ns",
+            tuple(self.element_switch_times),
+            lambda: utils.to_datetime64_ns(self.element_switch_times),
+        )
+
+    @overload
+    def get_element_index(self, at_times: None) -> int: ...
+
+    @overload
+    def get_element_index(self, at_times: datetime) -> int: ...
+
+    @overload
+    def get_element_index(self, at_times: list[datetime]) -> list[int]: ...
+
+    @overload
+    def get_element_index(self, at_times: npt.NDArray[np.datetime64]) -> list[int]: ...
+
+    @overload
+    def get_element_index(self, at_times: Time) -> int | list[int]: ...
+
+    def get_element_index(
+        self,
+        at_times: datetime | list[datetime] | npt.NDArray[np.datetime64] | Time | None,
+    ) -> int | list[int]:
+        """
+        Gets the index of the element that propagates the orbit at specified
+        time(s): the element whose epoch is closest (see
+        `get_closest_element_index`), or, if `element_switch_times` are given,
+        the element between the switches before and after each time. A time
+        exactly at a switch selects the later element.
+
+        Args:
+            at_times (datetime | list[datetime] | npt.NDArray[np.datetime64] | Time | None):
+                specified times (a Skyfield `Time` may be a scalar or an array),
+                or None to always select the first element (index 0)
+
+        Returns:
+            int | list[int]: element index (for a scalar time) or indices
+        """
+        if self.element_switch_times is None or at_times is None:
+            return self.get_closest_element_index(at_times)
+        at_time_array = utils.to_datetime64_ns(at_times)
+        is_scalar = np.ndim(at_time_array) == 0
+        indices = np.searchsorted(
+            self._get_element_switch_times_ns(),
+            np.atleast_1d(at_time_array),
+            side="right",
+        )
+        return int(indices[0]) if is_scalar else indices.tolist()
+
     @overload
     def get_closest_element(self, at_times: None) -> GeneralPerturbationsElements: ...
 
@@ -539,10 +638,11 @@ class GeneralPerturbationsOrbit(BaseModel):
     ) -> tuple[list[datetime], list[int]]:
         """
         Partitions the time range [start, end] into consecutive segments,
-        each assigned the index of whichever element is closest throughout
-        that segment. The closest element switches at the midpoint between
-        consecutive elements' epochs, so only midpoints strictly inside
-        (start, end) become segment boundaries.
+        each assigned the index of the element that propagates the orbit
+        throughout that segment (see `get_element_index`). The element
+        switches at `element_switch_times` or, by default, at the midpoint
+        between consecutive elements' epochs, so only switches strictly
+        inside (start, end) become segment boundaries.
 
         Args:
             start (datetime): Start time.
@@ -554,18 +654,23 @@ class GeneralPerturbationsOrbit(BaseModel):
                 index for each of the N segments between consecutive
                 boundaries (length N).
         """
-        epochs = self.get_element_epochs()
-        epoch_midpoints = [
-            epochs[i] + (epochs[i + 1] - epochs[i]) / 2 for i in range(len(epochs) - 1)
-        ]
+        if self.element_switch_times is None:
+            epochs = self.get_element_epochs()
+            switches = [
+                epochs[i] + (epochs[i + 1] - epochs[i]) / 2
+                for i in range(len(epochs) - 1)
+            ]
+        else:
+            switches = self.element_switch_times
+        # distinct switches only (consecutive switches may coincide)
         boundary_times = (
-            [start] + [t for t in epoch_midpoints if start < t < end] + [end]
+            [start] + sorted({t for t in switches if start < t < end}) + [end]
         )
         segment_midpoints = [
             boundary_times[i] + (boundary_times[i + 1] - boundary_times[i]) / 2
             for i in range(len(boundary_times) - 1)
         ]
-        return boundary_times, self.get_closest_element_index(segment_midpoints)
+        return boundary_times, self.get_element_index(segment_midpoints)
 
     def get_repeat_cycle(
         self,
@@ -737,7 +842,8 @@ class GeneralPerturbationsOrbit(BaseModel):
         inertial (GCRS) frame.
 
         Each time is propagated with whichever element's epoch is closest to
-        it (see `get_closest_element_index`), so a vectorized `t` may draw
+        it, or the element between the `element_switch_times` around it (see
+        `get_element_index`), so a vectorized `t` may draw
         from different elements for different entries. Unless `repeat_cycle`
         is None, times before the first element's epoch and after the last
         element's epoch are instead propagated with that element's repeat
@@ -763,8 +869,8 @@ class GeneralPerturbationsOrbit(BaseModel):
         # interpolate the costly nutation angles (see _interpolate_nutation)
         _interpolate_nutation(t)
         first, last = self._get_repeat_tracks()
-        # the source of each time: the closest element's index, or a repeat track
-        sources = np.asarray(self.get_closest_element_index(t))
+        # the source of each time: the element's index, or a repeat track
+        sources = np.asarray(self.get_element_index(t))
         if last is not None:
             sources = np.where(t.tt >= last.epoch_time.tt, _LAST_REPEAT, sources)
         if first is not None:
@@ -976,7 +1082,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         if direct_start < direct_end:
             self._warn_if_propagating_with_drag(
                 _to_time([direct_start, direct_end]),
-                np.array(self.get_closest_element_index([direct_start, direct_end])),
+                np.array(self.get_element_index([direct_start, direct_end])),
             )
             parts, indices = self.partition_by_element_index(direct_start, direct_end)
             boundaries.extend(parts[1:-1])

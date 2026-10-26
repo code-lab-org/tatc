@@ -320,6 +320,33 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
         self.assertEqual(len(results.index), 1)
         self.assertEqual(type(results.iloc[0].geometry), Polygon)
 
+    def test_compute_ground_track_orbits_follow_element_switch_times(self):
+        """
+        Test that orbits are identified with the period of the element that
+        propagates the orbit (as selected by element switch times), not the
+        element whose epoch is closest.
+        """
+        element = self.orbit.elements[0]
+        start = element.epoch + timedelta(days=0.5)
+        # a later element with a period three times as long (about 4.6 hours)
+        slow = element.model_copy(
+            update={
+                "epoch": element.epoch + timedelta(days=2),
+                "mean_motion": element.mean_motion / 3,
+            }
+        )
+        times = [start + timedelta(minutes=i) for i in range(0, 180, 5)]
+        for switch, orbits in [(None, 2), ([element.epoch + timedelta(days=0.25)], 1)]:
+            satellite = self.satellite.model_copy(
+                update={
+                    "orbit": GeneralPerturbationsOrbit(
+                        elements=[element, slow], element_switch_times=switch
+                    )
+                }
+            )
+            results = compute_ground_track(satellite, times, dissolve_orbits=False)
+            self.assertEqual(len(results.index), orbits)
+
     def test_compute_ground_track_multipolygon(self):
         """
         Test that ground track computation works for a single satellite and a list

@@ -22,6 +22,7 @@ from skyfield.positionlib import Geocentric
 from ..constants import de421
 from ..schemas import GeneralPerturbationsOrbit, Instrument, Satellite
 from ..utils.computation import TimeRequest
+from ..utils.glint import compute_glint_angle
 from ..utils.time import _to_time_from_offsets
 
 
@@ -53,14 +54,15 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
             "solar_alt": pd.Series(dtype="float"),
             "solar_az": pd.Series(dtype="float"),
             "solar_time": pd.Series(dtype="float"),
+            "glint_angle": pd.Series(dtype="float"),
         }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
 def _build_observation_frame(
     observations: list[tuple[pd.Interval, pd.Timestamp, tuple[float, float, float]]],
-    target_hash: str,
-    geometry: geo.base.BaseGeometry,
+    target_hash: str | list[str],
+    geometry: geo.base.BaseGeometry | list[geo.base.BaseGeometry],
     satellite: Satellite,
     instrument: Instrument,
     omit_solar: bool,
@@ -74,10 +76,12 @@ def _build_observation_frame(
         observations (list[tuple[pandas.Interval, pandas.Timestamp, tuple[float, float, float]]]):
                 Each observation's period, epoch, and observed point's longitude
                 (degrees), latitude (degrees), and elevation (meters).
-        target_hash (str): The hash of the target recorded with each
-                observation (see `tatc.utils.geometry.hash_geometry`).
-        geometry (shapely.geometry.base.BaseGeometry): The geometry recorded with
-                each observation.
+        target_hash (str | list[str]): The hash of the target recorded with
+                each observation (see `tatc.utils.geometry.hash_geometry`), or
+                one hash for each observation.
+        geometry (shapely.geometry.base.BaseGeometry | list[shapely.geometry.base.BaseGeometry]):
+                The geometry recorded with each observation, or one geometry
+                for each observation.
         satellite (Satellite): The observing satellite.
         instrument (Instrument): The observing instrument.
         omit_solar (bool): `True`, to omit solar angles to improve performance.
@@ -89,27 +93,35 @@ def _build_observation_frame(
     """
     if len(observations) == 0:
         return _get_empty_coverage_frame(omit_solar)
+    count = len(observations)
+    # times in nanoseconds (as in the empty frame), whatever their source
+    epoch = pd.DatetimeIndex([epoch for _, epoch, _ in observations]).as_unit("ns")
+    if instrument.access_time_fixed:
+        start = epoch - instrument.min_access_time / 2
+        end = epoch + instrument.min_access_time / 2
+    else:
+        start = pd.DatetimeIndex(
+            [period.left for period, _, _ in observations]
+        ).as_unit("ns")
+        end = pd.DatetimeIndex([period.right for period, _, _ in observations]).as_unit(
+            "ns"
+        )
     gdf = gpd.GeoDataFrame(
-        [
-            {
-                "target_hash": target_hash,
-                "geometry": geometry,
-                "satellite": satellite.name,
-                "instrument": instrument.name,
-                "start": (
-                    period.left
-                    if not instrument.access_time_fixed
-                    else epoch - instrument.min_access_time / 2
-                ),
-                "end": (
-                    period.right
-                    if not instrument.access_time_fixed
-                    else epoch + instrument.min_access_time / 2
-                ),
-                "epoch": epoch,
-            }
-            for period, epoch, _ in observations
-        ],
+        {
+            "target_hash": (
+                [target_hash] * count if isinstance(target_hash, str) else target_hash
+            ),
+            "geometry": (
+                [geometry] * count
+                if isinstance(geometry, geo.base.BaseGeometry)
+                else geometry
+            ),
+            "satellite": [satellite.name] * count,
+            "instrument": [instrument.name] * count,
+            "start": start,
+            "end": end,
+            "epoch": epoch,
+        },
         crs="EPSG:4326",
     )
     # observed point of each observation
@@ -137,6 +149,8 @@ def _build_observation_frame(
         gdf["solar_time"] = (de421["earth"] + topos).at(ts).observe(
             de421["sun"]
         ).apparent().hadec()[0].hours + 12
+        # append glint angle column
+        gdf["glint_angle"] = np.atleast_1d(compute_glint_angle(orbit_track, topos))
     return gdf
 
 
