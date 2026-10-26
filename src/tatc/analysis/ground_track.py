@@ -292,12 +292,12 @@ def compute_ground_track(
     _check_satellite(satellite)
     track = collect_ground_track(satellite, times, instrument_index, elevation, mask)
     if not track.empty:
-        # assign orbit identifier
+        # assign orbit identifier, from the period of the element that
+        # propagates the orbit at each time (see `get_element_index`)
+        orbit = satellite.orbit.to_gp_orbit()
         track["orbit_id"] = [
             (time - times[0])
-            // satellite.orbit.to_gp_orbit()
-            .get_closest_element(time)
-            .get_orbit_period()
+            // orbit.elements[orbit.get_element_index(time)].get_orbit_period()
             for time in track.time
         ]
         # filter to valid observations and dissolve

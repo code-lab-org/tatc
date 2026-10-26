@@ -1236,6 +1236,37 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             result.iloc[0].revisit.total_seconds(), naive_arithmetic_revisit, places=1
         )
 
+    def test_grid_observations_revisit_undefined_without_revisits(self):
+        """
+        Test that a cell whose points each have a single sample (and so no
+        revisit) has an undefined revisit, rather than raising an error.
+        """
+        cells = gpd.GeoDataFrame([self._make_cell(0, 0, 0, 1, 1)], crs="EPSG:4326")
+        records = [
+            self._make_reduced_observation(k, 0.5, 0.5, 5, 0, 1) for k in range(2)
+        ]
+        reduced = gpd.GeoDataFrame(records, crs="EPSG:4326")
+        reduced["revisit"] = pd.to_timedelta([pd.NaT] * len(records))
+        result = grid_observations(reduced, cells)
+        self.assertEqual(result.iloc[0].samples, 2)
+        self.assertTrue(pd.isna(result.iloc[0].revisit))
+
+    def test_grid_observations_revisit_ignores_points_without_revisits(self):
+        """
+        Test that the revisit of a cell averages only the points with a
+        revisit: a point with a single sample does not weight it.
+        """
+        cells = gpd.GeoDataFrame([self._make_cell(0, 0, 0, 1, 1)], crs="EPSG:4326")
+        single = self._make_reduced_observation(1, 0.6, 0.6, 50, 0, 1)
+        single["revisit"] = pd.NaT
+        reduced = gpd.GeoDataFrame(
+            [self._make_reduced_observation(0, 0.4, 0.4, 5, 10, 100), single],
+            crs="EPSG:4326",
+        )
+        result = grid_observations(reduced, cells)
+        self.assertEqual(result.iloc[0].samples, 101)
+        self.assertAlmostEqual(result.iloc[0].revisit.total_seconds(), 10, places=6)
+
     def test_grid_observations_revisit_is_invariant_to_point_density(self):
         """
         Regression test: a cell's gridded revisit must not depend on how

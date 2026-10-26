@@ -312,12 +312,12 @@ def _split_polygon_antimeridian(
 
     - If the exterior encircles a pole (its longitude winds a full 360
       degrees around the globe, e.g. a polar cap that does not itself
-      exceed +/-90 degrees latitude), it is reconstructed with a flattened
-      edge at the pole and split along the prime meridian instead of the
-      antimeridian. Note: the raw result of this case may be reported as
-      invalid (the two pieces touch along the shared prime-meridian cut
-      edge); the public `split_polygon` function repairs this via
-      `shapely.make_valid`.
+      exceed +/-90 degrees latitude, or a polygon such as Antarctica that
+      already includes edges along the pole and the anti-meridian), it is
+      reconstructed in its vertex order (which need not be monotonic in
+      longitude, as a coastline is not), unrolled across the anti-meridian,
+      closed with a flattened edge along the pole, and split along the
+      anti-meridian into the standard longitude range.
     - Otherwise, coordinates are "unrolled" past +/-180 degrees according to
       the cumulative jump direction, split along the antimeridian that the
       unrolled coordinates cross, and wrapped back with
@@ -346,26 +346,58 @@ def _split_polygon_antimeridian(
         winding = np.sum(diff - 360 * np.where(jump, np.round(diff / 360), 0))
         # check if this polygon contains a pole
         if np.abs(winding) > 180:
-            # extract (lon, lat) only, discarding any z-dimension, and sort by longitude
-            coords = exterior[:-1][np.argsort(exterior[:-1, 0], kind="stable")]
+            # (lon, lat) only, discarding any z-dimension, without the closing vertex
+            ring = exterior[:-1, :2]
             # determine if contains north or south pole based on sign of mean latitude
-            n_s = 1 if coords[:, 1].mean() > 0 else -1
-            # interpolate latitude at antimeridian
-            lat = np.interp(
-                180, [coords[-1, 0], coords[0, 0] + 180], [coords[-1, 1], coords[0, 1]]
+            n_s = 1 if ring[:, 1].mean() > 0 else -1
+            # start the ring after a crossing of the anti-meridian and unroll
+            # its longitudes across any others, keeping the vertex order (the
+            # ring need not be monotonic in longitude, as a coastline is not)
+            step = np.diff(np.append(ring[:, 0], ring[0, 0]))
+            crossings = np.flatnonzero(np.abs(step) > 180)
+            if len(crossings) > 0:
+                ring = np.roll(ring, -(crossings[0] + 1), axis=0)
+            # unroll around the whole ring, back to its first vertex (shifted
+            # by the full winding of 360 degrees)
+            ring = np.concatenate([ring, ring[:1]])
+            step = np.diff(ring[:, 0])
+            step -= 360 * np.where(np.abs(step) > 180, np.round(step / 360), 0)
+            lon = ring[0, 0] + np.concatenate([[0], np.cumsum(step)])
+            # close the unrolled ring along the pole, and split it along the
+            # anti-meridian into the standard (-180, 180) longitude range
+            cap = make_valid(
+                Polygon(
+                    np.concatenate(
+                        [
+                            np.column_stack([lon, ring[:, 1]]),
+                            [[lon[-1], 90 * n_s], [lon[0], 90 * n_s]],
+                        ]
+                    )
+                )
             )
-            # reconstruct polygon (ccw) with added coords on antimeridian and a
-            # flattened edge along the pole, spanning -180 to 180 degrees
-            return Polygon(
-                np.concatenate(
-                    [
-                        [[-180, 90 * n_s], [-180, lat]],
-                        coords,
-                        [[180, lat], [180, 90 * n_s], [-180, 90 * n_s]],
-                    ]
-                ),
-                [shapely.get_coordinates(interior) for interior in polygon.interiors],
-            )
+            pieces = [
+                shapely.transform(
+                    shapely.intersection(cap, shapely.box(west, -90, west + 360, 90)),
+                    lambda coords, offset=west: coords - [offset + 180, 0],
+                )
+                for west in (-540, -180, 180)
+            ]
+            parts = shapely.union_all(pieces)
+            if isinstance(parts, GeometryCollection):
+                parts = _convert_collection_to_polygon(parts)
+            if len(polygon.interiors) > 0:
+                # subtract the holes, each split like an exterior
+                parts = parts.difference(
+                    shapely.union_all(
+                        [
+                            _split_polygon_antimeridian(Polygon(interior))
+                            for interior in polygon.interiors
+                        ]
+                    )
+                )
+                if isinstance(parts, GeometryCollection):
+                    parts = _convert_collection_to_polygon(parts)
+            return parts
         # find anti-meridian crossings and calculate shift direction
         # coords from W -> E (shift < 0) will add 360 degrees to E component
         # coords from E -> W (shift > 0) will subtract 360 degrees from W component

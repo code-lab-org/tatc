@@ -469,6 +469,23 @@ class TestCollectRoObservations(unittest.TestCase):
         self.assertGreater(len(results), 0)
         self.assertTrue(results.is_rising.isin([True, False]).all())
 
+    def test_collect_ro_observations_profiles_are_monotonic(self):
+        """
+        Test that each observation's profile only descends (setting) or only
+        ascends (rising), so that it crosses the sample elevation at most once
+        (grazing occultations are split where the tangent point turns).
+        """
+        results = collect_ro_observations(
+            self.receiver, self.transmitter, self.start, self.end, max_yaw=90
+        )
+        self.assertGreater(len(results), 0)
+        for _, row in results.iterrows():
+            steps = np.diff([point.z for point in row.geometry.geoms])
+            if row.is_rising:
+                self.assertTrue((steps >= 0).all())
+            else:
+                self.assertTrue((steps <= 0).all())
+
     def test_collect_ro_observations_is_rising_follows_profile(self):
         """
         Test that `is_rising` agrees with the direction of each observation's

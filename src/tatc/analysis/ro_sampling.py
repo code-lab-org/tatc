@@ -343,8 +343,12 @@ def _sample_ro_arcs(
     `_find_ro_arcs`: each with its receiver and transmitter indices, start,
     and end),
     splitting each into one or more observations if the tangent point
-    elevation leaves the specified range. The samples of all arcs are
-    computed together.
+    elevation leaves the specified range or turns (at a minimum or maximum
+    elevation), so that each observation is setting (descending) or rising
+    (ascending): a grazing occultation, whose tangent point descends and
+    rises again, is split into a setting and a rising observation, which
+    share the sample at which it turns. The samples of all arcs are computed
+    together.
     """
     if len(arcs) == 0:
         return []
@@ -418,11 +422,25 @@ def _sample_ro_arcs(
         elevation > range_elevation[0], elevation < range_elevation[1]
     )
 
+    def point(j: int, time: datetime) -> dict:
+        # the observation point of sample j
+        return {
+            "time": time,
+            "longitude": longitude[j],
+            "latitude": latitude[j],
+            "elevation": elevation[j],
+            "rx_tx_pitch": rx_tx_pitch[j],
+            "rx_tx_yaw": rx_tx_yaw[j],
+            "tp_tx_azimuth": tp_tx_azimuth[j],
+        }
+
     # occultation observations
     occ_obs = []
     for (r, k, _, _), times, offset in zip(arcs, arc_times, bounds):
-        # occultation arc
+        # occultation arc, and the direction of its tangent point elevation
+        # (1 ascending, -1 descending, 0 not yet known)
         occ_arc = None
+        direction = 0
         for j, time in enumerate(times, start=offset):
             if in_range[j]:
                 if occ_arc is None:
@@ -432,21 +450,26 @@ def _sample_ro_arcs(
                         "tx": transmitters[k].name,
                         "points": [],
                     }
-                occ_arc["points"].append(
-                    {
-                        "time": time,
-                        "longitude": longitude[j],
-                        "latitude": latitude[j],
-                        "elevation": elevation[j],
-                        "rx_tx_pitch": rx_tx_pitch[j],
-                        "rx_tx_yaw": rx_tx_yaw[j],
-                        "tp_tx_azimuth": tp_tx_azimuth[j],
-                    }
-                )
+                    direction = 0
+                elif elevation[j] != elevation[j - 1]:
+                    direction = 1 if elevation[j] > elevation[j - 1] else -1
+                occ_arc["points"].append(point(j, time))
                 if j + 1 >= offset + len(times):
                     # end of RO observation due to arc boundary
                     occ_obs.append(occ_arc)
                     occ_arc = None
+                elif in_range[j + 1] and direction != 0:
+                    step = np.sign(elevation[j + 1] - elevation[j])
+                    if step == -direction:
+                        # end of RO observation where the tangent point turns,
+                        # and start of the next from the same sample
+                        occ_obs.append(occ_arc)
+                        occ_arc = {
+                            "rx": receivers[r].name,
+                            "tx": transmitters[k].name,
+                            "points": [point(j, time)],
+                        }
+                        direction = int(step)
             elif occ_arc is not None:
                 # end of RO observation due to elevation constraints
                 occ_obs.append(occ_arc)
@@ -551,6 +574,16 @@ def collect_ro_observations(
     well below those of the refracted signal in the lower atmosphere (hence
     the negative default `sample_elevation`). See `_tangent_point_geometry`
     for details.
+
+    Each observation is setting (`is_rising` false), with its tangent point
+    descending, or rising, with it ascending: a grazing occultation, whose
+    tangent point descends and rises again within `range_elevation`, is
+    reported as a setting and a rising observation, which share the sample
+    at its lowest point. Each observation's `time` and `position` are
+    interpolated where its tangent point crosses `sample_elevation`, or, for
+    a profile that does not reach it (one cut off by the analysis period, or
+    a grazing occultation that turns back above it), at the end of the
+    profile nearest to it, such as its lowest point.
 
     Args:
         receivers (Satellite | list[Satellite]): the satellite(s) with a RO receiver.
