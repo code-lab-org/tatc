@@ -1,5 +1,10 @@
 # TAT-C Change Log
 
+## Unreleased
+
+Changed:
+ - Unit tests of the `preprocess` module are skipped when the optional `rasterio` dependency is not installed, so that the test suite passes with only the required dependencies (as for the conda-forge package).
+
 ## 3.6.0
 
 Added new observing capabilities for limb sounding, ground-based radar, fixed surface platforms, and regions (polygons), with support for shapely points. Changed how general perturbations orbits are propagated, with options to model orbits maintained on a repeat ground track. Also changed the tangent point for GNSS radio occultation (RO) and limb sounding to the point of minimum WGS 84 geodetic altitude along the line of sight.
