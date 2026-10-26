@@ -9,9 +9,9 @@ import unittest
 import numpy as np
 import pyproj
 from shapely.geometry import Polygon, box
-from shapely.ops import transform
 
 from tatc import constants, utils
+from tatc.utils.projection import _transform
 from tatc.generation import (
     generate_points_fibonacci_lattice,
     generate_points_random,
@@ -74,8 +74,8 @@ class TestPointGenerators(unittest.TestCase):
         num_samples = utils.compute_number_samples(distance)
         transformer = pyproj.Transformer.from_crs(
             pyproj.CRS("EPSG:4326"), pyproj.CRS("EPSG:32663"), always_xy=True
-        ).transform
-        mask_m = transform(transformer, mask)
+        )
+        mask_m = _transform(mask, transformer)
         self.assertAlmostEqual(
             len(points),
             int(num_samples * mask_m.area / constants.EARTH_SURFACE_AREA),

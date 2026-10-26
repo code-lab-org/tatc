@@ -12,14 +12,20 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import geopandas as gpd
 import numpy as np
 import rasterio
+import rasterio.windows
 from rasterio.transform import from_origin
+from shapely.geometry import Point, box
 
+from tatc import constants
 from tatc.preprocess import (
+    add_local_incidence_angles,
     compute_terrain_mask,
     compute_terrain_mask_for_platform,
     compute_terrain_mask_for_station,
+    compute_terrain_slope_aspect,
     get_copernicus_dem_tile_urls,
     sample_dem_elevation,
 )
@@ -378,3 +384,179 @@ class TestComputeTerrainMask(unittest.TestCase):
         )
         unmasked_footprint = unmasked_station.compute_footprint(elevation=1000)
         self.assertLess(masked_footprint.area, unmasked_footprint.area)
+
+
+def _write_plane_dem(path: str, slope: float, aspect: float) -> None:
+    """
+    Writes a small synthetic DEM near (0, 0) of a tilted plane with a given
+    slope (degrees) facing a given aspect (degrees), with meters per degree
+    of the WGS 84 ellipsoid at the equator, and a band of nodata cells
+    along its northern edge.
+    """
+    resolution = 0.0003  # about 33 m/pixel
+    size = 400
+    transform = from_origin(-0.06, 0.06, resolution, resolution)
+    centers = -0.06 + resolution * (np.arange(size) + 0.5)
+    east = np.radians(centers) * constants.EARTH_EQUATORIAL_RADIUS
+    north = (
+        np.radians(-centers)
+        * constants.EARTH_EQUATORIAL_RADIUS
+        * (1 - constants.EARTH_ECCENTRICITY**2)
+    )
+    east_grid, north_grid = np.meshgrid(east, north)
+    # elevation rises opposite the downslope (aspect) direction
+    rise = -np.tan(np.radians(slope)) * (
+        east_grid * np.sin(np.radians(aspect)) + north_grid * np.cos(np.radians(aspect))
+    )
+    data = (1000 + rise).astype(np.float32)
+    data[:20, :] = -9999
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=size,
+        width=size,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=transform,
+        nodata=-9999,
+    ) as dst:
+        dst.write(data, 1)
+
+
+class TestTerrainSlopeAspect(unittest.TestCase):
+    """
+    Unit tests for compute_terrain_slope_aspect and add_local_incidence_angles.
+    """
+
+    def setUp(self):
+        self.tmp_dir = tempfile.TemporaryDirectory()
+        self.west_path = str(Path(self.tmp_dir.name) / "west.tif")
+        _write_plane_dem(self.west_path, 20, 270)
+        self.northeast_path = str(Path(self.tmp_dir.name) / "northeast.tif")
+        _write_plane_dem(self.northeast_path, 10, 45)
+        self.flat_path = str(Path(self.tmp_dir.name) / "flat.tif")
+        _write_plane_dem(self.flat_path, 0, 0)
+
+    def tearDown(self):
+        self.tmp_dir.cleanup()
+
+    def test_slope_and_aspect_of_planes(self):
+        """
+        Test the slope and aspect of tilted planes at several points,
+        including one between cell centers.
+        """
+        longitudes = np.array([0.0, 0.01, -0.023456])
+        latitudes = np.array([0.0, -0.02, 0.011111])
+        for path, slope, aspect in [
+            (self.west_path, 20, 270),
+            (self.northeast_path, 10, 45),
+        ]:
+            with self.subTest(aspect=aspect):
+                slopes, aspects = compute_terrain_slope_aspect(
+                    path, longitudes, latitudes
+                )
+                np.testing.assert_allclose(slopes, slope, atol=0.05)
+                np.testing.assert_allclose(aspects, aspect, atol=0.1)
+
+    def test_slope_across_tile_seam(self):
+        """
+        Test that points whose samples fall between the cells of two
+        adjacent tiles are interpolated across the seam.
+        """
+        paths = []
+        with rasterio.open(self.northeast_path) as source:
+            for name, rows in [("north", (0, 200)), ("south", (200, 400))]:
+                window = rasterio.windows.Window(0, rows[0], source.width, 200)
+                profile = source.profile.copy()
+                profile.update(height=200, transform=source.window_transform(window))
+                paths.append(str(Path(self.tmp_dir.name) / f"{name}.tif"))
+                with rasterio.open(paths[-1], "w", **profile) as dst:
+                    dst.write(source.read(1, window=window), 1)
+        # the seam is at latitude 0; samples lie 30 m north and south
+        longitudes = np.array([0.0, 0.0001, -0.0002])
+        latitudes = np.array([0.0, 0.0001, -0.00005])
+        slopes, aspects = compute_terrain_slope_aspect(paths, longitudes, latitudes)
+        np.testing.assert_allclose(slopes, 10, atol=0.05)
+        np.testing.assert_allclose(aspects, 45, atol=0.1)
+
+    def test_flat_terrain(self):
+        """
+        Test that flat terrain has zero slope and zero aspect, for a scalar
+        point and a larger baseline.
+        """
+        slope, aspect = compute_terrain_slope_aspect(
+            self.flat_path, 0.0, 0.0, baseline=500
+        )
+        self.assertEqual(slope.shape, ())
+        self.assertAlmostEqual(float(slope), 0)
+        self.assertAlmostEqual(float(aspect), 0)
+
+    def test_nodata_and_outside_are_nan(self):
+        """
+        Test that points with nodata or outside the DEM have NaN slopes.
+        """
+        slopes, aspects = compute_terrain_slope_aspect(
+            self.west_path, np.array([0.0, 0.0, 0.0599]), np.array([0.0, 0.056, 0.0])
+        )
+        self.assertFalse(np.isnan(slopes[0]))
+        self.assertTrue(np.isnan(slopes[1]))
+        self.assertTrue(np.isnan(slopes[2]))
+        self.assertTrue(np.isnan(aspects[1]))
+
+    def test_invalid_inputs(self):
+        """
+        Test that a non-positive baseline or DEMs that do not overlap the
+        points raise a ValueError.
+        """
+        with self.assertRaises(ValueError):
+            compute_terrain_slope_aspect(self.west_path, 0.0, 0.0, baseline=0)
+        with self.assertRaises(ValueError):
+            compute_terrain_slope_aspect(self.west_path, 10.0, 10.0)
+
+    def test_add_local_incidence_angles(self):
+        """
+        Test the local incidence angles of a satellite to the west of a
+        west-facing slope, and on flat terrain.
+        """
+        observations = gpd.GeoDataFrame(
+            {"sat_alt": [40.0, 40.0], "sat_az": [270.0, 90.0]},
+            geometry=[Point(0, 0), Point(0.01, 0.01)],
+            crs="EPSG:4326",
+        )
+        result = add_local_incidence_angles(observations, self.west_path)
+        self.assertNotIn("local_incidence_angle", observations.columns)
+        np.testing.assert_allclose(result.terrain_slope, 20, atol=0.05)
+        np.testing.assert_allclose(result.local_incidence_angle, [30, 70], atol=0.1)
+        flat = add_local_incidence_angles(observations, self.flat_path)
+        np.testing.assert_allclose(flat.local_incidence_angle, 50, atol=1e-6)
+
+    def test_add_local_incidence_angles_invalid(self):
+        """
+        Test that observations without satellite angles or with geometries
+        other than points raise a ValueError, and that empty observations
+        gain the columns.
+        """
+        with self.assertRaises(ValueError):
+            add_local_incidence_angles(
+                gpd.GeoDataFrame(geometry=[Point(0, 0)], crs="EPSG:4326"),
+                self.west_path,
+            )
+        with self.assertRaises(ValueError):
+            add_local_incidence_angles(
+                gpd.GeoDataFrame(
+                    {"sat_alt": [40.0], "sat_az": [0.0]},
+                    geometry=[box(0, 0, 0.01, 0.01)],
+                    crs="EPSG:4326",
+                ),
+                self.west_path,
+            )
+        empty = add_local_incidence_angles(
+            gpd.GeoDataFrame(
+                {"sat_alt": [], "sat_az": []}, geometry=[], crs="EPSG:4326"
+            ),
+            self.west_path,
+        )
+        self.assertIn("local_incidence_angle", empty.columns)
+        self.assertEqual(len(empty.index), 0)

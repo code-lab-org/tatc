@@ -53,6 +53,8 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_min_elevation_angle
 
+.. autofunction:: tatc.utils.compute_local_incidence_angle
+
 .. autofunction:: tatc.utils.semimajor_axis_to_orbit_period
 
 .. autofunction:: tatc.utils.semimajor_axis_to_mean_motion

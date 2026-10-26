@@ -38,6 +38,24 @@ Compute Terrain Mask for Platform
 
 .. autofunction:: tatc.preprocess.compute_terrain_mask_for_platform
 
+Terrain Slopes and Incidence Angles
+===================================
+
+The terrain slope and aspect at observed targets, from a DEM, give the local
+incidence angle of observations on sloped terrain (see
+:func:`tatc.utils.compute_local_incidence_angle`), for example, to constrain
+side-looking observations of mountainous regions.
+
+Compute Terrain Slope and Aspect
+--------------------------------
+
+.. autofunction:: tatc.preprocess.compute_terrain_slope_aspect
+
+Add Local Incidence Angles
+--------------------------
+
+.. autofunction:: tatc.preprocess.add_local_incidence_angles
+
 Rasters
 =======
 

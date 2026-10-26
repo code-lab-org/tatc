@@ -10,6 +10,7 @@ import numpy as np
 from numba import njit
 
 from .. import constants
+from .ellipsoid import geodetic_to_rectangular
 from .orbital import compute_ground_surface_velocity, semimajor_axis_to_mean_motion
 
 
@@ -320,39 +321,45 @@ def compute_along_track_field_of_view(
 ) -> float:
     """
     Compute an along-track field of view tailored to a time step: the angle
-    subtended at nadir (from the mean altitude) by the distance the ground
-    track advances, relative to the rotating Earth, in one time step. The
-    footprints of an instrument with this along-track field of view, at
-    consecutive time steps, tile the ground track, so that the field of view
-    represents the integration over the time step.
+    subtended at nadir (from the satellite's height above the WGS 84
+    ellipsoid) by the distance the ground track advances, relative to the
+    rotating Earth, in one time step. The footprints of an instrument with
+    this along-track field of view, at consecutive time steps, tile the
+    ground track, so that the field of view represents the integration over
+    the time step.
 
     The ground track velocity varies with latitude by a few percent, as the
     Earth's rotation adds to the motion of a retrograde orbit (such as a
     sun-synchronous orbit) and subtracts from that of a prograde orbit. By
-    default, the fastest ground track velocity over the orbit is used. For an
-    eccentric orbit, the angle and velocity are evaluated at perigee, where
-    the footprint is shortest relative to the ground track's advance. Together,
-    these make footprints tile without gaps over the whole orbit.
+    default, the fastest ground track velocity over the orbit is used, with
+    the satellite at its lowest height above the ellipsoid (above the
+    equator, where the ellipsoid's radius is greatest, about 7 km below the
+    mean altitude) and the ground track advancing over the ellipsoid's
+    greatest radius. For an eccentric orbit, the angle and velocity are
+    evaluated at perigee, where the footprint is shortest relative to the
+    ground track's advance. Together, these make footprints tile without
+    gaps over the whole orbit.
 
     Args:
         mean_altitude (float): The mean orbit altitude (meters) above the mean
             Earth radius.
         time_step (float): The time step (seconds).
         inclination (float): The orbit inclination (degrees).
-        latitude (float | None): The latitude (degrees) at which to evaluate
-            the ground track velocity, or `None` to use the fastest ground
-            track velocity over the orbit.
+        latitude (float | None): The geodetic latitude (degrees) at which to
+            evaluate the ground track velocity and the height above the
+            ellipsoid, or `None` to use the fastest ground track velocity and
+            lowest height over the orbit.
         eccentricity (float): The orbit eccentricity.
 
     Returns:
         float: The along-track field of view (degrees).
     """
-    # perigee altitude and the factor by which the orbital velocity at perigee
-    # exceeds that of a circular orbit of the same radius (conservatively
-    # applied to the ground track velocity)
-    altitude = (constants.EARTH_MEAN_RADIUS + mean_altitude) * (
-        1 - eccentricity
-    ) - constants.EARTH_MEAN_RADIUS
+    # perigee radius and altitude (above the mean Earth radius), and the
+    # factor by which the orbital velocity at perigee exceeds that of a
+    # circular orbit of the same radius (conservatively applied to the ground
+    # track velocity)
+    radius = (constants.EARTH_MEAN_RADIUS + mean_altitude) * (1 - eccentricity)
+    altitude = radius - constants.EARTH_MEAN_RADIUS
     factor = np.sqrt(1 + eccentricity)
     if latitude is None:
         # sample the latitudes reached by the orbit
@@ -361,8 +368,63 @@ def compute_along_track_field_of_view(
             compute_ground_surface_velocity(altitude, 0, inclination, lat)
             for lat in np.linspace(-extreme_latitude, extreme_latitude, 181)
         )
+        surface_radius = constants.EARTH_EQUATORIAL_RADIUS
     else:
         velocity = compute_ground_surface_velocity(altitude, 0, inclination, latitude)
-    return float(
-        np.degrees(2 * np.arctan(factor * velocity * time_step / 2 / altitude))
+        surface_radius = float(np.linalg.norm(geodetic_to_rectangular(0, latitude)))
+    # the ground track advances over the ellipsoid's surface (at its radius,
+    # rather than the mean Earth radius) below the satellite's height above it
+    advance = (
+        factor * velocity * time_step * surface_radius / constants.EARTH_MEAN_RADIUS
     )
+    height = radius - surface_radius
+    return float(np.degrees(2 * np.arctan(advance / 2 / height)))
+
+
+def compute_local_incidence_angle(
+    elevation_angle: float | np.ndarray,
+    azimuth: float | np.ndarray,
+    slope: float | np.ndarray = 0,
+    aspect: float | np.ndarray = 0,
+) -> float | np.ndarray:
+    """
+    Compute the local incidence angle at a target on sloped terrain: the
+    angle between the line of sight to the satellite and the normal to the
+    terrain surface. On flat terrain (zero slope), it is the incidence angle
+    on the WGS 84 ellipsoid, 90 degrees less the satellite's elevation
+    angle. Terrain facing the satellite (an aspect toward its azimuth)
+    reduces the angle by up to the slope, as for the foreshortened slopes in
+    a side-looking radar image, and terrain facing away increases it. An
+    angle above 90 degrees means the satellite views the back of the slope,
+    so the target is hidden (in a radar shadow, or out of an optical
+    sensor's view).
+
+    The satellite's elevation angle and azimuth are measured from the
+    target's local (geodetic) horizon, as by the `sat_alt` and `sat_az`
+    columns of observations and ground pixels with satellite angles (see
+    `tatc.analysis.collect_observations` and
+    `tatc.analysis.collect_ground_pixels`). See
+    `tatc.preprocess.compute_terrain_slope_aspect` for the slope and aspect
+    of a digital elevation model.
+
+    Args:
+        elevation_angle (float | numpy.ndarray): The satellite's elevation
+            angle (degrees) above the target's horizon.
+        azimuth (float | numpy.ndarray): The satellite's azimuth (degrees,
+            clockwise from north) from the target.
+        slope (float | numpy.ndarray): The terrain slope (degrees from
+            horizontal).
+        aspect (float | numpy.ndarray): The terrain aspect: the azimuth
+            (degrees, clockwise from north) of the downslope direction,
+            which the slope faces.
+
+    Returns:
+        float | numpy.ndarray: The local incidence angle (degrees).
+    """
+    elevation_angle = np.radians(elevation_angle)
+    slope = np.radians(slope)
+    cos_angle = np.cos(elevation_angle) * np.sin(slope) * np.cos(
+        np.radians(np.subtract(azimuth, aspect))
+    ) + np.sin(elevation_angle) * np.cos(slope)
+    angle = np.degrees(np.arccos(np.clip(cos_angle, -1, 1)))
+    return float(angle) if np.ndim(angle) == 0 else angle

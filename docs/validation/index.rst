@@ -2,11 +2,12 @@
 Validation
 ==========
 
-The following compare TAT-C analysis results with reference data from operational missions.
+The following compare TAT-C analysis results with reference data from operational missions. The :doc:`summary` collects their headline results by capability, with modeling guidance and the limits of what TAT-C models.
 
 .. toctree::
   :maxdepth: 1
 
+  summary
   ValidateLimbMLS.ipynb
   ValidateLimbSABER.ipynb
   ValidateROCOSMIC2.ipynb

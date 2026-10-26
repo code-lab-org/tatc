@@ -22,7 +22,6 @@ classifiers = [
 ]
 dependencies = [
     "geopandas >= 0.13.2",
-    "joblib",
     "numba",
     "numpy",
     "pandas",
@@ -86,6 +85,7 @@ docs = [
 ]
 examples = [
     "ipykernel",
+    "joblib",
     "matplotlib",
     "cartopy"
 ]

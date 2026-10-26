@@ -247,12 +247,13 @@ class TestRadarStation(unittest.TestCase):
         # reproject to the same local equidistant CRS used internally to
         # compare areas on a comparable (meters) basis
         import pyproj
-        from shapely.ops import transform
+
+        from tatc.utils.projection import _transform
 
         to_crs = pyproj.Transformer.from_crs(
             "EPSG:4326", "+proj=eqc +lat_ts=0 +datum=WGS84 +units=m", always_xy=True
         )
-        projected = transform(to_crs.transform, footprint)
+        projected = _transform(footprint, to_crs)
         expected_area = math.pi * (outer**2 - inner**2)
         self.assertAlmostEqual(projected.area / expected_area, 1.0, delta=0.05)
 
