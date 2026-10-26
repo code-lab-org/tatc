@@ -988,7 +988,9 @@ def _get_batch_cone_crossing_times(
 
 
 def collect_observations(
-    points: Point | geo.Point | list[Point | geo.Point],
+    points: (
+        Point | geo.Point | list[Point | geo.Point] | gpd.GeoDataFrame | gpd.GeoSeries
+    ),
     satellites: Satellite | list[Satellite],
     start: datetime,
     end: datetime,
@@ -1000,7 +1002,10 @@ def collect_observations(
     or more satellites. Each point is a TAT-C `Point` or a shapely `Point`
     (whose x, y, and optional z coordinates are its longitude, latitude, and
     elevation in meters); TAT-C points are expected to be replaced by
-    shapely points in the future. Observations record the point (with its
+    shapely points in the future. A GeoDataFrame (for example, from
+    `tatc.generation.generate_points_uniform_spacing`) or GeoSeries of
+    shapely points may also be given, whose geometries are the points.
+    Observations record the point (with its
     elevation as its z coordinate) as their geometry, identified by its
     hash, `target_hash` (see `tatc.utils.geometry.hash_geometry`); a TAT-C
     point's `id` is not recorded. For a region, see
@@ -1030,7 +1035,7 @@ def collect_observations(
     separately.
 
     Args:
-        points (Point | shapely.geometry.Point | list[Point | shapely.geometry.Point]):
+        points (Point | shapely.geometry.Point | list[Point | shapely.geometry.Point] | geopandas.GeoDataFrame | geopandas.GeoSeries):
                 The ground point(s) of interest.
         satellites (Satellite | list[Satellite]): The observing satellite(s).
         start (datetime.datetime): Start of analysis period.
@@ -1047,6 +1052,10 @@ def collect_observations(
             point, satellite, and instrument, concatenated and sorted by
             start time.
     """
+    if isinstance(points, gpd.GeoDataFrame):
+        points = points.geometry
+    if isinstance(points, gpd.GeoSeries):
+        points = list(points)
     single = _is_single(points, satellites, instrument_index=instrument_index)
     satellites = _check_satellites(satellites)
     _check_time_window(start, end)

@@ -25,6 +25,7 @@ from .glint import compute_glint_angle, compute_specular_point
 from .observation import (
     compute_along_track_field_of_view,
     compute_field_of_regard,
+    compute_local_incidence_angle,
     compute_max_access_time,
     compute_max_transit_time,
     compute_min_along_track_distance,
@@ -100,6 +101,7 @@ __all__ = [
     "compute_j2_mean_motion_rate",
     "compute_j2_raan_rate",
     "compute_limb",
+    "compute_local_incidence_angle",
     "compute_max_access_time",
     "compute_max_transit_time",
     "compute_min_along_track_distance",

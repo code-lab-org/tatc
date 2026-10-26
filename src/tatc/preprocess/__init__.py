@@ -7,17 +7,21 @@ require additional dependencies not installed by default; install them via
 
 from .raster import read_raster_weights
 from .terrain import (
+    add_local_incidence_angles,
     compute_terrain_mask,
     compute_terrain_mask_for_platform,
     compute_terrain_mask_for_station,
+    compute_terrain_slope_aspect,
     get_copernicus_dem_tile_urls,
     sample_dem_elevation,
 )
 
 __all__ = [
+    "add_local_incidence_angles",
     "compute_terrain_mask",
     "compute_terrain_mask_for_platform",
     "compute_terrain_mask_for_station",
+    "compute_terrain_slope_aspect",
     "get_copernicus_dem_tile_urls",
     "read_raster_weights",
     "sample_dem_elevation",

@@ -5,19 +5,26 @@ Unit tests for the tatc.utils.observation module.
 """
 
 import unittest
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
+from pyproj import Geod
 
+from tatc.analysis import collect_orbit_track
+from tatc.constants import EARTH_MEAN_RADIUS
+from tatc.schemas import Satellite, SunSynchronousOrbit
 from tatc.utils import (
     compute_along_track_field_of_view,
     compute_ground_inertial_velocity,
     compute_ground_surface_velocity,
     compute_field_of_regard,
+    compute_local_incidence_angle,
     compute_max_access_time,
     compute_max_transit_time,
     compute_min_along_track_distance,
     compute_min_elevation_angle,
     field_of_regard_to_swath_width,
+    geodetic_to_rectangular,
     swath_width_to_field_of_regard,
     swath_width_to_field_of_view,
 )
@@ -344,9 +351,10 @@ class TestObservation(unittest.TestCase):  # pylint: disable=too-many-public-met
     def test_compute_along_track_field_of_view(self):
         """
         Test that the along-track field of view subtends the distance the
-        ground track advances in one time step at the given latitude, and by
-        default at the fastest ground track velocity over the orbit, which
-        exceeds the inertial ground velocity for a retrograde orbit.
+        ground track advances in one time step over the ellipsoid at the
+        given latitude, from the height above the ellipsoid, and by default
+        at the fastest ground track velocity over the orbit, which exceeds
+        the inertial ground velocity for a retrograde orbit.
         """
         altitude, time_step = 700e3, 10
         for inclination in (51.6, 98.2):
@@ -354,11 +362,14 @@ class TestObservation(unittest.TestCase):  # pylint: disable=too-many-public-met
                 velocity = compute_ground_surface_velocity(
                     altitude, 0, inclination, latitude
                 )
+                surface_radius = np.linalg.norm(geodetic_to_rectangular(0, latitude))
+                advance = velocity * time_step * surface_radius / EARTH_MEAN_RADIUS
+                height = EARTH_MEAN_RADIUS + altitude - surface_radius
                 self.assertAlmostEqual(
                     compute_along_track_field_of_view(
                         altitude, time_step, inclination, latitude
                     ),
-                    np.degrees(2 * np.arctan(velocity * time_step / 2 / altitude)),
+                    np.degrees(2 * np.arctan(advance / 2 / height)),
                     delta=1e-9,
                 )
                 self.assertGreaterEqual(
@@ -385,3 +396,88 @@ class TestObservation(unittest.TestCase):  # pylint: disable=too-many-public-met
             2,
             delta=1e-4,
         )
+
+    def test_along_track_field_of_view_tiles_propagated_orbit(self):
+        """
+        Test that nadir footprints with the tailored along-track field of
+        view, at the satellite's height above the ellipsoid, are at least as
+        long as the ground track advances in a time step around a
+        propagated orbit, including near the equator, where the satellite is
+        lowest above the ellipsoid (about 7 km below its mean altitude).
+        """
+        start = datetime(2022, 7, 14, tzinfo=timezone.utc)
+        orbit = SunSynchronousOrbit(
+            altitude=834e3, equator_crossing_time="13:30", epoch=start
+        )
+        satellite = Satellite(name="Test", orbit=orbit)
+        time_step = 1.7864
+        field_of_view = compute_along_track_field_of_view(
+            orbit.get_mean_altitude(), time_step, orbit.get_inclination()
+        )
+        times = [start + timedelta(seconds=10 * k) for k in range(610)]
+        track = collect_orbit_track(satellite, times)
+        later = collect_orbit_track(
+            satellite, [t + timedelta(seconds=time_step) for t in times]
+        )
+        advance = Geod(ellps="WGS84").inv(
+            track.geometry.x, track.geometry.y, later.geometry.x, later.geometry.y
+        )[2]
+        height = np.array([point.z for point in track.geometry])
+        length = 2 * height * np.tan(np.radians(field_of_view / 2))
+        self.assertTrue(np.all(length >= advance))
+
+
+class TestLocalIncidenceAngle(unittest.TestCase):
+    """
+    Unit tests for compute_local_incidence_angle.
+    """
+
+    def test_flat_terrain(self):
+        """
+        Test that the local incidence angle on flat terrain is 90 degrees
+        less the elevation angle, at any azimuth and aspect.
+        """
+        for elevation_angle in [10, 45, 90]:
+            for azimuth in [0, 123, 270]:
+                self.assertAlmostEqual(
+                    compute_local_incidence_angle(elevation_angle, azimuth, 0, 77),
+                    90 - elevation_angle,
+                )
+
+    def test_slope_facing_toward_and_away(self):
+        """
+        Test that a slope facing the satellite reduces the incidence angle
+        by the slope, and one facing away increases it by the slope.
+        """
+        self.assertAlmostEqual(compute_local_incidence_angle(40, 270, 20, 270), 30)
+        self.assertAlmostEqual(compute_local_incidence_angle(40, 270, 20, 90), 70)
+
+    def test_slope_facing_across(self):
+        """
+        Test the angle for a slope facing perpendicular to the line of
+        sight, where cos(angle) = sin(elevation) cos(slope).
+        """
+        self.assertAlmostEqual(
+            compute_local_incidence_angle(40, 0, 20, 90),
+            np.degrees(np.arccos(np.sin(np.radians(40)) * np.cos(np.radians(20)))),
+        )
+
+    def test_hidden_slope(self):
+        """
+        Test that a slope facing away more steeply than the satellite's
+        elevation angle gives an angle above 90 degrees (hidden).
+        """
+        self.assertGreater(compute_local_incidence_angle(30, 0, 45, 180), 90)
+        self.assertAlmostEqual(compute_local_incidence_angle(30, 0, 45, 180), 105)
+
+    def test_arrays_broadcast(self):
+        """
+        Test that arrays broadcast elementwise and return an array, while
+        scalars return a float.
+        """
+        angles = compute_local_incidence_angle(
+            np.array([40, 40, 90]), 270, np.array([20, 0, 30]), 270
+        )
+        self.assertIsInstance(angles, np.ndarray)
+        np.testing.assert_allclose(angles, [30, 50, 30])
+        self.assertIsInstance(compute_local_incidence_angle(40, 270), float)

@@ -1,7 +1,8 @@
 """
 Terrain-based preprocessing utilities: derive a `TerrainMask` for a
 ground-based radar station or a fixed surface platform by sampling a
-digital elevation model (DEM) for terrain obstructions.
+digital elevation model (DEM) for terrain obstructions, and the terrain
+slope, aspect, and local incidence angle at observed targets.
 
 A convenient, public, global, 30-meter-resolution DEM requiring no
 authentication is the Copernicus DEM GLO-30 dataset, hosted on AWS Open
@@ -20,7 +21,9 @@ from __future__ import annotations
 
 import math
 
+import geopandas as gpd
 import numpy as np
+import pandas as pd
 
 try:
     import rasterio
@@ -34,6 +37,7 @@ except ImportError as error:
 from .. import constants
 from ..schemas.surface import RadarStation, SurfacePlatform, TerrainMask
 from ..utils.geometry import geodesic_destination
+from ..utils.observation import compute_local_incidence_angle
 from ..utils.radar import compute_terrain_elevation_angle
 
 _COPERNICUS_DEM_URL_TEMPLATE = (
@@ -147,7 +151,12 @@ def sample_dem_elevation(
 
 
 def _read_windowed_tile(
-    path: str, min_lon: float, min_lat: float, max_lon: float, max_lat: float
+    path: str,
+    min_lon: float,
+    min_lat: float,
+    max_lon: float,
+    max_lat: float,
+    padding: int = 0,
 ) -> tuple[np.ndarray, rasterio.Affine, float | None] | None:
     """
     Opens a DEM source and reads the windowed region overlapping a
@@ -163,6 +172,9 @@ def _read_windowed_tile(
         min_lat (float): Minimum latitude (decimal degrees) of the box.
         max_lon (float): Maximum longitude (decimal degrees) of the box.
         max_lat (float): Maximum latitude (decimal degrees) of the box.
+        padding (int): The number of cells by which to extend the window
+            on each side (within the source), as for interpolation between
+            the cells around points at the edge of the box.
 
     Returns:
         tuple[numpy.ndarray, rasterio.Affine, float | None] | None: The
@@ -184,10 +196,42 @@ def _read_windowed_tile(
             .round_lengths()
             .round_offsets()
         )
+        if padding:
+            window = rasterio.windows.Window(
+                window.col_off - padding,
+                window.row_off - padding,
+                window.width + 2 * padding,
+                window.height + 2 * padding,
+            ).intersection(rasterio.windows.Window(0, 0, dataset.width, dataset.height))
         array = dataset.read(1, window=window)
         transform = rasterio.windows.transform(window, dataset.transform)
         nodata = dataset.nodata
     return array, transform, nodata
+
+
+def _to_pixel_coordinates(
+    transform: rasterio.Affine, longitudes: np.ndarray, latitudes: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Converts longitudes/latitudes to fractional (column, row) pixel
+    coordinates of a raster with an affine transform, applying the inverse
+    transform's coefficients directly (rather than its operators, which
+    differ between versions of `affine`).
+
+    Args:
+        transform (rasterio.Affine): The raster's affine transform.
+        longitudes (numpy.ndarray): Longitudes (decimal degrees).
+        latitudes (numpy.ndarray): Latitudes (decimal degrees).
+
+    Returns:
+        tuple[numpy.ndarray, numpy.ndarray]: The column and row coordinates.
+    """
+    inverse = ~transform
+    longitudes, latitudes = np.asarray(longitudes), np.asarray(latitudes)
+    return (
+        inverse.a * longitudes + inverse.b * latitudes + inverse.c,
+        inverse.d * longitudes + inverse.e * latitudes + inverse.f,
+    )
 
 
 def _lookup_elevations(
@@ -216,7 +260,7 @@ def _lookup_elevations(
     """
     elevations = np.full(np.shape(longitudes), np.nan)
     for array, transform, nodata in tiles:
-        cols, rows = ~transform * (longitudes, latitudes)
+        cols, rows = _to_pixel_coordinates(transform, longitudes, latitudes)
         rows, cols = np.floor(rows).astype(int), np.floor(cols).astype(int)
         candidates = (
             np.isnan(elevations)
@@ -457,3 +501,218 @@ def compute_terrain_mask_for_platform(
         range_spacing=range_spacing,
         effective_earth_radius_factor=effective_earth_radius_factor,
     )
+
+
+def _interpolate_elevations(
+    tiles: list[tuple[np.ndarray, rasterio.Affine, float | None]],
+    longitudes: np.ndarray,
+    latitudes: np.ndarray,
+) -> np.ndarray:
+    """
+    Interpolates terrain elevations bilinearly between the centers of DEM
+    cells at specified longitudes/latitudes, each on the grid of the first
+    windowed tile array (as returned by `_read_windowed_tile`) within a cell
+    of it whose surrounding cell centers have valid (non-nodata) data, in
+    any tile (so that points between the cells of adjacent, aligned tiles,
+    as of the Copernicus DEM, are interpolated across the seam). Unlike the
+    nearest-cell lookup of `_lookup_elevations`, elevations vary
+    continuously, so finite differences over distances near the cell size
+    give smooth slopes.
+
+    Args:
+        tiles (list[tuple[numpy.ndarray, rasterio.Affine, float | None]]):
+            Windowed elevation arrays, as returned by `_read_windowed_tile`.
+        longitudes (numpy.ndarray): Longitudes (decimal degrees) of the
+            sample points.
+        latitudes (numpy.ndarray): Latitudes (decimal degrees) of the
+            sample points, with the same shape as `longitudes`.
+
+    Returns:
+        numpy.ndarray: The interpolated elevations (meters), with the same
+        shape as `longitudes`; `numpy.nan` where no tile surrounds a point
+        with valid data.
+    """
+    longitudes, latitudes = np.asarray(longitudes), np.asarray(latitudes)
+    elevations = np.full(longitudes.shape, np.nan)
+    for array, transform, _ in tiles:
+        cols, rows = _to_pixel_coordinates(transform, longitudes, latitudes)
+        # fractional indices relative to the cell centers
+        cols, rows = cols - 0.5, rows - 0.5
+        col0, row0 = np.floor(cols), np.floor(rows)
+        candidates = (
+            np.isnan(elevations)
+            & (row0 >= -1)
+            & (row0 < array.shape[0])
+            & (col0 >= -1)
+            & (col0 < array.shape[1])
+        )
+        c, r = col0[candidates], row0[candidates]
+        # the elevations at the surrounding cell centers, from any tile
+        corners = [
+            _lookup_elevations(
+                tiles,
+                transform.a * (c + dc + 0.5)
+                + transform.b * (r + dr + 0.5)
+                + transform.c,
+                transform.d * (c + dc + 0.5)
+                + transform.e * (r + dr + 0.5)
+                + transform.f,
+            )
+            for dr, dc in [(0, 0), (0, 1), (1, 0), (1, 1)]
+        ]
+        fc, fr = cols[candidates] - c, rows[candidates] - r
+        elevations[candidates] = (1 - fr) * (
+            (1 - fc) * corners[0] + fc * corners[1]
+        ) + fr * ((1 - fc) * corners[2] + fc * corners[3])
+    return elevations
+
+
+def compute_terrain_slope_aspect(
+    dem_paths: str | list[str],
+    longitudes: float | np.ndarray,
+    latitudes: float | np.ndarray,
+    baseline: float = 30,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Computes the terrain slope and aspect at specified longitudes/latitudes
+    from a digital elevation model (DEM), by central differences of the
+    elevations (interpolated bilinearly) a `baseline` distance east, west,
+    north, and south of each point. The baseline sets the scale of the
+    terrain the slope represents: the DEM's cell size (30 meters for
+    Copernicus DEM GLO-30, the default) for the steepest local slopes, or a
+    larger distance, such as an instrument's ground sample size, for the
+    slope averaged over its samples.
+
+    Args:
+        dem_paths (str | list[str]): One or more DEM raster sources (see
+            `compute_terrain_mask`), covering the points and their baselines.
+        longitudes (float | numpy.ndarray): Longitudes (decimal degrees) of
+            the points.
+        latitudes (float | numpy.ndarray): Latitudes (decimal degrees) of
+            the points, with the same shape as `longitudes`.
+        baseline (float): The distance (meters) from each point at which
+            elevations are differenced.
+
+    Returns:
+        tuple[numpy.ndarray, numpy.ndarray]: The slope (degrees from
+        horizontal) and aspect (the azimuth of the downslope direction, in
+        degrees clockwise from north, or 0 on flat terrain) at each point,
+        with the shape of `longitudes`; `numpy.nan` where the DEM sources do
+        not cover a point with valid data.
+
+    Raises:
+        ValueError: If `baseline` is not positive, or if none of the
+            provided DEM sources overlap the points.
+    """
+    if baseline <= 0:
+        raise ValueError("baseline must be positive.")
+    longitudes, latitudes = np.broadcast_arrays(
+        np.asarray(longitudes, dtype=float), np.asarray(latitudes, dtype=float)
+    )
+    # sample points east, west, north, and south of each point
+    shape = (4,) + longitudes.shape
+    azimuths = np.array([90.0, 270.0, 0.0, 180.0]).reshape(
+        (4,) + (1,) * longitudes.ndim
+    )
+    sample_longitudes, sample_latitudes = (
+        np.asarray(values)
+        for values in geodesic_destination(
+            np.broadcast_to(longitudes, shape),
+            np.broadcast_to(latitudes, shape),
+            np.broadcast_to(azimuths, shape),
+            np.full(shape, float(baseline)),
+        )
+    )
+    paths = [dem_paths] if isinstance(dem_paths, str) else list(dem_paths)
+    tiles = [
+        tile
+        for path in paths
+        if (
+            tile := _read_windowed_tile(
+                path,
+                float(np.min(sample_longitudes)),
+                float(np.min(sample_latitudes)),
+                float(np.max(sample_longitudes)),
+                float(np.max(sample_latitudes)),
+                padding=2,
+            )
+        )
+        is not None
+    ]
+    if not tiles:
+        raise ValueError("None of the provided DEM sources overlap the points.")
+    east, west, north, south = _interpolate_elevations(
+        tiles, sample_longitudes, sample_latitudes
+    )
+    # the elevation gradient (rise per meter) toward the east and north
+    gradient_east = (east - west) / (2 * baseline)
+    gradient_north = (north - south) / (2 * baseline)
+    slope = np.degrees(np.arctan(np.hypot(gradient_east, gradient_north)))
+    # the downslope direction is opposite the gradient
+    aspect = np.where(
+        (gradient_east == 0) & (gradient_north == 0),
+        0.0,
+        np.degrees(np.arctan2(-gradient_east, -gradient_north)) % 360,
+    )
+    return slope, aspect
+
+
+def add_local_incidence_angles(
+    observations: gpd.GeoDataFrame,
+    dem_paths: str | list[str],
+    baseline: float = 30,
+) -> gpd.GeoDataFrame:
+    """
+    Adds the terrain slope and aspect (see `compute_terrain_slope_aspect`)
+    and the local incidence angle (see
+    `tatc.utils.compute_local_incidence_angle`) at each target of a data
+    frame of observations with point geometries and satellite angles, such
+    as the ground pixels of `tatc.analysis.collect_ground_pixels` (with
+    `sat_altaz=True`) or the observations of
+    `tatc.analysis.collect_observations`. Observations may then be
+    constrained by their local incidence angle, for example, for
+    side-looking instruments over mountainous terrain (an angle above 90
+    degrees means the target is hidden behind its own slope).
+
+    Args:
+        observations (geopandas.GeoDataFrame): The observations, with point
+            geometries (longitude and latitude, in degrees) and the
+            satellite's elevation angle and azimuth (`sat_alt` and
+            `sat_az` columns, in degrees) at each.
+        dem_paths (str | list[str]): One or more DEM raster sources (see
+            `compute_terrain_mask`), covering the points.
+        baseline (float): See `compute_terrain_slope_aspect`.
+
+    Returns:
+        geopandas.GeoDataFrame: A copy of the observations, with added
+        columns `terrain_slope`, `terrain_aspect`, and
+        `local_incidence_angle` (degrees; `numpy.nan` where the DEM sources
+        do not cover a target with valid data).
+
+    Raises:
+        ValueError: If the observations lack the `sat_alt` or `sat_az`
+            columns, or have geometries other than points.
+    """
+    missing = [c for c in ["sat_alt", "sat_az"] if c not in observations.columns]
+    if missing:
+        raise ValueError(
+            f"observations lack the column(s) {missing}; collect ground pixels "
+            "with sat_altaz=True."
+        )
+    result = observations.copy()
+    columns = ["terrain_slope", "terrain_aspect", "local_incidence_angle"]
+    if result.empty:
+        for column in columns:
+            result[column] = pd.Series(dtype=float)
+        return result
+    if not (result.geometry.geom_type == "Point").all():
+        raise ValueError("observations must have point geometries.")
+    slope, aspect = compute_terrain_slope_aspect(
+        dem_paths, result.geometry.x.values, result.geometry.y.values, baseline
+    )
+    result["terrain_slope"] = slope
+    result["terrain_aspect"] = aspect
+    result["local_incidence_angle"] = compute_local_incidence_angle(
+        result.sat_alt.values, result.sat_az.values, slope, aspect
+    )
+    return result

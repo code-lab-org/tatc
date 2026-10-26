@@ -45,14 +45,26 @@ Development tools are applicable when working with the source code.
 
 ### Unit Tests
 
-Run unit tests with:
+Run unit tests with pytest (installed with the `dev` optional dependencies):
 ```shell
-python -m unittest
+pytest
 ```
+
+Tests can run in parallel with `pytest-xdist` (e.g., with 8 workers):
+```shell
+pytest -n 8
+```
+
+Run a subset of tests by file, or by a keyword expression with `-k`:
+```shell
+pytest tests/analysis/test_point_sampling.py -k "geodataframe"
+```
+
+The tests are written with `unittest`, so `python -m unittest` also runs them without pytest.
 
 Unit tests run numba-compiled functions (see below) compiled, which coverage cannot trace. To include them in a test coverage report, run the tests with the environment variable `NUMBA_DISABLE_JIT=1` (e.g., in bash):
 ```shell
-NUMBA_DISABLE_JIT=1 coverage run -m unittest
+NUMBA_DISABLE_JIT=1 coverage run -m pytest
 ```
 including html output:
 ```shell

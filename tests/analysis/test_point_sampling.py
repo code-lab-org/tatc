@@ -1369,6 +1369,35 @@ class TestCollectObservationsGeometry(IssConstellationTestCase):
             self.assertNotIn("point_id", observations.columns)
             self.assertTrue((observations.target_hash == hash_geometry(point)).all())
 
+    def test_geodataframe_matches_list(self):
+        """
+        Test that a GeoDataFrame or GeoSeries of points (for example, of
+        generated points) is observed exactly as the list of its geometries,
+        and that even a single row gives a combined (multiple-point) result.
+        """
+        points = [ShapelyPoint(-74.0, 40.7), ShapelyPoint(-118.2, 34.0)]
+        gdf = gpd.GeoDataFrame({"name": ["a", "b"]}, geometry=points, crs="EPSG:4326")
+        expected = collect_observations(points, self.satellite, self.start, self.end)
+        self.assertGreater(len(expected.index), 0)
+        for target in [gdf, gdf.geometry]:
+            with self.subTest(type=type(target).__name__):
+                actual = collect_observations(
+                    target, self.satellite, self.start, self.end
+                )
+                pd.testing.assert_frame_equal(expected, actual)
+        pd.testing.assert_frame_equal(
+            collect_observations(gdf.iloc[:1], self.satellite, self.start, self.end),
+            collect_observations(points[:1], self.satellite, self.start, self.end),
+        )
+
+    def test_geodataframe_of_regions_is_invalid(self):
+        """
+        Test that a GeoDataFrame of regions raises a TypeError.
+        """
+        gdf = gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)], crs="EPSG:4326")
+        with self.assertRaises(TypeError):
+            collect_observations(gdf, self.satellite, self.start, self.end)
+
     def test_invalid_geometry_type(self):
         """
         Test that a geometry other than a point (including a region, see

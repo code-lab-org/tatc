@@ -17,7 +17,6 @@ from pyproj import Transformer
 import shapely
 from shapely import Geometry
 from shapely.geometry import MultiPolygon, Point, Polygon
-from shapely.ops import transform
 from skyfield.api import wgs84
 from skyfield.constants import AU_M, DAY_S
 from skyfield.framelib import itrs
@@ -1532,6 +1531,26 @@ def compute_static_track(
     )
 
 
+def _transform(geometry: Geometry, transformer: Transformer) -> Geometry:
+    """
+    Transforms the (x, y) coordinates of a geometry with a pyproj
+    transformer, dropping any z coordinates.
+
+    Args:
+        geometry (shapely.Geometry): The geometry to transform.
+        transformer (pyproj.Transformer): The transformer.
+
+    Returns:
+        shapely.Geometry: The transformed geometry.
+    """
+    return shapely.transform(
+        geometry,
+        lambda coords: np.column_stack(
+            transformer.transform(coords[:, 0], coords[:, 1])
+        ),
+    )
+
+
 def buffer_footprint(
     geometry: Geometry,
     to_crs: Transformer,
@@ -1561,10 +1580,7 @@ def buffer_footprint(
     # reproject to specified elevation (lost during buffer)
     return project_polygon_to_elevation(
         split_polygon(
-            transform(
-                from_crs.transform,
-                transform(to_crs.transform, geometry).buffer(swath_width / 2),  # type: ignore
-            )
+            _transform(_transform(geometry, to_crs).buffer(swath_width / 2), from_crs)
         ),
         elevation,
     )
@@ -1630,7 +1646,5 @@ def buffer_target(
     )
     distance = (ground_distance + swath_width / 2) * distance_scaling
     return split_polygon(
-        transform(
-            from_crs.transform, transform(to_crs.transform, geometry).buffer(distance)  # type: ignore
-        )
+        _transform(_transform(geometry, to_crs).buffer(distance), from_crs)
     )
