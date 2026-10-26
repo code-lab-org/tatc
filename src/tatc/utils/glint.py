@@ -117,7 +117,9 @@ def compute_specular_point(
         scale = np.minimum(1, 5 / np.maximum(np.hypot(step_lon, step_lat), 1e-12))
         step_lon = np.nan_to_num(step_lon * scale)
         step_lat = np.nan_to_num(step_lat * scale)
-        longitude, latitude = longitude + step_lon, np.clip(latitude + step_lat, -90, 90)
+        longitude, latitude = longitude + step_lon, np.clip(
+            latitude + step_lat, -90, 90
+        )
         if np.all(np.hypot(step_lon, step_lat) < 1e-9):
             break
     position = geodetic_to_rectangular(longitude, latitude)
@@ -126,9 +128,12 @@ def compute_specular_point(
     # where both are below it)
     sunlit = np.sum(up * _unit(sun - position), axis=0) > 0
     visible = np.sum(up * _unit(satellite - position), axis=0) > 0
-    converged = np.max(
-        np.abs(_get_specular_residual(longitude, latitude, satellite, sun)), axis=0
-    ) < 1e-6
+    converged = (
+        np.max(
+            np.abs(_get_specular_residual(longitude, latitude, satellite, sun)), axis=0
+        )
+        < 1e-6
+    )
     valid = sunlit & visible & converged
     longitude = np.where(valid, (longitude + 180) % 360 - 180, np.nan)
     latitude = np.where(valid, latitude, np.nan)
@@ -164,7 +169,8 @@ def compute_glint_angle(
     sun = _get_sun_position(orbit_track.t)
     position = np.reshape(np.array(target.itrs_xyz.m), (3, -1))
     up, _, _ = _get_surface_axes(
-        np.reshape(target.longitude.degrees, -1), np.reshape(target.latitude.degrees, -1)
+        np.reshape(target.longitude.degrees, -1),
+        np.reshape(target.latitude.degrees, -1),
     )
     to_sun = _unit(sun - position)
     reflected = 2 * np.sum(up * to_sun, axis=0) * up - to_sun

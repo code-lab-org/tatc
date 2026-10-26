@@ -487,7 +487,9 @@ class TestGlintAttitude(unittest.TestCase):
         self.assertGreater(np.sum(pointing), 0)
         self.assertGreater(np.sum(~pointing), 0)
         center = (
-            self._satellite(attitude).get_instrument().compute_footprint_center(self.track)
+            self._satellite(attitude)
+            .get_instrument()
+            .compute_footprint_center(self.track)
         )
         np.testing.assert_array_less(
             compute_glint_angle(self.track, center)[pointing], 1e-3
@@ -505,7 +507,9 @@ class TestGlintAttitude(unittest.TestCase):
         self.assertLess(np.sum(np.isfinite(fewer.latitude.degrees)), np.sum(pointing))
         higher = GlintAttitude(max_off_nadir_angle=50, min_solar_elevation=60)
         higher_point = higher.get_aim_point(self.track)
-        self.assertLess(np.sum(np.isfinite(higher_point.latitude.degrees)), np.sum(pointing))
+        self.assertLess(
+            np.sum(np.isfinite(higher_point.latitude.degrees)), np.sum(pointing)
+        )
 
     def test_offset_toward_nadir(self):
         """
@@ -550,25 +554,35 @@ class TestGlintAttitude(unittest.TestCase):
         ]:
             aim = attitude.get_aim_point(track)
             # (at nadir where the offset exceeds the specular point's angle from nadir)
-            np.testing.assert_allclose(off_nadir(aim), np.maximum(expected, 0), atol=0.3)
+            np.testing.assert_allclose(
+                off_nadir(aim), np.maximum(expected, 0), atol=0.3
+            )
             # on the line from nadir to the specular point
             detour = (
                 geodesic_distance(
-                    subpoint.longitude.degrees, subpoint.latitude.degrees,
-                    aim.longitude.degrees, aim.latitude.degrees,
+                    subpoint.longitude.degrees,
+                    subpoint.latitude.degrees,
+                    aim.longitude.degrees,
+                    aim.latitude.degrees,
                 )
                 + geodesic_distance(
-                    aim.longitude.degrees, aim.latitude.degrees,
-                    specular.longitude.degrees, specular.latitude.degrees,
+                    aim.longitude.degrees,
+                    aim.latitude.degrees,
+                    specular.longitude.degrees,
+                    specular.latitude.degrees,
                 )
                 - geodesic_distance(
-                    subpoint.longitude.degrees, subpoint.latitude.degrees,
-                    specular.longitude.degrees, specular.latitude.degrees,
+                    subpoint.longitude.degrees,
+                    subpoint.latitude.degrees,
+                    specular.longitude.degrees,
+                    specular.latitude.degrees,
                 )
             )
             np.testing.assert_array_less(detour, 100)
         self.assertEqual(
-            GlintAttitude(offset_angle_profile=[(60, 10), (20, 2)]).offset_angle_profile,
+            GlintAttitude(
+                offset_angle_profile=[(60, 10), (20, 2)]
+            ).offset_angle_profile,
             [(20, 2), (60, 10)],
         )
         with self.assertRaises(ValidationError):
@@ -581,11 +595,21 @@ class TestGlintAttitude(unittest.TestCase):
         report the glint angle.
         """
         attitude = GlintAttitude(max_off_nadir_angle=50)
-        k = int(np.flatnonzero(np.isfinite(attitude.get_aim_point(self.track).latitude.degrees))[2])
+        k = int(
+            np.flatnonzero(
+                np.isfinite(attitude.get_aim_point(self.track).latitude.degrees)
+            )[2]
+        )
         point = attitude.get_aim_point(self.track[k])
-        target = ShapelyPoint(float(point.longitude.degrees), float(point.latitude.degrees))
-        start, end = self.times[k] - timedelta(minutes=10), self.times[k] + timedelta(minutes=10)
-        self.assertEqual(len(collect_observations(target, self._satellite(None), start, end)), 0)
+        target = ShapelyPoint(
+            float(point.longitude.degrees), float(point.latitude.degrees)
+        )
+        start, end = self.times[k] - timedelta(minutes=10), self.times[k] + timedelta(
+            minutes=10
+        )
+        self.assertEqual(
+            len(collect_observations(target, self._satellite(None), start, end)), 0
+        )
         observations = collect_observations(
             target, self._satellite(attitude), start, end, omit_solar=False
         )
@@ -605,6 +629,8 @@ class TestGlintAttitude(unittest.TestCase):
         self.assertEqual(copy.attitude, schedule)
         self.assertIsInstance(copy.attitude.segments[1].attitude, GlintAttitude)
         self.assertIsInstance(
-            Satellite.model_validate_json(self._satellite(GlintAttitude()).model_dump_json()).attitude,
+            Satellite.model_validate_json(
+                self._satellite(GlintAttitude()).model_dump_json()
+            ).attitude,
             GlintAttitude,
         )

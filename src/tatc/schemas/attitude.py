@@ -443,7 +443,9 @@ class GlintAttitude(BaseModel):
         distance = np.linalg.norm(los, axis=0)
         with np.errstate(invalid="ignore"):
             los = los / distance
-            off_nadir = np.degrees(np.arccos(np.clip(np.sum(los * nadir, axis=0), -1, 1)))
+            off_nadir = np.degrees(
+                np.arccos(np.clip(np.sum(los * nadir, axis=0), -1, 1))
+            )
             # the elevation of the satellite (and of the Sun) seen from the point
             up = np.array(
                 [
@@ -596,9 +598,7 @@ class AttitudeSchedule(BaseModel):
             ]
         )
 
-    def get_attitude(
-        self, time: datetime
-    ) -> Attitude | TargetAttitude | GlintAttitude:
+    def get_attitude(self, time: datetime) -> Attitude | TargetAttitude | GlintAttitude:
         """
         Gets the attitude that applies at a time.
 
