@@ -14,9 +14,13 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
-import rasterio
-import rasterio.windows
-from rasterio.transform import from_origin
+
+try:
+    import rasterio
+    import rasterio.windows
+    from rasterio.transform import from_origin
+except ImportError as error:
+    raise unittest.SkipTest("requires the optional 'rasterio' dependency") from error
 from shapely.geometry import Point, box
 
 from tatc import constants

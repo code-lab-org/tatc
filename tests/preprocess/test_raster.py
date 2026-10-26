@@ -10,8 +10,12 @@ import unittest
 from pathlib import Path
 
 import numpy as np
-import rasterio
-from rasterio.transform import from_origin
+
+try:
+    import rasterio
+    from rasterio.transform import from_origin
+except ImportError as error:
+    raise unittest.SkipTest("requires the optional 'rasterio' dependency") from error
 from shapely.geometry import box
 
 from tatc.generation import generate_points_random
