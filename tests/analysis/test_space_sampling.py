@@ -310,6 +310,8 @@ class TestCollectSpaceObservations(unittest.TestCase):
                 "to_satellite",
                 "start",
                 "end",
+                "closest_time",
+                "closest_range",
             ],
         )
         self.assertEqual(observations.crs, "EPSG:4326")
@@ -342,6 +344,31 @@ class TestCollectSpaceObservations(unittest.TestCase):
                     atol=1e-3,
                 )
 
+    def test_closest_approach(self):
+        """
+        Test that each observation's closest approach is the least range during
+        its period (within the samples' refinement), at a time within it.
+        """
+        observations = collect_space_observations(
+            self.leader, self.start, self.end, self.polar
+        )
+        self.assertGreater(len(observations), 0)
+        for _, row in observations.iterrows():
+            self.assertTrue(row.start <= row.closest_time <= row.end)
+            duration = (row.end - row.start).total_seconds()
+            times = [
+                row.start.to_pydatetime() + timedelta(seconds=float(s))
+                for s in np.linspace(0, duration, int(duration * 10) + 1)
+            ]
+            t = timescale.from_datetimes(times)
+            distance = np.linalg.norm(
+                self.leader.orbit.to_gp_orbit().get_orbit_track_at_time(t).position.m
+                - self.polar.orbit.to_gp_orbit().get_orbit_track_at_time(t).position.m,
+                axis=0,
+            )
+            self.assertLessEqual(row.closest_range, distance.min() + 1e-3)
+            self.assertGreater(row.closest_range, distance.min() - 100)
+
     def test_empty(self):
         for observations in [
             collect_space_observations(self.leader, self.start, self.end, self.far),
@@ -358,6 +385,8 @@ class TestCollectSpaceObservations(unittest.TestCase):
                     "to_satellite",
                     "start",
                     "end",
+                    "closest_time",
+                    "closest_range",
                 ],
             )
 
