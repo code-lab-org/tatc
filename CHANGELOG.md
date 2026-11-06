@@ -1,5 +1,18 @@
 # TAT-C Change Log
 
+## Unreleased
+
+Added a catalog of instruments from past and present missions, with a standard for validating them. Fixed instruments losing their fields when serialized. Instruments now reject unknown fields, which can break code that passes misspelled or unused arguments.
+
+Added:
+ - Module `catalog` of instruments from past and present missions (`get_entry`, `list_entries`), starting with GOES-R ABI and GPM GMI. `InstrumentEntry.to_satellite` and `build` give an entry's instruments with the attitude they were validated with, and `InstrumentEntry.validation` gives its validation tier, computed from its results and the thresholds of the validation standard (`docs/validation/standard.rst`). Neither entry is fully `validated` yet; each lists its gaps.
+ - Field `type` (`instrument`, `pointed`, or `conical`) of `Instrument`, `PointedInstrument`, and `ConicalInstrument`, which identifies the instrument class in serialized data. Data without a `type` loads as the class its fields imply.
+
+Changed:
+ - Instruments reject unknown fields, rather than ignoring them: a misspelled field in the data of a `PointedInstrument` previously gave an `Instrument` with a field of regard of 180 degrees.
+ - Dumping a `Satellite` or other system with a `PointedInstrument` or `ConicalInstrument` keeps the fields of its class, and loading the data restores it. Previously, these instruments were written and restored as a base `Instrument`, without a warning. Data written by earlier versions lacks these fields, so it still loads as an `Instrument`.
+ - Dumping a space system with an `attitude` omits the `velocity_frame` of its instruments, which the attitude sets, so the data can be loaded.
+
 ## 3.6.0
 
 Added new observing capabilities for limb sounding, ground-based radar, fixed surface platforms, and regions (polygons), with support for shapely points. Changed how general perturbations orbits are propagated, with options to model orbits maintained on a repeat ground track. Also changed the tangent point for GNSS radio occultation (RO) and limb sounding to the point of minimum WGS 84 geodetic altitude along the line of sight.

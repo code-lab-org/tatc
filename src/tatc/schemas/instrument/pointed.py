@@ -6,6 +6,8 @@ Object schemas for off-nadir pointing instruments.
 
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
 import numpy.typing as npt
 from pydantic import Field, ValidationInfo, field_validator
@@ -34,6 +36,9 @@ class PointedInstrument(Instrument):
     pointing offset and a rectangular or elliptical pixel array.
     """
 
+    type: Literal["pointed"] = Field(
+        default="pointed", description="Instrument type discriminator."
+    )
     cross_track_field_of_view: float = Field(
         ...,
         description="Angular field (degrees) of view orthogonal to instrument motion.",

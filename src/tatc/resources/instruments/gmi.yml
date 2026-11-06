@@ -1,0 +1,59 @@
+id: gmi
+name: GMI
+aliases: [GPM Microwave Imager]
+instrument_class: conical
+selection: Conically scanning microwave imager of the Global Precipitation Measurement mission, with open precipitation data products.
+platforms:
+  - id: gpm
+    name: GPM Core Observatory
+    norad_id: 39574
+    status: operational
+    as_of: 2026-10-03
+data_products:
+  - name: GPM_1CGPMGMI
+    provider: NASA GES DISC
+    url: https://disc.gsfc.nasa.gov/datasets/GPM_1CGPMGMI_08/summary
+    access: registration
+default_configuration: feeds
+configurations:
+  feeds:
+    grade: timing
+    description: The low-frequency (S1, 10 to 89 GHz) and high-frequency (S2, 166 and 183 GHz) feeds, flying forward. Analyze one at a time with its instrument index.
+    platforms: [gpm]
+    velocity_frame: inertial
+    grouping: alternatives
+    instruments:
+      - type: conical
+        parameters:
+          name: GMI S1
+          cone_angle: 48.460
+          scan_center_azimuth: -0.285
+          scan_half_width: 76.031
+          along_track_field_of_view: {tailor: time_step}
+        provenance:
+          cone_angle: &measured
+            kind: measured
+            source: ValidateConicalGMI, Test 2 (printed to 3 decimals)
+            platform: gpm
+            period: "2026-10-03"
+          scan_center_azimuth: *measured
+          scan_half_width: *measured
+          along_track_field_of_view: &tailored
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+      - type: conical
+        parameters:
+          name: GMI S2
+          cone_angle: 45.284
+          scan_center_azimuth: -0.341
+          scan_half_width: 76.024
+          along_track_field_of_view: {tailor: time_step}
+        provenance:
+          cone_angle: *measured
+          scan_center_azimuth: *measured
+          scan_half_width: *measured
+          along_track_field_of_view: *tailored
+    limitations:
+      - GPM periodically flies backward, when GMI scans behind the satellite. These configurations represent forward flight; supply an attitude schedule for yaw flips.
+limitations:
+  - The fitted angles depend on the altitude of about 440 km, at which GPM flew during the test.

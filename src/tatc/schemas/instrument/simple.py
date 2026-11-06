@@ -7,12 +7,12 @@ Object schemas for nadir-pointing instruments.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
 
-from pydantic import BaseModel, Field, PrivateAttr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 from shapely import MultiPolygon, Polygon
 from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
@@ -36,6 +36,13 @@ class Instrument(BaseModel):
     Remote sensing instrument.
     """
 
+    # unknown fields are errors: a misspelled field must not silently fall back
+    # to its default, which could change the results of an analysis
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["instrument"] = Field(
+        default="instrument", description="Instrument type discriminator."
+    )
     name: str = Field(default="Default", description="Instrument name.")
     field_of_regard: float = Field(
         default=180,

@@ -8,6 +8,7 @@ The following compare TAT-C analysis results with reference data from operationa
   :maxdepth: 1
 
   summary
+  standard
   ValidateLimbMLS.ipynb
   ValidateLimbSABER.ipynb
   ValidateROCOSMIC2.ipynb

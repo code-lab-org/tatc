@@ -1,0 +1,67 @@
+{
+  "entry_id": "gmi",
+  "standard_version": 1,
+  "configurations": {
+    "feeds": {
+      "digest": "7a88b43962de1f39c462f46e95dc206ac99e019a77f2be98e888feb45e7bf499",
+      "evidence": "reported",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/ValidateConicalGMI.ipynb (committed outputs)",
+      "reference": "GPM_1CGPMGMI version 08",
+      "period": "2026-10-03",
+      "platform": "gpm",
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.96766892984158,
+          "scope": "S1"
+        },
+        {
+          "name": "pass_recall",
+          "value": 100.0,
+          "scope": "S2"
+        },
+        {
+          "name": "pass_precision",
+          "value": 100.0,
+          "scope": "S1"
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.96338337605273,
+          "scope": "S2"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.69,
+          "scope": "S1"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.68,
+          "scope": "S2"
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.09,
+          "scope": "S1"
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.1,
+          "scope": "S2"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.999,
+          "scope": "S1"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.999,
+          "scope": "S2"
+        }
+      ]
+    }
+  }
+}
