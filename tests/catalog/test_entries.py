@@ -419,15 +419,17 @@ class TestEntryStatus(unittest.TestCase):
 
     def test_gmi_partial(self):
         """
-        Test that GMI's gates pass but that it is not validated: its results
-        are from notebook outputs, its fitted values have no holdout, and it has
-        no sample size configuration.
+        Test that GMI's feeds configuration passes on held-out data, but that the
+        entry is not validated because it has no sample size configuration.
         """
         validation = get_entry("gmi").validation
         self.assertEqual(validation.tier, Tier.PARTIAL)
         feeds = validation.configurations["feeds"]
+        self.assertEqual(feeds.tier, Tier.VALIDATED)
+        self.assertEqual(feeds.record.evidence, "rerun")
+        self.assertEqual(feeds.record.holdout_gap_days, 75)
         self.assertTrue(all(result.passed for result in feeds.gates))
-        self.assertEqual(len(feeds.gaps), 2)
+        self.assertEqual(feeds.gaps, ())
         self.assertEqual(
             validation.gaps, ("no configuration at the sample_size grade",)
         )

@@ -4,64 +4,69 @@
   "configurations": {
     "feeds": {
       "digest": "7a88b43962de1f39c462f46e95dc206ac99e019a77f2be98e888feb45e7bf499",
-      "evidence": "reported",
+      "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/ValidateConicalGMI.ipynb (committed outputs)",
+      "source": "docs/validation/validate_catalog_gmi.py",
       "reference": "GPM_1CGPMGMI version 08",
-      "period": "2026-10-03",
+      "period": "2026-07-20",
       "platform": "gpm",
+      "holdout_gap_days": 75,
       "metrics": [
         {
           "name": "pass_recall",
-          "value": 99.96766892984158,
+          "value": 100.0,
           "scope": "S1"
         },
         {
           "name": "pass_recall",
-          "value": 100.0,
+          "value": 99.92687385740402,
           "scope": "S2"
         },
         {
           "name": "pass_precision",
-          "value": 100.0,
+          "value": 99.93521218011014,
           "scope": "S1"
         },
         {
           "name": "pass_precision",
-          "value": 99.96338337605273,
+          "value": 100.0,
           "scope": "S2"
         },
         {
           "name": "epoch_p95",
-          "value": 0.69,
+          "value": 0.6279699588,
           "scope": "S1"
         },
         {
           "name": "epoch_p95",
-          "value": 0.68,
+          "value": 0.6260146824,
           "scope": "S2"
         },
         {
           "name": "swath_width_median",
-          "value": 0.09,
+          "value": 0.21630576047534122,
           "scope": "S1"
         },
         {
           "name": "swath_width_median",
-          "value": 0.1,
+          "value": 0.24828414592397166,
           "scope": "S2"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.999,
+          "value": 0.9991927097328555,
           "scope": "S1"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.999,
+          "value": 0.9991680701200586,
           "scope": "S2"
         }
-      ]
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.637898751
+      }
     }
   }
 }

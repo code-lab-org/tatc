@@ -6,11 +6,13 @@ running on that day checks this script against the notebook, while running on a
 day at least 30 days from it tests the fitted angles on data held out from the
 fit. The day must be one on which GPM flew forward, as it does for about 40 days
 at a time, because the configuration represents forward flight. Element sets for
-other days can be added to `ELEMENTS`.
+other days can be given in a file of the history of GPM's element sets.
 
 Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`:
 
     python docs/validation/validate_catalog_gmi.py <data directory> 2026-10-03
+    python docs/validation/validate_catalog_gmi.py <data directory> 2026-07-20 \
+        --elements <file>
 
 With `--write`, it writes the entry's validation record and the reduced fixture
 from which unit tests recompute the results. A record of the day of the fit has
@@ -474,17 +476,42 @@ def write_fixture_and_record(day, tle, entry, orbit, results, fixtures) -> None:
     RECORD_PATH.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
 
 
+def read_elements(path: pathlib.Path, day: datetime) -> list[str]:
+    """Reads the unique element sets with epochs within 1.5 days of the middle of a day."""
+    lines = [line.rstrip() for line in path.read_text(encoding="utf-8").splitlines()]
+    pairs = {}
+    for first, second in zip(lines, lines[1:]):
+        if first.startswith("1 ") and second.startswith("2 "):
+            year, day_of_year = int(first[18:20]), float(first[20:32])
+            epoch = datetime(2000 + year, 1, 1, tzinfo=timezone.utc) + timedelta(
+                days=day_of_year - 1
+            )
+            offset = abs((epoch - day - timedelta(hours=12)).total_seconds())
+            if offset <= 1.5 * 86400:
+                pairs[epoch] = [first, second]
+    if not pairs:
+        raise ValueError(f"{path} has no element sets near {day:%Y-%m-%d}")
+    return [line for epoch in sorted(pairs) for line in pairs[epoch]]
+
+
 def main() -> None:
     """Validates the entry on a day of data."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day", choices=sorted(ELEMENTS))
+    parser.add_argument("day")
+    parser.add_argument("--elements", type=pathlib.Path)
     parser.add_argument("--write", action="store_true")
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
 
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    tle = list(ELEMENTS[arguments.day])
+    if arguments.elements is not None:
+        tle = read_elements(arguments.elements, day)
+    elif arguments.day in ELEMENTS:
+        tle = list(ELEMENTS[arguments.day])
+    else:
+        parser.error(f"--elements is needed for {arguments.day}")
+    print(f"{len(tle) // 2} element sets")
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     entry = get_entry("gmi")
     specifications = entry.configurations["feeds"].instruments
