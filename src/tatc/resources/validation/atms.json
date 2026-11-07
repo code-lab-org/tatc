@@ -1,0 +1,84 @@
+{
+  "entry_id": "atms",
+  "configurations": {
+    "beams": {
+      "digest": "6204bdac0a0a5f41b83b74d9d919ba45e7b5b79523a76b208625e83235f47056",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_atms.py",
+      "reference": "Footprints of the TC PRIMED documentation; beam centers of the ATMS SDR geolocation",
+      "period": "2026-08-12",
+      "platform": "noaa-20",
+      "holdout_gap_days": 51,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 1.3509096401289389
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 2.902846553836423
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 4.9413017561773085
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9999908456504776
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9996077625644662
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 2.8692399074004333,
+        "spacing_along_ratio_median": 1.0001399678325114,
+        "spacing_cross_ratio_median": 0.9991169024652665
+      }
+    },
+    "swath": {
+      "digest": "dc5858003bc7e6acbfbd7ed678d7f8685f55920c80ab21584836885e4c5bc68d",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_atms.py",
+      "reference": "ATMS SDR geolocation",
+      "period": "2026-08-12",
+      "platform": "noaa-20",
+      "holdout_gap_days": 51,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 100.0
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.94613520064638
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.25346872419999994
+        },
+        {
+          "name": "swath_width_median",
+          "value": 1.616704368373379
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9869429046013887
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.21595644864999994
+      }
+    }
+  },
+  "standard_version": 1
+}

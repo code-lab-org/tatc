@@ -1,0 +1,84 @@
+{
+  "entry_id": "viirs",
+  "configurations": {
+    "zones": {
+      "digest": "0a3441f63ce27d27721039490a7a8e3830de3f19aec836d8d1534441e21e8197",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_viirs.py",
+      "reference": "Footprints published by NOAA/CIMSS; samples of the VIIRS moderate-resolution geolocation",
+      "period": "2026-08-12",
+      "platform": "noaa-20",
+      "holdout_gap_days": 51,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 1.4259092779125293
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 1.6582597327988688
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 4.404192055919701
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.0000733135311823
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 1.0000895927623745
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 1.653632588211428,
+        "spacing_along_ratio_median": 1.0000866630941994,
+        "spacing_cross_ratio_median": 0.9999542714798568
+      }
+    },
+    "swath": {
+      "digest": "b45584059811c3d58a112fbd98be5b5cb4737b67da0b2787b8f0d47561ad55bf",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_viirs.py",
+      "reference": "VIIRS moderate-resolution geolocation",
+      "period": "2026-08-12",
+      "platform": "noaa-20",
+      "holdout_gap_days": 51,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.78163429490863
+        },
+        {
+          "name": "pass_precision",
+          "value": 98.43537414965986
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.9842218871999997
+        },
+        {
+          "name": "swath_width_median",
+          "value": 3.3232316973977722
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9774215988205399
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 1.96924972965
+      }
+    }
+  },
+  "standard_version": 1
+}

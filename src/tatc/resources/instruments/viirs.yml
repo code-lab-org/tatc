@@ -1,0 +1,134 @@
+id: viirs
+name: VIIRS
+aliases: [Visible Infrared Imaging Radiometer Suite]
+instrument_class: cross_track
+selection: Cross-track imager of the Joint Polar Satellite System, with open data products, and NASA's recommended successor to MODIS.
+platforms:
+  - id: noaa-20
+    name: NOAA-20
+    norad_id: 43013
+    status: operational
+    as_of: 2026-10-02
+data_products:
+  - name: VIIRS terrain-corrected moderate-resolution geolocation (GMTCO)
+    provider: NOAA Open Data Dissemination
+    url: https://registry.opendata.aws/noaa-jpss/
+    access: open
+default_configuration: swath
+configurations:
+  swath:
+    grade: coverage
+    description: The swath scanned between the outermost moderate-resolution pixel centers, with a view tailored to the analysis time step.
+    platforms: [noaa-20]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: VIIRS
+          field_of_regard: 112.0944
+          cross_track_field_of_view: 112.0944
+          along_track_field_of_view: {tailor: time_step}
+          is_rectangular: true
+        provenance:
+          field_of_regard: &measured_extent
+            kind: measured
+            source: ValidateImagerVIIRS, Test 2, between the outermost samples (printed to 4 decimals)
+            platform: noaa-20
+            period: "2026-10-02"
+          cross_track_field_of_view: *measured_extent
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - The view is centered on nadir. The outermost samples measure 55.96 deg to the left and 56.13 deg to the right.
+      - Epochs are tested only to about 2 s, because reference times are interpolated from granule outlines, so this configuration is at the coverage grade.
+  zones:
+    grade: sample_size
+    description: The five on-board aggregation zones of the moderate-resolution bands across a scan, from right to left. Analyze one at a time with its instrument index, or by the zone of each scan angle.
+    platforms: [noaa-20]
+    velocity_frame: inertial
+    grouping: alternatives
+    instrument_index: 2
+    instruments:
+      - type: pointed
+        parameters: &zone_parameters
+          name: VIIRS zone 0
+          field_of_regard: 112.56
+          cross_track_field_of_view: 11.38304
+          along_track_field_of_view: 0.81664
+          cross_track_pixels: 640
+          along_track_pixels: 16
+          roll_angle: -50.447
+          view_geometry: scan
+          is_rectangular: true
+          scan_period: 1.786584
+        provenance: &zone_provenance
+          field_of_regard:
+            kind: nominal
+            source: The nominal scan half-angle of 56.28 deg
+          cross_track_field_of_view: &measured_zone
+            kind: measured
+            source: ValidateSampleSizes, Test 1, the zone's pixels and spacing (printed to 3 decimals)
+            platform: noaa-20
+            period: "2026-10-02"
+          along_track_field_of_view: &measured_array
+            kind: measured
+            source: ValidateImagerVIIRS, Test 2, 16 detectors of 0.05104 deg
+            platform: noaa-20
+            period: "2026-10-02"
+          cross_track_pixels: *measured_zone
+          along_track_pixels:
+            kind: nominal
+            source: The moderate-resolution bands have 16 detectors
+          roll_angle: *measured_zone
+          view_geometry:
+            kind: derived
+            source: A scanner keeps a constant angular extent along track (ValidateImagerVIIRS, Test 3)
+          is_rectangular:
+            kind: derived
+            source: Models a scan as a rectangular view
+          scan_period:
+            kind: measured
+            source: ValidateImagerVIIRS, the median period between scans
+            platform: noaa-20
+            period: "2026-10-02"
+      - type: pointed
+        parameters:
+          <<: *zone_parameters
+          name: VIIRS zone 1
+          cross_track_field_of_view: 13.056759
+          cross_track_pixels: 367
+          roll_angle: -38.228
+        provenance: *zone_provenance
+      - type: pointed
+        parameters:
+          <<: *zone_parameters
+          name: VIIRS zone 2
+          cross_track_field_of_view: 63.164032
+          cross_track_pixels: 1184
+          roll_angle: -0.134
+        provenance: *zone_provenance
+      - type: pointed
+        parameters:
+          <<: *zone_parameters
+          name: VIIRS zone 3
+          cross_track_field_of_view: 13.091232
+          cross_track_pixels: 368
+          roll_angle: 37.999
+        provenance: *zone_provenance
+      - type: pointed
+        parameters:
+          <<: *zone_parameters
+          name: VIIRS zone 4
+          cross_track_field_of_view: 11.402749
+          cross_track_pixels: 641
+          roll_angle: 50.262
+        provenance: *zone_provenance
+    limitations:
+      - The zones are of the moderate-resolution (M) bands, not the imagery (I) bands.
+      - A single PointedInstrument of equal pixels cannot represent VIIRS's aggregation zones, so a scan needs all five instruments.
+limitations:
+  - The fitted angles were measured on NOAA-20. VIIRS also flies on Suomi NPP and NOAA-21, on which these configurations were not tested.

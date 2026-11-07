@@ -1,0 +1,111 @@
+id: atms
+name: ATMS
+aliases: [Advanced Technology Microwave Sounder]
+instrument_class: cross_track
+selection: Cross-track microwave sounder of the Joint Polar Satellite System, with open data products and wide use in numerical weather prediction.
+platforms:
+  - id: noaa-20
+    name: NOAA-20
+    norad_id: 43013
+    status: operational
+    as_of: 2026-10-02
+data_products:
+  - name: ATMS SDR geolocation (GATMO)
+    provider: NOAA Open Data Dissemination
+    url: https://registry.opendata.aws/noaa-jpss/
+    access: open
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath scanned between the outermost beam centers, with a view tailored to the analysis time step.
+    platforms: [noaa-20]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: ATMS
+          field_of_regard: 105.6392
+          cross_track_field_of_view: 105.6392
+          along_track_field_of_view: {tailor: time_step}
+          is_rectangular: true
+        provenance:
+          field_of_regard: &measured_extent
+            kind: measured
+            source: ValidateImagerATMS, Test 2, between the outermost beams (printed to 4 decimals)
+            platform: noaa-20
+            period: "2026-10-02"
+          cross_track_field_of_view: *measured_extent
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - TAT-C observes all pixels of a view at one instant, whereas ATMS sweeps its beams over about 1.7 s.
+      - The view is centered on nadir. The outermost beams measure 52.84 deg to the left and 52.80 deg to the right.
+  beams:
+    grade: sample_size
+    description: The 96 beam positions of a scan, in the three beam widths of ATMS's channels. Analyze one at a time with its instrument index.
+    platforms: [noaa-20]
+    velocity_frame: inertial
+    grouping: alternatives
+    instrument_index: 1
+    instruments:
+      - type: pointed
+        parameters: &beam_parameters
+          name: ATMS channels 1-2
+          field_of_regard: 106.752
+          cross_track_field_of_view: 106.752
+          along_track_field_of_view: 1.112
+          cross_track_pixels: 96
+          roll_angle: 0.04
+          is_rectangular: true
+          cross_track_oversampling: 0.786154
+          along_track_oversampling: 0.786154
+          scan_period: 2.6666666666666665
+        provenance: &beam_provenance
+          field_of_regard: &measured_spacing
+            kind: measured
+            source: ValidateImagerATMS, Test 2, a fitted spacing of 1.112 deg over 96 beams
+            platform: noaa-20
+            period: "2026-10-02"
+          cross_track_field_of_view: *measured_spacing
+          along_track_field_of_view: *measured_spacing
+          cross_track_pixels:
+            kind: nominal
+            source: ATMS has 96 Earth views per scan
+          roll_angle:
+            kind: measured
+            source: ValidateImagerATMS, Test 2, the fitted roll
+            platform: noaa-20
+            period: "2026-10-02"
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          cross_track_oversampling: &oversampling
+            kind: derived
+            source: One minus the fitted spacing divided by the beam width, published by channel
+          along_track_oversampling: *oversampling
+          scan_period:
+            kind: nominal
+            source: ATMS scans every 8/3 s
+      - type: pointed
+        parameters:
+          <<: *beam_parameters
+          name: ATMS channels 3-16
+          cross_track_oversampling: 0.494545
+          along_track_oversampling: 0.494545
+        provenance: *beam_provenance
+      - type: pointed
+        parameters:
+          <<: *beam_parameters
+          name: ATMS channels 17-22
+          cross_track_oversampling: -0.010909
+          along_track_oversampling: -0.010909
+        provenance: *beam_provenance
+    limitations:
+      - Pixels are projected at the time of a view, so beams near the edges of a scan are displaced along track by up to about 5 km from where ATMS samples them.
+limitations:
+  - The fitted angles were measured on NOAA-20. ATMS also flies on Suomi NPP and NOAA-21, on which these configurations were not tested.

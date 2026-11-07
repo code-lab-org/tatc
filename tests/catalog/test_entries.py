@@ -430,6 +430,20 @@ class TestEntryStatus(unittest.TestCase):
             self.assertTrue(all(r.passed for r in configuration.gates), key)
             self.assertEqual(configuration.gaps, (), key)
 
+    def test_noaa20_entries_validated(self):
+        """
+        Test that the entries validated against NOAA-20 data pass with their exact
+        values, with fitted values tested on held-out data, at each required grade.
+        """
+        for entry_id in ("atms", "viirs"):
+            validation = get_entry(entry_id).validation
+            self.assertEqual(validation.tier, Tier.VALIDATED, entry_id)
+            self.assertEqual(validation.gaps, (), entry_id)
+            for key, configuration in validation.configurations.items():
+                self.assertEqual(configuration.record.evidence, "rerun", key)
+                self.assertEqual(configuration.record.holdout_gap_days, 51, key)
+                self.assertTrue(all(r.passed for r in configuration.gates), key)
+
     def test_gmi_reports_spacing_limitation(self):
         """
         Test that GMI's spacing between scans, which no gate covers, is reported
