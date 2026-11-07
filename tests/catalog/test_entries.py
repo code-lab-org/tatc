@@ -91,12 +91,9 @@ class TestLoading(unittest.TestCase):
         self.assertEqual(
             [e.id for e in list_entries(instrument_class="geostationary")], ["abi"]
         )
-        self.assertTrue(
-            all(
-                e.validation.tier == Tier.PARTIAL
-                for e in list_entries("conical", "partial")
-            )
-        )
+        self.assertEqual([e.id for e in list_entries("conical", "validated")], ["gmi"])
+        self.assertEqual(list_entries("conical", "partial"), [])
+        self.assertEqual([e.id for e in list_entries(tier="partial")], ["abi"])
         with self.assertRaises(ValueError):
             list_entries(tier="approved")
 
@@ -417,21 +414,45 @@ class TestEntryStatus(unittest.TestCase):
     Unit tests for the status of the entries, which must not be overstated.
     """
 
-    def test_gmi_partial(self):
+    def test_gmi_validated(self):
         """
-        Test that GMI's feeds configuration passes on held-out data, but that the
-        entry is not validated because it has no sample size configuration.
+        Test that GMI's configurations pass with its exact values, with fitted
+        values tested on held-out data, at each of the grades of its class.
         """
         validation = get_entry("gmi").validation
-        self.assertEqual(validation.tier, Tier.PARTIAL)
-        feeds = validation.configurations["feeds"]
-        self.assertEqual(feeds.tier, Tier.VALIDATED)
-        self.assertEqual(feeds.record.evidence, "rerun")
-        self.assertEqual(feeds.record.holdout_gap_days, 75)
-        self.assertTrue(all(result.passed for result in feeds.gates))
-        self.assertEqual(feeds.gaps, ())
-        self.assertEqual(
-            validation.gaps, ("no configuration at the sample_size grade",)
+        self.assertEqual(validation.tier, Tier.VALIDATED)
+        self.assertEqual(validation.gaps, ())
+        for key in ("feeds", "sample_size"):
+            configuration = validation.configurations[key]
+            self.assertEqual(configuration.tier, Tier.VALIDATED, key)
+            self.assertEqual(configuration.record.evidence, "rerun", key)
+            self.assertEqual(configuration.record.holdout_gap_days, 75, key)
+            self.assertTrue(all(r.passed for r in configuration.gates), key)
+            self.assertEqual(configuration.gaps, (), key)
+
+    def test_gmi_reports_spacing_limitation(self):
+        """
+        Test that GMI's spacing between scans, which no gate covers, is reported
+        in its record and stated as a limitation of the configuration.
+        """
+        entry = get_entry("gmi")
+        spacing = [
+            metric.value
+            for metric in entry.record.configurations["sample_size"].metrics
+            if metric.name == "spacing_scan_ratio_median"
+        ]
+        self.assertEqual(len(spacing), 2)
+        for value in spacing:
+            self.assertGreater(value, 1.03)
+        self.assertTrue(
+            any(
+                "spacing between scans" in limitation
+                for limitation in entry.build(
+                    "sample_size",
+                    orbit=GeneralPerturbationsOrbit.from_tle(GPM_TLE),
+                    time_step=1.875,
+                ).limitations
+            )
         )
 
     def test_abi_partial(self):

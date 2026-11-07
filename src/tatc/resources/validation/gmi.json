@@ -67,6 +67,53 @@
         "passes_found": 100.0,
         "epoch_p95": 0.637898751
       }
+    },
+    "sample_size": {
+      "digest": "5ea1adca77c77a9d04b7cb4f546c8c456c1ab0ce5a14d041277a7e0d4fe23a6f",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_gmi.py",
+      "reference": "Footprints of the GMI L1B ATBD and TC PRIMED; spacing of GPM_1CGPMGMI version 08",
+      "period": "2026-07-20",
+      "platform": "gpm",
+      "holdout_gap_days": 75,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 2.255355692693106
+        },
+        {
+          "name": "spacing_arc_ratio_median",
+          "value": 1.007112412328898,
+          "scope": "S1"
+        },
+        {
+          "name": "spacing_scan_ratio_median",
+          "value": 1.0426759889850952,
+          "scope": "S1"
+        },
+        {
+          "name": "spacing_arc_ratio_median",
+          "value": 1.0077581631927366,
+          "scope": "S2"
+        },
+        {
+          "name": "spacing_scan_ratio_median",
+          "value": 1.042396088164316,
+          "scope": "S2"
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "spacing_arc_ratio_median_S1": 1.0071002751057956,
+        "spacing_scan_ratio_median_S1": 1.0427009183995617,
+        "spacing_arc_ratio_median_S2": 1.0082763856420462,
+        "spacing_scan_ratio_median_S2": 1.0425728327551935
+      }
     }
   }
 }

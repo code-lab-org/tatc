@@ -14,6 +14,12 @@ Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`:
     python docs/validation/validate_catalog_gmi.py <data directory> 2026-07-20 \
         --elements <file>
 
+It also validates the entry's sample size configuration, following
+`ValidateSampleSizes`. The gated metric compares sizes with footprints published
+for two altitudes, which are independent of the fit of the angles. The spacing of
+samples on the day is reported, as the standard does not gate it. To run only
+these tests, on data already downloaded, use `--sample-sizes-only`.
+
 With `--write`, it writes the entry's validation record and the reduced fixture
 from which unit tests recompute the results. A record of the day of the fit has
 no holdout, which the entry's validation reports as a gap.
@@ -29,6 +35,7 @@ import pathlib
 from datetime import datetime, timedelta, timezone
 
 import earthaccess
+import geopandas as gpd
 import h5py
 import numpy as np
 import pandas as pd
@@ -38,12 +45,16 @@ from scipy.spatial import cKDTree
 from shapely import contains_xy, prepare
 
 import tatc
-from tatc.analysis import collect_observations, compute_ground_track
+from tatc.analysis import (
+    collect_observations,
+    compute_ground_track,
+    compute_sample_sizes,
+)
 from tatc.catalog import STANDARD_VERSION, get_entry
 from tatc.catalog.metrics import compute_mask_iou, compute_pass_scores, summarize
 from tatc.constants import EARTH_ROTATION_RATE
 from tatc.generation import generate_points_fibonacci_lattice
-from tatc.schemas import GeneralPerturbationsOrbit, Point
+from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
 
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
 RECORD_PATH = REPOSITORY / "src" / "tatc" / "resources" / "validation" / "gmi.json"
@@ -66,6 +77,30 @@ SCAN_PERIOD = 1.875
 TIME_STEPS = (SCAN_PERIOD, 10, 30)
 GRID_STEP, ORBIT_MARGIN = 0.1, 60
 FIXTURE_PASSES = 40
+
+SAMPLE_CONFIGURATION = "sample_size"
+# published footprints: instrument, altitude (km), along and across track (km), from
+# the GMI L1B ATBD, Table 1-1 (407 km) and TC PRIMED after the orbit boost (435 km)
+PUBLISHED_FOOTPRINTS = (
+    ("GMI 10.65 GHz", 407, 32.1, 19.4),
+    ("GMI 18.7 GHz", 407, 18.1, 10.9),
+    ("GMI 23.8 GHz", 407, 16.0, 9.7),
+    ("GMI 36.64 GHz", 407, 15.6, 9.4),
+    ("GMI 89 GHz", 407, 7.2, 4.4),
+    ("GMI 166 GHz", 407, 6.3, 4.1),
+    ("GMI 183.31 GHz", 407, 5.8, 3.8),
+    ("GMI 10.65 GHz", 435, 35.0, 21.0),
+    ("GMI 36.64 GHz", 435, 16.7, 10.0),
+    ("GMI 89 GHz", 435, 7.7, 4.6),
+    ("GMI 166 GHz", 435, 6.7, 4.3),
+)
+PUBLISHED_INCLINATION = 65.0
+PUBLISHED_EPOCH = datetime(2026, 10, 1, tzinfo=timezone.utc)
+SIZE_TOLERANCE = 0.03
+# an instrument of each feed, which share their spacing
+SPACING_INSTRUMENTS = {"S1": "GMI 89 GHz", "S2": "GMI 166 GHz"}
+SPACING_SCAN_STRIDE = 200
+FIXTURE_SPACING_SAMPLES = 100
 
 GEOD = Geod(ellps="WGS84")
 TO_ECEF = Transformer.from_crs("EPSG:4979", "EPSG:4978", always_xy=True)
@@ -402,6 +437,199 @@ def score_swath_area(reference, satellite_for, orbit, index, feed) -> float:
     return min(scores)
 
 
+def score_published_footprints(entry) -> tuple[float, float]:
+    """
+    Compares sample sizes at the center of the scan with published footprints.
+    Returns the percent of dimensions within tolerance and the largest error (%).
+    """
+    errors = []
+    for altitude in sorted({row[1] for row in PUBLISHED_FOOTPRINTS}):
+        orbit = CircularOrbit(
+            altitude=altitude * 1e3,
+            inclination=PUBLISHED_INCLINATION,
+            epoch=PUBLISHED_EPOCH,
+        )
+        satellite = entry.to_satellite(
+            orbit, SAMPLE_CONFIGURATION, time_step=SCAN_PERIOD, platform="gpm"
+        )
+        names = [instrument.name for instrument in satellite.instruments]
+        time = PUBLISHED_EPOCH + timedelta(minutes=10)
+        track = orbit.to_gp_orbit().get_orbit_track(time)
+        for name, _, along, cross in (
+            row for row in PUBLISHED_FOOTPRINTS if row[1] == altitude
+        ):
+            target = satellite.get_instrument(
+                names.index(name)
+            ).compute_footprint_center(track)
+            sizes = compute_sample_sizes(
+                gpd.GeoDataFrame(
+                    {
+                        "satellite": [satellite.name],
+                        "instrument": [name],
+                        "epoch": pd.DatetimeIndex([time]),
+                    },
+                    geometry=gpd.points_from_xy(
+                        [target.longitude.degrees], [target.latitude.degrees]
+                    ),
+                    crs="EPSG:4326",
+                ),
+                satellite,
+            )
+            pair = (
+                sizes.sample_along.iloc[0] / 1e3 / along - 1,
+                sizes.sample_cross.iloc[0] / 1e3 / cross - 1,
+            )
+            print(f"{name}, {altitude} km: {pair[0]:+.2%} along, {pair[1]:+.2%} across")
+            errors.extend(abs(error) for error in pair)
+    errors = np.array(errors)
+    return 100 * float(np.mean(errors <= SIZE_TOLERANCE)), 100 * float(errors.max())
+
+
+def measure_spacing(reference, feed: str) -> np.ndarray:
+    """
+    Measures the spacing of a feed's samples as `ValidateSampleSizes` does, from
+    half the distance between the samples on either side. Returns rows of latitude,
+    longitude, seconds, spacing along the arc (km), and spacing between scans (km).
+    """
+    period = np.diff(reference.time)
+    regular = np.abs(period - SCAN_PERIOD) < 0.05
+    usable = np.nonzero(regular[:-1] & regular[1:])[0] + 1
+    scans = usable[::SPACING_SCAN_STRIDE]
+    lon, lat = reference.foot[feed]
+    position = ecef(lon, lat)
+    arc = np.linalg.norm(position[scans, 2:] - position[scans, :-2], axis=-1) / 2e3
+    between = (
+        np.linalg.norm(position[scans + 1, 1:-1] - position[scans - 1, 1:-1], axis=-1)
+        / 2e3
+    )
+    return np.stack(
+        [
+            lat[scans, 1:-1].ravel(),
+            lon[scans, 1:-1].ravel(),
+            np.repeat(reference.time[scans], lat.shape[1] - 2),
+            arc.ravel(),
+            between.ravel(),
+        ],
+        axis=-1,
+    )
+
+
+def compute_spacing_ratios(day, satellite, name: str, rows) -> tuple[float, float]:
+    """Gets the median ratios of predicted to measured spacing along arcs and scans."""
+    sizes = compute_sample_sizes(
+        gpd.GeoDataFrame(
+            {
+                "satellite": satellite.name,
+                "instrument": name,
+                "epoch": pd.DatetimeIndex(
+                    [day + timedelta(seconds=float(s)) for s in rows[:, 2]]
+                ),
+            },
+            geometry=gpd.points_from_xy(rows[:, 1], rows[:, 0]),
+            crs="EPSG:4326",
+        ),
+        satellite,
+    )
+    return (
+        float(np.median(sizes.spacing_cross.to_numpy() / 1e3 / rows[:, 3])),
+        float(np.median(sizes.spacing_along.to_numpy() / 1e3 / rows[:, 4])),
+    )
+
+
+def update_fixture(**arrays) -> None:
+    """Writes arrays to the fixture, keeping the others."""
+    existing = {}
+    if FIXTURE_PATH.exists():
+        with np.load(FIXTURE_PATH, allow_pickle=False) as data:
+            existing = {key: data[key] for key in data.files}
+    FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(FIXTURE_PATH, **{**existing, **arrays})
+
+
+def update_record(key: str, configuration: dict) -> None:
+    """Writes the results of a configuration to the record, keeping the others."""
+    record = {"entry_id": "gmi", "configurations": {}}
+    if RECORD_PATH.exists():
+        record = json.loads(RECORD_PATH.read_text(encoding="utf-8"))
+    record["standard_version"] = STANDARD_VERSION
+    record["configurations"][key] = configuration
+    RECORD_PATH.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+
+
+def get_holdout_gap(day: datetime) -> int | None:
+    """Gets the days from the fit to a day, to which the standard applies its gap."""
+    return None if day == FIT_DAY else abs((day - FIT_DAY).days)
+
+
+def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> None:
+    """Scores the sample size configuration, and writes its results if requested."""
+    within, largest = score_published_footprints(entry)
+    print(
+        f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
+    )
+    metrics = [
+        {"name": "sample_size_within_3pct", "value": within},
+        {"name": "sample_size_largest_error", "value": largest},
+    ]
+    satellite = entry.to_satellite(
+        orbit, SAMPLE_CONFIGURATION, time_step=SCAN_PERIOD, platform="gpm"
+    )
+    names = [instrument.name for instrument in satellite.instruments]
+    rng = np.random.default_rng(2)
+    reduced, indices, fixture_metrics = [], [], {}
+    for feed, name in SPACING_INSTRUMENTS.items():
+        rows = measure_spacing(reference, feed)
+        arc, between = compute_spacing_ratios(day, satellite, name, rows)
+        print(
+            f"{feed} spacing, predicted / measured: {arc:.4f} arc, {between:.4f} scans"
+        )
+        metrics += [
+            {"name": "spacing_arc_ratio_median", "value": arc, "scope": feed},
+            {"name": "spacing_scan_ratio_median", "value": between, "scope": feed},
+        ]
+        picks = rows[rng.choice(len(rows), FIXTURE_SPACING_SAMPLES, replace=False)]
+        arc, between = compute_spacing_ratios(day, satellite, name, picks)
+        fixture_metrics[f"spacing_arc_ratio_median_{feed}"] = arc
+        fixture_metrics[f"spacing_scan_ratio_median_{feed}"] = between
+        reduced.append(picks)
+        indices.append(np.full(FIXTURE_SPACING_SAMPLES, names.index(name)))
+    if not write:
+        return
+    update_fixture(
+        tle=np.array(tle),
+        day=np.array(day.isoformat()),
+        footprints=np.array(
+            [
+                [names.index(name), altitude, along, cross]
+                for name, altitude, along, cross in PUBLISHED_FOOTPRINTS
+            ]
+        ),
+        spacing=np.concatenate(reduced),
+        spacing_instruments=np.concatenate(indices),
+    )
+    update_record(
+        SAMPLE_CONFIGURATION,
+        {
+            "digest": entry.configurations[SAMPLE_CONFIGURATION].digest,
+            "evidence": "rerun",
+            "tatc_version": tatc.__version__,
+            "source": "docs/validation/validate_catalog_gmi.py",
+            "reference": "Footprints of the GMI L1B ATBD and TC PRIMED; spacing of "
+            "GPM_1CGPMGMI version 08",
+            "period": f"{day:%Y-%m-%d}",
+            "platform": "gpm",
+            # the fitted angles were not fitted to the published footprints, and the
+            # spacing is measured on this day
+            "holdout_gap_days": get_holdout_gap(day),
+            "metrics": metrics,
+            "fixture_metrics": {
+                "sample_size_within_3pct": within,
+                **fixture_metrics,
+            },
+        },
+    )
+
+
 def write_fixture_and_record(day, tle, entry, orbit, results, fixtures) -> None:
     """Writes the reduced fixture and the validation record."""
     rng = np.random.default_rng(1)
@@ -412,9 +640,7 @@ def write_fixture_and_record(day, tle, entry, orbit, results, fixtures) -> None:
         rows.append(table[picks])
         feeds.append(np.full(FIXTURE_PASSES, index))
     rows, feeds = np.concatenate(rows), np.concatenate(feeds)
-    FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        FIXTURE_PATH,
+    update_fixture(
         tle=np.array(tle),
         day=np.array(day.isoformat()),
         passes=rows,
@@ -449,31 +675,24 @@ def write_fixture_and_record(day, tle, entry, orbit, results, fixtures) -> None:
             metrics.append(
                 {"name": name, "value": float(results[feed][name]), "scope": feed}
             )
-    record = {
-        "entry_id": "gmi",
-        "standard_version": STANDARD_VERSION,
-        "configurations": {
-            "feeds": {
-                "digest": entry.configurations["feeds"].digest,
-                "evidence": "rerun",
-                "tatc_version": tatc.__version__,
-                "source": "docs/validation/validate_catalog_gmi.py",
-                "reference": "GPM_1CGPMGMI version 08",
-                "period": f"{day:%Y-%m-%d}",
-                "platform": "gpm",
-                # the standard applies its minimum gap to this value
-                "holdout_gap_days": (
-                    None if day == FIT_DAY else abs((day - FIT_DAY).days)
-                ),
-                "metrics": metrics,
-                "fixture_metrics": {
-                    "passes_found": 100 * float(np.isfinite(differences).mean()),
-                    "epoch_p95": summarize(differences)["p95"],
-                },
-            }
+    update_record(
+        "feeds",
+        {
+            "digest": entry.configurations["feeds"].digest,
+            "evidence": "rerun",
+            "tatc_version": tatc.__version__,
+            "source": "docs/validation/validate_catalog_gmi.py",
+            "reference": "GPM_1CGPMGMI version 08",
+            "period": f"{day:%Y-%m-%d}",
+            "platform": "gpm",
+            "holdout_gap_days": get_holdout_gap(day),
+            "metrics": metrics,
+            "fixture_metrics": {
+                "passes_found": 100 * float(np.isfinite(differences).mean()),
+                "epoch_p95": summarize(differences)["p95"],
+            },
         },
-    }
-    RECORD_PATH.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    )
 
 
 def read_elements(path: pathlib.Path, day: datetime) -> list[str]:
@@ -500,6 +719,7 @@ def main() -> None:
     parser.add_argument("directory", type=pathlib.Path)
     parser.add_argument("day")
     parser.add_argument("--elements", type=pathlib.Path)
+    parser.add_argument("--sample-sizes-only", action="store_true")
     parser.add_argument("--write", action="store_true")
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
@@ -520,6 +740,9 @@ def main() -> None:
         f"{arguments.day}: {len(reference.time)} scans, "
         f"{len(reference.gaps)} gaps over a minute"
     )
+    validate_sample_sizes(day, tle, entry, orbit, reference, arguments.write)
+    if arguments.sample_sizes_only:
+        return
 
     def satellite_for(time_step: float):
         return entry.to_satellite(orbit, time_step=time_step, platform="gpm")

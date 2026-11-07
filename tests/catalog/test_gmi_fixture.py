@@ -10,15 +10,16 @@ themselves establish agreement with the reference data, which the script does.
 
 import pathlib
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 
-from tatc.analysis import collect_observations
+from tatc.analysis import collect_observations, compute_sample_sizes
 from tatc.catalog import get_entry, get_gates
 from tatc.catalog.metrics import summarize
-from tatc.schemas import GeneralPerturbationsOrbit, Point
+from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "gmi.npz"
 MAX_FIXTURE_BYTES = 200e3
@@ -93,6 +94,99 @@ class TestGmiFixture(unittest.TestCase):
         p95 = summarize(self.differences)["p95"]
         self.assertLessEqual(p95, limit)
         self.assertAlmostEqual(p95, self.recorded["epoch_p95"], places=4)
+
+
+class TestGmiSampleSizeFixture(unittest.TestCase):
+    """
+    Regression tests of the GMI entry's sample size configuration.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        with np.load(FIXTURE, allow_pickle=False) as data:
+            cls.data = {key: data[key] for key in data.files}
+        cls.entry = get_entry("gmi")
+        cls.day = datetime.fromisoformat(str(cls.data["day"]))
+        cls.recorded = cls.entry.record.configurations["sample_size"].fixture_metrics
+
+    def _build(self, orbit):
+        return self.entry.to_satellite(
+            orbit, "sample_size", time_step=SCAN_PERIOD, platform="gpm"
+        )
+
+    def test_published_dimensions(self):
+        """
+        Test that published footprint dimensions meet the gate and do not move.
+        """
+        epoch = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        time = epoch + timedelta(minutes=10)
+        errors = []
+        for index, altitude, along, cross in self.data["footprints"]:
+            orbit = CircularOrbit(altitude=altitude * 1e3, inclination=65, epoch=epoch)
+            satellite = self._build(orbit)
+            target = satellite.get_instrument(int(index)).compute_footprint_center(
+                orbit.to_gp_orbit().get_orbit_track(time)
+            )
+            sizes = compute_sample_sizes(
+                gpd.GeoDataFrame(
+                    {
+                        "satellite": [satellite.name],
+                        "instrument": [satellite.instruments[int(index)].name],
+                        "epoch": pd.DatetimeIndex([time]),
+                    },
+                    geometry=gpd.points_from_xy(
+                        [target.longitude.degrees], [target.latitude.degrees]
+                    ),
+                    crs="EPSG:4326",
+                ),
+                satellite,
+            )
+            errors += [
+                abs(sizes.sample_along.iloc[0] / 1e3 / along - 1),
+                abs(sizes.sample_cross.iloc[0] / 1e3 / cross - 1),
+            ]
+        within = 100 * float(np.mean(np.array(errors) <= 0.03))
+        self.assertEqual(len(errors), 22)
+        gates = get_gates(
+            self.entry.instrument_class,
+            self.entry.configurations["sample_size"].grade,
+        )
+        self.assertGreaterEqual(within, gates[0].limit)
+        self.assertEqual(within, self.recorded["sample_size_within_3pct"])
+
+    def test_spacing(self):
+        """
+        Test that the reported spacing of the samples of each feed does not move.
+        """
+        satellite = self._build(
+            GeneralPerturbationsOrbit.from_tle(self.data["tle"].tolist())
+        )
+        for feed, index in (("S1", 4), ("S2", 5)):
+            rows = self.data["spacing"][self.data["spacing_instruments"] == index]
+            sizes = compute_sample_sizes(
+                gpd.GeoDataFrame(
+                    {
+                        "satellite": satellite.name,
+                        "instrument": satellite.instruments[index].name,
+                        "epoch": pd.DatetimeIndex(
+                            [self.day + timedelta(seconds=float(s)) for s in rows[:, 2]]
+                        ),
+                    },
+                    geometry=gpd.points_from_xy(rows[:, 1], rows[:, 0]),
+                    crs="EPSG:4326",
+                ),
+                satellite,
+            )
+            self.assertAlmostEqual(
+                float(np.median(sizes.spacing_cross.to_numpy() / 1e3 / rows[:, 3])),
+                self.recorded[f"spacing_arc_ratio_median_{feed}"],
+                places=4,
+            )
+            self.assertAlmostEqual(
+                float(np.median(sizes.spacing_along.to_numpy() / 1e3 / rows[:, 4])),
+                self.recorded[f"spacing_scan_ratio_median_{feed}"],
+                places=4,
+            )
 
 
 if __name__ == "__main__":

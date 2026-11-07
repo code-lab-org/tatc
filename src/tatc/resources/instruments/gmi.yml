@@ -55,5 +55,81 @@ configurations:
           along_track_field_of_view: *tailored
     limitations:
       - GPM periodically flies backward, when GMI scans behind the satellite. These configurations represent forward flight; supply an attitude schedule for yaw flips.
+  sample_size:
+    grade: sample_size
+    description: The beams of GMI's channels at the angles of the feeds configuration, flying forward, whose footprints and spacing `compute_sample_sizes` gives. Analyze one at a time with its instrument index.
+    platforms: [gpm]
+    velocity_frame: inertial
+    grouping: alternatives
+    instruments:
+      - type: conical
+        parameters: &low_frequency
+          name: GMI 10.65 GHz
+          cone_angle: 48.460
+          scan_center_azimuth: -0.285
+          scan_half_width: 76.031
+          along_track_field_of_view: {tailor: time_step}
+          beam_width: 1.732
+          scan_sample_spacing: 0.6912
+        provenance: &low_frequency_provenance
+          cone_angle: *measured
+          scan_center_azimuth: *measured
+          scan_half_width: *measured
+          along_track_field_of_view: *tailored
+          beam_width: &beam_width
+            kind: nominal
+            source: GMI L1B ATBD, Table 1-1
+          scan_sample_spacing: &sample_spacing
+            kind: nominal
+            source: GMI L1B ATBD, 3.6 ms integration at 32 rpm
+      - type: conical
+        parameters:
+          <<: *low_frequency
+          name: GMI 18.7 GHz
+          beam_width: 0.977
+        provenance: *low_frequency_provenance
+      - type: conical
+        parameters:
+          <<: *low_frequency
+          name: GMI 23.8 GHz
+          beam_width: 0.862
+        provenance: *low_frequency_provenance
+      - type: conical
+        parameters:
+          <<: *low_frequency
+          name: GMI 36.64 GHz
+          beam_width: 0.843
+        provenance: *low_frequency_provenance
+      - type: conical
+        parameters:
+          <<: *low_frequency
+          name: GMI 89 GHz
+          beam_width: 0.390
+        provenance: *low_frequency_provenance
+      - type: conical
+        parameters: &high_frequency
+          name: GMI 166 GHz
+          cone_angle: 45.284
+          scan_center_azimuth: -0.341
+          scan_half_width: 76.024
+          along_track_field_of_view: {tailor: time_step}
+          beam_width: 0.396
+          scan_sample_spacing: 0.6912
+        provenance: &high_frequency_provenance
+          cone_angle: *measured
+          scan_center_azimuth: *measured
+          scan_half_width: *measured
+          along_track_field_of_view: *tailored
+          beam_width: *beam_width
+          scan_sample_spacing: *sample_spacing
+      - type: conical
+        parameters:
+          <<: *high_frequency
+          name: GMI 183.31 GHz
+          beam_width: 0.361
+        provenance: *high_frequency_provenance
+    limitations:
+      - GPM periodically flies backward, when GMI scans behind the satellite. These configurations represent forward flight; supply an attitude schedule for yaw flips.
+      - The spacing between scans is about 4% larger than measured, as the tailored along-track field of view assumes the orbit's fastest ground speed and lowest height. The standard does not gate spacing; the record reports it.
 limitations:
   - The fitted angles depend on the altitude of about 440 km, at which GPM flew during the test.
