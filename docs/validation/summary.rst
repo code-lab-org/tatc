@@ -160,12 +160,12 @@ Limb, Occultation, and Satellite-to-Satellite Analyses
        (:doc:`ValidateLimbMLS`, :doc:`ValidateLimbSABER`)
    * - Radio occultation (`collect_ro_observations`)
      - COSMIC-2 and PlanetiQ, GPS, GLONASS, and Galileo
-     - All 5,699 and 3,838 recorded occultations predicted with the correct direction; times within 0.25 to 0.30 s
-       (95th percentile); tangent points 0.33 to 0.38 km (median) from truth (:doc:`ValidateROCOSMIC2`,
+     - All 5,699 and 3,838 recorded occultations predicted with the correct direction; times within 0.23 to 0.30 s
+       (95th percentile); tangent points 0.30 to 0.39 km (median) from truth (:doc:`ValidateROCOSMIC2`,
        :doc:`ValidateROPlanetiQ`)
    * - Earth occlusion (`collect_space_observations`)
      - COSMIC-2 occultations; GRACE-FO precise orbits
-     - Window edges within 0.25 to 0.30 s (95th percentile) of recorded occultations and within 2 ms of
+     - Window edges within 0.23 to 0.30 s (95th percentile) of recorded occultations and within 2 ms of
        `collect_ro_observations`; all GRACE-FO occlusion edges predicted (:doc:`ValidateSpaceCOSMIC2`,
        :doc:`ValidateSpaceGRACEFO`)
    * - Slant range (`collect_space_observations`)
