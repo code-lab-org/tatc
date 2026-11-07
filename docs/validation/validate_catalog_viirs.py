@@ -23,7 +23,6 @@ which unit tests recompute the results.
 
 import argparse
 import concurrent.futures
-import io
 import json
 import pathlib
 from datetime import datetime, timezone
@@ -41,12 +40,12 @@ from tatc.schemas import GeneralPerturbationsOrbit
 from validation_io import (
     BUCKET,
     TO_GEODETIC,
+    RemoteFile,
     build_grid,
     compute_published_errors,
     compute_spacing_ratios,
     ecef,
     get_holdout_gap,
-    get_with_retries,
     iet_to_utc,
     list_keys,
     load_element_set,
@@ -84,74 +83,9 @@ PUBLISHED_FOOTPRINTS = (
 FIXTURE_PASSES, FIXTURE_PIXELS, FIXTURE_SPACING = 60, 200, 200
 
 
-class RemoteFile(io.RawIOBase):
-    """A read-only file of an object, downloaded on demand with range requests."""
-
-    def __init__(self, key: str, block_size: int = 2**16):
-        super().__init__()
-        self.url, self.block_size, self.blocks, self.position = (
-            BUCKET + key,
-            block_size,
-            {},
-            0,
-        )
-        self.size = int(
-            get_with_retries(self.url, headers={"Range": "bytes=0-0"})
-            .headers["Content-Range"]
-            .split("/")[-1]
-        )
-
-    def readable(self):
-        return True
-
-    def seekable(self):
-        return True
-
-    def tell(self):
-        return self.position
-
-    def seek(self, offset, whence=io.SEEK_SET):
-        self.position = {
-            io.SEEK_SET: 0,
-            io.SEEK_CUR: self.position,
-            io.SEEK_END: self.size,
-        }[whence] + offset
-        return self.position
-
-    def fetch(self, start: int, end: int) -> None:
-        """Downloads block-aligned bytes into the cache."""
-        response = get_with_retries(
-            self.url, headers={"Range": f"bytes={start}-{end - 1}"}
-        )
-        for i, block in enumerate(
-            range(start // self.block_size, (end - 1) // self.block_size + 1)
-        ):
-            self.blocks[block] = response.content[
-                i * self.block_size : (i + 1) * self.block_size
-            ]
-
-    def readinto(self, buffer):
-        count = min(len(buffer), self.size - self.position)
-        if count <= 0:
-            return 0
-        first = self.position // self.block_size
-        last = (self.position + count - 1) // self.block_size
-        missing = [b for b in range(first, last + 1) if b not in self.blocks]
-        if missing:
-            self.fetch(
-                missing[0] * self.block_size,
-                min((missing[-1] + 1) * self.block_size, self.size),
-            )
-        data = b"".join(self.blocks[b] for b in range(first, last + 1))
-        start = self.position - first * self.block_size
-        buffer[:count] = data[start : start + count]
-        self.position += count
-        return count
-
-
 def open_granule(key: str) -> h5py.File:
     """Opens a remote granule, first getting the metadata at its start and end."""
-    remote = RemoteFile(key)
+    remote = RemoteFile(BUCKET + key)
     remote.fetch(0, remote.block_size)
     remote.fetch(
         (remote.size - 2**19) // remote.block_size * remote.block_size, remote.size

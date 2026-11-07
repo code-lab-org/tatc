@@ -444,6 +444,27 @@ class TestEntryStatus(unittest.TestCase):
                 self.assertEqual(configuration.record.holdout_gap_days, 51, key)
                 self.assertTrue(all(r.passed for r in configuration.gates), key)
 
+    def test_modis_entry_validated_on_terra(self):
+        """
+        Test that the MODIS entry passes with its exact values on held-out Terra data,
+        and that its results on Aqua, a transfer, are not those of any gate.
+        """
+        entry = get_entry("modis")
+        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
+        self.assertEqual(entry.validation.gaps, ())
+        for key, configuration in entry.validation.configurations.items():
+            record = configuration.record
+            self.assertEqual(record.evidence, "rerun", key)
+            self.assertEqual(record.platform, "terra", key)
+            self.assertEqual(record.holdout_gap_days, 32, key)
+            self.assertTrue(all(r.passed for r in configuration.gates), key)
+            transfers = [m for m in record.metrics if m.scope is not None]
+            self.assertTrue(transfers, key)
+            gated = {r.gate.metric for r in configuration.gates}
+            for metric in transfers:
+                self.assertTrue(metric.name.startswith("transfer_"), metric.name)
+                self.assertNotIn(metric.name, gated)
+
     def test_gmi_reports_spacing_limitation(self):
         """
         Test that GMI's spacing between scans, which no gate covers, is reported

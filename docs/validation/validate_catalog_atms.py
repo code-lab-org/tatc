@@ -43,6 +43,7 @@ from validation_io import (
     fetch,
     get_holdout_gap,
     iet_to_utc,
+    in_lattice_cells,
     list_keys,
     load_element_set,
     recompute_passes,
@@ -135,39 +136,9 @@ class Reference:
 
     def in_cells(self, points: np.ndarray, first: int, last: int) -> np.ndarray:
         """Gets whether unit vectors lie in cells of beams on a range of scans."""
-        cells = self.unit[first : last + 1]
-        _, nearest = cKDTree(cells.reshape(-1, 3)).query(points, k=2, workers=-1)
-        inside = np.zeros(len(points), dtype=bool)
-        for column in range(2):
-            k, j = np.divmod(nearest[:, column], N_BEAMS)
-            for dk in (-1, 0):
-                for dj in (-1, 0):
-                    kk, jj = k + dk, j + dj
-                    valid = (
-                        (kk >= 0)
-                        & (kk < len(cells) - 1)
-                        & (jj >= 0)
-                        & (jj < N_BEAMS - 1)
-                    )
-                    kk = np.clip(kk, 0, len(cells) - 2)
-                    jj = np.clip(jj, 0, N_BEAMS - 2)
-                    valid &= self.is_next_contiguous[first + kk]
-                    corners = [
-                        cells[kk, jj],
-                        cells[kk, jj + 1],
-                        cells[kk + 1, jj + 1],
-                        cells[kk + 1, jj],
-                    ]
-                    signs = np.stack(
-                        [
-                            np.sum(np.cross(a, b) * points, axis=-1)
-                            for a, b in zip(corners, corners[1:] + corners[:1])
-                        ]
-                    )
-                    inside |= valid & (
-                        np.all(signs >= 0, axis=0) | np.all(signs <= 0, axis=0)
-                    )
-        return inside
+        return in_lattice_cells(
+            self.unit[first : last + 1], self.is_next_contiguous[first:last], points
+        )
 
     def observe_passes(self, points) -> pd.DataFrame:
         """Finds the passes on which ATMS observed points, and their times."""

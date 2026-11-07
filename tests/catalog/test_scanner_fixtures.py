@@ -1,7 +1,8 @@
 """
-Regression tests that recompute the results of the entries validated against NOAA-20
-data from reduced fixtures, written by `docs/validation/validate_catalog_atms.py` and
-`docs/validation/validate_catalog_viirs.py`.
+Regression tests that recompute the results of the entries of cross-track scanners
+from reduced fixtures, written by `docs/validation/validate_catalog_atms.py`,
+`docs/validation/validate_catalog_viirs.py`, and
+`docs/validation/validate_catalog_modis.py`.
 
 These detect changes in TAT-C's results without network access. They do not themselves
 establish agreement with the reference data, which the scripts do.
@@ -47,14 +48,15 @@ def _observations(satellite, names, epochs, lon, lat) -> gpd.GeoDataFrame:
     )
 
 
-class _Noaa20Fixture:
+class _ScannerFixture:
     """
-    Tests shared by the entries validated against NOAA-20 data.
+    Tests shared by the entries of cross-track scanners.
     """
 
     entry_id: str
     sizes_key: str
     footprints: tuple
+    platform = "noaa-20"
 
     @classmethod
     def setUpClass(cls):
@@ -64,7 +66,7 @@ class _Noaa20Fixture:
         cls.orbit = GeneralPerturbationsOrbit.from_tle(cls.data["tle"].tolist())
         cls.day = datetime.fromisoformat(str(cls.data["day"]))
         cls.satellite = cls.entry.to_satellite(
-            cls.orbit, cls.sizes_key, platform="noaa-20"
+            cls.orbit, cls.sizes_key, platform=cls.platform
         )
         cls.names = np.array([i.name for i in cls.satellite.instruments])
         cls.recorded = cls.entry.record.configurations[cls.sizes_key].fixture_metrics
@@ -99,7 +101,7 @@ class _Noaa20Fixture:
         Test that the recorded passes are predicted, and that this does not move.
         """
         satellite = self.entry.to_satellite(
-            self.orbit, "swath", time_step=self.time_step(), platform="noaa-20"
+            self.orbit, "swath", time_step=self.time_step(), platform=self.platform
         )
         differences = []
         for latitude, longitude, seconds in self.data["passes"]:
@@ -211,7 +213,7 @@ class _Noaa20Fixture:
         )
 
 
-class TestAtmsFixture(_Noaa20Fixture, unittest.TestCase):
+class TestAtmsFixture(_ScannerFixture, unittest.TestCase):
     """
     Regression tests of the ATMS entry.
     """
@@ -248,7 +250,7 @@ class TestAtmsFixture(_Noaa20Fixture, unittest.TestCase):
         return np.array(differences)
 
 
-class TestViirsFixture(_Noaa20Fixture, unittest.TestCase):
+class TestViirsFixture(_ScannerFixture, unittest.TestCase):
     """
     Regression tests of the VIIRS entry.
     """
@@ -280,6 +282,41 @@ class TestViirsFixture(_Noaa20Fixture, unittest.TestCase):
                 _ecef(fore.longitude.degrees, fore.latitude.degrees)
                 + _ecef(aft.longitude.degrees, aft.latitude.degrees)
             ) / 2
+            differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
+        return np.array(differences)
+
+
+class TestModisFixture(_ScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the MODIS entry.
+    """
+
+    entry_id = "modis"
+    sizes_key = "pixels"
+    platform = "terra"
+    footprints = (
+        ("MODIS", 705, 98.2, 0, 1.0, 1.0),
+        ("MODIS", 705, 98.2, 55.0, 2.0, 4.8),
+    )
+
+    def time_step(self) -> float:
+        return 1.477
+
+    def spacing_names(self, rows: np.ndarray) -> np.ndarray:
+        return np.full(len(rows), "MODIS")
+
+    def recompute_pixel_differences(self) -> np.ndarray:
+        instrument = self.satellite.get_instrument(0)
+        orbit = self.satellite.orbit.to_gp_orbit()
+        differences = []
+        for seconds, frame, pixel, height, _, lat, lon in self.data["pixels"]:
+            position = instrument.compute_projected_pixel_position(
+                orbit.get_orbit_track(self.day + timedelta(seconds=float(seconds))),
+                int(frame),
+                int(pixel),
+                elevation=float(height),
+            )
+            predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
             differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
         return np.array(differences)
 

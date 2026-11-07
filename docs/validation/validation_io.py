@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 import requests
 from pyproj import Transformer
+from scipy.spatial import cKDTree
 from shapely import contains_xy, prepare
 
 from tatc.analysis import (
@@ -44,11 +45,11 @@ TO_GEODETIC = Transformer.from_crs("EPSG:4978", "EPSG:4979", always_xy=True)
 _SESSION = requests.Session()
 
 
-def get_with_retries(url: str, **kwargs) -> requests.Response:
+def get_with_retries(url: str, session=None, **kwargs) -> requests.Response:
     """Sends a GET request, retrying transient failures with a backoff."""
     for attempt in range(6):
         try:
-            response = _SESSION.get(url, timeout=180, **kwargs)
+            response = (session or _SESSION).get(url, timeout=180, **kwargs)
             response.raise_for_status()
             return response
         except requests.RequestException:
@@ -78,6 +79,70 @@ def list_keys(prefix: str) -> list[str]:
 def fetch(key: str) -> bytes:
     """Downloads an object of the archive."""
     return get_with_retries(BUCKET + key).content
+
+
+class RemoteFile(io.RawIOBase):
+    """A read-only file of a URL, downloaded on demand with range requests."""
+
+    def __init__(self, url: str, session=None, block_size: int = 2**16):
+        super().__init__()
+        self.session, self.block_size, self.blocks, self.position = (
+            session,
+            block_size,
+            {},
+            0,
+        )
+        response = get_with_retries(url, session, headers={"Range": "bytes=0-0"})
+        # later requests go directly to where any redirect led
+        self.url = response.url
+        self.size = int(response.headers["Content-Range"].split("/")[-1])
+
+    def readable(self):
+        return True
+
+    def seekable(self):
+        return True
+
+    def tell(self):
+        return self.position
+
+    def seek(self, offset, whence=io.SEEK_SET):
+        self.position = {
+            io.SEEK_SET: 0,
+            io.SEEK_CUR: self.position,
+            io.SEEK_END: self.size,
+        }[whence] + offset
+        return self.position
+
+    def fetch(self, start: int, end: int) -> None:
+        """Downloads block-aligned bytes into the cache."""
+        response = get_with_retries(
+            self.url, self.session, headers={"Range": f"bytes={start}-{end - 1}"}
+        )
+        for i, block in enumerate(
+            range(start // self.block_size, (end - 1) // self.block_size + 1)
+        ):
+            self.blocks[block] = response.content[
+                i * self.block_size : (i + 1) * self.block_size
+            ]
+
+    def readinto(self, buffer):
+        count = min(len(buffer), self.size - self.position)
+        if count <= 0:
+            return 0
+        first = self.position // self.block_size
+        last = (self.position + count - 1) // self.block_size
+        missing = [b for b in range(first, last + 1) if b not in self.blocks]
+        if missing:
+            self.fetch(
+                missing[0] * self.block_size,
+                min((missing[-1] + 1) * self.block_size, self.size),
+            )
+        data = b"".join(self.blocks[b] for b in range(first, last + 1))
+        start = self.position - first * self.block_size
+        buffer[:count] = data[start : start + count]
+        self.position += count
+        return count
 
 
 def load_element_set(day: datetime, directory: pathlib.Path) -> list[str]:
@@ -120,6 +185,41 @@ def up(lon, lat) -> np.ndarray:
 def normalize(x: np.ndarray) -> np.ndarray:
     """Gets unit vectors along the last axis."""
     return x / np.linalg.norm(x, axis=-1, keepdims=True)
+
+
+def in_lattice_cells(cells, is_next_contiguous, points) -> np.ndarray:
+    """
+    Gets whether unit vectors lie in the cells of a lattice of unit vectors, with rows
+    of scans and columns of samples, given whether each scan is followed by its next.
+    """
+    rows, columns = cells.shape[:2]
+    _, nearest = cKDTree(cells.reshape(-1, 3)).query(points, k=2, workers=-1)
+    inside = np.zeros(len(points), dtype=bool)
+    for column in range(2):
+        k, j = np.divmod(nearest[:, column], columns)
+        for dk in (-1, 0):
+            for dj in (-1, 0):
+                kk, jj = k + dk, j + dj
+                valid = (kk >= 0) & (kk < rows - 1) & (jj >= 0) & (jj < columns - 1)
+                kk = np.clip(kk, 0, rows - 2)
+                jj = np.clip(jj, 0, columns - 2)
+                valid &= is_next_contiguous[kk]
+                corners = [
+                    cells[kk, jj],
+                    cells[kk, jj + 1],
+                    cells[kk + 1, jj + 1],
+                    cells[kk + 1, jj],
+                ]
+                signs = np.stack(
+                    [
+                        np.sum(np.cross(a, b) * points, axis=-1)
+                        for a, b in zip(corners, corners[1:] + corners[:1])
+                    ]
+                )
+                inside |= valid & (
+                    np.all(signs >= 0, axis=0) | np.all(signs <= 0, axis=0)
+                )
+    return inside
 
 
 def get_holdout_gap(day: datetime, fit_day: datetime) -> int | None:
@@ -201,11 +301,8 @@ def compute_spacing_ratios(satellite, names, epochs, rows) -> tuple[float, float
     )
 
 
-def score_passes(points, satellite, index, observed, start, end, gaps) -> dict:
-    """
-    Compares predicted and observed passes of points, given observations with
-    `point_id` and `time`, and the periods without data as pairs of times.
-    """
+def predict_passes(points, satellite, index, start, end, gaps) -> pd.DataFrame:
+    """Predicts the observations of points, outside periods without data."""
 
     def predict(item):
         point_id, geometry = item
@@ -224,7 +321,11 @@ def score_passes(points, satellite, index, observed, start, end, gaps) -> dict:
     in_gap = np.zeros(len(predicted), dtype=bool)
     for first, last in gaps:
         in_gap |= ((predicted.epoch >= first) & (predicted.epoch <= last)).to_numpy()
-    predicted = predicted[~in_gap]
+    return predicted[~in_gap]
+
+
+def match_passes(predicted, observed) -> dict:
+    """Compares predicted passes with observed ones, with `point_id` and `time`."""
     merged = pd.merge_asof(
         observed.assign(time=observed.time.dt.as_unit("ns")).sort_values("time"),
         predicted[["point_id", "epoch"]]
@@ -246,6 +347,16 @@ def score_passes(points, satellite, index, observed, start, end, gaps) -> dict:
         "predicted": len(predicted),
         "matched": int(hit.sum()),
     }
+
+
+def score_passes(points, satellite, index, observed, start, end, gaps) -> dict:
+    """
+    Compares predicted and observed passes of points, given observations with
+    `point_id` and `time`, and the periods without data as pairs of times.
+    """
+    return match_passes(
+        predict_passes(points, satellite, index, start, end, gaps), observed
+    )
 
 
 def recompute_passes(satellite, index, day, passes) -> dict[str, float]:
@@ -324,4 +435,21 @@ def update_record(path: pathlib.Path, entry_id: str, key: str, results: dict) ->
         record = json.loads(path.read_text(encoding="utf-8"))
     record["standard_version"] = STANDARD_VERSION
     record["configurations"][key] = results
+    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+
+
+def add_transfer_metrics(
+    path: pathlib.Path, key: str, scope: str, values: dict[str, float]
+) -> None:
+    """
+    Adds results of a configuration on a platform on which it was not fitted. Their
+    names differ from those of the gates, so that they do not count as validation.
+    """
+    record = json.loads(path.read_text(encoding="utf-8"))
+    metrics = record["configurations"][key]["metrics"]
+    metrics[:] = [m for m in metrics if m.get("scope") != scope]
+    metrics += [
+        {"name": f"transfer_{name}", "value": float(value), "scope": scope}
+        for name, value in values.items()
+    ]
     path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")

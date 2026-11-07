@@ -1,0 +1,129 @@
+{
+  "entry_id": "modis",
+  "configurations": {
+    "pixels": {
+      "digest": "a518db197f63a99221d3e01edef2bb6e9e17d9e5c01951d6102e5931b86eafcc",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_modis.py",
+      "reference": "Footprints published by NASA LAADS; MOD03 geolocation",
+      "period": "2026-11-05",
+      "platform": "terra",
+      "holdout_gap_days": 32,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 0.36576978059310594
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 1.6153138956517092
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 3.8453467916586126
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.0000430692662994
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9999225631079388
+        },
+        {
+          "name": "transfer_pixel_position_median",
+          "value": 1.8119314703862845,
+          "scope": "aqua, 2026-11-05"
+        },
+        {
+          "name": "transfer_pixel_position_p95",
+          "value": 3.8946324062800604,
+          "scope": "aqua, 2026-11-05"
+        },
+        {
+          "name": "transfer_spacing_along_ratio_median",
+          "value": 0.9999624256280701,
+          "scope": "aqua, 2026-11-05"
+        },
+        {
+          "name": "transfer_spacing_cross_ratio_median",
+          "value": 0.9998962197197073,
+          "scope": "aqua, 2026-11-05"
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 1.5303687163298507,
+        "spacing_along_ratio_median": 1.000027663616582,
+        "spacing_cross_ratio_median": 0.9998683045414214
+      }
+    },
+    "swath": {
+      "digest": "18b3f18e915ceccdca0db918f3b503a44c1aa533988e3686373d92a1adb4f2dc",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_modis.py",
+      "reference": "MOD03 geolocation",
+      "period": "2026-11-05",
+      "platform": "terra",
+      "holdout_gap_days": 32,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 100.0
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.06773488710851
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.44457713099999996
+        },
+        {
+          "name": "swath_width_median",
+          "value": 1.6811489789497573
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9849370275177071
+        },
+        {
+          "name": "transfer_pass_recall",
+          "value": 100.0,
+          "scope": "aqua, 2026-11-05"
+        },
+        {
+          "name": "transfer_pass_precision",
+          "value": 99.06787066705505,
+          "scope": "aqua, 2026-11-05"
+        },
+        {
+          "name": "transfer_epoch_p95",
+          "value": 0.41956022709999996,
+          "scope": "aqua, 2026-11-05"
+        },
+        {
+          "name": "transfer_swath_width_median",
+          "value": 1.5080473417232279,
+          "scope": "aqua, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_median",
+          "value": 0.9851837677821675,
+          "scope": "aqua, 2026-11-05"
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.41702069909999995
+      }
+    }
+  },
+  "standard_version": 1
+}
