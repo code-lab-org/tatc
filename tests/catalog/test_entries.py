@@ -87,16 +87,30 @@ class TestLoading(unittest.TestCase):
         Test filtering by class and tier.
         """
         self.assertEqual(
-            [e.id for e in list_entries(instrument_class="conical")], ["gmi"]
+            [e.id for e in list_entries(instrument_class="conical")],
+            ["amsr2", "gmi", "smap_radiometer"],
         )
         self.assertEqual(
             [e.id for e in list_entries(instrument_class="geostationary")], ["abi"]
         )
         self.assertEqual([e.id for e in list_entries("conical", "validated")], ["gmi"])
-        self.assertEqual(list_entries("conical", "partial"), [])
+        self.assertEqual(
+            [e.id for e in list_entries("conical", "partial")],
+            ["amsr2", "smap_radiometer"],
+        )
         self.assertEqual(
             [e.id for e in list_entries(tier="partial")],
-            ["abi", "cris", "csar", "iasi", "msi", "tropomi"],
+            [
+                "abi",
+                "amsr2",
+                "cris",
+                "csar",
+                "iasi",
+                "lsar",
+                "msi",
+                "smap_radiometer",
+                "tropomi",
+            ],
         )
         with self.assertRaises(ValueError):
             list_entries(tier="approved")
@@ -586,6 +600,65 @@ class TestEntryStatus(unittest.TestCase):
         for configuration in entry.validation.configurations.values():
             self.assertEqual(configuration.record.holdout_gap_days, 51)
             self.assertEqual(configuration.record.platform, "sentinel-1c")
+
+    def test_amsr2_entry_partial_on_published_footprints(self):
+        """
+        Test that the AMSR2 entry is partial because of its published footprints
+        alone, with its swath validated at the timing grade on held-out data.
+        """
+        entry = get_entry("amsr2")
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        swath = entry.validation.configurations["swath"]
+        self.assertEqual(swath.tier, Tier.VALIDATED)
+        self.assertEqual(entry.configurations["swath"].grade, Grade.TIMING)
+        self.assertEqual(swath.record.holdout_gap_days, 36)
+        sample_size = entry.validation.configurations["sample_size"]
+        self.assertEqual(
+            [r.gate.metric for r in sample_size.gates if not r.passed],
+            ["sample_size_within_3pct"],
+        )
+
+    def test_karin_entry_validated(self):
+        """
+        Test that the KaRIn entry, a union of two swaths, passes with its exact values
+        on held-out data.
+        """
+        entry = get_entry("karin")
+        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
+        self.assertEqual(entry.configurations["swaths"].grouping, "union")
+        configuration = entry.validation.configurations["swaths"]
+        self.assertEqual(configuration.record.holdout_gap_days, 34)
+        self.assertTrue(all(r.passed for r in configuration.gates))
+
+    def test_lsar_entry_partial(self):
+        """
+        Test that the L-SAR entry is partial: its modes with a 20 or 40 MHz band miss
+        the near-range edges, those with only a 5 MHz band miss a point of a small
+        sample, and both fail the swath area at long time steps.
+        """
+        entry = get_entry("lsar")
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        failed = {
+            key: [r.gate.metric for r in configuration.gates if not r.passed]
+            for key, configuration in entry.validation.configurations.items()
+        }
+        self.assertEqual(
+            failed,
+            {
+                "swath_20_40mhz": [
+                    "swath_edge_p95",
+                    "footprint_iou_median",
+                    "footprint_iou_p5",
+                ],
+                "swath_5mhz": [
+                    "pass_recall",
+                    "footprint_iou_median",
+                    "footprint_iou_p5",
+                ],
+            },
+        )
+        for configuration in entry.validation.configurations.values():
+            self.assertEqual(configuration.record.holdout_gap_days, 33)
 
     def test_gmi_reports_spacing_limitation(self):
         """

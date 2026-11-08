@@ -1,6 +1,7 @@
 """
-Regression tests that recompute the results of the entries of pushbroom imagers and
-synthetic aperture radars from reduced fixtures, written by the scripts
+Regression tests that recompute the results of the entries of pushbroom imagers,
+synthetic aperture radars, and the SMAP radiometer from reduced fixtures, written by
+the scripts
 `docs/validation/validate_catalog_<entry>.py`.
 
 These detect changes in TAT-C's results without network access. They do not themselves
@@ -36,6 +37,7 @@ class _PushbroomFixture:
     configuration: str = "swath"
     passes_key: str = "passes"
     instrument_index: int | None = 0
+    time_step: float = TIME_STEP
 
     @classmethod
     def setUpClass(cls):
@@ -46,7 +48,7 @@ class _PushbroomFixture:
         cls.satellite = cls.entry.to_satellite(
             GeneralPerturbationsOrbit.from_tle(cls.data["tle"].tolist()),
             cls.configuration,
-            time_step=TIME_STEP,
+            time_step=cls.time_step,
             platform=cls.platform,
         )
         cls.recorded = cls.entry.record.configurations[
@@ -139,6 +141,51 @@ class TestCsarEwFixture(_PushbroomFixture, unittest.TestCase):
     platform = "sentinel-1c"
     configuration = "ew"
     passes_key = "passes_ew"
+
+
+class TestKarinFixture(_PushbroomFixture, unittest.TestCase):
+    """
+    Regression tests of the KaRIn entry, whose two swaths are analyzed as a union.
+    """
+
+    entry_id = "karin"
+    platform = "swot"
+    configuration = "swaths"
+    instrument_index = None
+
+
+class TestSmapRadiometerFixture(_PushbroomFixture, unittest.TestCase):
+    """
+    Regression tests of the SMAP radiometer entry, a full-circle conical scanner,
+    tailored to its scan period.
+    """
+
+    entry_id = "smap_radiometer"
+    platform = "smap"
+    configuration = "looks"
+    time_step = 4.11
+
+
+class TestLsarWideBandFixture(_PushbroomFixture, unittest.TestCase):
+    """
+    Regression tests of the L-SAR entry's modes with a 20 or 40 MHz band.
+    """
+
+    entry_id = "lsar"
+    platform = "nisar"
+    configuration = "swath_20_40mhz"
+    passes_key = "passes_swath_20_40mhz"
+
+
+class TestLsarNarrowBandFixture(_PushbroomFixture, unittest.TestCase):
+    """
+    Regression tests of the L-SAR entry's modes with only a 5 MHz band.
+    """
+
+    entry_id = "lsar"
+    platform = "nisar"
+    configuration = "swath_5mhz"
+    passes_key = "passes_swath_5mhz"
 
 
 if __name__ == "__main__":

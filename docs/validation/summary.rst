@@ -83,18 +83,25 @@ Instruments and Pointing
      - GCOM-W AMSR2, GPM GMI, SMAP radiometer
      - 99.95 to 100% of passes, epochs within 0.27 s (AMSR2) and 0.69 s (GMI) at the 95th percentile; swath IoU 0.998
        to 0.999; SMAP's forward and aft looks within 0.2 s (median) (:doc:`ValidateConicalAMSR2`,
-       :doc:`ValidateConicalGMI`, :doc:`ValidateGridSMAP`)
+       :doc:`ValidateConicalGMI`, :doc:`ValidateGridSMAP`). On held-out AMSR2 data, 99.98% of passes predicted,
+       epochs within 0.79 s (95th percentile), swath width within 2.8 km, and swath IoU 0.998 (:doc:`catalog`)
    * - Side-looking SAR (`PointedInstrument` with roll, `roll_angle_profile`)
      - NISAR, Sentinel-1C
      - Epochs within 0.3 and 0.44 s (95th percentile) of zero-Doppler times; footprint IoU 0.93 to 0.96 (median); roll
        steering profiles bring swath edges within 6 to 7 km (:doc:`ValidateSARNISAR`, :doc:`ValidateSARSentinel1`).
        On held-out Sentinel-1C data, swath edges within 4.7 to 6.9 km (95th percentile) in IW and EW modes, but 98.98%
        of IW passes predicted, the misses at the swath edges, and swath IoU 0.956 (IW) and 0.978 (EW) at 10 s, falling
-       to 0.72 and 0.82 at 120 s (:doc:`catalog`)
+       to 0.72 and 0.82 at 120 s (:doc:`catalog`). On held-out NISAR data of its modes with a 20 or 40 MHz band,
+       99.27% of passes predicted, epochs within 0.92 s, and far-range edges within 6.8 km, but near-range edges
+       within 12.1 km (95th percentile) with a fixed field of view, and swath IoU 0.959 at 10 s, falling to 0.73 at
+       120 s (:doc:`catalog`)
    * - Wide-swath interferometer (two rolled instruments)
      - SWOT KaRIn
      - Every pixel 11 to 59 km from the ground track observed by the instrument on its side, none in the nadir gap;
-       epochs within 0.04 s after removing the orbit offset (:doc:`ValidateSwathSWOT`)
+       epochs within 0.04 s after removing the orbit offset (:doc:`ValidateSwathSWOT`). On held-out data, with the
+       edges of good-quality heights (about 7.5 to 61 km from the ground track), 99.05% of passes predicted, edges
+       within 3.0 km and epochs within 0.52 s (95th percentile), and swath IoU 0.988 or more at time steps of up to
+       120 s (:doc:`catalog`)
    * - Narrow-beam lidar
      - ICESat-2 ATLAS
      - Beams located within about 2 km with a TLE, so a view about 4 km wide predicts 95% of their observations
@@ -224,9 +231,11 @@ numerical error in TAT-C:
   too narrow (ATMS) and 47 km too wide (VIIRS); parameters fitted to geolocated
   samples close the gap.
 * **Time step.** A pushbroom or SAR view tailored to the analysis time step
-  departs further from the swath as the time step grows: swath IoU falls from 0.95 or more at 10 s to 0.94 to 0.95 (MSI, TROPOMI) and 0.72 to
-  0.82 (Sentinel-1C) at 120 s. Use time steps of 30 s or less, or 10 s for
-  Sentinel-1's IW mode.
+  departs further from the swath as the time step grows: swath IoU falls from
+  about 0.95 or more at 10 s to 0.94 to 0.95 (MSI, TROPOMI), 0.72 to 0.82
+  (Sentinel-1C), and 0.73 to 0.76 (NISAR) at 120 s. Use time steps of 30 s or
+  less, or 10 s for Sentinel-1's IW mode and NISAR. KaRIn's swaths, near nadir,
+  keep an IoU of 0.98 or more at 120 s.
 * **Element set age.** Use element sets near the analysis period, especially
   for low orbits with strong drag or frequent maneuvers (ISS, GPM), a
   multi-element `GeneralPerturbationsOrbit` for past periods, and a maintained

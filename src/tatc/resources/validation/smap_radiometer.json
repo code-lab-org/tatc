@@ -1,0 +1,46 @@
+{
+  "entry_id": "smap_radiometer",
+  "configurations": {
+    "looks": {
+      "digest": "ca3c6cdb3aea9144061cb5594ceefedb81608d68f34e565475ea76e6c9343efd",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_smap.py",
+      "reference": "SPL1BTB (footprint positions and times)",
+      "period": "2026-10-24",
+      "platform": "smap",
+      "holdout_gap_days": null,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 100.0
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.44319393436797
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.16437065455
+        },
+        {
+          "name": "epoch_median",
+          "value": -0.022936786500000028
+        },
+        {
+          "name": "swath_width_median",
+          "value": 2.1063849485743558
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9976425386535194
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.14061390834999996
+      }
+    }
+  },
+  "standard_version": 1
+}

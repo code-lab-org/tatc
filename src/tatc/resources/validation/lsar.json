@@ -1,0 +1,142 @@
+{
+  "entry_id": "lsar",
+  "configurations": {
+    "swath_20_40mhz": {
+      "digest": "64b6792cf14aa9ec487788088277be3d41f06da395c9cef561fb4d11b1965be6",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_lsar.py",
+      "reference": "Geolocation grids, orbits, and bounding polygons of NISAR Level 1 RSLC products",
+      "period": "2026-11-04",
+      "platform": "nisar",
+      "holdout_gap_days": 33,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.26829268292683
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 12.11808314789791,
+          "scope": "near range"
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 6.769084447121211,
+          "scope": "far range"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9590115006486803,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.9239180853934219,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9250085665940424,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.8192044127348738,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.7307474113757555,
+          "scope": "time step 120 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.6918885813641412,
+          "scope": "time step 120 s"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.9421305818
+        },
+        {
+          "name": "epoch_median",
+          "value": -0.678647302
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.9402862115499999
+      }
+    },
+    "swath_5mhz": {
+      "digest": "5dcb9ae9747ff5c5e7a195c89bad837d06eb91e41c8fba1eefaaa9d8543f803d",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_lsar.py",
+      "reference": "Geolocation grids, orbits, and bounding polygons of NISAR Level 1 RSLC products",
+      "period": "2026-11-04",
+      "platform": "nisar",
+      "holdout_gap_days": 33,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 94.73684210526316
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 6.095677967970296,
+          "scope": "near range"
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 2.520131103590403,
+          "scope": "far range"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9478177117781734,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.9478177117781734,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.8621282230020262,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.8621282230020262,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.755472649945832,
+          "scope": "time step 120 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.755472649945832,
+          "scope": "time step 120 s"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.36542056
+        },
+        {
+          "name": "epoch_median",
+          "value": -0.352374686
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.36542056
+      }
+    }
+  },
+  "standard_version": 1
+}

@@ -1,0 +1,89 @@
+{
+  "entry_id": "amsr2",
+  "configurations": {
+    "sample_size": {
+      "digest": "f583bcf1c5cd9b1f756f7881c40a6722b24fc50a1998fb984b0c0492192b9d21",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_amsr2.py",
+      "reference": "Footprints of JAXA's AMSR2 channel set; spacing of GPM_1CGCOMW1AMSR2 version 08",
+      "period": "2026-11-01",
+      "platform": "gcom-w",
+      "holdout_gap_days": 36,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 83.33333333333334
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 9.802103856162091
+        },
+        {
+          "name": "spacing_arc_ratio_median",
+          "value": 1.0016563539780259,
+          "scope": "S1"
+        },
+        {
+          "name": "spacing_scan_ratio_median",
+          "value": 1.0203231172916796,
+          "scope": "S1"
+        },
+        {
+          "name": "spacing_arc_ratio_median",
+          "value": 1.0016177167665072,
+          "scope": "S5"
+        },
+        {
+          "name": "spacing_scan_ratio_median",
+          "value": 1.0203571771310163,
+          "scope": "S5"
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 83.33333333333334,
+        "spacing_arc_ratio_median_S1": 1.0015214046175638,
+        "spacing_scan_ratio_median_S1": 1.020874023677854,
+        "spacing_arc_ratio_median_S5": 1.0019438419712547,
+        "spacing_scan_ratio_median_S5": 1.0151266342326415
+      }
+    },
+    "swath": {
+      "digest": "3b318e73416bf7866fd7ecf2eabf1bd5bca4a5df50ac8783d9a7dc981d08b737",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_amsr2.py",
+      "reference": "GPM_1CGCOMW1AMSR2 version 08",
+      "period": "2026-11-01",
+      "platform": "gcom-w",
+      "holdout_gap_days": 36,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.97869620792501
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.87231325814003
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.7868501823999998
+        },
+        {
+          "name": "swath_width_median",
+          "value": 2.818689590166323
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9976790180773127
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.7200056528
+      }
+    }
+  },
+  "standard_version": 1
+}

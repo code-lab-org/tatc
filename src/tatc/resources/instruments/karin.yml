@@ -1,0 +1,67 @@
+id: karin
+name: KaRIn
+aliases: [Ka-band Radar Interferometer, SWOT KaRIn]
+instrument_class: sar
+selection: Wide-swath radar interferometer of the Surface Water and Ocean Topography (SWOT) mission, which maps ocean and inland water heights in two swaths beside a nadir gap, with open data products.
+platforms:
+  - id: swot
+    name: SWOT
+    norad_id: 54754
+    status: operational
+    as_of: 2026-11-04
+data_products:
+  - name: SWOT_L2_LR_SSH_BASIC_D
+    provider: NASA PO.DAAC
+    url: https://podaac.jpl.nasa.gov/dataset/SWOT_L2_LR_SSH_BASIC_D
+    access: registration
+default_configuration: swaths
+configurations:
+  swaths:
+    grade: timing
+    description: The two swaths, to the left and right of the ground track, with views tailored to the analysis time step. Analyze them together with `instrument_index=None`.
+    platforms: [swot]
+    velocity_frame: earth_fixed
+    grouping: union
+    instruments:
+      - type: pointed
+        parameters:
+          name: KaRIn left
+          roll_angle: 2.1883
+          cross_track_field_of_view: 3.4071
+          along_track_field_of_view: {tailor: time_step}
+          is_rectangular: true
+        provenance:
+          roll_angle: &left
+            kind: measured
+            source: validate_catalog_karin.py --fit, the mean of the median look angles of the inner and outer edges of the good-quality heights of 13,474 lines over the open ocean
+            platform: swot
+            period: "2026-10-01"
+          cross_track_field_of_view: *left
+          along_track_field_of_view: &tailored
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular: &rectangular
+            kind: derived
+            source: Models the swath of each zero-Doppler line as a rectangular view
+      - type: pointed
+        parameters:
+          name: KaRIn right
+          roll_angle: -2.2065
+          cross_track_field_of_view: 3.4096
+          along_track_field_of_view: {tailor: time_step}
+          is_rectangular: true
+        provenance:
+          roll_angle: &right
+            kind: measured
+            source: validate_catalog_karin.py --fit, the mean of the median look angles of the inner and outer edges of the good-quality heights of 13,444 lines over the open ocean
+            platform: swot
+            period: "2026-10-01"
+          cross_track_field_of_view: *right
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+    limitations:
+      - The edges are those of good-quality sea surface heights over the open ocean, which extend from about 7.5 to 61 km from the ground track, beyond the nominal 10 to 60 km. Heights over land, ice, and inland water were not tested.
+      - Images are formed in the plane perpendicular to the Earth-fixed velocity (zero-Doppler geometry), so a user-supplied attitude should keep the Earth-fixed frame.
+limitations:
+  - The nadir altimeter, which observes the gap between the swaths, is not represented.
+  - SWOT's orbit is maintained on a repeat ground track; for analyses longer than its 20.86-day repeat cycle, propagate the orbit as maintained (`remove_drag=True` with `repeat_cycle="auto"`), as `ValidateSwathSWOT` found.
