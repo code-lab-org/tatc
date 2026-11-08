@@ -13,6 +13,9 @@ Changed:
  - Dumping a `Satellite` or other system with a `PointedInstrument` or `ConicalInstrument` keeps the fields of its class, and loading the data restores it. Previously, these instruments were written and restored as a base `Instrument`, without a warning. Data written by earlier versions lacks these fields, so it still loads as an `Instrument`.
  - Dumping a space system with an `attitude` omits the `velocity_frame` of its instruments, which the attitude sets, so the data can be loaded.
 
+Fixed:
+ - `compute_projected_ray_position` of a rectangular view without along-track extent (a line across track) projected rays at angles of 180 and 360 degrees to the view's center, rather than its ends; likewise for a view without cross-track extent at 90 degrees. Rays of rectangular views at angles outside [0, 360) degrees, such as -90, were placed far from the view, and now match the equivalent angles. Instruments, whose fields of view must be positive, were not affected.
+
 ## 3.6.0
 
 Added new observing capabilities for limb sounding, ground-based radar, fixed surface platforms, and regions (polygons), with support for shapely points. Changed how general perturbations orbits are propagated, with options to model orbits maintained on a repeat ground track. Also changed the tangent point for GNSS radio occultation (RO) and limb sounding to the point of minimum WGS 84 geodetic altitude along the line of sight.

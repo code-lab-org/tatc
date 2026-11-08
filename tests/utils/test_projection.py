@@ -499,6 +499,64 @@ class TestProjection(unittest.TestCase):  # pylint: disable=too-many-public-meth
         ):
             self._assert_continuous_at(cross, along, corner)
 
+    def test_compute_projected_ray_position_rectangular_line_reaches_ends(self):
+        """
+        Test that a rectangular view without along-track or cross-track
+        extent (a line) projects rays at its principal angles to the line's
+        ends, as an elliptical view does, rather than to its center.
+        """
+        for cross, along, ends in ((10, 0, (0, 180, 360)), (0, 4, (90, 270))):
+            for angle in ends:
+                rectangular = compute_projected_ray_position(
+                    self.orbit_track, cross, along, 0, 0, True, angle, 0
+                )
+                elliptical = compute_projected_ray_position(
+                    self.orbit_track, cross, along, 0, 0, False, angle, 0
+                )
+                self.assertLess(
+                    _great_circle_distance(
+                        rectangular.latitude.degrees,
+                        rectangular.longitude.degrees,
+                        elliptical.latitude.degrees,
+                        elliptical.longitude.degrees,
+                    ),
+                    1,
+                    f"fields of view {cross}, {along} at {angle} deg",
+                )
+                self.assertGreater(
+                    _great_circle_distance(
+                        self.subpoint.latitude.degrees,
+                        self.subpoint.longitude.degrees,
+                        rectangular.latitude.degrees,
+                        rectangular.longitude.degrees,
+                    ),
+                    10000,
+                    f"fields of view {cross}, {along} at {angle} deg",
+                )
+
+    def test_compute_projected_ray_position_rectangular_wraps_angles(self):
+        """
+        Test that rectangular rays at angles outside [0, 360) degrees match
+        those at the equivalent angles inside it.
+        """
+        for angle, wrapped in ((-90, 270), (-45, 315), (-180, 180), (450, 90)):
+            outside, inside = (
+                compute_projected_ray_position(
+                    self.orbit_track, 10, 4, 0, 0, True, a, 0
+                )
+                for a in (angle, wrapped)
+            )
+            self.assertLess(
+                _great_circle_distance(
+                    outside.latitude.degrees,
+                    outside.longitude.degrees,
+                    inside.latitude.degrees,
+                    inside.longitude.degrees,
+                ),
+                1,
+                f"angle {angle} deg",
+            )
+
     def _assert_continuous_at(self, cross, along, corner):
         """
         Asserts that the rectangular boundary is continuous at the four

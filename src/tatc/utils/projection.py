@@ -773,16 +773,24 @@ def _get_rectangular_ray_coefficients(
     boundary of a rectangular view (see `compute_projected_ray_position`).
 
     Args:
-        angle (float): ray angle (radians) about the view center.
+        angle (float): ray angle (radians) about the view center, of any
+            value (wrapped to [0, 2*pi)).
         tan_a_2 (float): the tangent of the along-track half field of view.
         tan_c_2 (float): the tangent of the cross-track half field of view.
 
     Returns:
         tuple[float, float]: the along-track and cross-track coefficients.
     """
+    angle = np.mod(angle, 2 * np.pi)
     # find orientation of rectangle corner (the ratio of the half-width
     # tangents, not of the fields of view, which differ for wide views)
     theta = np.arctan2(tan_a_2, tan_c_2)
+    # a ray at a corner lies on two edges; it is assigned to the edge whose
+    # formula stays finite there: the left or right edge, unless the view
+    # has no cross-track extent (theta = pi/2), and otherwise the top or
+    # bottom edge, which fails if the view has no along-track extent
+    # (theta = 0), as for a line across track
+    on_sides = tan_a_2 <= tan_c_2
     # compose the ray by walking around the rectangle boundary: the (v, c)
     # coefficients are determined together, one segment at a time, rather
     # than by two independently re-derived branch chains. Corners are at
@@ -790,25 +798,25 @@ def _get_rectangular_ray_coefficients(
     # 3*pi/2 splits are just internal subdivisions of a single flat edge
     # (each formula is continuous across them) chosen to keep every
     # tan() argument close to zero.
-    if angle <= theta:
+    if angle < theta or (angle == theta and on_sides):
         # right edge, upper half
         return tan_c_2 * np.tan(angle), tan_c_2
     if angle < np.pi / 2:
         # top edge, right half
         return tan_a_2, tan_a_2 * np.tan(np.pi / 2 - angle)
-    if angle <= np.pi - theta:
+    if angle < np.pi - theta or (angle == np.pi - theta and not on_sides):
         # top edge, left half
         return tan_a_2, -tan_a_2 * np.tan(angle - np.pi / 2)
     if angle < np.pi:
         # left edge, upper half
         return tan_c_2 * np.tan(np.pi - angle), -tan_c_2
-    if angle < np.pi + theta:
+    if angle < np.pi + theta or (angle == np.pi + theta and on_sides):
         # left edge, lower half
         return -tan_c_2 * np.tan(angle - np.pi), -tan_c_2
     if angle < 3 * np.pi / 2:
         # bottom edge, right half
         return -tan_a_2, -tan_a_2 * np.tan(3 * np.pi / 2 - angle)
-    if angle <= 2 * np.pi - theta:
+    if angle < 2 * np.pi - theta or (angle == 2 * np.pi - theta and not on_sides):
         # bottom edge, left half
         return -tan_a_2, tan_a_2 * np.tan(angle - 3 * np.pi / 2)
     # right edge, lower half
