@@ -175,6 +175,35 @@ def load_element_set(day: datetime, directory: pathlib.Path) -> list[str]:
     return path.read_text(encoding="utf-8").splitlines()
 
 
+def read_element_set_file(
+    path: pathlib.Path, norad_id: int, day: datetime
+) -> list[str]:
+    """
+    Gets the two-line element set of a satellite whose epoch is nearest the middle of a
+    day, from a file of element sets with or without name lines.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"element sets for {day:%Y-%m-%d} need {path}")
+    lines = [
+        line.rstrip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.startswith(("1 ", "2 "))
+    ]
+    middle = day + timedelta(hours=12)
+    candidates = []
+    for first, second in zip(lines[::2], lines[1::2], strict=True):
+        if int(first[2:7]) != norad_id:
+            continue
+        year, days = int(first[18:20]), float(first[20:32])
+        epoch = datetime(2000 + year, 1, 1, tzinfo=middle.tzinfo) + timedelta(
+            days=days - 1
+        )
+        candidates.append((abs((epoch - middle).total_seconds()), [first, second]))
+    if not candidates:
+        raise ValueError(f"{path} has no element sets of {norad_id}")
+    return min(candidates, key=lambda candidate: candidate[0])[1]
+
+
 def iet_to_utc(iet) -> pd.DatetimeIndex:
     """Converts IDPS Epoch Times (microseconds since 1958, with leap seconds) to UTC."""
     return IET_EPOCH + pd.to_timedelta(

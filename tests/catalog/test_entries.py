@@ -94,7 +94,8 @@ class TestLoading(unittest.TestCase):
         self.assertEqual([e.id for e in list_entries("conical", "validated")], ["gmi"])
         self.assertEqual(list_entries("conical", "partial"), [])
         self.assertEqual(
-            [e.id for e in list_entries(tier="partial")], ["abi", "iasi", "tropomi"]
+            [e.id for e in list_entries(tier="partial")],
+            ["abi", "csar", "iasi", "msi", "tropomi"],
         )
         with self.assertRaises(ValueError):
             list_entries(tier="approved")
@@ -521,6 +522,51 @@ class TestEntryStatus(unittest.TestCase):
                 for text in entry.configurations["swath"].limitations
             )
         )
+
+    def test_msi_entry_partial_on_long_time_steps(self):
+        """
+        Test that the MSI entry, tested on three satellites, is partial because of its
+        swath area alone, which is the lowest over satellites and time steps.
+        """
+        entry = get_entry("msi")
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        configuration = entry.validation.configurations["swath"]
+        self.assertEqual(configuration.record.holdout_gap_days, 52)
+        scopes = {m.scope for m in configuration.record.metrics}
+        for platform in entry.configurations["swath"].platforms:
+            self.assertIn(platform, scopes)
+        self.assertEqual(
+            [r.gate.metric for r in configuration.gates if not r.passed],
+            ["footprint_iou_median"],
+        )
+        self.assertTrue(
+            any(
+                "30 s or less" in text
+                for text in entry.configurations["swath"].limitations
+            )
+        )
+
+    def test_csar_entry_partial(self):
+        """
+        Test that the C-SAR entry is partial: its IW mode misses points at the swath
+        edges and fails the swath area, and its EW mode fails the swath area alone.
+        """
+        entry = get_entry("csar")
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        failed = {
+            key: [r.gate.metric for r in configuration.gates if not r.passed]
+            for key, configuration in entry.validation.configurations.items()
+        }
+        self.assertEqual(
+            failed,
+            {
+                "iw": ["pass_recall", "footprint_iou_median", "footprint_iou_p5"],
+                "ew": ["footprint_iou_median", "footprint_iou_p5"],
+            },
+        )
+        for configuration in entry.validation.configurations.values():
+            self.assertEqual(configuration.record.holdout_gap_days, 51)
+            self.assertEqual(configuration.record.platform, "sentinel-1c")
 
     def test_gmi_reports_spacing_limitation(self):
         """

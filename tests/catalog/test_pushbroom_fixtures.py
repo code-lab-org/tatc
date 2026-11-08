@@ -1,7 +1,7 @@
 """
-Regression tests that recompute the results of the entries of pushbroom imagers from
-reduced fixtures, written by `docs/validation/validate_catalog_oli.py` and
-`docs/validation/validate_catalog_tropomi.py`.
+Regression tests that recompute the results of the entries of pushbroom imagers and
+synthetic aperture radars from reduced fixtures, written by the scripts
+`docs/validation/validate_catalog_<entry>.py`.
 
 These detect changes in TAT-C's results without network access. They do not themselves
 establish agreement with the reference data, which the scripts do.
@@ -28,11 +28,13 @@ TIME_STEP = 10
 
 class _PushbroomFixture:
     """
-    Tests shared by the entries of pushbroom imagers.
+    Tests shared by the entries of swath instruments, for one configuration.
     """
 
     entry_id: str
     platform: str
+    configuration: str = "swath"
+    passes_key: str = "passes"
     instrument_index: int | None = 0
 
     @classmethod
@@ -43,11 +45,13 @@ class _PushbroomFixture:
         cls.day = datetime.fromisoformat(str(cls.data["day"]))
         cls.satellite = cls.entry.to_satellite(
             GeneralPerturbationsOrbit.from_tle(cls.data["tle"].tolist()),
-            "swath",
+            cls.configuration,
             time_step=TIME_STEP,
             platform=cls.platform,
         )
-        cls.recorded = cls.entry.record.configurations["swath"].fixture_metrics
+        cls.recorded = cls.entry.record.configurations[
+            cls.configuration
+        ].fixture_metrics
 
     def test_fixture_size(self):
         """
@@ -61,7 +65,7 @@ class _PushbroomFixture:
         Test that the recorded passes are predicted, and that this does not move.
         """
         differences = []
-        for latitude, longitude, seconds in self.data["passes"]:
+        for latitude, longitude, seconds in self.data[self.passes_key]:
             time = self.day + timedelta(seconds=float(seconds))
             found = collect_observations(
                 Point(latitude=float(latitude), longitude=float(longitude)),
@@ -104,6 +108,37 @@ class TestTropomiFixture(_PushbroomFixture, unittest.TestCase):
     entry_id = "tropomi"
     platform = "sentinel-5p"
     instrument_index = None
+
+
+class TestMsiFixture(_PushbroomFixture, unittest.TestCase):
+    """
+    Regression tests of the MSI entry, on Sentinel-2B.
+    """
+
+    entry_id = "msi"
+    platform = "sentinel-2b"
+
+
+class TestCsarIwFixture(_PushbroomFixture, unittest.TestCase):
+    """
+    Regression tests of the IW mode of the C-SAR entry, with its roll profile.
+    """
+
+    entry_id = "csar"
+    platform = "sentinel-1c"
+    configuration = "iw"
+    passes_key = "passes_iw"
+
+
+class TestCsarEwFixture(_PushbroomFixture, unittest.TestCase):
+    """
+    Regression tests of the EW mode of the C-SAR entry, with its roll profile.
+    """
+
+    entry_id = "csar"
+    platform = "sentinel-1c"
+    configuration = "ew"
+    passes_key = "passes_ew"
 
 
 if __name__ == "__main__":

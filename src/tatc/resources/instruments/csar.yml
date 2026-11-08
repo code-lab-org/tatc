@@ -1,0 +1,101 @@
+id: csar
+name: C-SAR
+aliases: [Sentinel-1, C-band SAR, Sentinel-1 SAR]
+instrument_class: sar
+selection: Synthetic aperture radar of the Copernicus Sentinel-1 mission, whose products led NASA EOSDIS distribution by volume, with open data products.
+platforms:
+  - id: sentinel-1c
+    name: Sentinel-1C
+    norad_id: 62261
+    status: operational
+    as_of: 2026-10-02
+data_products:
+  - name: Sentinel-1 Level-1 Ground Range Detected (GRD)
+    provider: Microsoft Planetary Computer
+    url: https://planetarycomputer.microsoft.com/dataset/sentinel-1-grd
+    access: open
+default_configuration: iw
+configurations:
+  iw:
+    grade: timing
+    description: The Interferometric Wide swath (IW) mode, looking to the right, whose roll steering is a profile of roll angles around the orbit, with a view tailored to the analysis time step.
+    platforms: [sentinel-1c]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: C-SAR IW
+          field_of_regard: 84.0596
+          cross_track_field_of_view: 13.2534
+          along_track_field_of_view: {tailor: time_step}
+          roll_angle_profile: [[5.0, -33.9764], [15.0, -33.9816], [25.0, -34.1778], [35.0, -34.0636], [45.0, -33.8413], [55.0, -33.6525], [65.0, -33.4377], [75.0, -33.1923], [95.0, -33.4341], [105.0, -33.2322], [115.0, -33.4752], [125.0, -33.6529], [135.0, -33.8551], [145.0, -34.0057], [155.0, -34.2058], [165.0, -33.9991], [175.0, -33.9867], [185.0, -33.9198], [195.0, -34.0132], [205.0, -33.6428], [215.0, -33.2437], [225.0, -32.8205], [255.0, -32.5578], [275.0, -32.4235], [305.0, -32.7648], [315.0, -33.0536], [325.0, -33.233], [335.0, -33.4873], [345.0, -33.8205], [355.0, -34.0149]]
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Twice the largest far-range look angle of the fitting data (41.03 deg), plus 1 deg
+          cross_track_field_of_view:
+            kind: measured
+            source: validate_catalog_csar.py --fit, the median difference of the look angles of the near-range and far-range points of 4,067 grid lines of 402 IW products
+            platform: sentinel-1c
+            period: "2026-10-02"
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          roll_angle_profile:
+            kind: measured
+            source: validate_catalog_csar.py --fit, the median roll angle (the mean of the near-range and far-range look angles) of the grid lines in each 10 deg bin of argument of latitude
+            platform: sentinel-1c
+            period: "2026-10-02"
+          is_rectangular:
+            kind: derived
+            source: Models the swath of each zero-Doppler line as a rectangular view
+    limitations:
+      - The roll profile has no values for the bins centered at 85, 235, 245, 265, 285, and 295 deg of argument of latitude, where no IW products were acquired on the fitting day, so it is interpolated there between its neighbors.
+      - The field of view is fixed, while the swath's measured field of view varies from 12.9 to 13.8 deg (5th to 95th percentile), so the swath edges differ by several kilometers where it is narrower or wider than its median.
+      - Points at the edges of the swath can be missed. On held-out data, 98.98% of observed points were predicted, under the standard's 99%; on the fitting day, every missed point was in the outermost column of its product's geolocation grid, at the near-range or far-range edge.
+      - At long time steps, the view, far from nadir and tailored to a long along-track field of view, reaches beyond the swath. On held-out data, the swath's intersection over union was 0.956 (5th percentile 0.924) at 10 s, but 0.919 (0.853) at 30 s and 0.716 (0.673) at 120 s, which fail the standard's limit of 0.90 for both, so use time steps of 10 s.
+      - Images are formed in the plane perpendicular to the Earth-fixed velocity (zero-Doppler geometry), so a user-supplied attitude should keep the Earth-fixed frame.
+  ew:
+    grade: timing
+    description: The Extra Wide swath (EW) mode, looking to the right, whose roll steering is a profile of roll angles around the orbit, with a view tailored to the analysis time step.
+    platforms: [sentinel-1c]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: C-SAR EW
+          field_of_regard: 85.1558
+          cross_track_field_of_view: 23.59
+          along_track_field_of_view: {tailor: time_step}
+          roll_angle_profile: [[55.0, -29.3132], [65.0, -29.0873], [75.0, -28.8875], [85.0, -28.9802], [95.0, -28.9198], [105.0, -29.0416], [115.0, -29.1599], [125.0, -29.4477], [135.0, -29.6679], [245.0, -28.1753], [255.0, -27.8132], [275.0, -27.9972], [285.0, -27.8965], [295.0, -28.1186]]
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Twice the largest far-range look angle of the fitting data (41.58 deg), plus 1 deg
+          cross_track_field_of_view:
+            kind: measured
+            source: validate_catalog_csar.py --fit, the median difference of the look angles of the near-range and far-range points of 1,927 grid lines of 97 EW products
+            platform: sentinel-1c
+            period: "2026-10-02"
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          roll_angle_profile:
+            kind: measured
+            source: validate_catalog_csar.py --fit, the median roll angle (the mean of the near-range and far-range look angles) of the grid lines in each 10 deg bin of argument of latitude
+            platform: sentinel-1c
+            period: "2026-10-02"
+          is_rectangular:
+            kind: derived
+            source: Models the swath of each zero-Doppler line as a rectangular view
+    limitations:
+      - EW products were acquired on the fitting day at arguments of latitude from about 50 to 140 deg and from 240 to 300 deg, around the poles, so the roll profile is interpolated across the long gaps between them, where it has no data.
+      - The field of view is fixed, while the swath's measured field of view varies from 23.3 to 24.1 deg (5th to 95th percentile).
+      - At long time steps, the view, far from nadir and tailored to a long along-track field of view, reaches beyond the swath. On held-out data, the swath's intersection over union was 0.978 (5th percentile 0.968) at 10 s and 0.955 (0.923) at 30 s, but 0.818 (0.741) at 120 s, which fails the standard's limit of 0.90 for both, so use time steps of 30 s or less.
+      - Images are formed in the plane perpendicular to the Earth-fixed velocity (zero-Doppler geometry), so a user-supplied attitude should keep the Earth-fixed frame.
+limitations:
+  - The fitted values were measured on Sentinel-1C. Sentinel-1D, which also flies the mission, was not tested.
+  - The Stripmap and Wave modes are not represented, and the roll angles within a mode, which the mission sets by its beam and plans, are taken as those of the fitting day.
+  - Sentinel-1 acquires according to plans, so TAT-C predicts which points it can observe, not which it will.

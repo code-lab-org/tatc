@@ -1,0 +1,142 @@
+{
+  "entry_id": "csar",
+  "configurations": {
+    "iw": {
+      "digest": "fe7909788c6702ad2a8fe907de4d2c33f30115f834e62ba57bdf0e7a4bd9f50c",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_csar.py",
+      "reference": "Geolocation grids and restituted orbits of the annotations of Sentinel-1 Level-1 GRD products",
+      "period": "2026-08-12",
+      "platform": "sentinel-1c",
+      "holdout_gap_days": 51,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 98.97765997728133
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 6.70314553488282,
+          "scope": "near range"
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 6.892165888159705,
+          "scope": "far range"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9563437814136356,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.9238569515990268,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9193081502437033,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.8525693553663005,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.7164271801658385,
+          "scope": "time step 120 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.6725899203685523,
+          "scope": "time step 120 s"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.43400066119999997
+        },
+        {
+          "name": "epoch_median",
+          "value": -0.05725999500000001
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.44815166794999994
+      }
+    },
+    "ew": {
+      "digest": "f49d16a178036a8babbc94b8efc1efc9f207b2e9f08b1c058dc0e4fc6ffb8e12",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_csar.py",
+      "reference": "Geolocation grids and restituted orbits of the annotations of Sentinel-1 Level-1 GRD products",
+      "period": "2026-08-12",
+      "platform": "sentinel-1c",
+      "holdout_gap_days": 51,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.53407105416424
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 5.5295297706989865,
+          "scope": "near range"
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 4.65732288356857,
+          "scope": "far range"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.978486021261178,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.967790840431446,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9546994569778962,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.9229773787787284,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.8182853530154586,
+          "scope": "time step 120 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.740767093223241,
+          "scope": "time step 120 s"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.28046509669999997
+        },
+        {
+          "name": "epoch_median",
+          "value": -0.07225517399999998
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.23216312089999994
+      }
+    }
+  },
+  "standard_version": 1
+}

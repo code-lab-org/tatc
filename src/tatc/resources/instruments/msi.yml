@@ -1,0 +1,67 @@
+id: msi
+name: MSI
+aliases: [MultiSpectral Instrument, Sentinel-2]
+instrument_class: pushbroom
+selection: Pushbroom imager of the Copernicus Sentinel-2 mission, which passed Landsat in annual publications in 2025, with open data products.
+platforms:
+  - id: sentinel-2a
+    name: Sentinel-2A
+    norad_id: 40697
+    status: extended
+    as_of: 2026-10-03
+  - id: sentinel-2b
+    name: Sentinel-2B
+    norad_id: 42063
+    status: operational
+    as_of: 2026-10-03
+  - id: sentinel-2c
+    name: Sentinel-2C
+    norad_id: 60989
+    status: operational
+    as_of: 2026-10-03
+data_products:
+  - name: Sentinel-2 Level-2A
+    provider: Microsoft Planetary Computer
+    url: https://planetarycomputer.microsoft.com/dataset/sentinel-2-l2a
+    access: open
+default_configuration: swath
+configurations:
+  swath:
+    grade: coverage
+    description: The swath of the tiles' valid data, as one view across the detector modules, tailored to the analysis time step.
+    platforms: [sentinel-2a, sentinel-2b, sentinel-2c]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: MSI
+          field_of_regard: 21.0066
+          cross_track_field_of_view: 20.9636
+          along_track_field_of_view: {tailor: time_step}
+          roll_angle: -0.0215
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Twice the larger of the view angles of the swath's edges, so that the field of regard contains the rolled view
+          cross_track_field_of_view: &measured_extent
+            kind: measured
+            source: validate_catalog_msi.py --fit, the median view angles of the edges of the tiles' valid data in 2,041 cross sections of 122 datatakes of Sentinel-2A, 2B, and 2C
+            platform: sentinel-2a, sentinel-2b, sentinel-2c
+            period: "2026-10-03"
+          roll_angle: *measured_extent
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a pushbroom swath as a rectangular view
+    limitations:
+      - The edges of the valid data measure 10.46 deg to the left and 10.50 deg to the right (295 km wide), and the center of the swath differs among the satellites by up to 0.05 deg.
+      - MSI's 12 detector modules are staggered alternately forward and aft, which a single view does not represent, so epochs differ from imaging times by about 2 s, either way, depending on the module.
+      - Sentinel-2 points relative to the geocentric vertical, up to 0.2 deg from the geodetic nadir of the view, which moves the swath by up to 2.8 km along track at middle latitudes.
+      - The lines of detectors are within 0.5 deg of perpendicular to the Earth-fixed velocity, and 3.2 deg from the inertial velocity, so a user-supplied attitude should keep the Earth-fixed frame.
+      - At long time steps, the view tailored to a long along-track field of view departs from the swath. On held-out data, the swath's intersection over union was at least 0.994 at 10 s and 0.992 at 30 s, but 0.949 at 120 s (Sentinel-2A and 2B), which fails the standard's limit of 0.95, so use time steps of 30 s or less.
+limitations:
+  - The ends of acquisitions are ragged, as the modules and bands start and stop at different places, and are left out of the comparisons of swath width and area.
+  - Sentinel-2 acquires according to plans, so TAT-C predicts which points it can observe, not which it will.
