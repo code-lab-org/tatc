@@ -1,0 +1,88 @@
+{
+  "entry_id": "iasi",
+  "configurations": {
+    "pixels": {
+      "digest": "dd12e9608ac7a89c6963aaa4f142712a52e4bd9926747a972cb2e3b0e1d199fd",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_iasi.py",
+      "reference": "Published footprints; pixel positions of the OSI SAF IASI sea surface temperature product",
+      "period": "2026-11-04",
+      "platform": "metop-b",
+      "holdout_gap_days": 32,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 75.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 6.666036301197586
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 1.8920732859298721
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 3.9328175847257687
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.999978200432861
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9975775507546547
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 75.0,
+        "pixel_position_median": 1.8465413045951906,
+        "spacing_along_ratio_median": 1.0001151908598096,
+        "spacing_cross_ratio_median": 0.9977292206571903
+      }
+    },
+    "swath": {
+      "digest": "ef4ac64a30aca22ed1a4daa12321dd8c48aac9fb51c7c67348bf708bb05b608b",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_iasi.py",
+      "reference": "Pixel positions of the OSI SAF IASI sea surface temperature product",
+      "period": "2026-11-04",
+      "platform": "metop-b",
+      "holdout_gap_days": 32,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.91670831251041
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.86679986679987
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.38758126649999997
+        },
+        {
+          "name": "epoch_median",
+          "value": 0.233957462
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.4054789581752848
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.991839833798633
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.39956124489999995
+      }
+    }
+  },
+  "standard_version": 1
+}

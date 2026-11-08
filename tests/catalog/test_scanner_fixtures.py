@@ -1,8 +1,9 @@
 """
 Regression tests that recompute the results of the entries of cross-track scanners
 from reduced fixtures, written by `docs/validation/validate_catalog_atms.py`,
-`docs/validation/validate_catalog_viirs.py`, and
-`docs/validation/validate_catalog_modis.py`.
+`docs/validation/validate_catalog_viirs.py`,
+`docs/validation/validate_catalog_modis.py`, and
+`docs/validation/validate_catalog_iasi.py`.
 
 These detect changes in TAT-C's results without network access. They do not themselves
 establish agreement with the reference data, which the scripts do.
@@ -57,6 +58,7 @@ class _ScannerFixture:
     sizes_key: str
     footprints: tuple
     platform = "noaa-20"
+    meets_published_gate = True
 
     @classmethod
     def setUpClass(cls):
@@ -166,7 +168,7 @@ class _ScannerFixture:
         configuration = self.entry.configurations[self.sizes_key]
         gates = get_gates(self.entry.instrument_class, configuration.grade)
         limit = next(g.limit for g in gates if g.metric == "sample_size_within_3pct")
-        self.assertGreaterEqual(within, limit)
+        self.assertEqual(within >= limit, self.meets_published_gate)
         self.assertEqual(within, self.recorded["sample_size_within_3pct"])
 
     def test_pixels(self):
@@ -315,6 +317,42 @@ class TestModisFixture(_ScannerFixture, unittest.TestCase):
                 int(frame),
                 int(pixel),
                 elevation=float(height),
+            )
+            predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
+            differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
+        return np.array(differences)
+
+
+class TestIasiFixture(_ScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the IASI entry, whose published footprint at the swath edge
+    does not meet the gate, so that the entry is partial.
+    """
+
+    entry_id = "iasi"
+    sizes_key = "pixels"
+    platform = "metop-b"
+    meets_published_gate = False
+    footprints = (
+        ("IASI", 817, 98.7, 0, 12.0, 12.0),
+        ("IASI", 817, 98.7, 48.3, 20.0, 39.0),
+    )
+
+    def time_step(self) -> float:
+        return 8
+
+    def spacing_names(self, rows: np.ndarray) -> np.ndarray:
+        return np.full(len(rows), "IASI")
+
+    def recompute_pixel_differences(self) -> np.ndarray:
+        instrument = self.satellite.get_instrument(0)
+        orbit = self.satellite.orbit.to_gp_orbit()
+        differences = []
+        for seconds, pixel, _, lat, lon in self.data["pixels"]:
+            position = instrument.compute_projected_pixel_position(
+                orbit.get_orbit_track(self.day + timedelta(seconds=float(seconds))),
+                int(pixel),
+                0,
             )
             predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
             differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)

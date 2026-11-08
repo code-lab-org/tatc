@@ -20,6 +20,7 @@ import pandas as pd
 import requests
 from pyproj import Transformer
 from scipy.spatial import cKDTree
+from shapely.ops import unary_union
 from shapely import contains_xy, prepare
 
 from tatc.analysis import (
@@ -50,6 +51,20 @@ def get_with_retries(url: str, session=None, **kwargs) -> requests.Response:
     for attempt in range(6):
         try:
             response = (session or _SESSION).get(url, timeout=180, **kwargs)
+            response.raise_for_status()
+            return response
+        except requests.RequestException:
+            if attempt == 5:
+                raise
+            clock.sleep(2**attempt)
+    raise RuntimeError("unreachable")
+
+
+def post_with_retries(url: str, body: dict) -> requests.Response:
+    """Posts a JSON body, retrying transient failures with a backoff."""
+    for attempt in range(6):
+        try:
+            response = _SESSION.post(url, json=body, timeout=300)
             response.raise_for_status()
             return response
         except requests.RequestException:
@@ -187,15 +202,17 @@ def normalize(x: np.ndarray) -> np.ndarray:
     return x / np.linalg.norm(x, axis=-1, keepdims=True)
 
 
-def in_lattice_cells(cells, is_next_contiguous, points) -> np.ndarray:
+def in_lattice_cells(cells, is_next_contiguous, points, neighbors=2) -> np.ndarray:
     """
     Gets whether unit vectors lie in the cells of a lattice of unit vectors, with rows
     of scans and columns of samples, given whether each scan is followed by its next.
+    The cells around a number of the nearest vertices are tested, which needs to be
+    larger for elongated cells.
     """
     rows, columns = cells.shape[:2]
-    _, nearest = cKDTree(cells.reshape(-1, 3)).query(points, k=2, workers=-1)
+    _, nearest = cKDTree(cells.reshape(-1, 3)).query(points, k=neighbors, workers=-1)
     inside = np.zeros(len(points), dtype=bool)
-    for column in range(2):
+    for column in range(neighbors):
         k, j = np.divmod(nearest[:, column], columns)
         for dk in (-1, 0):
             for dj in (-1, 0):
@@ -401,15 +418,25 @@ def build_grid() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 def score_swath_area(
     satellite_for, index, first, last, time_steps, grid, compared, observed
 ) -> float:
-    """Gets the lowest IoU of a swath with the observed area, over time steps."""
+    """
+    Gets the lowest IoU of a swath with the observed area, over time steps, for an
+    instrument's index, or for the union of a satellite's instruments if `None`.
+    """
     lon, lat, weights = grid
     scores = []
     for time_step in time_steps:
         count = int((last - first).total_seconds() // time_step)
         times = [first + timedelta(seconds=time_step * (i + 0.5)) for i in range(count)]
-        geometry = compute_ground_track(
-            satellite_for(time_step), times, instrument_index=index
-        ).geometry.iloc[0]
+        satellite = satellite_for(time_step)
+        indices = range(len(satellite.instruments)) if index is None else [index]
+        geometry = unary_union(
+            [
+                compute_ground_track(
+                    satellite, times, instrument_index=i
+                ).geometry.iloc[0]
+                for i in indices
+            ]
+        )
         prepare(geometry)
         predicted = np.zeros(len(lon), dtype=bool)
         predicted[compared] = contains_xy(geometry, lon[compared], lat[compared])

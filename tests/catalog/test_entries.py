@@ -93,7 +93,9 @@ class TestLoading(unittest.TestCase):
         )
         self.assertEqual([e.id for e in list_entries("conical", "validated")], ["gmi"])
         self.assertEqual(list_entries("conical", "partial"), [])
-        self.assertEqual([e.id for e in list_entries(tier="partial")], ["abi"])
+        self.assertEqual(
+            [e.id for e in list_entries(tier="partial")], ["abi", "iasi", "tropomi"]
+        )
         with self.assertRaises(ValueError):
             list_entries(tier="approved")
 
@@ -464,6 +466,61 @@ class TestEntryStatus(unittest.TestCase):
             for metric in transfers:
                 self.assertTrue(metric.name.startswith("transfer_"), metric.name)
                 self.assertNotIn(metric.name, gated)
+
+    def test_oli_entry_validated_on_landsat_9(self):
+        """
+        Test that the OLI entry passes on held-out Landsat 9 data, and that its results
+        on Landsat 8, a transfer, are not those of any gate.
+        """
+        entry = get_entry("oli")
+        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
+        configuration = entry.validation.configurations["swath"]
+        record = configuration.record
+        self.assertEqual(record.platform, "landsat-9")
+        self.assertEqual(record.holdout_gap_days, 33)
+        self.assertTrue(all(r.passed for r in configuration.gates))
+        transfers = [m for m in record.metrics if m.scope is not None]
+        self.assertTrue(transfers)
+        for metric in transfers:
+            self.assertTrue(metric.name.startswith("transfer_"), metric.name)
+
+    def test_iasi_entry_partial_on_published_footprints(self):
+        """
+        Test that the IASI entry is partial because of the published footprint at its
+        swath edge alone, with its swath validated on held-out data.
+        """
+        entry = get_entry("iasi")
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        swath = entry.validation.configurations["swath"]
+        self.assertEqual(swath.tier, Tier.VALIDATED)
+        self.assertEqual(swath.record.holdout_gap_days, 32)
+        pixels = entry.validation.configurations["pixels"]
+        self.assertEqual(pixels.tier, Tier.PARTIAL)
+        self.assertEqual(
+            [r.gate.metric for r in pixels.gates if not r.passed],
+            ["sample_size_within_3pct"],
+        )
+
+    def test_tropomi_entry_partial_on_long_time_steps(self):
+        """
+        Test that the TROPOMI entry, a union of views, is partial because of its swath
+        area alone, which is the lowest over time steps.
+        """
+        entry = get_entry("tropomi")
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        configuration = entry.validation.configurations["swath"]
+        self.assertEqual(entry.configurations["swath"].grouping, "union")
+        self.assertEqual(configuration.record.holdout_gap_days, 31)
+        self.assertEqual(
+            [r.gate.metric for r in configuration.gates if not r.passed],
+            ["footprint_iou_median"],
+        )
+        self.assertTrue(
+            any(
+                "30 s or less" in text
+                for text in entry.configurations["swath"].limitations
+            )
+        )
 
     def test_gmi_reports_spacing_limitation(self):
         """

@@ -1,0 +1,60 @@
+id: oli
+name: OLI
+aliases: [Operational Land Imager, OLI-2, Landsat]
+instrument_class: pushbroom
+selection: Pushbroom imager of the longest-running Earth observation program, with the largest cumulative publication count of the missions compared, and open data products.
+platforms:
+  - id: landsat-9
+    name: Landsat 9
+    norad_id: 49260
+    status: operational
+    as_of: 2026-11-05
+  - id: landsat-8
+    name: Landsat 8
+    norad_id: 39084
+    status: operational
+    as_of: 2026-11-03
+data_products:
+  - name: Landsat Collection 2 Level-1 scene catalog
+    provider: USGS
+    url: https://landsatlook.usgs.gov/stac-server/collections/landsat-c2l1
+    access: registration
+  - name: Landsat Collection 2 Level-2 angle coefficient files
+    provider: Microsoft Planetary Computer
+    url: https://planetarycomputer.microsoft.com/dataset/landsat-c2-l2
+    access: open
+default_configuration: swath
+configurations:
+  swath:
+    grade: coverage
+    description: The swath between the edges of the scenes, with a view tailored to the analysis time step.
+    platforms: [landsat-9]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: OLI
+          field_of_regard: 15.0275
+          cross_track_field_of_view: 15.0275
+          along_track_field_of_view: {tailor: time_step}
+          is_rectangular: true
+        provenance:
+          field_of_regard: &measured_extent
+            kind: measured
+            source: validate_catalog_oli.py --fit, the median view angles of the edges of 673 scenes at their centers
+            platform: landsat-9
+            period: "2026-11-05"
+          cross_track_field_of_view: *measured_extent
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a pushbroom swath as a rectangular view
+    limitations:
+      - The view is centered on nadir. The edges of scenes measure 7.51 deg to the left and 7.52 deg to the right, varying by about 0.05 deg with latitude.
+      - OLI's detector modules are staggered along track, which a single view does not represent, so epochs differ from imaging times by about +0.6 s or -1.2 s, depending on the module. Those times are of the red band, for scenes with Level-2 products in a UTM projection.
+      - The ends of scenes are within 0.1 deg of perpendicular to the Earth-fixed velocity, and 2.4 deg from the inertial velocity (median), so a user-supplied attitude should keep the Earth-fixed frame.
+limitations:
+  - The fitted angles were measured on Landsat 9. Scenes acquired off nadir on request are left out of every test, and their pointing is not modeled.
+  - On Landsat 8, this configuration is a transfer that warns on use.

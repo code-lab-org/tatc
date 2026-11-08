@@ -5,7 +5,7 @@
 Added a catalog of instruments from past and present missions, with a standard for validating them. Fixed instruments losing their fields when serialized. Instruments now reject unknown fields, which can break code that passes misspelled or unused arguments.
 
 Added:
- - Module `catalog` of instruments from past and present missions (`get_entry`, `list_entries`), starting with GOES-R ABI, GPM GMI, ATMS, VIIRS, and MODIS. `InstrumentEntry.to_satellite` and `build` give an entry's instruments with the attitude they were validated with, and `InstrumentEntry.validation` gives its validation tier, computed from its results and the thresholds of the validation standard (`docs/validation/standard.rst`). GMI, ATMS, VIIRS, and MODIS are `validated`, each with stated limitations, and ABI is `partial` and lists its gaps.
+ - Module `catalog` of instruments from past and present missions (`get_entry`, `list_entries`), starting with GOES-R ABI, GPM GMI, ATMS, VIIRS, MODIS, Landsat OLI, IASI, and Sentinel-5P TROPOMI. `InstrumentEntry.to_satellite` and `build` give an entry's instruments with the attitude they were validated with, and `InstrumentEntry.validation` gives its validation tier, computed from its results and the thresholds of the validation standard (`docs/validation/standard.rst`). GMI, ATMS, VIIRS, MODIS, and OLI are `validated`, each with stated limitations, and ABI, IASI, and TROPOMI are `partial` and list their gaps.
  - Field `type` (`instrument`, `pointed`, or `conical`) of `Instrument`, `PointedInstrument`, and `ConicalInstrument`, which identifies the instrument class in serialized data. Data without a `type` loads as the class its fields imply.
 
 Changed:
