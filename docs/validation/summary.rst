@@ -7,7 +7,9 @@ missions: recorded orbits, geolocated samples, acquisition catalogs, and
 archives of observations, mostly from 2025 and 2026. This page summarizes
 their headline results by capability, the modeling choices they found to
 matter, and the limits of what TAT-C models. Each result links to the notebook
-with its full method, data, and figures.
+with its full method, data, and figures. Results marked as held out come from the
+:doc:`catalog`, whose instruments were tested, under the :doc:`standard`, on data
+at least 30 days from the data their values were fitted to.
 
 Unless noted, orbits are propagated with SGP4 from public two-line element
 (TLE) sets near the analysis period, and percentiles are of the absolute
@@ -62,15 +64,21 @@ Instruments and Pointing
      - Reference
      - Result
    * - Cross-track scanners (`PointedInstrument`, `ViewGeometry.SCAN`)
-     - NOAA-20 ATMS, CrIS, and VIIRS; Terra MODIS
-     - More than 99% of passes predicted; epochs within 0.26 s (ATMS) and 2 s (VIIRS) at the 95th percentile, 0.22 s
-       (MODIS) median; swath width within 2 to 3 km with measured fields of regard; CrIS footprint centers within
-       0.7 km (95th percentile) (:doc:`ValidateImagerATMS`, :doc:`ValidateImagerCrIS`, :doc:`ValidateImagerVIIRS`,
-       :doc:`ValidateDriftMODIS`)
+     - NOAA-20 ATMS, CrIS, and VIIRS; Terra and Aqua MODIS; Metop-B IASI
+     - On held-out data, 99.8 to 100% of passes predicted (ATMS, CrIS, VIIRS, MODIS, IASI); epochs within 0.25 s
+       (ATMS), 0.40 s (CrIS), 0.44 s (MODIS), and 2.0 s (VIIRS) at the 95th percentile; swath width within 0.4 to
+       3.3 km (median) with measured fields of regard; pixel centers within 1.6 to 2.9 km (median; ATMS, VIIRS, MODIS)
+       (:doc:`catalog`; :doc:`ValidateImagerATMS`, :doc:`ValidateImagerVIIRS`, :doc:`ValidateDriftMODIS`). CrIS's
+       footprint centers within 0.7 km (95th percentile) only
+       with a computation per field of regard written in the notebook, and within 19 km (central field of view) and
+       43 km (all) at the 95th percentile with public methods, which observe a scan at one instant and do not rotate
+       the array of fields of view (:doc:`ValidateImagerCrIS`)
    * - Pushbroom imagers (`PointedInstrument`)
-     - Sentinel-2 MSI
-     - Footprint IoU 0.965 (median, 122 datastrips); epochs within 2 to 3 s with one view, 0.26 s (95th percentile)
-       with a view per detector module and a geocentric nadir (:doc:`ValidatePushbroomMSI`)
+     - Sentinel-2 MSI, Landsat 9 OLI, Sentinel-5P TROPOMI
+     - On held-out data, 99.8% or more of passes predicted; swath width within 0.1 to 2.0 km and swath IoU 0.97 or
+       more (median) at time steps of up to 30 s, but 0.949 (MSI) and 0.937 (TROPOMI) at 120 s; epochs within 1.3 s
+       (OLI), 2.1 s (TROPOMI), and 2.6 s (MSI, one view) at the 95th percentile (:doc:`catalog`). MSI's epochs within
+       0.26 s (95th percentile) with a view per detector module and a geocentric nadir (:doc:`ValidatePushbroomMSI`)
    * - Conical scanners (`ConicalInstrument`)
      - GCOM-W AMSR2, GPM GMI, SMAP radiometer
      - 99.95 to 100% of passes, epochs within 0.27 s (AMSR2) and 0.69 s (GMI) at the 95th percentile; swath IoU 0.998
@@ -79,7 +87,10 @@ Instruments and Pointing
    * - Side-looking SAR (`PointedInstrument` with roll, `roll_angle_profile`)
      - NISAR, Sentinel-1C
      - Epochs within 0.3 and 0.44 s (95th percentile) of zero-Doppler times; footprint IoU 0.93 to 0.96 (median); roll
-       steering profiles bring swath edges within 6 to 7 km (:doc:`ValidateSARNISAR`, :doc:`ValidateSARSentinel1`)
+       steering profiles bring swath edges within 6 to 7 km (:doc:`ValidateSARNISAR`, :doc:`ValidateSARSentinel1`).
+       On held-out Sentinel-1C data, swath edges within 4.7 to 6.9 km (95th percentile) in IW and EW modes, but 98.98%
+       of IW passes predicted, the misses at the swath edges, and swath IoU 0.956 (IW) and 0.978 (EW) at 10 s, falling
+       to 0.72 and 0.82 at 120 s (:doc:`catalog`)
    * - Wide-swath interferometer (two rolled instruments)
      - SWOT KaRIn
      - Every pixel 11 to 59 km from the ground track observed by the instrument on its side, none in the nadir gap;
@@ -212,6 +223,10 @@ numerical error in TAT-C:
 * **Measured instrument parameters.** Nominal fields of regard gave swaths 11 km
   too narrow (ATMS) and 47 km too wide (VIIRS); parameters fitted to geolocated
   samples close the gap.
+* **Time step.** A pushbroom or SAR view tailored to the analysis time step
+  departs further from the swath as the time step grows: swath IoU falls from 0.95 or more at 10 s to 0.94 to 0.95 (MSI, TROPOMI) and 0.72 to
+  0.82 (Sentinel-1C) at 120 s. Use time steps of 30 s or less, or 10 s for
+  Sentinel-1's IW mode.
 * **Element set age.** Use element sets near the analysis period, especially
   for low orbits with strong drag or frequent maneuvers (ISS, GPM), a
   multi-element `GeneralPerturbationsOrbit` for past periods, and a maintained

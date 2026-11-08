@@ -2,8 +2,9 @@
 Regression tests that recompute the results of the entries of cross-track scanners
 from reduced fixtures, written by `docs/validation/validate_catalog_atms.py`,
 `docs/validation/validate_catalog_viirs.py`,
-`docs/validation/validate_catalog_modis.py`, and
-`docs/validation/validate_catalog_iasi.py`.
+`docs/validation/validate_catalog_modis.py`,
+`docs/validation/validate_catalog_iasi.py`, and
+`docs/validation/validate_catalog_cris.py`.
 
 These detect changes in TAT-C's results without network access. They do not themselves
 establish agreement with the reference data, which the scripts do.
@@ -59,6 +60,7 @@ class _ScannerFixture:
     footprints: tuple
     platform = "noaa-20"
     meets_published_gate = True
+    meets_pixel_gate = True
 
     @classmethod
     def setUpClass(cls):
@@ -173,14 +175,15 @@ class _ScannerFixture:
 
     def test_pixels(self):
         """
-        Test that pixels are positioned as recorded, and meet the gate.
+        Test that pixels are positioned as recorded, and meet the gate if the entry
+        does.
         """
         differences = self.recompute_pixel_differences()
         median = float(np.median(differences))
         configuration = self.entry.configurations[self.sizes_key]
         gates = get_gates(self.entry.instrument_class, configuration.grade)
         limit = next(g.limit for g in gates if g.metric == "pixel_position_median")
-        self.assertLessEqual(median, limit)
+        self.assertEqual(median <= limit, self.meets_pixel_gate)
         self.assertAlmostEqual(
             median, self.recorded["pixel_position_median"], delta=0.01
         )
@@ -357,6 +360,45 @@ class TestIasiFixture(_ScannerFixture, unittest.TestCase):
             predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
             differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
         return np.array(differences)
+
+
+class TestCrisFixture(_ScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the CrIS entry, whose pixels do not meet the gates, so that
+    the entry is partial.
+    """
+
+    entry_id = "cris"
+    sizes_key = "pixels"
+    meets_published_gate = False
+    meets_pixel_gate = False
+    footprints = (
+        ("CrIS", 824, 98.7, 0, 14.0, 14.0),
+        ("CrIS", 824, 98.7, 49.43, 24.0, 48.0),
+    )
+
+    def time_step(self) -> float:
+        return 8
+
+    def recompute_pixel_differences(self) -> np.ndarray:
+        instrument = self.satellite.get_instrument(0)
+        orbit = self.satellite.orbit.to_gp_orbit()
+        differences = []
+        for seconds, cross, along, _, lat, lon in self.data["pixels"]:
+            position = instrument.compute_projected_pixel_position(
+                orbit.get_orbit_track(self.day + timedelta(seconds=float(seconds))),
+                int(cross),
+                int(along),
+            )
+            predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
+            differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
+        return np.array(differences)
+
+    def test_spacing(self):
+        """
+        The spacing of CrIS's samples is not measured.
+        """
+        self.skipTest("the spacing of CrIS's samples is not measured")
 
 
 if __name__ == "__main__":

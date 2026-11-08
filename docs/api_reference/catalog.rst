@@ -3,6 +3,8 @@ Instrument Catalog
 
 .. automodule:: tatc.catalog
 
+The entries and their results are listed in :doc:`/validation/catalog`.
+
 Entries
 -------
 

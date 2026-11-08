@@ -23,9 +23,22 @@ author = "Stevens Institute of Technology"
 
 # The full version, including alpha/beta/rc tags
 
+import importlib.util
+import pathlib
+
 import tatc
 
 release = tatc.__version__
+
+# write the catalog page from the catalog's entries and validation records
+_spec = importlib.util.spec_from_file_location(
+    "catalog_page", pathlib.Path(__file__).parent / "validation" / "catalog_page.py"
+)
+_catalog_page = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_catalog_page)
+_catalog_page.write_catalog_page(
+    pathlib.Path(__file__).parent / "validation" / "catalog.rst"
+)
 
 
 # -- General configuration ---------------------------------------------------

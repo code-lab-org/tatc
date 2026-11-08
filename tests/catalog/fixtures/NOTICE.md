@@ -8,6 +8,7 @@ underlying data, whose providers' terms apply.
 | --- | --- | --- | --- |
 | `abi.npz` | GOES-19 ABI full-disk products (ACM, SST, LST) of 3 October 2026 | [NOAA Open Data Dissemination](https://registry.opendata.aws/noaa-goes/) | `docs/validation/validate_catalog_abi.py` |
 | `atms.npz` | NOAA-20 ATMS SDR geolocation, 12 August 2026 | [NOAA Open Data Dissemination](https://registry.opendata.aws/noaa-jpss/) | `docs/validation/validate_catalog_atms.py` |
+| `cris.npz` | NOAA-20 CrIS SDR geolocation, 12 August 2026 | [NOAA Open Data Dissemination](https://registry.opendata.aws/noaa-jpss/) | `docs/validation/validate_catalog_cris.py` |
 | `viirs.npz` | NOAA-20 VIIRS moderate-resolution geolocation, 12 August 2026 | [NOAA Open Data Dissemination](https://registry.opendata.aws/noaa-jpss/) | `docs/validation/validate_catalog_viirs.py` |
 | `modis.npz` | Terra MODIS geolocation (`MOD03`, Collection 7), 5 November 2026 | [NASA LAADS DAAC](https://ladsweb.modaps.eosdis.nasa.gov/missions-and-measurements/products/MOD03) | `docs/validation/validate_catalog_modis.py` |
 | `oli.npz` | Imaging times of points in Landsat 9 scenes of 3 October 2026, from the angle coefficient files of Landsat Collection 2 Level-2 products | [USGS](https://www.usgs.gov/landsat-missions), through [Microsoft Planetary Computer](https://planetarycomputer.microsoft.com/dataset/landsat-c2-l2) | `docs/validation/validate_catalog_oli.py` |

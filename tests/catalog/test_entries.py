@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from tatc.analysis import collect_observations
 from tatc.catalog import (
     STANDARD_VERSION,
+    Grade,
     InstrumentEntry,
     Tier,
     get_entry,
@@ -95,7 +96,7 @@ class TestLoading(unittest.TestCase):
         self.assertEqual(list_entries("conical", "partial"), [])
         self.assertEqual(
             [e.id for e in list_entries(tier="partial")],
-            ["abi", "csar", "iasi", "msi", "tropomi"],
+            ["abi", "cris", "csar", "iasi", "msi", "tropomi"],
         )
         with self.assertRaises(ValueError):
             list_entries(tier="approved")
@@ -544,6 +545,24 @@ class TestEntryStatus(unittest.TestCase):
                 "30 s or less" in text
                 for text in entry.configurations["swath"].limitations
             )
+        )
+
+    def test_cris_entry_partial_on_pixels(self):
+        """
+        Test that the CrIS entry is partial because of its pixels alone, with its swath
+        validated at the timing grade on held-out data.
+        """
+        entry = get_entry("cris")
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        swath = entry.validation.configurations["swath"]
+        self.assertEqual(swath.tier, Tier.VALIDATED)
+        self.assertEqual(entry.configurations["swath"].grade, Grade.TIMING)
+        self.assertEqual(swath.record.holdout_gap_days, 51)
+        pixels = entry.validation.configurations["pixels"]
+        self.assertEqual(pixels.record.holdout_gap_days, 51)
+        self.assertEqual(
+            [r.gate.metric for r in pixels.gates if not r.passed],
+            ["sample_size_within_3pct", "pixel_position_median"],
         )
 
     def test_csar_entry_partial(self):

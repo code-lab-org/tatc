@@ -1,0 +1,119 @@
+id: cris
+name: CrIS
+aliases: [Cross-track Infrared Sounder]
+instrument_class: cross_track
+selection: Cross-track infrared sounder of the Joint Polar Satellite System, with open data products and wide use in numerical weather prediction.
+platforms:
+  - id: noaa-20
+    name: NOAA-20
+    norad_id: 43013
+    status: operational
+    as_of: 2026-10-02
+data_products:
+  - name: CrIS SDR geolocation (GCRSO)
+    provider: NOAA Open Data Dissemination
+    url: https://registry.opendata.aws/noaa-jpss/
+    access: open
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath scanned between the outermost centers of fields of regard, tilted forward as the scan plane is, with a view tailored to the analysis time step.
+    platforms: [noaa-20]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: CrIS
+          field_of_regard: 96.6857
+          cross_track_field_of_view: 96.6857
+          along_track_field_of_view: {tailor: time_step}
+          pitch_angle: 0.223
+          is_rectangular: true
+        provenance:
+          field_of_regard: &measured_extent
+            kind: measured
+            source: ValidateImagerCrIS, between the outermost centers of fields of regard (printed to 6 decimals)
+            platform: noaa-20
+            period: "2026-10-02"
+          cross_track_field_of_view: *measured_extent
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          pitch_angle: &measured_tilt
+            kind: measured
+            source: ValidateImagerCrIS, the median forward tilt of the scan plane (printed to 3 decimals)
+            platform: noaa-20
+            period: "2026-10-02"
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - TAT-C observes all pixels of a view at one instant, whereas CrIS samples its fields of regard over about 5.8 s of each 8 s scan, the outermost 2.9 s before and after the middle of the scan. The fields of regard are located where they were sampled, so this moves the epochs at which points are observed little, but use the pixels configuration with care near the edges of the swath.
+      - The view is centered on nadir. The outermost centers of fields of regard measure 48.25 deg to the left and 48.43 deg to the right.
+      - The swath is that of the centers of fields of regard, so it leaves out about 1.6 deg of scan angle at each edge, which the outer fields of view and their footprints cover.
+  pixels:
+    grade: sample_size
+    description: The fields of view of CrIS's 30 fields of regard, each an array of three by three, as 90 pixels across track and 3 along track.
+    platforms: [noaa-20]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: CrIS
+          field_of_regard: 102
+          cross_track_field_of_view: 100.0197
+          along_track_field_of_view: 3.2754
+          cross_track_pixels: 90
+          along_track_pixels: 3
+          roll_angle: -0.092556
+          pitch_angle: 0.223
+          is_rectangular: true
+          cross_track_oversampling: -0.154029
+          along_track_oversampling: -0.133749
+          scan_period: 8
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Wider than the field of view, so that it does not clip the scan
+          cross_track_field_of_view:
+            kind: measured
+            source: ValidateImagerCrIS, 30 fields of regard at a fitted spacing of 3.33399 deg
+            platform: noaa-20
+            period: "2026-10-02"
+          along_track_field_of_view: &measured_pitch
+            kind: measured
+            source: ValidateImagerCrIS, three fields of view at a fitted pitch of 1.0918 deg
+            platform: noaa-20
+            period: "2026-10-02"
+          cross_track_pixels:
+            kind: nominal
+            source: CrIS has 30 fields of regard per scan, each of three by three fields of view
+          along_track_pixels:
+            kind: nominal
+            source: CrIS has three rows of fields of view in a field of regard
+          roll_angle:
+            kind: measured
+            source: ValidateImagerCrIS, the fitted roll
+            platform: noaa-20
+            period: "2026-10-02"
+          pitch_angle: *measured_tilt
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          cross_track_oversampling:
+            kind: derived
+            source: One minus the pixel spacing (the field of view over 90 pixels) divided by the published field of view of 0.963 deg
+          along_track_oversampling:
+            kind: derived
+            source: One minus the fitted pitch divided by the published field of view of 0.963 deg
+          scan_period:
+            kind: nominal
+            source: CrIS scans every 8 s
+    limitations:
+      - The array of three by three fields of view turns with the scan angle, by about 48 deg at the edges of the swath, which TAT-C does not represent, so the outer fields of view are displaced by up to about 60 km there.
+      - Pixels are projected at the middle time of a scan, whereas CrIS samples its fields of regard over about 5.8 s, so those near the edges of the swath are displaced along track by up to about 19 km.
+      - The pixels are evenly spaced across track, whereas the fields of view of a field of regard are 1.09 deg apart and fields of regard 3.33 deg apart.
+      - The published footprint at the swath edge, of 24 km by 48 km, is given as an approximate maximum.
+limitations:
+  - The fitted angles were measured on NOAA-20. CrIS also flies on Suomi NPP and NOAA-21, on which these configurations were not tested.

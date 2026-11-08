@@ -1,0 +1,78 @@
+{
+  "entry_id": "cris",
+  "configurations": {
+    "pixels": {
+      "digest": "14a2de8b4b2b0fc73bbbd5b728623007b4ecbb20458ddd89c86d64d29dfc9f1c",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_cris.py",
+      "reference": "Footprints published by the NWP SAF; fields of view of the CrIS SDR geolocation",
+      "period": "2026-08-12",
+      "platform": "noaa-20",
+      "holdout_gap_days": 51,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 75.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 4.689623355125983
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 11.338440537829161
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 42.77520870271894
+        },
+        {
+          "name": "pixel_position_central_median",
+          "value": 10.012495649217449
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 75.0,
+        "pixel_position_median": 10.13770124804699
+      }
+    },
+    "swath": {
+      "digest": "91e92aa33c84dc20282822d3ecec2aa743bce6b23aa1345ed92e74e29bbcf3f4",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_cris.py",
+      "reference": "CrIS SDR geolocation",
+      "period": "2026-08-12",
+      "platform": "noaa-20",
+      "holdout_gap_days": 51,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.85111662531017
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.867637326274
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.40433069675
+        },
+        {
+          "name": "swath_width_median",
+          "value": 2.0142265806780197
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9869383896269565
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.28104180079999985
+      }
+    }
+  },
+  "standard_version": 1
+}
