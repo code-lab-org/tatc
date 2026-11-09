@@ -13,8 +13,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-STANDARD_VERSION = 1
+STANDARD_VERSION = 2
 """The version of the thresholds in `get_gates`."""
+
+COMPATIBLE_VERSIONS = (1, 2)
+"""Versions whose results still apply: version 2 only added the lidar class."""
 
 MIN_HOLDOUT_GAP_DAYS = 30
 """Minimum days between the fitting data of measured values and their test data."""
@@ -30,6 +33,7 @@ class InstrumentClass(str, Enum):
     CONICAL = "conical"
     SAR = "sar"
     GEOSTATIONARY = "geostationary"
+    LIDAR = "lidar"
 
 
 class Grade(str, Enum):
@@ -94,6 +98,10 @@ _IOU_SAR_LOW = Gate("footprint_iou_p5", 0.90, False, "")
 _PIXEL_POSITION = Gate("pixel_position_median", 6, True, "km")
 _SAMPLE_SIZE = Gate("sample_size_within_3pct", 90, False, "%")
 _PRODUCT_LIMIT = Gate("product_limit", 0.5, True, "deg")
+# version 2: the share of beam segments within the views at their times, where
+# the beams follow their reference tracks, and the error of the spacing of beams
+_SEGMENT_RECALL = Gate("segment_recall", 99, False, "%")
+_BEAM_SPACING = Gate("beam_spacing_error_median", 0.2, True, "km")
 
 # gates that do not depend on the epoch accuracy of a grade
 _SWEEP_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
@@ -103,6 +111,9 @@ _SWEEP_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
     InstrumentClass.PUSHBROOM: (_PASS_RECALL, _SWATH_WIDTH, _IOU),
     InstrumentClass.CONICAL: (_PASS_RECALL, _PASS_PRECISION, _SWATH_WIDTH, _IOU),
     InstrumentClass.SAR: (_PASS_RECALL, _SWATH_EDGE, _IOU_SAR, _IOU_SAR_LOW),
+    # lidar beams are pointed off their reference tracks according to plans, so
+    # predicted observations that were not made are not errors (no precision gate)
+    InstrumentClass.LIDAR: (_SEGMENT_RECALL, _BEAM_SPACING),
 }
 _SAMPLE_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
     InstrumentClass.CROSS_TRACK: (_SAMPLE_SIZE, _PIXEL_POSITION),

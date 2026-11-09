@@ -1,0 +1,85 @@
+id: mhs
+name: MHS
+aliases: [Microwave Humidity Sounder]
+instrument_class: cross_track
+selection: Cross-track microwave humidity sounder of the Metop satellites, with open data products and wide use in numerical weather prediction.
+platforms:
+  - id: metop-c
+    name: Metop-C
+    norad_id: 43689
+    status: operational
+    as_of: 2026-11-05
+data_products:
+  - name: GPM_1CMETOPCMHS
+    provider: NASA GES DISC
+    url: https://disc.gsfc.nasa.gov/datasets/GPM_1CMETOPCMHS_08/summary
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: coverage
+    description: The swath scanned between the outermost beam centers, with a view tailored to the analysis time step.
+    platforms: [metop-c]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: MHS
+          field_of_regard: 98.8889
+          cross_track_field_of_view: 98.8889
+          along_track_field_of_view: {tailor: time_step}
+          is_rectangular: true
+        provenance:
+          field_of_regard: &nominal_extent
+            kind: nominal
+            source: The outermost of MHS's 90 beams, spaced 10/9 deg, are 49.444 deg from nadir
+          cross_track_field_of_view: *nominal_extent
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - TAT-C observes all pixels of a view at one instant, whereas MHS sweeps its beams over about 1.7 s. The product gives one time per scan, so epochs are tested at the coverage grade only.
+  beams:
+    grade: sample_size
+    description: The 90 beam positions of a scan, whose footprints and spacing `compute_sample_sizes` gives.
+    platforms: [metop-c]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: MHS
+          field_of_regard: 100.0
+          cross_track_field_of_view: 100.0
+          along_track_field_of_view: 1.1111111
+          cross_track_pixels: 90
+          is_rectangular: true
+          cross_track_oversampling: -0.010101
+          along_track_oversampling: -0.010101
+          scan_period: 2.6666666666666665
+        provenance:
+          field_of_regard: &nominal_spacing
+            kind: nominal
+            source: MHS's 90 beams are spaced 10/9 deg
+          cross_track_field_of_view: *nominal_spacing
+          along_track_field_of_view: *nominal_spacing
+          cross_track_pixels:
+            kind: nominal
+            source: MHS has 90 Earth views per scan
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          cross_track_oversampling: &oversampling
+            kind: derived
+            source: One minus the beam spacing divided by the published beam width of 1.1 deg
+          along_track_oversampling: *oversampling
+          scan_period:
+            kind: nominal
+            source: MHS scans every 8/3 s
+    limitations:
+      - Pixels are projected at the time the product gives for the scan, which precedes the sampling of most beams (by about 0.9 s at the median), so pixels lie about 6 km along track from where MHS samples them.
+limitations:
+  - Metop flies with yaw steering, so its scan is perpendicular to the ground track; the configurations use the Earth-fixed frame.
+  - These configurations were tested on Metop-C. MHS also flies on Metop-B and NOAA-19, on which they were not tested.

@@ -3,8 +3,10 @@ Regression tests that recompute the results of the entries of cross-track scanne
 from reduced fixtures, written by `docs/validation/validate_catalog_atms.py`,
 `docs/validation/validate_catalog_viirs.py`,
 `docs/validation/validate_catalog_modis.py`,
-`docs/validation/validate_catalog_iasi.py`, and
-`docs/validation/validate_catalog_cris.py`.
+`docs/validation/validate_catalog_iasi.py`,
+`docs/validation/validate_catalog_cris.py`,
+`docs/validation/validate_catalog_dpr.py`, and
+`docs/validation/validate_catalog_mhs.py`.
 
 These detect changes in TAT-C's results without network access. They do not themselves
 establish agreement with the reference data, which the scripts do.
@@ -360,6 +362,69 @@ class TestIasiFixture(_ScannerFixture, unittest.TestCase):
             predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
             differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
         return np.array(differences)
+
+
+class _BeamScannerFixture(_ScannerFixture):
+    """
+    Tests shared by entries whose fixtures give a pixel of one instrument per row.
+    """
+
+    size_instrument: str
+
+    def spacing_names(self, rows: np.ndarray) -> np.ndarray:
+        return np.full(len(rows), self.size_instrument)
+
+    def recompute_pixel_differences(self) -> np.ndarray:
+        instrument = self.satellite.get_instrument(0)
+        orbit = self.satellite.orbit.to_gp_orbit()
+        differences = []
+        for seconds, pixel, _, lat, lon in self.data["pixels"]:
+            position = instrument.compute_projected_pixel_position(
+                orbit.get_orbit_track(self.day + timedelta(seconds=float(seconds))),
+                int(pixel),
+                0,
+            )
+            predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
+            differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
+        return np.array(differences)
+
+
+class TestDprFixture(_BeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the DPR entry.
+    """
+
+    entry_id = "dpr"
+    sizes_key = "beams"
+    size_instrument = "DPR"
+    platform = "gpm"
+    footprints = (
+        ("DPR", 400, 65, 0, 5.04, 5.04),
+        ("DPR", 400, 65, 17.0, 5.04, 5.57),
+        ("DPR", 435, 65, 0, 5.48, 5.48),
+        ("DPR", 435, 65, 17.0, 5.48, 6.05),
+    )
+
+    def time_step(self) -> float:
+        return 10
+
+
+class TestMhsFixture(_BeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the MHS entry.
+    """
+
+    entry_id = "mhs"
+    sizes_key = "beams"
+    size_instrument = "MHS"
+    platform = "metop-c"
+    footprints = (
+        ("MHS", 817, 98.7, 0, 15.9, 15.9),
+        ("MHS", 817, 98.7, 49.444, 27.1, 52.8),
+    )
+
+    def time_step(self) -> float:
+        return 8 / 3
 
 
 class TestCrisFixture(_ScannerFixture, unittest.TestCase):

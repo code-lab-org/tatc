@@ -26,6 +26,7 @@ from .schemas import (
     ValidationRecord,
 )
 from .standard import (
+    COMPATIBLE_VERSIONS,
     MIN_HOLDOUT_GAP_DAYS,
     STANDARD_VERSION,
     Gate,
@@ -37,6 +38,7 @@ from .standard import (
 )
 
 __all__ = [
+    "COMPATIBLE_VERSIONS",
     "Configuration",
     "ConfigurationRecord",
     "ConfigurationValidation",

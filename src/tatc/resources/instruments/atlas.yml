@@ -1,0 +1,76 @@
+id: atlas
+name: ATLAS
+aliases: [ICESat-2 ATLAS, Advanced Topographic Laser Altimeter System]
+instrument_class: lidar
+selection: Photon-counting laser altimeter of ICESat-2, with open products of ice, land, vegetation, and ocean heights along six narrow beams.
+platforms:
+  - id: icesat-2
+    name: ICESat-2
+    norad_id: 43613
+    status: operational
+    as_of: 2026-10-01
+data_products:
+  - name: ATL08QL
+    provider: NASA NSIDC DAAC
+    url: https://nsidc.org/data/atl08ql
+    access: registration
+default_configuration: beam_pairs
+configurations:
+  beam_pairs:
+    grade: timing
+    description: The three pairs of beams, as narrow views that contain where each pair observes, given an element set a few days old. Analyze one pair at a time with its instrument index (0 on the left, 2 on the right).
+    platforms: [icesat-2]
+    velocity_frame: earth_fixed
+    grouping: alternatives
+    instruments:
+      - type: pointed
+        parameters:
+          name: ATLAS beam pair 1
+          roll_angle: 0.3507
+          cross_track_field_of_view: 0.5824
+          along_track_field_of_view: {tailor: time_step}
+          is_rectangular: true
+        provenance:
+          roll_angle: &measured
+            kind: measured
+            source: validate_catalog_atlas.py --fit, the median and spread (99.5th percentile) of the pair's offsets from the ground track over Antarctica
+            platform: icesat-2
+            period: "2026-10-01"
+          cross_track_field_of_view: *measured
+          along_track_field_of_view: &tailored
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular: &rectangular
+            kind: derived
+            source: Models the band containing a pair's track as a rectangular view
+      - type: pointed
+        parameters:
+          name: ATLAS beam pair 2
+          roll_angle: -0.0511
+          cross_track_field_of_view: 0.5870
+          along_track_field_of_view: {tailor: time_step}
+          is_rectangular: true
+        provenance:
+          roll_angle: *measured
+          cross_track_field_of_view: *measured
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: ATLAS beam pair 3
+          roll_angle: -0.4511
+          cross_track_field_of_view: 0.5872
+          along_track_field_of_view: {tailor: time_step}
+          is_rectangular: true
+        provenance:
+          roll_angle: *measured
+          cross_track_field_of_view: *measured
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+    limitations:
+      - Each view is about 4.9 km wide, whereas a beam's footprint is about 11 m wide. The width holds the error of an element set a few days old (about 2.5 days at the fit), so a view shows where a pair may observe, not the area it observes. Older element sets need wider views.
+      - The views follow the ground track of the element set's orbit, where ICESat-2 points its beams along their reference tracks, as over Antarctica, where the configuration was fitted and tested. Elsewhere, ICESat-2 often points them off the reference tracks (8 to 15 km between 40 deg S and 60 deg N, in ValidateLidarICESat2), which these views do not represent.
+      - Each pair's strong and weak beams, about 90 m apart across track and 2.5 km along track, share one view.
+      - On held-out data (4 November 2026, with an element set about 4 days old), the views contained every sampled segment, but TAT-C's epochs preceded the segments' times by 5.5 s (median), failing the timing gate. This is consistent with an along-track error of the element set, such as after an orbit adjustment that it does not represent, as ValidateLidarICESat2 also found; epochs are only as accurate as the element set along track.
+limitations:
+  - TAT-C does not find ICESat-2's 91-day repeat cycle from an element set; declare it as a maintained orbit (see ValidateLidarICESat2).

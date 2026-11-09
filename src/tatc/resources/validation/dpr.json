@@ -1,0 +1,84 @@
+{
+  "entry_id": "dpr",
+  "configurations": {
+    "beams": {
+      "digest": "9160f56cc9b93ca21570ce108b105c8cb7ee2e1b36f2ab9557c787700cff06af",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_dpr.py",
+      "reference": "Footprints of the TC PRIMED documentation; beam positions of GPM_2ADPR version 08",
+      "period": "2026-07-20",
+      "platform": "gpm",
+      "holdout_gap_days": 75,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 2.653570750438483
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 0.9057017296873197
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 3.892342467870352
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.000121108258955
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9997097198688037
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 1.0435313670615138,
+        "spacing_along_ratio_median": 1.0001470891455386,
+        "spacing_cross_ratio_median": 0.9996463544212115
+      }
+    },
+    "swath": {
+      "digest": "2d335101f7086353b7ee08b5469d48e323d9a7528cdb96f39828a688169072df",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_dpr.py",
+      "reference": "GPM_2ADPR version 08 (beam positions of the full swath)",
+      "period": "2026-07-20",
+      "platform": "gpm",
+      "holdout_gap_days": 75,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.89830015981403
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.74854932301741
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.5505235317999999
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.1521456784644106
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9417330482955538
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.6366860527
+      }
+    }
+  },
+  "standard_version": 2
+}

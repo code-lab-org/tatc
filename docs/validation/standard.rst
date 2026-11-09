@@ -7,10 +7,30 @@ entry must show before it is called validated, so that entries can be compared
 and the claim means the same for each. An entry's tier is computed from its
 results and these thresholds, and cannot be declared.
 
-This is version 1 of the standard. Its thresholds were drafted from the earlier
-results below, so they can show little about those instruments. They were frozen
-before validating instruments new to TAT-C, which are their first real test.
-Changing a threshold requires a new version and a stated reason here.
+This is version 2 of the standard. The thresholds of version 1 were drafted from
+the earlier results below, so they can show little about those instruments. They
+were frozen before validating instruments new to TAT-C, which are their first real
+test. Changing a threshold requires a new version and a stated reason here.
+
+Versions
+========
+
+.. list-table::
+   :header-rows: 1
+   :widths: 10 90
+
+   * - Version
+     - Change and reason
+   * - 1
+     - The first thresholds, for cross-track, pushbroom, conical, SAR, and
+       geostationary instruments.
+   * - 2
+     - Adds the lidar class, for ICESat-2 ATLAS, whose beams fit none of the other
+       classes. No threshold of version 1 changed, so results recorded under
+       version 1 still apply. The lidar gates were drafted knowing an earlier result
+       (:doc:`ValidateLidarICESat2`: the central beam pair within about 2 km of the
+       ground track over Antarctica, and 95% of beam segments within views about
+       4 km wide), and frozen before any data were analyzed for the catalog.
 
 Rules
 =====
@@ -56,6 +76,26 @@ A configuration's grade states its use. Coverage and timing differ only in the
 epoch gate. Cross-track and conical instruments also need a configuration at the
 sample size grade. Orbit error against recorded positions is reported but not
 gated, because it grades the element set rather than the instrument.
+
+Lidar gates are separate, because a lidar observes narrow tracks rather than a
+swath:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 60 40
+
+   * - Metric
+     - Lidar
+   * - Segment recall: share of beam segments within the views at their times,
+       where the beams follow their reference tracks
+     - ≥ 99%
+   * - Beam spacing error, median: distance across track between beams, against
+       the spacing of the views
+     - ≤ 0.2 km
+   * - Epoch, 95th percentile (coverage)
+     - ≤ 3 s
+   * - Epoch, 95th percentile (timing)
+     - ≤ 1 s
 
 .. list-table::
    :header-rows: 1
@@ -134,8 +174,9 @@ gated, because it grades the element set rather than the instrument.
      -
      - ≤ 0.5 deg
 
-Pushbroom imagers and SAR have no precision gate because they acquire according to
-plans, so a predicted pass that was not acquired is not an error of geometry.
+Pushbroom imagers, SAR, and lidar have no precision gate because they acquire or
+point according to plans, so a predicted observation that was not made is not an
+error of geometry.
 
 Back-Test
 =========

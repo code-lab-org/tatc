@@ -1,0 +1,99 @@
+id: dpr
+name: DPR
+aliases: [GPM DPR, Dual-frequency Precipitation Radar, KuPR]
+instrument_class: cross_track
+selection: Cross-track precipitation radar of the Global Precipitation Measurement mission, with open three-dimensional precipitation products, flying with GMI.
+platforms:
+  - id: gpm
+    name: GPM Core Observatory
+    norad_id: 39574
+    status: operational
+    as_of: 2026-10-03
+data_products:
+  - name: GPM_2ADPR
+    provider: NASA GES DISC
+    url: https://disc.gsfc.nasa.gov/datasets/GPM_2ADPR_08/summary
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath scanned between the outermost beam centers of the full (Ku-band) scan, with a view tailored to the analysis time step.
+    platforms: [gpm]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: DPR
+          field_of_regard: 34.0073
+          cross_track_field_of_view: 34.0073
+          along_track_field_of_view: {tailor: time_step}
+          is_rectangular: true
+        provenance:
+          field_of_regard: &measured_extent
+            kind: measured
+            source: validate_catalog_dpr.py --fit, between the outermost beams of the full swath (printed to 4 decimals)
+            platform: gpm
+            period: "2026-10-03"
+          cross_track_field_of_view: *measured_extent
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - The view is centered on nadir. The outermost beams measure 17.05 deg to the left and 16.95 deg to the right.
+      - On held-out data, the swath's IoU is 0.994 at a time step of 10 s and 0.984 at 30 s, but 0.942 at 120 s, below the gate; use time steps of 30 s or less.
+      - Since May 2018, the Ka-band radar scans the same 49 beams as the Ku-band radar; earlier, its matched and high-sensitivity beams covered a narrower swath, which this configuration does not represent.
+  beams:
+    grade: sample_size
+    description: The 49 beam positions of a scan, whose footprints and spacing `compute_sample_sizes` gives.
+    platforms: [gpm]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: DPR
+          field_of_regard: 34.7145
+          cross_track_field_of_view: 34.7145
+          along_track_field_of_view: 0.70846
+          cross_track_pixels: 49
+          roll_angle: 0.0517
+          is_rectangular: true
+          cross_track_oversampling: 0.002169
+          along_track_oversampling: 0.002169
+          scan_period: 0.7
+        provenance:
+          field_of_regard: &measured_spacing
+            kind: measured
+            source: validate_catalog_dpr.py --fit, a fitted spacing of 0.70846 deg over 49 beams
+            platform: gpm
+            period: "2026-10-03"
+          cross_track_field_of_view: *measured_spacing
+          along_track_field_of_view: *measured_spacing
+          cross_track_pixels:
+            kind: nominal
+            source: The DPR scans 49 beams
+          roll_angle:
+            kind: measured
+            source: validate_catalog_dpr.py --fit, the offset of the fitted beam angles
+            platform: gpm
+            period: "2026-10-03"
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          cross_track_oversampling: &oversampling
+            kind: derived
+            source: One minus the fitted spacing divided by the beam width of 0.71 deg, published in the DPR ATBD
+          along_track_oversampling: *oversampling
+          scan_period:
+            kind: measured
+            source: validate_catalog_dpr.py --fit, the median time between scans
+            platform: gpm
+            period: "2026-10-03"
+    limitations:
+      - TAT-C projects all pixels of a scan at one instant, at the time the product gives for the scan.
+limitations:
+  - GPM periodically flies backward (yaw flips). The scan is nearly symmetric, so the swath is unchanged, but the small roll of the beams configuration changes sign.
+  - Products report precipitation only where the radar detects it; these configurations describe where the radar samples, not where it detects precipitation.

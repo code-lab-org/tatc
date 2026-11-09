@@ -64,11 +64,13 @@ Instruments and Pointing
      - Reference
      - Result
    * - Cross-track scanners (`PointedInstrument`, `ViewGeometry.SCAN`)
-     - NOAA-20 ATMS, CrIS, and VIIRS; Terra and Aqua MODIS; Metop-B IASI
-     - On held-out data, 99.8 to 100% of passes predicted (ATMS, CrIS, VIIRS, MODIS, IASI); epochs within 0.25 s
-       (ATMS), 0.40 s (CrIS), 0.44 s (MODIS), and 2.0 s (VIIRS) at the 95th percentile; swath width within 0.4 to
-       3.3 km (median) with measured fields of regard; pixel centers within 1.6 to 2.9 km (median; ATMS, VIIRS, MODIS)
-       (:doc:`catalog`; :doc:`ValidateImagerATMS`, :doc:`ValidateImagerVIIRS`, :doc:`ValidateDriftMODIS`). CrIS's
+     - NOAA-20 ATMS, CrIS, and VIIRS; Terra and Aqua MODIS; Metop-B IASI; GPM DPR; Metop-C MHS
+     - On held-out data, 99.8 to 100% of passes predicted (ATMS, CrIS, VIIRS, MODIS, IASI, DPR); epochs within 0.25 s
+       (ATMS), 0.40 s (CrIS), 0.44 s (MODIS), 0.55 s (DPR), and 2.0 s (VIIRS) at the 95th percentile; swath width
+       within 0.15 to 3.3 km (median) with measured fields of regard; pixel centers within 0.9 to 2.9 km (median;
+       ATMS, VIIRS, MODIS, DPR). MHS, with its published scan, observed 99.97% of passes predicted, with epochs within
+       1.7 s, swath width within 0.8 km, and pixel centers within 5.7 km (median), along track of where MHS samples
+       them (:doc:`catalog`; :doc:`ValidateImagerATMS`, :doc:`ValidateImagerVIIRS`, :doc:`ValidateDriftMODIS`). CrIS's
        footprint centers within 0.7 km (95th percentile) only
        with a computation per field of regard written in the notebook, and within 19 km (central field of view) and
        43 km (all) at the 95th percentile with public methods, which observe a scan at one instant and do not rotate
@@ -84,7 +86,9 @@ Instruments and Pointing
      - 99.95 to 100% of passes, epochs within 0.27 s (AMSR2) and 0.69 s (GMI) at the 95th percentile; swath IoU 0.998
        to 0.999; SMAP's forward and aft looks within 0.2 s (median) (:doc:`ValidateConicalAMSR2`,
        :doc:`ValidateConicalGMI`, :doc:`ValidateGridSMAP`). On held-out AMSR2 data, 99.98% of passes predicted,
-       epochs within 0.79 s (95th percentile), swath width within 2.8 km, and swath IoU 0.998 (:doc:`catalog`)
+       epochs within 0.79 s (95th percentile), swath width within 2.8 km, and swath IoU 0.998; on held-out SMAP Level
+       1B footprints, 100% of passes predicted with both looks, epochs within 0.14 s (95th percentile), swath width
+       within 2.1 km, and swath IoU 0.998 (:doc:`catalog`)
    * - Side-looking SAR (`PointedInstrument` with roll, `roll_angle_profile`)
      - NISAR, Sentinel-1C
      - Epochs within 0.3 and 0.44 s (95th percentile) of zero-Doppler times; footprint IoU 0.93 to 0.96 (median); roll
@@ -105,7 +109,9 @@ Instruments and Pointing
    * - Narrow-beam lidar
      - ICESat-2 ATLAS
      - Beams located within about 2 km with a TLE, so a view about 4 km wide predicts 95% of their observations
-       (:doc:`ValidateLidarICESat2`)
+       (:doc:`ValidateLidarICESat2`). With views about 4.9 km wide fitted over Antarctica, held-out data a month
+       later had every sampled segment within its pair's view and the pairs' spacing within 0.02 km, but epochs 5.5 s
+       early (median) with an element set 4 days old, consistent with its along-track error (:doc:`catalog`)
    * - Geostationary imagers
      - GOES-19 ABI
      - A 17.4 deg field of regard observes the full disk; elevation angles within 0.0004 deg; product coverage limits
@@ -230,9 +236,9 @@ numerical error in TAT-C:
 * **Measured instrument parameters.** Nominal fields of regard gave swaths 11 km
   too narrow (ATMS) and 47 km too wide (VIIRS); parameters fitted to geolocated
   samples close the gap.
-* **Time step.** A pushbroom or SAR view tailored to the analysis time step
+* **Time step.** A pushbroom, narrow cross-track, or SAR view tailored to the analysis time step
   departs further from the swath as the time step grows: swath IoU falls from
-  about 0.95 or more at 10 s to 0.94 to 0.95 (MSI, TROPOMI), 0.72 to 0.82
+  about 0.95 or more at 10 s to 0.94 to 0.95 (MSI, TROPOMI, DPR), 0.72 to 0.82
   (Sentinel-1C), and 0.73 to 0.76 (NISAR) at 120 s. Use time steps of 30 s or
   less, or 10 s for Sentinel-1's IW mode and NISAR. KaRIn's swaths, near nadir,
   keep an IoU of 0.98 or more at 120 s.

@@ -14,8 +14,10 @@ from pydantic import ValidationError
 
 from tatc.analysis import collect_observations
 from tatc.catalog import (
+    COMPATIBLE_VERSIONS,
     STANDARD_VERSION,
     Grade,
+    InstrumentClass,
     InstrumentEntry,
     Tier,
     get_entry,
@@ -62,7 +64,13 @@ class TestLoading(unittest.TestCase):
         """
         for entry in list_entries():
             self.assertIsNotNone(entry.record, entry.id)
-            self.assertEqual(entry.record.standard_version, STANDARD_VERSION, entry.id)
+            self.assertIn(entry.record.standard_version, COMPATIBLE_VERSIONS, entry.id)
+            self.assertLessEqual(
+                entry.record.standard_version, STANDARD_VERSION, entry.id
+            )
+            if entry.instrument_class == InstrumentClass.LIDAR:
+                # the lidar class was added in version 2
+                self.assertGreaterEqual(entry.record.standard_version, 2, entry.id)
             for key, record in entry.record.configurations.items():
                 self.assertEqual(
                     record.digest, entry.configurations[key].digest, (entry.id, key)
@@ -103,8 +111,10 @@ class TestLoading(unittest.TestCase):
             [
                 "abi",
                 "amsr2",
+                "atlas",
                 "cris",
                 "csar",
+                "dpr",
                 "iasi",
                 "lsar",
                 "msi",
@@ -629,6 +639,65 @@ class TestEntryStatus(unittest.TestCase):
         configuration = entry.validation.configurations["swaths"]
         self.assertEqual(configuration.record.holdout_gap_days, 34)
         self.assertTrue(all(r.passed for r in configuration.gates))
+
+    def test_dpr_entry_partial_at_long_time_steps(self):
+        """
+        Test that the DPR entry is partial because of its swath's area at a time step
+        of 120 s alone, with its beams validated on data held out 75 days from the fit.
+        """
+        entry = get_entry("dpr")
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        swath = entry.validation.configurations["swath"]
+        self.assertEqual(
+            [r.gate.metric for r in swath.gates if not r.passed],
+            ["footprint_iou_median"],
+        )
+        self.assertEqual(swath.record.holdout_gap_days, 75)
+        self.assertEqual(entry.validation.configurations["beams"].tier, Tier.VALIDATED)
+
+    def test_mhs_entry_validated_on_published_values(self):
+        """
+        Test that the MHS entry, whose values are all published, is validated without
+        a holdout, at the coverage grade.
+        """
+        entry = get_entry("mhs")
+        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
+        self.assertEqual(entry.configurations["swath"].grade, Grade.COVERAGE)
+        for configuration in entry.configurations.values():
+            for instrument in configuration.instruments:
+                self.assertNotIn(
+                    "measured", [p.kind for p in instrument.provenance.values()]
+                )
+
+    def test_atlas_entry_partial_on_epochs(self):
+        """
+        Test that the ATLAS entry, of the lidar class added in version 2 of the
+        standard, is partial because of its epochs alone on held-out data.
+        """
+        entry = get_entry("atlas")
+        self.assertEqual(entry.instrument_class, InstrumentClass.LIDAR)
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        configuration = entry.validation.configurations["beam_pairs"]
+        self.assertEqual(
+            [r.gate.metric for r in configuration.gates if not r.passed],
+            ["epoch_p95"],
+        )
+        self.assertEqual(configuration.record.holdout_gap_days, 34)
+        self.assertEqual(entry.record.standard_version, 2)
+
+    def test_smap_entry_partial_without_sample_size(self):
+        """
+        Test that the SMAP radiometer entry is partial only for want of a sample size
+        configuration, with its looks validated on held-out data.
+        """
+        entry = get_entry("smap_radiometer")
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        self.assertEqual(
+            entry.validation.gaps, ("no configuration at the sample_size grade",)
+        )
+        looks = entry.validation.configurations["looks"]
+        self.assertEqual(looks.tier, Tier.VALIDATED)
+        self.assertEqual(looks.record.holdout_gap_days, 34)
 
     def test_lsar_entry_partial(self):
         """

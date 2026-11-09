@@ -20,8 +20,19 @@ from tatc.catalog import (
 # (metric, limit, at most) by class and grade. These thresholds are frozen: they
 # must test new instruments rather than follow their results. A change needs a
 # new STANDARD_VERSION, with its reason, in docs/validation/standard.rst.
-FROZEN_VERSION = 1
+FROZEN_VERSION = 2
 FROZEN_GATES = {
+    # version 2 added the lidar class, and changed no other gate
+    ("lidar", "coverage"): [
+        ("segment_recall", 99, False),
+        ("beam_spacing_error_median", 0.2, True),
+        ("epoch_p95", 3, True),
+    ],
+    ("lidar", "timing"): [
+        ("segment_recall", 99, False),
+        ("beam_spacing_error_median", 0.2, True),
+        ("epoch_p95", 1, True),
+    ],
     ("cross_track", "coverage"): [
         ("pass_recall", 99, False),
         ("pass_precision", 95, False),

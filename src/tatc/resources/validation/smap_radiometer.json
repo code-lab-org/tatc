@@ -7,9 +7,9 @@
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_smap.py",
       "reference": "SPL1BTB (footprint positions and times)",
-      "period": "2026-10-24",
+      "period": "2026-09-20",
       "platform": "smap",
-      "holdout_gap_days": null,
+      "holdout_gap_days": 34,
       "metrics": [
         {
           "name": "pass_recall",
@@ -17,30 +17,30 @@
         },
         {
           "name": "pass_precision",
-          "value": 99.44319393436797
+          "value": 99.23495929983476
         },
         {
           "name": "epoch_p95",
-          "value": 0.16437065455
+          "value": 0.13861008795
         },
         {
           "name": "epoch_median",
-          "value": -0.022936786500000028
+          "value": 0.0037470155
         },
         {
           "name": "swath_width_median",
-          "value": 2.1063849485743558
+          "value": 2.103950896930008
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9976425386535194
+          "value": 0.9975498341560446
         }
       ],
       "fixture_metrics": {
         "passes_found": 100.0,
-        "epoch_p95": 0.14061390834999996
+        "epoch_p95": 0.14018917109999995
       }
     }
   },
-  "standard_version": 1
+  "standard_version": 2
 }
