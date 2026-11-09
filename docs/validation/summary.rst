@@ -75,11 +75,14 @@ Instruments and Pointing
        0.45 s (AIRS) and 2.2 s (AMSU-A), swath width within 0.7 and 1.5 km, and pixel centers within 3.6 and 4.6 km
        (median). AVHRR, with fitted angles and yaw on held-out data, observed 99.4% of passes predicted, with epochs
        within 0.16 s (95th percentile), swath width within 1.3 km, and pixel centers within 0.5 km (median); without
-       its yaw of 0.29 deg, epochs were within 1.1 s. OCI, whose tilt fore or aft follows a pitch profile, observed
-       99.7% of passes predicted, with swath width within 1.4 km, but its tilt changed about 17 deg of latitude from
-       where it did 31 days earlier, so epochs were within 73 s (95th percentile). On sibling satellites, as
-       transfers, MHS and AVHRR on Metop-B passed every swath test, while NOAA-20's angles on NOAA-21 placed ATMS's
-       pixels within 10.5 km and VIIRS's swath width within 21 km (median) (:doc:`catalog`; :doc:`ValidateImagerATMS`, :doc:`ValidateImagerVIIRS`, :doc:`ValidateDriftMODIS`). CrIS's
+       its yaw of 0.29 deg, epochs were within 1.1 s. OCI, whose tilt fore or aft follows a daily schedule set by
+       the subsolar latitude, predicted 99.9% of the passes observed on held-out data, with epochs within 0.55 s
+       (95th percentile) and swath width within 1.1 km (median), but only 93.9% of its predicted passes were observed and swath
+       IoU was 0.939 at 120 s, as the model sweeps ground while the tilt changes, where OCI collects no valid data.
+       On sibling satellites, as transfers, MHS and AVHRR on Metop-B passed every swath test, while NOAA-20's angles
+       on NOAA-21 placed ATMS's pixels within 10.5 km and VIIRS's swath width within 21 km (median); fitted on
+       NOAA-21, with ATMS's scan rotated 0.93 deg, ATMS's pixels were within 3.2 km and the swath widths of ATMS and
+       VIIRS within 1.2 and 2.8 km (median) on held-out data (:doc:`catalog`; :doc:`ValidateImagerATMS`, :doc:`ValidateImagerVIIRS`, :doc:`ValidateDriftMODIS`). CrIS's
        footprint centers within 0.7 km (95th percentile) only
        with a computation per field of regard written in the notebook, and within 19 km (central field of view) and
        43 km (all) at the 95th percentile with public methods, which observe a scan at one instant and do not rotate

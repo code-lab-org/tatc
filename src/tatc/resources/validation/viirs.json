@@ -123,7 +123,43 @@
         "passes_found": 100.0,
         "epoch_p95": 1.96924972965
       }
+    },
+    "swath_noaa_21": {
+      "digest": "8945c9e0bd08ee18e80cc541ff4d6a6d702da3fe54883d5711a9af00e1f4bb17",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_viirs.py",
+      "reference": "VIIRS moderate-resolution geolocation",
+      "period": "2026-10-02",
+      "platform": "noaa-21",
+      "holdout_gap_days": 34,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.96536196744024
+        },
+        {
+          "name": "pass_precision",
+          "value": 98.599248377178
+        },
+        {
+          "name": "epoch_p95",
+          "value": 2.2306651849499994
+        },
+        {
+          "name": "swath_width_median",
+          "value": 2.829422988434555
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.978426193934284
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 2.2811480393999997
+      }
     }
   },
-  "standard_version": 1
+  "standard_version": 2
 }

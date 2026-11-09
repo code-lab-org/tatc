@@ -384,22 +384,27 @@ def fit_yaw(reference: Reference, frame: str) -> None:
         print(f"  {name} yaw by latitude: " + ", ".join(bands))
 
 
-def score_swath_width(reference: Reference, instrument, orbit, stride: int) -> float:
+def score_swath_width(
+    reference: Reference, instrument, orbit, stride: int, attitude=None
+) -> float:
     """
     Gets the median absolute difference (km) from the width through the beams. The
     swath width of a pointed instrument follows its field of regard, centered on
     nadir, so that of a rolled or pitched view is found instead from the projections
     of its edges, and compared with the distance along the surface between the
-    outermost beams.
+    outermost beams. A view is pitched by the instrument or by the body (the
+    satellite's attitude, whose yaw and roll are taken as zero here).
     """
     scans = np.arange(0, len(reference.time), stride)
     track = orbit.get_orbit_track(list(reference.time[scans].to_pydatetime()))
     roll = getattr(instrument, "roll_angle", 0)
-    if getattr(instrument, "pitch_angle_profile", None) or getattr(
-        instrument, "pitch_angle", 0
-    ):
+    pitch = np.zeros(len(scans))
+    if hasattr(instrument, "get_pitch_angle"):
+        pitch = pitch + instrument.get_pitch_angle(track)
+    if attitude is not None:
+        pitch = pitch + attitude.get_body_angles(track)[2]
+    if np.any(pitch != 0):
         # the left and right ends of the view at each scan's pitch
-        pitch = np.broadcast_to(instrument.get_pitch_angle(track), (len(scans),))
         ends = [
             [
                 compute_projected_ray_position(
@@ -721,8 +726,14 @@ def validate_swath(
     platform = platform or setup.platform
 
     def satellite_for(time_step: float):
+        # the period of the day, for a configuration that schedules its attitude
         return entry.to_satellite(
-            orbit, setup.swath, time_step=time_step, platform=platform
+            orbit,
+            setup.swath,
+            time_step=time_step,
+            platform=platform,
+            start=day,
+            end=day + timedelta(days=1),
         )
 
     satellite = satellite_for(setup.time_steps[0])
@@ -732,7 +743,11 @@ def validate_swath(
     end = reference.time[-1].to_pydatetime() + timedelta(seconds=reference.scan_period)
     results = score_passes(points, satellite, 0, observed, start, end, reference.gaps)
     results["swath_width_median"] = score_swath_width(
-        reference, satellite.instruments[0], orbit, setup.width_stride
+        reference,
+        satellite.instruments[0],
+        orbit,
+        setup.width_stride,
+        satellite.attitude,
     )
     print(json.dumps(results), flush=True)
     grid = build_grid()

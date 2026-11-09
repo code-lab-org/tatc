@@ -46,11 +46,14 @@ class _PushbroomFixture:
             cls.data = {key: data[key] for key in data.files}
         cls.entry = get_entry(cls.entry_id)
         cls.day = datetime.fromisoformat(str(cls.data["day"]))
+        # the day is the period of the analysis, for a schedule of the attitude
         cls.satellite = cls.entry.to_satellite(
             GeneralPerturbationsOrbit.from_tle(cls.data["tle"].tolist()),
             cls.configuration,
             time_step=cls.time_step,
             platform=cls.platform,
+            start=cls.day,
+            end=cls.day + timedelta(days=1),
         )
         cls.recorded = cls.entry.record.configurations[
             cls.configuration
@@ -190,7 +193,7 @@ class TestOlciFixture(_PushbroomFixture, unittest.TestCase):
 class TestOciFixture(_PushbroomFixture, unittest.TestCase):
     """
     Regression tests of the OCI entry's swath, a cross-track scanner whose tilt
-    follows a pitch profile.
+    follows a pitch profile scheduled by day.
     """
 
     entry_id = "oci"

@@ -464,19 +464,43 @@ class TestEntryStatus(unittest.TestCase):
             self.assertTrue(all(r.passed for r in configuration.gates), key)
             self.assertEqual(configuration.gaps, (), key)
 
-    def test_noaa20_entries_validated(self):
+    def test_jpss_entries_validated(self):
         """
-        Test that the entries validated against NOAA-20 data pass with their exact
-        values, with fitted values tested on held-out data, at each required grade.
+        Test that the entries validated against NOAA-20 and NOAA-21 data pass with
+        their exact values, with fitted values tested on held-out data, at each
+        required grade, and that each platform's configurations were fitted and
+        tested on that platform.
         """
+        gaps = {"noaa-20": 51, "noaa-21": 34}
         for entry_id in ("atms", "viirs"):
-            validation = get_entry(entry_id).validation
+            entry = get_entry(entry_id)
+            validation = entry.validation
             self.assertEqual(validation.tier, Tier.VALIDATED, entry_id)
             self.assertEqual(validation.gaps, (), entry_id)
             for key, configuration in validation.configurations.items():
+                (platform,) = entry.configurations[key].platforms
+                self.assertEqual(configuration.record.platform, platform, key)
+                self.assertEqual(key.endswith("noaa_21"), platform == "noaa-21", key)
                 self.assertEqual(configuration.record.evidence, "rerun", key)
-                self.assertEqual(configuration.record.holdout_gap_days, 51, key)
+                self.assertEqual(
+                    configuration.record.holdout_gap_days, gaps[platform], key
+                )
                 self.assertTrue(all(r.passed for r in configuration.gates), key)
+
+    def test_atms_noaa21_models_yaw(self):
+        """
+        Test that NOAA-21's ATMS configurations model the measured rotation of the
+        scan line in their attitude, and that NOAA-20's do not.
+        """
+        entry = get_entry("atms")
+        for key in ("swath_noaa_21", "beams_noaa_21"):
+            self.assertEqual(
+                entry.configurations[key].attitude,
+                {"yaw_angle": 0.9341, "pitch_angle": -0.1362},
+                key,
+            )
+        for key in ("swath", "beams"):
+            self.assertEqual(entry.configurations[key].attitude, {}, key)
 
     def test_modis_entry_validated_on_terra(self):
         """
@@ -812,8 +836,9 @@ class TestEntryStatus(unittest.TestCase):
 
     def test_oci_entry_partial(self):
         """
-        Test that the OCI entry, whose tilt follows a pitch profile, is partial on data
-        held out 31 days from the fit, without a sample size configuration.
+        Test that the OCI entry, whose tilt follows a daily schedule, times its passes
+        but is partial on data held out 30 days from the fit, failing where the tilt
+        changes, without a sample size configuration.
         """
         entry = get_entry("oci")
         self.assertEqual(entry.validation.tier, Tier.PARTIAL)
@@ -823,14 +848,15 @@ class TestEntryStatus(unittest.TestCase):
         swath = entry.validation.configurations["swath"]
         self.assertEqual(
             sorted(r.gate.metric for r in swath.gates if not r.passed),
-            ["epoch_p95", "footprint_iou_median", "pass_precision"],
+            ["footprint_iou_median", "pass_precision"],
         )
-        self.assertEqual(swath.record.holdout_gap_days, 31)
+        self.assertEqual(swath.record.holdout_gap_days, 30)
 
     def test_transfers_recorded_apart(self):
         """
         Test that results on sibling platforms are recorded as transfer metrics, which
-        no gate reads, and that configurations warn on those platforms.
+        no gate reads, and that the configurations transferred warn on those
+        platforms.
         """
         transfers = {
             "atms": "noaa-21",
@@ -843,16 +869,26 @@ class TestEntryStatus(unittest.TestCase):
         for entry_id, platform in transfers.items():
             entry = get_entry(entry_id)
             self.assertIn(platform, [p.id for p in entry.platforms], entry_id)
-            names = [
-                metric.name
-                for record in entry.record.configurations.values()
-                for metric in record.metrics
-                if metric.scope and metric.scope.startswith(platform)
-            ]
-            self.assertTrue(names, entry_id)
-            self.assertTrue(all(n.startswith("transfer_") for n in names), entry_id)
-            for configuration in entry.configurations.values():
-                self.assertNotIn(platform, configuration.platforms, entry_id)
+            transferred = {
+                key: [
+                    metric.name
+                    for metric in record.metrics
+                    if metric.scope and metric.scope.startswith(platform)
+                ]
+                for key, record in entry.record.configurations.items()
+            }
+            transferred = {key: names for key, names in transferred.items() if names}
+            self.assertTrue(transferred, entry_id)
+            for key, names in transferred.items():
+                self.assertTrue(all(n.startswith("transfer_") for n in names), key)
+                self.assertNotIn(platform, entry.configurations[key].platforms, key)
+                with self.assertWarns(UserWarning):
+                    entry.build(
+                        key,
+                        orbit=GeneralPerturbationsOrbit.from_tle(GPM_TLE),
+                        time_step=10,
+                        platform=platform,
+                    )
 
     def test_gmi_reports_spacing_limitation(self):
         """

@@ -50,6 +50,36 @@ configurations:
     limitations:
       - The view is centered on nadir. The outermost samples measure 55.96 deg to the left and 56.13 deg to the right.
       - Epochs are tested only to about 2 s, because reference times are interpolated from granule outlines, so this configuration is at the coverage grade.
+  swath_noaa_21:
+    grade: coverage
+    description: NOAA-21's swath scanned between the outermost moderate-resolution pixel centers, with a view tailored to the analysis time step.
+    platforms: [noaa-21]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: VIIRS
+          field_of_regard: 111.8951
+          cross_track_field_of_view: 111.8951
+          along_track_field_of_view: {tailor: time_step}
+          is_rectangular: true
+        provenance:
+          field_of_regard: &noaa_21_extent
+            kind: measured
+            source: validate_catalog_viirs.py --fit, between the outermost samples
+            platform: noaa-21
+            period: "2026-11-05"
+          cross_track_field_of_view: *noaa_21_extent
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - The view is centered on nadir. The outermost samples measure 55.92 deg to the left and 55.98 deg to the right, about 0.2 deg narrower in all than on NOAA-20.
+      - The scan line looks 0.18 deg aft at nadir (about 2.7 km), and is rotated by 0.06 deg, which are not modeled.
+      - Epochs are tested only to about 2 s, because reference times are interpolated from granule outlines, so this configuration is at the coverage grade.
   zones:
     grade: sample_size
     description: The five on-board aggregation zones of the moderate-resolution bands across a scan, from right to left. Analyze one at a time with its instrument index, or by the zone of each scan angle.
@@ -136,4 +166,4 @@ configurations:
       - The zones are of the moderate-resolution (M) bands, not the imagery (I) bands.
       - A single PointedInstrument of equal pixels cannot represent VIIRS's aggregation zones, so a scan needs all five instruments.
 limitations:
-  - The fitted angles were measured on NOAA-20. On NOAA-21, these configurations are a transfer that warns on use; on 2026-11-05, every pass was found, with epochs within 2.2 s (95th percentile), but the swath width differed by 21.0 km, and pixels lay 3.2 km from the samples (median). They were not tested on Suomi NPP.
+  - The swath and zones configurations are fitted on NOAA-20, and swath_noaa_21 on NOAA-21. NOAA-20's configurations on NOAA-21 are a transfer that warns on use; on 2026-11-05, every pass was found, with epochs within 2.2 s (95th percentile), but the swath width differed by 21.0 km, and the zones' pixels lay 3.2 km from the samples (median), within the gate. No configuration was tested on Suomi NPP.

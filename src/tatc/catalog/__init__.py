@@ -23,7 +23,9 @@ from .schemas import (
     Metric,
     Platform,
     Provenance,
+    TiltSchedule,
     ValidationRecord,
+    get_subsolar_latitude,
 )
 from .standard import (
     COMPATIBLE_VERSIONS,
@@ -57,10 +59,12 @@ __all__ = [
     "Provenance",
     "STANDARD_VERSION",
     "Tier",
+    "TiltSchedule",
     "ValidationRecord",
     "get_entry",
     "get_entry_ids",
     "get_gates",
     "get_required_grades",
+    "get_subsolar_latitude",
     "list_entries",
 ]

@@ -2,17 +2,21 @@
 Validates the OCI catalog entry against the PACE OCI Level 1B product, using the
 exact values of the entry through public TAT-C methods. OCI's telescope rotates
 across track, tilted fore or aft by about 20 deg to avoid sun glint, and the tilt
-changes once an orbit; TAT-C represents it as a pitch profile over the argument of
-latitude. The entry's angles are fitted to the positions of the samples on one day
-(run with `--fit`), from the spacecraft positions the product records, so the fit
-needs no element set; running on a day at least 30 days from it tests the fitted
-angles on data held out from the fit.
+changes twice an orbit, at a latitude that changes by day; TAT-C represents it as a
+schedule of daily pitch profiles over the argument of latitude (`TiltSchedule`). The
+entry's angles are fitted to the positions of the samples on one day (run with
+`--fit`), from the spacecraft positions the product records, so the fit needs no
+element set. The schedule of the change is fitted with `--switches` to the days of a
+period, read with range requests of only the tilts and spacecraft positions. Running
+on a day at least 30 days from the fitting data tests the fitted values on data held
+out from the fit.
 
 Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`. Only the
 positions, times, and tilts are read, with range requests (about 1.2 GB a day):
 
     python docs/validation/validate_catalog_oci.py <data directory> 2026-10-04 --fit
-    python docs/validation/validate_catalog_oci.py <data directory> 2026-11-04
+    python docs/validation/validate_catalog_oci.py <data directory> 2026-08-15 --switches 2026-10-08
+    python docs/validation/validate_catalog_oci.py <data directory> 2026-11-07
 
 A day is reduced to every sixth scan (about 1 s) and every 16th sample (and the last).
 The product covers the sunlit part of each orbit, whose dark part is a gap.
@@ -24,25 +28,45 @@ which unit tests recompute the results.
 """
 
 import argparse
+import concurrent.futures
+import json
 import pathlib
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 
+import earthaccess
 import h5py
 import numpy as np
 import pandas as pd
 
-from tatc.catalog import get_entry
+from tatc.catalog import get_entry, get_subsolar_latitude
 from tatc.schemas import GeneralPerturbationsOrbit
 from gesdisc_scanner import Product, Reference, Setup, load_day, validate_swath
-from validation_io import TO_GEODETIC, RemoteFile, ecef, normalize, up
+from validation_io import (
+    TO_GEODETIC,
+    RemoteFile,
+    ecef,
+    get_with_retries,
+    normalize,
+    up,
+)
 
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
-FIT_DAY = datetime(2026, 10, 4, tzinfo=timezone.utc)
+# the angles are fitted to 2026-10-04, and the schedule of the tilt's change to
+# 2026-08-15 through 2026-10-08, the last day of fitting data
+FIT_DAY = datetime(2026, 10, 8, tzinfo=timezone.utc)
 # public element sets from CelesTrak, with epochs after each day of data
 ELEMENTS = {
     "2026-11-04": (
         "1 58928U 24025A   26312.25077802  .00000543  00000+0  10874-3 0  9994",
         "2 58928  98.1039 241.4756 0002580 132.8558 227.2862 14.65643827147030",
+    ),
+    "2026-11-07": (
+        "1 58928U 24025A   26313.27483190  .00000501  00000+0  10091-3 0  9993",
+        "2 58928  98.1040 242.4857 0002666 129.8006 230.3433 14.65644467147180",
+    ),
+    "2026-11-08": (
+        "1 58928U 24025A   26313.27483190  .00000501  00000+0  10091-3 0  9993",
+        "2 58928  98.1040 242.4857 0002666 129.8006 230.3433 14.65644467147180",
     ),
 }
 SAMPLES = 1272
@@ -193,16 +217,125 @@ def fit(reference: Reference) -> None:
     )
 
 
+def read_switches(url: str, session) -> list[tuple[str, float]]:
+    """
+    Reads the times and geodetic latitudes of the spacecraft at which the tilt
+    changes from aft to fore in a granule, ascending, with range requests of only the
+    scans' times, tilts, and positions.
+    """
+    with h5py.File(RemoteFile(url, session)) as f:
+        start = pd.Timestamp(f.attrs["time_coverage_start"].decode())
+        seconds = f["scan_line_attributes/time"][:].astype(float)
+        tilt = f["navigation_data/tilt_angle"][:].astype(float)
+        position = f["navigation_data/orb_pos"][:].astype(float) * 1e3
+    _, lat, _ = TO_GEODETIC.transform(*position.T)
+    lat = np.asarray(lat)
+    switches = []
+    for k in np.nonzero(np.diff(np.sign(tilt)) > 0)[0]:
+        if seconds[k] >= 0 and np.isfinite(lat[k]) and lat[k + 1] > lat[k]:
+            time_of = start.normalize() + pd.Timedelta(seconds=seconds[k])
+            switches.append((time_of.isoformat(), float(lat[k])))
+    return switches
+
+
+def load_switches(day: datetime, directory: pathlib.Path, session) -> list:
+    """
+    Reads the changes of tilt of the granules of a day that cross latitudes within
+    12 deg of the subsolar latitude, or loads them from a cache.
+    """
+    cache = directory / f"switch_{day:%Y%m%d}.json"
+    if not cache.exists():
+        subsolar = get_subsolar_latitude(day + timedelta(hours=12))
+        items = get_with_retries(
+            "https://cmr.earthdata.nasa.gov/search/granules.umm_json",
+            params={
+                "short_name": PRODUCT.short_name,
+                "version": PRODUCT.version,
+                "temporal": f"{day:%Y-%m-%dT%H:%M:%SZ},"
+                f"{day + timedelta(days=1):%Y-%m-%dT%H:%M:%SZ}",
+                "bounding_box": f"-180,{subsolar - 12},180,{subsolar + 12}",
+                "page_size": 2000,
+            },
+        ).json()["items"]
+        urls = [
+            next(
+                u["URL"]
+                for u in item["umm"]["RelatedUrls"]
+                if u["URL"].startswith(PRODUCT.host) and u["URL"].endswith(".nc")
+            )
+            for item in items
+        ]
+        with concurrent.futures.ThreadPoolExecutor(8) as pool:
+            parts = list(pool.map(lambda url: read_switches(url, session), urls))
+        cache.write_text(
+            json.dumps(
+                {"granules": len(urls), "switches": sorted(s for p in parts for s in p)}
+            )
+        )
+    return json.loads(cache.read_text())["switches"]
+
+
+def fit_switches(first: datetime, last: datetime, directory: pathlib.Path) -> None:
+    """
+    Prints the offsets of the latitude at which the tilt changes to fore from the
+    subsolar latitude at noon (UTC) of each day, by the parity of the day of the year,
+    over a period of days, and the changes far from their day's median.
+    """
+    if earthaccess.login(strategy="environment") is None:
+        raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+    session = earthaccess.get_requests_https_session()
+    rows = []
+    for i in range((last - first).days + 1):
+        rows += load_switches(first + timedelta(days=i), directory, session)
+    switches = pd.DataFrame(rows, columns=["time", "lat"]).drop_duplicates("time")
+    switches["time"] = pd.to_datetime(switches.time)
+    # granules near midnight are found on both days; each change counts on its day
+    switches["day"] = switches.time.dt.date
+    switches = switches[
+        (switches.day >= first.date()) & (switches.day <= last.date())
+    ].copy()
+    daily = switches.groupby("day").lat.median()
+    subsolar = np.array(
+        [
+            get_subsolar_latitude(datetime.combine(d, time(12), tzinfo=timezone.utc))
+            for d in daily.index
+        ]
+    )
+    offset = daily.to_numpy() - subsolar
+    odd = np.array([d.timetuple().tm_yday % 2 == 1 for d in daily.index])
+    print(f"{len(daily)} days, {len(switches)} changes from aft to fore")
+    for name, chosen in (("odd", odd), ("even", ~odd)):
+        print(
+            f"{name} days of the year ({chosen.sum()}): offset from the subsolar "
+            f"latitude median {np.median(offset[chosen]):+.4f} deg (standard deviation "
+            f"{offset[chosen].std():.4f}, from {offset[chosen].min():+.4f} to "
+            f"{offset[chosen].max():+.4f})"
+        )
+    print(
+        "every odd day's offset exceeds every even day's: "
+        f"{bool(offset[odd].min() > offset[~odd].max())}"
+    )
+    switches["from_median"] = switches.lat - switches.day.map(daily)
+    far = switches[np.abs(switches.from_median) > 0.2]
+    for row in far.itertuples():
+        print(f"  a change {row.from_median:+.3f} deg from its day's at {row.time}")
+
+
 def main() -> None:
-    """Validates the entry on a day of data, or fits its angles."""
+    """Validates the entry on a day of data, or fits its angles or schedule."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=pathlib.Path)
     parser.add_argument("day")
     parser.add_argument("--fit", action="store_true")
+    parser.add_argument("--switches", metavar="LAST_DAY")
     parser.add_argument("--write", action="store_true")
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
+    if arguments.switches:
+        last = datetime.fromisoformat(arguments.switches).replace(tzinfo=timezone.utc)
+        fit_switches(day, last, arguments.directory)
+        return
     reference = load_reference(day, arguments.directory)
     print(
         f"{arguments.day}: {len(reference.time)} scans from {reference.time[0]}, "

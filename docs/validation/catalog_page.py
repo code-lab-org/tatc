@@ -161,6 +161,11 @@ def render_configuration(entry, key: str) -> str:
             f"``instrument_index={configuration.instrument_index}`` unless "
             "another is given.\n"
         )
+    if configuration.attitude_schedule is not None:
+        parts.append(
+            "Its attitude is scheduled by day: build it with the start and end of "
+            "the analysis (``start`` and ``end``).\n"
+        )
     if record is not None:
         gap = (
             "no holdout"
@@ -349,8 +354,10 @@ limitations.
 Pass the analysis time step to configurations whose along-track field of view
 is tailored to it, and keep the attitude of the configuration: a scanner modeled
 in another velocity frame can misplace its swath edges by tens of kilometers.
-The entries hold no element sets, as they age; supply a recent one for the
-analysis period.
+Pass the start and end of the analysis to configurations whose attitude is
+scheduled by day, such as OCI's tilt. Where a platform has configurations of its
+own (NOAA-21's ATMS and VIIRS), use them on that platform. The entries hold no
+element sets, as they age; supply a recent one for the analysis period.
 
 """
     body = "\n".join(render_entry(entry) for entry in entries)

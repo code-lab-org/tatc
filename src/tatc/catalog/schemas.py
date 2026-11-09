@@ -11,11 +11,14 @@ import hashlib
 import json
 import warnings
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Literal
 
+import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from skyfield.framelib import itrs
 
+from .. import constants
 from ..schemas import (
     Attitude,
     AttitudeSchedule,
@@ -140,6 +143,206 @@ class InstrumentSpecification(_CatalogModel):
         return _INSTRUMENT_CLASSES[self.type](**parameters)
 
 
+def get_subsolar_latitude(at: datetime) -> float:
+    """
+    Gets the subsolar latitude (degrees): the geocentric latitude of the Sun's
+    apparent direction, or its declination of date.
+
+    Args:
+        at (datetime.datetime): The time (timezone-aware).
+
+    Returns:
+        float: The subsolar latitude (degrees).
+    """
+    t = constants.timescale.from_datetime(at)
+    x, y, z = (
+        constants.de421["earth"]
+        .at(t)
+        .observe(constants.de421["sun"])
+        .apparent()
+        .frame_xyz(itrs)
+        .m
+    )
+    return float(np.degrees(np.arctan2(z, np.hypot(x, y))))
+
+
+def _get_ascending_argument_of_latitude(
+    latitude: float, altitude: float, inclination: float
+) -> float:
+    """
+    Gets the argument of latitude (degrees) at which a circular orbit, ascending,
+    passes over a geodetic latitude.
+
+    Args:
+        latitude (float): The geodetic latitude (degrees) of the satellite.
+        altitude (float): The satellite's altitude (meters).
+        inclination (float): The orbit's inclination (degrees).
+
+    Returns:
+        float: The argument of latitude (degrees, from 0 to 360).
+    """
+    phi = np.radians(latitude)
+    e2 = constants.EARTH_ECCENTRICITY**2
+    normal = constants.EARTH_EQUATORIAL_RADIUS / np.sqrt(1 - e2 * np.sin(phi) ** 2)
+    geocentric = np.arctan2(
+        (normal * (1 - e2) + altitude) * np.sin(phi), (normal + altitude) * np.cos(phi)
+    )
+    ratio = np.sin(geocentric) / np.sin(np.radians(inclination))
+    if abs(ratio) > 1:
+        raise ValueError(
+            f"an orbit inclined by {inclination} deg does not reach latitude {latitude}"
+        )
+    return float(np.mod(np.degrees(np.arcsin(ratio)), 360))
+
+
+class TiltSchedule(_CatalogModel):
+    """
+    A pitch of the body that changes between aft and fore twice an orbit, on a
+    schedule that depends on the day, as OCI's tilt does to avoid sun glint. After
+    the ascending node, the pitch changes from aft to fore where the satellite's
+    geodetic latitude reaches the subsolar latitude at noon (UTC) of the day plus an
+    offset that alternates with the parity of the day of the year (UTC); it changes
+    back at a fixed argument of latitude. Each change is linear over an arc of the
+    orbit.
+    """
+
+    fore_pitch_angle: float = Field(
+        ..., ge=-90, le=90, description="The pitch angle (degrees) of the fore tilt."
+    )
+    aft_pitch_angle: float = Field(
+        ..., ge=-90, le=90, description="The pitch angle (degrees) of the aft tilt."
+    )
+    odd_day_offset: float = Field(
+        ...,
+        ge=-45,
+        le=45,
+        description="On days of odd day of the year, the latitude (degrees) of the "
+        + "change to fore, from the subsolar latitude.",
+    )
+    even_day_offset: float = Field(
+        ...,
+        ge=-45,
+        le=45,
+        description="On days of even day of the year, the latitude (degrees) of the "
+        + "change to fore, from the subsolar latitude.",
+    )
+    transition: float = Field(
+        ...,
+        gt=0,
+        lt=90,
+        description="The arc of argument of latitude (degrees) over which each "
+        + "change is linear.",
+    )
+    return_argument_of_latitude: float = Field(
+        ...,
+        ge=90,
+        le=270,
+        description="The argument of latitude (degrees) of the middle of the "
+        + "change back to aft.",
+    )
+    provenance: dict[str, Provenance] = Field(
+        ..., description="The origin of each value."
+    )
+
+    @model_validator(mode="after")
+    def _check_provenance(self) -> "TiltSchedule":
+        described = set(type(self).model_fields) - {"provenance"}
+        if described != set(self.provenance):
+            raise ValueError(
+                "each value needs provenance: "
+                f"{sorted(described.symmetric_difference(self.provenance))}"
+            )
+        return self
+
+    def get_switch_latitude(self, day: date) -> float:
+        """
+        Gets the geodetic latitude (degrees) at which the pitch changes from aft to
+        fore on a day.
+
+        Args:
+            day (datetime.date): The day (UTC).
+
+        Returns:
+            float: The latitude (degrees).
+        """
+        noon = datetime.combine(day, time(12), tzinfo=timezone.utc)
+        offset = (
+            self.odd_day_offset
+            if day.timetuple().tm_yday % 2 == 1
+            else self.even_day_offset
+        )
+        return get_subsolar_latitude(noon) + offset
+
+    def get_pitch_angle_profile(
+        self, day: date, orbit: Any
+    ) -> list[tuple[float, float]]:
+        """
+        Gets the pitch angle profile of a day, as (argument of latitude, pitch angle)
+        pairs.
+
+        Args:
+            day (datetime.date): The day (UTC).
+            orbit (Any): The orbit.
+
+        Returns:
+            list[tuple[float, float]]: The profile.
+        """
+        switch = _get_ascending_argument_of_latitude(
+            self.get_switch_latitude(day),
+            orbit.get_mean_altitude(),
+            orbit.get_inclination(),
+        )
+        half = self.transition / 2
+        back = self.return_argument_of_latitude
+        return sorted(
+            (float(np.mod(argument, 360)), angle)
+            for argument, angle in (
+                (switch - half, self.aft_pitch_angle),
+                (switch + half, self.fore_pitch_angle),
+                (back - half, self.fore_pitch_angle),
+                (back + half, self.aft_pitch_angle),
+            )
+        )
+
+    def build_schedule(
+        self,
+        orbit: Any,
+        start: datetime,
+        end: datetime,
+        velocity_frame: VelocityFrame,
+        attitude: dict[str, Any],
+    ) -> AttitudeSchedule:
+        """
+        Builds a schedule of attitudes, one for each day (UTC) from the start to the
+        end of an analysis.
+
+        Args:
+            orbit (Any): The orbit.
+            start (datetime.datetime): The start of the analysis (timezone-aware).
+            end (datetime.datetime): The end of the analysis (timezone-aware).
+            velocity_frame (VelocityFrame): The velocity frame of the attitude.
+            attitude (dict[str, Any]): Other fields of the attitude.
+
+        Returns:
+            AttitudeSchedule: The schedule.
+        """
+        first, last = (t.astimezone(timezone.utc).date() for t in (start, end))
+        if last < first:
+            raise ValueError("the end of the analysis precedes its start")
+        days = [first + timedelta(days=i) for i in range((last - first).days + 1)]
+        return AttitudeSchedule.from_attitudes(
+            [datetime.combine(day, time(0), tzinfo=timezone.utc) for day in days],
+            [
+                Attitude(
+                    velocity_frame=velocity_frame,
+                    pitch_angle_profile=self.get_pitch_angle_profile(day, orbit),
+                    **copy.deepcopy(attitude),
+                )
+                for day in days
+            ],
+        )
+
+
 class Configuration(_CatalogModel):
     """
     A way of modeling an instrument for a use, as it was validated.
@@ -156,6 +359,11 @@ class Configuration(_CatalogModel):
     attitude: dict[str, Any] = Field(
         default_factory=dict,
         description="Other fields of the attitude of the space system.",
+    )
+    attitude_schedule: TiltSchedule | None = Field(
+        default=None,
+        description="A pitch of the body that changes by day, from which a "
+        + "schedule of attitudes is built for the period of an analysis.",
     )
     instruments: tuple[InstrumentSpecification, ...] = Field(
         ..., min_length=1, description="The instruments."
@@ -186,6 +394,11 @@ class Configuration(_CatalogModel):
         if (self.grouping == "single") != (len(self.instruments) == 1):
             raise ValueError("grouping is `single` only for one instrument")
         Attitude(velocity_frame=self.velocity_frame, **self.attitude)
+        if self.attitude_schedule is not None and {
+            "pitch_angle",
+            "pitch_angle_profile",
+        } & set(self.attitude):
+            raise ValueError("an attitude schedule sets the pitch of the attitude")
         return self
 
     @property
@@ -193,11 +406,14 @@ class Configuration(_CatalogModel):
         """
         Whether any parameter was fitted to reference data.
         """
-        return any(
-            provenance.kind == "measured"
+        provenances = [
+            provenance
             for instrument in self.instruments
             for provenance in instrument.provenance.values()
-        )
+        ]
+        if self.attitude_schedule is not None:
+            provenances += list(self.attitude_schedule.provenance.values())
+        return any(provenance.kind == "measured" for provenance in provenances)
 
     @property
     def digest(self) -> str:
@@ -212,6 +428,10 @@ class Configuration(_CatalogModel):
                 {"type": i.type, "parameters": i.parameters} for i in self.instruments
             ],
         }
+        if self.attitude_schedule is not None:
+            content["attitude_schedule"] = self.attitude_schedule.model_dump(
+                mode="json", exclude={"provenance"}
+            )
         encoded = json.dumps(content, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -499,6 +719,8 @@ class InstrumentEntry(_CatalogModel):
         time_step: float | None = None,
         attitude: Any = None,
         platform: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> InstrumentPayload:
         """
         Builds the instruments of a configuration with the attitude they were
@@ -508,7 +730,7 @@ class InstrumentEntry(_CatalogModel):
             configuration (str | None): The identifier of the configuration, or
                 `None` for the default.
             orbit (Any): The orbit, if the configuration tailors a field of view
-                to a time step.
+                to a time step or schedules its attitude.
             time_step (float | None): The analysis time step (seconds), if the
                 configuration tailors a field of view to it.
             attitude (Any): An attitude to use instead of the validated one (for
@@ -516,13 +738,20 @@ class InstrumentEntry(_CatalogModel):
             platform (str | None): The identifier of the platform being modeled,
                 if any. Using a configuration on a platform on which it was not
                 tested gives a warning.
+            start (datetime.datetime | None): The start of the analysis
+                (timezone-aware), if the configuration schedules its attitude
+                by day.
+            end (datetime.datetime | None): The end of the analysis
+                (timezone-aware), if the configuration schedules its attitude
+                by day.
 
         Returns:
             InstrumentPayload: The instruments, attitude, and analysis settings.
 
         Raises:
             ValueError: If the configuration is unknown, tailoring lacks an
-                orbit or time step, or an attitude has another velocity frame.
+                orbit or time step, a schedule lacks an orbit or the period of
+                the analysis, or an attitude has another velocity frame.
         """
         key = self.default_configuration if configuration is None else configuration
         if key not in self.configurations:
@@ -550,6 +779,19 @@ class InstrumentEntry(_CatalogModel):
                 f"configuration {key!r} of {self.id!r} was tested on "
                 f"{list(selected.platforms)}, not on {platform!r}",
                 stacklevel=2,
+            )
+        if (
+            selected.attitude_schedule is not None
+            and attitude is None
+            and (orbit is None or start is None or end is None)
+        ):
+            raise ValueError(
+                f"configuration {key!r} of {self.id!r} schedules its attitude by "
+                "day, which needs an orbit and the start and end of the analysis"
+            )
+        if attitude is None and selected.attitude_schedule is not None:
+            attitude = selected.attitude_schedule.build_schedule(
+                orbit, start, end, selected.velocity_frame, selected.attitude
             )
         return InstrumentPayload(
             instruments=[
@@ -611,6 +853,8 @@ class InstrumentEntry(_CatalogModel):
         attitude: Any = None,
         platform: str | None = None,
         name: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> Satellite:
         """
         Builds a satellite that carries the instruments of a configuration. To
@@ -627,6 +871,10 @@ class InstrumentEntry(_CatalogModel):
             platform (str | None): The identifier of the platform being modeled.
             name (str | None): The satellite's name, or `None` for the
                 instrument's.
+            start (datetime.datetime | None): The start of the analysis, if the
+                configuration schedules its attitude by day.
+            end (datetime.datetime | None): The end of the analysis, if the
+                configuration schedules its attitude by day.
 
         Returns:
             Satellite: The satellite.
@@ -637,6 +885,8 @@ class InstrumentEntry(_CatalogModel):
             time_step=time_step,
             attitude=attitude,
             platform=platform,
+            start=start,
+            end=end,
         )
         return Satellite(
             name=self.name if name is None else name,

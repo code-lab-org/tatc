@@ -18,9 +18,37 @@ default_configuration: swath
 configurations:
   swath:
     grade: timing
-    description: The swath scanned between the outermost samples, tilted aft over the southern part of the sunlit half orbit and forward over the northern part, with a view tailored to the analysis time step.
+    description: The swath scanned between the outermost samples, tilted aft over the southern part of the sunlit half orbit and forward over the northern part, changing at a latitude scheduled by day, with a view tailored to the analysis time step. Build it with the start and end of the analysis.
     platforms: [pace]
     velocity_frame: earth_fixed
+    attitude_schedule:
+      fore_pitch_angle: 19.8555
+      aft_pitch_angle: -19.8149
+      odd_day_offset: 5.2097
+      even_day_offset: -0.8697
+      transition: 1.681
+      return_argument_of_latitude: 180
+      provenance:
+        fore_pitch_angle: &measured_tilt
+          kind: measured
+          source: validate_catalog_oci.py --fit, the along-track angle of the samples forward and aft
+          platform: pace
+          period: "2026-10-04"
+        aft_pitch_angle: *measured_tilt
+        odd_day_offset: &measured_schedule
+          kind: measured
+          source: validate_catalog_oci.py --switches, the median by day of the spacecraft's geodetic latitude where the tilt changes to forward, less the subsolar latitude at noon (UTC), by the parity of the day of the year (standard deviation 0.018 deg over 55 days)
+          platform: pace
+          period: 2026-08-15 to 2026-10-08
+        even_day_offset: *measured_schedule
+        transition:
+          kind: measured
+          source: validate_catalog_oci.py --fit, the arc of argument of latitude over which the tilt changes, about 26 s
+          platform: pace
+          period: "2026-10-04"
+        return_argument_of_latitude:
+          kind: placeholder
+          source: The tilt changes back in the dark half of the orbit, which has no data; placed at the descending node
     instruments:
       - type: pointed
         parameters:
@@ -28,11 +56,6 @@ configurations:
           field_of_regard: 120
           cross_track_field_of_view: 113.235
           along_track_field_of_view: {tailor: time_step}
-          pitch_angle_profile:
-            - [1.574, 19.8555]
-            - [179.9, 19.8555]
-            - [180.1, -19.8149]
-            - [359.893, -19.8149]
           is_rectangular: true
         provenance:
           field_of_regard:
@@ -46,16 +69,13 @@ configurations:
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
-          pitch_angle_profile:
-            kind: measured
-            source: validate_catalog_oci.py --fit, the along-track angle of the samples forward and aft, and the arguments of latitude (from latitude) at which the tilt changes after the ascending node, over about 26 s; the change back is placed in the dark half orbit, which has no data
-            platform: pace
-            period: "2026-10-04"
           is_rectangular:
             kind: derived
             source: Models a scanned swath as a rectangular view
     limitations:
-      - The tilt changes from aft to forward at a latitude that moves with the season, near that of the subsolar point; the profile places it just after the ascending node, where it was on 2026-10-04. On held-out data of 2026-11-04 the change came near 17 deg S, so over about 17 deg of latitude the view tilted the wrong way, predicting those passes about 73 s late, with extra passes, and lowering the swath's intersection over union (epochs within 72.6 s at the 95th percentile; 93.7% of predicted passes observed; intersection over union 0.951 at 10 s and 0.909 at 120 s). For other dates, set the profile's change to the latitude of the period analyzed.
+      - The tilt changes from aft to forward where the spacecraft's geodetic latitude reaches the subsolar latitude at noon (UTC) plus 5.21 deg on days of odd day of the year, and less 0.87 deg on even days, as measured from 2026-08-15 to 2026-10-08. Whether the alternation follows the day of the year or a count of days across a new year is not known. On 2 of the 55 days, the last two changes of the day came about 0.8 deg south of the others. The schedule is set by the mission and may change.
+      - A first version, whose profile fixed the change at the latitude of 2026-10-04, failed on held-out data of 2026-11-04, where the change came near 17 deg S (epochs within 72.6 s at the 95th percentile; 93.7% of predicted passes observed; intersection over union 0.909 at 120 s). The schedule was then fitted, and tested on a later day.
+      - On data held out on 2026-11-07, the schedule placed passes within 0.55 s at the 95th percentile, but 93.9% of predicted passes were observed, and the swath's intersection over union was 0.939 at 120 s (0.982 at 10 s, 0.956 at 30 s); 2026-11-08, a day of the other offset, gave 93.8% and 0.939. The passes predicted but not observed lie at the change of tilt. The profile moves the tilt linearly over 26 s, whereas the product flags every scan taken while the tilt changes (none of 392 such scans on 2026-10-04 was valid), for about 35 s at each change, so analyses count ground near the latitude of the change that OCI does not observe.
       - The tilt changes back in the dark half of the orbit, where the product has no data, at an argument of latitude placed at 180 deg; analyses there describe a tilt that was not tested.
       - The scan line is rotated by about 0.1 deg from perpendicular to the Earth-fixed ground track (a fitted yaw), which is not modeled.
       - The swath width of a pointed instrument follows its field of regard, centered on nadir, which does not describe this tilted view; its width is that between the projections of its edges.

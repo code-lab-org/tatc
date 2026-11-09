@@ -55,30 +55,24 @@ def _observations(satellite, names, epochs, lon, lat) -> gpd.GeoDataFrame:
     )
 
 
-class _ScannerFixture:
+class _SwathFixture:
     """
-    Tests shared by the entries of cross-track scanners.
+    Tests shared by the swath configurations of cross-track scanners.
     """
 
     entry_id: str
-    sizes_key: str
-    footprints: tuple
+    fixture_name: str | None = None
+    swath_key = "swath"
     platform = "noaa-20"
-    meets_published_gate = True
-    meets_pixel_gate = True
 
     @classmethod
     def setUpClass(cls):
-        with np.load(FIXTURES / f"{cls.entry_id}.npz", allow_pickle=False) as data:
+        name = cls.fixture_name or cls.entry_id
+        with np.load(FIXTURES / f"{name}.npz", allow_pickle=False) as data:
             cls.data = {key: data[key] for key in data.files}
         cls.entry = get_entry(cls.entry_id)
         cls.orbit = GeneralPerturbationsOrbit.from_tle(cls.data["tle"].tolist())
         cls.day = datetime.fromisoformat(str(cls.data["day"]))
-        cls.satellite = cls.entry.to_satellite(
-            cls.orbit, cls.sizes_key, platform=cls.platform
-        )
-        cls.names = np.array([i.name for i in cls.satellite.instruments])
-        cls.recorded = cls.entry.record.configurations[cls.sizes_key].fixture_metrics
 
     def time_step(self) -> float:
         """
@@ -86,23 +80,12 @@ class _ScannerFixture:
         """
         raise NotImplementedError
 
-    def spacing_names(self, rows: np.ndarray) -> np.ndarray:
-        """
-        Gets the names of the instruments of rows of measured spacing.
-        """
-        raise NotImplementedError
-
-    def recompute_pixel_differences(self) -> np.ndarray:
-        """
-        Gets the differences (km) between recomputed pixels and the fixture's samples.
-        """
-        raise NotImplementedError
-
     def test_fixture_size(self):
         """
         Test that the fixture stays small, as it is part of the repository.
         """
-        size = (FIXTURES / f"{self.entry_id}.npz").stat().st_size
+        name = self.fixture_name or self.entry_id
+        size = (FIXTURES / f"{name}.npz").stat().st_size
         self.assertLess(size, MAX_FIXTURE_BYTES)
 
     def test_passes(self):
@@ -110,7 +93,10 @@ class _ScannerFixture:
         Test that the recorded passes are predicted, and that this does not move.
         """
         satellite = self.entry.to_satellite(
-            self.orbit, "swath", time_step=self.time_step(), platform=self.platform
+            self.orbit,
+            self.swath_key,
+            time_step=self.time_step(),
+            platform=self.platform,
         )
         differences = []
         for latitude, longitude, seconds in self.data["passes"]:
@@ -130,13 +116,46 @@ class _ScannerFixture:
                 else np.nan
             )
         differences = np.array(differences, dtype=float)
-        recorded = self.entry.record.configurations["swath"].fixture_metrics
+        recorded = self.entry.record.configurations[self.swath_key].fixture_metrics
         self.assertEqual(
             100 * float(np.isfinite(differences).mean()), recorded["passes_found"]
         )
         self.assertAlmostEqual(
             float(summarize(differences)["p95"]), recorded["epoch_p95"], places=4
         )
+
+
+class _ScannerFixture(_SwathFixture):
+    """
+    Tests shared by the entries of cross-track scanners, with a sample size
+    configuration.
+    """
+
+    sizes_key: str
+    footprints: tuple
+    meets_published_gate = True
+    meets_pixel_gate = True
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.satellite = cls.entry.to_satellite(
+            cls.orbit, cls.sizes_key, platform=cls.platform
+        )
+        cls.names = np.array([i.name for i in cls.satellite.instruments])
+        cls.recorded = cls.entry.record.configurations[cls.sizes_key].fixture_metrics
+
+    def spacing_names(self, rows: np.ndarray) -> np.ndarray:
+        """
+        Gets the names of the instruments of rows of measured spacing.
+        """
+        raise NotImplementedError
+
+    def recompute_pixel_differences(self) -> np.ndarray:
+        """
+        Gets the differences (km) between recomputed pixels and the fixture's samples.
+        """
+        raise NotImplementedError
 
     def test_published_dimensions(self):
         """
@@ -260,6 +279,17 @@ class TestAtmsFixture(_ScannerFixture, unittest.TestCase):
         return np.array(differences)
 
 
+class TestAtmsNoaa21Fixture(TestAtmsFixture):
+    """
+    Regression tests of the ATMS entry's configurations of NOAA-21.
+    """
+
+    fixture_name = "atms_noaa_21"
+    swath_key = "swath_noaa_21"
+    sizes_key = "beams_noaa_21"
+    platform = "noaa-21"
+
+
 class TestViirsFixture(_ScannerFixture, unittest.TestCase):
     """
     Regression tests of the VIIRS entry.
@@ -294,6 +324,20 @@ class TestViirsFixture(_ScannerFixture, unittest.TestCase):
             ) / 2
             differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
         return np.array(differences)
+
+
+class TestViirsNoaa21Fixture(_SwathFixture, unittest.TestCase):
+    """
+    Regression tests of the VIIRS entry's swath configuration of NOAA-21.
+    """
+
+    entry_id = "viirs"
+    fixture_name = "viirs_noaa_21"
+    swath_key = "swath_noaa_21"
+    platform = "noaa-21"
+
+    def time_step(self) -> float:
+        return float(self.data["scan_period"])
 
 
 class TestModisFixture(_ScannerFixture, unittest.TestCase):

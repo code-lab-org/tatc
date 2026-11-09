@@ -14,7 +14,14 @@ Reads anonymous public data, and needs the `validation` extra:
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
 
-With `--platform noaa-21`, it tests the same values on a sibling satellite, and
+NOAA-21's ATMS has its own configurations, whose angles are fitted with `--fit` to
+2026-11-05 (the notebooks' angles are NOAA-20's), and tested on a day at least 30 days
+from it:
+
+    python docs/validation/validate_catalog_atms.py <data directory> 2026-11-05 --platform noaa-21 --fit
+    python docs/validation/validate_catalog_atms.py <data directory> 2026-10-02 --platform noaa-21
+
+With `--transfer`, it tests NOAA-20's configurations on another platform instead, and
 adds the results to the record as a transfer, which does not count toward the tier.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
@@ -25,6 +32,7 @@ import concurrent.futures
 import io
 import json
 import pathlib
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import h5py
@@ -38,7 +46,9 @@ from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
+import gesdisc_scanner
 from validation_io import (
+    TO_GEODETIC,
     add_transfer_metrics,
     use_archive,
     build_grid,
@@ -51,6 +61,7 @@ from validation_io import (
     in_lattice_cells,
     list_keys,
     load_element_set,
+    normalize,
     recompute_passes,
     score_passes,
     score_published,
@@ -70,9 +81,18 @@ GATED = (
 )
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
 RECORD_PATH = REPOSITORY / "src" / "tatc" / "resources" / "validation" / "atms.json"
-FIXTURE_PATH = REPOSITORY / "tests" / "catalog" / "fixtures" / "atms.npz"
+FIXTURES = REPOSITORY / "tests" / "catalog" / "fixtures"
 
-FIT_DAY = datetime(2026, 10, 2, tzinfo=timezone.utc)
+# the days to which each platform's angles were fitted, and its configurations
+# (swath, beams) and fixture
+FIT_DAYS = {
+    "noaa-20": datetime(2026, 10, 2, tzinfo=timezone.utc),
+    "noaa-21": datetime(2026, 11, 5, tzinfo=timezone.utc),
+}
+CONFIGURATIONS = {
+    "noaa-20": ("swath", "beams", FIXTURES / "atms.npz"),
+    "noaa-21": ("swath_noaa_21", "beams_noaa_21", FIXTURES / "atms_noaa_21.npz"),
+}
 FIELDS = (
     "StartTime",
     "MidTime",
@@ -86,7 +106,6 @@ FIELDS = (
 N_BEAMS, SCAN_PERIOD = 96, 8 / 3
 TIME_STEPS = (SCAN_PERIOD, 32, 128)
 ORBIT_MARGIN = 128
-SWATH, BEAMS = "swath", "beams"
 SIZE_INSTRUMENT = "ATMS channels 3-16"
 # published footprints: instrument, altitude (km), inclination (deg), scan angle
 # (deg), and sizes along and across track (km), from the TC PRIMED documentation
@@ -100,6 +119,22 @@ PUBLISHED_FOOTPRINTS = (
 )
 PIXEL_SCAN_STRIDE, SPACING_SCAN_STRIDE, WIDTH_SCAN_STRIDE = 100, 150, 5
 FIXTURE_PASSES, FIXTURE_PIXELS, FIXTURE_SPACING = 60, 200, 200
+
+
+@dataclass(frozen=True)
+class Run:
+    """
+    What a run tests: the configurations of the swath and beams, the platform whose
+    data they are tested on, the fixture, the day of the fit, and whether the results
+    are a transfer to a platform on which the configurations were not fitted.
+    """
+
+    platform: str
+    swath: str
+    beams: str
+    fixture_path: pathlib.Path
+    fit_day: datetime
+    transfer: bool
 
 
 def load_day(day: datetime, directory: pathlib.Path) -> dict[str, np.ndarray]:
@@ -318,17 +353,71 @@ def measure_spacing(reference: Reference) -> tuple[pd.DatetimeIndex, np.ndarray]
     return times[keep], rows[keep]
 
 
-def validate_beams(
-    day, tle, entry, orbit, reference, write: bool, platform: str = FIT_PLATFORM
-) -> None:
+def fit(day: datetime, reference: Reference) -> None:
+    """
+    Prints the angles fitted to a day in the inertial frame: those of the outermost
+    beams, and the spacing and roll of a line fitted to the beams' angles (with
+    `gesdisc_scanner.fit`); and the slope of the scan line and the along-track angle
+    at nadir, with the spacecraft placed at each beam's time, which removes the skew
+    of beams sampled in sequence. The slope is that of `gesdisc_scanner.fit_yaw`, so
+    that the attitude's yaw angle is its negative, and its pitch angle the
+    along-track angle.
+    """
+    lon, lat, altitude = TO_GEODETIC.transform(*reference.position.T)
+    gesdisc_scanner.fit(
+        gesdisc_scanner.Reference(
+            day,
+            {
+                "time": (reference.time - pd.Timestamp(day)).total_seconds().to_numpy(),
+                "lat": reference.lat,
+                "lon": reference.lon,
+                "sc_lat": np.asarray(lat),
+                "sc_lon": np.asarray(lon),
+                "sc_alt": np.asarray(altitude),
+            },
+            SCAN_PERIOD,
+        ),
+        "inertial",
+    )
+    zenith = up(np.asarray(lon), np.asarray(lat))
+    motion = reference.velocity + np.cross(
+        [0, 0, gesdisc_scanner.EARTH_ROTATION], reference.position
+    )
+    along_axis = normalize(motion - np.sum(motion * zenith, axis=-1)[:, None] * zenith)
+    left_axis = np.cross(zenith, along_axis)
+    # the spacecraft's position (Earth-fixed) at each beam's time
+    spacecraft = (
+        reference.position[:, np.newaxis]
+        + reference.velocity[:, np.newaxis] * reference.beam_offsets[:, np.newaxis]
+    )
+    rays = ecef(reference.lon, reference.lat, reference.height) - spacecraft
+    down = -np.sum(rays * zenith[:, np.newaxis], axis=-1)
+    along = np.sum(rays * along_axis[:, np.newaxis], axis=-1) / down
+    cross = np.sum(rays * left_axis[:, np.newaxis], axis=-1) / down
+    centered = cross - cross.mean(axis=1, keepdims=True)
+    slope = np.degrees(
+        np.arctan(np.sum(centered * along, axis=1) / np.sum(centered**2, axis=1))
+    )
+    middle = np.degrees(
+        np.arctan(along[:, N_BEAMS // 2 - 1 : N_BEAMS // 2 + 1].mean(axis=1))
+    )
+    print(
+        f"inertial, with beams at their times: slope {np.median(slope):+.4f} deg "
+        f"(p5 {np.percentile(slope, 5):+.4f}, p95 {np.percentile(slope, 95):+.4f}); "
+        f"along-track angle at nadir {np.median(middle):+.4f} deg (p5 "
+        f"{np.percentile(middle, 5):+.4f}, p95 {np.percentile(middle, 95):+.4f})"
+    )
+
+
+def validate_beams(day, tle, entry, orbit, reference, write: bool, run: Run) -> None:
     """Scores the sample size configuration, and writes its results if requested."""
     within, largest = score_published(
-        compute_published_errors(entry, BEAMS, PUBLISHED_FOOTPRINTS)
+        compute_published_errors(entry, run.beams, PUBLISHED_FOOTPRINTS)
     )
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
-    satellite = entry.to_satellite(orbit, BEAMS, platform=platform)
+    satellite = entry.to_satellite(orbit, run.beams, platform=run.platform)
     names = [instrument.name for instrument in satellite.instruments]
     index = names.index(SIZE_INSTRUMENT)
     pixels = measure_pixels(reference, satellite, index)
@@ -342,11 +431,11 @@ def validate_beams(
     print(f"spacing, predicted / measured: {along:.4f} along, {cross:.4f} across")
     if not write:
         return
-    if platform != FIT_PLATFORM:
+    if run.transfer:
         add_transfer_metrics(
             RECORD_PATH,
-            BEAMS,
-            f"{platform}, {day:%Y-%m-%d}",
+            run.beams,
+            f"{run.platform}, {day:%Y-%m-%d}",
             {
                 "pixel_position_median": median,
                 "pixel_position_p95": p95,
@@ -362,7 +451,7 @@ def validate_beams(
     )
     reduced = pixels[rng.choice(len(pixels), FIXTURE_PIXELS, replace=False)]
     update_fixture(
-        FIXTURE_PATH,
+        run.fixture_path,
         tle=np.array(tle),
         day=np.array(day.isoformat()),
         pixels=reduced,
@@ -372,17 +461,17 @@ def validate_beams(
     update_record(
         RECORD_PATH,
         "atms",
-        BEAMS,
+        run.beams,
         {
-            "digest": entry.configurations[BEAMS].digest,
+            "digest": entry.configurations[run.beams].digest,
             "evidence": "rerun",
             "tatc_version": tatc.__version__,
             "source": "docs/validation/validate_catalog_atms.py",
             "reference": "Footprints of the TC PRIMED documentation; beam centers of "
             "the ATMS SDR geolocation",
             "period": f"{day:%Y-%m-%d}",
-            "platform": "noaa-20",
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
+            "platform": run.platform,
+            "holdout_gap_days": get_holdout_gap(day, run.fit_day),
             "metrics": [
                 {"name": "sample_size_within_3pct", "value": within},
                 {"name": "sample_size_largest_error", "value": largest},
@@ -401,13 +490,13 @@ def validate_beams(
     )
 
 
-def validate_swath(
-    day, tle, entry, orbit, reference, write: bool, platform: str = FIT_PLATFORM
-) -> None:
+def validate_swath(day, tle, entry, orbit, reference, write: bool, run: Run) -> None:
     """Scores the swath configuration, and writes its results if requested."""
 
     def satellite_for(time_step: float):
-        return entry.to_satellite(orbit, SWATH, time_step=time_step, platform=platform)
+        return entry.to_satellite(
+            orbit, run.swath, time_step=time_step, platform=run.platform
+        )
 
     satellite = satellite_for(SCAN_PERIOD)
     points = generate_points_fibonacci_lattice(500e3)
@@ -427,11 +516,11 @@ def validate_swath(
     print(json.dumps(results), flush=True)
     if not write:
         return
-    if platform != FIT_PLATFORM:
+    if run.transfer:
         add_transfer_metrics(
             RECORD_PATH,
-            SWATH,
-            f"{platform}, {day:%Y-%m-%d}",
+            run.swath,
+            f"{run.platform}, {day:%Y-%m-%d}",
             {name: results[name] for name in GATED},
         )
         return
@@ -446,21 +535,24 @@ def validate_swath(
         axis=-1,
     )
     update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
+        run.fixture_path,
+        tle=np.array(tle),
+        day=np.array(day.isoformat()),
+        passes=passes,
     )
     update_record(
         RECORD_PATH,
         "atms",
-        SWATH,
+        run.swath,
         {
-            "digest": entry.configurations[SWATH].digest,
+            "digest": entry.configurations[run.swath].digest,
             "evidence": "rerun",
             "tatc_version": tatc.__version__,
             "source": "docs/validation/validate_catalog_atms.py",
             "reference": "ATMS SDR geolocation",
             "period": f"{day:%Y-%m-%d}",
-            "platform": "noaa-20",
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
+            "platform": run.platform,
+            "holdout_gap_days": get_holdout_gap(day, run.fit_day),
             "metrics": [
                 {"name": name, "value": float(results[name])}
                 for name in (
@@ -481,9 +573,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=pathlib.Path)
     parser.add_argument("day")
+    parser.add_argument("--fit", action="store_true")
     parser.add_argument("--sample-sizes-only", action="store_true")
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--platform", default=FIT_PLATFORM)
+    parser.add_argument("--transfer", action="store_true")
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
 
@@ -495,24 +589,31 @@ def main() -> None:
         else arguments.directory / prefix
     )
     directory.mkdir(parents=True, exist_ok=True)
+    reference = Reference(load_day(day, directory))
+    if arguments.fit:
+        fit(day, reference)
+        return
+    fitted = FIT_PLATFORM if arguments.transfer else arguments.platform
+    run = Run(
+        arguments.platform,
+        *CONFIGURATIONS[fitted],
+        FIT_DAYS[fitted],
+        fitted != arguments.platform,
+    )
     tle = load_element_set(day, directory)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     entry = get_entry("atms")
-    reference = Reference(load_day(day, directory))
     print(
         f"{arguments.day}: {tle[0][:32]}; {len(reference.time)} scans, "
-        f"{len(reference.gaps)} gaps over a minute",
+        f"{len(reference.gaps)} gaps over a minute; configurations {run.swath} and "
+        f"{run.beams}",
         flush=True,
     )
-    validate_beams(
-        day, tle, entry, orbit, reference, arguments.write, arguments.platform
-    )
+    validate_beams(day, tle, entry, orbit, reference, arguments.write, run)
     if not arguments.sample_sizes_only:
-        validate_swath(
-            day, tle, entry, orbit, reference, arguments.write, arguments.platform
-        )
+        validate_swath(day, tle, entry, orbit, reference, arguments.write, run)
     if arguments.write:
-        print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
+        print(f"wrote {RECORD_PATH} and {run.fixture_path}")
 
 
 if __name__ == "__main__":
