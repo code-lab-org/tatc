@@ -21,6 +21,8 @@ configurations:
     description: The swath scanned between the outermost full-resolution samples, with a view tailored to the analysis time step.
     platforms: [metop-c]
     velocity_frame: earth_fixed
+    attitude:
+      yaw_angle: 0.2943
     instruments:
       - type: pointed
         parameters:
@@ -44,12 +46,14 @@ configurations:
             source: Models a scanned swath as a rectangular view
     limitations:
       - The view is centered on nadir, because the swath width of a pointed instrument follows its field of regard. The outermost samples measure 54.98 deg to the left and 55.42 deg to the right, so each modeled edge lies about 0.22 deg (about 18 km on the ground) to the left of the measured one.
-      - On held-out data, epochs are within 1.12 s at the 95th percentile, above the timing gate of 1 s. A diagnosis after the holdout found the scan line rotated by about 0.4 deg (yaw) from perpendicular to the Earth-fixed ground track, which the view does not model, so epochs differ by about 0.2 s per 10 deg from nadir, up to about 1 s near the edges; their median is 0.05 s.
+      - The yaw of 0.2943 deg rotates the scan line as measured, from perpendicular to the Earth-fixed ground track, with along-track tangents fitted on cross-track tangents on 2026-11-05 (constant within about 0.01 deg around the orbit). A first version without it failed the timing gate on held-out data of 2026-10-05 (epochs within 1.12 s at the 95th percentile); this version was then tested on 2026-10-03, a day not run before.
   pixels:
     grade: sample_size
     description: The 2048 full-resolution samples of a scan line, whose sizes and spacing `compute_sample_sizes` gives.
     platforms: [metop-c]
     velocity_frame: earth_fixed
+    attitude:
+      yaw_angle: 0.2943
     instruments:
       - type: pointed
         parameters:
@@ -93,7 +97,6 @@ configurations:
             source: AVHRR/3 scans six lines a second
     limitations:
       - The outermost sample on either side lies about 0.05 deg nearer nadir than the fitted line through the others.
-      - The scan line's rotation of about 0.4 deg (yaw), which is not modeled, displaces pixels along track by up to about 7 km near the edges (95th percentile 6.7 km; median 2.3 km).
       - The NWP SAF gives a footprint of 1.1 km at nadir, without an altitude. At Metop's nominal altitude of 817 km, the instantaneous field of view of 1.3 mrad gives about 1.06 km, 3.7% smaller, which fails the gate's tolerance of 3%.
 limitations:
   - Metop flies with yaw steering, so its scan is perpendicular to the ground track; the configurations use the Earth-fixed frame.

@@ -10,6 +10,7 @@ needed fields of the product's files are read, with range requests:
 
     python docs/validation/validate_catalog_airs.py <data directory> 2026-10-04 --fit
     python docs/validation/validate_catalog_airs.py <data directory> 2026-11-05
+    python docs/validation/validate_catalog_airs.py <data directory> 2026-11-04
 
 It also validates the entry's sample size configuration, following
 `ValidateSampleSizes`. The gated metrics compare sizes with footprints published by
@@ -45,13 +46,12 @@ from validation_io import RemoteFile
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
 FIT_DAY = datetime(2026, 10, 4, tzinfo=timezone.utc)
 # the public element set of `validate_catalog_modis.py` for Aqua, with an epoch after
-# the day of data
-ELEMENTS = {
-    "2026-11-05": (
-        "1 27424U 02022A   26311.28865478  .00000831  00000+0  17465-3 0  9993",
-        "2 27424  98.4481 283.5818 0000983 104.9545   2.1913 14.62267061304185",
-    ),
-}
+# the days of data
+AQUA_ELEMENTS = (
+    "1 27424U 02022A   26311.28865478  .00000831  00000+0  17465-3 0  9993",
+    "2 27424  98.4481 283.5818 0000983 104.9545   2.1913 14.62267061304185",
+)
+ELEMENTS = {"2026-11-05": AQUA_ELEMENTS, "2026-11-04": AQUA_ELEMENTS}
 SCAN_PERIOD = 8 / 3
 
 

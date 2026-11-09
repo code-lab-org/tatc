@@ -17,7 +17,7 @@ data_products:
 default_configuration: swath
 configurations:
   swath:
-    grade: coverage
+    grade: timing
     description: The swath scanned between the outermost footprint centers, with a view tailored to the analysis time step.
     platforms: [aqua]
     velocity_frame: inertial
@@ -41,7 +41,7 @@ configurations:
             kind: derived
             source: Models a scanned swath as a rectangular view
     limitations:
-      - TAT-C observes all pixels of a view at one instant, whereas AIRS sweeps its footprints over about 2.0 s of each 8/3 s scan. The grade was set to coverage before validation, on the expectation that this sweep would displace epochs at the edges by up to 1 s; on the validation day, the 95th percentile was 0.42 s.
+      - TAT-C observes all pixels of a view at one instant, whereas AIRS sweeps its footprints over about 2.0 s of each 8/3 s scan. A footprint sampled late lies correspondingly farther along track, which the view passes over later, so epochs stay within 0.45 s (95th percentile). The grade was raised from coverage to timing after a run on 2026-11-05 (0.42 s), and confirmed on 2026-11-04, a day not run before.
   footprints:
     grade: sample_size
     description: The 90 footprint positions of a scan, whose sizes and spacing `compute_sample_sizes` gives.

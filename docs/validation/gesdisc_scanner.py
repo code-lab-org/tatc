@@ -336,6 +336,43 @@ def fit(reference: Reference, frame: str) -> None:
     print(f"scan period: median {np.median(period):.6f} s")
 
 
+def fit_yaw(reference: Reference, frame: str) -> None:
+    """
+    Prints the yaw of the scan line: the angle whose tangent is the slope of the beams'
+    along-track tangents on their cross-track tangents (positive if the left of the
+    scan lies ahead of the right, as a yaw of the body to the right, a negative
+    `yaw_angle`, gives), with the along-track angle at nadir, overall and by latitude
+    and direction.
+    """
+    lon, lat, _ = TO_GEODETIC.transform(*reference.position.T)
+    zenith = up(lon, lat)
+    motion = reference.velocity(frame)
+    along_axis = normalize(motion - np.sum(motion * zenith, axis=-1)[:, None] * zenith)
+    left_axis = np.cross(zenith, along_axis)
+    rays = ecef(reference.lon, reference.lat) - reference.position[:, np.newaxis]
+    down = -np.sum(rays * zenith[:, np.newaxis], axis=-1)
+    along = np.sum(rays * along_axis[:, np.newaxis], axis=-1) / down
+    cross = np.sum(rays * left_axis[:, np.newaxis], axis=-1) / down
+    centered = cross - cross.mean(axis=1, keepdims=True)
+    slope = np.sum(centered * along, axis=1) / np.sum(centered**2, axis=1)
+    middle = along[:, np.argmin(np.abs(np.median(cross, axis=0)))]
+    yaw = np.degrees(np.arctan(slope))
+    pitch = np.degrees(np.arctan(middle))
+    ascending = np.gradient(np.asarray(lat)) > 0
+    print(
+        f"{frame}: yaw {np.median(yaw):+.4f} deg (p5 {np.percentile(yaw, 5):+.4f}, "
+        f"p95 {np.percentile(yaw, 95):+.4f}); along-track angle at nadir "
+        f"{np.median(pitch):+.4f} deg"
+    )
+    for name, chosen in (("ascending", ascending), ("descending", ~ascending)):
+        bands = []
+        for low in range(-90, 90, 30):
+            band = chosen & (np.asarray(lat) >= low) & (np.asarray(lat) < low + 30)
+            if np.any(band):
+                bands.append(f"{low:+d}..{low + 30:+d}: {np.median(yaw[band]):+.3f}")
+        print(f"  {name} yaw by latitude: " + ", ".join(bands))
+
+
 def score_swath_width(reference: Reference, instrument, orbit, stride: int) -> float:
     """Gets the median absolute difference (km) from the width through the beams."""
     scans = np.arange(0, len(reference.time), stride)

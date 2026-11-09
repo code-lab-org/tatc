@@ -45,6 +45,7 @@ from gesdisc_scanner import (
     Reference,
     Setup,
     fit,
+    fit_yaw,
     load_day,
     validate_beams,
     validate_swath,
@@ -188,6 +189,7 @@ def main() -> None:
     if arguments.fit:
         for frame in ("earth_fixed", "inertial"):
             fit(reference, frame)
+            fit_yaw(reference, frame)
         return
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     entry = get_entry("avhrr")

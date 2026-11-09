@@ -736,14 +736,14 @@ class TestEntryStatus(unittest.TestCase):
         """
         Test that the AIRS and AMSU-A entries, whose values are all published, are
         partial because of their published footprints alone, with their swaths
-        validated at the coverage grade.
+        validated, AIRS's at the timing grade and AMSU-A's at the coverage grade.
         """
-        for entry_id in ("airs", "amsua"):
+        for entry_id, grade in (("airs", Grade.TIMING), ("amsua", Grade.COVERAGE)):
             entry = get_entry(entry_id)
             self.assertEqual(entry.validation.tier, Tier.PARTIAL, entry_id)
             swath = entry.validation.configurations["swath"]
             self.assertEqual(swath.tier, Tier.VALIDATED, entry_id)
-            self.assertEqual(entry.configurations["swath"].grade, Grade.COVERAGE)
+            self.assertEqual(entry.configurations["swath"].grade, grade)
             footprints = entry.validation.configurations["footprints"]
             self.assertEqual(
                 [r.gate.metric for r in footprints.gates if not r.passed],
@@ -756,11 +756,11 @@ class TestEntryStatus(unittest.TestCase):
                         "measured", [p.kind for p in instrument.provenance.values()]
                     )
 
-    def test_avhrr_entry_partial(self):
+    def test_avhrr_entry_partial_on_published_footprint(self):
         """
-        Test that the AVHRR entry is partial on data held out 31 days from the fit:
-        its swath because of its epochs alone at the timing grade, and its pixels
-        because of their published footprint alone.
+        Test that the AVHRR entry is partial on data held out 33 days from the fit
+        because of its published footprint alone, with its yawed swath validated at
+        the timing grade.
         """
         entry = get_entry("avhrr")
         self.assertEqual(entry.validation.tier, Tier.PARTIAL)
@@ -768,12 +768,12 @@ class TestEntryStatus(unittest.TestCase):
             key: [r.gate.metric for r in configuration.gates if not r.passed]
             for key, configuration in entry.validation.configurations.items()
         }
-        self.assertEqual(
-            failed, {"swath": ["epoch_p95"], "pixels": ["sample_size_within_3pct"]}
-        )
+        self.assertEqual(failed, {"swath": [], "pixels": ["sample_size_within_3pct"]})
         self.assertEqual(entry.configurations["swath"].grade, Grade.TIMING)
         for configuration in entry.validation.configurations.values():
-            self.assertEqual(configuration.record.holdout_gap_days, 31)
+            self.assertEqual(configuration.record.holdout_gap_days, 33)
+        for key in ("swath", "pixels"):
+            self.assertEqual(entry.configurations[key].attitude, {"yaw_angle": 0.2943})
 
     def test_gmi_reports_spacing_limitation(self):
         """
