@@ -9,6 +9,11 @@ platforms:
     norad_id: 62261
     status: operational
     as_of: 2026-10-02
+  - id: sentinel-1d
+    name: Sentinel-1D
+    norad_id: 66315
+    status: operational
+    as_of: 2026-11-05
 data_products:
   - name: Sentinel-1 Level-1 Ground Range Detected (GRD)
     provider: Microsoft Planetary Computer
@@ -96,6 +101,6 @@ configurations:
       - At long time steps, the view, far from nadir and tailored to a long along-track field of view, reaches beyond the swath. On held-out data, the swath's intersection over union was 0.978 (5th percentile 0.968) at 10 s and 0.955 (0.923) at 30 s, but 0.818 (0.741) at 120 s, which fails the standard's limit of 0.90 for both, so use time steps of 30 s or less.
       - Images are formed in the plane perpendicular to the Earth-fixed velocity (zero-Doppler geometry), so a user-supplied attitude should keep the Earth-fixed frame.
 limitations:
-  - The fitted values were measured on Sentinel-1C. Sentinel-1D, which also flies the mission, was not tested.
+  - The fitted values were measured on Sentinel-1C. On Sentinel-1D, they are a transfer that warns on use; on 2026-11-05, results were like Sentinel-1C's, with 98.6% (IW) and 98.7% (EW) of points found, edges within 7.8 km (IW) and 11.1 km (EW) at the 95th percentile, and intersection over union failing at 30 s and longer.
   - The Stripmap and Wave modes are not represented, and the roll angles within a mode, which the mission sets by its beam and plans, are taken as those of the fitting day.
   - Sentinel-1 acquires according to plans, so TAT-C predicts which points it can observe, not which it will.

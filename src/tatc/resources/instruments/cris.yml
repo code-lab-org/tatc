@@ -9,6 +9,11 @@ platforms:
     norad_id: 43013
     status: operational
     as_of: 2026-10-02
+  - id: noaa-21
+    name: NOAA-21
+    norad_id: 54234
+    status: operational
+    as_of: 2026-11-05
 data_products:
   - name: CrIS SDR geolocation (GCRSO)
     provider: NOAA Open Data Dissemination
@@ -116,4 +121,4 @@ configurations:
       - The pixels are evenly spaced across track, whereas the fields of view of a field of regard are 1.09 deg apart and fields of regard 3.33 deg apart.
       - The published footprint at the swath edge, of 24 km by 48 km, is given as an approximate maximum.
 limitations:
-  - The fitted angles were measured on NOAA-20. CrIS also flies on Suomi NPP and NOAA-21, on which these configurations were not tested.
+  - The fitted angles were measured on NOAA-20. On NOAA-21, these configurations are a transfer that warns on use; on 2026-11-05, 99.85% of passes were found, with epochs within 1.12 s (95th percentile) and pixels 12.3 km from the fields of view (median). They were not tested on Suomi NPP.

@@ -1,6 +1,7 @@
 """
 Regression tests that recompute the results of the entries of pushbroom imagers,
-synthetic aperture radars, and the SMAP radiometer from reduced fixtures, written by
+synthetic aperture radars, the SMAP radiometer, SSMIS, and OCI's swath from reduced
+fixtures, written by
 the scripts
 `docs/validation/validate_catalog_<entry>.py`.
 
@@ -164,6 +165,36 @@ class TestSmapRadiometerFixture(_PushbroomFixture, unittest.TestCase):
     platform = "smap"
     configuration = "looks"
     time_step = 4.11
+
+
+class TestSsmisFixture(_PushbroomFixture, unittest.TestCase):
+    """
+    Regression tests of the SSMIS entry, a conical scanner, tailored to its scan
+    period.
+    """
+
+    entry_id = "ssmis"
+    platform = "dmsp-f18"
+    time_step = 1.899
+
+
+class TestOlciFixture(_PushbroomFixture, unittest.TestCase):
+    """
+    Regression tests of the OLCI entry, a pushbroom rolled away from the sun.
+    """
+
+    entry_id = "olci"
+    platform = "sentinel-3a"
+
+
+class TestOciFixture(_PushbroomFixture, unittest.TestCase):
+    """
+    Regression tests of the OCI entry's swath, a cross-track scanner whose tilt
+    follows a pitch profile.
+    """
+
+    entry_id = "oci"
+    platform = "pace"
 
 
 class TestLsarWideBandFixture(_PushbroomFixture, unittest.TestCase):

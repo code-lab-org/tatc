@@ -26,6 +26,9 @@ With `--write`, it writes the entry's validation record and the reduced fixture 
 which unit tests recompute the results. A record of the day of the fit has no
 holdout, which the entry's validation reports as a gap.
 
+With `--platform metop-b`, it tests the same values on a sibling satellite, and
+adds the results to the record as a transfer, which does not count toward the tier.
+
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
@@ -120,6 +123,24 @@ PRODUCT = Product(
 # AVHRR/3, which gives a square 1.1 km at nadir and states no altitude, at Metop's
 # nominal altitude
 PUBLISHED_FOOTPRINTS = (("AVHRR", 817, 98.7, 0, 1.1, 1.1),)
+# a sibling platform, on which results are reported as a transfer, with its product
+# and public element sets from CelesTrak, with epochs after each day of data
+TRANSFERS = {
+    "metop-b": (
+        Product(
+            short_name="AVHRRF_MB-STAR-L2P-v2.80",
+            version="2.80",
+            read=read_avhrr,
+            host="https://archive.podaac",
+        ),
+        {
+            "2026-11-05": (
+                "1 38771U 12049A   26312.34881222  .00000142  00000+0  84646-4 0  9994",
+                "2 38771  98.6322   0.8399 0001242 300.9364  59.1691 14.21470905733749",
+            ),
+        },
+    ),
+}
 SETUP = Setup(
     entry_id="avhrr",
     platform="metop-c",
@@ -142,9 +163,11 @@ SETUP = Setup(
 )
 
 
-def load_reference(day: datetime, directory: pathlib.Path, tle: list[str]):
+def load_reference(
+    day: datetime, directory: pathlib.Path, tle: list[str], product: Product = PRODUCT
+):
     """Loads a reduced day, with the spacecraft's position from the element set."""
-    data = load_day(PRODUCT, day, directory)
+    data = load_day(product, day, directory)
     times = list(
         (pd.Timestamp(day) + pd.to_timedelta(data["time"], unit="s")).to_pydatetime()
     )
@@ -170,17 +193,23 @@ def main() -> None:
     parser.add_argument("--fit", action="store_true")
     parser.add_argument("--sample-sizes-only", action="store_true")
     parser.add_argument("--write", action="store_true")
+    parser.add_argument("--platform", default=SETUP.platform)
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
 
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    tle = list(
-        ELEMENTS[arguments.day]
-        if arguments.day in ELEMENTS
-        else read_element_set_file(ELEMENT_SET_FILE, NORAD_ID, day)
-    )
+    product = PRODUCT
+    if arguments.platform != SETUP.platform:
+        product, elements = TRANSFERS[arguments.platform]
+        tle = list(elements[arguments.day])
+    else:
+        tle = list(
+            ELEMENTS[arguments.day]
+            if arguments.day in ELEMENTS
+            else read_element_set_file(ELEMENT_SET_FILE, NORAD_ID, day)
+        )
     print(f"element set: {tle[0][:32]}", flush=True)
-    reference = load_reference(day, arguments.directory, tle)
+    reference = load_reference(day, arguments.directory, tle, product)
     print(
         f"{arguments.day}: {len(reference.time)} scans from {reference.time[0]}, "
         f"{len(reference.gaps)} gaps over a minute",
@@ -193,9 +222,20 @@ def main() -> None:
         return
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     entry = get_entry("avhrr")
-    validate_beams(SETUP, day, tle, entry, orbit, reference, arguments.write)
+    validate_beams(
+        SETUP, day, tle, entry, orbit, reference, arguments.write, arguments.platform
+    )
     if not arguments.sample_sizes_only:
-        validate_swath(SETUP, day, tle, entry, orbit, reference, arguments.write)
+        validate_swath(
+            SETUP,
+            day,
+            tle,
+            entry,
+            orbit,
+            reference,
+            arguments.write,
+            arguments.platform,
+        )
     if arguments.write:
         print(f"wrote {SETUP.record_path} and {SETUP.fixture_path}")
 

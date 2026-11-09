@@ -14,6 +14,9 @@ Reads anonymous public data, and needs the `validation` extra:
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
 
+With `--platform noaa-21`, it tests the same values on a sibling satellite, and
+adds the results to the record as a transfer, which does not count toward the tier.
+
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
@@ -36,6 +39,8 @@ from tatc.catalog.metrics import summarize
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
 from validation_io import (
+    add_transfer_metrics,
+    use_archive,
     build_grid,
     compute_published_errors,
     compute_spacing_ratios,
@@ -55,6 +60,14 @@ from validation_io import (
     update_record,
 )
 
+FIT_PLATFORM = "noaa-20"
+GATED = (
+    "pass_recall",
+    "pass_precision",
+    "epoch_p95",
+    "swath_width_median",
+    "footprint_iou_median",
+)
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
 RECORD_PATH = REPOSITORY / "src" / "tatc" / "resources" / "validation" / "atms.json"
 FIXTURE_PATH = REPOSITORY / "tests" / "catalog" / "fixtures" / "atms.npz"
@@ -305,7 +318,9 @@ def measure_spacing(reference: Reference) -> tuple[pd.DatetimeIndex, np.ndarray]
     return times[keep], rows[keep]
 
 
-def validate_beams(day, tle, entry, orbit, reference, write: bool) -> None:
+def validate_beams(
+    day, tle, entry, orbit, reference, write: bool, platform: str = FIT_PLATFORM
+) -> None:
     """Scores the sample size configuration, and writes its results if requested."""
     within, largest = score_published(
         compute_published_errors(entry, BEAMS, PUBLISHED_FOOTPRINTS)
@@ -313,7 +328,7 @@ def validate_beams(day, tle, entry, orbit, reference, write: bool) -> None:
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
-    satellite = entry.to_satellite(orbit, BEAMS, platform="noaa-20")
+    satellite = entry.to_satellite(orbit, BEAMS, platform=platform)
     names = [instrument.name for instrument in satellite.instruments]
     index = names.index(SIZE_INSTRUMENT)
     pixels = measure_pixels(reference, satellite, index)
@@ -326,6 +341,19 @@ def validate_beams(day, tle, entry, orbit, reference, write: bool) -> None:
     )
     print(f"spacing, predicted / measured: {along:.4f} along, {cross:.4f} across")
     if not write:
+        return
+    if platform != FIT_PLATFORM:
+        add_transfer_metrics(
+            RECORD_PATH,
+            BEAMS,
+            f"{platform}, {day:%Y-%m-%d}",
+            {
+                "pixel_position_median": median,
+                "pixel_position_p95": p95,
+                "spacing_along_ratio_median": along,
+                "spacing_cross_ratio_median": cross,
+            },
+        )
         return
     rng = np.random.default_rng(3)
     picks = rng.choice(len(rows), FIXTURE_SPACING, replace=False)
@@ -373,11 +401,13 @@ def validate_beams(day, tle, entry, orbit, reference, write: bool) -> None:
     )
 
 
-def validate_swath(day, tle, entry, orbit, reference, write: bool) -> None:
+def validate_swath(
+    day, tle, entry, orbit, reference, write: bool, platform: str = FIT_PLATFORM
+) -> None:
     """Scores the swath configuration, and writes its results if requested."""
 
     def satellite_for(time_step: float):
-        return entry.to_satellite(orbit, SWATH, time_step=time_step, platform="noaa-20")
+        return entry.to_satellite(orbit, SWATH, time_step=time_step, platform=platform)
 
     satellite = satellite_for(SCAN_PERIOD)
     points = generate_points_fibonacci_lattice(500e3)
@@ -396,6 +426,14 @@ def validate_swath(day, tle, entry, orbit, reference, write: bool) -> None:
     )
     print(json.dumps(results), flush=True)
     if not write:
+        return
+    if platform != FIT_PLATFORM:
+        add_transfer_metrics(
+            RECORD_PATH,
+            SWATH,
+            f"{platform}, {day:%Y-%m-%d}",
+            {name: results[name] for name in GATED},
+        )
         return
     rng = np.random.default_rng(1)
     picks = observed.iloc[rng.choice(len(observed), FIXTURE_PASSES, replace=False)]
@@ -445,22 +483,34 @@ def main() -> None:
     parser.add_argument("day")
     parser.add_argument("--sample-sizes-only", action="store_true")
     parser.add_argument("--write", action="store_true")
+    parser.add_argument("--platform", default=FIT_PLATFORM)
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
 
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    tle = load_element_set(day, arguments.directory)
+    prefix = use_archive(arguments.platform)
+    directory = (
+        arguments.directory
+        if arguments.platform == FIT_PLATFORM
+        else arguments.directory / prefix
+    )
+    directory.mkdir(parents=True, exist_ok=True)
+    tle = load_element_set(day, directory)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     entry = get_entry("atms")
-    reference = Reference(load_day(day, arguments.directory))
+    reference = Reference(load_day(day, directory))
     print(
         f"{arguments.day}: {tle[0][:32]}; {len(reference.time)} scans, "
         f"{len(reference.gaps)} gaps over a minute",
         flush=True,
     )
-    validate_beams(day, tle, entry, orbit, reference, arguments.write)
+    validate_beams(
+        day, tle, entry, orbit, reference, arguments.write, arguments.platform
+    )
     if not arguments.sample_sizes_only:
-        validate_swath(day, tle, entry, orbit, reference, arguments.write)
+        validate_swath(
+            day, tle, entry, orbit, reference, arguments.write, arguments.platform
+        )
     if arguments.write:
         print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
 

@@ -40,6 +40,39 @@
         "passes_found": 100.0,
         "epoch_p95": 0.14018917109999995
       }
+    },
+    "footprints": {
+      "digest": "8b58cf9ab3ef01c04ca505141a40751442adc77cb7a856db63baf865a53ce0de",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_smap.py",
+      "reference": "Footprints of Piepmeier et al. (2017) and the JPL SMAP specifications; spacing of SPL1BTB",
+      "period": "2026-09-20",
+      "platform": "smap",
+      "holdout_gap_days": 34,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 50.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 4.948199750160875
+        },
+        {
+          "name": "spacing_arc_ratio_median",
+          "value": 1.0001580345733925
+        },
+        {
+          "name": "spacing_scan_ratio_median",
+          "value": 1.017490613864489
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 50.0,
+        "spacing_arc_ratio_median": 1.000688552543529,
+        "spacing_scan_ratio_median": 1.0163489921080546
+      }
     }
   },
   "standard_version": 2

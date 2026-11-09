@@ -33,7 +33,12 @@ from tatc.catalog.metrics import compute_mask_iou, compute_pass_scores, summariz
 from tatc.schemas import CircularOrbit, Point
 from tatc.utils import VelocityFrame, compute_projected_ray_position
 
-BUCKET = "https://noaa-nesdis-n20-pds.s3.amazonaws.com/"
+# the archives of the JPSS satellites on NOAA Open Data Dissemination, by platform
+ARCHIVES = {
+    "noaa-20": ("https://noaa-nesdis-n20-pds.s3.amazonaws.com/", "n20"),
+    "noaa-21": ("https://noaa-nesdis-n21-pds.s3.amazonaws.com/", "n21"),
+}
+BUCKET, ARCHIVE_PREFIX = ARCHIVES["noaa-20"]
 IET_EPOCH = pd.Timestamp("1958-01-01", tz="UTC")
 LEAP_SECONDS = 37
 PUBLISHED_EPOCH = pd.Timestamp("2026-10-01", tz="UTC").to_pydatetime()
@@ -160,9 +165,19 @@ class RemoteFile(io.RawIOBase):
         return count
 
 
+def use_archive(platform: str) -> str:
+    """
+    Selects the archive of a JPSS satellite (NOAA-20 by default) from which objects
+    and element sets are read. Gets the prefix that distinguishes its cached files.
+    """
+    global BUCKET, ARCHIVE_PREFIX  # pylint: disable=global-statement
+    BUCKET, ARCHIVE_PREFIX = ARCHIVES[platform]
+    return ARCHIVE_PREFIX
+
+
 def load_element_set(day: datetime, directory: pathlib.Path) -> list[str]:
     """Gets the operational element set with an epoch at the start of a day."""
-    path = directory / f"n20_tle_{day:%Y%m%d}.txt"
+    path = directory / f"{ARCHIVE_PREFIX}_tle_{day:%Y%m%d}.txt"
     if not path.exists():
         key = next(
             k

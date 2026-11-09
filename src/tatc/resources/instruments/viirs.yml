@@ -9,6 +9,11 @@ platforms:
     norad_id: 43013
     status: operational
     as_of: 2026-10-02
+  - id: noaa-21
+    name: NOAA-21
+    norad_id: 54234
+    status: operational
+    as_of: 2026-11-05
 data_products:
   - name: VIIRS terrain-corrected moderate-resolution geolocation (GMTCO)
     provider: NOAA Open Data Dissemination
@@ -131,4 +136,4 @@ configurations:
       - The zones are of the moderate-resolution (M) bands, not the imagery (I) bands.
       - A single PointedInstrument of equal pixels cannot represent VIIRS's aggregation zones, so a scan needs all five instruments.
 limitations:
-  - The fitted angles were measured on NOAA-20. VIIRS also flies on Suomi NPP and NOAA-21, on which these configurations were not tested.
+  - The fitted angles were measured on NOAA-20. On NOAA-21, these configurations are a transfer that warns on use; on 2026-11-05, every pass was found, with epochs within 2.2 s (95th percentile), but the swath width differed by 21.0 km, and pixels lay 3.2 km from the samples (median). They were not tested on Suomi NPP.

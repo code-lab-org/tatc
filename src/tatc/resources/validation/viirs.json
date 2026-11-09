@@ -34,6 +34,26 @@
         {
           "name": "spacing_cross_ratio_median",
           "value": 1.0000895927623745
+        },
+        {
+          "name": "transfer_pixel_position_median",
+          "value": 3.1827709546028604,
+          "scope": "noaa-21, 2026-11-05"
+        },
+        {
+          "name": "transfer_pixel_position_p95",
+          "value": 11.06625086753721,
+          "scope": "noaa-21, 2026-11-05"
+        },
+        {
+          "name": "transfer_spacing_along_ratio_median",
+          "value": 0.9996453552709741,
+          "scope": "noaa-21, 2026-11-05"
+        },
+        {
+          "name": "transfer_spacing_cross_ratio_median",
+          "value": 1.0018471560957558,
+          "scope": "noaa-21, 2026-11-05"
         }
       ],
       "fixture_metrics": {
@@ -72,6 +92,31 @@
         {
           "name": "footprint_iou_median",
           "value": 0.9774215988205399
+        },
+        {
+          "name": "transfer_pass_recall",
+          "value": 100.0,
+          "scope": "noaa-21, 2026-11-05"
+        },
+        {
+          "name": "transfer_pass_precision",
+          "value": 97.89915966386555,
+          "scope": "noaa-21, 2026-11-05"
+        },
+        {
+          "name": "transfer_epoch_p95",
+          "value": 2.1965354919999998,
+          "scope": "noaa-21, 2026-11-05"
+        },
+        {
+          "name": "transfer_swath_width_median",
+          "value": 20.9986018617847,
+          "scope": "noaa-21, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_median",
+          "value": 0.9736058577838963,
+          "scope": "noaa-21, 2026-11-05"
         }
       ],
       "fixture_metrics": {

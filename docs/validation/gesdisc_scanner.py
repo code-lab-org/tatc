@@ -20,12 +20,15 @@ import h5py
 import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
+from pyproj import Geod
 from skyfield.api import wgs84
 
 import tatc
 from tatc.catalog.metrics import summarize
 from tatc.generation import generate_points_fibonacci_lattice
+from tatc.utils import compute_projected_ray_position
 from validation_io import (
+    add_transfer_metrics,
     TO_GEODETIC,
     RemoteFile,
     build_grid,
@@ -47,6 +50,14 @@ from validation_io import (
 
 EARTH_ROTATION = 7.2921150e-5  # rad/s
 ORBIT_MARGIN = 120  # s
+GEOD = Geod(ellps="WGS84")
+GATED = (
+    "pass_recall",
+    "pass_precision",
+    "epoch_p95",
+    "swath_width_median",
+    "footprint_iou_median",
+)
 TAI93_EPOCH = pd.Timestamp("1993-01-01", tz="UTC")
 # TAI - UTC was 27 s at the start of 1993, and has been 37 s since 2017
 TAI93_LEAP_SECONDS = 10
@@ -130,7 +141,7 @@ def find_granules(product: Product, day: datetime) -> list[str]:
             u["URL"]
             for u in item["umm"]["RelatedUrls"]
             if u["URL"].startswith(product.host)
-            and u["URL"].endswith((".nc", ".HDF5", ".h5", ".hdf"))
+            and u["URL"].endswith((".nc", ".HDF5", ".h5", ".hdf", ".zip"))
         )
         for item in items
     ]
@@ -374,15 +385,91 @@ def fit_yaw(reference: Reference, frame: str) -> None:
 
 
 def score_swath_width(reference: Reference, instrument, orbit, stride: int) -> float:
-    """Gets the median absolute difference (km) from the width through the beams."""
+    """
+    Gets the median absolute difference (km) from the width through the beams. The
+    swath width of a pointed instrument follows its field of regard, centered on
+    nadir, so that of a rolled or pitched view is found instead from the projections
+    of its edges, and compared with the distance along the surface between the
+    outermost beams.
+    """
     scans = np.arange(0, len(reference.time), stride)
+    track = orbit.get_orbit_track(list(reference.time[scans].to_pydatetime()))
+    roll = getattr(instrument, "roll_angle", 0)
+    if getattr(instrument, "pitch_angle_profile", None) or getattr(
+        instrument, "pitch_angle", 0
+    ):
+        # the left and right ends of the view at each scan's pitch
+        pitch = np.broadcast_to(instrument.get_pitch_angle(track), (len(scans),))
+        ends = [
+            [
+                compute_projected_ray_position(
+                    track[k],
+                    instrument.cross_track_field_of_view,
+                    1e-3,
+                    roll_angle=roll,
+                    pitch_angle=float(pitch[k]),
+                    is_rectangular=True,
+                    angle=angle,
+                    velocity_frame=instrument.velocity_frame,
+                )
+                for angle in (0, 180)
+            ]
+            for k in range(len(scans))
+        ]
+        predicted = GEOD.inv(
+            [float(e[0].longitude.degrees) for e in ends],
+            [float(e[0].latitude.degrees) for e in ends],
+            [float(e[1].longitude.degrees) for e in ends],
+            [float(e[1].latitude.degrees) for e in ends],
+        )[2]
+        observed = GEOD.inv(
+            reference.lon[scans, 0],
+            reference.lat[scans, 0],
+            reference.lon[scans, -1],
+            reference.lat[scans, -1],
+        )[2]
+        return float(np.median(np.abs(predicted - observed))) / 1e3
+    if roll:
+        half = instrument.cross_track_field_of_view / 2
+        edges = [
+            compute_projected_ray_position(
+                track,
+                0,
+                0,
+                roll_angle=roll + side * half,
+                velocity_frame=instrument.velocity_frame,
+            )
+            for side in (-1, 1)
+        ]
+        predicted = GEOD.inv(
+            edges[0].longitude.degrees,
+            edges[0].latitude.degrees,
+            edges[1].longitude.degrees,
+            edges[1].latitude.degrees,
+        )[2]
+        observed = GEOD.inv(
+            reference.lon[scans, 0],
+            reference.lat[scans, 0],
+            reference.lon[scans, -1],
+            reference.lat[scans, -1],
+        )[2]
+        return float(np.median(np.abs(predicted - observed))) / 1e3
     xyz = ecef(reference.lon[scans], reference.lat[scans])
     observed = np.sum(np.linalg.norm(np.diff(xyz, axis=1), axis=-1), axis=1)
-    altitude = wgs84.geographic_position_of(
-        orbit.get_orbit_track(list(reference.time[scans].to_pydatetime()))
-    ).elevation.m
+    altitude = wgs84.geographic_position_of(track).elevation.m
     predicted = np.vectorize(instrument.get_swath_width)(altitude)
     return float(np.median(np.abs(predicted - observed))) / 1e3
+
+
+def longest_span(reference: Reference, period: float) -> np.ndarray:
+    """
+    Gets the scans of the longest span of data, of at most an orbit's period (s),
+    without a gap of more than a minute, for products that do not cover whole orbits.
+    """
+    breaks = np.nonzero(np.diff(reference.seconds) >= 60)[0] + 1
+    spans = np.split(np.arange(len(reference.seconds)), breaks)
+    longest = max(spans, key=lambda s: np.ptp(reference.seconds[s]) if len(s) else 0)
+    return longest[reference.seconds[longest] < reference.seconds[longest[0]] + period]
 
 
 def observe_orbit(reference: Reference, orbit, grid, radius: float):
@@ -400,7 +487,13 @@ def observe_orbit(reference: Reference, orbit, grid, radius: float):
             break
         begin += pd.Timedelta(minutes=10)
         if begin > pd.Timestamp(reference.day) + pd.Timedelta(hours=22):
-            raise RuntimeError("no orbit without a gap")
+            scans = longest_span(reference, period.total_seconds())
+            print(
+                "no orbit without a gap; the longest span without one lasts "
+                f"{np.ptp(reference.seconds[scans]) / 60:.1f} min",
+                flush=True,
+            )
+            break
     first, last = reference.time[scans[0]], reference.time[scans[-1]]
     distance, nearest = cKDTree(reference.unit[scans].reshape(-1, 3)).query(
         unit, workers=-1
@@ -526,15 +619,21 @@ class Setup:
     fixture_spacing: int = 200
 
 
-def validate_beams(setup: Setup, day, tle, entry, orbit, reference, write: bool):
-    """Scores the sample size configuration, and writes its results if requested."""
+def validate_beams(
+    setup: Setup, day, tle, entry, orbit, reference, write: bool, platform=None
+):
+    """
+    Scores the sample size configuration, and writes its results if requested: on a
+    platform other than the configuration's (`platform`), as transfer metrics.
+    """
+    platform = platform or setup.platform
     within, largest = score_published(
         compute_published_errors(entry, setup.beams, setup.published_footprints)
     )
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
-    satellite = entry.to_satellite(orbit, setup.beams, platform=setup.platform)
+    satellite = entry.to_satellite(orbit, setup.beams, platform=platform)
     names = [instrument.name for instrument in satellite.instruments]
     index = names.index(setup.size_instrument)
     pixels = measure_pixels(
@@ -553,6 +652,19 @@ def validate_beams(setup: Setup, day, tle, entry, orbit, reference, write: bool)
     )
     print(f"spacing, predicted / measured: {along:.4f} along, {cross:.4f} across")
     if not write:
+        return
+    if platform != setup.platform:
+        add_transfer_metrics(
+            setup.record_path,
+            setup.beams,
+            f"{platform}, {day:%Y-%m-%d}",
+            {
+                "pixel_position_median": median,
+                "pixel_position_p95": p95,
+                "spacing_along_ratio_median": along,
+                "spacing_cross_ratio_median": cross,
+            },
+        )
         return
     rng = np.random.default_rng(3)
     picks = rng.choice(len(rows), setup.fixture_spacing, replace=False)
@@ -599,12 +711,18 @@ def validate_beams(setup: Setup, day, tle, entry, orbit, reference, write: bool)
     )
 
 
-def validate_swath(setup: Setup, day, tle, entry, orbit, reference, write: bool):
-    """Scores the swath configuration, and writes its results if requested."""
+def validate_swath(
+    setup: Setup, day, tle, entry, orbit, reference, write: bool, platform=None
+):
+    """
+    Scores the swath configuration, and writes its results if requested: on a
+    platform other than the configuration's (`platform`), as transfer metrics.
+    """
+    platform = platform or setup.platform
 
     def satellite_for(time_step: float):
         return entry.to_satellite(
-            orbit, setup.swath, time_step=time_step, platform=setup.platform
+            orbit, setup.swath, time_step=time_step, platform=platform
         )
 
     satellite = satellite_for(setup.time_steps[0])
@@ -626,6 +744,14 @@ def validate_swath(setup: Setup, day, tle, entry, orbit, reference, write: bool)
     )
     print(json.dumps(results), flush=True)
     if not write:
+        return
+    if platform != setup.platform:
+        add_transfer_metrics(
+            setup.record_path,
+            setup.swath,
+            f"{platform}, {day:%Y-%m-%d}",
+            {name: float(results[name]) for name in GATED},
+        )
         return
     rng = np.random.default_rng(1)
     picks = observed.iloc[

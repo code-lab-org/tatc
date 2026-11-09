@@ -9,6 +9,11 @@ platforms:
     norad_id: 43689
     status: operational
     as_of: 2026-11-05
+  - id: metop-b
+    name: Metop-B
+    norad_id: 38771
+    status: operational
+    as_of: 2026-11-05
 data_products:
   - name: GHRSST NOAA/STAR Metop-C AVHRR FRAC ACSPO L2P (AVHRRF_MC-STAR-L2P-v2.80), version 2.80
     provider: NASA PO.DAAC
@@ -101,4 +106,4 @@ configurations:
 limitations:
   - Metop flies with yaw steering, so its scan is perpendicular to the ground track; the configurations use the Earth-fixed frame.
   - The product records no spacecraft position, so the fit measured angles from the position given by the element set.
-  - These configurations were tested on Metop-C. AVHRR/3 also flies on Metop-B, and flew on earlier Metop and NOAA satellites, on which they were not tested.
+  - These configurations were tested on Metop-C. On Metop-B, they are a transfer that warns on use; on 2026-11-05, 99.64% of passes were found, with epochs within 1.00 s (95th percentile), swath width within 4.8 km, and pixels 3.6 km from the samples (median). AVHRR/3 flew on earlier Metop and NOAA satellites, on which they were not tested.

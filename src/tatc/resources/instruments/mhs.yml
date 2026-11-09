@@ -9,6 +9,11 @@ platforms:
     norad_id: 43689
     status: operational
     as_of: 2026-11-05
+  - id: metop-b
+    name: Metop-B
+    norad_id: 38771
+    status: operational
+    as_of: 2026-11-05
 data_products:
   - name: GPM_1CMETOPCMHS
     provider: NASA GES DISC
@@ -82,4 +87,4 @@ configurations:
       - Pixels are projected at the time the product gives for the scan, which precedes the sampling of most beams (by about 0.9 s at the median), so pixels lie about 6 km along track from where MHS samples them.
 limitations:
   - Metop flies with yaw steering, so its scan is perpendicular to the ground track; the configurations use the Earth-fixed frame.
-  - These configurations were tested on Metop-C. MHS also flies on Metop-B and NOAA-19, on which they were not tested.
+  - These configurations were tested on Metop-C. On Metop-B, they are a transfer that warns on use; on 2026-11-05, every pass was found, with epochs within 1.74 s (95th percentile) and pixels 5.97 km from the beams (median). They were not tested on NOAA-19.

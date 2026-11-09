@@ -96,7 +96,7 @@ class TestLoading(unittest.TestCase):
         """
         self.assertEqual(
             [e.id for e in list_entries(instrument_class="conical")],
-            ["amsr2", "gmi", "smap_radiometer"],
+            ["amsr2", "gmi", "smap_radiometer", "ssmis"],
         )
         self.assertEqual(
             [e.id for e in list_entries(instrument_class="geostationary")], ["abi"]
@@ -104,7 +104,7 @@ class TestLoading(unittest.TestCase):
         self.assertEqual([e.id for e in list_entries("conical", "validated")], ["gmi"])
         self.assertEqual(
             [e.id for e in list_entries("conical", "partial")],
-            ["amsr2", "smap_radiometer"],
+            ["amsr2", "smap_radiometer", "ssmis"],
         )
         self.assertEqual(
             [e.id for e in list_entries(tier="partial")],
@@ -121,7 +121,10 @@ class TestLoading(unittest.TestCase):
                 "iasi",
                 "lsar",
                 "msi",
+                "oci",
+                "olci",
                 "smap_radiometer",
+                "ssmis",
                 "tropomi",
             ],
         )
@@ -688,19 +691,23 @@ class TestEntryStatus(unittest.TestCase):
         self.assertEqual(configuration.record.holdout_gap_days, 34)
         self.assertEqual(entry.record.standard_version, 2)
 
-    def test_smap_entry_partial_without_sample_size(self):
+    def test_smap_entry_partial_on_published_footprints(self):
         """
-        Test that the SMAP radiometer entry is partial only for want of a sample size
-        configuration, with its looks validated on held-out data.
+        Test that the SMAP radiometer entry is partial because of its published
+        footprints alone, with its looks validated on held-out data.
         """
         entry = get_entry("smap_radiometer")
         self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        self.assertEqual(
-            entry.validation.gaps, ("no configuration at the sample_size grade",)
-        )
+        self.assertEqual(entry.validation.gaps, ())
         looks = entry.validation.configurations["looks"]
         self.assertEqual(looks.tier, Tier.VALIDATED)
         self.assertEqual(looks.record.holdout_gap_days, 34)
+        footprints = entry.validation.configurations["footprints"]
+        self.assertEqual(
+            [r.gate.metric for r in footprints.gates if not r.passed],
+            ["sample_size_within_3pct"],
+        )
+        self.assertEqual(footprints.record.holdout_gap_days, 34)
 
     def test_lsar_entry_partial(self):
         """
@@ -774,6 +781,78 @@ class TestEntryStatus(unittest.TestCase):
             self.assertEqual(configuration.record.holdout_gap_days, 33)
         for key in ("swath", "pixels"):
             self.assertEqual(entry.configurations[key].attitude, {"yaw_angle": 0.2943})
+
+    def test_ssmis_entry_partial_without_sample_size(self):
+        """
+        Test that the SSMIS entry is partial only for want of a sample size
+        configuration, with its swath validated on data held out 30 days from the fit.
+        """
+        entry = get_entry("ssmis")
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        self.assertEqual(
+            entry.validation.gaps, ("no configuration at the sample_size grade",)
+        )
+        swath = entry.validation.configurations["swath"]
+        self.assertEqual(swath.tier, Tier.VALIDATED)
+        self.assertEqual(swath.record.holdout_gap_days, 30)
+
+    def test_olci_entry_partial_on_swath_width(self):
+        """
+        Test that the OLCI entry, a rolled pushbroom, is partial because of its swath
+        width alone on data held out 31 days from the fit.
+        """
+        entry = get_entry("olci")
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        swath = entry.validation.configurations["swath"]
+        self.assertEqual(
+            [r.gate.metric for r in swath.gates if not r.passed],
+            ["swath_width_median"],
+        )
+        self.assertEqual(swath.record.holdout_gap_days, 31)
+
+    def test_oci_entry_partial(self):
+        """
+        Test that the OCI entry, whose tilt follows a pitch profile, is partial on data
+        held out 31 days from the fit, without a sample size configuration.
+        """
+        entry = get_entry("oci")
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        self.assertEqual(
+            entry.validation.gaps, ("no configuration at the sample_size grade",)
+        )
+        swath = entry.validation.configurations["swath"]
+        self.assertEqual(
+            sorted(r.gate.metric for r in swath.gates if not r.passed),
+            ["epoch_p95", "footprint_iou_median", "pass_precision"],
+        )
+        self.assertEqual(swath.record.holdout_gap_days, 31)
+
+    def test_transfers_recorded_apart(self):
+        """
+        Test that results on sibling platforms are recorded as transfer metrics, which
+        no gate reads, and that configurations warn on those platforms.
+        """
+        transfers = {
+            "atms": "noaa-21",
+            "cris": "noaa-21",
+            "viirs": "noaa-21",
+            "mhs": "metop-b",
+            "avhrr": "metop-b",
+            "csar": "sentinel-1d",
+        }
+        for entry_id, platform in transfers.items():
+            entry = get_entry(entry_id)
+            self.assertIn(platform, [p.id for p in entry.platforms], entry_id)
+            names = [
+                metric.name
+                for record in entry.record.configurations.values()
+                for metric in record.metrics
+                if metric.scope and metric.scope.startswith(platform)
+            ]
+            self.assertTrue(names, entry_id)
+            self.assertTrue(all(n.startswith("transfer_") for n in names), entry_id)
+            for configuration in entry.configurations.values():
+                self.assertNotIn(platform, configuration.platforms, entry_id)
 
     def test_gmi_reports_spacing_limitation(self):
         """

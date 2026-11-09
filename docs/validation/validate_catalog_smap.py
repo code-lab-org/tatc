@@ -35,6 +35,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 import earthaccess
+import geopandas as gpd
 import h5py
 import numpy as np
 import pandas as pd
@@ -43,12 +44,16 @@ from scipy.spatial import cKDTree
 from shapely import contains_xy, prepare
 
 import tatc
-from tatc.analysis import collect_observations, compute_ground_track
+from tatc.analysis import (
+    collect_observations,
+    compute_ground_track,
+    compute_sample_sizes,
+)
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import compute_mask_iou, compute_pass_scores, summarize
 from tatc.constants import timescale
 from tatc.generation import generate_points_fibonacci_lattice
-from tatc.schemas import GeneralPerturbationsOrbit, Point
+from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
 from validation_io import (
     TO_GEODETIC,
     build_grid,
@@ -89,6 +94,20 @@ MATCH_TOLERANCE = pd.Timedelta(seconds=60)
 ORBIT_MARGIN = 120  # s
 FIXTURE_PASSES = 120
 GEOD = Geod(ellps="WGS84")
+SAMPLE_CONFIGURATION = "footprints"
+# published footprints: name, altitude (km), and sizes along and across track (km) at
+# the scan's center (forward), where the plane of incidence, which holds the major
+# axis, is along track: the instantaneous field of view of Piepmeier et al. (2017),
+# and the 3 dB field of view of the JPL SMAP specifications
+PUBLISHED_FOOTPRINTS = (
+    ("SMAP radiometer", 685, 47.0, 36.0),
+    ("SMAP radiometer", 685, 49.0, 38.0),
+)
+PUBLISHED_INCLINATION = 98.1
+PUBLISHED_EPOCH = datetime(2026, 10, 1, tzinfo=timezone.utc)
+SIZE_TOLERANCE = 0.03
+SPACING_SCAN_STRIDE = 25
+FIXTURE_SPACING_SAMPLES = 150
 
 
 def get_element_set(day: datetime) -> list[str]:
@@ -195,6 +214,10 @@ class Reference:
                 np.sum(horizontal * forward[:, None], axis=-1),
             )
         )
+        # the footprints as sampled, for their spacing
+        self.foot, self.valid, self.azimuth = foot, valid, azimuth
+        self.foot_lat, self.foot_lon = data["lat"], data["lon"]
+        self.foot_time = data["time"]
         # Earth-fixed positions of the resampled footprints of each half, and their
         # geocentric directions, the lattice of cells
         self.points, self.lattice = {}, {}
@@ -445,6 +468,161 @@ def score_swath_area(reference, satellite_for, orbit) -> float:
     return min(scores)
 
 
+def score_published_footprints(entry) -> tuple[float, float]:
+    """
+    Compares the sample size at the scan's center (forward) with the published
+    footprints. Returns the percent of dimensions within tolerance and the largest
+    error (%).
+    """
+    errors = []
+    for name, altitude, along, cross in PUBLISHED_FOOTPRINTS:
+        orbit = CircularOrbit(
+            altitude=altitude * 1e3,
+            inclination=PUBLISHED_INCLINATION,
+            epoch=PUBLISHED_EPOCH,
+        )
+        satellite = entry.to_satellite(
+            orbit, SAMPLE_CONFIGURATION, time_step=SCAN_PERIOD, platform=PLATFORM
+        )
+        time = PUBLISHED_EPOCH + timedelta(minutes=10)
+        target = satellite.get_instrument(0).compute_footprint_center(
+            orbit.to_gp_orbit().get_orbit_track(time)
+        )
+        sizes = compute_sample_sizes(
+            gpd.GeoDataFrame(
+                {
+                    "satellite": [satellite.name],
+                    "instrument": [name],
+                    "epoch": pd.DatetimeIndex([time]),
+                },
+                geometry=gpd.points_from_xy(
+                    [target.longitude.degrees], [target.latitude.degrees]
+                ),
+                crs="EPSG:4326",
+            ),
+            satellite,
+        )
+        pair = (
+            sizes.sample_along.iloc[0] / 1e3 / along - 1,
+            sizes.sample_cross.iloc[0] / 1e3 / cross - 1,
+        )
+        print(f"{along} x {cross} km: {pair[0]:+.2%} along, {pair[1]:+.2%} across")
+        errors.extend(abs(error) for error in pair)
+    errors = np.array(errors)
+    return 100 * float(np.mean(errors <= SIZE_TOLERANCE)), 100 * float(errors.max())
+
+
+def measure_spacing(reference: Reference) -> np.ndarray:
+    """
+    Measures the spacing of the samples nearest the scan's center (forward), as
+    `ValidateSampleSizes` does: along the arc, from half the distance between the
+    samples before and after, and between scans, from half the distance between the
+    resampled footprints at the center of the scans before and after. Returns rows of
+    latitude, longitude, seconds, spacing along the arc (km), and between scans (km).
+    """
+    center = int(np.argmin(np.abs(AZIMUTHS)))
+    fore = reference.points["fore"]
+    rows = []
+    usable = np.nonzero(reference.contiguous[:-1] & reference.contiguous[1:])[0] + 1
+    for k in usable[::SPACING_SCAN_STRIDE]:
+        inside = np.nonzero(reference.valid[k] & (np.abs(reference.azimuth[k]) < 20))[0]
+        inside = inside[np.argsort(reference.foot_time[k][inside])]
+        if len(inside) < 3:
+            continue
+        i = 1 + int(np.argmin(np.abs(reference.azimuth[k][inside[1:-1]])))
+        before, sample, after = inside[i - 1], inside[i], inside[i + 1]
+        foot = reference.foot[k]
+        rows.append(
+            [
+                reference.foot_lat[k][sample],
+                reference.foot_lon[k][sample],
+                reference.foot_time[k][sample],
+                np.linalg.norm(foot[after] - foot[before]) / 2e3,
+                np.linalg.norm(fore[k + 1, center] - fore[k - 1, center]) / 2e3,
+            ]
+        )
+    return np.array(rows, dtype=float)
+
+
+def compute_spacing_ratios(day, satellite, rows) -> tuple[float, float]:
+    """Gets the median ratios of predicted to measured spacing along arcs and scans."""
+    sizes = compute_sample_sizes(
+        gpd.GeoDataFrame(
+            {
+                "satellite": satellite.name,
+                "instrument": satellite.instruments[0].name,
+                "epoch": pd.DatetimeIndex(
+                    [day + timedelta(seconds=float(s)) for s in rows[:, 2]]
+                ),
+            },
+            geometry=gpd.points_from_xy(rows[:, 1], rows[:, 0]),
+            crs="EPSG:4326",
+        ),
+        satellite,
+    )
+    return (
+        float(np.median(sizes.spacing_cross.to_numpy() / 1e3 / rows[:, 3])),
+        float(np.median(sizes.spacing_along.to_numpy() / 1e3 / rows[:, 4])),
+    )
+
+
+def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> None:
+    """Scores the sample size configuration, and writes its results if requested."""
+    within, largest = score_published_footprints(entry)
+    print(
+        f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
+    )
+    satellite = entry.to_satellite(
+        orbit, SAMPLE_CONFIGURATION, time_step=SCAN_PERIOD, platform=PLATFORM
+    )
+    rows = measure_spacing(reference)
+    arc, between = compute_spacing_ratios(day, satellite, rows)
+    print(
+        f"spacing, predicted / measured: {arc:.4f} arc, {between:.4f} scans "
+        f"({np.median(rows[:, 3]):.2f} and {np.median(rows[:, 4]):.2f} km measured)",
+        flush=True,
+    )
+    if not write:
+        return
+    rng = np.random.default_rng(2)
+    picks = rows[rng.choice(len(rows), FIXTURE_SPACING_SAMPLES, replace=False)]
+    fixture_arc, fixture_between = compute_spacing_ratios(day, satellite, picks)
+    update_fixture(
+        FIXTURE_PATH,
+        tle=np.array(tle),
+        day=np.array(day.isoformat()),
+        footprints=np.array([row[1:] for row in PUBLISHED_FOOTPRINTS], dtype=float),
+        spacing=picks,
+    )
+    update_record(
+        RECORD_PATH,
+        "smap_radiometer",
+        SAMPLE_CONFIGURATION,
+        {
+            "digest": entry.configurations[SAMPLE_CONFIGURATION].digest,
+            "evidence": "rerun",
+            "tatc_version": tatc.__version__,
+            "source": "docs/validation/validate_catalog_smap.py",
+            "reference": "Footprints of Piepmeier et al. (2017) and the JPL SMAP "
+            "specifications; spacing of SPL1BTB",
+            "period": f"{day:%Y-%m-%d}",
+            "platform": PLATFORM,
+            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
+            "metrics": [
+                {"name": "sample_size_within_3pct", "value": within},
+                {"name": "sample_size_largest_error", "value": largest},
+                {"name": "spacing_arc_ratio_median", "value": arc},
+                {"name": "spacing_scan_ratio_median", "value": between},
+            ],
+            "fixture_metrics": {
+                "sample_size_within_3pct": within,
+                "spacing_arc_ratio_median": fixture_arc,
+                "spacing_scan_ratio_median": fixture_between,
+            },
+        },
+    )
+
+
 def main() -> None:
     """Validates the entry on a day of data."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -452,6 +630,7 @@ def main() -> None:
     parser.add_argument("day")
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--download-only", action="store_true")
+    parser.add_argument("--sample-sizes-only", action="store_true")
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
@@ -467,6 +646,9 @@ def main() -> None:
         + ", ".join(f"{a / 3600:.2f}-{b / 3600:.2f} h" for a, b in reference.gaps),
         flush=True,
     )
+    validate_sample_sizes(day, tle, entry, orbit, reference, arguments.write)
+    if arguments.sample_sizes_only:
+        return
 
     def satellite_for(time_step: float):
         return entry.to_satellite(orbit, time_step=time_step, platform=PLATFORM)

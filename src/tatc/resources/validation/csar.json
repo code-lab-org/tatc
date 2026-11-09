@@ -62,6 +62,61 @@
         {
           "name": "epoch_median",
           "value": -0.05725999500000001
+        },
+        {
+          "name": "transfer_pass_recall",
+          "value": 98.63574351978171,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_swath_edge_p95_near_range",
+          "value": 6.578916929712105,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_swath_edge_p95_far_range",
+          "value": 7.8387009808722805,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_median_time_step_10_s",
+          "value": 0.9579136254835176,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_p5_time_step_10_s",
+          "value": 0.9188589116176847,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_median_time_step_30_s",
+          "value": 0.926450265775856,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_p5_time_step_30_s",
+          "value": 0.849550541708855,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_median_time_step_120_s",
+          "value": 0.6851345536240675,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_p5_time_step_120_s",
+          "value": 0.6655545653959104,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_epoch_p95",
+          "value": 0.44427412699999996,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_epoch_median",
+          "value": 0.040464019,
+          "scope": "sentinel-1d, 2026-11-05"
         }
       ],
       "fixture_metrics": {
@@ -130,6 +185,61 @@
         {
           "name": "epoch_median",
           "value": -0.07225517399999998
+        },
+        {
+          "name": "transfer_pass_recall",
+          "value": 98.69020501138952,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_swath_edge_p95_near_range",
+          "value": 7.5611920183202725,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_swath_edge_p95_far_range",
+          "value": 11.056278170799077,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_median_time_step_10_s",
+          "value": 0.9778609576674242,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_p5_time_step_10_s",
+          "value": 0.9553709639818965,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_median_time_step_30_s",
+          "value": 0.9563384151376461,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_p5_time_step_30_s",
+          "value": 0.9240942077868435,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_median_time_step_120_s",
+          "value": 0.8760626604985561,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_p5_time_step_120_s",
+          "value": 0.7766223638077872,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_epoch_p95",
+          "value": 0.3822467272499999,
+          "scope": "sentinel-1d, 2026-11-05"
+        },
+        {
+          "name": "transfer_epoch_median",
+          "value": -0.046273713999999966,
+          "scope": "sentinel-1d, 2026-11-05"
         }
       ],
       "fixture_metrics": {

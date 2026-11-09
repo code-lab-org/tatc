@@ -65,7 +65,7 @@ Instruments and Pointing
      - Result
    * - Cross-track scanners (`PointedInstrument`, `ViewGeometry.SCAN`)
      - NOAA-20 ATMS, CrIS, and VIIRS; Terra and Aqua MODIS; Metop-B IASI; GPM DPR; Metop-C MHS and AVHRR; Aqua
-       AIRS and AMSU-A
+       AIRS and AMSU-A; PACE OCI
      - On held-out data, 99.8 to 100% of passes predicted (ATMS, CrIS, VIIRS, MODIS, IASI, DPR); epochs within 0.25 s
        (ATMS), 0.40 s (CrIS), 0.44 s (MODIS), 0.55 s (DPR), and 2.0 s (VIIRS) at the 95th percentile; swath width
        within 0.15 to 3.3 km (median) with measured fields of regard; pixel centers within 0.9 to 2.9 km (median;
@@ -75,25 +75,32 @@ Instruments and Pointing
        0.45 s (AIRS) and 2.2 s (AMSU-A), swath width within 0.7 and 1.5 km, and pixel centers within 3.6 and 4.6 km
        (median). AVHRR, with fitted angles and yaw on held-out data, observed 99.4% of passes predicted, with epochs
        within 0.16 s (95th percentile), swath width within 1.3 km, and pixel centers within 0.5 km (median); without
-       its yaw of 0.29 deg, epochs were within 1.1 s (:doc:`catalog`; :doc:`ValidateImagerATMS`, :doc:`ValidateImagerVIIRS`, :doc:`ValidateDriftMODIS`). CrIS's
+       its yaw of 0.29 deg, epochs were within 1.1 s. OCI, whose tilt fore or aft follows a pitch profile, observed
+       99.7% of passes predicted, with swath width within 1.4 km, but its tilt changed about 17 deg of latitude from
+       where it did 31 days earlier, so epochs were within 73 s (95th percentile). On sibling satellites, as
+       transfers, MHS and AVHRR on Metop-B passed every swath test, while NOAA-20's angles on NOAA-21 placed ATMS's
+       pixels within 10.5 km and VIIRS's swath width within 21 km (median) (:doc:`catalog`; :doc:`ValidateImagerATMS`, :doc:`ValidateImagerVIIRS`, :doc:`ValidateDriftMODIS`). CrIS's
        footprint centers within 0.7 km (95th percentile) only
        with a computation per field of regard written in the notebook, and within 19 km (central field of view) and
        43 km (all) at the 95th percentile with public methods, which observe a scan at one instant and do not rotate
        the array of fields of view (:doc:`ValidateImagerCrIS`)
    * - Pushbroom imagers (`PointedInstrument`)
-     - Sentinel-2 MSI, Landsat 9 OLI, Sentinel-5P TROPOMI
+     - Sentinel-2 MSI, Landsat 9 OLI, Sentinel-5P TROPOMI, Sentinel-3A OLCI
      - On held-out data, 99.8% or more of passes predicted; swath width within 0.1 to 2.0 km and swath IoU 0.97 or
        more (median) at time steps of up to 30 s, but 0.949 (MSI) and 0.937 (TROPOMI) at 120 s; epochs within 1.3 s
        (OLI), 2.1 s (TROPOMI), and 2.6 s (MSI, one view) at the 95th percentile (:doc:`catalog`). MSI's epochs within
-       0.26 s (95th percentile) with a view per detector module and a geocentric nadir (:doc:`ValidatePushbroomMSI`)
+       0.26 s (95th percentile) with a view per detector module and a geocentric nadir (:doc:`ValidatePushbroomMSI`).
+       OLCI, a single view rolled 12.7 deg away from the sun, on held-out tie points: 99.8% of passes predicted,
+       epochs within 0.13 s (95th percentile), and swath IoU 0.975, but swath width within 9.9 km (:doc:`catalog`)
    * - Conical scanners (`ConicalInstrument`)
-     - GCOM-W AMSR2, GPM GMI, SMAP radiometer
+     - GCOM-W AMSR2, GPM GMI, SMAP radiometer, DMSP F18 SSMIS
      - 99.95 to 100% of passes, epochs within 0.27 s (AMSR2) and 0.69 s (GMI) at the 95th percentile; swath IoU 0.998
        to 0.999; SMAP's forward and aft looks within 0.2 s (median) (:doc:`ValidateConicalAMSR2`,
        :doc:`ValidateConicalGMI`, :doc:`ValidateGridSMAP`). On held-out AMSR2 data, 99.98% of passes predicted,
        epochs within 0.79 s (95th percentile), swath width within 2.8 km, and swath IoU 0.998; on held-out SMAP Level
        1B footprints, 100% of passes predicted with both looks, epochs within 0.14 s (95th percentile), swath width
-       within 2.1 km, and swath IoU 0.998 (:doc:`catalog`)
+       within 2.1 km, and swath IoU 0.998; on held-out SSMIS data, 99.7% of passes predicted, epochs within 0.51 s
+       (95th percentile), swath width within 2.6 km, and swath IoU 0.992 (:doc:`catalog`)
    * - Side-looking SAR (`PointedInstrument` with roll, `roll_angle_profile`)
      - NISAR, Sentinel-1C
      - Epochs within 0.3 and 0.44 s (95th percentile) of zero-Doppler times; footprint IoU 0.93 to 0.96 (median); roll

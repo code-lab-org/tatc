@@ -1,0 +1,42 @@
+{
+  "entry_id": "oci",
+  "configurations": {
+    "swath": {
+      "digest": "d4208a304d2617687aa5649c47501229d8b0403ebff708bacf6f495f5cbbfb7e",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_oci.py",
+      "reference": "PACE_OCI_L1B_SCI version 3 (sample positions and times)",
+      "period": "2026-11-04",
+      "platform": "pace",
+      "holdout_gap_days": 31,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.70777791121252
+        },
+        {
+          "name": "pass_precision",
+          "value": 93.7060306233776
+        },
+        {
+          "name": "epoch_p95",
+          "value": 72.59008560299999
+        },
+        {
+          "name": "swath_width_median",
+          "value": 1.3926816275145393
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9091976729755925
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 72.46833360509999
+      }
+    }
+  },
+  "standard_version": 2
+}

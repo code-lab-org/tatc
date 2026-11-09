@@ -24,6 +24,9 @@ Needs the `validation` extra:
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
 
+With `--platform sentinel-1d`, it tests the same values on a sibling satellite, and
+adds the results to the record as a transfer, which does not count toward the tier.
+
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
@@ -49,6 +52,7 @@ from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit, Point, PointedInstrument
 from tatc.utils import compute_argument_of_latitude, compute_projected_ray_position
 from validation_io import (
+    add_transfer_metrics,
     TO_GEODETIC,
     ecef,
     get_holdout_gap,
@@ -74,7 +78,15 @@ STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
 TOKEN_URL = "https://planetarycomputer.microsoft.com/api/sas/v1/token/sentinel-1-grd"
 
 FIT_DAY = datetime(2026, 10, 2, tzinfo=timezone.utc)
-PLATFORM = "sentinel-1c"
+PLATFORM = FIT_PLATFORM = "sentinel-1c"
+# sibling platforms, on which results are reported as a transfer, with public element
+# sets from CelesTrak, with epochs after each day of data
+TRANSFER_ELEMENTS = {
+    ("sentinel-1d", "2026-11-05"): [
+        "1 66315U 25251A   26312.30420366  .00000154  00000+0  42399-4 0  9994",
+        "2 66315  98.1818 317.6134 0001246  87.7733 272.3609 14.59200353 53741",
+    ],
+}
 NORAD_ID = 62261
 # the element set of the validation notebook, for the fit day
 ELEMENT_SETS = {
@@ -103,6 +115,8 @@ FIXTURE_PASSES = 150
 def get_element_set(day: datetime) -> list[str]:
     """Gets the element set of a day."""
     key = f"{day:%Y-%m-%d}"
+    if PLATFORM != FIT_PLATFORM:
+        return TRANSFER_ELEMENTS[(PLATFORM, key)]
     if key in ELEMENT_SETS:
         return ELEMENT_SETS[key]
     return read_element_set_file(ELEMENT_SET_FILE, NORAD_ID, day)
@@ -664,6 +678,23 @@ def validate_mode(key, day, tle, entry, orbit, products, write) -> None:
     print(json.dumps(metrics), flush=True)
     if not write:
         return
+    if PLATFORM != FIT_PLATFORM:
+        add_transfer_metrics(
+            RECORD_PATH,
+            key,
+            f"{PLATFORM}, {day:%Y-%m-%d}",
+            {
+                metric["name"]
+                + (
+                    "_" + metric["scope"].replace(" ", "_").replace(".", "_")
+                    if "scope" in metric
+                    else ""
+                ): metric["value"]
+                for metric in metrics
+            },
+        )
+        print(f"added {key} transfer metrics to {RECORD_PATH}")
+        return
     rng = np.random.default_rng(1)
     fixture = points[found][
         rng.choice(int(found.sum()), min(FIXTURE_PASSES, int(found.sum())), False)
@@ -708,7 +739,10 @@ def main() -> None:
         action="store_true",
         help="read and cache the reference data, without scoring",
     )
+    parser.add_argument("--platform", default=FIT_PLATFORM)
     arguments = parser.parse_args()
+    global PLATFORM  # pylint: disable=global-statement
+    PLATFORM = arguments.platform
     arguments.directory.mkdir(parents=True, exist_ok=True)
 
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)

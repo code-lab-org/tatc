@@ -1,0 +1,56 @@
+id: olci
+name: OLCI
+aliases: [Ocean and Land Colour Instrument]
+instrument_class: pushbroom
+selection: Pushbroom imaging spectrometer of the Copernicus Sentinel-3 mission, the successor of Envisat MERIS for ocean color and land, with open data products.
+platforms:
+  - id: sentinel-3a
+    name: Sentinel-3A
+    norad_id: 41335
+    status: operational
+    as_of: 2026-11-04
+data_products:
+  - name: OLCI/Sentinel-3A Level 1 Full Resolution Top of Atmosphere Reflectance (S3A_OL_1_EFR)
+    provider: NASA LAADS DAAC
+    url: https://ladsweb.modaps.eosdis.nasa.gov/missions-and-measurements/products/S3A_OL_1_EFR
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath imaged by OLCI's fan of five cameras, tilted away from the sun, with a view tailored to the analysis time step.
+    platforms: [sentinel-3a]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: OLCI
+          field_of_regard: 95.3644
+          cross_track_field_of_view: 70.0146
+          along_track_field_of_view: {tailor: time_step}
+          roll_angle: -12.6749
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: The rolled view, so that it can observe to its outer edge
+          cross_track_field_of_view: &measured
+            kind: measured
+            source: validate_catalog_olci.py --fit, between the outermost tie points (22.33 deg to the left and 47.68 deg to the right)
+            platform: sentinel-3a
+            period: "2026-10-04"
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          roll_angle: *measured
+          is_rectangular:
+            kind: derived
+            source: Models a pushbroom swath as a rectangular view
+    limitations:
+      - The angles were fitted to tie points, every 64th of 4865 columns, which include the outermost columns.
+      - The products record no spacecraft position, so the fit found it, for each image line, as the point nearest the lines of sight of its tie points.
+      - The swath width of a pointed instrument follows its field of regard, centered on nadir, which does not describe this rolled view; its width is that between the projections of its edges.
+limitations:
+  - Sentinel-3 flies with yaw steering, and the image lines are perpendicular to the Earth-fixed ground track (a fitted yaw of 0.000 deg), so the configuration uses the Earth-fixed frame.
+  - OLCI images the sunlit part of each orbit, whereas the view observes whenever a target is in view, unless a solar limit is added.
+  - The configuration was tested on Sentinel-3A. OLCI also flies on Sentinel-3B, on which it was not tested.
