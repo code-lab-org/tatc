@@ -13,11 +13,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-STANDARD_VERSION = 2
+STANDARD_VERSION = 3
 """The version of the thresholds in `get_gates`."""
 
-COMPATIBLE_VERSIONS = (1, 2)
-"""Versions whose results still apply: version 2 only added the lidar class."""
+COMPATIBLE_VERSIONS = (1, 2, 3)
+"""
+Versions whose results still apply: version 2 only added the lidar class, and
+version 3 the altimeter class.
+"""
 
 MIN_HOLDOUT_GAP_DAYS = 30
 """Minimum days between the fitting data of measured values and their test data."""
@@ -34,6 +37,7 @@ class InstrumentClass(str, Enum):
     SAR = "sar"
     GEOSTATIONARY = "geostationary"
     LIDAR = "lidar"
+    ALTIMETER = "altimeter"
 
 
 class Grade(str, Enum):
@@ -102,6 +106,9 @@ _PRODUCT_LIMIT = Gate("product_limit", 0.5, True, "deg")
 # the beams follow their reference tracks, and the error of the spacing of beams
 _SEGMENT_RECALL = Gate("segment_recall", 99, False, "%")
 _BEAM_SPACING = Gate("beam_spacing_error_median", 0.2, True, "km")
+# version 3: the distance across track of a nadir altimeter's measurements from the
+# predicted ground track
+_TRACK_OFFSET = Gate("track_offset_median", 0.5, True, "km")
 
 # gates that do not depend on the epoch accuracy of a grade
 _SWEEP_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
@@ -114,6 +121,9 @@ _SWEEP_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
     # lidar beams are pointed off their reference tracks according to plans, so
     # predicted observations that were not made are not errors (no precision gate)
     InstrumentClass.LIDAR: (_SEGMENT_RECALL, _BEAM_SPACING),
+    # products of nadir altimeters omit measurements by surface and quality, so
+    # predicted measurements that were not made are not errors (no precision gate)
+    InstrumentClass.ALTIMETER: (_SEGMENT_RECALL, _TRACK_OFFSET),
 }
 _SAMPLE_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
     InstrumentClass.CROSS_TRACK: (_SAMPLE_SIZE, _PIXEL_POSITION),

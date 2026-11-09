@@ -31,6 +31,7 @@ from tatc.schemas import (
     AttitudeSegment,
     ConicalInstrument,
     GeneralPerturbationsOrbit,
+    GlintAttitude,
     Instrument,
     Point,
     Satellite,
@@ -40,6 +41,10 @@ from tatc.utils import VelocityFrame
 GPM_TLE = [
     "1 39574U 14009C   26277.54227627  .00004528  00000+0  10004-3 0  9997",
     "2 39574  64.9701 301.6724 0010793 268.6572  91.3332 15.45217995714704",
+]
+OCO2_TLE = [
+    "1 40059U 14035A   26313.25381781  .00000489  00000+0  11850-3 0  9999",
+    "2 40059  98.2167 252.4180 0000990  88.3344 271.7968 14.57127601657173",
 ]
 
 
@@ -99,7 +104,8 @@ class TestLoading(unittest.TestCase):
             ["amsr2", "gmi", "smap_radiometer", "ssmis"],
         )
         self.assertEqual(
-            [e.id for e in list_entries(instrument_class="geostationary")], ["abi"]
+            [e.id for e in list_entries(instrument_class="geostationary")],
+            ["abi", "ahi"],
         )
         self.assertEqual([e.id for e in list_entries("conical", "validated")], ["gmi"])
         self.assertEqual(
@@ -110,19 +116,24 @@ class TestLoading(unittest.TestCase):
             [e.id for e in list_entries(tier="partial")],
             [
                 "abi",
+                "ahi",
                 "airs",
                 "amsr2",
                 "amsua",
                 "atlas",
                 "avhrr",
+                "ceres",
                 "cris",
                 "csar",
                 "dpr",
+                "ecostress",
                 "iasi",
                 "lsar",
                 "msi",
                 "oci",
+                "oco2",
                 "olci",
+                "omps_nm",
                 "smap_radiometer",
                 "ssmis",
                 "tropomi",
@@ -851,6 +862,92 @@ class TestEntryStatus(unittest.TestCase):
             ["footprint_iou_median", "pass_precision"],
         )
         self.assertEqual(swath.record.holdout_gap_days, 30)
+
+    def test_pace_polarimeters_validated(self):
+        """
+        Test that the HARP2 and SPEXone entries pass with their exact values on data
+        held out 34 days from the fit.
+        """
+        for entry_id in ("harp2", "spexone"):
+            entry = get_entry(entry_id)
+            self.assertEqual(entry.validation.tier, Tier.VALIDATED, entry_id)
+            swath = entry.validation.configurations["swath"]
+            self.assertEqual(swath.record.holdout_gap_days, 34, entry_id)
+
+    def test_poseidon4_entry_validated(self):
+        """
+        Test that the Poseidon-4 entry, of the altimeter class added in version 3 of
+        the standard, passes with its derived values.
+        """
+        entry = get_entry("poseidon4")
+        self.assertEqual(entry.instrument_class, InstrumentClass.ALTIMETER)
+        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
+        self.assertEqual(entry.record.standard_version, 3)
+
+    def test_omps_entry_partial_on_bowed_swath(self):
+        """
+        Test that the OMPS Nadir Mapper entry is partial on both platforms because of
+        its swath width and epochs alone, which the bowed swath sets.
+        """
+        validation = get_entry("omps_nm").validation
+        self.assertEqual(validation.tier, Tier.PARTIAL)
+        for key in ("swath", "swath_noaa_20"):
+            configuration = validation.configurations[key]
+            self.assertEqual(
+                sorted(r.gate.metric for r in configuration.gates if not r.passed),
+                ["epoch_p95", "swath_width_median"],
+                key,
+            )
+            self.assertEqual(configuration.record.holdout_gap_days, 35, key)
+
+    def test_scanner_entries_partial(self):
+        """
+        Test that the CERES entry is partial because of its swath width, and the
+        ECOSTRESS entry because of its swath's area, each without a sample size
+        configuration.
+        """
+        for entry_id, failed in (
+            ("ceres", "swath_width_median"),
+            ("ecostress", "footprint_iou_median"),
+        ):
+            validation = get_entry(entry_id).validation
+            self.assertEqual(validation.tier, Tier.PARTIAL, entry_id)
+            self.assertEqual(
+                validation.gaps, ("no configuration at the sample_size grade",)
+            )
+            swath = validation.configurations["swath"]
+            self.assertEqual(
+                [r.gate.metric for r in swath.gates if not r.passed], [failed]
+            )
+
+    def test_ahi_partial_on_product_limit(self):
+        """
+        Test that the AHI entry is partial: its product's limit fails, and its full
+        disk configuration has no discriminating test.
+        """
+        validation = get_entry("ahi").validation
+        self.assertEqual(validation.tier, Tier.PARTIAL)
+        for configuration in validation.configurations.values():
+            self.assertEqual(configuration.tier, Tier.PARTIAL)
+        self.assertEqual(
+            validation.configurations["cloud_top_height"].record.holdout_gap_days, 38
+        )
+
+    def test_oco2_glint_builds_glint_attitude(self):
+        """
+        Test that OCO-2's glint configuration builds the glint attitude it declares,
+        and its nadir configuration a plain attitude, with both modes partial.
+        """
+        entry = get_entry("oco2")
+        orbit = GeneralPerturbationsOrbit.from_tle(OCO2_TLE)
+        glint = entry.build("glint", orbit=orbit, time_step=10)
+        self.assertIsInstance(glint.attitude, GlintAttitude)
+        self.assertEqual(glint.attitude.max_off_nadir_angle, 51.0)
+        self.assertEqual(glint.attitude.velocity_frame, VelocityFrame.EARTH_FIXED)
+        nadir = entry.build("nadir", orbit=orbit, time_step=10)
+        self.assertNotIsInstance(nadir.attitude, GlintAttitude)
+        for configuration in entry.validation.configurations.values():
+            self.assertEqual(configuration.tier, Tier.PARTIAL)
 
     def test_transfers_recorded_apart(self):
         """

@@ -20,8 +20,19 @@ from tatc.catalog import (
 # (metric, limit, at most) by class and grade. These thresholds are frozen: they
 # must test new instruments rather than follow their results. A change needs a
 # new STANDARD_VERSION, with its reason, in docs/validation/standard.rst.
-FROZEN_VERSION = 2
+FROZEN_VERSION = 3
 FROZEN_GATES = {
+    # version 3 added the altimeter class, and changed no other gate
+    ("altimeter", "coverage"): [
+        ("segment_recall", 99, False),
+        ("track_offset_median", 0.5, True),
+        ("epoch_p95", 3, True),
+    ],
+    ("altimeter", "timing"): [
+        ("segment_recall", 99, False),
+        ("track_offset_median", 0.5, True),
+        ("epoch_p95", 1, True),
+    ],
     # version 2 added the lidar class, and changed no other gate
     ("lidar", "coverage"): [
         ("segment_recall", 99, False),

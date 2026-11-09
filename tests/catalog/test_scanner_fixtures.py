@@ -567,5 +567,106 @@ class TestCrisFixture(_ScannerFixture, unittest.TestCase):
         self.skipTest("the spacing of CrIS's samples is not measured")
 
 
+class _StepSwathFixture(_SwathFixture):
+    """
+    Tests of swath configurations whose fixture passes were recomputed at a fixed
+    time step.
+    """
+
+    step: float = 10
+
+    def time_step(self) -> float:
+        return self.step
+
+
+class TestOmpsNmFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the OMPS Nadir Mapper entry on NOAA-21.
+    """
+
+    entry_id = "omps_nm"
+    platform = "noaa-21"
+
+
+class TestOmpsNmNoaa20Fixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the OMPS Nadir Mapper entry's configuration of NOAA-20.
+    """
+
+    entry_id = "omps_nm"
+    fixture_name = "omps_nm_noaa_20"
+    swath_key = "swath_noaa_20"
+    platform = "noaa-20"
+
+
+class TestCeresFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the CERES entry, at the period of its records (6.6 s).
+    """
+
+    entry_id = "ceres"
+    step = 6.6
+
+
+class TestHarp2Fixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the HARP2 entry's near-nadir view.
+    """
+
+    entry_id = "harp2"
+    platform = "pace"
+
+
+class TestSpexoneFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the SPEXone entry's nadir view.
+    """
+
+    entry_id = "spexone"
+    platform = "pace"
+
+
+class TestOco2NadirFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the OCO-2 entry in nadir mode.
+    """
+
+    entry_id = "oco2"
+    fixture_name = "oco2_nadir"
+    swath_key = "nadir"
+    platform = "oco-2"
+
+
+class TestOco2GlintFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the OCO-2 entry in glint mode, whose body points short of
+    the sun glint.
+    """
+
+    entry_id = "oco2"
+    fixture_name = "oco2_glint"
+    swath_key = "glint"
+    platform = "oco-2"
+
+
+class TestEcostressFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the ECOSTRESS entry, on the International Space Station.
+    """
+
+    entry_id = "ecostress"
+    platform = "iss"
+
+
+class TestPoseidon4Fixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the Poseidon-4 entry's nadir view.
+    """
+
+    entry_id = "poseidon4"
+    swath_key = "nadir"
+    platform = "sentinel-6a"
+
+
 if __name__ == "__main__":
     unittest.main()

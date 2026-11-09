@@ -1,0 +1,51 @@
+id: spexone
+name: SPEXone
+aliases: [Spectro-Polarimeter for Planetary Exploration one]
+instrument_class: pushbroom
+selection: Multi-angle spectropolarimeter of NASA's PACE mission, contributed by the Netherlands, which characterizes aerosols from five viewing angles, with open data products.
+platforms:
+  - id: pace
+    name: PACE
+    norad_id: 58928
+    status: operational
+    as_of: 2026-11-09
+data_products:
+  - name: PACE SPEXone Level 1C (PACE_SPEXONE_L1C_SCI), version 4, with the navigation of the Level 1B product
+    provider: NASA OB.DAAC
+    url: https://search.earthdata.nasa.gov/search?q=PACE_SPEXONE_L1C_SCI
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath of SPEXone's nadir view, between the outermost bins of the product that it observes, with a view tailored to the analysis time step.
+    platforms: [pace]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: SPEXone
+          field_of_regard: 7.8411
+          cross_track_field_of_view: 7.8411
+          along_track_field_of_view: {tailor: time_step}
+          is_rectangular: true
+        provenance:
+          field_of_regard: &measured_view
+            kind: measured
+            source: validate_catalog_spexone.py --fit, between the outermost bins observed by the nadir view (3.9037 deg left, 3.9374 deg right of the geodetic nadir, Earth-fixed frame)
+            platform: pace
+            period: "2026-10-04"
+          cross_track_field_of_view: *measured_view
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models an imaged swath as a rectangular view
+    limitations:
+      - The positions are those of the product's bins (about 5 km), so the swath's edges are known to about half a bin.
+      - SPEXone views each place at five angles along track (-50, -20, 0, 20, and 50 deg), over about four minutes; only the nadir view is modeled. The other views lie over the same ground, at other times.
+limitations:
+  - PACE flies with yaw steering, so the configuration uses the Earth-fixed frame.
+  - SPEXone images the sunlit part of each orbit, whereas the view observes whenever a target is in view, unless a solar limit is added.
+  - No configuration gives sample sizes, as no published instantaneous field of view was used.

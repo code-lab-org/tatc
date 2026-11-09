@@ -1,0 +1,52 @@
+{
+  "entry_id": "ahi",
+  "standard_version": 2,
+  "configurations": {
+    "full_disk": {
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_ahi.py",
+      "period": "2026-11-08T12:00Z",
+      "platform": "himawari-9",
+      "digest": "5d2ecc67bdbb68e12af30c19e66df0aaa5fcf3e4ff2b13907a799b4f1aeea633",
+      "reference": "AHI-CMSK cloud mask, every 8th pixel",
+      "metrics": [
+        {
+          "name": "imaged_pixels_observed",
+          "value": 100.0
+        },
+        {
+          "name": "elevation_error_max",
+          "value": 0.0004886105113826034
+        }
+      ],
+      "fixture_metrics": {
+        "imaged_pixels_observed": 100.0,
+        "elevation_error_max": 0.00034229839168631315
+      }
+    },
+    "cloud_top_height": {
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_ahi.py",
+      "period": "2026-11-08T12:00Z",
+      "platform": "himawari-9",
+      "digest": "c8a8fcb28e64996bea02ea074e53c4519119687b7252385dd2a7eac09dffaff9",
+      "reference": "AHI-CHGT cloud top height, the greatest local zenith angle at which it is retrieved",
+      "holdout_gap_days": 38,
+      "metrics": [
+        {
+          "name": "product_limit",
+          "value": 0.7022012695005202
+        },
+        {
+          "name": "retrieval_bound",
+          "value": 79.38443040242265
+        }
+      ],
+      "fixture_metrics": {
+        "product_limit": 0.4968281089902149
+      }
+    }
+  }
+}

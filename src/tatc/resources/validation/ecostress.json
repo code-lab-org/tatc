@@ -1,0 +1,42 @@
+{
+  "entry_id": "ecostress",
+  "configurations": {
+    "swath": {
+      "digest": "a4562f15a75e50d32d2f2a41ad30a6ab84db647a7dfccd0485bb8ee1c716ecfa",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_ecostress.py",
+      "reference": "ECO_L1B_GEO version 002 (sample positions and times of every fourth sweep, in blocks of eight consecutive scenes of every 32)",
+      "period": "2026-11-07",
+      "platform": "iss",
+      "holdout_gap_days": 34,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.42140790742526
+        },
+        {
+          "name": "pass_precision",
+          "value": 97.54020813623463
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.8415518075
+        },
+        {
+          "name": "swath_width_median",
+          "value": 2.1108546890104773
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9298747979546063
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 98.33333333333333,
+        "epoch_p95": 0.8517706442999999
+      }
+    }
+  },
+  "standard_version": 3
+}

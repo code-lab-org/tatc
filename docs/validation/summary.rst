@@ -65,7 +65,7 @@ Instruments and Pointing
      - Result
    * - Cross-track scanners (`PointedInstrument`, `ViewGeometry.SCAN`)
      - NOAA-20 ATMS, CrIS, and VIIRS; Terra and Aqua MODIS; Metop-B IASI; GPM DPR; Metop-C MHS and AVHRR; Aqua
-       AIRS and AMSU-A; PACE OCI
+       AIRS and AMSU-A; PACE OCI; NOAA-20 CERES; ISS ECOSTRESS
      - On held-out data, 99.8 to 100% of passes predicted (ATMS, CrIS, VIIRS, MODIS, IASI, DPR); epochs within 0.25 s
        (ATMS), 0.40 s (CrIS), 0.44 s (MODIS), 0.55 s (DPR), and 2.0 s (VIIRS) at the 95th percentile; swath width
        within 0.15 to 3.3 km (median) with measured fields of regard; pixel centers within 0.9 to 2.9 km (median;
@@ -86,15 +86,26 @@ Instruments and Pointing
        footprint centers within 0.7 km (95th percentile) only
        with a computation per field of regard written in the notebook, and within 19 km (central field of view) and
        43 km (all) at the 95th percentile with public methods, which observe a scan at one instant and do not rotate
-       the array of fields of view (:doc:`ValidateImagerCrIS`)
+       the array of fields of view (:doc:`ValidateImagerCrIS`). On held-out data, CERES (first sweep of each
+       record) predicted 99.6% of observed passes, with 99.4% of predicted passes observed, epochs within 0.29 s (95th
+       percentile), and swath IoU 0.998, but swath width within 7.9 km (median), its edges 60 deg from nadir; ECOSTRESS,
+       with fitted yaw and pitch, predicted 99.4% of observed passes, with 97.5% of predicted passes observed, epochs
+       within 0.84 s, and swath width within 2.1 km, but swath IoU 0.930 at 120 s (0.965 at 10 s) (:doc:`catalog`)
    * - Pushbroom imagers (`PointedInstrument`)
-     - Sentinel-2 MSI, Landsat 9 OLI, Sentinel-5P TROPOMI, Sentinel-3A OLCI
+     - Sentinel-2 MSI, Landsat 9 OLI, Sentinel-5P TROPOMI, Sentinel-3A OLCI, PACE HARP2 and SPEXone, NOAA-20 and
+       NOAA-21 OMPS Nadir Mapper, OCO-2
      - On held-out data, 99.8% or more of passes predicted; swath width within 0.1 to 2.0 km and swath IoU 0.97 or
        more (median) at time steps of up to 30 s, but 0.949 (MSI) and 0.937 (TROPOMI) at 120 s; epochs within 1.3 s
        (OLI), 2.1 s (TROPOMI), and 2.6 s (MSI, one view) at the 95th percentile (:doc:`catalog`). MSI's epochs within
        0.26 s (95th percentile) with a view per detector module and a geocentric nadir (:doc:`ValidatePushbroomMSI`).
        OLCI, a single view rolled 12.7 deg away from the sun, on held-out tie points: 99.8% of passes predicted,
-       epochs within 0.13 s (95th percentile), and swath IoU 0.975, but swath width within 9.9 km (:doc:`catalog`)
+       epochs within 0.13 s (95th percentile), and swath IoU 0.975, but swath width within 9.9 km (:doc:`catalog`).
+       On held-out data, HARP2 (near-nadir view) and SPEXone predicted 99.99 and 99.86% of passes, with epochs within
+       0.44 and 0.22 s (95th percentile), swath width within 0.6 km, and swath IoU 0.990 and 0.971. The OMPS Nadir
+       Mapper predicted 99.3 to 99.4% of passes, with swath IoU 0.98 or more, but epochs within 19 to 20 s and swath
+       width within 5.9 to 7.1 km, as its swath bows along track. OCO-2's narrow slit (about 10 km) observed 90.4%
+       (nadir) and 89.4% (glint) of sampled soundings, with epochs within 0.88 and 1.24 s, and swath IoU 0.44 and 0.17
+       (:doc:`catalog`)
    * - Conical scanners (`ConicalInstrument`)
      - GCOM-W AMSR2, GPM GMI, SMAP radiometer, DMSP F18 SSMIS
      - 99.95 to 100% of passes, epochs within 0.27 s (AMSR2) and 0.69 s (GMI) at the 95th percentile; swath IoU 0.998
@@ -127,10 +138,15 @@ Instruments and Pointing
        (:doc:`ValidateLidarICESat2`). With views about 4.9 km wide fitted over Antarctica, held-out data a month
        later had every sampled segment within its pair's view and the pairs' spacing within 0.02 km, but epochs 5.5 s
        early (median) with an element set 4 days old, consistent with its along-track error (:doc:`catalog`)
+   * - Nadir altimeter
+     - Sentinel-6 Poseidon-4
+     - With a view 0.43 deg wide, every sampled segment of the ground track observed, the track within 0.14 km
+       (median) and epochs within 0.12 s (95th percentile) (:doc:`catalog`)
    * - Geostationary imagers
-     - GOES-19 ABI
+     - GOES-19 ABI, Himawari-9 AHI
      - A 17.4 deg field of regard observes the full disk; elevation angles within 0.0004 deg; product coverage limits
-       within about 0.3 deg of local zenith angle (:doc:`ValidateGeostationaryGOES`)
+       within about 0.3 deg of local zenith angle (:doc:`ValidateGeostationaryGOES`). On held-out AHI cloud top
+       heights, the product's limit within 0.70 deg (:doc:`catalog`)
    * - Tilted scanners (`pitch_angle_profile`), sun glint (`compute_glint_angle`)
      - PACE OCI
      - Pixels within 0.8 km near nadir and 9 km at the edges (median); epochs within 0.15 s (median) with a daily tilt

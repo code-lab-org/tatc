@@ -1,0 +1,42 @@
+{
+  "entry_id": "spexone",
+  "configurations": {
+    "swath": {
+      "digest": "1ea1fd7c7bc48f3310996c45ecb8008cbe2e8d80fb502737bb37cef8bbb532e5",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_spexone.py",
+      "reference": "PACE_SPEXONE_L1C_SCI version 4 (positions of bins and times of the nadir view)",
+      "period": "2026-11-07",
+      "platform": "pace",
+      "holdout_gap_days": 34,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.860529986053
+        },
+        {
+          "name": "pass_precision",
+          "value": 98.21673525377228
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.21771620389999996
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.5855394046735746
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9713616010834836
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.20900241199999994
+      }
+    }
+  },
+  "standard_version": 3
+}

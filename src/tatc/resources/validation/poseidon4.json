@@ -1,0 +1,37 @@
+{
+  "entry_id": "poseidon4",
+  "configurations": {
+    "nadir": {
+      "digest": "107505a442441ac34f81b48ef1eaa02529dfd2116a36c0575b401bcdcd3415b6",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_poseidon4.py",
+      "reference": "JASON_CS_S6A_L2_ALT_LR_RED_OST_NRT_F (1 Hz measurement positions and times)",
+      "period": "2026-11-07",
+      "platform": "sentinel-6a",
+      "metrics": [
+        {
+          "name": "segment_recall",
+          "value": 100.0
+        },
+        {
+          "name": "track_offset_median",
+          "value": 0.1381928684157891
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.12089326319999998
+        },
+        {
+          "name": "epoch_median",
+          "value": 0.014979299
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.1335472115499999
+      }
+    }
+  },
+  "standard_version": 3
+}

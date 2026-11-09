@@ -7,7 +7,7 @@ entry must show before it is called validated, so that entries can be compared
 and the claim means the same for each. An entry's tier is computed from its
 results and these thresholds, and cannot be declared.
 
-This is version 2 of the standard. The thresholds of version 1 were drafted from
+This is version 3 of the standard. The thresholds of version 1 were drafted from
 the earlier results below, so they can show little about those instruments. They
 were frozen before validating instruments new to TAT-C, which are their first real
 test. Changing a threshold requires a new version and a stated reason here.
@@ -31,6 +31,12 @@ Versions
        (:doc:`ValidateLidarICESat2`: the central beam pair within about 2 km of the
        ground track over Antarctica, and 95% of beam segments within views about
        4 km wide), and frozen before any data were analyzed for the catalog.
+   * - 3
+     - Adds the altimeter class, for nadir radar altimeters (Sentinel-6 Michael
+       Freilich's Poseidon-4), whose measurements lie along the ground track rather
+       than in a swath. No threshold of earlier versions changed, so their results
+       still apply. The altimeter gates mirror the lidar gates and were frozen
+       before any altimeter data were analyzed.
 
 Rules
 =====
@@ -77,24 +83,33 @@ epoch gate. Cross-track and conical instruments also need a configuration at the
 sample size grade. Orbit error against recorded positions is reported but not
 gated, because it grades the element set rather than the instrument.
 
-Lidar gates are separate, because a lidar observes narrow tracks rather than a
-swath:
+Lidar and altimeter gates are separate, because they observe narrow tracks
+rather than a swath:
 
 .. list-table::
    :header-rows: 1
-   :widths: 60 40
+   :widths: 50 25 25
 
    * - Metric
      - Lidar
-   * - Segment recall: share of beam segments within the views at their times,
-       where the beams follow their reference tracks
+     - Altimeter
+   * - Segment recall: share of beam segments (or measurements) within the views
+       at their times, where the beams follow their reference tracks
+     - ≥ 99%
      - ≥ 99%
    * - Beam spacing error, median: distance across track between beams, against
        the spacing of the views
      - ≤ 0.2 km
+     -
+   * - Track offset, median: distance across track of measurements from the
+       predicted ground track
+     -
+     - ≤ 0.5 km
    * - Epoch, 95th percentile (coverage)
      - ≤ 3 s
+     - ≤ 3 s
    * - Epoch, 95th percentile (timing)
+     - ≤ 1 s
      - ≤ 1 s
 
 .. list-table::
@@ -176,7 +191,8 @@ swath:
 
 Pushbroom imagers, SAR, and lidar have no precision gate because they acquire or
 point according to plans, so a predicted observation that was not made is not an
-error of geometry.
+error of geometry. Nor do altimeters, whose products omit measurements by surface
+and quality.
 
 Back-Test
 =========

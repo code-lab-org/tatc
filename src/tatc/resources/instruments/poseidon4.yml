@@ -1,0 +1,47 @@
+id: poseidon4
+name: Poseidon-4
+aliases: [Sentinel-6 altimeter, Sentinel-6 Michael Freilich Poseidon-4]
+instrument_class: altimeter
+selection: Nadir radar altimeter of Sentinel-6 Michael Freilich, the reference mission for global mean sea level, which continues the TOPEX/Poseidon and Jason series, with open data products.
+platforms:
+  - id: sentinel-6a
+    name: Sentinel-6 Michael Freilich
+    norad_id: 46984
+    status: operational
+    as_of: 2026-11-09
+data_products:
+  - name: Sentinel-6A Level 2 low-resolution near-real-time reduced product (JASON_CS_S6A_L2_ALT_LR_RED_OST_NRT_F)
+    provider: NASA PO.DAAC
+    url: https://podaac.jpl.nasa.gov/dataset/JASON_CS_S6A_L2_ALT_LR_RED_OST_NRT_F
+    access: registration
+default_configuration: nadir
+configurations:
+  nadir:
+    grade: timing
+    description: A narrow view at nadir, about 10 km wide, that contains the altimeter's footprint, with a view tailored to the analysis time step.
+    platforms: [sentinel-6a]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: Poseidon-4
+          field_of_regard: 0.43
+          cross_track_field_of_view: 0.43
+          along_track_field_of_view: {tailor: time_step}
+          is_rectangular: true
+        provenance:
+          field_of_regard: &footprint
+            kind: derived
+            source: 2 atan(5 km / 1336 km), a view about 10 km wide at the orbit's altitude, which contains the pulse-limited footprint (a few kilometers wide) at nadir
+          cross_track_field_of_view: *footprint
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models the band along the ground track as a rectangular view
+    limitations:
+      - The view's width is not the footprint's, which depends on the sea state; it is wide enough to contain the measurements' positions, which lie at nadir.
+limitations:
+  - The measurements' positions are the satellite's nadir, so the track offset tests the element set as much as the view.
+  - The view observes everywhere along the ground track, whereas products omit measurements by surface and quality.

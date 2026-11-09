@@ -23,9 +23,11 @@ from ..schemas import (
     Attitude,
     AttitudeSchedule,
     ConicalInstrument,
+    GlintAttitude,
     Instrument,
     PointedInstrument,
     Satellite,
+    TargetAttitude,
 )
 from ..schemas.space.base import AllAttitudes
 from ..utils import VelocityFrame, compute_along_track_field_of_view
@@ -46,6 +48,12 @@ _INSTRUMENT_CLASSES: dict[str, type[Instrument]] = {
 }
 _TAILORED = {"tailor": "time_step"}
 _TAILORED_FIELD = "along_track_field_of_view"
+# the attitudes that a configuration may give, by their `type`
+_ATTITUDE_TYPES = {
+    "attitude": Attitude,
+    "glint": GlintAttitude,
+    "target": TargetAttitude,
+}
 
 
 class _CatalogModel(BaseModel):
@@ -444,7 +452,7 @@ class Configuration(_CatalogModel):
             raise ValueError("instrument_index is out of range")
         if (self.grouping == "single") != (len(self.instruments) == 1):
             raise ValueError("grouping is `single` only for one instrument")
-        Attitude(velocity_frame=self.velocity_frame, **self.attitude)
+        self.make_attitude()
         if self.attitude_schedule is not None and {
             "pitch_angle",
             "pitch_angle_profile",
@@ -455,6 +463,18 @@ class Configuration(_CatalogModel):
                 "attitude"
             )
         return self
+
+    def make_attitude(self) -> Attitude | GlintAttitude | TargetAttitude:
+        """
+        Makes the attitude of the configuration: of the type its `type` names
+        (`attitude` by default, `glint`, or `target`), in its velocity frame.
+
+        Returns:
+            Attitude | GlintAttitude | TargetAttitude: The attitude.
+        """
+        fields = copy.deepcopy(self.attitude)
+        kind = _ATTITUDE_TYPES[fields.pop("type", "attitude")]
+        return kind(velocity_frame=self.velocity_frame, **fields)
 
     @property
     def is_fitted(self) -> bool:
@@ -894,10 +914,7 @@ class InstrumentEntry(_CatalogModel):
             and not selected.attitude
         ):
             return None
-        return Attitude(
-            velocity_frame=selected.velocity_frame,
-            **copy.deepcopy(selected.attitude),
-        )
+        return selected.make_attitude()
 
     def to_satellite(
         self,
