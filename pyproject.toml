@@ -115,6 +115,7 @@ validation = [
     "hatanaka",
     "metpy",
     "netcdf4",
+    "pyhdf",
     "requests",
     "scipy"
 ]

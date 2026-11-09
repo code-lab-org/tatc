@@ -1,0 +1,84 @@
+{
+  "entry_id": "avhrr",
+  "configurations": {
+    "pixels": {
+      "digest": "dbf6f0c753315ee4a642fcdccf32c8a219997e57cbb086f6d2917cc3a057c74c",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_avhrr.py",
+      "reference": "Footprint published by the NWP SAF; sample positions of AVHRRF_MC-STAR-L2P version 2.80",
+      "period": "2026-10-05",
+      "platform": "metop-c",
+      "holdout_gap_days": 31,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 0.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 3.7351913965160577
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 2.3116353762050883
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 6.706381107690264
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.0001255047279238
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9995466813722711
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 0.0,
+        "pixel_position_median": 2.0795114877055187,
+        "spacing_along_ratio_median": 1.000003237210567,
+        "spacing_cross_ratio_median": 0.9995201431814448
+      }
+    },
+    "swath": {
+      "digest": "eac74196433d4eb1d2372fcbdfdd52ca31743ba103dafbf01465de2cf4de40b4",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_avhrr.py",
+      "reference": "AVHRRF_MC-STAR-L2P version 2.80 (sample positions and times)",
+      "period": "2026-10-05",
+      "platform": "metop-c",
+      "holdout_gap_days": 31,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.36125454197743
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.36885590789122
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.12149445625
+        },
+        {
+          "name": "swath_width_median",
+          "value": 1.2263036339355167
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9939790476722332
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 1.0850910657499997
+      }
+    }
+  },
+  "standard_version": 2
+}

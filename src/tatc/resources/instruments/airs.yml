@@ -1,0 +1,81 @@
+id: airs
+name: AIRS
+aliases: [Atmospheric Infrared Sounder]
+instrument_class: cross_track
+selection: Cross-track hyperspectral infrared sounder, widely used in weather and climate research, with open data products of Aqua since 2002.
+platforms:
+  - id: aqua
+    name: Aqua
+    norad_id: 27424
+    status: extended
+    as_of: 2026-11-05
+data_products:
+  - name: AIRS/Aqua L1B Infrared (IR) geolocated and calibrated radiances (AIRSAQIRL1B), version 8.0
+    provider: NASA GES DISC
+    url: https://disc.gsfc.nasa.gov/datasets/AIRSAQIRL1B_8.0/summary
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: coverage
+    description: The swath scanned between the outermost footprint centers, with a view tailored to the analysis time step.
+    platforms: [aqua]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: AIRS
+          field_of_regard: 97.9
+          cross_track_field_of_view: 97.9
+          along_track_field_of_view: {tailor: time_step}
+          is_rectangular: true
+        provenance:
+          field_of_regard: &nominal_extent
+            kind: nominal
+            source: The outermost of AIRS's 90 footprints, spaced 1.1 deg, are 48.95 deg from nadir
+          cross_track_field_of_view: *nominal_extent
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - TAT-C observes all pixels of a view at one instant, whereas AIRS sweeps its footprints over about 2.0 s of each 8/3 s scan. The grade was set to coverage before validation, on the expectation that this sweep would displace epochs at the edges by up to 1 s; on the validation day, the 95th percentile was 0.42 s.
+  footprints:
+    grade: sample_size
+    description: The 90 footprint positions of a scan, whose sizes and spacing `compute_sample_sizes` gives.
+    platforms: [aqua]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: AIRS
+          field_of_regard: 99.0
+          cross_track_field_of_view: 99.0
+          along_track_field_of_view: 1.1
+          cross_track_pixels: 90
+          is_rectangular: true
+          scan_period: 2.6666666666666665
+        provenance:
+          field_of_regard: &nominal_spacing
+            kind: nominal
+            source: AIRS's 90 footprints are 1.1 deg each
+          cross_track_field_of_view: *nominal_spacing
+          along_track_field_of_view: *nominal_spacing
+          cross_track_pixels:
+            kind: nominal
+            source: AIRS has 90 footprints per scan
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          scan_period:
+            kind: nominal
+            source: AIRS scans every 8/3 s, three times for each scan of AMSU-A
+    limitations:
+      - Pixels are projected at the middle time of the scan's Earth view, whereas AIRS samples its footprints up to 1.0 s before or after it.
+      - At the outermost footprints, the along-track size is about 4% larger than the published 21.4 km, so fewer published dimensions are within 3% than the gate requires; the sizes at nadir and across track at the edge agree within 0.5%.
+limitations:
+  - Aqua does not steer its yaw, so the configurations use the inertial frame.
+  - The footprints' centers are offset from the published geometry by about 0.04 deg to the left, which is not modeled.
+  - These configurations were tested on Aqua, the only satellite that carries AIRS.

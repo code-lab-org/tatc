@@ -1,8 +1,9 @@
 """
-Helpers shared by the scripts that validate cross-track scanners against the swath
-products of the GPM mission at NASA GES DISC (the Level 2 DPR product and the Level
-1C MHS products), whose scans give the position of each beam's center on the
-ellipsoid: reading the products, fitting the scan's angles, and scoring.
+Helpers shared by the scripts that validate cross-track scanners against swath
+products at NASA GES DISC (the GPM mission's Level 2 DPR product and Level 1C MHS
+products, and the Level 1B AIRS and AMSU-A products of Aqua), whose scans give the
+position of each beam's center on the ellipsoid: reading the products, fitting the
+scan's angles, and scoring.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -10,6 +11,7 @@ ellipsoid: reading the products, fitting the scan's angles, and scoring.
 import concurrent.futures
 import json
 import pathlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -45,31 +47,74 @@ from validation_io import (
 
 EARTH_ROTATION = 7.2921150e-5  # rad/s
 ORBIT_MARGIN = 120  # s
+TAI93_EPOCH = pd.Timestamp("1993-01-01", tz="UTC")
+# TAI - UTC was 27 s at the start of 1993, and has been 37 s since 2017
+TAI93_LEAP_SECONDS = 10
 
 
 @dataclass(frozen=True)
 class Product:
-    """Where a product stores the fields of a scanner's swath."""
+    """
+    Where a product stores the fields of a scanner's swath. Products of the GPM
+    mission are read from their group's fields; others give a function that reads a
+    granule, from its URL, an Earthdata session, the day, and a directory.
+    """
 
     short_name: str
     version: str
-    group: str
-    spacecraft: tuple[str, str, str]
+    group: str = ""
+    spacecraft: tuple[str, str, str] = ("", "", "")
     quality: str | None = None
+    read: Callable[..., dict] | None = None
+    host: str = "https://data.gesdisc"
 
 
-def load_day(product: Product, day: datetime, directory: pathlib.Path) -> dict:
+def read_gpm(product: Product, url: str, session, day: datetime, _directory) -> dict:
     """
-    Reads the scans of a day from the granules overlapping it, with range requests
-    for only the needed fields, or loads them from a cache. Keeps each scan once, in
-    time order, within the day.
+    Reads the fields of a granule of a GPM product, with range requests: each scan's
+    time (seconds from the start of the day), the beams' positions, the spacecraft's
+    position, and any quality flag.
     """
-    cache = directory / f"{product.short_name.lower()}_{day:%Y%m%d}.npz"
-    if cache.exists():
-        return dict(np.load(cache))
-    if earthaccess.login(strategy="environment") is None:
-        raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
-    session = earthaccess.get_requests_https_session()
+    with h5py.File(RemoteFile(url, session)) as f:
+        g = f[product.group]
+        date = pd.to_datetime(
+            pd.DataFrame(
+                {
+                    "year": g["ScanTime/Year"][:],
+                    "month": g["ScanTime/Month"][:],
+                    "day": g["ScanTime/DayOfMonth"][:],
+                }
+            ),
+            utc=True,
+        )
+        seconds = (date - pd.Timestamp(day)).dt.total_seconds().to_numpy() + g[
+            "ScanTime/SecondOfDay"
+        ][:].astype(float)
+        part = {
+            "time": seconds,
+            "lat": g["Latitude"][:],
+            "lon": g["Longitude"][:],
+            "sc_lat": g[product.spacecraft[0]][:],
+            "sc_lon": g[product.spacecraft[1]][:],
+            "sc_alt": g[product.spacecraft[2]][:],
+        }
+        if product.quality is not None:
+            quality = g[product.quality][:]
+            part["quality"] = quality if quality.ndim == 1 else quality[:, 0]
+        return part
+
+
+def tai93_to_seconds(tai93, day: datetime) -> np.ndarray:
+    """Converts TAI seconds since 1993 to UTC seconds from the start of a day."""
+    return (
+        np.asarray(tai93, dtype=float)
+        - TAI93_LEAP_SECONDS
+        - (pd.Timestamp(day) - TAI93_EPOCH).total_seconds()
+    )
+
+
+def find_granules(product: Product, day: datetime) -> list[str]:
+    """Gets the URLs of a product's granules from two hours before to after a day."""
     items = get_with_retries(
         "https://cmr.earthdata.nasa.gov/search/granules.umm_json",
         params={
@@ -77,51 +122,40 @@ def load_day(product: Product, day: datetime, directory: pathlib.Path) -> dict:
             "version": product.version,
             "temporal": f"{day - timedelta(hours=2):%Y-%m-%dT%H:%M:%SZ},"
             f"{day + timedelta(days=1, hours=2):%Y-%m-%dT%H:%M:%SZ}",
-            "page_size": 100,
+            "page_size": 2000,
         },
     ).json()["items"]
-    urls = [
+    return [
         next(
             u["URL"]
             for u in item["umm"]["RelatedUrls"]
-            if u["URL"].startswith("https://data.gesdisc")
-            and u["URL"].endswith((".nc", ".HDF5", ".h5"))
+            if u["URL"].startswith(product.host)
+            and u["URL"].endswith((".nc", ".HDF5", ".h5", ".hdf"))
         )
         for item in items
     ]
-    group = product.group
 
-    def read(url):
-        with h5py.File(RemoteFile(url, session)) as f:
-            g = f[group]
-            date = pd.to_datetime(
-                pd.DataFrame(
-                    {
-                        "year": g["ScanTime/Year"][:],
-                        "month": g["ScanTime/Month"][:],
-                        "day": g["ScanTime/DayOfMonth"][:],
-                    }
-                ),
-                utc=True,
-            )
-            seconds = (date - pd.Timestamp(day)).dt.total_seconds().to_numpy() + g[
-                "ScanTime/SecondOfDay"
-            ][:].astype(float)
-            part = {
-                "time": seconds,
-                "lat": g["Latitude"][:],
-                "lon": g["Longitude"][:],
-                "sc_lat": g[product.spacecraft[0]][:],
-                "sc_lon": g[product.spacecraft[1]][:],
-                "sc_alt": g[product.spacecraft[2]][:],
-            }
-            if product.quality is not None:
-                quality = g[product.quality][:]
-                part["quality"] = quality if quality.ndim == 1 else quality[:, 0]
-            return part
+
+def load_day(product: Product, day: datetime, directory: pathlib.Path) -> dict:
+    """
+    Reads the scans of a day from the granules overlapping it, with range requests
+    for only the needed fields where the format allows, or loads them from a cache.
+    Keeps each scan once, in time order, within the day.
+    """
+    cache = directory / f"{product.short_name.lower()}_{day:%Y%m%d}.npz"
+    if cache.exists():
+        return dict(np.load(cache))
+    if earthaccess.login(strategy="environment") is None:
+        raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+    session = earthaccess.get_requests_https_session()
+    urls = find_granules(product, day)
+    read = product.read or read_gpm
+
+    def read_granule(url):
+        return read(product, url, session, day, directory)
 
     with concurrent.futures.ThreadPoolExecutor(4) as pool:
-        parts = list(pool.map(read, urls))
+        parts = list(pool.map(read_granule, urls))
     reduced = {k: np.concatenate([p[k] for p in parts]) for k in parts[0]}
     _, first = np.unique(np.round(reduced["time"], 3), return_index=True)
     keep = first[(reduced["time"][first] >= 0) & (reduced["time"][first] < 86400)]
@@ -132,7 +166,14 @@ def load_day(product: Product, day: datetime, directory: pathlib.Path) -> dict:
 
 
 class Reference:
-    """A day of scans of a cross-track scanner, with what is derived from them."""
+    """
+    A day of scans of a cross-track scanner, with what is derived from them. Each scan
+    has a time; products that also give each beam's time (`beam_time`, in seconds from
+    the start of the day) time the passes by beam. A day reduced to some of the
+    product's lines and samples gives the samples' indices in the product (`pixel`),
+    their number (`pixels`), and the lines from one kept scan to the next
+    (`line_stride`).
+    """
 
     def __init__(self, day: datetime, data: dict, scan_period: float):
         self.day = day
@@ -145,6 +186,11 @@ class Reference:
         # altitudes are in km in some products and m in others
         self.altitude = altitude * 1e3 if np.median(altitude) < 1e4 else altitude
         self.seconds = data["time"][valid].astype(float)
+        self.beam_seconds = (
+            data["beam_time"][valid].astype(float)
+            if "beam_time" in data
+            else np.repeat(self.seconds[:, np.newaxis], data["lat"].shape[1], axis=1)
+        )
         self.time = pd.DatetimeIndex(
             [pd.Timestamp(day) + pd.Timedelta(seconds=s) for s in self.seconds]
         )
@@ -157,6 +203,9 @@ class Reference:
         )
         self.scan_period = scan_period
         self.beams = self.lat.shape[1]
+        self.pixel = np.asarray(data.get("pixel", np.arange(self.beams)))
+        self.pixels = int(data.get("pixels", self.beams))
+        self.line_stride = int(data.get("line_stride", 1))
         self.unit = up(self.lon, self.lat)
         period = np.diff(self.seconds)
         self.is_next_contiguous = period < 1.5 * scan_period
@@ -199,11 +248,12 @@ class Reference:
     def observe_passes(self, points, radius: float) -> pd.DataFrame:
         """
         Finds the passes on which the scanner observed points, and their times, with
-        each beam at the time of its scan.
+        each beam at its time (or the time of its scan, if the product gives no time
+        by beam).
         """
         point_unit = up(points.geometry.x.to_numpy(), points.geometry.y.to_numpy())
         flat = self.unit.reshape(-1, 3)
-        beam_seconds = np.repeat(self.seconds, self.beams)
+        beam_seconds = self.beam_seconds.ravel()
         tree = cKDTree(flat)
         rows = []
         for p, hits in enumerate(
@@ -242,8 +292,8 @@ class Reference:
                 fraction = np.clip(
                     np.sum((point_unit[p] - a) * (b - a)) / np.sum((b - a) ** 2), 0, 1
                 )
-                seconds = self.seconds[before] + fraction * (
-                    self.seconds[before + 1] - self.seconds[before]
+                seconds = self.beam_seconds[before, j] + fraction * (
+                    self.beam_seconds[before + 1, j] - self.beam_seconds[before, j]
                 )
                 rows.append(
                     {
@@ -272,7 +322,7 @@ def fit(reference: Reference, frame: str) -> None:
     flipped = angles[:, 0] > angles[:, -1]
     angles[flipped] = angles[flipped, ::-1]
     median = np.median(angles, axis=0)
-    index = np.arange(reference.beams) - (reference.beams - 1) / 2
+    index = reference.pixel - (reference.pixels - 1) / 2
     spacing, offset = np.polyfit(index, median, 1)
     right, left = -median[0], median[-1]
     print(
@@ -346,7 +396,11 @@ def measure_pixels(reference: Reference, satellite, index: int, stride: int, fra
     orbit = satellite.orbit.to_gp_orbit()
     rows = []
     for beam in range(reference.beams):
-        pixel = np.where(increasing, beam, reference.beams - 1 - beam)
+        pixel = np.where(
+            increasing,
+            reference.pixel[beam],
+            reference.pixels - 1 - reference.pixel[beam],
+        )
         for value in np.unique(pixel):
             subset = np.nonzero(pixel == value)[0]
             track = orbit.get_orbit_track(
@@ -381,14 +435,19 @@ def measure_pixels(reference: Reference, satellite, index: int, stride: int, fra
 def measure_spacing(reference: Reference, stride: int):
     """
     Measures the spacing of beams as `ValidateSampleSizes` does, from half the distance
-    between the beams on either side. Gets the times, and rows of latitude, longitude,
-    along-track and cross-track spacing (km).
+    between the beams on either side (divided by the lines or samples between them on
+    a reduced day). Gets the times, and rows of latitude, longitude, along-track and
+    cross-track spacing (km).
     """
     scans = reference.contiguous_scans()[::stride]
     xyz = ecef(reference.lon, reference.lat)
-    along = np.linalg.norm(xyz[scans + 1] - xyz[scans - 1], axis=-1) / 2e3
+    along = np.linalg.norm(xyz[scans + 1] - xyz[scans - 1], axis=-1) / (
+        2e3 * reference.line_stride
+    )
     cross = np.full(along.shape, np.nan)
-    cross[:, 1:-1] = np.linalg.norm(xyz[scans, 2:] - xyz[scans, :-2], axis=-1) / 2e3
+    cross[:, 1:-1] = np.linalg.norm(xyz[scans, 2:] - xyz[scans, :-2], axis=-1) / (
+        1e3 * (reference.pixel[2:] - reference.pixel[:-2])
+    )
     times = pd.DatetimeIndex(np.repeat(reference.time[scans], reference.beams))
     rows = np.stack(
         [

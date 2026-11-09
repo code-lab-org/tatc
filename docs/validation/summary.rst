@@ -64,13 +64,18 @@ Instruments and Pointing
      - Reference
      - Result
    * - Cross-track scanners (`PointedInstrument`, `ViewGeometry.SCAN`)
-     - NOAA-20 ATMS, CrIS, and VIIRS; Terra and Aqua MODIS; Metop-B IASI; GPM DPR; Metop-C MHS
+     - NOAA-20 ATMS, CrIS, and VIIRS; Terra and Aqua MODIS; Metop-B IASI; GPM DPR; Metop-C MHS and AVHRR; Aqua
+       AIRS and AMSU-A
      - On held-out data, 99.8 to 100% of passes predicted (ATMS, CrIS, VIIRS, MODIS, IASI, DPR); epochs within 0.25 s
        (ATMS), 0.40 s (CrIS), 0.44 s (MODIS), 0.55 s (DPR), and 2.0 s (VIIRS) at the 95th percentile; swath width
        within 0.15 to 3.3 km (median) with measured fields of regard; pixel centers within 0.9 to 2.9 km (median;
        ATMS, VIIRS, MODIS, DPR). MHS, with its published scan, observed 99.97% of passes predicted, with epochs within
        1.7 s, swath width within 0.8 km, and pixel centers within 5.7 km (median), along track of where MHS samples
-       them (:doc:`catalog`; :doc:`ValidateImagerATMS`, :doc:`ValidateImagerVIIRS`, :doc:`ValidateDriftMODIS`). CrIS's
+       them. AIRS and AMSU-A, with their published scans, observed 99.9% of passes predicted, with epochs within
+       0.42 s (AIRS) and 2.2 s (AMSU-A), swath width within 0.6 and 1.5 km, and pixel centers within 3.6 and 4.6 km
+       (median). AVHRR, with fitted angles on held-out data, observed 99.4% of passes predicted, with swath width within
+       1.2 km and pixel centers within 2.3 km (median), but epochs within 1.1 s (95th percentile), from a yaw of about
+       0.4 deg that the view does not model (:doc:`catalog`; :doc:`ValidateImagerATMS`, :doc:`ValidateImagerVIIRS`, :doc:`ValidateDriftMODIS`). CrIS's
        footprint centers within 0.7 km (95th percentile) only
        with a computation per field of regard written in the notebook, and within 19 km (central field of view) and
        43 km (all) at the 95th percentile with public methods, which observe a scan at one instant and do not rotate

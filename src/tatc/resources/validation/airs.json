@@ -1,0 +1,84 @@
+{
+  "entry_id": "airs",
+  "configurations": {
+    "footprints": {
+      "digest": "7862db094b28e96e59d9bd0636934b55923d8779ce990fd0d4320aea07705d4b",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_airs.py",
+      "reference": "Footprints published by the AIRS project; footprint positions of AIRSAQIRL1B version 8.0",
+      "period": "2026-11-05",
+      "platform": "aqua",
+      "holdout_gap_days": 32,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 75.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 4.26699970724056
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 3.5601824956641765
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 7.832342686501143
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9996528563263378
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9996045676693288
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 75.0,
+        "pixel_position_median": 3.3023608478245303,
+        "spacing_along_ratio_median": 0.9997106319757258,
+        "spacing_cross_ratio_median": 0.9995481520711
+      }
+    },
+    "swath": {
+      "digest": "5b0965aaf0eadd4e558751fbae75acc8c3603f1902b3fe11b2c994783c01204a",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_airs.py",
+      "reference": "AIRSAQIRL1B version 8.0 (footprint positions and times)",
+      "period": "2026-11-05",
+      "platform": "aqua",
+      "holdout_gap_days": 32,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.91418150611457
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.87132747158482
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.421308911
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.577154849287821
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9867293137694252
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.38456898325
+      }
+    }
+  },
+  "standard_version": 2
+}

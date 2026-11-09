@@ -110,8 +110,11 @@ class TestLoading(unittest.TestCase):
             [e.id for e in list_entries(tier="partial")],
             [
                 "abi",
+                "airs",
                 "amsr2",
+                "amsua",
                 "atlas",
+                "avhrr",
                 "cris",
                 "csar",
                 "dpr",
@@ -728,6 +731,49 @@ class TestEntryStatus(unittest.TestCase):
         )
         for configuration in entry.validation.configurations.values():
             self.assertEqual(configuration.record.holdout_gap_days, 33)
+
+    def test_aqua_sounder_entries_partial_on_published_footprints(self):
+        """
+        Test that the AIRS and AMSU-A entries, whose values are all published, are
+        partial because of their published footprints alone, with their swaths
+        validated at the coverage grade.
+        """
+        for entry_id in ("airs", "amsua"):
+            entry = get_entry(entry_id)
+            self.assertEqual(entry.validation.tier, Tier.PARTIAL, entry_id)
+            swath = entry.validation.configurations["swath"]
+            self.assertEqual(swath.tier, Tier.VALIDATED, entry_id)
+            self.assertEqual(entry.configurations["swath"].grade, Grade.COVERAGE)
+            footprints = entry.validation.configurations["footprints"]
+            self.assertEqual(
+                [r.gate.metric for r in footprints.gates if not r.passed],
+                ["sample_size_within_3pct"],
+                entry_id,
+            )
+            for configuration in entry.configurations.values():
+                for instrument in configuration.instruments:
+                    self.assertNotIn(
+                        "measured", [p.kind for p in instrument.provenance.values()]
+                    )
+
+    def test_avhrr_entry_partial(self):
+        """
+        Test that the AVHRR entry is partial on data held out 31 days from the fit:
+        its swath because of its epochs alone at the timing grade, and its pixels
+        because of their published footprint alone.
+        """
+        entry = get_entry("avhrr")
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        failed = {
+            key: [r.gate.metric for r in configuration.gates if not r.passed]
+            for key, configuration in entry.validation.configurations.items()
+        }
+        self.assertEqual(
+            failed, {"swath": ["epoch_p95"], "pixels": ["sample_size_within_3pct"]}
+        )
+        self.assertEqual(entry.configurations["swath"].grade, Grade.TIMING)
+        for configuration in entry.validation.configurations.values():
+            self.assertEqual(configuration.record.holdout_gap_days, 31)
 
     def test_gmi_reports_spacing_limitation(self):
         """

@@ -5,8 +5,11 @@ from reduced fixtures, written by `docs/validation/validate_catalog_atms.py`,
 `docs/validation/validate_catalog_modis.py`,
 `docs/validation/validate_catalog_iasi.py`,
 `docs/validation/validate_catalog_cris.py`,
-`docs/validation/validate_catalog_dpr.py`, and
-`docs/validation/validate_catalog_mhs.py`.
+`docs/validation/validate_catalog_dpr.py`,
+`docs/validation/validate_catalog_mhs.py`,
+`docs/validation/validate_catalog_airs.py`,
+`docs/validation/validate_catalog_amsua.py`, and
+`docs/validation/validate_catalog_avhrr.py`.
 
 These detect changes in TAT-C's results without network access. They do not themselves
 establish agreement with the reference data, which the scripts do.
@@ -425,6 +428,60 @@ class TestMhsFixture(_BeamScannerFixture, unittest.TestCase):
 
     def time_step(self) -> float:
         return 8 / 3
+
+
+class TestAirsFixture(_BeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the AIRS entry, whose published footprint at the scan's edge
+    does not meet the gate.
+    """
+
+    entry_id = "airs"
+    sizes_key = "footprints"
+    size_instrument = "AIRS"
+    platform = "aqua"
+    meets_published_gate = False
+    footprints = (
+        ("AIRS", 705, 98.2, 0, 13.5, 13.5),
+        ("AIRS", 705, 98.2, 48.95, 21.4, 41.0),
+    )
+
+    def time_step(self) -> float:
+        return 8 / 3
+
+
+class TestAmsuaFixture(_BeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the AMSU-A entry, whose published footprint does not meet the
+    gate.
+    """
+
+    entry_id = "amsua"
+    sizes_key = "footprints"
+    size_instrument = "AMSU-A"
+    platform = "aqua"
+    meets_published_gate = False
+    footprints = (("AMSU-A", 705, 98.2, 0, 45.0, 45.0),)
+
+    def time_step(self) -> float:
+        return 8.0
+
+
+class TestAvhrrFixture(_BeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the AVHRR entry, whose published footprint does not meet the
+    gate.
+    """
+
+    entry_id = "avhrr"
+    sizes_key = "pixels"
+    size_instrument = "AVHRR"
+    platform = "metop-c"
+    meets_published_gate = False
+    footprints = (("AVHRR", 817, 98.7, 0, 1.1, 1.1),)
+
+    def time_step(self) -> float:
+        return 10
 
 
 class TestCrisFixture(_ScannerFixture, unittest.TestCase):

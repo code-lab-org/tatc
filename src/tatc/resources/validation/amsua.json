@@ -1,0 +1,84 @@
+{
+  "entry_id": "amsua",
+  "configurations": {
+    "footprints": {
+      "digest": "12c13b6d6059dce8bc645deadf845d3364840f84686bc2d5f1027c27e810a96a",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_amsua.py",
+      "reference": "Footprint published in the AIRABRAD documentation; footprint positions of AIRABRAD version 005",
+      "period": "2026-11-05",
+      "platform": "aqua",
+      "holdout_gap_days": 32,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 0.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 10.022613068135733
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 4.576825537029167
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 8.791780426602307
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9996338758131382
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9958033875057757
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 0.0,
+        "pixel_position_median": 4.4112185989226536,
+        "spacing_along_ratio_median": 0.9999028700473462,
+        "spacing_cross_ratio_median": 0.9956250963916206
+      }
+    },
+    "swath": {
+      "digest": "c74e41783545953005c0326540108cadd12d9dc06c8506789445f331d41e3c30",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_amsua.py",
+      "reference": "AIRABRAD version 005 (footprint positions and times)",
+      "period": "2026-11-05",
+      "platform": "aqua",
+      "holdout_gap_days": 32,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.90182603573533
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.92144540455617
+        },
+        {
+          "name": "epoch_p95",
+          "value": 2.1757804654499995
+        },
+        {
+          "name": "swath_width_median",
+          "value": 1.5402890608658781
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9860036195386874
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 2.1124676153499995
+      }
+    }
+  },
+  "standard_version": 2
+}
