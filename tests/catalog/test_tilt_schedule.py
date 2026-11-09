@@ -36,6 +36,8 @@ def _schedule(**changes) -> TiltSchedule:
         "even_day_offset": -1.0,
         "transition": 2.0,
         "return_argument_of_latitude": 180,
+        "blind_before": 15.0,
+        "blind_after": 20.0,
     }
     values.update(changes)
     return TiltSchedule(**values, provenance={key: MEASURED for key in values})
@@ -82,6 +84,8 @@ class TestTiltSchedule(unittest.TestCase):
                 even_day_offset=-1,
                 transition=2,
                 return_argument_of_latitude=180,
+                blind_before=15,
+                blind_after=20,
                 provenance={"fore_pitch_angle": MEASURED},
             )
 
@@ -127,6 +131,28 @@ class TestTiltSchedule(unittest.TestCase):
         self.assertAlmostEqual(max(fore), 179.0)
         self.assertIn(181.0, angles)
 
+    def test_blind_around_changes(self):
+        """
+        Test that the instruments do not observe from before to after the middle of
+        each change, at the orbit's mean rate, and that no blind time gives no
+        intervals.
+        """
+        day = date(2026, 8, 15)
+        profile = self.schedule.get_pitch_angle_profile(day, self.orbit)
+        # the change to fore ends a half transition (1 deg) after its middle
+        switch = min(a for a, angle in profile if angle == 20.0) - 1.0
+        rate = 360 / self.orbit.get_orbit_period().total_seconds()
+        intervals = self.schedule.get_blind_intervals(day, self.orbit)
+        np.testing.assert_allclose(
+            intervals,
+            [
+                (switch - 15 * rate, switch + 20 * rate),
+                (180 - 15 * rate, 180 + 20 * rate),
+            ],
+        )
+        none = _schedule(blind_before=0.0, blind_after=0.0)
+        self.assertIsNone(none.get_blind_intervals(day, self.orbit))
+
     def test_schedule_has_a_segment_a_day(self):
         """
         Test that a schedule has an attitude for each day of the analysis, from
@@ -149,6 +175,10 @@ class TestTiltSchedule(unittest.TestCase):
             self.assertEqual(
                 segment.attitude.pitch_angle_profile,
                 self.schedule.get_pitch_angle_profile(day, self.orbit),
+            )
+            self.assertEqual(
+                segment.attitude.blind_intervals,
+                self.schedule.get_blind_intervals(day, self.orbit),
             )
         with self.assertRaisesRegex(ValueError, "precedes"):
             self.schedule.build_schedule(
@@ -227,6 +257,17 @@ class TestOciSchedule(unittest.TestCase):
         )
         self.assertIsInstance(satellite.attitude, AttitudeSchedule)
         self.assertEqual(len(satellite.attitude.segments), 3)
+        # each change of tilt lies within an interval in which OCI does not observe
+        for segment in satellite.attitude.segments:
+            profile = segment.attitude.pitch_angle_profile
+            for (first, before), (second, after) in zip(profile, profile[1:]):
+                if before != after:
+                    self.assertTrue(
+                        any(
+                            start < first and second < end
+                            for start, end in segment.attitude.blind_intervals
+                        )
+                    )
         self.assertIsNone(satellite.instruments[0].pitch_angle_profile)
         self.assertEqual(satellite.instruments[0].pitch_angle, 0)
 
@@ -251,9 +292,10 @@ class TestOciSchedule(unittest.TestCase):
         Test that a configuration with a schedule cannot also set a pitch.
         """
         data = self.entry.configurations["swath"].model_dump(mode="json")
-        data["attitude"] = {"pitch_angle": 1.0}
-        with self.assertRaisesRegex(ValidationError, "sets the pitch"):
-            type(self.entry.configurations["swath"])(**data)
+        for attitude in ({"pitch_angle": 1.0}, {"blind_intervals": [(0, 1)]}):
+            data["attitude"] = attitude
+            with self.assertRaisesRegex(ValidationError, "sets the pitch"):
+                type(self.entry.configurations["swath"])(**data)
 
 
 if __name__ == "__main__":

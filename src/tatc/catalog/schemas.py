@@ -203,7 +203,7 @@ class TiltSchedule(_CatalogModel):
     geodetic latitude reaches the subsolar latitude at noon (UTC) of the day plus an
     offset that alternates with the parity of the day of the year (UTC); it changes
     back at a fixed argument of latitude. Each change is linear over an arc of the
-    orbit.
+    orbit, within an interval in which the instruments do not observe.
     """
 
     fore_pitch_angle: float = Field(
@@ -239,6 +239,20 @@ class TiltSchedule(_CatalogModel):
         le=270,
         description="The argument of latitude (degrees) of the middle of the "
         + "change back to aft.",
+    )
+    blind_before: float = Field(
+        ...,
+        ge=0,
+        le=600,
+        description="The time (seconds) before the middle of each change from "
+        + "which the instruments do not observe.",
+    )
+    blind_after: float = Field(
+        ...,
+        ge=0,
+        le=600,
+        description="The time (seconds) after the middle of each change at which "
+        + "the instruments observe again.",
     )
     provenance: dict[str, Provenance] = Field(
         ..., description="The origin of each value."
@@ -287,11 +301,7 @@ class TiltSchedule(_CatalogModel):
         Returns:
             list[tuple[float, float]]: The profile.
         """
-        switch = _get_ascending_argument_of_latitude(
-            self.get_switch_latitude(day),
-            orbit.get_mean_altitude(),
-            orbit.get_inclination(),
-        )
+        switch = self._get_switch_argument_of_latitude(day, orbit)
         half = self.transition / 2
         back = self.return_argument_of_latitude
         return sorted(
@@ -302,6 +312,46 @@ class TiltSchedule(_CatalogModel):
                 (back - half, self.fore_pitch_angle),
                 (back + half, self.aft_pitch_angle),
             )
+        )
+
+    def get_blind_intervals(
+        self, day: date, orbit: Any
+    ) -> list[tuple[float, float]] | None:
+        """
+        Gets the intervals of argument of latitude (degrees) of a day in which the
+        instruments do not observe, around each change, at the orbit's mean rate.
+
+        Args:
+            day (datetime.date): The day (UTC).
+            orbit (Any): The orbit.
+
+        Returns:
+            list[tuple[float, float]] | None: The (start, end) pairs, or `None` if
+                the instruments always observe.
+        """
+        if self.blind_before + self.blind_after == 0:
+            return None
+        rate = 360 / orbit.get_orbit_period().total_seconds()
+        return sorted(
+            (
+                float(np.mod(middle - self.blind_before * rate, 360)),
+                float(np.mod(middle + self.blind_after * rate, 360)),
+            )
+            for middle in (
+                self._get_switch_argument_of_latitude(day, orbit),
+                self.return_argument_of_latitude,
+            )
+        )
+
+    def _get_switch_argument_of_latitude(self, day: date, orbit: Any) -> float:
+        """
+        Gets the argument of latitude (degrees) of the middle of the change from aft
+        to fore on a day.
+        """
+        return _get_ascending_argument_of_latitude(
+            self.get_switch_latitude(day),
+            orbit.get_mean_altitude(),
+            orbit.get_inclination(),
         )
 
     def build_schedule(
@@ -336,6 +386,7 @@ class TiltSchedule(_CatalogModel):
                 Attitude(
                     velocity_frame=velocity_frame,
                     pitch_angle_profile=self.get_pitch_angle_profile(day, orbit),
+                    blind_intervals=self.get_blind_intervals(day, orbit),
                     **copy.deepcopy(attitude),
                 )
                 for day in days
@@ -397,8 +448,12 @@ class Configuration(_CatalogModel):
         if self.attitude_schedule is not None and {
             "pitch_angle",
             "pitch_angle_profile",
+            "blind_intervals",
         } & set(self.attitude):
-            raise ValueError("an attitude schedule sets the pitch of the attitude")
+            raise ValueError(
+                "an attitude schedule sets the pitch and blind intervals of the "
+                "attitude"
+            )
         return self
 
     @property

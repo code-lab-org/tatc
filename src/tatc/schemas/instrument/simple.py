@@ -146,6 +146,22 @@ class Instrument(BaseModel):
         bound._attitude = attitude  # pylint: disable=protected-access
         return bound
 
+    def is_observing(self, orbit_track: Geocentric) -> npt.NDArray[np.bool_]:
+        """
+        Determines if the instrument observes at each time of an orbit track:
+        outside the blind intervals of the attitude of the space system that
+        carries it (see `tatc.schemas.Attitude.blind_intervals`), if any.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+
+        Returns:
+            numpy.typing.NDArray: Array of indicators: `True` if the instrument observes.
+        """
+        if self._attitude is None:
+            return np.ones(np.size(orbit_track.t.tt), dtype=bool)  # type: ignore
+        return np.reshape(self._attitude.is_observing(orbit_track), -1)
+
     @model_validator(mode="after")
     def check_target_solar_elevation_range(self) -> "Instrument":
         """
@@ -262,9 +278,10 @@ class Instrument(BaseModel):
         self, orbit_track: Geocentric, target: GeographicPosition | None = None
     ) -> npt.NDArray[np.bool_]:
         """Determines if an instrument can provide a valid observations: the
-        instrument's sunlit state and the target's sunlit state, solar
-        elevation angle (without atmospheric refraction), and glint angle
-        must satisfy any requirements.
+        instrument must observe (see `is_observing`), and the instrument's
+        sunlit state and the target's sunlit state, solar elevation angle
+        (without atmospheric refraction), and glint angle must satisfy any
+        requirements.
 
         Args:
             orbit_track (skyfield.positionlib.Geocentric): orbit track position/velocity from Skyfield
@@ -276,7 +293,7 @@ class Instrument(BaseModel):
         if target is None:
             # support backwards compatibility
             target = wgs84.subpoint_of(orbit_track)
-        is_valid = np.ones(np.size(orbit_track.t.tt), dtype=bool)  # type: ignore
+        is_valid = self.is_observing(orbit_track)
         if self.req_self_sunlit is not None:
             # compare requirement to satellite sunlit condition
             is_self_sunlit_valid = orbit_track.is_sunlit(de421) == self.req_self_sunlit

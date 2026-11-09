@@ -389,6 +389,29 @@ def _get_empty_region_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
+def _compute_observing_footprints(
+    instrument: Instrument, orbit_track: Geocentric, elevation: float
+) -> np.ndarray:
+    """
+    Computes an instrument's footprints at the times of an orbit track, empty
+    where the instrument does not observe (see `Instrument.is_observing`), so
+    that the periods and swaths of a region exclude its blind intervals.
+
+    Args:
+        instrument (Instrument): The instrument.
+        orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+        elevation (float): The elevation (meters) at which to project the footprints.
+
+    Returns:
+        numpy.ndarray: The footprints (objects).
+    """
+    views = np.array(
+        instrument.compute_footprint(orbit_track, elevation=elevation), dtype=object
+    )
+    views[~instrument.is_observing(orbit_track)] = geo.Polygon()
+    return views
+
+
 def _find_footprint_periods(
     region: geo.Polygon | geo.MultiPolygon,
     orbit: GeneralPerturbationsOrbit,
@@ -438,10 +461,7 @@ def _find_footprint_periods(
         t = _to_time_from_offsets(reference, seconds)
         yield t
         orbit_track = orbit.get_orbit_track_at_time(t)
-        return np.array(
-            instrument.compute_footprint(orbit_track, elevation=elevation),
-            dtype=object,
-        )
+        return _compute_observing_footprints(instrument, orbit_track, elevation)
 
     def observes(views: np.ndarray) -> np.ndarray:
         return shapely.intersects(views, region)
@@ -650,10 +670,7 @@ def _get_swaths(
         t = _to_time_from_offsets(reference, seconds)
         yield t
         orbit_track = orbit.get_orbit_track_at_time(t)
-        return np.array(
-            instrument.compute_footprint(orbit_track, elevation=elevation),
-            dtype=object,
-        )
+        return _compute_observing_footprints(instrument, orbit_track, elevation)
 
     # samples (seconds from the reference) within each period
     seconds = []

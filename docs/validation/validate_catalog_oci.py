@@ -7,7 +7,9 @@ schedule of daily pitch profiles over the argument of latitude (`TiltSchedule`).
 entry's angles are fitted to the positions of the samples on one day (run with
 `--fit`), from the spacecraft positions the product records, so the fit needs no
 element set. The schedule of the change is fitted with `--switches` to the days of a
-period, read with range requests of only the tilts and spacecraft positions. Running
+period, read with range requests of only the tilts and spacecraft positions, and the
+interval around each change in which the product has no valid scans with `--blind`,
+at full resolution, on the days given. Running
 on a day at least 30 days from the fitting data tests the fitted values on data held
 out from the fit.
 
@@ -16,6 +18,7 @@ positions, times, and tilts are read, with range requests (about 1.2 GB a day):
 
     python docs/validation/validate_catalog_oci.py <data directory> 2026-10-04 --fit
     python docs/validation/validate_catalog_oci.py <data directory> 2026-08-15 --switches 2026-10-08
+    python docs/validation/validate_catalog_oci.py <data directory> 2026-08-20 --blind 2026-09-15 2026-10-04 2026-10-07
     python docs/validation/validate_catalog_oci.py <data directory> 2026-11-07
 
 A day is reduced to every sixth scan (about 1 s) and every 16th sample (and the last).
@@ -71,6 +74,7 @@ ELEMENTS = {
 }
 SAMPLES = 1272
 SCAN_STRIDE = 6
+SCAN_PERIOD = 0.17547  # s
 COLUMNS = np.r_[0:SAMPLES:16, SAMPLES - 1]
 INCLINATION = 98.0  # deg, approximately, to get the argument of latitude
 
@@ -135,7 +139,7 @@ def load_reference(day: datetime, directory: pathlib.Path):
     data = load_day(PRODUCT, day, directory)
     tilt = data.pop("tilt")
     data.update(pixel=COLUMNS, pixels=SAMPLES, line_stride=SCAN_STRIDE)
-    reference = Reference(day, data, SCAN_STRIDE * 0.17547)
+    reference = Reference(day, data, SCAN_STRIDE * SCAN_PERIOD)
     valid = np.all(np.abs(data["lat"]) <= 90, axis=1) & (data["quality"] == 0)
     reference.tilt = tilt[valid]
     return reference
@@ -238,6 +242,86 @@ def read_switches(url: str, session) -> list[tuple[str, float]]:
     return switches
 
 
+def find_switch_granules(day: datetime) -> list[str]:
+    """
+    Finds the granules of a day that cross latitudes within 12 deg of the subsolar
+    latitude, where the tilt changes to fore.
+    """
+    subsolar = get_subsolar_latitude(day + timedelta(hours=12))
+    items = get_with_retries(
+        "https://cmr.earthdata.nasa.gov/search/granules.umm_json",
+        params={
+            "short_name": PRODUCT.short_name,
+            "version": PRODUCT.version,
+            "temporal": f"{day:%Y-%m-%dT%H:%M:%SZ},"
+            f"{day + timedelta(days=1):%Y-%m-%dT%H:%M:%SZ}",
+            "bounding_box": f"-180,{subsolar - 12},180,{subsolar + 12}",
+            "page_size": 2000,
+        },
+    ).json()["items"]
+    return [
+        next(
+            u["URL"]
+            for u in item["umm"]["RelatedUrls"]
+            if u["URL"].startswith(PRODUCT.host) and u["URL"].endswith(".nc")
+        )
+        for item in items
+    ]
+
+
+def read_blind(url: str, session) -> list[tuple[float, float]]:
+    """
+    Reads, for each change of tilt from aft to fore in a granule, the times
+    (seconds) of the last valid scan before the tilt crosses zero and of the first
+    valid scan after, from the middle of the change, at full resolution.
+    """
+    with h5py.File(RemoteFile(url, session)) as f:
+        seconds = f["scan_line_attributes/time"][:].astype(float)
+        tilt = f["navigation_data/tilt_angle"][:].astype(float)
+        quality = f["scan_line_attributes/scan_quality_flags"][:]
+    changes = []
+    for k in np.nonzero(np.diff(np.sign(tilt)) > 0)[0]:
+        middle = seconds[k] + (seconds[k + 1] - seconds[k]) * (
+            -tilt[k] / (tilt[k + 1] - tilt[k])
+        )
+        offset = seconds - middle
+        near = (np.abs(offset) < 90) & (quality == 0)
+        before, after = offset[near & (offset < 0)], offset[near & (offset > 0)]
+        # only changes with valid scans well before and after, within the granule
+        if len(before) and len(after) and before.min() < -30 and after.max() > 30:
+            changes.append((float(before.max()), float(after.min())))
+    return changes
+
+
+def fit_blind(days: list[datetime]) -> None:
+    """
+    Prints the interval around the changes of tilt to fore in which the product has
+    no valid scans, over days, at full resolution: from the end of the last valid
+    scan (its start plus a scan period) to the start of the first.
+    """
+    if earthaccess.login(strategy="environment") is None:
+        raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+    session = earthaccess.get_requests_https_session()
+    changes = []
+    for day in days:
+        with concurrent.futures.ThreadPoolExecutor(8) as pool:
+            for part in pool.map(
+                lambda url: read_blind(url, session), find_switch_granules(day)
+            ):
+                changes += part
+    before, after = np.array(changes).T
+    print(f"{len(changes)} changes from aft to fore on {len(days)} days")
+    print(
+        f"last valid scan: median {np.median(before):+.3f} s (from "
+        f"{before.min():+.3f} to {before.max():+.3f}); first valid scan: median "
+        f"{np.median(after):+.3f} s (from {after.min():+.3f} to {after.max():+.3f})"
+    )
+    print(
+        f"blind from {-(np.median(before) + SCAN_PERIOD):.2f} s before the middle of "
+        f"the change to {np.median(after):.2f} s after"
+    )
+
+
 def load_switches(day: datetime, directory: pathlib.Path, session) -> list:
     """
     Reads the changes of tilt of the granules of a day that cross latitudes within
@@ -245,26 +329,7 @@ def load_switches(day: datetime, directory: pathlib.Path, session) -> list:
     """
     cache = directory / f"switch_{day:%Y%m%d}.json"
     if not cache.exists():
-        subsolar = get_subsolar_latitude(day + timedelta(hours=12))
-        items = get_with_retries(
-            "https://cmr.earthdata.nasa.gov/search/granules.umm_json",
-            params={
-                "short_name": PRODUCT.short_name,
-                "version": PRODUCT.version,
-                "temporal": f"{day:%Y-%m-%dT%H:%M:%SZ},"
-                f"{day + timedelta(days=1):%Y-%m-%dT%H:%M:%SZ}",
-                "bounding_box": f"-180,{subsolar - 12},180,{subsolar + 12}",
-                "page_size": 2000,
-            },
-        ).json()["items"]
-        urls = [
-            next(
-                u["URL"]
-                for u in item["umm"]["RelatedUrls"]
-                if u["URL"].startswith(PRODUCT.host) and u["URL"].endswith(".nc")
-            )
-            for item in items
-        ]
+        urls = find_switch_granules(day)
         with concurrent.futures.ThreadPoolExecutor(8) as pool:
             parts = list(pool.map(lambda url: read_switches(url, session), urls))
         cache.write_text(
@@ -328,10 +393,20 @@ def main() -> None:
     parser.add_argument("day")
     parser.add_argument("--fit", action="store_true")
     parser.add_argument("--switches", metavar="LAST_DAY")
+    parser.add_argument("--blind", nargs="*", metavar="OTHER_DAY")
     parser.add_argument("--write", action="store_true")
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
+    if arguments.blind is not None:
+        fit_blind(
+            [day]
+            + [
+                datetime.fromisoformat(d).replace(tzinfo=timezone.utc)
+                for d in arguments.blind
+            ]
+        )
+        return
     if arguments.switches:
         last = datetime.fromisoformat(arguments.switches).replace(tzinfo=timezone.utc)
         fit_switches(day, last, arguments.directory)
