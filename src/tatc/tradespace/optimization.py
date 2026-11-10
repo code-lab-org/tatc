@@ -4,23 +4,36 @@ Optuna (which searches the hierarchical design space directly, see
 `DesignSpace.suggest`) and pymoo (which searches the unit hypercube that
 encodes it, see `DesignSpace.decode`). Both are optional dependencies.
 
-The objectives of a design are the means over its replicates of columns of
-the results of its evaluations (see `Study.run`), which must have one record
-per evaluation. Each design is evaluated once, however often an optimizer
-proposes it, and designs proposed together are evaluated together, in
-parallel if the study is (see `Study`).
+The objectives of a design are statistics over its replicates of the
+metrics of its evaluations (see `Study.run`, which must give one record per
+evaluation): their means, or other statistics (see `aggregate`), such as a
+quantile or the probability of meeting a threshold. Requirements on
+statistics (see `Requirement`) are output constraints, whose violations the
+optimizers minimize along with those of the constraints of the design space.
+Each design is evaluated once, however often an optimizer proposes it, and
+designs proposed together are evaluated together, in parallel if the study
+is (see `Study`).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from .criteria import (
+    Requirement,
+    Statistic,
+    _check_names,
+    _evaluate,
+    _get_matrices,
+    _get_statistics,
+)
+from .pareto import _check_directions
 from .space import Design, Infeasible
 from .study import Study
 
@@ -28,27 +41,38 @@ from .study import Study
 class Evaluations:
     """
     The evaluations of designs for a search: the objectives of each design
-    (by its key), and the records of the study's evaluations.
+    (by its key), the violations of its requirements, and the records of the
+    study's evaluations.
 
     Args:
         study (Study): The study that evaluates designs.
-        objectives (Mapping[str, str]): The objectives: columns of the
-            results and their directions (`"min"` or `"max"`).
+        objectives (Mapping[str, str]): The objectives: statistics (or
+            metrics, whose means they are) and their directions (`"min"` or
+            `"max"`).
+        statistics (Mapping[str, Statistic | str] | None): Statistics, by
+            name, of objectives and requirements that are not means.
+        requirements (Sequence[Requirement]): Requirements on statistics.
     """
 
-    def __init__(self, study: Study, objectives: Mapping[str, str]):
-        if len(objectives) == 0:
-            raise ValueError("at least one objective is required")
-        for column, direction in objectives.items():
-            if direction not in ("min", "max"):
-                raise ValueError(
-                    f"direction of {column!r} must be 'min' or 'max', "
-                    + f"not {direction!r}"
-                )
+    def __init__(
+        self,
+        study: Study,
+        objectives: Mapping[str, str],
+        statistics: Mapping[str, Statistic | str] | None = None,
+        requirements: Sequence[Requirement] = (),
+    ):
+        _check_directions(objectives)
         self.study, self.objectives = study, dict(objectives)
+        self.requirements = list(requirements)
+        names = list(objectives) + [r.name for r in self.requirements]
+        self.statistics = _get_statistics(names, statistics)
+        _check_names(self.statistics, self.requirements)
         self.values: dict[str, tuple[float, ...] | None] = {}
         """dict: The objectives of each evaluated design (by key), or `None`
         if it is infeasible."""
+        self.violations: dict[str, tuple[float, ...] | None] = {}
+        """dict: The violation of each requirement by each evaluated design
+        (by key), or `None` if it is infeasible."""
         self._records: list[pd.DataFrame] = []
 
     @property
@@ -62,7 +86,7 @@ class Evaluations:
     def evaluate(self, designs: list[Design]) -> list[tuple[float, ...] | None]:
         """
         Gets the objectives of designs, evaluating those not yet evaluated
-        together.
+        together (see also `violations`).
 
         Args:
             designs (list[Design]): The designs.
@@ -75,18 +99,27 @@ class Evaluations:
         if new:
             records = self.study.run(new)
             self._records.append(records)
-            for key, group in records.groupby("design", sort=False):
-                if not group["feasible"].all():
-                    self.values[key] = None
-                    continue
-                if group["replicate"].duplicated().any():
-                    raise ValueError(
-                        "objectives need one record per evaluation: make the "
-                        + "study's evaluate function return a mapping of metrics"
-                    )
-                self.values[key] = tuple(
-                    float(group[column].mean()) for column in self.objectives
+            if records.groupby(["design", "replicate"]).size().max() > 1:
+                raise ValueError(
+                    "objectives need one record per evaluation: make the "
+                    + "study's evaluate function return a mapping of metrics"
                 )
+            infeasible = set(records.loc[~records["feasible"], "design"])
+            for key in infeasible:
+                self.values[key] = self.violations[key] = None
+            feasible = records[~records["design"].isin(infeasible)]
+            if len(feasible) > 0:
+                metrics = sorted({s.column for s in self.statistics.values()})
+                keys, _, matrices = _get_matrices(feasible, metrics)
+                values, _ = _evaluate(self.statistics, [], matrices)
+                for i, key in enumerate(keys):
+                    self.values[key] = tuple(
+                        float(values[name][i]) for name in self.objectives
+                    )
+                    self.violations[key] = tuple(
+                        float(requirement.violation(values[requirement.name][i]))
+                        for requirement in self.requirements
+                    )
         return [self.values[d.key] for d in designs]
 
     def worst(self) -> list[float]:
@@ -97,7 +130,11 @@ class Evaluations:
         Returns:
             list[float]: the worst values, in the order of the objectives
         """
-        feasible = [values for values in self.values.values() if values is not None]
+        feasible = [
+            values
+            for values in self.values.values()
+            if values is not None and not np.isnan(values).any()
+        ]
         if not feasible:
             return [0.0] * len(self.objectives)
         table = np.array(feasible)
@@ -115,11 +152,13 @@ def optimize_optuna(
     optuna_study: Any = None,
     batch_size: int | None = None,
     constraints: bool = True,
+    statistics: Mapping[str, Statistic | str] | None = None,
+    requirements: Sequence[Requirement] = (),
 ) -> tuple[Any, pd.DataFrame]:
     """
     Searches a study's design space with Optuna: each trial suggests a design
     (see `DesignSpace.suggest`) and is told the means of its objectives over
-    its replicates.
+    its replicates (or other statistics, see `statistics`).
 
     With `constraints`, each trial records the violation of the constraints
     of its design (`trial.set_constraint`, under the name `"feasibility"`):
@@ -131,6 +170,10 @@ def optimize_optuna(
     feasible designs evaluated before it, which these samplers do not use to
     rank it. Without `constraints` (or with a version of Optuna before 5,
     which lacks `set_constraint`), an infeasible design prunes its trial.
+
+    Each requirement is a constraint of the trials (named by its statement,
+    such as `"sufficient p10 >= 80"`), whose value is its violation (see
+    `Requirement.violation`), and which requires `constraints`.
 
     Trials are asked in batches, whose designs are evaluated together (in
     parallel, if the study is) before they are told. A batch defaults to one
@@ -149,6 +192,9 @@ def optimize_optuna(
         batch_size (int | None): The number of trials evaluated together.
         constraints (bool): `True` to record the violations of constraints,
             `False` to prune infeasible trials.
+        statistics (Mapping[str, Statistic | str] | None): Statistics, by
+            name, of objectives and requirements that are not means.
+        requirements (Sequence[Requirement]): Requirements on statistics.
 
     Returns:
         tuple[optuna.Study, pandas.DataFrame]: the Optuna study, and the
@@ -161,7 +207,7 @@ def optimize_optuna(
         raise ImportError(
             "optimize_optuna requires optuna (pip install optuna)"
         ) from error
-    evaluations = Evaluations(study, objectives)
+    evaluations = Evaluations(study, objectives, statistics, requirements)
     directions = [
         "minimize" if direction == "min" else "maximize"
         for direction in evaluations.objectives.values()
@@ -170,10 +216,18 @@ def optimize_optuna(
         optuna_study = optuna.create_study(directions=directions, sampler=sampler)
     batch_size = batch_size or study.workers
     constrained = constraints and hasattr(optuna.trial.Trial, "set_constraint")
+    if requirements and not constrained:
+        raise ValueError("requirements need constraints (and Optuna 5 or later)")
+    names = [f"{r.name} {r.operator} {r.value}" for r in evaluations.requirements]
+
+    def set_constraints(trial: Any, feasibility: float, violations) -> None:
+        trial.set_constraint("feasibility", feasibility)
+        for name, violation in zip(names, violations):
+            trial.set_constraint(name, violation)
 
     def infeasible(trial: Any, violation: float) -> None:
         if constrained:
-            trial.set_constraint("feasibility", max(violation, 1e-9))
+            set_constraints(trial, max(violation, 1e-9), [0.0] * len(names))
             optuna_study.tell(trial, evaluations.worst())
         else:
             optuna_study.tell(trial, state=optuna.trial.TrialState.PRUNED)
@@ -193,17 +247,27 @@ def optimize_optuna(
             trials.append(trial)
             designs.append(design)
         remaining -= min(batch_size, remaining)
-        for trial, values in zip(trials, evaluations.evaluate(designs)):
+        for trial, design, values in zip(
+            trials, designs, evaluations.evaluate(designs)
+        ):
             if values is None:
                 infeasible(trial, 1.0)
             else:
                 if constrained:
-                    trial.set_constraint("feasibility", 0.0)
-                optuna_study.tell(trial, list(values))
+                    violations = evaluations.violations[design.key]
+                    set_constraints(trial, 0.0, np.nan_to_num(violations, nan=1.0))
+                optuna_study.tell(
+                    trial, list(np.where(np.isnan(values), evaluations.worst(), values))
+                )
     return optuna_study, evaluations.results
 
 
-def make_pymoo_problem(study: Study, objectives: Mapping[str, str]) -> Any:
+def make_pymoo_problem(
+    study: Study,
+    objectives: Mapping[str, str],
+    statistics: Mapping[str, Statistic | str] | None = None,
+    requirements: Sequence[Requirement] = (),
+) -> Any:
     """
     Makes a pymoo problem of a study's design space: its variables are the
     unit hypercube that encodes the design space (see `DesignSpace.decode`
@@ -211,15 +275,20 @@ def make_pymoo_problem(study: Study, objectives: Mapping[str, str]) -> Any:
     objectives are negated), and its constraint (`G <= 0`) is violated by
     designs that violate a constraint of the design space (by the amount of
     the violation, see `DesignSpace`) or that the study finds infeasible (by
-    1). The designs of a population are evaluated together.
+    1). Each requirement is a further constraint, whose value is its
+    violation (see `Requirement.violation`). The designs of a population are
+    evaluated together.
 
     The problem keeps its evaluations (`evaluations`, see `Evaluations`),
     whose `results` are those of every evaluation (see `Study.run`).
 
     Args:
         study (Study): The study that evaluates designs.
-        objectives (Mapping[str, str]): The objectives: columns of the
-            results and their directions (`"min"` or `"max"`).
+        objectives (Mapping[str, str]): The objectives: statistics (or
+            metrics) and their directions (`"min"` or `"max"`).
+        statistics (Mapping[str, Statistic | str] | None): Statistics, by
+            name, of objectives and requirements that are not means.
+        requirements (Sequence[Requirement]): Requirements on statistics.
 
     Returns:
         pymoo.core.problem.Problem: the problem
@@ -232,7 +301,8 @@ def make_pymoo_problem(study: Study, objectives: Mapping[str, str]) -> Any:
             "make_pymoo_problem requires pymoo (pip install pymoo)"
         ) from error
 
-    evaluations = Evaluations(study, objectives)
+    evaluations = Evaluations(study, objectives, statistics, requirements)
+    n_requirements = len(evaluations.requirements)
     signs = np.array(
         [1.0 if direction == "min" else -1.0 for direction in objectives.values()]
     )
@@ -245,7 +315,11 @@ def make_pymoo_problem(study: Study, objectives: Mapping[str, str]) -> Any:
 
         def __init__(self):
             super().__init__(
-                n_var=n_var, n_obj=len(signs), n_ieq_constr=1, xl=0.0, xu=1.0
+                n_var=n_var,
+                n_obj=len(signs),
+                n_ieq_constr=1 + n_requirements,
+                xl=0.0,
+                xu=1.0,
             )
             self.evaluations = evaluations
 
@@ -261,13 +335,18 @@ def make_pymoo_problem(study: Study, objectives: Mapping[str, str]) -> Any:
             feasible = [design for design in designs if design is not None]
             values = iter(evaluations.evaluate(feasible))
             costs = np.zeros((len(designs), len(signs)))
+            unmet = np.zeros((len(designs), n_requirements))
             for i, design in enumerate(designs):
                 value = None if design is None else next(values)
                 if value is not None:
+                    value = np.where(np.isnan(value), evaluations.worst(), value)
                     costs[i] = signs * np.asarray(value)
                     violation[i] = 0.0
+                    unmet[i] = np.nan_to_num(
+                        evaluations.violations[design.key], nan=1.0
+                    )
             out["F"] = costs
-            out["G"] = violation[:, None]
+            out["G"] = np.column_stack([violation, unmet])
 
     return DesignSpaceProblem()
 
@@ -278,6 +357,8 @@ def optimize_pymoo(
     algorithm: Any = None,
     termination: Any = ("n_gen", 10),
     seed: int | None = None,
+    statistics: Mapping[str, Statistic | str] | None = None,
+    requirements: Sequence[Requirement] = (),
     **kwargs: Any,
 ) -> tuple[Any, pd.DataFrame]:
     """
@@ -292,6 +373,9 @@ def optimize_pymoo(
             `None` for NSGA-II with populations of 20.
         termination (Any): The termination criterion of `pymoo.optimize.minimize`.
         seed (int | None): The seed of the algorithm.
+        statistics (Mapping[str, Statistic | str] | None): Statistics, by
+            name, of objectives and requirements that are not means.
+        requirements (Sequence[Requirement]): Requirements on statistics.
         **kwargs (Any): Other arguments of `pymoo.optimize.minimize`.
 
     Returns:
@@ -305,6 +389,6 @@ def optimize_pymoo(
         from pymoo.algorithms.moo.nsga2 import NSGA2
 
         algorithm = NSGA2(pop_size=20)
-    problem = make_pymoo_problem(study, objectives)
+    problem = make_pymoo_problem(study, objectives, statistics, requirements)
     result = minimize(problem, algorithm, termination, seed=seed, **kwargs)
     return result, problem.evaluations.results

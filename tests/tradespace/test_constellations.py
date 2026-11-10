@@ -1,0 +1,195 @@
+"""
+Unit tests for building blocks of constellations.
+
+@author Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
+import unittest
+from datetime import datetime, time, timezone
+
+import numpy as np
+
+from tatc.schemas import Instrument, Satellite
+from tatc.tradespace import (
+    Categorical,
+    Choice,
+    Derived,
+    DesignSpace,
+    Integer,
+    Real,
+    Uncertain,
+    build_constellation,
+    count_planes,
+    count_satellites,
+    hours_to_time,
+    sso_planes_space,
+    walker_space,
+)
+
+EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
+IMAGER = Instrument(name="imager", field_of_regard=60)
+
+
+def _space():
+    return DesignSpace(
+        altitude=Real(600e3, 700e3, step=100e3),
+        layout=Choice(
+            walker=walker_space(
+                inclination=Real(45, 60, step=15),
+                planes=Integer(1, 3),
+                per_plane=Integer(1, 2),
+            ),
+            sso=sso_planes_space(
+                crossing=Real(9, 15, step=3),
+                satellites=Integer(1, 2),
+                count=Integer(1, 2),
+            ),
+        ),
+        constraints=[lambda d: count_satellites(d.layout) - 4],
+    )
+
+
+class TestFragments(unittest.TestCase):
+    """
+    Unit tests for fragments of design spaces.
+    """
+
+    def test_enumeration(self):
+        """Fragments enumerate their layouts, with constraints."""
+        designs = _space().enumerate()
+        walker = [d for d in designs if d.layout.choice == "walker"]
+        sso = [d for d in designs if d.layout.choice == "sso"]
+        # 2 altitudes x 2 inclinations x (planes, per plane, spacing) with at most
+        # 4 satellites: 1x1, 1x2 (1 each), 2x1, 2x2 (2 each), 3x1 (3)
+        self.assertEqual(len(walker), 2 * 2 * (1 + 1 + 2 + 2 + 3))
+        # 6 plane designs: one plane (6), or two with different crossings
+        # (6 x 6 - same-crossing pairs) / 2 unordered = 12
+        self.assertEqual(len(sso), 2 * (6 + 12))
+        for design in sso:
+            crossings = [plane.crossing for plane in design.layout.planes]
+            self.assertEqual(len(set(crossings)), len(crossings))
+        self.assertTrue(all(count_satellites(d.layout) <= 4 for d in designs))
+
+    def test_counts(self):
+        """Satellites and planes are counted for each kind of layout."""
+        designs = _space().enumerate()
+        walker = [d for d in designs if d.layout.choice == "walker"][-1]
+        self.assertEqual(count_planes(walker.layout), walker.layout.planes)
+        self.assertEqual(
+            count_satellites(walker.layout),
+            walker.layout.planes * walker.layout.per_plane,
+        )
+        sso = [d for d in designs if d.layout.choice == "sso"][-1]
+        self.assertEqual(count_planes(sso.layout), sso.layout.planes.count)
+        with self.assertRaises(ValueError):
+            count_planes(sso)
+
+    def test_defaults(self):
+        """Fragments have default variables."""
+        self.assertGreater(DesignSpace(layout=walker_space(altitude=500e3)).size(), 100)
+        self.assertGreater(
+            DesignSpace(layout=sso_planes_space(altitude=500e3)).size(), 100
+        )
+
+
+class TestBuild(unittest.TestCase):
+    """
+    Unit tests for building constellations.
+    """
+
+    def test_walker(self):
+        """Walker layouts build the members of a Walker constellation."""
+        space = DesignSpace(
+            altitude=650e3,
+            layout=walker_space(
+                inclination=55, planes=3, per_plane=2, relative_spacing=1
+            ),
+        )
+        design = space.enumerate()[0]
+        satellites = build_constellation(
+            design.layout, IMAGER, epoch=EPOCH, altitude=design.altitude, name="w"
+        )
+        self.assertEqual(len(satellites), 6)
+        self.assertEqual(satellites[0].name, "w 1")
+        self.assertEqual(satellites[0].instruments, [IMAGER])
+        raans = {round(s.orbit.right_ascension_ascending_node, 6) for s in satellites}
+        self.assertEqual(len(raans), 3)
+        self.assertTrue(all(s.orbit.inclination == 55 for s in satellites))
+
+    def test_sso(self):
+        """Sun-synchronous layouts build evenly spaced satellites in their planes."""
+        space = DesignSpace(
+            layout=sso_planes_space(
+                crossing=13.5,
+                satellites=4,
+                count=1,
+                phase=Uncertain.uniform(0, 360),
+                altitude=700e3,
+            ),
+        )
+        design = space.enumerate()[0].realize(0)
+        satellites = build_constellation(design.layout, [IMAGER], epoch=EPOCH)
+        self.assertEqual(
+            [s.name for s in satellites][:2], ["satellite 1-1", "satellite 1-2"]
+        )
+        anomalies = [s.orbit.true_anomaly for s in satellites]
+        gaps = np.diff(np.unwrap(np.radians(anomalies)))
+        np.testing.assert_allclose(np.degrees(gaps) % 360, 90)
+        self.assertEqual(satellites[0].orbit.equator_crossing_time, time(13, 30))
+        self.assertAlmostEqual(anomalies[0], design.layout.planes[0].phase)
+
+    def test_derived_planes(self):
+        """Plane values may be derived from their index and enclosing values."""
+        space = DesignSpace(
+            per_plane=Integer(1, 2),
+            layout=sso_planes_space(
+                crossing=Derived(lambda d: (13.5 + 12 * d.index / d.planes.count) % 24),
+                satellites=Derived(lambda d: d.per_plane),
+                count=Integer(1, 3),
+                ordered=True,
+            ),
+        )
+        design = [d for d in space.enumerate() if len(d.layout.planes) == 3][-1]
+        satellites = build_constellation(
+            design.layout, IMAGER, epoch=EPOCH, altitude=830e3
+        )
+        self.assertEqual(len(satellites), 3 * design.per_plane)
+        times = sorted({s.orbit.equator_crossing_time for s in satellites})
+        self.assertEqual(times, [time(13, 30), time(17, 30), time(21, 30)])
+
+    def test_catalog_payloads(self):
+        """Catalog entries are built with their validated attitude."""
+        space = DesignSpace(
+            sounder=Categorical(["atms", "cris"]),
+            layout=sso_planes_space(crossing=13.5, satellites=1, count=1),
+        )
+        design = space.enumerate()[0]
+        satellite = build_constellation(
+            design.layout, design.sounder, epoch=EPOCH, altitude=830e3, time_step=30
+        )[0]
+        self.assertIsInstance(satellite, Satellite)
+        self.assertIsNotNone(satellite.attitude)
+        both = build_constellation(
+            design.layout,
+            ["atms:swath", "cris:swath"],
+            epoch=EPOCH,
+            altitude=830e3,
+            time_step=30,
+        )[0]
+        self.assertEqual(len(both.instruments), 2)
+        custom = build_constellation(
+            design.layout,
+            lambda name, orbit: Satellite(name=name, orbit=orbit, instruments=[IMAGER]),
+            epoch=EPOCH,
+            altitude=830e3,
+        )[0]
+        self.assertEqual(custom.instruments, [IMAGER])
+        with self.assertRaises(ValueError):
+            build_constellation(design.layout, IMAGER, epoch=EPOCH)
+
+    def test_hours_to_time(self):
+        """Hours convert to times of day, wrapping and rounding to seconds."""
+        self.assertEqual(hours_to_time(13.5), time(13, 30))
+        self.assertEqual(hours_to_time(15.9), time(15, 54))
+        self.assertEqual(hours_to_time(24.25), time(0, 15))
+        self.assertEqual(hours_to_time(10.9999999), time(11, 0))

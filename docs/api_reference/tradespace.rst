@@ -44,6 +44,24 @@ Designs
 
 .. autoclass:: tatc.tradespace.Scope
 
+Constellations
+--------------
+
+.. automodule:: tatc.tradespace.constellations
+   :no-members:
+
+.. autofunction:: tatc.tradespace.walker_space
+
+.. autofunction:: tatc.tradespace.sso_planes_space
+
+.. autofunction:: tatc.tradespace.build_constellation
+
+.. autofunction:: tatc.tradespace.count_satellites
+
+.. autofunction:: tatc.tradespace.count_planes
+
+.. autofunction:: tatc.tradespace.hours_to_time
+
 Trade Studies
 -------------
 
@@ -51,6 +69,32 @@ Trade Studies
    :members: run, workers
 
 .. autofunction:: tatc.tradespace.summarize
+
+Statistics and Requirements
+---------------------------
+
+.. automodule:: tatc.tradespace.criteria
+   :no-members:
+
+.. autofunction:: tatc.tradespace.aggregate
+
+.. autoclass:: tatc.tradespace.Statistic
+   :members: reduce
+
+.. autoclass:: tatc.tradespace.Mean
+
+.. autoclass:: tatc.tradespace.StandardDeviation
+
+.. autoclass:: tatc.tradespace.Minimum
+
+.. autoclass:: tatc.tradespace.Maximum
+
+.. autoclass:: tatc.tradespace.Quantile
+
+.. autoclass:: tatc.tradespace.Probability
+
+.. autoclass:: tatc.tradespace.Requirement
+   :members: violation
 
 Caches
 ------
@@ -73,6 +117,14 @@ Pareto Efficiency
 .. autofunction:: tatc.tradespace.hypervolume
 
 .. autofunction:: tatc.tradespace.pareto_probability
+
+Adaptive Replication
+--------------------
+
+.. autofunction:: tatc.tradespace.refine
+
+.. autoclass:: tatc.tradespace.Refinement
+   :members: uncertain
 
 Screening
 ---------

@@ -162,10 +162,12 @@ class Study:
         self,
         designs: Iterable[Design] | None = None,
         progress: Callable[[int, int], None] | None = None,
+        replicates: Iterable[int] | None = None,
     ) -> pd.DataFrame:
         """
-        Evaluates designs in every replicate. Repeated designs (with the same
-        key) are evaluated once.
+        Evaluates designs in every replicate (or in given replicates, such as
+        additional ones, see `refine`). Repeated designs (with the same key)
+        are evaluated once.
 
         Args:
             designs (Iterable[Design] | None): The designs, or `None` for
@@ -174,6 +176,9 @@ class Study:
             progress (Callable | None): A function called as evaluations
                 complete with the number completed and the number of
                 evaluations.
+            replicates (Iterable[int] | None): The replicates (their
+                indices, which seed their uncertain parameters), or `None` for
+                the study's (`range(replicates)`).
 
         Returns:
             pandas.DataFrame: The outcomes, a record per evaluation (or per
@@ -189,7 +194,11 @@ class Study:
         # tasks in the order of replicates, whose designs share uncertain values
         tasks = [
             (i, design, replicate)
-            for replicate in range(self.replicates)
+            for replicate in (
+                range(self.replicates)
+                if replicates is None
+                else sorted(set(replicates))
+            )
             for i, design in enumerate(unique)
         ]
         total = len(tasks)

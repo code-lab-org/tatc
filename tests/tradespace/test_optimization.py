@@ -17,8 +17,10 @@ from tatc.tradespace import (
     Evaluations,
     Infeasible,
     Integer,
+    Minimum,
     Real,
     Repeat,
+    Requirement,
     Study,
     Uncertain,
     hypervolume,
@@ -305,3 +307,68 @@ class TestPymooConstraints(unittest.TestCase):
         x = np.array([space.encode(light), heavy])
         population = Evaluator().eval(problem, Population.new(X=x))
         self.assertEqual(list(population.get("G")[:, 0]), [0, 4])
+
+
+@unittest.skipUnless(HAS_OPTUNA and HAS_PYMOO, "requires optuna and pymoo")
+class TestRequirements(unittest.TestCase):
+    """
+    Unit tests for requirements in searches.
+    """
+
+    REQUIREMENTS = [Requirement("value p0", ">=", 2)]
+    STATISTICS = {"value p0": Minimum("value")}
+
+    def test_evaluations(self):
+        """Evaluations give the violations of requirements on statistics."""
+        evaluations = Evaluations(
+            _study(), OBJECTIVES, self.STATISTICS, self.REQUIREMENTS
+        )
+        designs = [d for d in _space().enumerate() if d.layout.choice == "single"]
+        values = evaluations.evaluate(designs)
+        for design, value in zip(designs, values):
+            violation = evaluations.violations[design.key][0]
+            # the least value over replicates is the quality less the noise
+            self.assertAlmostEqual(violation, max(2 - value[1], 0), delta=0.02)
+
+    def test_optuna(self):
+        """Trials record the violation of each requirement."""
+        import optuna  # pylint: disable=import-outside-toplevel
+
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+        optuna_study, _ = optimize_optuna(
+            _study(),
+            OBJECTIVES,
+            n_trials=40,
+            sampler=optuna.samplers.RandomSampler(seed=1),
+            statistics=self.STATISTICS,
+            requirements=self.REQUIREMENTS,
+        )
+        keys = {tuple(sorted(trial.constraints)) for trial in optuna_study.trials}
+        self.assertEqual(keys, {("feasibility", "value p0 >= 2")})
+        violations = [t.constraints["value p0 >= 2"] for t in optuna_study.trials]
+        self.assertTrue(any(v > 0 for v in violations))
+        with self.assertRaises(ValueError):
+            optimize_optuna(
+                _study(),
+                OBJECTIVES,
+                n_trials=1,
+                constraints=False,
+                requirements=self.REQUIREMENTS,
+                statistics=self.STATISTICS,
+            )
+
+    def test_pymoo(self):
+        """Problems have a constraint for each requirement."""
+        problem = make_pymoo_problem(
+            _study(), OBJECTIVES, self.STATISTICS, self.REQUIREMENTS
+        )
+        self.assertEqual(problem.n_ieq_constr, 2)
+        result, _ = optimize_pymoo(
+            _study(),
+            OBJECTIVES,
+            termination=("n_gen", 3),
+            seed=1,
+            statistics=self.STATISTICS,
+            requirements=self.REQUIREMENTS,
+        )
+        self.assertEqual(result.pop.get("G").shape[1], 2)

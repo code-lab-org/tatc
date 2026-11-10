@@ -12,11 +12,33 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
+from .criteria import Requirement, Statistic, _get_statistics, aggregate
 from .pareto import pareto_ranks
 from .space import Design
-from .study import Study, summarize
+from .study import Study
+
+
+def _rank(
+    summary: pd.DataFrame,
+    objectives: Mapping[str, str],
+    tolerance: Mapping[str, float] | None,
+) -> pd.Series:
+    """
+    Ranks designs: those that meet the requirements by non-dominated sorting
+    of their objectives, then the others by their violations.
+    """
+    ranks = pd.Series(-1, index=summary.index, name="pareto_rank")
+    meets = summary["meets_requirements"]
+    if meets.any():
+        ranks[meets] = pareto_ranks(summary[meets], objectives, tolerance)
+    if (~meets).any():
+        start = int(ranks[meets].max()) + 1 if meets.any() else 0
+        violation = summary.loc[~meets, "violation"].fillna(np.inf)
+        ranks[~meets] = start + violation.rank(method="dense").astype(int) - 1
+    return ranks
 
 
 @dataclass
@@ -58,13 +80,22 @@ def screen(
     objectives: Mapping[str, str],
     keep: float | int | Sequence[float | int] = 0.25,
     tolerance: Mapping[str, float] | Sequence[Mapping[str, float] | None] | None = None,
+    statistics: Mapping[str, Statistic | str] | None = None,
+    requirements: Sequence[Requirement] = (),
 ) -> Screening:
     """
     Screens designs with studies of increasing fidelity (and cost): each
     study (stage) evaluates the designs kept by the one before, ranks them by
-    non-dominated sorting of the means of their objectives (see
-    `pareto_ranks`), and keeps whole fronts, best first, until it keeps at
-    least `keep` designs (a number, or a share of the feasible designs).
+    non-dominated sorting of their objectives (see `pareto_ranks`): the means
+    of metrics, or other statistics over their replicates (see `aggregate`),
+    and keeps whole fronts, best first, until it keeps at least `keep`
+    designs (a number, or a share of the feasible designs).
+
+    Designs that miss a requirement are ranked after those that meet them
+    all, in order of their violation (see `aggregate`), rather than dropped:
+    a cheap analysis may miss a requirement that the full analysis meets, so
+    designs that nearly meet the requirements are kept if `keep` reaches
+    them.
 
     A cheap analysis ranks designs less exactly than an expensive one, so a
     design it ranks just behind another may be better: keep enough designs,
@@ -78,14 +109,17 @@ def screen(
         designs (Sequence[Design]): The designs to screen.
         studies (Sequence[Study]): The studies of each stage, in order of
             increasing fidelity.
-        objectives (Mapping[str, str]): The objectives: columns of the
-            results and their directions (`"min"` or `"max"`).
+        objectives (Mapping[str, str]): The objectives: statistics (or
+            metrics) and their directions (`"min"` or `"max"`).
         keep (float | int | Sequence): The designs kept by each stage but the
             last: a number (int), or a share of its feasible designs (float),
             or a value for each stage.
         tolerance (Mapping | Sequence | None): The tolerances of objectives
             in each stage but the last (see `pareto_front`), or the same for
             each stage.
+        statistics (Mapping[str, Statistic | str] | None): Statistics, by
+            name, of objectives and requirements that are not means.
+        requirements (Sequence[Requirement]): Requirements on statistics.
 
     Returns:
         Screening: the results and summaries of each stage
@@ -98,18 +132,18 @@ def screen(
         tolerances = [tolerance] * transitions
     else:
         tolerances = _per_stage(tolerance, transitions, "tolerance")
+    names = list(objectives) + [requirement.name for requirement in requirements]
+    resolved = _get_statistics(names, statistics)
     current = list({design.key: design for design in designs}.values())
     screening = Screening(results=pd.DataFrame())
     frames = []
     for stage, study in enumerate(studies):
         results = study.run(current).assign(stage=stage)
         frames.append(results)
-        summary = summarize(results, list(objectives), design_columns=[])
+        summary = aggregate(results, resolved, requirements, design_columns=[])
         summary = summary.dropna(subset=list(objectives)).reset_index(drop=True)
-        summary["pareto_rank"] = pareto_ranks(
-            summary,
-            objectives,
-            tolerances[stage] if stage < transitions else None,
+        summary["pareto_rank"] = _rank(
+            summary, objectives, tolerances[stage] if stage < transitions else None
         )
         if stage < transitions:
             amount = keeps[stage]

@@ -16,8 +16,31 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 import pandas as pd
 
+from .criteria import (
+    Requirement,
+    Statistic,
+    _check_names,
+    _evaluate,
+    _get_matrices,
+    _get_statistics,
+)
+
 Objectives = Mapping[str, str]
 """Objectives: columns and their directions (`"min"` or `"max"`)."""
+
+
+def _check_directions(objectives: Objectives) -> list[str]:
+    """
+    Checks the directions of objectives, returning them.
+    """
+    if len(objectives) == 0:
+        raise ValueError("at least one objective is required")
+    for column, direction in objectives.items():
+        if direction not in ("min", "max"):
+            raise ValueError(
+                f"direction of {column!r} must be 'min' or 'max', not {direction!r}"
+            )
+    return list(objectives.values())
 
 
 def _get_costs(frame: pd.DataFrame, objectives: Objectives) -> np.ndarray:
@@ -221,76 +244,114 @@ def pareto_probability(
     by: Sequence[str] = (),
     n_resamples: int = 500,
     seed: int = 0,
+    statistics: Mapping[str, Statistic | str] | None = None,
+    requirements: Sequence[Requirement] = (),
+    tolerance: Mapping[str, float] | None = None,
 ) -> pd.DataFrame:
     """
-    Estimates the probability that each design is Pareto-efficient, given the
-    uncertainty of the means of its objectives over replicates, by a
-    bootstrap: each resample draws replicates with replacement, the same
-    replicates for every design (which keeps the correlation between designs
-    of common random numbers, see `Design.realize`), and finds the front of
-    the means of the objectives over the drawn replicates. The probability
-    is the share of resamples in which a design is efficient.
+    Estimates the probability that each design is Pareto-efficient (and
+    meets the requirements, if any), given the uncertainty of its replicates,
+    by a bootstrap: each resample draws replicates with replacement, the
+    same replicates for every design (which keeps the correlation between
+    designs of common random numbers, see `Design.realize`), computes the
+    statistics of each design over the drawn replicates, and finds the front
+    of the designs that meet the requirements. The probability is the share
+    of resamples in which a design is on that front.
+
+    Objectives and requirements name statistics (see `aggregate`): the
+    means of metrics, unless `statistics` define them otherwise (such as a
+    quantile or the probability of meeting a threshold).
 
     Designs that are efficient with a probability between 0 and 1 are those
-    whose efficiency the replicates do not settle: more replicates (or a
-    tolerance, see `pareto_front`) would settle it. With few replicates,
-    the bootstrap has few distinct resamples and understates the
-    uncertainty.
+    whose efficiency the replicates do not settle: more replicates (see
+    `refine`) would settle it, unless designs differ by less than matters (as
+    near saturation), which a `tolerance` of the objectives settles: designs
+    within the tolerances of the front are efficient (see `pareto_front`). With
+    few replicates, the bootstrap has few distinct resamples and understates
+    the uncertainty. Designs may have different replicates (as after
+    `refine`): replicates are drawn from all of them, and each design's
+    statistics are those of its drawn replicates (or of all of its
+    replicates, if none is drawn).
 
     Args:
         results (pandas.DataFrame): The results of a study (see
             `Study.run`), with a record per replicate of each design (and
             group of `by`). Infeasible results are ignored.
-        objectives (Mapping[str, str]): The objectives: columns and their
-            directions (`"min"` or `"max"`).
+        objectives (Mapping[str, str]): The objectives: statistics (or
+            metrics) and their directions (`"min"` or `"max"`).
         by (Sequence[str]): Columns that group records of an evaluation (such
             as a sensor), whose fronts are found separately.
         n_resamples (int): The number of resamples.
         seed (int): The seed of the resamples.
+        statistics (Mapping[str, Statistic | str] | None): Statistics, by
+            name, of objectives and requirements that are not means.
+        requirements (Sequence[Requirement]): Requirements on statistics.
+        tolerance (Mapping[str, float] | None): The tolerances of objectives
+            (by name, zero if not given).
 
     Returns:
-        pandas.DataFrame: a row per design (and group): the means of the
-            objectives over every replicate, whether the design is efficient
-            by these means (`pareto`), and the probability that it is
-            (`pareto_probability`)
+        pandas.DataFrame: a row per design (and group): the statistics of
+            the objectives (and requirements) over every replicate, the
+            number of `replicates`, whether the design meets the
+            requirements (`meets_requirements`) and is efficient among those
+            that do (`pareto`) by these statistics, the probability that it
+            is efficient (`pareto_probability`), and the probability that it
+            meets the requirements (`requirements_probability`)
     """
+    names = list(objectives) + [requirement.name for requirement in requirements]
+    resolved = _get_statistics(names, statistics)
+    resolved = {name: resolved[name] for name in dict.fromkeys(names)}
+    _check_names(resolved, requirements)
+    signs = np.array(
+        [1.0 if d == "min" else -1.0 for d in _check_directions(objectives)]
+    )
+    tolerances = _get_tolerances(objectives, tolerance)
     feasible = results[results["feasible"]] if "feasible" in results else results
-    columns = list(objectives)
-    signs = _get_costs(pd.DataFrame({column: [1.0] for column in columns}), objectives)[
-        0
-    ]
+    metrics = sorted({statistic.column for statistic in resolved.values()})
     rng = np.random.default_rng(seed)
     frames = []
     groups = feasible.groupby(list(by), sort=False) if by else [((), feasible)]
     for key, group in groups:
-        # the costs of each objective, design (rows), and replicate (columns)
-        tables = [
-            group.pivot_table(index="design", columns="replicate", values=column)
-            for column in columns
-        ]
-        designs, replicates = tables[0].index, tables[0].columns
-        costs = np.stack(
-            [
-                sign * table.loc[designs, replicates].to_numpy(dtype=float)
-                for sign, table in zip(signs, tables)
-            ]
-        )
-        means = np.nanmean(costs, axis=2).T
+        designs, replicates, matrices = _get_matrices(group, metrics)
+        values, violation = _evaluate(resolved, requirements, matrices)
+
+        def front(values, violation):
+            costs = np.column_stack(
+                [s * values[name] for s, name in zip(signs, objectives)]
+            )
+            ok = (violation == 0) & ~np.isnan(costs).any(axis=1)
+            efficient = np.zeros(len(costs), dtype=bool)
+            efficient[ok] = ~_dominated(costs[ok], tolerances)
+            return efficient, ok
+
+        efficient, meets = front(values, violation)
         counts = np.zeros(len(designs))
+        met = np.zeros(len(designs))
         for _ in range(n_resamples):
             drawn = rng.integers(0, len(replicates), len(replicates))
-            sample = np.nanmean(costs[:, :, drawn], axis=2).T
-            # a design without a value in any drawn replicate is not ranked
-            valid = ~np.isnan(sample).any(axis=1)
-            front = np.zeros(len(designs), dtype=bool)
-            front[valid] = ~_dominated(sample[valid])
-            counts += front
+            sample, sample_violation = _evaluate(
+                resolved, requirements, matrices, drawn
+            )
+            # designs without a drawn replicate keep the statistics of all of theirs
+            for name in sample:
+                missing = np.isnan(sample[name]) & ~np.isnan(values[name])
+                sample[name][missing] = values[name][missing]
+            missing = np.isnan(sample_violation)
+            sample_violation[missing] = violation[missing]
+            sample_front, sample_meets = front(sample, sample_violation)
+            counts += sample_front
+            met += sample_meets
         frame = pd.DataFrame({"design": designs})
         for name, value in zip(by, key if isinstance(key, tuple) else (key,)):
             frame[name] = value
-        for i, column in enumerate(columns):
-            frame[column] = signs[i] * means[:, i]
-        frame["pareto"] = ~_dominated(means)
+        for name, value in values.items():
+            frame[name] = value
+        frame["replicates"] = (
+            group.groupby("design")["replicate"].nunique().reindex(designs).to_numpy()
+        )
+        frame["meets_requirements"] = meets
+        frame["pareto"] = efficient
         frame["pareto_probability"] = counts / n_resamples
+        frame["requirements_probability"] = met / n_resamples
         frames.append(frame)
     return pd.concat(frames, ignore_index=True)
