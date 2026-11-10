@@ -35,6 +35,7 @@ Note: the following optional dependencies are available with bracket notation:
  * `pip install -e ".[examples]"`: for running optional examples
  * `pip install -e ".[osse]"`: for running optional observing system simulation experiment (OSSE) examples
  * `pip install -e ".[preprocess]"`: for preprocessing functions (e.g., terrain masks)
+ * `pip install -e ".[tradespace]"`: for parallel trade studies and searches with optimizers (joblib, Optuna, and pymoo)
  * `pip install -e ".[validation]"`: for running validation notebooks (includes `examples` and `preprocess`)
 
 Multiple optional dependencies can be installed with a comma-separated list (e.g., `pip install -e ".[dev,examples]"`)

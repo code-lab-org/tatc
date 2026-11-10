@@ -22,9 +22,12 @@ The following provide examples of TAT-C use in a Jupyter notebook environment.
   CollectSpace.ipynb
   RunOSSEMonsoon.ipynb
   RunOSSEHurricane.ipynb
+  SearchTradeSpace.ipynb
 
 Note that running the above examples in a local Python environment requires additional dependencies which can be installed via::
 
   pip install tatc[examples]
 
-using the pip package manager.
+using the pip package manager. The trade space example also requires::
+
+  pip install tatc[tradespace]
