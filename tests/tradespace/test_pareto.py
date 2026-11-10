@@ -104,6 +104,26 @@ class TestPareto(unittest.TestCase):
             pareto_front(frame, objectives, tolerance={"other": 1})
 
 
+class TestRelativeTolerance(unittest.TestCase):
+    """
+    Unit tests for tolerances proportional to objectives.
+    """
+
+    def test_relative(self):
+        """A percentage tolerates differences in proportion to the values."""
+        frame = pd.DataFrame({"cost": [1, 1, 2, 2], "value": [100.0, 96.0, 4.0, 3.0]})
+        objectives = {"cost": "min", "value": "max"}
+        # 5% of 96 (4.8) tolerates 96 against 100; 5% of 3 (0.15) does not
+        # tolerate 3 against 4
+        front = pareto_front(frame, objectives, tolerance={"value": "5%"})
+        self.assertEqual(list(front), [True, True, False, False])
+        # an absolute tolerance of 1 does not tolerate 96 against 100
+        absolute = pareto_front(frame, objectives, tolerance={"value": 1.0})
+        self.assertEqual(list(absolute), [True, False, False, False])
+        with self.assertRaises(ValueError):
+            pareto_front(frame, objectives, tolerance={"value": "5"})
+
+
 class TestParetoProbability(unittest.TestCase):
     """
     Unit tests for the probability of Pareto efficiency.

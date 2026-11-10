@@ -56,7 +56,7 @@ def refine(
     max_rounds: int = 10,
     n_resamples: int = 500,
     seed: int = 0,
-    tolerance: Mapping[str, float] | None = None,
+    tolerance: Mapping[str, float | str] | None = None,
 ) -> Refinement:
     """
     Adds replicates to the designs whose Pareto efficiency is uncertain,
@@ -99,8 +99,9 @@ def refine(
         max_rounds (int): The most rounds.
         n_resamples (int): The number of resamples of each bootstrap.
         seed (int): The seed of the bootstraps.
-        tolerance (Mapping[str, float] | None): The tolerances of objectives
-            (by name, zero if not given, see `pareto_front`).
+        tolerance (Mapping[str, float | str] | None): The tolerances of
+            objectives (by name, zero if not given): values, or percentages of
+            values (such as `"5%"`, see `pareto_front`).
 
     Returns:
         Refinement: the results, the final probabilities, and the history

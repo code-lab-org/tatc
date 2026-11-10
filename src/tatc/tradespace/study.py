@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 from .space import Design, DesignSpace
+from .store import ResultStore
 
 _STATUS_COLUMNS = ["design", "replicate", "feasible", "error", "seconds"]
 """Columns of the results of a study that are neither design values nor metrics."""
@@ -92,6 +93,10 @@ class Study:
         executor (concurrent.futures.Executor | None): An executor to use
             instead of worker processes.
         chunks_per_job (int): The number of chunks of evaluations per worker.
+        store (ResultStore | None): A store of the records of evaluations, from
+            which evaluations stored before are taken rather than evaluated
+            again, and to which new ones are added as they complete (see
+            `ResultStore`).
     """
 
     def __init__(
@@ -105,6 +110,7 @@ class Study:
         n_jobs: int = 1,
         executor: Executor | None = None,
         chunks_per_job: int = 2,
+        store: ResultStore | None = None,
     ):
         if replicates < 1:
             raise ValueError("replicates must be at least 1")
@@ -117,11 +123,12 @@ class Study:
         self.common_random_numbers = common_random_numbers
         self.n_jobs, self.executor = n_jobs, executor
         self.chunks_per_job = chunks_per_job
+        self.store = store
 
     def __getstate__(self) -> dict:
-        # an executor is not sent to workers
+        # an executor and a store are not sent to workers
         state = self.__dict__.copy()
-        state["executor"] = None
+        state["executor"] = state["store"] = None
         return state
 
     def _evaluate(self, design: Design, replicate: int) -> list[dict]:
@@ -175,7 +182,7 @@ class Study:
                 `DesignSpace.enumerate`).
             progress (Callable | None): A function called as evaluations
                 complete with the number completed and the number of
-                evaluations.
+                evaluations (not counting those taken from the store).
             replicates (Iterable[int] | None): The replicates (their
                 indices, which seed their uncertain parameters), or `None` for
                 the study's (`range(replicates)`).
@@ -201,14 +208,26 @@ class Study:
             )
             for i, design in enumerate(unique)
         ]
-        total = len(tasks)
         results: list[tuple[int, int, list[dict]]] = []
+        if self.store is not None:
+            # evaluations stored before (by an interrupted or earlier run)
+            stored = self.store.get((d.key, replicate) for _, d, replicate in tasks)
+            results.extend(
+                (i, replicate, stored[design.key, replicate])
+                for i, design, replicate in tasks
+                if (design.key, replicate) in stored
+            )
+            tasks = [t for t in tasks if (t[1].key, t[2]) not in stored]
+        total = len(tasks)
         if self.executor is None and self.n_jobs == 1:
             for done, (i, design, replicate) in enumerate(tasks, 1):
-                results.append((i, replicate, self._evaluate(design, replicate)))
+                records = self._evaluate(design, replicate)
+                results.append((i, replicate, records))
+                if self.store is not None:
+                    self.store.put([(design.key, replicate, records)])
                 if progress is not None:
                     progress(done, total)
-        else:
+        elif tasks:
             executor = self.executor or _get_executor(self.workers)
             n_chunks = min(total, self.workers * self.chunks_per_job)
             size = math.ceil(total / max(n_chunks, 1))
@@ -219,8 +238,14 @@ class Study:
             done = 0
             for future in as_completed(futures):
                 chunk = futures[future]
-                for (i, _, replicate), records in zip(chunk, future.result()):
+                evaluated = future.result()
+                for (i, _, replicate), records in zip(chunk, evaluated):
                     results.append((i, replicate, records))
+                if self.store is not None:
+                    self.store.put(
+                        (design.key, replicate, records)
+                        for (_, design, replicate), records in zip(chunk, evaluated)
+                    )
                 done += len(chunk)
                 if progress is not None:
                     progress(done, total)

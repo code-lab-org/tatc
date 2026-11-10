@@ -148,6 +148,12 @@ class TestSatelliteCache(unittest.TestCase):
         cache.clear()
         self.assertEqual((cache.hits, cache.misses), (0, 0))
 
+    def test_no_satellites(self):
+        """No satellites give an empty frame."""
+        result = SatelliteCache(self.analysis)([])
+        self.assertIsInstance(result, pd.DataFrame)
+        self.assertEqual(len(result), 0)
+
     def test_non_frame_results(self):
         """Results that are not data frames are listed."""
         cache = SatelliteCache(lambda satellite: satellite.name)

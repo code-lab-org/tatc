@@ -320,6 +320,17 @@ class Uncertain(Node):
         return cls(lambda rng: float(rng.normal(mean, std)))
 
     @classmethod
+    def seed(cls) -> Uncertain:
+        """
+        An uncertain seed of random numbers (an integer), for randomness that
+        a build or evaluation function draws itself, such as a sample of
+        targets or the failures of satellites (see `remove_failures`). With
+        common random numbers, every design draws the same seed in the same
+        replicate.
+        """
+        return cls(lambda rng: int(rng.integers(2**31)), None)
+
+    @classmethod
     def choice(cls, options: Sequence, p: Sequence[float] | None = None) -> Uncertain:
         """
         An uncertain parameter that takes one of `options` (with

@@ -64,17 +64,34 @@ def _get_costs(frame: pd.DataFrame, objectives: Objectives) -> np.ndarray:
     return costs
 
 
+Tolerance = float | str
+"""A tolerance of an objective: a value in its units, or a share of its value
+(a string of a percentage, such as `"5%"`)."""
+
+
 def _get_tolerances(
-    objectives: Objectives, tolerance: Mapping[str, float] | None
+    objectives: Objectives, tolerance: Mapping[str, Tolerance] | None
 ) -> np.ndarray:
     """
-    Gets the tolerances of the objectives (zero if not given).
+    Gets the tolerances of the objectives (zero if not given): their absolute
+    values (first row) and their shares of the values of the objectives
+    (second row).
     """
     tolerance = tolerance or {}
     unknown = set(tolerance) - set(objectives)
     if unknown:
         raise ValueError(f"tolerances of columns that are not objectives: {unknown}")
-    values = np.array([float(tolerance.get(column, 0.0)) for column in objectives])
+    values = np.zeros((2, len(objectives)))
+    for i, column in enumerate(objectives):
+        value = tolerance.get(column, 0.0)
+        if isinstance(value, str):
+            if not value.strip().endswith("%"):
+                raise ValueError(
+                    f"a tolerance string must be a percentage, not {value!r}"
+                )
+            values[1, i] = float(value.strip()[:-1]) / 100
+        else:
+            values[0, i] = float(value)
     if np.any(values < 0):
         raise ValueError("tolerances must not be negative")
     return values
@@ -86,15 +103,18 @@ def _dominated(
     """
     Finds the points (rows of costs) dominated by another, even if the other
     is penalized by the tolerances: no worse in every cost, and better in at
-    least one, by at least its tolerance.
+    least one, by at least its tolerance (absolute, plus a share of the
+    magnitude of the cost of the point it would dominate, see
+    `_get_tolerances`).
     """
     n = len(costs)
-    tolerances = np.zeros(costs.shape[1]) if tolerances is None else tolerances
+    tolerances = np.zeros((2, costs.shape[1])) if tolerances is None else tolerances
+    absolute, relative = tolerances
     dominated = np.zeros(n, dtype=bool)
     for start in range(0, n, block):
         part = costs[start : start + block]
         # [i, j]: point j dominates point i of the block
-        penalized = costs[None, :, :] + tolerances
+        penalized = costs[None, :, :] + absolute + relative * np.abs(part[:, None, :])
         no_worse = np.all(penalized <= part[:, None, :], axis=2)
         better = np.any(penalized < part[:, None, :], axis=2)
         dominated[start : start + block] = np.any(no_worse & better, axis=1)
@@ -104,7 +124,7 @@ def _dominated(
 def pareto_front(
     frame: pd.DataFrame,
     objectives: Objectives,
-    tolerance: Mapping[str, float] | None = None,
+    tolerance: Mapping[str, Tolerance] | None = None,
 ) -> pd.Series:
     """
     Finds the Pareto-efficient (non-dominated) rows of a data frame: those
@@ -114,7 +134,9 @@ def pareto_front(
 
     With a `tolerance` of an objective, a row dominates another only if it
     would still dominate it if it were worse by the tolerance in that
-    objective. Rows within the tolerances of the front (that no other row is
+    objective: a value in the objective's units, or a share of the other
+    row's value (a percentage, such as `"5%"`), which suits objectives that
+    range over orders of magnitude. Rows within the tolerances of the front (that no other row is
     clearly better than) are then efficient as well, which suits objectives
     estimated with an uncertainty (such as a few standard errors of their
     means, see `summarize`), or by a cheaper analysis (see `screen`).
@@ -123,8 +145,9 @@ def pareto_front(
         frame (pandas.DataFrame): The rows (such as designs).
         objectives (Mapping[str, str]): The objectives: columns and their
             directions (`"min"` or `"max"`).
-        tolerance (Mapping[str, float] | None): The tolerances of objectives
-            (by column, zero if not given).
+        tolerance (Mapping[str, float | str] | None): The tolerances of
+            objectives (by column, zero if not given): values, or
+            percentages of values (such as `"5%"`).
 
     Returns:
         pandas.Series: whether each row is efficient (boolean, with the
@@ -140,7 +163,7 @@ def pareto_front(
 def pareto_ranks(
     frame: pd.DataFrame,
     objectives: Objectives,
-    tolerance: Mapping[str, float] | None = None,
+    tolerance: Mapping[str, Tolerance] | None = None,
 ) -> pd.Series:
     """
     Ranks the rows of a data frame by non-dominated sorting: rank 0 is the
@@ -151,8 +174,9 @@ def pareto_ranks(
         frame (pandas.DataFrame): The rows (such as designs).
         objectives (Mapping[str, str]): The objectives: columns and their
             directions (`"min"` or `"max"`).
-        tolerance (Mapping[str, float] | None): The tolerances of objectives
-            (by column, zero if not given).
+        tolerance (Mapping[str, float | str] | None): The tolerances of
+            objectives (by column, zero if not given): values, or
+            percentages of values (such as `"5%"`).
 
     Returns:
         pandas.Series: the rank of each row (with the frame's index)
@@ -246,7 +270,7 @@ def pareto_probability(
     seed: int = 0,
     statistics: Mapping[str, Statistic | str] | None = None,
     requirements: Sequence[Requirement] = (),
-    tolerance: Mapping[str, float] | None = None,
+    tolerance: Mapping[str, Tolerance] | None = None,
 ) -> pd.DataFrame:
     """
     Estimates the probability that each design is Pareto-efficient (and
@@ -286,8 +310,9 @@ def pareto_probability(
         statistics (Mapping[str, Statistic | str] | None): Statistics, by
             name, of objectives and requirements that are not means.
         requirements (Sequence[Requirement]): Requirements on statistics.
-        tolerance (Mapping[str, float] | None): The tolerances of objectives
-            (by name, zero if not given).
+        tolerance (Mapping[str, float | str] | None): The tolerances of
+            objectives (by name, zero if not given): values, or percentages of
+            values (such as `"5%"`).
 
     Returns:
         pandas.DataFrame: a row per design (and group): the statistics of

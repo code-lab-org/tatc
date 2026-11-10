@@ -171,7 +171,8 @@ class SatelliteCache:
     def __call__(self, satellites: Satellite | Iterable[Satellite]) -> Any:
         """
         Gets the results of satellites, concatenated if they are data frames
-        (or the list of results otherwise).
+        (or the list of results otherwise), or an empty data frame if there are
+        no satellites.
 
         Args:
             satellites (Satellite | Iterable[Satellite]): The satellites.
@@ -182,6 +183,9 @@ class SatelliteCache:
         if isinstance(satellites, Satellite):
             satellites = [satellites]
         results = [self.get(satellite) for satellite in satellites]
+        if not results:
+            # no satellites (such as if all fail): an empty frame
+            return pd.DataFrame()
         if results and all(isinstance(result, pd.DataFrame) for result in results):
             non_empty = [result for result in results if len(result) > 0]
             if not non_empty:

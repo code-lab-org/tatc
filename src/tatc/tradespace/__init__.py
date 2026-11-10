@@ -4,7 +4,8 @@ uncertain parameters, building blocks of constellations,
 trade studies that evaluate their designs (with caches
 of analyses by satellite, in parallel), statistics of replicates and
 requirements on them, Pareto efficiency (with the uncertainty of replicates),
-adaptive replication, screening with analyses of increasing fidelity,
+adaptive replication, persistent stores of results, sensitivity analysis,
+screening with analyses of increasing fidelity,
 and searches with optimizers (Optuna and pymoo, optional dependencies).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
@@ -16,6 +17,7 @@ from .constellations import (
     count_planes,
     count_satellites,
     hours_to_time,
+    remove_failures,
     sso_planes_space,
     walker_space,
 )
@@ -39,6 +41,7 @@ from .optimization import (
 from .pareto import hypervolume, pareto_front, pareto_probability, pareto_ranks
 from .refinement import Refinement, refine
 from .screening import Screening, screen
+from .sensitivity import main_effects, sensitivity
 from .nodes import (
     Categorical,
     Choice,
@@ -52,6 +55,7 @@ from .nodes import (
     Variable,
 )
 from .space import Design, DesignSpace
+from .store import ResultStore
 from .study import Study, summarize
 from .values import ChoiceValues, RepeatValues, Scope, Values
 
@@ -76,6 +80,7 @@ __all__ = [
     "Repeat",
     "RepeatValues",
     "Requirement",
+    "ResultStore",
     "SatelliteCache",
     "Scope",
     "Screening",
@@ -92,6 +97,7 @@ __all__ = [
     "get_satellite_key",
     "hours_to_time",
     "hypervolume",
+    "main_effects",
     "make_pymoo_problem",
     "optimize_optuna",
     "optimize_pymoo",
@@ -99,7 +105,9 @@ __all__ = [
     "pareto_probability",
     "pareto_ranks",
     "refine",
+    "remove_failures",
     "screen",
+    "sensitivity",
     "sso_planes_space",
     "summarize",
     "walker_space",

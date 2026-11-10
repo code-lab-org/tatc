@@ -31,6 +31,8 @@ from collections.abc import Callable, Sequence
 from datetime import datetime, time
 from typing import Any
 
+import numpy as np
+
 from ..schemas import (
     CircularOrbit,
     Instrument,
@@ -345,3 +347,35 @@ def build_constellation(
                 _make_satellite(payload, f"{name} {p + 1}-{s + 1}", orbit, time_step)
             )
     return satellites
+
+
+def remove_failures(
+    satellites: Sequence[Satellite], probability: float, seed: int | None
+) -> list[Satellite]:
+    """
+    Removes the satellites that fail, each with a probability, for the
+    robustness of a design to failures: drawn for each replicate from an
+    uncertain seed (see `Uncertain.seed`). Whether a satellite fails depends
+    only on the seed and its position in the list, so that with common
+    random numbers, the satellite at the same position fails in the same
+    replicate of every design.
+
+    Args:
+        satellites (Sequence[Satellite]): The satellites, in the order they
+            are built.
+        probability (float): The probability that a satellite fails.
+        seed (int | None): The seed of the replicate, or `None` (as before a
+            design is realized) for no failures.
+
+    Returns:
+        list[Satellite]: the satellites that do not fail
+    """
+    if not 0 <= probability <= 1:
+        raise ValueError("probability must be between 0 and 1")
+    if seed is None or probability == 0:
+        return list(satellites)
+    return [
+        satellite
+        for k, satellite in enumerate(satellites)
+        if np.random.default_rng([seed, k]).random() >= probability
+    ]

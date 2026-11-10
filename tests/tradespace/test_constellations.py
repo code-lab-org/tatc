@@ -22,6 +22,7 @@ from tatc.tradespace import (
     count_planes,
     count_satellites,
     hours_to_time,
+    remove_failures,
     sso_planes_space,
     walker_space,
 )
@@ -193,3 +194,43 @@ class TestBuild(unittest.TestCase):
         self.assertEqual(hours_to_time(15.9), time(15, 54))
         self.assertEqual(hours_to_time(24.25), time(0, 15))
         self.assertEqual(hours_to_time(10.9999999), time(11, 0))
+
+
+class TestFailures(unittest.TestCase):
+    """
+    Unit tests for failures of satellites.
+    """
+
+    def test_remove_failures(self):
+        """Failures depend on the seed and position, common to every design."""
+        satellites = [
+            Satellite(name=f"s{k}", orbit=_orbit(), instruments=[IMAGER])
+            for k in range(200)
+        ]
+        survivors = remove_failures(satellites, 0.25, seed=7)
+        self.assertAlmostEqual(len(survivors) / 200, 0.75, delta=0.08)
+        # the first 10 satellites fail alike in a design of 10
+        first = {s.name for s in remove_failures(satellites[:10], 0.25, seed=7)}
+        self.assertEqual(first, {s.name for s in survivors if int(s.name[1:]) < 10})
+        self.assertEqual(len(remove_failures(satellites, 0.25, seed=None)), 200)
+        self.assertEqual(remove_failures(satellites, 1.0, seed=3), [])
+        with self.assertRaises(ValueError):
+            remove_failures(satellites, 1.5, seed=3)
+
+    def test_seed(self):
+        """Uncertain seeds are drawn for each replicate, common to designs."""
+        space = DesignSpace(a=Integer(1, 2), seed=Uncertain.seed())
+        a, b = space.enumerate()
+        self.assertIsNone(a.seed)
+        self.assertEqual(a.realize(3).seed, b.realize(3).seed)
+        self.assertNotEqual(a.realize(3).seed, a.realize(4).seed)
+
+
+def _orbit():
+    from tatc.schemas import (
+        SunSynchronousOrbit,
+    )  # pylint: disable=import-outside-toplevel
+
+    return SunSynchronousOrbit(
+        altitude=700e3, equator_crossing_time="10:30", epoch=EPOCH
+    )

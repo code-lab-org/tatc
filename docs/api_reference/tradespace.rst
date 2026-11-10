@@ -20,7 +20,7 @@ Design Spaces
 .. autoclass:: tatc.tradespace.Derived
 
 .. autoclass:: tatc.tradespace.Uncertain
-   :members: uniform, normal, choice
+   :members: uniform, normal, choice, seed
 
 .. autoclass:: tatc.tradespace.Choice
 
@@ -62,6 +62,8 @@ Constellations
 
 .. autofunction:: tatc.tradespace.hours_to_time
 
+.. autofunction:: tatc.tradespace.remove_failures
+
 Trade Studies
 -------------
 
@@ -96,6 +98,12 @@ Statistics and Requirements
 .. autoclass:: tatc.tradespace.Requirement
    :members: violation
 
+Stores of Results
+-----------------
+
+.. autoclass:: tatc.tradespace.ResultStore
+   :members: get, put, clear
+
 Caches
 ------
 
@@ -125,6 +133,13 @@ Adaptive Replication
 
 .. autoclass:: tatc.tradespace.Refinement
    :members: uncertain
+
+Sensitivity
+-----------
+
+.. autofunction:: tatc.tradespace.sensitivity
+
+.. autofunction:: tatc.tradespace.main_effects
 
 Screening
 ---------
