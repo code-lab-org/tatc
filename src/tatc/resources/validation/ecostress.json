@@ -2,41 +2,41 @@
   "entry_id": "ecostress",
   "configurations": {
     "swath": {
-      "digest": "a4562f15a75e50d32d2f2a41ad30a6ab84db647a7dfccd0485bb8ee1c716ecfa",
+      "digest": "7400e820b5a8afc93c1876d279ff5f6a369dbcaa90ead6c4ba38c6abf56c198d",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_ecostress.py",
       "reference": "ECO_L1B_GEO version 002 (sample positions and times of every fourth sweep, in blocks of eight consecutive scenes of every 32)",
-      "period": "2026-11-07",
+      "period": "2026-11-08",
       "platform": "iss",
-      "holdout_gap_days": 34,
+      "holdout_gap_days": 35,
       "metrics": [
         {
           "name": "pass_recall",
-          "value": 99.42140790742526
+          "value": 98.87459807073955
         },
         {
           "name": "pass_precision",
-          "value": 97.54020813623463
+          "value": 98.4
         },
         {
           "name": "epoch_p95",
-          "value": 0.8415518075
+          "value": 0.7248608522
         },
         {
           "name": "swath_width_median",
-          "value": 2.1108546890104773
+          "value": 0.6202968423361599
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9298747979546063
+          "value": 0.8975574913156409
         }
       ],
       "fixture_metrics": {
-        "passes_found": 98.33333333333333,
-        "epoch_p95": 0.8517706442999999
+        "passes_found": 100.0,
+        "epoch_p95": 0.7579137259
       }
     }
   },
-  "standard_version": 3
+  "standard_version": 5
 }

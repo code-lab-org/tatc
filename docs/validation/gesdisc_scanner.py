@@ -22,11 +22,19 @@ import pandas as pd
 from scipy.spatial import cKDTree
 from pyproj import Geod
 from skyfield.api import wgs84
+from skyfield.framelib import itrs
+from skyfield.positionlib import Geocentric
 
 import tatc
 from tatc.catalog.metrics import summarize
 from tatc.generation import generate_points_fibonacci_lattice
-from tatc.utils import compute_projected_ray_position
+from tatc.constants import timescale
+from tatc.schemas import Attitude
+from tatc.utils import (
+    VelocityFrame,
+    compute_projected_ray_position,
+    compute_view_tangents,
+)
 from validation_io import (
     add_transfer_metrics,
     TO_GEODETIC,
@@ -382,6 +390,77 @@ def fit_yaw(reference: Reference, frame: str) -> None:
             if np.any(band):
                 bands.append(f"{low:+d}..{low + 30:+d}: {np.median(yaw[band]):+.3f}")
         print(f"  {name} yaw by latitude: " + ", ".join(bands))
+
+
+def fit_view(
+    reference: Reference,
+    frame: str,
+    yaw_angle: float,
+    pitch_angle: float,
+    lines: int = 3000,
+    iterations: int = 8,
+) -> None:
+    """
+    Prints the view that TAT-C centers on the outermost beams: given the body's yaw
+    and pitch, the instrument's roll that centers the first and last beams across
+    track, the body's pitch that centers the middle beam along track, and the field
+    of view between the first and last beams, from TAT-C's view tangents, with the
+    spacecraft's position and velocity of the product. A roll measured from the
+    geodetic nadir (`fit`) does not center a view that is also pitched and yawed.
+    """
+    contiguous = (
+        np.r_[False, reference.is_next_contiguous]
+        & np.r_[reference.is_next_contiguous, False]
+    )
+    candidates = np.flatnonzero(contiguous)
+    pick = candidates[np.linspace(0, len(candidates) - 1, lines).astype(int)]
+    t = timescale.from_datetimes(list(reference.time[pick].to_pydatetime()))
+    rotation = itrs.rotation_at(t)  # takes inertial (GCRS) coordinates to ITRS
+    au_m = 149597870700.0
+    position = np.einsum("jin,nj->in", rotation, reference.position[pick]) / au_m
+    velocity = (
+        np.einsum("jin,nj->in", rotation, reference.velocity("inertial")[pick])
+        / au_m
+        * 86400
+    )
+    track = Geocentric(position, velocity, t, center=399)
+    velocity_frame = VelocityFrame(frame)
+    middle = int(np.argmin(np.abs(np.median(reference.cross_track_angles(frame), 0))))
+    targets = [
+        wgs84.latlon(reference.lat[pick, k], reference.lon[pick, k])
+        for k in (0, middle, reference.beams - 1)
+    ]
+    roll, pitch = 0.0, pitch_angle
+    for _ in range(iterations):
+        attitude = Attitude(
+            velocity_frame=velocity_frame, yaw_angle=yaw_angle, pitch_angle=pitch
+        )
+        (a0, c0), (am, _), (a1, c1) = (
+            compute_view_tangents(
+                track, target, velocity_frame, roll, 0, attitude=attitude
+            )
+            for target in targets
+        )
+        roll += float(np.degrees(np.arctan(np.median((c0 + c1) / 2))))
+        pitch += float(np.degrees(np.arctan(np.median(am))))
+    attitude = Attitude(
+        velocity_frame=velocity_frame, yaw_angle=yaw_angle, pitch_angle=pitch
+    )
+    (a0, c0), (am, cm), (a1, c1) = (
+        compute_view_tangents(track, target, velocity_frame, roll, 0, attitude=attitude)
+        for target in targets
+    )
+    width = 2 * np.degrees(np.arctan(np.median(np.abs(c0 - c1)) / 2))
+    slope = np.degrees(np.arctan(np.median((a0 - a1) / (c0 - c1))))
+    print(
+        f"{frame} view, with yaw {yaw_angle:.4f} deg: roll {roll:.4f} deg, pitch "
+        f"{pitch:.4f} deg, cross-track field of view {width:.4f} deg; remaining "
+        f"across tangents of the ends p5..p95 {np.percentile(c0, 5):+.5f}..."
+        f"{np.percentile(c0, 95):+.5f} and {np.percentile(c1, 5):+.5f}..."
+        f"{np.percentile(c1, 95):+.5f}; middle along p5..p95 "
+        f"{np.percentile(am, 5):+.5f}..{np.percentile(am, 95):+.5f}; slope of the "
+        f"line along on across {slope:+.4f} deg; {len(pick)} lines"
+    )
 
 
 def score_swath_width(

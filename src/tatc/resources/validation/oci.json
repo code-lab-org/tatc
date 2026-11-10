@@ -2,41 +2,41 @@
   "entry_id": "oci",
   "configurations": {
     "swath": {
-      "digest": "e1835d91c9efb315c5046d3cd54d482bc31697cf36c9a7cc09116a923b684f06",
+      "digest": "8ef701047f7c0da7616118a1b90000ce9a81d20425e76e01e55d6f97e073a66b",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_oci.py",
       "reference": "PACE_OCI_L1B_SCI version 3 (sample positions and times)",
-      "period": "2026-11-07",
+      "period": "2026-11-09",
       "platform": "pace",
-      "holdout_gap_days": 30,
+      "holdout_gap_days": 32,
       "metrics": [
         {
           "name": "pass_recall",
-          "value": 99.91151154372135
+          "value": 99.88510149368058
         },
         {
           "name": "pass_precision",
-          "value": 93.92369644950278
+          "value": 97.27713539723983
         },
         {
           "name": "epoch_p95",
-          "value": 0.54650499275
+          "value": 0.55380669995
         },
         {
           "name": "swath_width_median",
-          "value": 1.096060769847827
+          "value": 0.8078977707903833
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.938779363278229
+          "value": 0.9311108471313914
         }
       ],
       "fixture_metrics": {
         "passes_found": 100.0,
-        "epoch_p95": 0.5145328482499999
+        "epoch_p95": 0.5621839273999995
       }
     }
   },
-  "standard_version": 2
+  "standard_version": 5
 }

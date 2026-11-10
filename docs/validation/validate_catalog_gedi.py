@@ -12,7 +12,8 @@ of each file) lies within 1 deg of nadir.
 The entry models each beam as a narrow view. Their centers and widths are fitted to
 the cross-track positions of the beams' shots relative to TAT-C's ground track on one
 day (run with `--fit`): each view is centered on the median offset of its beam, and
-is as wide as twice the 99.5th percentile of the offsets' distance from it. The widths
+is as wide as twice the 99.5th percentile of the offsets' distance from it, and the
+body is pitched to place them at the shots' median offset along track. The widths
 include the pointing's spread and the error of the element set (the one nearest the
 middle of the day), so they hold for element sets of a similar age. Running on a day
 at least 30 days from the fit tests the fitted values on data held out from the fit.
@@ -22,7 +23,7 @@ element sets of the days in `iss_2026-04-01.3le`. Every 200th shot (about 12 km
 apart) is read, with range requests:
 
     python docs/validation/validate_catalog_gedi.py <data directory> 2026-05-01 --fit
-    python docs/validation/validate_catalog_gedi.py <data directory> 2026-06-05
+    python docs/validation/validate_catalog_gedi.py <data directory> 2026-06-08
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
@@ -40,11 +41,14 @@ import earthaccess
 import h5py
 import numpy as np
 import pandas as pd
+from pyproj import Geod
+from skyfield.api import wgs84
 
 import tatc
 from tatc.analysis import collect_observations
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
+from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from validate_catalog_atlas import add_offsets
 from validation_io import (
@@ -88,6 +92,7 @@ SAMPLE_PER_BEAM = 250
 TIME_STEPS = (1, 10, 30)
 FIT_PERCENTILE = 99.5
 FIXTURE_SHOTS = 60
+GEOD = Geod(ellps="WGS84")
 
 
 def read_granule(url: str, session) -> list[pd.DataFrame]:
@@ -211,10 +216,41 @@ def angle(distance_m: np.ndarray, altitude: float) -> np.ndarray:
     )
 
 
-def fit(shots: pd.DataFrame) -> None:
-    """Prints the fitted roll angle and field of view of each beam's view."""
+def along_offsets(shots: pd.DataFrame, orbit) -> np.ndarray:
+    """Gets the shots' offsets (km, positive ahead) along the ground track."""
+    satellite = orbit.elements[0].to_skyfield()
+    times = timescale.from_datetimes(list(shots.time.dt.floor("us")))
+    now = wgs84.subpoint_of(satellite.at(times))
+    later = wgs84.subpoint_of(satellite.at(timescale.tt_jd(times.tt + 1 / 86400)))
+    heading = GEOD.inv(
+        now.longitude.degrees,
+        now.latitude.degrees,
+        later.longitude.degrees,
+        later.latitude.degrees,
+    )[0]
+    azimuth, _, length = GEOD.inv(
+        now.longitude.degrees,
+        now.latitude.degrees,
+        shots.longitude.to_numpy(),
+        shots.latitude.to_numpy(),
+    )
+    return length * np.cos(np.radians(azimuth - heading)) / 1e3
+
+
+def fit(shots: pd.DataFrame, orbit) -> None:
+    """
+    Prints the fitted roll angle and field of view of each beam's view, and the
+    body's pitch that places the views at the shots' median offset along track.
+    """
     altitude = float(np.median(shots.inst_alt))
     print(f"altitude: median {altitude / 1e3:.1f} km")
+    along = along_offsets(shots, orbit)
+    pitch = np.degrees(np.arctan(np.median(along) * 1e3 / altitude))
+    print(
+        f"along track: median {np.median(along):+.3f} km (p5 "
+        f"{np.percentile(along, 5):+.3f}, p95 {np.percentile(along, 95):+.3f}); "
+        f"pitch {pitch:+.4f} deg"
+    )
     for beam in BEAMS:
         offsets = shots.cross_km[shots.beam == beam].to_numpy()
         center = np.median(offsets)
@@ -344,7 +380,7 @@ def main() -> None:
         flush=True,
     )
     if arguments.fit:
-        fit(shots)
+        fit(shots, orbit)
         return
     entry = get_entry("gedi")
     results, passes = score_shots(entry, orbit, shots, day)

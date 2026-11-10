@@ -849,9 +849,9 @@ class TestEntryStatus(unittest.TestCase):
 
     def test_oci_entry_partial(self):
         """
-        Test that the OCI entry, whose tilt follows a daily schedule, times its passes
-        but is partial on data held out 30 days from the fit, failing where the tilt
-        changes, without a sample size configuration.
+        Test that the OCI entry, whose tilt follows a daily schedule and is blind while
+        it changes, is partial on data held out 32 days from the fit because of its
+        swath's area at long time steps alone, without a sample size configuration.
         """
         entry = get_entry("oci")
         self.assertEqual(entry.validation.tier, Tier.PARTIAL)
@@ -861,9 +861,9 @@ class TestEntryStatus(unittest.TestCase):
         swath = entry.validation.configurations["swath"]
         self.assertEqual(
             sorted(r.gate.metric for r in swath.gates if not r.passed),
-            ["footprint_iou_median", "pass_precision"],
+            ["footprint_iou_median"],
         )
-        self.assertEqual(swath.record.holdout_gap_days, 30)
+        self.assertEqual(swath.record.holdout_gap_days, 32)
 
     def test_pace_polarimeters_validated(self):
         """
@@ -905,12 +905,12 @@ class TestEntryStatus(unittest.TestCase):
     def test_scanner_entries_partial(self):
         """
         Test that the CERES entry is partial because of its swath width, and the
-        ECOSTRESS entry because of its swath's area, each without a sample size
-        configuration.
+        ECOSTRESS entry because of its recall and swath's area, each without a sample
+        size configuration.
         """
         for entry_id, failed in (
-            ("ceres", "swath_width_median"),
-            ("ecostress", "footprint_iou_median"),
+            ("ceres", ["swath_width_median"]),
+            ("ecostress", ["pass_recall", "footprint_iou_median"]),
         ):
             validation = get_entry(entry_id).validation
             self.assertEqual(validation.tier, Tier.PARTIAL, entry_id)
@@ -919,7 +919,7 @@ class TestEntryStatus(unittest.TestCase):
             )
             swath = validation.configurations["swath"]
             self.assertEqual(
-                [r.gate.metric for r in swath.gates if not r.passed], [failed]
+                [r.gate.metric for r in swath.gates if not r.passed], failed
             )
 
     def test_ahi_partial_on_product_limit(self):
@@ -966,7 +966,7 @@ class TestEntryStatus(unittest.TestCase):
     def test_gedi_entry_partial_on_epochs(self):
         """
         Test that the GEDI entry, eight beams of the lidar class, is partial because of
-        its epochs alone on data held out 35 days from the fit.
+        its epochs alone on data held out 38 days from the fit.
         """
         entry = get_entry("gedi")
         self.assertEqual(entry.instrument_class, InstrumentClass.LIDAR)
@@ -977,12 +977,12 @@ class TestEntryStatus(unittest.TestCase):
             [r.gate.metric for r in configuration.gates if not r.passed],
             ["epoch_p95"],
         )
-        self.assertEqual(configuration.record.holdout_gap_days, 35)
+        self.assertEqual(configuration.record.holdout_gap_days, 38)
 
     def test_emit_entry_partial_on_shifted_swath(self):
         """
         Test that the EMIT entry is partial because of its recall and swath area on
-        data held out 34 days from the fit, with its epochs and width passing.
+        data held out 35 days from the fit, with its epochs and width passing.
         """
         swath = get_entry("emit").validation.configurations["swath"]
         self.assertEqual(swath.tier, Tier.PARTIAL)
@@ -990,7 +990,7 @@ class TestEntryStatus(unittest.TestCase):
             sorted(r.gate.metric for r in swath.gates if not r.passed),
             ["footprint_iou_median", "pass_recall"],
         )
-        self.assertEqual(swath.record.holdout_gap_days, 34)
+        self.assertEqual(swath.record.holdout_gap_days, 35)
 
     def test_oco2_glint_builds_glint_attitude(self):
         """

@@ -8,7 +8,7 @@ platforms:
     name: PACE
     norad_id: 58928
     status: operational
-    as_of: 2026-11-04
+    as_of: 2026-11-10
 data_products:
   - name: PACE OCI Level-1B Science Data (PACE_OCI_L1B_SCI), version 3
     provider: NASA OB.DAAC
@@ -84,7 +84,8 @@ configurations:
       - The tilt changes from aft to forward where the spacecraft's geodetic latitude reaches the subsolar latitude at noon (UTC) plus 5.21 deg on days of odd day of the year, and less 0.87 deg on even days, as measured from 2026-08-15 to 2026-10-08. Whether the alternation follows the day of the year or a count of days across a new year is not known. On 2 of the 55 days, the last two changes of the day came about 0.8 deg south of the others. The schedule is set by the mission and may change.
       - A first version, whose profile fixed the change at the latitude of 2026-10-04, failed on held-out data of 2026-11-04, where the change came near 17 deg S (epochs within 72.6 s at the 95th percentile; 93.7% of predicted passes observed; intersection over union 0.909 at 120 s). The schedule was then fitted, and tested on a later day.
       - A second version, without the blind interval, placed passes within 0.55 s at the 95th percentile on held-out data of 2026-11-07, but 93.9% of predicted passes were observed (2026-11-08 gave 93.8%), as it counted ground swept while the tilt changes, which the product flags. The blind interval was then measured on days of the fitting period, and tested on a later day.
-      - At a time step of 120 s, the swath's intersection over union is about 0.94, as the view tailored to the step (63 deg along track) is a frame that, tilted 20 deg, reaches about 2,800 km from the subsatellite point at its corners (about 1,400 km untilted), and widens the swath. At 10 s and 30 s, it is 0.98 and 0.96. Use a time step of 30 s or less.
+      - On data held out on 2026-11-09 (32 days from the fitting data, with the blind interval and a public element set), 99.89% of observed passes were predicted and 97.28% of predicted passes observed, with epochs within 0.55 s (95th percentile) and the swath width within 0.81 km (median), but the swath's intersection over union was 0.931 at a time step of 120 s, below the gate's 0.95 (0.985 at 10 s and 0.960 at 30 s).
+      - At a time step of 120 s, the swath's intersection over union is about 0.93, as the view tailored to the step (63 deg along track) is a frame that, tilted 20 deg, reaches about 2,800 km from the subsatellite point at its corners (about 1,400 km untilted), and widens the swath. At 10 s and 30 s, it is 0.985 and 0.960. Use a time step of 30 s or less.
       - The tilt changes back in the dark half of the orbit, where the product has no data, at an argument of latitude placed at 180 deg, with the blind interval measured for the change to forward; analyses there describe a tilt that was not tested.
       - The scan line is rotated by about 0.1 deg from perpendicular to the Earth-fixed ground track (a fitted yaw), which is not modeled.
       - The swath width of a pointed instrument follows its field of regard, centered on nadir, which does not describe this tilted view; its width is that between the projections of its edges.

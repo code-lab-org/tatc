@@ -14,7 +14,8 @@ is read, with range requests, and the time of every 8th of those lines, interpol
 between them:
 
     python docs/validation/validate_catalog_emit.py <data directory> 2026-10-04 --fit
-    python docs/validation/validate_catalog_emit.py <data directory> 2026-11-07
+    python docs/validation/validate_catalog_emit.py <data directory> 2026-10-04 --fit-view
+    python docs/validation/validate_catalog_emit.py <data directory> 2026-11-08
 
 The swath, about 75 km wide, is imaged in runs of scenes lasting about a minute (at
 most about five), too short and sparse for a global lattice of points or grid, so a
@@ -44,7 +45,7 @@ from tatc.analysis import compute_ground_track
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.schemas import GeneralPerturbationsOrbit
-from gesdisc_scanner import Product, Reference, find_granules, fit, fit_yaw
+from gesdisc_scanner import Product, Reference, find_granules, fit, fit_view, fit_yaw
 from validate_catalog_ecostress import read_ephemeris
 from validate_catalog_oco2 import area, find_epochs, observed_strip, score_width
 from validation_io import (
@@ -67,6 +68,10 @@ ELEMENTS = {
     "2026-11-07": (
         "1 25544U 98067A   26313.20747964  .00008201  00000+0  15534-3 0  9995",
         "2 25544  51.6321 302.4538 0007297   5.2479 354.8585 15.49270212594231",
+    ),
+    "2026-11-08": (
+        "1 25544U 98067A   26314.17503267  .00009346  00000+0  17575-3 0  9996",
+        "2 25544  51.6322 297.6644 0007292   8.9462 351.1656 15.49289712594382",
     ),
 }
 SCENES = Product(short_name="EMITL1BRAD", version="002", host="https://data.lpdaac")
@@ -305,6 +310,11 @@ def main() -> None:
     parser.add_argument("day")
     parser.add_argument("--fit", action="store_true")
     parser.add_argument("--write", action="store_true")
+    parser.add_argument(
+        "--fit-view",
+        action="store_true",
+        help="center the view in TAT-C's frame, with the entry's yaw and pitch",
+    )
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
@@ -317,6 +327,10 @@ def main() -> None:
         f"{len(reference.gaps)} gaps over a minute; line spacing {period:.4f} s",
         flush=True,
     )
+    if arguments.fit_view:
+        attitude = get_entry("emit").configurations["swath"].attitude
+        fit_view(reference, "inertial", attitude["yaw_angle"], attitude["pitch_angle"])
+        return
     if arguments.fit:
         for frame in ("inertial", "earth_fixed"):
             fit(reference, frame)

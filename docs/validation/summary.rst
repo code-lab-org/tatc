@@ -76,9 +76,10 @@ Instruments and Pointing
        (median). AVHRR, with fitted angles and yaw on held-out data, observed 99.4% of passes predicted, with epochs
        within 0.16 s (95th percentile), swath width within 1.3 km, and pixel centers within 0.5 km (median); without
        its yaw of 0.29 deg, epochs were within 1.1 s. OCI, whose tilt fore or aft follows a daily schedule set by
-       the subsolar latitude, predicted 99.9% of the passes observed on held-out data, with epochs within 0.55 s
-       (95th percentile) and swath width within 1.1 km (median), but only 93.9% of its predicted passes were observed and swath
-       IoU was 0.939 at 120 s, as the model sweeps ground while the tilt changes, where OCI collects no valid data.
+       the subsolar latitude and which is blind while the tilt changes, predicted 99.9% of the passes observed on
+       held-out data, with 97.3% of its predicted passes observed, epochs within 0.55 s (95th percentile), and swath
+       width within 0.8 km (median), but swath IoU 0.931 at 120 s (0.985 at 10 s), as the view tailored to a long
+       time step, tilted 20 deg, widens the swath.
        On sibling satellites, as transfers, MHS and AVHRR on Metop-B passed every swath test, while NOAA-20's angles
        on NOAA-21 placed ATMS's pixels within 10.5 km and VIIRS's swath width within 21 km (median); fitted on
        NOAA-21, with ATMS's scan rotated 0.93 deg, ATMS's pixels were within 3.2 km and the swath widths of ATMS and
@@ -89,8 +90,9 @@ Instruments and Pointing
        the array of fields of view (:doc:`ValidateImagerCrIS`). On held-out data, CERES (first sweep of each
        record) predicted 99.6% of observed passes, with 99.4% of predicted passes observed, epochs within 0.29 s (95th
        percentile), and swath IoU 0.998, but swath width within 7.9 km (median), its edges 60 deg from nadir; ECOSTRESS,
-       with fitted yaw and pitch, predicted 99.4% of observed passes, with 97.5% of predicted passes observed, epochs
-       within 0.84 s, and swath width within 2.1 km, but swath IoU 0.930 at 120 s (0.965 at 10 s) (:doc:`catalog`)
+       with fitted yaw and pitch and its view centered in TAT-C's frame, had 98.4% of predicted passes observed,
+       epochs within 0.72 s, swath width within 0.62 km, and swath IoU 0.988 at 10 s, but predicted 98.9% of observed
+       passes, and swath IoU was 0.898 at 120 s (:doc:`catalog`)
    * - Pushbroom imagers (`PointedInstrument`)
      - Sentinel-2 MSI, Landsat 9 OLI, Sentinel-5P TROPOMI, Sentinel-3A OLCI, PACE HARP2 and SPEXone, NOAA-20 and
        NOAA-21 OMPS Nadir Mapper, OCO-2, ISS EMIT
@@ -105,10 +107,10 @@ Instruments and Pointing
        Mapper predicted 99.3 to 99.4% of passes, with swath IoU 0.98 or more, but epochs within 19 to 20 s and swath
        width within 5.9 to 7.1 km, as its swath bows along track. OCO-2's narrow slit (about 10 km) observed 90.4%
        (nadir) and 89.4% (glint) of sampled soundings, with epochs within 0.88 and 1.24 s, and swath IoU 0.44 and 0.17
-       (:doc:`catalog`). EMIT, with fitted yaw and pitch, observed 92.3% of sampled pixels on held-out data, with
-       epochs within 0.86 s and swath width within 0.47 km, but its view lay 6.4 to 6.9 km to one side of the swath,
-       as its roll, measured from the geodetic nadir, does not center the view TAT-C rolls, pitches, and yaws
-       (:doc:`catalog`)
+       (:doc:`catalog`). EMIT, with fitted yaw and pitch and its view centered in TAT-C's frame, observed 94.6%
+       of sampled pixels on held-out data, with epochs within 0.25 s and swath width within 0.05 km, but missed pixels
+       within about 1.5 km of one edge of its 75 km swath, and swath IoU was 0.92 at 10 s; with its roll measured from
+       the geodetic nadir instead, its view had lain 4.0 to 4.5 km to one side (:doc:`catalog`)
    * - Conical scanners (`ConicalInstrument`)
      - GCOM-W AMSR2, GPM GMI, SMAP radiometer, DMSP F18 SSMIS
      - 99.95 to 100% of passes, epochs within 0.27 s (AMSR2) and 0.69 s (GMI) at the 95th percentile; swath IoU 0.998
@@ -148,7 +150,9 @@ Instruments and Pointing
        early (median) with an element set 4 days old, consistent with its along-track error (:doc:`catalog`).
        GEDI's eight beams, as views fitted where GEDI points within 1 deg of nadir: on held-out data, 99.9% of
        sampled shots within their views and the beams' spacing within 0.026 km, but epochs 2.4 s early (median),
-       consistent with beams pointing behind the plane across track (:doc:`catalog`)
+       consistent with beams pointing behind the plane across track; with a pitch fitted on the fitting day, 99.55%
+       within their views on another held-out day, but epochs 1.1 s late (median; 1.5 s at the 95th percentile), as
+       the offset along track varies between days (:doc:`catalog`)
    * - Nadir altimeter
      - Sentinel-6 Poseidon-4
      - With a view 0.43 deg wide, every sampled segment of the ground track observed, the track within 0.14 km
