@@ -4,7 +4,7 @@
 [![Python Versions](https://img.shields.io/pypi/pyversions/tatc.svg)](https://pypi.org/project/tatc/)
 [![Unit Tests](https://github.com/code-lab-org/tatc/actions/workflows/unit-test.yml/badge.svg)](https://github.com/code-lab-org/tatc/actions/workflows/unit-test.yml)
 [![Documentation](https://readthedocs.org/projects/tatc/badge/?version=latest)](https://tatc.readthedocs.io)
-[![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://github.com/code-lab-org/tatc/blob/main/LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17363628.svg)](https://doi.org/10.5281/zenodo.17363628)
 
 The Tradespace Analysis Toolkit for Constellations (TAT-C) provides low-level
@@ -101,12 +101,12 @@ pylint --rcfile=.pylintrc src/tatc
 ## License
 
 This project is licensed under the BSD 3-Clause License &mdash; see
-[LICENSE](LICENSE) for details.
+[LICENSE](https://github.com/code-lab-org/tatc/blob/main/LICENSE) for details.
 
 ## Citation
 
 If you use TAT-C in your research, please cite it using the metadata in
-[CITATION.cff](CITATION.cff), or the DOI badge above for the latest release.
+[CITATION.cff](https://github.com/code-lab-org/tatc/blob/main/CITATION.cff), or the DOI badge above for the latest release.
 
 ## Contact
 

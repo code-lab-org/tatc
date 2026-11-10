@@ -9,6 +9,9 @@ Design Spaces
 .. autoclass:: tatc.tradespace.DesignSpace
    :members: enumerate, size, sample, design, suggest, unit_paths, encode, decode
 
+.. autoclass:: tatc.tradespace.Variable
+   :members: domain
+
 .. autoclass:: tatc.tradespace.Real
 
 .. autoclass:: tatc.tradespace.Integer

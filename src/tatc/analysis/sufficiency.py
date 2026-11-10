@@ -91,7 +91,7 @@ def sampling_error_variance(
     at given times: the mean of the samples, compared with the mean over the
     period. The field is stationary, with an exponential correlation in time
     (`exp(-|dt| / decorrelation_time)`, a first-order Markov process), for
-    which the variance is exact:
+    which the variance is exact::
 
         var(e) / var(x) = (1/n^2) sum_ij r(t_i - t_j)
                           - (2/(n L)) sum_i integral_0^L r(t_i - s) ds
