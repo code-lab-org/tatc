@@ -1,0 +1,60 @@
+id: emit
+name: EMIT
+aliases: [Earth Surface Mineral Dust Source Investigation]
+instrument_class: pushbroom
+selection: Imaging spectrometer on the International Space Station that maps surface minerals of arid regions and detects methane and carbon dioxide plumes, with open data products.
+platforms:
+  - id: iss
+    name: International Space Station
+    norad_id: 25544
+    status: operational
+    as_of: 2026-11-09
+data_products:
+  - name: EMIT L1B At-Sensor Calibrated Radiance and Geolocation (EMITL1BRAD) and Attitude and Ephemeris (EMITL1BATT), version 002
+    provider: NASA LP DAAC
+    url: https://lpdaac.usgs.gov/products/emitl1bradv002/
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath between the outermost pixels, with a view tailored to the analysis time step.
+    platforms: [iss]
+    velocity_frame: inertial
+    attitude:
+      yaw_angle: 3.7416
+      pitch_angle: -7.5841
+    instruments:
+      - type: pointed
+        parameters:
+          name: EMIT
+          field_of_regard: 20
+          cross_track_field_of_view: 11.0943
+          along_track_field_of_view: {tailor: time_step}
+          roll_angle: 0.3073
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the view, rolled and pitched, whose corners are about 9.5 deg from nadir
+          cross_track_field_of_view: &measured_view
+            kind: measured
+            source: validate_catalog_emit.py --fit, the outermost pixels 5.8544 deg left and 5.2399 deg right of the geodetic nadir (inertial frame)
+            platform: iss
+            period: "2026-10-04"
+          roll_angle: *measured_view
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a pushbroom's swath as a rectangular view
+    limitations:
+      - The yaw of 3.7416 deg and pitch of -7.5841 deg are measured with validate_catalog_emit.py --fit on 2026-10-04, from the slope of the pixels' along-track on their cross-track tangents (from 3.64 to 3.84 deg at the 5th and 95th percentiles) and the along-track angle of the pixel nearest nadir, with the station's position interpolated to each line's time. The pitch places the swath about 56 km behind the station.
+      - The fit uses every 16th line of each scene and every 25th pixel, with the times of every 8th of those lines, interpolated between them.
+      - On data held out on 2026-11-07 (34 days from the fit), epochs were within 0.86 s (95th percentile) and the swath width within 0.47 km (median), but only 92.3% of a sample of 1,000 pixels were observed within two minutes of their times, and the swath's intersection over union with the strip between the outermost pixels was 0.85 at a time step of 10 s and 0.69 at 120 s (median of 6 segments of 120 s), failing both gates. Diagnosed after the run, without changing the entry, the view lies 6.4 to 6.9 km to one side of the observed swath (median, both edges), and the missed pixels lie along that edge, whereas the fitted angles barely differ on the held-out day. The fit measures the roll from the geodetic nadir at each line's time, which does not center the view that TAT-C rolls, pitches, and yaws; ECOSTRESS's entry, fitted the same way with a similar attitude, may be shifted likewise, which its wider swath would hide.
+limitations:
+  - The station flies in a fixed attitude relative to its orbit, without yaw steering, so the configuration uses the inertial frame. Its attitude changes for operations such as dockings, which are not modeled.
+  - EMIT images scenes of arid regions and plume targets by plan, whereas the view observes whenever a target is in view.
+  - The station's orbit decays and is reboosted often, so element sets age quickly.
+  - No configuration gives sample sizes.

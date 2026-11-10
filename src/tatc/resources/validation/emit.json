@@ -1,0 +1,42 @@
+{
+  "entry_id": "emit",
+  "configurations": {
+    "swath": {
+      "digest": "180aff369bd3bb857a6147b11dc8513c7d1a4f83b59f2c1f830f4658b05d94a2",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_emit.py",
+      "reference": "EMITL1BRAD version 002, observation geometry (pixel positions and line times of every 16th line)",
+      "period": "2026-11-07",
+      "platform": "iss",
+      "holdout_gap_days": 34,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 92.30000000000001
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.8567877571
+        },
+        {
+          "name": "epoch_median",
+          "value": 0.135432074
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.46590304070306593
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.691775051123946
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 91.66666666666666,
+        "epoch_p95": 0.7630251420999999
+      }
+    }
+  },
+  "standard_version": 5
+}

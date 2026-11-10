@@ -127,6 +127,8 @@ class TestLoading(unittest.TestCase):
                 "csar",
                 "dpr",
                 "ecostress",
+                "emit",
+                "gedi",
                 "iasi",
                 "lsar",
                 "msi",
@@ -933,6 +935,63 @@ class TestEntryStatus(unittest.TestCase):
             validation.configurations["cloud_top_height"].record.holdout_gap_days, 38
         )
 
+    def test_ascat_entry_validated(self):
+        """
+        Test that the ASCAT entry, of the scatterometer class added in version 4 of the
+        standard, passes on data held out 34 days from the fit, as a union of two
+        swaths.
+        """
+        entry = get_entry("ascat")
+        self.assertEqual(entry.instrument_class, InstrumentClass.SCATTEROMETER)
+        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
+        self.assertEqual(entry.configurations["swaths"].grouping, "union")
+        swaths = entry.validation.configurations["swaths"]
+        self.assertEqual(swaths.record.holdout_gap_days, 34)
+        self.assertEqual(entry.record.standard_version, 4)
+
+    def test_tempo_entry_validated(self):
+        """
+        Test that the TEMPO entry, of the regional geostationary class added in version
+        5 of the standard, passes on a scan held out 33 days from the fit.
+        """
+        entry = get_entry("tempo")
+        self.assertEqual(entry.instrument_class, InstrumentClass.GEOSTATIONARY_REGIONAL)
+        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
+        configuration = entry.validation.configurations["field_of_regard"]
+        self.assertEqual(
+            [r.gate.metric for r in configuration.gates], ["field_of_regard_iou"]
+        )
+        self.assertEqual(configuration.record.holdout_gap_days, 33)
+
+    def test_gedi_entry_partial_on_epochs(self):
+        """
+        Test that the GEDI entry, eight beams of the lidar class, is partial because of
+        its epochs alone on data held out 35 days from the fit.
+        """
+        entry = get_entry("gedi")
+        self.assertEqual(entry.instrument_class, InstrumentClass.LIDAR)
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        configuration = entry.validation.configurations["beams"]
+        self.assertEqual(len(entry.configurations["beams"].instruments), 8)
+        self.assertEqual(
+            [r.gate.metric for r in configuration.gates if not r.passed],
+            ["epoch_p95"],
+        )
+        self.assertEqual(configuration.record.holdout_gap_days, 35)
+
+    def test_emit_entry_partial_on_shifted_swath(self):
+        """
+        Test that the EMIT entry is partial because of its recall and swath area on
+        data held out 34 days from the fit, with its epochs and width passing.
+        """
+        swath = get_entry("emit").validation.configurations["swath"]
+        self.assertEqual(swath.tier, Tier.PARTIAL)
+        self.assertEqual(
+            sorted(r.gate.metric for r in swath.gates if not r.passed),
+            ["footprint_iou_median", "pass_recall"],
+        )
+        self.assertEqual(swath.record.holdout_gap_days, 34)
+
     def test_oco2_glint_builds_glint_attitude(self):
         """
         Test that OCO-2's glint configuration builds the glint attitude it declares,
@@ -962,6 +1021,7 @@ class TestEntryStatus(unittest.TestCase):
             "mhs": "metop-b",
             "avhrr": "metop-b",
             "csar": "sentinel-1d",
+            "poseidon4": "sentinel-6b",
         }
         for entry_id, platform in transfers.items():
             entry = get_entry(entry_id)

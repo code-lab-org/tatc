@@ -93,7 +93,7 @@ Instruments and Pointing
        within 0.84 s, and swath width within 2.1 km, but swath IoU 0.930 at 120 s (0.965 at 10 s) (:doc:`catalog`)
    * - Pushbroom imagers (`PointedInstrument`)
      - Sentinel-2 MSI, Landsat 9 OLI, Sentinel-5P TROPOMI, Sentinel-3A OLCI, PACE HARP2 and SPEXone, NOAA-20 and
-       NOAA-21 OMPS Nadir Mapper, OCO-2
+       NOAA-21 OMPS Nadir Mapper, OCO-2, ISS EMIT
      - On held-out data, 99.8% or more of passes predicted; swath width within 0.1 to 2.0 km and swath IoU 0.97 or
        more (median) at time steps of up to 30 s, but 0.949 (MSI) and 0.937 (TROPOMI) at 120 s; epochs within 1.3 s
        (OLI), 2.1 s (TROPOMI), and 2.6 s (MSI, one view) at the 95th percentile (:doc:`catalog`). MSI's epochs within
@@ -105,6 +105,9 @@ Instruments and Pointing
        Mapper predicted 99.3 to 99.4% of passes, with swath IoU 0.98 or more, but epochs within 19 to 20 s and swath
        width within 5.9 to 7.1 km, as its swath bows along track. OCO-2's narrow slit (about 10 km) observed 90.4%
        (nadir) and 89.4% (glint) of sampled soundings, with epochs within 0.88 and 1.24 s, and swath IoU 0.44 and 0.17
+       (:doc:`catalog`). EMIT, with fitted yaw and pitch, observed 92.3% of sampled pixels on held-out data, with
+       epochs within 0.86 s and swath width within 0.47 km, but its view lay 6.4 to 6.9 km to one side of the swath,
+       as its roll, measured from the geodetic nadir, does not center the view TAT-C rolls, pitches, and yaws
        (:doc:`catalog`)
    * - Conical scanners (`ConicalInstrument`)
      - GCOM-W AMSR2, GPM GMI, SMAP radiometer, DMSP F18 SSMIS
@@ -132,21 +135,32 @@ Instruments and Pointing
        edges of good-quality heights (about 7.5 to 61 km from the ground track), 99.05% of passes predicted, edges
        within 3.0 km and epochs within 0.52 s (95th percentile), and swath IoU 0.988 or more at time steps of up to
        120 s (:doc:`catalog`)
+   * - Scatterometer (two rolled instruments)
+     - Metop-C ASCAT
+     - On held-out data, with row times recovered from the product's rounded times, 99.83% of passes predicted,
+       edges of the wind vector cells within 7.2 km (95th percentile), swath IoU 0.973 or more (median) at time
+       steps of up to 120 s, and epochs within 1.9 s (95th percentile) of the cells' rows (:doc:`catalog`)
    * - Narrow-beam lidar
-     - ICESat-2 ATLAS
+     - ICESat-2 ATLAS, GEDI
      - Beams located within about 2 km with a TLE, so a view about 4 km wide predicts 95% of their observations
        (:doc:`ValidateLidarICESat2`). With views about 4.9 km wide fitted over Antarctica, held-out data a month
        later had every sampled segment within its pair's view and the pairs' spacing within 0.02 km, but epochs 5.5 s
-       early (median) with an element set 4 days old, consistent with its along-track error (:doc:`catalog`)
+       early (median) with an element set 4 days old, consistent with its along-track error (:doc:`catalog`).
+       GEDI's eight beams, as views fitted where GEDI points within 1 deg of nadir: on held-out data, 99.9% of
+       sampled shots within their views and the beams' spacing within 0.026 km, but epochs 2.4 s early (median),
+       consistent with beams pointing behind the plane across track (:doc:`catalog`)
    * - Nadir altimeter
      - Sentinel-6 Poseidon-4
      - With a view 0.43 deg wide, every sampled segment of the ground track observed, the track within 0.14 km
-       (median) and epochs within 0.12 s (95th percentile) (:doc:`catalog`)
+       (median) and epochs within 0.12 s (95th percentile); on Sentinel-6B, as a transfer, the track within 0.11 km
+       and epochs within 0.11 s (:doc:`catalog`)
    * - Geostationary imagers
-     - GOES-19 ABI, Himawari-9 AHI
+     - GOES-19 ABI, Himawari-9 AHI, TEMPO
      - A 17.4 deg field of regard observes the full disk; elevation angles within 0.0004 deg; product coverage limits
        within about 0.3 deg of local zenith angle (:doc:`ValidateGeostationaryGOES`). On held-out AHI cloud top
-       heights, the product's limit within 0.70 deg (:doc:`catalog`)
+       heights, the product's limit within 0.70 deg (:doc:`catalog`). TEMPO's region, as a rectangular view fitted
+       to the edges of a full scan: field of regard IoU 0.994 with the area a held-out scan imaged; the hourly
+       east-west sweep is not modeled (:doc:`catalog`)
    * - Tilted scanners (`pitch_angle_profile`), sun glint (`compute_glint_angle`)
      - PACE OCI
      - Pixels within 0.8 km near nadir and 9 km at the edges (median); epochs within 0.15 s (median) with a daily tilt

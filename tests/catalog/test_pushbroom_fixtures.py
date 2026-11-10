@@ -1,6 +1,6 @@
 """
 Regression tests that recompute the results of the entries of pushbroom imagers,
-synthetic aperture radars, the SMAP radiometer, SSMIS, and OCI's swath from reduced
+synthetic aperture radars, ASCAT, the SMAP radiometer, SSMIS, and OCI's swath from reduced
 fixtures, written by
 the scripts
 `docs/validation/validate_catalog_<entry>.py`.
@@ -154,6 +154,17 @@ class TestKarinFixture(_PushbroomFixture, unittest.TestCase):
 
     entry_id = "karin"
     platform = "swot"
+    configuration = "swaths"
+    instrument_index = None
+
+
+class TestAscatFixture(_PushbroomFixture, unittest.TestCase):
+    """
+    Regression tests of the ASCAT entry, a union of two swaths beside a nadir gap.
+    """
+
+    entry_id = "ascat"
+    platform = "metop-c"
     configuration = "swaths"
     instrument_index = None
 

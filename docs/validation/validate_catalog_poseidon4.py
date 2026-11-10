@@ -5,12 +5,14 @@ through public TAT-C methods. Poseidon-4 is a nadir radar altimeter, whose
 measurements (1 Hz) lie along the ground track. A sample of the measurements of a day
 is scored: whether the nadir view observes each within two minutes of its time, the
 epoch's difference, and its distance across track from the ground track of a public
-element set. The entry has no fitted values, so any day tests it.
+element set. The entry has no fitted values, so any day tests it. With `--platform
+sentinel-6b`, it scores the same configuration on Sentinel-6B, as a transfer.
 
 Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`. Only the
 measurements' times and positions are read, with range requests:
 
     python docs/validation/validate_catalog_poseidon4.py <data directory> 2026-11-07
+    python docs/validation/validate_catalog_poseidon4.py <data directory> 2026-11-08         --platform sentinel-6b
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
@@ -39,6 +41,7 @@ from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from validation_io import (
     RemoteFile,
+    add_transfer_metrics,
     get_with_retries,
     recompute_passes,
     update_fixture,
@@ -50,12 +53,19 @@ RECORD_PATH = (
     REPOSITORY / "src" / "tatc" / "resources" / "validation" / "poseidon4.json"
 )
 FIXTURE_PATH = REPOSITORY / "tests" / "catalog" / "fixtures" / "poseidon4.npz"
-SHORT_NAME = "JASON_CS_S6A_L2_ALT_LR_RED_OST_NRT_F"
+SHORT_NAMES = {
+    "sentinel-6a": "JASON_CS_S6A_L2_ALT_LR_RED_OST_NRT_F",
+    "sentinel-6b": "JASON_CS_S6B_L2_ALT_LR_RED_OST_NRT_G",
+}
 # public element sets from CelesTrak, with epochs after each day of data
 ELEMENTS = {
-    "2026-11-07": (
+    ("sentinel-6a", "2026-11-07"): (
         "1 46984U 20086A   26313.07249362 -.00000031  00000+0  13085-3 0  9999",
         "2 46984  66.0401 194.1205 0007726 269.8082  90.2048 12.80930425278889",
+    ),
+    ("sentinel-6b", "2026-11-08"): (
+        "1 66514U 25264A   26313.38515319 -.00000027  00000+0  14654-3 0  9993",
+        "2 66514  66.0401 193.5973 0007634 268.8904  91.1236 12.80930309 45764",
     ),
 }
 EPOCH = pd.Timestamp("2000-01-01", tz="UTC")
@@ -81,15 +91,16 @@ def read_granule(url: str, session) -> pd.DataFrame:
     )
 
 
-def load_day(day: datetime, directory: pathlib.Path) -> pd.DataFrame:
+def load_day(day: datetime, directory: pathlib.Path, platform: str) -> pd.DataFrame:
     """Reads the measurements of a day, or loads them from a cache."""
-    cache = directory / f"poseidon4_{day:%Y%m%d}.npz"
+    suffix = "" if platform == "sentinel-6a" else f"_{platform}"
+    cache = directory / f"poseidon4_{day:%Y%m%d}{suffix}.npz"
     start = pd.Timestamp(day)
     if not cache.exists():
         items = get_with_retries(
             "https://cmr.earthdata.nasa.gov/search/granules.umm_json",
             params={
-                "short_name": SHORT_NAME,
+                "short_name": SHORT_NAMES[platform],
                 "temporal": f"{day - timedelta(hours=2):%Y-%m-%dT%H:%M:%SZ},"
                 f"{day + timedelta(days=1, hours=2):%Y-%m-%dT%H:%M:%SZ}",
                 "page_size": 200,
@@ -175,13 +186,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=pathlib.Path)
     parser.add_argument("day")
+    parser.add_argument("--platform", default="sentinel-6a", choices=SHORT_NAMES)
     parser.add_argument("--write", action="store_true")
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    data = load_day(day, arguments.directory)
+    platform = arguments.platform
+    data = load_day(day, arguments.directory, platform)
     print(f"{arguments.day}: {len(data)} measurements", flush=True)
-    tle = list(ELEMENTS[arguments.day])
+    tle = list(ELEMENTS[(platform, arguments.day)])
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     entry = get_entry("poseidon4")
     rng = np.random.default_rng(1)
@@ -197,9 +210,7 @@ def main() -> None:
     )
     by_step = {}
     for time_step in TIME_STEPS:
-        satellite = entry.to_satellite(
-            orbit, time_step=time_step, platform="sentinel-6a"
-        )
+        satellite = entry.to_satellite(orbit, time_step=time_step, platform=platform)
         differences = find_epochs(satellite, sample)
         found = np.isfinite(differences)
         by_step[time_step] = {
@@ -216,6 +227,18 @@ def main() -> None:
     results["epoch_median"] = by_step[TIME_STEPS[0]]["epoch_median"]
     print(json.dumps(results), flush=True)
     if not arguments.write:
+        return
+    if platform != "sentinel-6a":
+        add_transfer_metrics(
+            RECORD_PATH,
+            "nadir",
+            f"{platform}, {day:%Y-%m-%d}",
+            {
+                name: results[name]
+                for name in ("segment_recall", "track_offset_median", "epoch_p95")
+            },
+        )
+        print(f"wrote transfer metrics to {RECORD_PATH}")
         return
     picks = sample.iloc[rng.choice(len(sample), FIXTURE_PASSES, replace=False)]
     passes = np.stack(
@@ -241,7 +264,7 @@ def main() -> None:
             "evidence": "rerun",
             "tatc_version": tatc.__version__,
             "source": "docs/validation/validate_catalog_poseidon4.py",
-            "reference": f"{SHORT_NAME} (1 Hz measurement positions and times)",
+            "reference": f"{SHORT_NAMES[platform]} (1 Hz measurement positions and times)",
             "period": f"{day:%Y-%m-%d}",
             "platform": "sentinel-6a",
             "metrics": [
