@@ -138,7 +138,7 @@ def estimate_sampling_error(
     observations: gpd.GeoDataFrame,
     start: datetime,
     end: datetime,
-    decorrelation_time: timedelta,
+    decorrelation_time: timedelta | Mapping[str, timedelta] | pd.Series,
     standard_deviation: float | Mapping[str, float] | pd.Series = 1.0,
     targets: gpd.GeoDataFrame | gpd.GeoSeries | None = None,
     time_column: str = "epoch",
@@ -169,8 +169,10 @@ def estimate_sampling_error(
             (`time_column`) of each sample.
         start (datetime.datetime): The start of the period.
         end (datetime.datetime): The end of the period.
-        decorrelation_time (datetime.timedelta): The decorrelation time of the
-            field.
+        decorrelation_time (datetime.timedelta | Mapping | pandas.Series): The
+            decorrelation time of the field, or of each target (by
+            `target_hash`), as for a field that decorrelates faster in some
+            places (such as over land) than others.
         standard_deviation (float | Mapping | pandas.Series): The standard
             deviation of the field, or of each target (by `target_hash`).
         targets (geopandas.GeoDataFrame | geopandas.GeoSeries | None): The
@@ -182,14 +184,24 @@ def estimate_sampling_error(
         geopandas.GeoDataFrame: a row per target
     """
     length = (end - start).total_seconds()
-    scale = decorrelation_time.total_seconds()
+    if isinstance(decorrelation_time, (Mapping, pd.Series)):
+        scales = {
+            key: pd.Timedelta(value).total_seconds()
+            for key, value in dict(decorrelation_time).items()
+        }
+    else:
+        scales = None
+        scale = decorrelation_time.total_seconds()
     result = _get_targets(observations, targets)
     seconds = pd.Series(
         _get_seconds(observations[time_column], start), index=observations.index
     )
     groups = seconds.groupby(observations["target_hash"].to_numpy())
     terms = {
-        key: _error_terms(group.to_numpy(), length, scale) for key, group in groups
+        key: _error_terms(
+            group.to_numpy(), length, scale if scales is None else scales[key]
+        )
+        for key, group in groups
     }
     variance = {key: value[1] for key, value in terms.items()}
     correlation = {key: value[0] for key, value in terms.items()}

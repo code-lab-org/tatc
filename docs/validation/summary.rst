@@ -197,6 +197,12 @@ Coverage Analyses
      - GMI and AMSR2 within 15 minutes
      - With `instantaneous=True`, 97.7% of true coincidences found and 99.9% of those found true, within 2.4 s (95th
        percentile); 98.2% of coincident points within coincident footprints (:doc:`ValidateCoincidenceGMIAMSR2`)
+   * - Sampling error (`estimate_sampling_error`)
+     - IMERG half-hourly precipitation, Maritime Continent, July 2025; four constellation designs
+     - With the statistics of June, errors of July's monthly means at 1,600 points as predicted (RMS standardized
+       errors 1.02 to 1.05; 94 to 95% within 2 predicted standard deviations); designs ranked by an order of magnitude,
+       as predicted; independent samples (`sigma / sqrt(n)`) overpredict dense sampling by up to 1.8 times
+       (:doc:`ValidateSamplingErrorIMERG`)
 
 Limb, Occultation, and Satellite-to-Satellite Analyses
 ======================================================
@@ -287,6 +293,11 @@ numerical error in TAT-C:
   5 deg reproduces the acquisitions of sun-synchronous land imagers.
 * **Coincidences of samples.** Observation periods of scanning instruments last
   minutes; compare their epochs with `instantaneous=True`.
+* **Statistics of sampled fields.** A single month's standard deviation of
+  precipitation at a point predicts the next month's poorly (a correlation of
+  0.16); smoothed or regional standard deviations, from climatology or another
+  period, give calibrated sampling errors, and one regional decorrelation time
+  suffices.
 * **Navigation constellations.** Model the operational satellites (those with
   healthy broadcast ephemerides); public TLE groups include others, which make
   DOP 4 to 16% optimistic.
@@ -302,6 +313,10 @@ Not Modeled
 * Pointing limits in `collect_space_observations`, such as an antenna's field
   of view, and slews between attitudes, which are instantaneous.
 * Acquisition plans, downlink processing time, and data gaps.
+* Daily cycles of sampled fields: sampling errors model a stationary field, so
+  sun-synchronous sampling of a field with a strong daily cycle has errors up
+  to 25% larger than predicted, and a small bias (2 to 3% for IMERG
+  precipitation over the Maritime Continent).
 
 Changes to TAT-C from Validation
 ================================

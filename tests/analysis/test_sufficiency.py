@@ -126,6 +126,28 @@ class TestEstimateSamplingError(unittest.TestCase):
         self.assertAlmostEqual(error.sampling_error[1], 3 * error.sampling_error[0])
 
 
+class TestDecorrelationByTarget(unittest.TestCase):
+    """
+    Unit tests for decorrelation times of each target.
+    """
+
+    def test_by_target(self):
+        """Each target may have its own decorrelation time."""
+        observations = _observations({(0, 0): [6, 7], (10, 0): [6, 7]})
+        scales = {
+            hash_geometry(Point(0, 0)): timedelta(minutes=10),
+            hash_geometry(Point(10, 0)): timedelta(hours=10),
+        }
+        error = estimate_sampling_error(observations, START, START + DAY, scales)
+        # samples an hour apart are independent for the shorter decorrelation time
+        self.assertAlmostEqual(error.effective_samples[0], 2, delta=0.01)
+        self.assertLess(error.effective_samples[1], 1.2)
+        single = estimate_sampling_error(
+            observations, START, START + DAY, timedelta(minutes=10)
+        )
+        self.assertAlmostEqual(single.relative_error[0], error.relative_error[0])
+
+
 class TestRevisitStatistics(unittest.TestCase):
     """
     Unit tests for revisit statistics.
