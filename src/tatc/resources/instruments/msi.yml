@@ -38,6 +38,7 @@ configurations:
           field_of_regard: 21.0066
           cross_track_field_of_view: 20.9636
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: -0.0215
           is_rectangular: true
         provenance:
@@ -50,6 +51,7 @@ configurations:
             platform: sentinel-2a, sentinel-2b, sentinel-2c
             period: "2026-10-03"
           roll_angle: *measured_extent
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step

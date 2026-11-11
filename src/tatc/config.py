@@ -35,6 +35,13 @@ class RuntimeConfiguration(BaseModel):
         description="Number of points for a SPICE rectangular footprint side.",
         ge=1,
     )
+    swept_footprint_max_substep: float = Field(
+        default=5,
+        description="Maximum time (seconds) between the points that trace the "
+        + "ends of a swept instrument's cross-track line over a time step "
+        + "(see `tatc.schemas.PointedInstrument.is_swept`).",
+        gt=0,
+    )
     footprint_points_radar_azimuthal: int = Field(
         default=360,
         description="Number of azimuth samples used to build a terrain-"

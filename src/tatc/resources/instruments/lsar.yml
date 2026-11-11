@@ -28,6 +28,7 @@ configurations:
           field_of_regard: 85.0972
           cross_track_field_of_view: 11.5185
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle_profile: [[5.0, 35.3307], [15.0, 35.3268], [25.0, 35.3266], [35.0, 35.1984], [45.0, 35.2218], [55.0, 35.1403], [65.0, 35.1658], [75.0, 35.2387], [85.0, 35.2538], [95.0, 35.3167], [105.0, 35.2261], [115.0, 35.1728], [125.0, 35.2199], [135.0, 35.2622], [145.0, 35.3129], [155.0, 35.329], [165.0, 35.3789], [175.0, 35.5064], [185.0, 35.3481], [195.0, 35.3745], [205.0, 35.2988], [215.0, 35.5596], [235.0, 34.8494], [255.0, 34.9288], [265.0, 35.002], [275.0, 34.8772], [285.0, 34.9166], [305.0, 35.0395], [325.0, 35.0039], [335.0, 35.217], [345.0, 35.3757], [355.0, 35.2889]]
           is_rectangular: true
         provenance:
@@ -39,6 +40,7 @@ configurations:
             source: validate_catalog_lsar.py --fit, the median difference of the look angles of the near-range and far-range points of 45,538 grid lines of 95 RSLC products
             platform: nisar
             period: "2026-10-02"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
@@ -67,6 +69,7 @@ configurations:
           field_of_regard: 84.0846
           cross_track_field_of_view: 10.8778
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle_profile: [[15.0, 35.5631], [25.0, 35.5356], [35.0, 35.5127], [65.0, 35.3698], [75.0, 35.4828], [85.0, 35.448], [95.0, 35.4196], [105.0, 35.4753], [115.0, 35.5109], [125.0, 35.5191], [135.0, 35.4435], [145.0, 35.4995], [155.0, 35.4995], [165.0, 35.5475], [235.0, 35.4686], [245.0, 35.347], [255.0, 35.0549], [285.0, 35.1876], [295.0, 35.3739], [305.0, 35.432]]
           is_rectangular: true
         provenance:
@@ -78,6 +81,7 @@ configurations:
             source: validate_catalog_lsar.py --fit, the median difference of the look angles of the near-range and far-range points of 23,573 grid lines of 55 RSLC products
             platform: nisar
             period: "2026-10-02"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
@@ -106,6 +110,7 @@ configurations:
           field_of_regard: 74.147
           cross_track_field_of_view: 6.1643
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle_profile: [[65.0, 32.9323], [75.0, 32.8418], [85.0, 32.8588], [95.0, 32.8882], [105.0, 32.8133], [115.0, 32.8637], [235.0, 32.9619], [245.0, 32.9469], [295.0, 32.984], [305.0, 32.9989]]
           is_rectangular: true
         provenance:
@@ -117,6 +122,7 @@ configurations:
             source: validate_catalog_lsar.py --fit, the median difference of the look angles of the near-range and far-range points of 11,022 grid lines of 26 RSLC products
             platform: nisar
             period: "2026-10-02"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step

@@ -33,6 +33,7 @@ configurations:
           field_of_regard: 96.6857
           cross_track_field_of_view: 96.6857
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           pitch_angle: 0.223
           is_rectangular: true
         provenance:
@@ -42,6 +43,7 @@ configurations:
             platform: noaa-20
             period: "2026-10-02"
           cross_track_field_of_view: *measured_extent
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step

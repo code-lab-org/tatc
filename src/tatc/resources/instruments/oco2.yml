@@ -28,6 +28,7 @@ configurations:
           field_of_regard: 120
           cross_track_field_of_view: 0.6318
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           field_of_regard:
@@ -38,6 +39,7 @@ configurations:
             source: validate_catalog_oco2.py --fit, the median angle between the first and eighth soundings seen from the spacecraft in nadir mode
             platform: oco-2
             period: "2026-10-04"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
@@ -62,6 +64,7 @@ configurations:
           field_of_regard: 180
           cross_track_field_of_view: 0.6318
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           field_of_regard:
@@ -72,6 +75,7 @@ configurations:
             source: validate_catalog_oco2.py --fit, the median angle between the first and eighth soundings seen from the spacecraft in nadir mode
             platform: oco-2
             period: "2026-10-04"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step

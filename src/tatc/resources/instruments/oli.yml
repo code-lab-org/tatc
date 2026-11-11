@@ -37,6 +37,7 @@ configurations:
           field_of_regard: 15.0275
           cross_track_field_of_view: 15.0275
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           field_of_regard: &measured_extent
@@ -45,6 +46,7 @@ configurations:
             platform: landsat-9
             period: "2026-11-05"
           cross_track_field_of_view: *measured_extent
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step

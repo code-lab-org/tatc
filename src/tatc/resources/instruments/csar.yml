@@ -33,6 +33,7 @@ configurations:
           field_of_regard: 84.0596
           cross_track_field_of_view: 13.2534
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle_profile: [[5.0, -33.9764], [15.0, -33.9816], [25.0, -34.1778], [35.0, -34.0636], [45.0, -33.8413], [55.0, -33.6525], [65.0, -33.4377], [75.0, -33.1923], [95.0, -33.4341], [105.0, -33.2322], [115.0, -33.4752], [125.0, -33.6529], [135.0, -33.8551], [145.0, -34.0057], [155.0, -34.2058], [165.0, -33.9991], [175.0, -33.9867], [185.0, -33.9198], [195.0, -34.0132], [205.0, -33.6428], [215.0, -33.2437], [225.0, -32.8205], [255.0, -32.5578], [275.0, -32.4235], [305.0, -32.7648], [315.0, -33.0536], [325.0, -33.233], [335.0, -33.4873], [345.0, -33.8205], [355.0, -34.0149]]
           is_rectangular: true
         provenance:
@@ -44,6 +45,7 @@ configurations:
             source: validate_catalog_csar.py --fit, the median difference of the look angles of the near-range and far-range points of 4,067 grid lines of 402 IW products
             platform: sentinel-1c
             period: "2026-10-02"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
@@ -73,6 +75,7 @@ configurations:
           field_of_regard: 85.1558
           cross_track_field_of_view: 23.59
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle_profile: [[55.0, -29.3132], [65.0, -29.0873], [75.0, -28.8875], [85.0, -28.9802], [95.0, -28.9198], [105.0, -29.0416], [115.0, -29.1599], [125.0, -29.4477], [135.0, -29.6679], [245.0, -28.1753], [255.0, -27.8132], [275.0, -27.9972], [285.0, -27.8965], [295.0, -28.1186]]
           is_rectangular: true
         provenance:
@@ -84,6 +87,7 @@ configurations:
             source: validate_catalog_csar.py --fit, the median difference of the look angles of the near-range and far-range points of 1,927 grid lines of 97 EW products
             platform: sentinel-1c
             period: "2026-10-02"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step

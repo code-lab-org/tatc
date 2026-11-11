@@ -31,6 +31,7 @@ configurations:
           field_of_regard: 56
           cross_track_field_of_view: 52.9914
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: 0.8654
           is_rectangular: true
         provenance:
@@ -43,6 +44,7 @@ configurations:
             platform: iss
             period: "2026-10-04"
           roll_angle: *measured_view
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step

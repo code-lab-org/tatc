@@ -263,6 +263,24 @@ class TestStrictFiles(unittest.TestCase):
         self.feeds["platforms"] = ["trmm"]
         self._assert_invalid()
 
+    def test_tailored_pointed_instrument_is_swept(self):
+        """
+        Test that a pointed instrument whose view is tailored to a time step must
+        be swept, so that its swaths do not depend on the time step.
+        """
+        with open(
+            loader._ENTRIES / "msi.yml",  # pylint: disable=protected-access
+            "r",
+            encoding="utf-8",
+        ) as f:
+            data = yaml.safe_load(f)
+        InstrumentEntry(**data)
+        instrument = data["configurations"]["swath"]["instruments"][0]
+        del instrument["parameters"]["is_swept"]
+        del instrument["provenance"]["is_swept"]
+        with self.assertRaises(ValidationError):
+            InstrumentEntry(**data)
+
     def test_index_out_of_range(self):
         """
         Test that the default instrument exists.

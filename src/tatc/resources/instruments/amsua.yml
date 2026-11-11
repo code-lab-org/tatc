@@ -28,12 +28,14 @@ configurations:
           field_of_regard: 96.6666667
           cross_track_field_of_view: 96.6666667
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           field_of_regard: &nominal_extent
             kind: nominal
             source: The outermost of AMSU-A's 30 footprints, spaced 3.333 deg, are 48.33 deg from nadir
           cross_track_field_of_view: *nominal_extent
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step

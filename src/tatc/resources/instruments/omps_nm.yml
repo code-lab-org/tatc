@@ -36,6 +36,7 @@ configurations:
           field_of_regard: 110.66
           cross_track_field_of_view: 109.9998
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: 0.3252
           is_rectangular: true
         provenance:
@@ -48,6 +49,7 @@ configurations:
             platform: noaa-21
             period: "2026-10-01"
           roll_angle: *measured_noaa_21
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
@@ -71,6 +73,7 @@ configurations:
           field_of_regard: 109.07
           cross_track_field_of_view: 108.6016
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: -0.2294
           is_rectangular: true
         provenance:
@@ -83,6 +86,7 @@ configurations:
             platform: noaa-20
             period: "2026-10-01"
           roll_angle: *measured_noaa_20
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step

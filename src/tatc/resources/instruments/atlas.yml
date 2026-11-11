@@ -29,6 +29,7 @@ configurations:
           roll_angle: 0.3507
           cross_track_field_of_view: 0.5824
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           roll_angle: &measured
@@ -37,6 +38,7 @@ configurations:
             platform: icesat-2
             period: "2026-10-01"
           cross_track_field_of_view: *measured
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: &tailored
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
@@ -49,10 +51,12 @@ configurations:
           roll_angle: -0.0511
           cross_track_field_of_view: 0.5870
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           roll_angle: *measured
           cross_track_field_of_view: *measured
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
@@ -61,10 +65,12 @@ configurations:
           roll_angle: -0.4511
           cross_track_field_of_view: 0.5872
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           roll_angle: *measured
           cross_track_field_of_view: *measured
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
     limitations:

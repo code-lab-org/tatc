@@ -17,6 +17,7 @@ from skyfield.api import wgs84
 from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 
+from .. import config
 from ..constants import (
     EARTH_ECCENTRICITY,
     EARTH_EQUATORIAL_RADIUS,
@@ -389,6 +390,31 @@ def _get_empty_region_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
+# the along-track field of view (degrees) of a swept instrument's cross-track
+# line, whose footprints are sampled in place of its view (a few meters wide)
+_SWEPT_LINE_FIELD_OF_VIEW = 1e-4
+
+
+def _get_sampled_view(instrument: Instrument) -> Instrument:
+    """
+    Gets the instrument whose footprints are sampled over a region: for a
+    swept instrument (see `PointedInstrument.is_swept`), its cross-track line
+    (its view with a negligible along-track field of view), whose convex hulls
+    between samples fill the strips it sweeps; otherwise, the instrument.
+
+    Args:
+        instrument (Instrument): The instrument.
+
+    Returns:
+        Instrument: the instrument whose footprints are sampled.
+    """
+    if isinstance(instrument, PointedInstrument) and instrument.is_swept:
+        return instrument.model_copy(
+            update={"along_track_field_of_view": _SWEPT_LINE_FIELD_OF_VIEW}
+        )
+    return instrument
+
+
 def _compute_observing_footprints(
     instrument: Instrument, orbit_track: Geocentric, elevation: float
 ) -> np.ndarray:
@@ -406,7 +432,10 @@ def _compute_observing_footprints(
         numpy.ndarray: The footprints (objects).
     """
     views = np.array(
-        instrument.compute_footprint(orbit_track, elevation=elevation), dtype=object
+        _get_sampled_view(instrument).compute_footprint(
+            orbit_track, elevation=elevation
+        ),
+        dtype=object,
     )
     views[~instrument.is_observing(orbit_track)] = geo.Polygon()
     return views
@@ -664,6 +693,12 @@ def _get_swaths(
     """
     if len(periods) == 0:
         return []
+    if isinstance(instrument, PointedInstrument) and instrument.is_swept:
+        return (
+            yield from _get_swept_swaths(
+                region, orbit, instrument, periods, elevation, time_step
+            )
+        )
     reference = periods[0].left
 
     def footprints(seconds: np.ndarray) -> TimeRequest:
@@ -717,15 +752,78 @@ def _get_swaths(
                 bounds[:, 2] - bounds[:, 0] < 180
             )
             parts.append(shapely.convex_hull(pairs[single]))
-        swath = shapely.intersection(shapely.union_all(np.concatenate(parts)), region)
-        # keep the polygonal parts of the swath, without z coordinates
-        polygons = [
-            shapely.force_2d(part)
-            for part in shapely.get_parts(swath)
-            if isinstance(part, geo.Polygon) and not part.is_empty
-        ]
-        swaths.append(polygons[0] if len(polygons) == 1 else geo.MultiPolygon(polygons))
+        swaths.append(
+            _get_polygons(
+                shapely.intersection(shapely.union_all(np.concatenate(parts)), region)
+            )
+        )
     return swaths
+
+
+def _get_polygons(geometry: shapely.Geometry) -> geo.Polygon | geo.MultiPolygon:
+    """
+    Gets the polygonal parts of a geometry, without z coordinates.
+
+    Args:
+        geometry (shapely.Geometry): The geometry.
+
+    Returns:
+        shapely.geometry.Polygon | shapely.geometry.MultiPolygon: its polygonal parts.
+    """
+    polygons = [
+        shapely.force_2d(part)
+        for part in shapely.get_parts(geometry)
+        if isinstance(part, geo.Polygon) and not part.is_empty
+    ]
+    return polygons[0] if len(polygons) == 1 else geo.MultiPolygon(polygons)
+
+
+def _get_swept_swaths(
+    region: geo.Polygon | geo.MultiPolygon,
+    orbit: GeneralPerturbationsOrbit,
+    instrument: PointedInstrument,
+    periods: list[pd.Interval],
+    elevation: float,
+    time_step: timedelta,
+) -> TimeRequest:
+    """
+    Gets the part of a region swept by a swept instrument's cross-track line
+    during each of a set of periods (see `PointedInstrument.is_swept`): the
+    strip it sweeps over the period (see `tatc.utils.compute_swept_footprints`),
+    traced at times at most `time_step` (and the runtime configuration's
+    `swept_footprint_max_substep`) apart, clipped to the region.
+
+    Args:
+        region (shapely.geometry.Polygon | shapely.geometry.MultiPolygon):
+                The region, split along the anti-meridian and poles.
+        orbit (GeneralPerturbationsOrbit): The orbit.
+        instrument (PointedInstrument): The swept instrument.
+        periods (list[pandas.Interval]): The periods.
+        elevation (float): The elevation (meters) of the region above the
+                WGS 84 ellipsoid, at which to project the strips.
+        time_step (datetime.timedelta): The maximum time between samples.
+
+    Returns:
+        TimeRequest: the computation (see `tatc.utils.computation.TimeRequest`)
+            of the swath of each period.
+    """
+    reference = periods[0].left
+    step = min(time_step.total_seconds(), config.get_rc().swept_footprint_max_substep)
+    seconds = []
+    for period in periods:
+        duration = (period.right - period.left).total_seconds()
+        seconds.append(
+            (period.left - reference).total_seconds()
+            + np.linspace(0, duration, max(2, int(np.ceil(duration / step)) + 1))
+        )
+    t = _to_time_from_offsets(reference, np.concatenate(seconds))
+    yield t
+    strips = instrument.compute_swept_footprints(
+        orbit.get_orbit_track_at_time(t),
+        [len(s) for s in seconds],
+        elevation=elevation,
+    )
+    return [_get_polygons(shapely.intersection(strip, region)) for strip in strips]
 
 
 def _collect_region_observations(
@@ -790,7 +888,10 @@ def _collect_region_observations(
     yield t
     orbit_track = orbit.get_orbit_track_at_time(t)
     views = np.array(
-        instrument.compute_footprint(orbit_track, elevation=elevation), dtype=object
+        _get_sampled_view(instrument).compute_footprint(
+            orbit_track, elevation=elevation
+        ),
+        dtype=object,
     )
     observed = shapely.intersection(views, geometry)
     points = shapely.point_on_surface(
@@ -845,7 +946,9 @@ def collect_region_observations(
       instantaneous footprint (see `compute_footprint`) intersects the
       region, searched within the periods when its field of regard (which
       must contain its footprint) may observe the region (see
-      `compute_region_access_periods`);
+      `compute_region_access_periods`); for a swept `PointedInstrument` (see
+      `PointedInstrument.is_swept`), while its cross-track line does, as for
+      a point (see `tatc.analysis.collect_observations`);
     - otherwise, while any part of the region lies within the field of
       regard (a cone about nadir) and above the satellite's horizon.
 
@@ -856,8 +959,8 @@ def collect_region_observations(
     apply to regions.
 
     The geometry of each observation is its swath: the part of the region
-    swept by the instrument's footprint (see `compute_footprint`) during the
-    observation. The region is identified by its `target_hash` (see
+    swept by the instrument's footprint (see `compute_footprint`), or a swept
+    instrument's cross-track line, during the observation. The region is identified by its `target_hash` (see
     `tatc.utils.geometry.hash_geometry`), with which `aggregate_observations`
     and `reduce_observations` group observations of the same region.
 

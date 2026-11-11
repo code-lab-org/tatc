@@ -29,6 +29,7 @@ configurations:
           field_of_regard: 120
           cross_track_field_of_view: 5.424
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: 51.4378
           pitch_angle: -4.1966
           is_rectangular: true
@@ -43,6 +44,7 @@ configurations:
             period: "2026-10-05"
           roll_angle: *fitted
           pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: &tailored
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
@@ -55,6 +57,7 @@ configurations:
           field_of_regard: 120
           cross_track_field_of_view: 4.1214
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: 46.695
           pitch_angle: -3.4414
           is_rectangular: true
@@ -63,6 +66,7 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
@@ -71,6 +75,7 @@ configurations:
           field_of_regard: 120
           cross_track_field_of_view: 8.1566
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: 40.5871
           pitch_angle: -2.6026
           is_rectangular: true
@@ -79,6 +84,7 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
@@ -87,6 +93,7 @@ configurations:
           field_of_regard: 120
           cross_track_field_of_view: 12.1236
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: 30.481
           pitch_angle: -1.4866
           is_rectangular: true
@@ -95,6 +102,7 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
@@ -103,6 +111,7 @@ configurations:
           field_of_regard: 120
           cross_track_field_of_view: 43.9607
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: 2.4757
           pitch_angle: -0.7784
           is_rectangular: true
@@ -111,6 +120,7 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
@@ -119,6 +129,7 @@ configurations:
           field_of_regard: 120
           cross_track_field_of_view: 16.0855
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: -27.5081
           pitch_angle: -1.2543
           is_rectangular: true
@@ -127,6 +138,7 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
@@ -135,6 +147,7 @@ configurations:
           field_of_regard: 120
           cross_track_field_of_view: 8.123
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: -39.5785
           pitch_angle: -2.4598
           is_rectangular: true
@@ -143,6 +156,7 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
@@ -151,6 +165,7 @@ configurations:
           field_of_regard: 120
           cross_track_field_of_view: 4.1022
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: -45.6591
           pitch_angle: -3.276
           is_rectangular: true
@@ -159,6 +174,7 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
@@ -167,6 +183,7 @@ configurations:
           field_of_regard: 120
           cross_track_field_of_view: 3.8629
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: -49.6092
           pitch_angle: -3.8835
           is_rectangular: true
@@ -175,6 +192,7 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
@@ -183,6 +201,7 @@ configurations:
           field_of_regard: 120
           cross_track_field_of_view: 2.3412
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: -52.6794
           pitch_angle: -4.3812
           is_rectangular: true
@@ -191,6 +210,7 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
     limitations:

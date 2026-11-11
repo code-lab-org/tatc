@@ -30,6 +30,7 @@ configurations:
           field_of_regard: 100.9
           cross_track_field_of_view: 94.1535
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: -3.3726
           pitch_angle: 0.5635
           is_rectangular: true
@@ -48,6 +49,7 @@ configurations:
             source: validate_catalog_harp2.py --fit, the along-track angle of the sample nearest nadir (the view's nominal angle is 0.6 deg)
             platform: pace
             period: "2026-10-04"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step

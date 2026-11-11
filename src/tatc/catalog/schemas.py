@@ -123,6 +123,17 @@ class InstrumentSpecification(_CatalogModel):
             )
         if "name" not in self.parameters:
             raise ValueError("an instrument specification needs a name")
+        if (
+            self.type == "pointed"
+            and self.is_tailored
+            and not self.parameters.get("is_swept")
+        ):
+            raise ValueError(
+                "a pointed instrument whose along-track field of view is tailored "
+                "to a time step must be swept (is_swept), so that its swaths are "
+                "the strips its cross-track line sweeps rather than its view "
+                "tailored to the time step"
+            )
         # constructing an example checks the values of the parameters
         self.construct_instrument(1.0)
         return self

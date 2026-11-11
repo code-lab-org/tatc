@@ -29,6 +29,7 @@ configurations:
           roll_angle: 2.1883
           cross_track_field_of_view: 3.4071
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           roll_angle: &left
@@ -37,6 +38,7 @@ configurations:
             platform: swot
             period: "2026-10-01"
           cross_track_field_of_view: *left
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: &tailored
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
@@ -49,6 +51,7 @@ configurations:
           roll_angle: -2.2065
           cross_track_field_of_view: 3.4096
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           roll_angle: &right
@@ -57,6 +60,7 @@ configurations:
             platform: swot
             period: "2026-10-01"
           cross_track_field_of_view: *right
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
     limitations:
