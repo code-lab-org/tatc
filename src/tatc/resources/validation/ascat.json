@@ -2,7 +2,7 @@
   "entry_id": "ascat",
   "configurations": {
     "swaths": {
-      "digest": "5c5962e6a97b4b0e92492f854cfd49447d5eac1b2db5abc4809f5bab4dfcc000",
+      "digest": "5d9d3f2ba6c6b2a59be1a0fb383cd836acbd56df2a78be1dc5251ce092f002b9",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_ascat.py",
@@ -37,32 +37,32 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9908735214296065,
+          "value": 0.9833311101612827,
           "scope": "time step 10 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9829247287488206,
+          "value": 0.9757280412261321,
           "scope": "time step 10 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.991818704811664,
+          "value": 0.9833311101612827,
           "scope": "time step 30 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9838941783972892,
+          "value": 0.9757280412261321,
           "scope": "time step 30 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9731581192833358,
+          "value": 0.9833311101612827,
           "scope": "time step 120 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9644677190174993,
+          "value": 0.9757280412261321,
           "scope": "time step 120 s"
         },
         {
@@ -80,5 +80,5 @@
       }
     }
   },
-  "standard_version": 4
+  "standard_version": 5
 }

@@ -2,7 +2,7 @@
   "entry_id": "harp2",
   "configurations": {
     "swath": {
-      "digest": "f1ac64746b99d878c63616790f3946e1d88c055a831c45d164df7ee988321cc2",
+      "digest": "dbbda9bbb91e8bfad0332d07dc4e83711dcebe054f8d7c1450c687b22efb47bd",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_harp2.py",
@@ -29,7 +29,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9903376886910179
+          "value": 0.9995809395635673
         }
       ],
       "fixture_metrics": {
@@ -38,5 +38,5 @@
       }
     }
   },
-  "standard_version": 2
+  "standard_version": 5
 }

@@ -2,7 +2,7 @@
   "entry_id": "poseidon4",
   "configurations": {
     "nadir": {
-      "digest": "107505a442441ac34f81b48ef1eaa02529dfd2116a36c0575b401bcdcd3415b6",
+      "digest": "5270b7e4de6236de4a54677131ec62eefb5c29566aaf188925fd3b6b64fa6910",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_poseidon4.py",
@@ -48,5 +48,5 @@
       }
     }
   },
-  "standard_version": 3
+  "standard_version": 5
 }

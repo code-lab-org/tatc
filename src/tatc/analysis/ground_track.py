@@ -378,12 +378,16 @@ def collect_ground_track(
     mask: Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries | None = None,
     sat_altaz: bool = False,
     solar_altaz: bool = False,
+    time_step: timedelta | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Collect the instrument's viewable ground footprint at each requested
     time, projected to a specified elevation by computing the exact
     ray/WGS-84-geoid intersection (see
-    `tatc.utils.projection.compute_footprint`).
+    `tatc.utils.projection.compute_footprint`). The footprint of a swept
+    instrument (see `PointedInstrument.is_swept`) is the strip its
+    cross-track line sweeps over the time step centered on each time, trimmed
+    to the times at which it observes (see `tatc.schemas.Attitude.blind_intervals`).
 
     Args:
         satellites (Satellite | list[Satellite]): The observing satellite(s).
@@ -403,6 +407,11 @@ def collect_ground_track(
         solar_altaz (bool): `True` to include solar altitude/azimuth angles
                 and the glint angle (see `tatc.utils.compute_glint_angle`)
                 for the sub-satellite point.
+        time_step (datetime.timedelta | None): The time step that each time
+                represents, over which a swept instrument's footprint sweeps,
+                or `None` to take half the smaller gap to the neighboring
+                times on either side of each time (so that a single time is
+                a view at an instant).
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected ground track results:
@@ -418,9 +427,24 @@ def collect_ground_track(
         mask = _get_mask_geometry(mask)
     # the times, shared by every satellite (with their Earth orientation)
     t = _to_time(times)
+    # the span of each time's step, over which a swept instrument's footprint
+    # sweeps
+    half_spans = (
+        _get_half_spans(times)
+        if time_step is None
+        else np.full(len(times), time_step.total_seconds() / 2)
+    )
     tracks = [
         _collect_ground_track(
-            satellite, times, t, index, elevation, mask, sat_altaz, solar_altaz
+            satellite,
+            times,
+            t,
+            half_spans,
+            index,
+            elevation,
+            mask,
+            sat_altaz,
+            solar_altaz,
         )
         for satellite in satellites
         for index in _get_instrument_indices(satellite, instrument_index)
@@ -432,6 +456,7 @@ def _collect_ground_track(
     satellite: Satellite,
     times: list[datetime],
     t: Time,
+    half_spans: npt.NDArray,
     instrument_index: int,
     elevation: float,
     mask: Polygon | MultiPolygon | None,
@@ -446,9 +471,6 @@ def _collect_ground_track(
     # select the observing instrument
     instrument = satellite.get_instrument(instrument_index)
     orbit = satellite.orbit.to_gp_orbit()
-    # the span of each time's step, over which a swept instrument's footprint
-    # sweeps
-    half_spans = _get_half_spans(times)
     if mask is not None and len(times) > 1:
         # propagate orbit only where the footprint intersects the mask,
         # reusing the footprints computed to cull it
@@ -530,6 +552,7 @@ def compute_ground_track(
     elevation: float = 0,
     mask: Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries | None = None,
     dissolve_orbits: bool = True,
+    time_step: timedelta | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Compute the aggregated ground track for a satellite of interest: unlike
@@ -548,11 +571,17 @@ def compute_ground_track(
                 An optional mask, always interpreted in WGS84 (lon/lat)
                 coordinates, to constrain results.
         dissolve_orbits (bool): True, to aggregate multiple orbits in one output.
+        time_step (datetime.timedelta | None): The time step that each time
+                represents, over which a swept instrument's footprint sweeps
+                (see `collect_ground_track`), or `None` to infer it from the
+                neighboring times.
     Returns:
         GeoDataFrame: The data frame of aggregated ground track results.
     """
     _check_satellite(satellite)
-    track = collect_ground_track(satellite, times, instrument_index, elevation, mask)
+    track = collect_ground_track(
+        satellite, times, instrument_index, elevation, mask, time_step=time_step
+    )
     if not track.empty:
         # assign orbit identifier, from the period of the element that
         # propagates the orbit at each time (see `get_element_index`)

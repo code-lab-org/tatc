@@ -64,7 +64,7 @@
       }
     },
     "swath": {
-      "digest": "435d5bfc03cfeb840b36a8e3c87939d15d928243b78413a9d37023507da0ebf9",
+      "digest": "bf446fbb3e2739c9e8abeb1755bccd57cf220b8259840979cdb26d3fca1f6edd",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_avhrr.py",
@@ -91,7 +91,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9939143195536895
+          "value": 0.9941550719962053
         },
         {
           "name": "transfer_pass_recall",
@@ -115,7 +115,7 @@
         },
         {
           "name": "transfer_footprint_iou_median",
-          "value": 0.9913951833025698,
+          "value": 0.9934098601993996,
           "scope": "metop-b, 2026-11-05"
         }
       ],
@@ -125,5 +125,5 @@
       }
     }
   },
-  "standard_version": 2
+  "standard_version": 5
 }

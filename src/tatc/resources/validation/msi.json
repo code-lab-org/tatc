@@ -2,171 +2,171 @@
   "entry_id": "msi",
   "configurations": {
     "swath": {
-      "digest": "7b95514b6714efe23f63c715b4a51a466b9a1be3fb1164fce860daf3dec05baf",
+      "digest": "1c2ee659e3483a7f968250f7d5304b6ebaa8318bf52a34f599f927c2e69cf4d5",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_msi.py",
       "reference": "Valid data footprints of Sentinel-2 Level-2A tiles; viewing angle grids and GPS ephemerides of their metadata",
-      "period": "2026-08-12",
+      "period": "2026-11-10",
       "platform": "sentinel-2a, sentinel-2b, sentinel-2c",
-      "holdout_gap_days": 52,
+      "holdout_gap_days": 38,
       "metrics": [
         {
           "name": "swath_width_median",
-          "value": 0.1192490108688944,
+          "value": 0.07964152760209982,
           "scope": "sentinel-2a"
         },
         {
           "name": "swath_width_median",
-          "value": 0.13859457012216445,
+          "value": 0.1569027051840676,
           "scope": "sentinel-2b"
         },
         {
           "name": "swath_width_median",
-          "value": 0.13925828886940145,
+          "value": 0.15059615390124964,
           "scope": "sentinel-2c"
         },
         {
           "name": "epoch_p95",
-          "value": 2.5297110727999996,
+          "value": 2.332144537,
           "scope": "sentinel-2a"
         },
         {
           "name": "epoch_median",
-          "value": 1.759024267,
+          "value": -1.562406641,
           "scope": "sentinel-2a"
         },
         {
           "name": "epoch_p95",
-          "value": 2.4233150054,
+          "value": 2.4303787278,
           "scope": "sentinel-2b"
         },
         {
           "name": "epoch_median",
-          "value": 1.547166547,
+          "value": 1.55667769,
           "scope": "sentinel-2b"
         },
         {
           "name": "epoch_p95",
-          "value": 2.6383208979999995,
+          "value": 2.642295485,
           "scope": "sentinel-2c"
         },
         {
           "name": "epoch_median",
-          "value": 1.80566673,
+          "value": -1.258945093,
           "scope": "sentinel-2c"
         },
         {
           "name": "pass_recall",
-          "value": 100.0,
+          "value": 99.82628836132021,
           "scope": "sentinel-2a"
         },
         {
           "name": "pass_recall",
-          "value": 99.95595683770095,
+          "value": 99.82788296041308,
           "scope": "sentinel-2b"
         },
         {
           "name": "pass_recall",
-          "value": 99.80719794344473,
+          "value": 99.89834815756035,
           "scope": "sentinel-2c"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9957896112988616,
+          "value": 0.9969852023806229,
           "scope": "sentinel-2a, time step 10 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9894335726216422,
+          "value": 0.9915311740582032,
           "scope": "sentinel-2a, time step 10 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.996043544290452,
+          "value": 0.9958168585417392,
           "scope": "sentinel-2b, time step 10 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9904515261303879,
+          "value": 0.9886222558726021,
           "scope": "sentinel-2b, time step 10 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9941326996236428,
+          "value": 0.9954353177486238,
           "scope": "sentinel-2c, time step 10 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9916441651802945,
+          "value": 0.9928237112936652,
           "scope": "sentinel-2c, time step 10 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9939015484291892,
+          "value": 0.9969835670370688,
           "scope": "sentinel-2a, time step 30 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9866352356866015,
+          "value": 0.9915309882686175,
           "scope": "sentinel-2a, time step 30 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.993692658693279,
+          "value": 0.9958153793503155,
           "scope": "sentinel-2b, time step 30 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9873325992141345,
+          "value": 0.9886236279894253,
           "scope": "sentinel-2b, time step 30 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9918193822894442,
+          "value": 0.9954343906071594,
           "scope": "sentinel-2c, time step 30 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9880650720252708,
+          "value": 0.9928241279583193,
           "scope": "sentinel-2c, time step 30 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9493692236596769,
+          "value": 0.9969836270669379,
           "scope": "sentinel-2a, time step 120 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9322953260605166,
+          "value": 0.9915314005730342,
           "scope": "sentinel-2a, time step 120 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9485904321446108,
+          "value": 0.9958151029962055,
           "scope": "sentinel-2b, time step 120 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9350069005396191,
+          "value": 0.9886247039834554,
           "scope": "sentinel-2b, time step 120 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9518716517887422,
+          "value": 0.9954354184112637,
           "scope": "sentinel-2c, time step 120 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9374620424564507,
+          "value": 0.9928237112936653,
           "scope": "sentinel-2c, time step 120 s"
         }
       ],
       "fixture_metrics": {
         "passes_found": 100.0,
-        "epoch_p95": 2.4236152908
+        "epoch_p95": 2.40976103835
       }
     }
   },
-  "standard_version": 1
+  "standard_version": 5
 }

@@ -2,7 +2,7 @@
   "entry_id": "oli",
   "configurations": {
     "swath": {
-      "digest": "7dc3a59a139d40b2746952a865af9f465ac6451cd36e12db08c32825a30df2bc",
+      "digest": "37118d2d6c5b18ed3b50f4d03d80daae862f69e92a1b567032009ebc33855714",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_oli.py",
@@ -33,11 +33,11 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9743242416700378
+          "value": 0.9914803885720455
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9288413234078654
+          "value": 0.9832772502058373
         },
         {
           "name": "transfer_pass_recall",
@@ -66,12 +66,12 @@
         },
         {
           "name": "transfer_footprint_iou_median",
-          "value": 0.9741814207909522,
+          "value": 0.9925913178292143,
           "scope": "landsat-8, 2026-10-03"
         },
         {
           "name": "transfer_footprint_iou_p5",
-          "value": 0.9047181451735471,
+          "value": 0.983689751013026,
           "scope": "landsat-8, 2026-10-03"
         }
       ],
@@ -81,5 +81,5 @@
       }
     }
   },
-  "standard_version": 1
+  "standard_version": 5
 }

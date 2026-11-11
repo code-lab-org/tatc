@@ -379,7 +379,10 @@ def score_segment(data: dict, rows: np.ndarray, day, satellite_for) -> dict:
         geometry = unary_union(
             [
                 compute_ground_track(
-                    satellite, times, instrument_index=i
+                    satellite,
+                    times,
+                    instrument_index=i,
+                    time_step=timedelta(seconds=float(step)),
                 ).geometry.iloc[0]
                 for i in range(len(satellite.instruments))
             ]

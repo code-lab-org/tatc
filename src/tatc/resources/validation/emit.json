@@ -2,7 +2,7 @@
   "entry_id": "emit",
   "configurations": {
     "swath": {
-      "digest": "d415a0166925638edbbc3fae88c99a2bb329583de0ae5d13fff195b3dc6a4b82",
+      "digest": "75e98ffbe9347dbffa3aae71f348097c01a6911aa947abaf47b98d264a728327",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_emit.py",
@@ -29,7 +29,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.7285435705481316
+          "value": 0.9253723173007395
         }
       ],
       "fixture_metrics": {

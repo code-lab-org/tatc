@@ -125,20 +125,17 @@ class TestLoading(unittest.TestCase):
                 "ceres",
                 "cris",
                 "csar",
-                "dpr",
                 "ecostress",
                 "emit",
                 "gedi",
                 "iasi",
                 "lsar",
-                "msi",
                 "oci",
                 "oco2",
                 "olci",
                 "omps_nm",
                 "smap_radiometer",
                 "ssmis",
-                "tropomi",
             ],
         )
         with self.assertRaises(ValueError):
@@ -588,46 +585,40 @@ class TestEntryStatus(unittest.TestCase):
             ["sample_size_within_3pct"],
         )
 
-    def test_tropomi_entry_partial_on_long_time_steps(self):
+    def test_tropomi_entry_validated(self):
         """
-        Test that the TROPOMI entry, a union of views, is partial because of its swath
-        area alone, which is the lowest over time steps.
+        Test that the TROPOMI entry, a union of swept views, is validated on a day held
+        out after swept swaths were added, which its limitations disclose.
         """
         entry = get_entry("tropomi")
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
         configuration = entry.validation.configurations["swath"]
         self.assertEqual(entry.configurations["swath"].grouping, "union")
-        self.assertEqual(configuration.record.holdout_gap_days, 31)
-        self.assertEqual(
-            [r.gate.metric for r in configuration.gates if not r.passed],
-            ["footprint_iou_median"],
-        )
+        self.assertEqual(configuration.record.holdout_gap_days, 36)
+        self.assertTrue(all(r.passed for r in configuration.gates))
         self.assertTrue(
             any(
-                "30 s or less" in text
+                "Rescored with swept swaths" in text
                 for text in entry.configurations["swath"].limitations
             )
         )
 
-    def test_msi_entry_partial_on_long_time_steps(self):
+    def test_msi_entry_validated(self):
         """
-        Test that the MSI entry, tested on three satellites, is partial because of its
-        swath area alone, which is the lowest over satellites and time steps.
+        Test that the MSI entry, tested on three satellites, is validated on a day held
+        out after swept swaths were added, which its limitations disclose.
         """
         entry = get_entry("msi")
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
         configuration = entry.validation.configurations["swath"]
-        self.assertEqual(configuration.record.holdout_gap_days, 52)
+        self.assertEqual(configuration.record.holdout_gap_days, 38)
         scopes = {m.scope for m in configuration.record.metrics}
         for platform in entry.configurations["swath"].platforms:
             self.assertIn(platform, scopes)
-        self.assertEqual(
-            [r.gate.metric for r in configuration.gates if not r.passed],
-            ["footprint_iou_median"],
-        )
+        self.assertTrue(all(r.passed for r in configuration.gates))
         self.assertTrue(
             any(
-                "30 s or less" in text
+                "Rescored with swept swaths" in text
                 for text in entry.configurations["swath"].limitations
             )
         )
@@ -652,8 +643,8 @@ class TestEntryStatus(unittest.TestCase):
 
     def test_csar_entry_partial(self):
         """
-        Test that the C-SAR entry is partial: its IW mode misses points at the swath
-        edges and fails the swath area, and its EW mode fails the swath area alone.
+        Test that the C-SAR entry is partial because its IW mode misses points at the
+        swath edges, with its EW mode validated on a later held-out day.
         """
         entry = get_entry("csar")
         self.assertEqual(entry.validation.tier, Tier.PARTIAL)
@@ -661,15 +652,12 @@ class TestEntryStatus(unittest.TestCase):
             key: [r.gate.metric for r in configuration.gates if not r.passed]
             for key, configuration in entry.validation.configurations.items()
         }
-        self.assertEqual(
-            failed,
-            {
-                "iw": ["pass_recall", "footprint_iou_median", "footprint_iou_p5"],
-                "ew": ["footprint_iou_median", "footprint_iou_p5"],
-            },
-        )
-        for configuration in entry.validation.configurations.values():
-            self.assertEqual(configuration.record.holdout_gap_days, 51)
+        self.assertEqual(failed, {"iw": ["pass_recall"], "ew": []})
+        configurations = entry.validation.configurations
+        self.assertEqual(configurations["ew"].tier, Tier.VALIDATED)
+        self.assertEqual(configurations["iw"].record.holdout_gap_days, 51)
+        self.assertEqual(configurations["ew"].record.holdout_gap_days, 39)
+        for configuration in configurations.values():
             self.assertEqual(configuration.record.platform, "sentinel-1c")
 
     def test_amsr2_entry_partial_on_published_footprints(self):
@@ -701,20 +689,16 @@ class TestEntryStatus(unittest.TestCase):
         self.assertEqual(configuration.record.holdout_gap_days, 34)
         self.assertTrue(all(r.passed for r in configuration.gates))
 
-    def test_dpr_entry_partial_at_long_time_steps(self):
+    def test_dpr_entry_validated(self):
         """
-        Test that the DPR entry is partial because of its swath's area at a time step
-        of 120 s alone, with its beams validated on data held out 75 days from the fit.
+        Test that the DPR entry is validated, with its swept swath and its beams, on
+        data held out 38 days from the fit.
         """
         entry = get_entry("dpr")
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        swath = entry.validation.configurations["swath"]
-        self.assertEqual(
-            [r.gate.metric for r in swath.gates if not r.passed],
-            ["footprint_iou_median"],
-        )
-        self.assertEqual(swath.record.holdout_gap_days, 75)
-        self.assertEqual(entry.validation.configurations["beams"].tier, Tier.VALIDATED)
+        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
+        for configuration in entry.validation.configurations.values():
+            self.assertTrue(all(r.passed for r in configuration.gates))
+            self.assertEqual(configuration.record.holdout_gap_days, 38)
 
     def test_mhs_entry_validated_on_published_values(self):
         """
@@ -744,7 +728,7 @@ class TestEntryStatus(unittest.TestCase):
             ["epoch_p95"],
         )
         self.assertEqual(configuration.record.holdout_gap_days, 34)
-        self.assertEqual(entry.record.standard_version, 2)
+        self.assertGreaterEqual(entry.record.standard_version, 2)
 
     def test_smap_entry_partial_on_published_footprints(self):
         """
@@ -767,10 +751,11 @@ class TestEntryStatus(unittest.TestCase):
     def test_lsar_entry_partial(self):
         """
         Test that the L-SAR entry is partial: its modes with a 20 or 40 MHz band miss
-        the near-range edges, those with only a 5 MHz band miss a point of a small
-        sample, and both fail the swath area at long time steps. The 77 MHz mode,
-        tested on four pooled days with an element set of each day, passes every
-        gate tested, but its swath area is not tested, as its frames are partial.
+        the near-range edges, and those with only a 5 MHz band miss a point of a small
+        sample, while their swept swaths pass the swath area at every time step. The
+        77 MHz mode, tested on four pooled days with an element set of each day,
+        passes every gate tested, but its swath area is not tested, as its frames are
+        partial.
         """
         entry = get_entry("lsar")
         self.assertEqual(entry.validation.tier, Tier.PARTIAL)
@@ -781,16 +766,8 @@ class TestEntryStatus(unittest.TestCase):
         self.assertEqual(
             failed,
             {
-                "swath_20_40mhz": [
-                    "swath_edge_p95",
-                    "footprint_iou_median",
-                    "footprint_iou_p5",
-                ],
-                "swath_5mhz": [
-                    "pass_recall",
-                    "footprint_iou_median",
-                    "footprint_iou_p5",
-                ],
+                "swath_20_40mhz": ["swath_edge_p95"],
+                "swath_5mhz": ["pass_recall"],
                 "swath_77mhz": ["footprint_iou_median", "footprint_iou_p5"],
             },
         )
@@ -876,8 +853,8 @@ class TestEntryStatus(unittest.TestCase):
     def test_oci_entry_partial(self):
         """
         Test that the OCI entry, whose tilt follows a daily schedule and is blind while
-        it changes, is partial on data held out 32 days from the fit because of its
-        swath's area at long time steps alone, without a sample size configuration.
+        it changes, is partial without a sample size configuration alone, with its
+        swept swath validated on data held out 33 days from the fit.
         """
         entry = get_entry("oci")
         self.assertEqual(entry.validation.tier, Tier.PARTIAL)
@@ -885,11 +862,8 @@ class TestEntryStatus(unittest.TestCase):
             entry.validation.gaps, ("no configuration at the sample_size grade",)
         )
         swath = entry.validation.configurations["swath"]
-        self.assertEqual(
-            sorted(r.gate.metric for r in swath.gates if not r.passed),
-            ["footprint_iou_median"],
-        )
-        self.assertEqual(swath.record.holdout_gap_days, 32)
+        self.assertEqual(swath.tier, Tier.VALIDATED)
+        self.assertEqual(swath.record.holdout_gap_days, 33)
 
     def test_pace_polarimeters_validated(self):
         """
@@ -910,7 +884,7 @@ class TestEntryStatus(unittest.TestCase):
         entry = get_entry("poseidon4")
         self.assertEqual(entry.instrument_class, InstrumentClass.ALTIMETER)
         self.assertEqual(entry.validation.tier, Tier.VALIDATED)
-        self.assertEqual(entry.record.standard_version, 3)
+        self.assertGreaterEqual(entry.record.standard_version, 3)
 
     def test_omps_entry_partial_on_bowed_swath(self):
         """
@@ -931,12 +905,12 @@ class TestEntryStatus(unittest.TestCase):
     def test_scanner_entries_partial(self):
         """
         Test that the CERES entry is partial because of its swath width, and the
-        ECOSTRESS entry because of its recall and swath's area, each without a sample
-        size configuration.
+        ECOSTRESS entry because of its recall, each without a sample size
+        configuration.
         """
         for entry_id, failed in (
             ("ceres", ["swath_width_median"]),
-            ("ecostress", ["pass_recall", "footprint_iou_median"]),
+            ("ecostress", ["pass_recall"]),
         ):
             validation = get_entry(entry_id).validation
             self.assertEqual(validation.tier, Tier.PARTIAL, entry_id)
@@ -973,7 +947,7 @@ class TestEntryStatus(unittest.TestCase):
         self.assertEqual(entry.configurations["swaths"].grouping, "union")
         swaths = entry.validation.configurations["swaths"]
         self.assertEqual(swaths.record.holdout_gap_days, 34)
-        self.assertEqual(entry.record.standard_version, 4)
+        self.assertGreaterEqual(entry.record.standard_version, 4)
 
     def test_tempo_entry_validated(self):
         """

@@ -48,7 +48,7 @@
       }
     },
     "swath": {
-      "digest": "91e92aa33c84dc20282822d3ecec2aa743bce6b23aa1345ed92e74e29bbcf3f4",
+      "digest": "fc32ce15a3780ef5596decc7d4a8c2f7bd27c888973cfe6adeec5e19d98ad616",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_cris.py",
@@ -75,7 +75,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9869383896269565
+          "value": 0.9961643275378533
         },
         {
           "name": "transfer_pass_recall",
@@ -99,7 +99,7 @@
         },
         {
           "name": "transfer_footprint_iou_median",
-          "value": 0.987489367723787,
+          "value": 0.9984279738261294,
           "scope": "noaa-21, 2026-11-05"
         }
       ],
@@ -109,5 +109,5 @@
       }
     }
   },
-  "standard_version": 1
+  "standard_version": 5
 }

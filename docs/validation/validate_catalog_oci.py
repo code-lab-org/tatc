@@ -20,6 +20,7 @@ positions, times, and tilts are read, with range requests (about 1.2 GB a day):
     python docs/validation/validate_catalog_oci.py <data directory> 2026-08-15 --switches 2026-10-08
     python docs/validation/validate_catalog_oci.py <data directory> 2026-08-20 --blind 2026-09-15 2026-10-04 2026-10-07
     python docs/validation/validate_catalog_oci.py <data directory> 2026-11-09
+    python docs/validation/validate_catalog_oci.py <data directory> 2026-11-10
 
 A day is reduced to every sixth scan (about 1 s) and every 16th sample (and the last).
 The product covers the sunlit part of each orbit, whose dark part is a gap.
@@ -74,6 +75,10 @@ ELEMENTS = {
     "2026-11-09": (
         "1 58928U 24025A   26314.09407429  .00000495  00000+0  99766-4 0  9994",
         "2 58928  98.1042 243.2937 0002701 128.3012 231.8434 14.65645200147308",
+    ),
+    "2026-11-10": (
+        "1 58928U 24025A   26315.52774695  .00000494  00000+0  99709-4 0  9991",
+        "2 58928  98.1045 244.7079 0002770 125.5620 234.5842 14.65646728147516",
     ),
 }
 SAMPLES = 1272

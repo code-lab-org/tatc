@@ -55,7 +55,7 @@ configurations:
     limitations:
       - The roll profile has no values for the bins centered at 225, 245, 295, and 315 deg of argument of latitude, where no sampled products of these modes were acquired on the fitting day, so it is interpolated there between its neighbors.
       - The field of view is fixed, while the swath's measured field of view varies from 11.2 to 12.2 deg (5th to 95th percentile) between modes and around the orbit, so the swath edges differ by several kilometers where it is narrower or wider than its median. On held-out data, the near-range edges were within 12.1 km (95th percentile), over the standard's 10 km, and the far-range edges within 6.8 km.
-      - At long time steps, the view, far from nadir and tailored to a long along-track field of view, reaches beyond the swath. On held-out data, the swath's intersection over union was 0.959 (5th percentile 0.924) at 10 s, but 0.925 (0.819) at 30 s and 0.731 (0.692) at 120 s, which fail the standard's limit of 0.90, so use time steps of 10 s.
+      - The swath is the strip the view's cross-track line sweeps (is_swept), so it does not depend on the time step. On held-out data, the swath's intersection over union was 0.974 (5th percentile 0.946) at time steps of 10 to 120 s. Rescored after swept swaths (is_swept) were added, on the same data, with the other results unchanged; with views tailored to the time step, far from nadir, it had been 0.959 (0.924) at 10 s, but 0.925 (0.819) at 30 s and 0.731 (0.692) at 120 s.
       - Images are formed in the plane perpendicular to the Earth-fixed velocity (zero-Doppler geometry), so a user-supplied attitude should keep the Earth-fixed frame.
   swath_5mhz:
     grade: timing
@@ -96,7 +96,7 @@ configurations:
     limitations:
       - The roll profile has no values for the bins centered at 5, 45, 55, 175, 185, 195, 205, 215, 225, 265, 275, 315, 325, 335, 345, and 355 deg of argument of latitude, where no sampled products of these modes were acquired on the fitting day, so it is interpolated there between its neighbors.
       - The field of view is fixed, while the swath's measured field of view varies from 10.7 to 11.1 deg (5th to 95th percentile) between modes and around the orbit, so the swath edges differ by several kilometers where it is narrower or wider than its median.
-      - Few products of these modes were acquired on the held-out day (7, of which 4 were full frames), so its results are a small sample. Of the 19 lattice points observed in them, 18 were predicted (94.7%), under the standard's 99%; on the fitting day, 99.7% of 309 were. The swath's intersection over union was 0.948 at 10 s, but 0.862 at 30 s and 0.755 at 120 s, so use time steps of 10 s.
+      - Few products of these modes were acquired on the held-out day (7, of which 4 were full frames), so its results are a small sample. Of the 19 lattice points observed in them, 18 were predicted (94.7%), under the standard's 99%; on the fitting day, 99.7% of 309 were. The swath's intersection over union was 0.976 at time steps of 10 to 120 s, as the swath is the strip the view's cross-track line sweeps (is_swept). Rescored after swept swaths (is_swept) were added, on the same data, with the other results unchanged; with views tailored to the time step, it had been 0.948 at 10 s, but 0.862 at 30 s and 0.755 at 120 s.
       - Images are formed in the plane perpendicular to the Earth-fixed velocity (zero-Doppler geometry), so a user-supplied attitude should keep the Earth-fixed frame.
   swath_77mhz:
     grade: timing

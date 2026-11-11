@@ -314,6 +314,30 @@ class TestSweptFootprints(unittest.TestCase):
         )
 
 
+class TestSweptTimeStep(unittest.TestCase):
+    """
+    Tests the time step that each time of a swept ground track represents.
+    """
+
+    def test_explicit_time_step(self):
+        """
+        Test that an explicit time step gives the strip of a single time, and
+        matches the time step inferred from regular times.
+        """
+        satellite = swept(get_satellite(120))
+        times = get_times(120)
+        step = timedelta(seconds=120)
+        inferred = compute_ground_track(satellite, times).geometry.iloc[0]
+        explicit = compute_ground_track(satellite, times, time_step=step)
+        self.assertGreater(iou(inferred, explicit.geometry.iloc[0]), 0.99999)
+        # a single time sweeps over its time step
+        single = compute_ground_track(satellite, [times[2]], time_step=step)
+        middle = compute_ground_track(
+            satellite, get_times(5, duration=120, start=times[2] - step / 2)
+        ).geometry.iloc[0]
+        self.assertGreater(iou(middle, single.geometry.iloc[0]), 0.999)
+
+
 class TestSweptRegionObservations(unittest.TestCase):
     """
     Tests region observations by swept instruments.

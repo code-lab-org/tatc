@@ -40,8 +40,13 @@ DURATION = 600  # seconds
 OFFSETS = (3, 9, 15)  # hours after the start of the fixture's day
 
 
-def get_fixture(entry_id: str, key: str, platform: str) -> pathlib.Path | None:
-    """Gets the fixture whose element set orbits a configuration's platform."""
+def get_fixture(
+    entry_id: str, key: str, platform: str
+) -> tuple[pathlib.Path, str] | None:
+    """
+    Gets the fixture whose element set orbits a configuration's platform, and the
+    suffix of its element set and day: the configuration's own, if it has them.
+    """
     for name in (
         f"{entry_id}_{key}",
         f"{entry_id}_{platform.replace('-', '_')}",
@@ -50,8 +55,9 @@ def get_fixture(entry_id: str, key: str, platform: str) -> pathlib.Path | None:
         path = FIXTURES / f"{name}.npz"
         if path.exists():
             with np.load(path, allow_pickle=False) as data:
-                if "tle" in data and "day" in data:
-                    return path
+                for suffix in (f"_{key}", ""):
+                    if f"tle{suffix}" in data and f"day{suffix}" in data:
+                        return path, suffix
     return None
 
 
@@ -96,12 +102,15 @@ def compare(a, b) -> float:
     return a.intersection(b).area / a.union(b).area
 
 
-def compare_configuration(entry, key: str, fixture: pathlib.Path) -> list[tuple]:
+def compare_configuration(
+    entry, key: str, fixture: tuple[pathlib.Path, str]
+) -> list[tuple]:
     """Gets the comparisons of a configuration's swaths over each segment."""
     platform = entry.configurations[key].platforms[0]
-    with np.load(fixture, allow_pickle=False) as data:
-        orbit = GeneralPerturbationsOrbit.from_tle(list(data["tle"]))
-        day = datetime.fromisoformat(str(data["day"]))
+    path, suffix = fixture
+    with np.load(path, allow_pickle=False) as data:
+        orbit = GeneralPerturbationsOrbit.from_tle(list(data[f"tle{suffix}"]))
+        day = datetime.fromisoformat(str(data[f"day{suffix}"]))
     results = []
     for hours in OFFSETS:
         start = day + timedelta(hours=hours)

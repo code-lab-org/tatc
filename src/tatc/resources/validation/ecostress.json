@@ -2,7 +2,7 @@
   "entry_id": "ecostress",
   "configurations": {
     "swath": {
-      "digest": "7400e820b5a8afc93c1876d279ff5f6a369dbcaa90ead6c4ba38c6abf56c198d",
+      "digest": "86d9d7f5ab5a5e0223abd434f481c70367c2182691922da307a3fe9523e3eafc",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_ecostress.py",
@@ -29,7 +29,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.8975574913156409
+          "value": 0.9883062031327718
         }
       ],
       "fixture_metrics": {

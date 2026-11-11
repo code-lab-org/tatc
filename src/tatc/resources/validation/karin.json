@@ -2,7 +2,7 @@
   "entry_id": "karin",
   "configurations": {
     "swaths": {
-      "digest": "5bfd586c46e20dada37d0d358edcc4d38977dce9e8a9c056e698749db7ed9a38",
+      "digest": "59e40263c6b54b186c1ce9b1e424f117c7b8adb14ed319fff9d15b8ddf7ab67d",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_karin.py",
@@ -37,32 +37,32 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9927110932852798,
+          "value": 0.9927316839882545,
           "scope": "time step 10 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9875476219374075,
+          "value": 0.9876265630251783,
           "scope": "time step 10 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9927355138535383,
+          "value": 0.9927316839882545,
           "scope": "time step 30 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9872916986495199,
+          "value": 0.9876265630251783,
           "scope": "time step 30 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9883847125735299,
+          "value": 0.9927294724617781,
           "scope": "time step 120 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9838450428745132,
+          "value": 0.9876193644599551,
           "scope": "time step 120 s"
         },
         {
@@ -80,5 +80,5 @@
       }
     }
   },
-  "standard_version": 1
+  "standard_version": 5
 }

@@ -18,6 +18,7 @@ Needs the `validation` extra:
 
     python docs/validation/validate_catalog_msi.py <data directory> 2026-10-03 --fit
     python docs/validation/validate_catalog_msi.py <data directory> 2026-08-12
+    python docs/validation/validate_catalog_msi.py <data directory> 2026-11-10
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
@@ -93,6 +94,21 @@ ELEMENT_SETS = {
         "sentinel-2c": [
             "1 60989U 24157A   26277.47326514  .00000038  00000+0  31260-4 0  9993",
             "2 60989  98.5703 350.6835 0001156  81.8213 278.3101 14.30817151108611",
+        ],
+    },
+    # a fresh held-out day for swept swaths, not used before
+    "2026-11-10": {
+        "sentinel-2a": [
+            "1 40697U 15028A   26315.48729274  .00000195  00000+0  90938-4 0  9999",
+            "2 40697  98.5620  28.1758 0001176  97.2125 262.9192 14.30820979594798",
+        ],
+        "sentinel-2b": [
+            "1 42063U 17013A   26315.48023887  .00000161  00000+0  78066-4 0  9992",
+            "2 42063  98.5726  28.1523 0001127  94.2545 265.8767 14.30820339505706",
+        ],
+        "sentinel-2c": [
+            "1 60989U 24157A   26315.16551832  .00000142  00000+0  70721-4 0  9996",
+            "2 60989  98.5733  27.8362 0000827  99.7117 260.4159 14.30812699114004",
         ],
     },
 }
@@ -685,6 +701,7 @@ def score_chunk(chunk, day, datatakes, tiles, orbits, satellite_for) -> dict:
         track = compute_ground_track(
             satellite_for(datatake.platform, step),
             to_utc(day, start + step * (np.arange(n) + 0.5)),
+            time_step=timedelta(seconds=float(step)),
         )
         predicted = project_geometry(track.geometry.iloc[0], transformer)
         results[f"iou_{time_step}"] = (

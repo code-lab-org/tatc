@@ -136,6 +136,8 @@ class TestCsarIwFixture(_PushbroomFixture, unittest.TestCase):
     platform = "sentinel-1c"
     configuration = "iw"
     passes_key = "passes_iw"
+    tle_key = "tle_iw"
+    day_key = "day_iw"
 
 
 class TestCsarEwFixture(_PushbroomFixture, unittest.TestCase):
@@ -147,6 +149,8 @@ class TestCsarEwFixture(_PushbroomFixture, unittest.TestCase):
     platform = "sentinel-1c"
     configuration = "ew"
     passes_key = "passes_ew"
+    tle_key = "tle_ew"
+    day_key = "day_ew"
 
 
 class TestKarinFixture(_PushbroomFixture, unittest.TestCase):

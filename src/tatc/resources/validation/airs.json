@@ -44,7 +44,7 @@
       }
     },
     "swath": {
-      "digest": "5b0965aaf0eadd4e558751fbae75acc8c3603f1902b3fe11b2c994783c01204a",
+      "digest": "56f98ad36b5699a06d929cfca0d65c4b4a3f9e1493a0ae384a1f1a028dab8c13",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_airs.py",
@@ -71,7 +71,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9862712769240544
+          "value": 0.9976421381679229
         }
       ],
       "fixture_metrics": {
@@ -80,5 +80,5 @@
       }
     }
   },
-  "standard_version": 2
+  "standard_version": 5
 }

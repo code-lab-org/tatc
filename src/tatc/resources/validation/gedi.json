@@ -2,7 +2,7 @@
   "entry_id": "gedi",
   "configurations": {
     "beams": {
-      "digest": "c3a0b66369a92f24d8b87b58ede804c777f2d1016383cfb33d58c28ac3f2d571",
+      "digest": "c91a076745f0c7ae78527f94f525be947c12960c33fa2cac0922f8782de7bfd9",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_gedi.py",

@@ -496,7 +496,9 @@ def score_chunk(chunk, day, satellite_for) -> dict[str, float]:
         n = max(1, int(round(duration / time_step)))
         step = duration / n
         times = to_utc(day, start + step * (np.arange(n) + 0.5))
-        geometry = compute_ground_track(satellite_for(step), times).geometry.iloc[0]
+        geometry = compute_ground_track(
+            satellite_for(step), times, time_step=timedelta(seconds=float(step))
+        ).geometry.iloc[0]
         predicted = unary_union(
             [
                 transform_geometry(project, unwrap(part)).buffer(0)

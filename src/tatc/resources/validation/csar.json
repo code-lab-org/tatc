@@ -2,7 +2,7 @@
   "entry_id": "csar",
   "configurations": {
     "iw": {
-      "digest": "fe7909788c6702ad2a8fe907de4d2c33f30115f834e62ba57bdf0e7a4bd9f50c",
+      "digest": "a4281159073196f40a8cb313b9f2ee4f726cfb95a0a68f2f494347f332dd405c",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_csar.py",
@@ -27,32 +27,32 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9563437814136356,
+          "value": 0.974420174166505,
           "scope": "time step 10 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9238569515990268,
+          "value": 0.9583430584693114,
           "scope": "time step 10 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9193081502437033,
+          "value": 0.9744201999041351,
           "scope": "time step 30 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.8525693553663005,
+          "value": 0.9583430487197954,
           "scope": "time step 30 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.7164271801658385,
+          "value": 0.974420200016084,
           "scope": "time step 120 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.6725899203685523,
+          "value": 0.9583430616759844,
           "scope": "time step 120 s"
         },
         {
@@ -80,32 +80,32 @@
         },
         {
           "name": "transfer_footprint_iou_median_time_step_10_s",
-          "value": 0.9579136254835176,
+          "value": 0.9744452010937642,
           "scope": "sentinel-1d, 2026-11-05"
         },
         {
           "name": "transfer_footprint_iou_p5_time_step_10_s",
-          "value": 0.9188589116176847,
+          "value": 0.9565603985068362,
           "scope": "sentinel-1d, 2026-11-05"
         },
         {
           "name": "transfer_footprint_iou_median_time_step_30_s",
-          "value": 0.926450265775856,
+          "value": 0.9744442113156698,
           "scope": "sentinel-1d, 2026-11-05"
         },
         {
           "name": "transfer_footprint_iou_p5_time_step_30_s",
-          "value": 0.849550541708855,
+          "value": 0.9565604000666803,
           "scope": "sentinel-1d, 2026-11-05"
         },
         {
           "name": "transfer_footprint_iou_median_time_step_120_s",
-          "value": 0.6851345536240675,
+          "value": 0.9744435423361394,
           "scope": "sentinel-1d, 2026-11-05"
         },
         {
           "name": "transfer_footprint_iou_p5_time_step_120_s",
-          "value": 0.6655545653959104,
+          "value": 0.9565604155573993,
           "scope": "sentinel-1d, 2026-11-05"
         },
         {
@@ -125,66 +125,66 @@
       }
     },
     "ew": {
-      "digest": "f49d16a178036a8babbc94b8efc1efc9f207b2e9f08b1c058dc0e4fc6ffb8e12",
+      "digest": "d4db44c916245f35b65999b72767e909314348279335144b5abdfc3b64e624b1",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_csar.py",
       "reference": "Geolocation grids and restituted orbits of the annotations of Sentinel-1 Level-1 GRD products",
-      "period": "2026-08-12",
+      "period": "2026-11-10",
       "platform": "sentinel-1c",
-      "holdout_gap_days": 51,
+      "holdout_gap_days": 39,
       "metrics": [
         {
           "name": "pass_recall",
-          "value": 99.53407105416424
+          "value": 99.15764139590854
         },
         {
           "name": "swath_edge_p95",
-          "value": 5.5295297706989865,
+          "value": 7.591970636431577,
           "scope": "near range"
         },
         {
           "name": "swath_edge_p95",
-          "value": 4.65732288356857,
+          "value": 9.467863364372457,
           "scope": "far range"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.978486021261178,
+          "value": 0.9885814035066062,
           "scope": "time step 10 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.967790840431446,
+          "value": 0.9762002263199677,
           "scope": "time step 10 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9546994569778962,
+          "value": 0.9885814700052873,
           "scope": "time step 30 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9229773787787284,
+          "value": 0.9762002487880311,
           "scope": "time step 30 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.8182853530154586,
+          "value": 0.9885814991017279,
           "scope": "time step 120 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.740767093223241,
+          "value": 0.9762007090595797,
           "scope": "time step 120 s"
         },
         {
           "name": "epoch_p95",
-          "value": 0.28046509669999997
+          "value": 0.34076688139999994
         },
         {
           "name": "epoch_median",
-          "value": -0.07225517399999998
+          "value": -0.060779662999999984
         },
         {
           "name": "transfer_pass_recall",
@@ -203,32 +203,32 @@
         },
         {
           "name": "transfer_footprint_iou_median_time_step_10_s",
-          "value": 0.9778609576674242,
+          "value": 0.9884457495183735,
           "scope": "sentinel-1d, 2026-11-05"
         },
         {
           "name": "transfer_footprint_iou_p5_time_step_10_s",
-          "value": 0.9553709639818965,
+          "value": 0.9622722405977889,
           "scope": "sentinel-1d, 2026-11-05"
         },
         {
           "name": "transfer_footprint_iou_median_time_step_30_s",
-          "value": 0.9563384151376461,
+          "value": 0.9884461417226443,
           "scope": "sentinel-1d, 2026-11-05"
         },
         {
           "name": "transfer_footprint_iou_p5_time_step_30_s",
-          "value": 0.9240942077868435,
+          "value": 0.9622723000479346,
           "scope": "sentinel-1d, 2026-11-05"
         },
         {
           "name": "transfer_footprint_iou_median_time_step_120_s",
-          "value": 0.8760626604985561,
+          "value": 0.9884458216809694,
           "scope": "sentinel-1d, 2026-11-05"
         },
         {
           "name": "transfer_footprint_iou_p5_time_step_120_s",
-          "value": 0.7766223638077872,
+          "value": 0.9622722346932403,
           "scope": "sentinel-1d, 2026-11-05"
         },
         {
@@ -244,9 +244,9 @@
       ],
       "fixture_metrics": {
         "passes_found": 100.0,
-        "epoch_p95": 0.23216312089999994
+        "epoch_p95": 0.32735908755
       }
     }
   },
-  "standard_version": 1
+  "standard_version": 5
 }
