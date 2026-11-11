@@ -5,6 +5,7 @@ Unit tests for statistics over replicates and requirements on them.
 """
 
 import unittest
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -51,6 +52,19 @@ class TestStatistics(unittest.TestCase):
         np.testing.assert_allclose(
             Probability("x", "<", 2).reduce(VALUES), [1 / 3, 0, np.nan]
         )
+
+    def test_quantiles_with_missing_values(self):
+        """Quantiles are numpy's, of the values of each design."""
+        rng = np.random.default_rng(5)
+        values = rng.normal(size=(200, 12))
+        values[rng.random(values.shape) < 0.4] = np.nan
+        values[0] = np.nan
+        values[1, 1:] = np.nan
+        for q in (0, 0.1, 0.5, 0.7, 1):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                expected = np.nanquantile(values, q, axis=1)
+            np.testing.assert_allclose(Quantile("x", q).reduce(values), expected)
 
     def test_invalid(self):
         """Quantiles and operators are checked."""

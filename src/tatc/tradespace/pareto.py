@@ -100,29 +100,61 @@ def _get_tolerances(
 _BLOCK_ELEMENTS = 2_000_000
 """The most elements of the temporary arrays of a block of comparisons."""
 
-_SWEEP_POINTS = 4096
-"""The fewest points whose dominance (without tolerances) is found by a sweep."""
+_CHUNK = 64
+"""The points of each chunk of a sweep (see `_dominated_plain`)."""
 
 
-def _dominated_sweep(costs: np.ndarray) -> np.ndarray:
+def _dominated_by(
+    points: np.ndarray, others: np.ndarray, tolerances: np.ndarray | None = None
+) -> np.ndarray:
+    """
+    Finds the points dominated by any of others, even if the other is
+    penalized by the tolerances (see `_dominated`), comparing them in blocks
+    whose temporary arrays are limited to a few million elements.
+    """
+    dominated = np.zeros(len(points), dtype=bool)
+    if len(points) == 0 or len(others) == 0:
+        return dominated
+    if tolerances is None:
+        tolerances = np.zeros((2, points.shape[1]))
+    absolute, relative = tolerances
+    penalties = np.any(tolerances)
+    block = max(1, _BLOCK_ELEMENTS // max(len(others) * points.shape[1], 1))
+    for start in range(0, len(points), block):
+        part = points[start : start + block]
+        # [i, j]: other j dominates point i of the block
+        penalized = others[None, :, :]
+        if penalties:
+            penalized = penalized + absolute + relative * np.abs(part[:, None, :])
+        no_worse = np.all(penalized <= part[:, None, :], axis=2)
+        better = np.any(penalized < part[:, None, :], axis=2)
+        dominated[start : start + block] = np.any(no_worse & better, axis=1)
+    return dominated
+
+
+def _dominated_plain(costs: np.ndarray) -> np.ndarray:
     """
     Finds the points dominated by another (without tolerances) by a sweep in
     lexicographic order, in which a point can only be dominated by points
-    before it, and is dominated by one if it is by any (dominance is
-    transitive), so that each point is compared only with the efficient
-    points before it.
+    before it, and is dominated by one if it is by any of the efficient
+    points before it (dominance is transitive). The sweep compares each
+    chunk of points with the efficient points before it, then those it does
+    not dominate with each other.
     """
+    n = len(costs)
     order = np.lexsort(costs.T[::-1])
-    dominated = np.zeros(len(costs), dtype=bool)
+    ordered = costs[order]
+    dominated = np.zeros(n, dtype=bool)
     efficient = np.empty((0, costs.shape[1]))
-    for index in order:
-        point = costs[index]
-        if len(efficient) > 0 and np.any(
-            np.all(efficient <= point, axis=1) & np.any(efficient < point, axis=1)
-        ):
-            dominated[index] = True
-        else:
-            efficient = np.vstack([efficient, point])
+    for start in range(0, n, _CHUNK):
+        part = ordered[start : start + _CHUNK]
+        beaten = _dominated_by(part, efficient)
+        # a point that an earlier efficient point dominates dominates nothing
+        # that it does not: compare only the others with each other
+        survivors = part[~beaten]
+        beaten[~beaten] = _dominated_by(survivors, survivors)
+        dominated[order[start : start + _CHUNK]] = beaten
+        efficient = np.vstack([efficient, part[~beaten]])
     return dominated
 
 
@@ -132,25 +164,18 @@ def _dominated(costs: np.ndarray, tolerances: np.ndarray | None = None) -> np.nd
     is penalized by the tolerances: no worse in every cost, and better in at
     least one, by at least its tolerance (absolute, plus a share of the
     magnitude of the cost of the point it would dominate, see
-    `_get_tolerances`). Points are compared with every other in blocks,
-    whose temporary arrays are limited to a few million elements, or, for
-    many points without tolerances, by a sweep (see `_dominated_sweep`).
+    `_get_tolerances`).
+
+    A point that is dominated with tolerances is also dominated by a point
+    that is efficient without them: the penalty depends only on the point
+    dominated, so any point no worse than its dominator in every cost (as
+    some efficient point is) dominates it too. Points are therefore compared
+    only with the efficient points (see `_dominated_plain`), which are few.
     """
-    n = len(costs)
-    if n >= _SWEEP_POINTS and (tolerances is None or not np.any(tolerances)):
-        return _dominated_sweep(costs)
-    block = max(1, min(n, _BLOCK_ELEMENTS // max(n * costs.shape[1], 1)))
-    tolerances = np.zeros((2, costs.shape[1])) if tolerances is None else tolerances
-    absolute, relative = tolerances
-    dominated = np.zeros(n, dtype=bool)
-    for start in range(0, n, block):
-        part = costs[start : start + block]
-        # [i, j]: point j dominates point i of the block
-        penalized = costs[None, :, :] + absolute + relative * np.abs(part[:, None, :])
-        no_worse = np.all(penalized <= part[:, None, :], axis=2)
-        better = np.any(penalized < part[:, None, :], axis=2)
-        dominated[start : start + block] = np.any(no_worse & better, axis=1)
-    return dominated
+    plain = _dominated_plain(costs)
+    if tolerances is None or not np.any(tolerances):
+        return plain
+    return _dominated_by(costs, costs[~plain], tolerances)
 
 
 def pareto_front(

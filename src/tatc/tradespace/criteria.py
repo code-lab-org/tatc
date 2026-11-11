@@ -133,7 +133,21 @@ class Quantile(Statistic):
         self.q = q
 
     def reduce(self, values: np.ndarray) -> np.ndarray:
-        return _nan_reduce(lambda v, axis: np.nanquantile(v, self.q, axis=axis), values)
+        # numpy's nanquantile, vectorized: sort each row (missing values
+        # last), and interpolate linearly between the values around the
+        # quantile's position among each row's values
+        ordered = np.sort(values, axis=1)
+        counts = np.sum(~np.isnan(values), axis=1)
+        position = self.q * np.maximum(counts - 1, 0)
+        below = np.floor(position).astype(int)
+        above = np.minimum(below + 1, np.maximum(counts - 1, 0))
+        rows = np.arange(len(values))
+        weight = position - below
+        with np.errstate(invalid="ignore"):
+            result = (1 - weight) * ordered[rows, below] + weight * ordered[rows, above]
+        result[weight == 0] = ordered[rows, below][weight == 0]
+        result[counts == 0] = np.nan
+        return result
 
     def __repr__(self) -> str:
         return f"Quantile({self.column!r}, {self.q!r})"

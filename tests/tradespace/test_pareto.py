@@ -194,21 +194,53 @@ class TestManyPoints(unittest.TestCase):
     Unit tests for the dominance of many points.
     """
 
-    def test_sweep(self):
-        """A sweep finds the same dominated points as comparisons of every pair."""
+    @staticmethod
+    def _every_pair(costs, tolerances=None):
+        """Dominance by comparing every pair of points."""
+        absolute, relative = (
+            np.zeros((2, costs.shape[1])) if tolerances is None else tolerances
+        )
+        dominated = np.zeros(len(costs), dtype=bool)
+        for i, point in enumerate(costs):
+            penalized = costs + absolute + relative * np.abs(point)
+            no_worse = np.all(penalized <= point, axis=1)
+            better = np.any(penalized < point, axis=1)
+            dominated[i] = np.any(no_worse & better)
+        return dominated
+
+    def test_matches_every_pair(self):
+        """Dominance, with or without tolerances, is that of every pair."""
         # pylint: disable=import-outside-toplevel,protected-access
         from tatc.tradespace import pareto
 
         rng = np.random.default_rng(3)
-        for costs in (
-            rng.random((500, 3)),
-            rng.integers(0, 4, (500, 3)).astype(float),
-            np.vstack([rng.random((100, 2))] * 3),
-        ):
-            np.testing.assert_array_equal(
-                pareto._dominated_sweep(costs), pareto._dominated(costs)
-            )
-        many = rng.random((pareto._SWEEP_POINTS + 10, 3))
-        frame = pd.DataFrame(many, columns=["a", "b", "c"])
-        front = pareto_front(frame, {"a": "min", "b": "min", "c": "min"})
-        np.testing.assert_array_equal(~front.to_numpy(), pareto._dominated_sweep(many))
+        sets = (
+            rng.random((700, 3)),
+            rng.integers(0, 4, (700, 3)).astype(float),
+            np.vstack([rng.random((150, 2))] * 3),
+            np.column_stack([rng.integers(1, 11, 900), rng.normal(0, 30, 900)]),
+        )
+        tolerances = (
+            None,
+            np.array([[0.0, 0.0, 0.1], [0.0, 0.0, 0.0]]),
+            np.array([[0.0, 0.0, 0.0], [0.05, 0.0, 0.1]]),
+        )
+        for costs in sets:
+            for tolerance in tolerances:
+                if tolerance is not None:
+                    tolerance = tolerance[:, : costs.shape[1]]
+                np.testing.assert_array_equal(
+                    pareto._dominated(costs, tolerance),
+                    self._every_pair(costs, tolerance),
+                )
+
+    def test_many_points(self):
+        """Fronts of many points are found quickly."""
+        rng = np.random.default_rng(4)
+        frame = pd.DataFrame(rng.random((20_000, 3)), columns=["a", "b", "c"])
+        front = pareto_front(frame, {"a": "min", "b": "min", "c": "max"})
+        self.assertGreater(front.sum(), 0)
+        tolerant = pareto_front(
+            frame, {"a": "min", "b": "min", "c": "max"}, tolerance={"c": "5%"}
+        )
+        self.assertTrue((tolerant >= front).all())
