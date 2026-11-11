@@ -198,7 +198,8 @@ class Study:
         fixed values and the distributions of uncertain parameters), its
         build and evaluation functions (their code, the values they close
         over, and the plain values and functions of their module they refer
-        to), and the version of TAT-C. It keys the records of a store (see
+        to), and the version and source of TAT-C (see `get_source_hash`). It
+        keys the records of a store (see
         `ResultStore`); data that it cannot describe (such as data frames)
         must be identified by the store's namespace."""
         return get_fingerprint(
@@ -278,7 +279,7 @@ class Study:
                 warnings.warn(
                     f"the store has {sum(others.values())} evaluations of namespace "
                     + f"{self.store.namespace!r} by studies of other definitions "
-                    + "(seed, design space, functions, or version of TAT-C), "
+                    + "(seed, design space, functions, or version or source of TAT-C), "
                     + "which are not reused (see Study.fingerprint)",
                     stacklevel=2,
                 )

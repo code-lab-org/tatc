@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from functools import partial
 
@@ -24,6 +25,7 @@ from tatc.tradespace import (
     Study,
     Uncertain,
     get_fingerprint,
+    get_source_hash,
 )
 
 THRESHOLD = 4
@@ -158,6 +160,17 @@ class TestFingerprint(unittest.TestCase):
         self.assertEqual(len(fingerprints), 3)
         # but not with the settings of its execution
         self.assertEqual(study().fingerprint, study(n_jobs=2).fingerprint)
+
+    def test_source(self):
+        """The source of TAT-C (its code and resources) changes the fingerprint."""
+        self.assertEqual(len(get_source_hash()), 16)
+        self.assertIs(get_source_hash(), get_source_hash())  # computed once
+        before = get_fingerprint(_space())
+        with mock.patch(
+            "tatc.tradespace.fingerprint.get_source_hash", return_value="changed"
+        ):
+            self.assertNotEqual(before, get_fingerprint(_space()))
+        self.assertEqual(before, get_fingerprint(_space()))
 
     def test_stable_between_sessions(self):
         """Fingerprints do not change between sessions (with other hash seeds)."""

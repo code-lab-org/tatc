@@ -14,7 +14,10 @@ dataclasses, and functions of the same module that they refer to as globals
 objects (such as data frames) are described by their type only: identify
 them by a namespace (see `ResultStore` and `SatelliteCache`). Functions of
 other modules (such as TAT-C's) are described by their names, as the version
-of TAT-C is part of a fingerprint.
+of TAT-C and a hash of its source (its code and resources, such as the
+instrument catalog) are part of a fingerprint, so that results computed with
+other code of TAT-C (another version, or a change in development) are not
+reused.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -27,6 +30,7 @@ import hashlib
 import json
 import types
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -229,11 +233,36 @@ def _describe(value: Any, depth: int = 0, seen: set | None = None) -> Any:
     return _type(value)
 
 
+_SOURCE_SUFFIXES = (".py", ".yml", ".yaml", ".json")
+"""The files of TAT-C whose content is part of a fingerprint."""
+
+
+@functools.lru_cache(maxsize=1)
+def get_source_hash() -> str:
+    """
+    Gets a hash of the source of TAT-C: its code and resources (such as the
+    instrument catalog), the files of the package with the suffixes of
+    `_SOURCE_SUFFIXES` (by their paths in the package and their content),
+    computed once in a process.
+
+    Returns:
+        str: the hash
+    """
+    root = Path(__file__).resolve().parents[1]
+    digest = hashlib.sha1()
+    for path in sorted(root.rglob("*")):
+        if path.suffix in _SOURCE_SUFFIXES and "__pycache__" not in path.parts:
+            digest.update(path.relative_to(root).as_posix().encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()[:16]
+
+
 def get_fingerprint(*values: Any) -> str:
     """
     Gets a fingerprint of values (such as a design space and the functions
-    of a study) and of the version of TAT-C: a key that changes if their
-    definitions do (see the module for what it describes).
+    of a study) and of the version and source of TAT-C (see
+    `get_source_hash`): a key that changes if their definitions do (see the
+    module for what it describes).
 
     Args:
         *values (Any): The values.
@@ -245,7 +274,11 @@ def get_fingerprint(*values: Any) -> str:
     from .. import __version__
 
     text = json.dumps(
-        {"tatc": __version__, "values": [_describe(value) for value in values]},
+        {
+            "tatc": __version__,
+            "source": get_source_hash(),
+            "values": [_describe(value) for value in values],
+        },
         sort_keys=True,
         default=str,
     )

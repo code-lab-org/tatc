@@ -75,7 +75,7 @@ from .optimization import (
     optimize_optuna,
     optimize_pymoo,
 )
-from .fingerprint import get_fingerprint
+from .fingerprint import get_fingerprint, get_source_hash
 from .pareto import hypervolume, pareto_front, pareto_probability, pareto_ranks
 from .refinement import Refinement, refine
 from .screening import Screening, screen
@@ -158,6 +158,7 @@ __all__ = [
     "evaluate_phases",
     "get_fingerprint",
     "get_satellite_key",
+    "get_source_hash",
     "hours_to_time",
     "hypervolume",
     "main_effects",

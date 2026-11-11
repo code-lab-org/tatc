@@ -195,6 +195,8 @@ Stores of Results
 
 .. autofunction:: tatc.tradespace.get_fingerprint
 
+.. autofunction:: tatc.tradespace.get_source_hash
+
 Caches
 ------
 

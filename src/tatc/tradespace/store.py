@@ -25,7 +25,7 @@ class ResultStore:
     (see `Study.fingerprint`), which changes with its seed, its use of
     common random numbers, the definitions of its design space and its build
     and evaluation functions (their code, and the plain values they refer
-    to), and the version of TAT-C, so that records computed with other
+    to), and the version and source of TAT-C, so that records computed with other
     definitions are not reused. The `namespace` identifies what a
     fingerprint cannot see: the data the functions use (such as the targets
     of the analysis) and the code of other modules they call. Change it

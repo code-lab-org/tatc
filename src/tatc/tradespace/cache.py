@@ -63,7 +63,7 @@ class SatelliteCache:
     the parallel workers of a trade study (see `Study`), each of which
     otherwise has its own cache in memory. Results in the directory are keyed
     by the satellite, the fingerprint of the function (its code, the plain
-    values it closes over or refers to, and the version of TAT-C, see
+    values it closes over or refers to, and the version and source of TAT-C, see
     `Study.fingerprint`), and the `namespace`, which must identify what the
     fingerprint cannot see: the data the function uses (such as its targets)
     and the code of other modules it calls. Change it whenever these change.
