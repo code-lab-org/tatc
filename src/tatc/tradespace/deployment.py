@@ -9,8 +9,13 @@ A `DeploymentSchedule` holds the rates and durations of a study (the
 mission, the design life of satellites, the development and production of
 each type of satellite, and the launch cadence and capacity), from which
 each design's `Deployment` follows: a design of more satellites and planes
-takes longer to produce and launch. Its launches divide the mission into
-phases (`Deployment.phases`) of constant sets of operating satellites, each
+takes longer to produce and launch. A deployment simulates a mission
+(`Deployment.simulate`) with the failures of its satellites and launches
+(see `FailureModel`) and a policy that restores them or not (see
+`RestorationPolicy`), drawn for each replicate: the `MissionHistory` of
+what is produced and launched, which a `CostModel` prices, and of the
+satellites that operate. Their changes divide the mission into phases
+(`MissionHistory.phases`) of constant sets of operating satellites, each
 evaluated over the study's representative period (`evaluate_phases`) and
 combined over the mission (`summarize_phases`), such as the time-weighted
 mean of a metric and the time until it first meets a requirement.
@@ -23,15 +28,15 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
-
-import numpy as np
-import pandas as pd
+from typing import TYPE_CHECKING, Any
 
 from ..schemas import Satellite
 from .constellations import PLANES, SSO_PLANES, WALKER, _kind, _layout, _layouts
-from .criteria import _OPERATORS, Requirement
+from .failures import FailureModel, RestorationPolicy
 from .values import Values
+
+if TYPE_CHECKING:
+    from .mission import MissionHistory, Phase
 
 PerType = float | Mapping[Any, float]
 """A value for every type of satellite, or for each (by its name)."""
@@ -66,7 +71,8 @@ def _planes(layout: Any) -> list[tuple[int, Any]]:
 @dataclass(frozen=True)
 class Launch:
     """
-    A launch of satellites of a plane (see `Deployment`).
+    A launch of satellites of a plane (see `Deployment` and
+    `MissionHistory`).
     """
 
     time: float
@@ -76,17 +82,25 @@ class Launch:
     kind: Any
     """Any: The type of its satellites."""
     first: int
-    """int: The position in its plane of its first satellite."""
+    """int: The position in its plane of its first satellite (-1 for the
+    launches of restorations and spares)."""
     satellites: int
     """int: The number of satellites (including spares)."""
     generation: int = 0
-    """int: The generation (0 for the first, others replacements)."""
+    """int: The generation (0 for the first, others planned replacements)."""
+    purpose: str = "deployment"
+    """str: `"deployment"`, `"replacement"` (planned, at the end of a
+    design life), `"restoration"` (of failed satellites), or `"spare"` (a
+    spare in orbit replenished)."""
+    failed: bool = False
+    """bool: Whether the launch failed, losing its satellites."""
 
 
 @dataclass(frozen=True)
 class Production:
     """
-    The production of satellites of a type (see `Deployment`).
+    The production of satellites of a type (see `Deployment` and
+    `MissionHistory`).
     """
 
     kind: Any
@@ -97,33 +111,16 @@ class Production:
     """float: The end of their production (years)."""
     satellites: int
     """int: The number of satellites."""
-
-
-@dataclass(frozen=True)
-class Phase:
-    """
-    A phase of a mission, in which a set of satellites operates (see
-    `Deployment.phases`).
-    """
-
-    start: float
-    """float: The start (years from the start of development)."""
-    end: float
-    """float: The end (years from the start of development)."""
-    satellites: tuple[str, ...]
-    """tuple[str, ...]: The names of the satellites that operate."""
-
-    @property
-    def duration(self) -> float:
-        """float: The duration (years)."""
-        return self.end - self.start
+    purpose: str = "deployment"
+    """str: `"deployment"`, `"replacement"`, `"restoration"`, or `"spare"`."""
 
 
 @dataclass
 class Deployment:
     """
-    The deployment of a constellation: its development, production,
-    launches, and replacements (see `DeploymentSchedule.plan`).
+    The planned deployment of a constellation: its development, production,
+    launches, and planned replacements (see `DeploymentSchedule.plan`),
+    without failures.
     """
 
     schedule: DeploymentSchedule
@@ -137,7 +134,9 @@ class Deployment:
     production: list[Production] = field(default_factory=list)
     """list[Production]: The production of the satellites, in order."""
     launches: list[Launch] = field(default_factory=list)
-    """list[Launch]: The launches (and replacements), in order."""
+    """list[Launch]: The launches (and planned replacements), in order."""
+    masses: dict[Any, float | None] = field(default_factory=dict)
+    """dict: The mass (kg) of each type of satellite, if given."""
 
     @property
     def begin(self) -> float:
@@ -153,7 +152,9 @@ class Deployment:
     def deployed(self) -> float:
         """float: The time by which every satellite of the first generation
         is launched (years)."""
-        return max(launch.time for launch in self.launches if launch.generation == 0)
+        return max(
+            launch.time for launch in self.launches if launch.purpose == "deployment"
+        )
 
     @property
     def units(self) -> dict[Any, int]:
@@ -164,91 +165,57 @@ class Deployment:
             units[batch.kind] = units.get(batch.kind, 0) + batch.satellites
         return units
 
-    def phases(
+    def simulate(
         self,
-        satellites: Sequence[Satellite | str],
-        failures: Mapping[str, float] | None = None,
-    ) -> list[Phase]:
+        failures: FailureModel | None = None,
+        policy: RestorationPolicy | None = None,
+        seed: int | None = None,
+    ) -> MissionHistory:
         """
-        Gets the phases of the mission, from the first launch to its end, in
-        which constant sets of satellites operate: each satellite from its
-        launch, except, if it fails (at a time given by `failures`, see
-        `draw_failures`), from its failure to the launch of its replacement
-        (or the end of the mission).
+        Simulates the mission: the deployment, with the failures of its
+        satellites and launches (drawn from a seed of a replicate, such as an
+        uncertain parameter, see `Uncertain.seed`) and the restoration of
+        failed satellites by a policy. Without a seed, nothing fails (but a
+        policy's spares on the ground are still produced).
 
-        The satellites are those built for the layouts of the deployment
-        (see `build_constellation`), in the order of their planes (and of
-        several layouts, in the order given to `DeploymentSchedule.plan`),
-        without spares. The satellites of a plane of several launches
-        operate as each is launched, in order.
+        A satellite's life is drawn when it is launched (or takes the place
+        of a failed one), from a random number generator seeded by the seed
+        and its plane, position, and generation, and the success of a launch
+        from one seeded by its plane and order: with common random numbers,
+        the satellite at the same position of the same plane fails at the
+        same age in the same replicate of every design. Spares in orbit do
+        not age or fail until they take a failed satellite's place.
+
+        Args:
+            failures (FailureModel | None): The failures, or `None` for none.
+            policy (RestorationPolicy | None): The policy for failed
+                satellites, or `None` to restore them by producing new ones.
+            seed (int | None): The seed of the replicate, or `None` for no
+                failures.
+
+        Returns:
+            MissionHistory: the history of the mission
+        """
+        # pylint: disable=import-outside-toplevel
+        from .mission import _Simulation
+
+        return _Simulation(
+            self, failures or FailureModel(), policy or RestorationPolicy(), seed
+        ).run()
+
+    def phases(self, satellites: Sequence[Satellite | str]) -> list[Phase]:
+        """
+        Gets the phases of the mission without failures (see
+        `MissionHistory.phases`).
 
         Args:
             satellites (Sequence[Satellite | str]): The satellites (or their
                 names), in the order of the planes.
-            failures (Mapping[str, float] | None): The time (years from the
-                start of development) at which satellites fail, by name.
 
         Returns:
             list[Phase]: the phases, in order
         """
-        names = [s.name if isinstance(s, Satellite) else str(s) for s in satellites]
-        expected = sum(built for _, built, _ in self.planes)
-        if len(names) != expected:
-            raise ValueError(
-                f"expected {expected} satellites for the planes, not {len(names)}"
-            )
-        offsets = np.cumsum([0] + [built for _, built, _ in self.planes])
-        begin, end = self.begin, self.end
-        failures = failures or {}
-        intervals: dict[str, list[tuple[float, float]]] = {}
-        for launch in self.launches:
-            if launch.generation != 0:
-                continue
-            built = self.planes[launch.plane][1]
-            for position in range(
-                launch.first, min(launch.first + launch.satellites, built)
-            ):
-                name = names[offsets[launch.plane] + position]
-                start = launch.time
-                failure = failures.get(name)
-                if failure is None or failure >= end or failure < start:
-                    intervals[name] = [(start, end)]
-                    continue
-                replaced = [
-                    time for time in self._replacements(launch) if failure < time < end
-                ]
-                after = [(replaced[0], end)] if replaced else []
-                intervals[name] = [(start, failure)] + after
-        events = {begin, end}
-        for spans in intervals.values():
-            for start, stop in spans:
-                events.update((start, stop))
-        times = sorted(time for time in events if begin <= time <= end)
-        phases: list[Phase] = []
-        for start, stop in zip(times[:-1], times[1:]):
-            if stop - start <= 1e-12:
-                continue
-            middle = (start + stop) / 2
-            active = tuple(
-                name
-                for name in names
-                if any(a <= middle < b for a, b in intervals.get(name, []))
-            )
-            if phases and phases[-1].satellites == active:
-                phases[-1] = Phase(phases[-1].start, stop, active)
-            else:
-                phases.append(Phase(start, stop, active))
-        return phases
-
-    def _replacements(self, launch: Launch) -> list[float]:
-        """Gets the times of the replacements of the satellites of a launch."""
-        return sorted(
-            other.time
-            for other in self.launches
-            if other.generation > 0
-            and other.plane == launch.plane
-            and other.first == launch.first
-        )
+        return self.simulate().phases(satellites)
 
 
 @dataclass(frozen=True)
@@ -280,7 +247,8 @@ class DeploymentSchedule:
     Args:
         years (float): The duration of the mission, from the first launch.
         design_life (float | None): The design life of the satellites, or
-            `None` if they last the mission.
+            `None` if they last the mission (or fail, see
+            `Deployment.simulate`).
         development_years (float | Mapping): The duration of development of
             each type of satellite, before production.
         production_rate (float | Mapping | None): The satellites of each type
@@ -363,7 +331,8 @@ class DeploymentSchedule:
                 mapping of types of satellites to layouts.
             kind (Any): The type of the satellites of a layout.
             spares (int): The spares in orbit in each plane, produced and
-                launched with it.
+                launched with it, which wait in orbit to take the place of
+                failed satellites (see `RestorationPolicy`).
             masses (float | Mapping | None): The mass (kg) of the satellites
                 (of each type), for a launch capacity in mass.
 
@@ -379,12 +348,13 @@ class DeploymentSchedule:
         else:
             fleets = {kind: layout}
         deployment = Deployment(schedule=self)
-        planes = []  # (ready, index, kind, satellites)
+        planes = []  # (ready, index, kind, satellites, mass)
         for name, item in fleets.items():
             developed = float(_per_type(self.development_years, name, "development"))
             rate = _per_type(self.production_rate, name, "production rate")
             mass = None if masses is None else _per_type(masses, name, "mass")
             deployment.development[name] = developed
+            deployment.masses[name] = mass
             listed = []
             for size, values in _planes(item):
                 index = len(deployment.planes)
@@ -425,7 +395,13 @@ class DeploymentSchedule:
                         0.0 if rate is None else launch.satellites / rate
                     )
                     deployment.production.append(
-                        Production(launch.kind, produced, need, launch.satellites)
+                        Production(
+                            launch.kind,
+                            produced,
+                            need,
+                            launch.satellites,
+                            "replacement",
+                        )
                     )
                     deployment.launches.append(
                         Launch(
@@ -435,141 +411,10 @@ class DeploymentSchedule:
                             launch.first,
                             launch.satellites,
                             generation,
+                            "replacement",
                         )
                     )
                     need, generation = need + self.design_life, generation + 1
         deployment.production.sort(key=lambda batch: batch.begin)
         deployment.launches.sort(key=lambda launch: (launch.time, launch.plane))
         return deployment
-
-
-def draw_failures(
-    deployment: Deployment,
-    satellites: Sequence[Satellite | str],
-    annual_rate: float,
-    seed: int | None,
-) -> dict[str, float]:
-    """
-    Draws the times at which satellites fail (see `Deployment.phases`), each
-    after an exponentially distributed life from its launch (at a constant
-    `annual_rate` of failure), from an uncertain seed of a replicate (see
-    `Uncertain.seed`). The life of a satellite depends only on the seed and
-    its position, so that with common random numbers, the satellite at the
-    same position has the same life in the same replicate of every design.
-
-    Args:
-        deployment (Deployment): The deployment.
-        satellites (Sequence[Satellite | str]): The satellites (or their
-            names), in the order of the planes (see `Deployment.phases`).
-        annual_rate (float): The rate of failure (per year).
-        seed (int | None): The seed of the replicate, or `None` for no
-            failures.
-
-    Returns:
-        dict[str, float]: the time of failure of each satellite that fails
-            before the end of the mission
-    """
-    if annual_rate < 0:
-        raise ValueError("annual_rate must not be negative")
-    if seed is None or annual_rate == 0:
-        return {}
-    launched = {}
-    for phase in deployment.phases(satellites):
-        for name in phase.satellites:
-            launched.setdefault(name, phase.start)
-    names = [s.name if isinstance(s, Satellite) else str(s) for s in satellites]
-    failures = {}
-    for k, name in enumerate(names):
-        life = np.random.default_rng([seed, k]).exponential(1 / annual_rate)
-        time = launched[name] + life
-        if time < deployment.end:
-            failures[name] = float(time)
-    return failures
-
-
-def evaluate_phases(
-    phases: Sequence[Phase],
-    observations: pd.DataFrame,
-    metric: Callable[[pd.DataFrame], Mapping[str, float]],
-) -> pd.DataFrame:
-    """
-    Evaluates the phases of a mission: a metric of the observations of the
-    satellites that operate in each phase, over the study's representative
-    period (the observations of the full constellation, by satellite, such
-    as from a `SatelliteCache`, filtered to those of each phase). Phases of
-    the same satellites are evaluated once.
-
-    Args:
-        phases (Sequence[Phase]): The phases (see `Deployment.phases`).
-        observations (pandas.DataFrame): The observations of every
-            satellite, with their names (`satellite`).
-        metric (Callable): A function of the observations of a phase (which
-            may be empty) that gives its metrics.
-
-    Returns:
-        pandas.DataFrame: a row per phase: its `start`, `end`, `duration`,
-            number of `satellites`, and metrics
-    """
-    rows, evaluated = [], {}
-    for phase in phases:
-        key = frozenset(phase.satellites)
-        if key not in evaluated:
-            if "satellite" in observations.columns:
-                subset = observations[observations["satellite"].isin(key)]
-            else:
-                subset = observations.iloc[0:0]
-            evaluated[key] = dict(metric(subset))
-        rows.append(
-            {
-                "start": phase.start,
-                "end": phase.end,
-                "duration": phase.duration,
-                "satellites": len(phase.satellites),
-                **evaluated[key],
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def summarize_phases(
-    capability: pd.DataFrame,
-    metrics: Sequence[str] | None = None,
-    requirements: Sequence[Requirement] = (),
-) -> dict[str, float]:
-    """
-    Summarizes the capability of a mission over its phases (see
-    `evaluate_phases`): the mean of each metric weighted by the durations of
-    the phases (`<metric> mean`, over the mission, from its first launch),
-    and, for each requirement on a metric, the time (years from the start of
-    development) at which a phase first meets it (`<metric> time`, infinite
-    if none does).
-
-    Args:
-        capability (pandas.DataFrame): The metrics of each phase.
-        metrics (Sequence[str] | None): The metrics, or `None` for every
-            column other than those of the phases.
-        requirements (Sequence[Requirement]): Requirements on metrics.
-
-    Returns:
-        dict[str, float]: the summary, as metrics of an evaluation
-    """
-    if metrics is None:
-        metrics = [
-            column
-            for column in capability.columns
-            if column not in ("start", "end", "duration", "satellites")
-        ]
-    weights = capability["duration"].to_numpy(dtype=float)
-    summary = {}
-    for name in metrics:
-        values = capability[name].to_numpy(dtype=float)
-        summary[f"{name} mean"] = float(np.sum(values * weights) / np.sum(weights))
-    for requirement in requirements:
-        met = _OPERATORS[requirement.operator](
-            capability[requirement.name].to_numpy(dtype=float), requirement.value
-        )
-        starts = capability["start"].to_numpy(dtype=float)[met]
-        summary[f"{requirement.name} time"] = (
-            float(starts[0]) if len(starts) > 0 else math.inf
-        )
-    return summary

@@ -79,11 +79,40 @@ Deployment
    :members: plan, launches_of
 
 .. autoclass:: tatc.tradespace.Deployment
-   :members: phases, begin, end, deployed, units
+   :members: simulate, phases, begin, end, deployed, units
 
 .. autoclass:: tatc.tradespace.Launch
 
 .. autoclass:: tatc.tradespace.Production
+
+Failures and Missions
+---------------------
+
+.. automodule:: tatc.tradespace.failures
+   :no-members:
+
+.. autoclass:: tatc.tradespace.FailureModel
+   :members: life_of
+
+.. autoclass:: tatc.tradespace.Lifetime
+   :members: survival, hazard, cumulative_hazard, sample
+
+.. autoclass:: tatc.tradespace.Exponential
+
+.. autoclass:: tatc.tradespace.Weibull
+
+.. autoclass:: tatc.tradespace.Bathtub
+
+.. autoclass:: tatc.tradespace.Piecewise
+
+.. autoclass:: tatc.tradespace.RestorationPolicy
+   :members: ground_spares_of
+
+.. automodule:: tatc.tradespace.mission
+   :no-members:
+
+.. autoclass:: tatc.tradespace.MissionHistory
+   :members: phases, metrics, in_orbit
 
 .. autoclass:: tatc.tradespace.Phase
    :members: duration
@@ -91,8 +120,6 @@ Deployment
 .. autofunction:: tatc.tradespace.evaluate_phases
 
 .. autofunction:: tatc.tradespace.summarize_phases
-
-.. autofunction:: tatc.tradespace.draw_failures
 
 Costs
 -----

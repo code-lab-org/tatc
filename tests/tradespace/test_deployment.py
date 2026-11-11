@@ -14,9 +14,9 @@ import pandas as pd
 from tatc.tradespace import (
     DeploymentSchedule,
     DesignSpace,
+    Phase,
     Real,
     Requirement,
-    draw_failures,
     evaluate_phases,
     sso_planes_space,
     summarize_phases,
@@ -147,29 +147,6 @@ class TestPhases(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.deployment.phases(self.names[:3])
 
-    def test_failures(self):
-        """A failed satellite is missing until its replacement is launched."""
-        phases = self.deployment.phases(self.names, failures={self.names[0]: 2.5})
-        # it fails at 2.5 and its replacement launches at 4 (a design life of 2)
-        self.assertEqual(
-            [(p.start, p.end, len(p.satellites)) for p in phases],
-            [(2, 2.5, 2), (2.5, 3, 1), (3, 4, 3), (4, 6, 4)],
-        )
-
-    def test_draw_failures(self):
-        """Failures are drawn from a rate, the same for the same position."""
-        self.assertEqual(draw_failures(self.deployment, self.names, 0.5, None), {})
-        failures = draw_failures(self.deployment, self.names, 0.5, seed=3)
-        again = draw_failures(self.deployment, self.names, 0.5, seed=3)
-        self.assertEqual(failures, again)
-        self.assertTrue(all(2 <= t < 6 for t in failures.values()))
-        many = [
-            len(draw_failures(self.deployment, self.names, 0.5, seed=s))
-            for s in range(200)
-        ]
-        # about 1 - exp(-0.5 * 3.5) of each satellite fails in the mission
-        self.assertAlmostEqual(np.mean(many) / 4, 1 - math.exp(-0.5 * 3.5), delta=0.06)
-
     def test_evaluate_and_summarize(self):
         """Phases are evaluated with their satellites' observations, and summarized."""
         observations = pd.DataFrame({"satellite": self.names * 3, "target": range(12)})
@@ -179,7 +156,14 @@ class TestPhases(unittest.TestCase):
             calls.append(len(obs))
             return {"targets": 25.0 * obs["satellite"].nunique()}
 
-        phases = self.deployment.phases(self.names, failures={self.names[0]: 2.5})
+        # the first satellite fails at 2.5 and is replaced at 4
+        names = tuple(self.names)
+        phases = [
+            Phase(2, 2.5, names[:2]),
+            Phase(2.5, 3, names[1:2]),
+            Phase(3, 4, names[1:]),
+            Phase(4, 6, names),
+        ]
         capability = evaluate_phases(phases, observations, metric)
         self.assertEqual(list(capability.targets), [50, 25, 75, 100])
         self.assertEqual(list(capability.satellites), [2, 1, 3, 4])

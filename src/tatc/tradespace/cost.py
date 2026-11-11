@@ -42,6 +42,7 @@ import pandas as pd
 
 from .constellations import PLANES, SSO_PLANES, WALKER, _kind, _layout, _layouts
 from .deployment import Deployment
+from .mission import MissionHistory
 
 ELEMENTS = ("development", "production", "launch", "operations")
 """The elements of the cost of a constellation."""
@@ -307,14 +308,20 @@ class CostModel:
             raise ValueError(f"no cost of satellites of kind {kind!r}")
         return self.satellites[kind]
 
-    def estimate(self, deployment: Deployment, growth: Growth = 1.0) -> CostEstimate:
+    def estimate(
+        self, deployment: Deployment | MissionHistory, growth: Growth = 1.0
+    ) -> CostEstimate:
         """
-        Estimates the life-cycle cost of a deployment, dating its costs:
-        the development of each type of satellite, spread over its
-        development; the production of its units along its learning curve,
-        spread over their production; each launch (and replacement), when it
-        flies; a fixed cost of operations over the mission; and each
-        satellite's operations from its launch to the end of the mission.
+        Estimates the life-cycle cost of a deployment (as planned, without
+        failures) or of a simulated mission (see `Deployment.simulate`), with
+        the satellites and launches its failures and restorations take,
+        dating its costs: the development of each type of satellite, spread
+        over its development; the production of its units (including spares,
+        replacements, and restorations) along its learning curve, spread over
+        their production; each launch (including those that fail), when it
+        flies; a fixed cost of operations over the mission; and the
+        operations of each satellite while it is in orbit (operating, or a
+        spare waiting).
 
         Growth factors multiply the estimate, such as uncertain parameters of
         cost growth drawn for each replicate (for example,
@@ -325,8 +332,8 @@ class CostModel:
         (`NaN`).
 
         Args:
-            deployment (Deployment): The deployment (see
-                `DeploymentSchedule.plan`).
+            deployment (Deployment | MissionHistory): The deployment (see
+                `DeploymentSchedule.plan`), or a simulated mission.
             growth (float | Mapping[str, float]): A growth factor of the
                 cost, or of each element (`"development"`, `"production"`,
                 `"launch"`, or `"operations"`; others 1).
@@ -335,6 +342,9 @@ class CostModel:
             CostEstimate: the estimate
         """
         factors = _get_growth(growth)
+        history = (
+            deployment.simulate() if isinstance(deployment, Deployment) else deployment
+        )
         estimate = CostEstimate()
         flows: list[tuple[float, str, float]] = []
 
@@ -344,15 +354,15 @@ class CostModel:
             )
 
         if self.launch.per_kg > 0 and any(
-            self._get_type(kind).mass is None for kind in deployment.development
+            self._get_type(kind).mass is None for kind in history.development
         ):
             raise ValueError("launches priced by mass require masses")
-        for kind, developed in deployment.development.items():
+        for kind, developed in history.development.items():
             add(
                 "development", _spread(self._get_type(kind).development, 0.0, developed)
             )
         built: dict[Any, int] = {}
-        for batch in deployment.production:
+        for batch in history.production:
             cost = self._get_type(batch.kind)
             before = built.get(batch.kind, 0)
             amount = cost.production(before + batch.satellites) - cost.production(
@@ -364,25 +374,23 @@ class CostModel:
             "satellites" if kind is None else str(kind): units
             for kind, units in built.items()
         }
-        begin, end = deployment.begin, deployment.end
-        for launch in deployment.launches:
+        begin, end = history.begin, history.end
+        for launch in history.launches:
             cost = self._get_type(launch.kind)
             estimate.launches += int(self.launch.per_launch > 0)
             price = self.launch.per_launch + launch.satellites * (
                 self.launch.per_satellite + self.launch.per_kg * (cost.mass or 0.0)
             )
             add("launch", [(launch.time, price)])
-            if launch.generation == 0:
-                add(
-                    "operations",
-                    _spread(
-                        self.operations.per_satellite_year
-                        * launch.satellites
-                        * (end - launch.time),
-                        launch.time,
-                        end,
-                    ),
-                )
+        for start, stop, count in history.in_orbit():
+            add(
+                "operations",
+                _spread(
+                    self.operations.per_satellite_year * count * (stop - start),
+                    start,
+                    stop,
+                ),
+            )
         add("operations", _spread(self.operations.per_year * (end - begin), begin, end))
         flows = [flow for flow in flows if flow[2] != 0]
         estimate.flows = sorted(flows, key=lambda flow: (flow[0], flow[1]))
