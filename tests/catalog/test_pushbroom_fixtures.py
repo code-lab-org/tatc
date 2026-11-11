@@ -233,5 +233,17 @@ class TestLsarNarrowBandFixture(_PushbroomFixture, unittest.TestCase):
     passes_key = "passes_swath_5mhz"
 
 
+class TestLsar77MhzFixture(_PushbroomFixture, unittest.TestCase):
+    """
+    Regression tests of the L-SAR entry's 77 MHz mode, whose passes, from several
+    days, are timed from the fixture's day.
+    """
+
+    entry_id = "lsar"
+    platform = "nisar"
+    configuration = "swath_77mhz"
+    passes_key = "passes_swath_77mhz"
+
+
 if __name__ == "__main__":
     unittest.main()

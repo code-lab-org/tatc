@@ -136,7 +136,45 @@
         "passes_found": 100.0,
         "epoch_p95": 0.36542056
       }
+    },
+    "swath_77mhz": {
+      "digest": "9968c73322dc4ec522f6cf09477a2856573c259c23a1a51b4d9fa211a66f51f0",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_lsar.py",
+      "reference": "Geolocation grids, orbits, and bounding polygons of NISAR Level 1 RSLC products",
+      "period": "2026-11-01, 2026-11-02, 2026-11-03, 2026-11-05",
+      "platform": "nisar",
+      "holdout_gap_days": 30,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.00990099009901
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 8.884152557915444,
+          "scope": "near range"
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 8.753143158423624,
+          "scope": "far range"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.27755390155
+        },
+        {
+          "name": "epoch_median",
+          "value": -1.1377932245
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 1.27489089735
+      }
     }
   },
-  "standard_version": 1
+  "standard_version": 5
 }

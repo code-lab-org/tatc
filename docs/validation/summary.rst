@@ -129,7 +129,9 @@ Instruments and Pointing
        to 0.72 and 0.82 at 120 s (:doc:`catalog`). On held-out NISAR data of its modes with a 20 or 40 MHz band,
        99.27% of passes predicted, epochs within 0.92 s, and far-range edges within 6.8 km, but near-range edges
        within 12.1 km (95th percentile) with a fixed field of view, and swath IoU 0.959 at 10 s, falling to 0.73 at
-       120 s (:doc:`catalog`)
+       120 s (:doc:`catalog`). NISAR's 77 MHz mode, on four held-out days with an element set 3 to 7 days later:
+       99.01% of passes predicted and edges within 8.9 km (95th percentile), but epochs within 1.28 s, as the element
+       set lay 1.7 to 9.2 km ahead of the products' orbits along track (:doc:`catalog`)
    * - Wide-swath interferometer (two rolled instruments)
      - SWOT KaRIn
      - Every pixel 11 to 59 km from the ground track observed by the instrument on its side, none in the nadir gap;

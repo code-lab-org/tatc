@@ -22,6 +22,12 @@ Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`:
     python docs/validation/validate_catalog_lsar.py <data directory> 2026-10-02 --fit
     python docs/validation/validate_catalog_lsar.py <data directory> 2026-11-04
 
+Several days pool their results, as for the 77 MHz mode, of which few products are
+acquired; they share an element set, and the fixture keeps its day:
+
+    python docs/validation/validate_catalog_lsar.py <data directory> 2026-11-01 \
+        2026-11-02 2026-11-03 2026-11-05 --configuration swath_77mhz
+
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
 
@@ -49,7 +55,7 @@ from shapely.ops import unary_union
 import tatc
 from tatc.analysis import compute_ground_track
 from tatc.catalog import get_entry
-from tatc.catalog.metrics import summarize
+from tatc.catalog.metrics import compute_pass_scores, summarize
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
 from tatc.utils import compute_projected_ray_position
@@ -91,12 +97,15 @@ ELEMENT_SETS = {
         "2 65053  98.4064 137.8903 0001231  89.5513 270.5818 14.42501786 67160",
     ],
 }
+# the 77 MHz mode's held-out days, pooled, whose products became available on
+# 2026-11-09 and 10, with the element set of 2026-11-04 (epoch 2026-11-08), the only
+# public one of these days at hand
+for _day in ("2026-11-01", "2026-11-02", "2026-11-03", "2026-11-05"):
+    ELEMENT_SETS[_day] = ELEMENT_SETS["2026-11-04"]
 # groups of modes, by the bandwidth codes of the product names, whose swaths differ: the
-# modes with a 20 or 40 MHz band, those with only a 5 MHz band, and the 77 MHz mode,
-# which is measured by --fit but has no configuration, as no products of it were
-# acquired on the days of data after the fit
+# modes with a 20 or 40 MHz band, those with only a 5 MHz band, and the 77 MHz mode
 CONFIGURATIONS = ("swath_20_40mhz", "swath_5mhz", "swath_77mhz")
-VALIDATED = ("swath_20_40mhz", "swath_5mhz")
+VALIDATED = CONFIGURATIONS
 N_RANGE = 41  # resampled slant ranges across the image
 SAMPLE_PRODUCTS = 150  # products of each configuration whose grids are read
 TIME_STEPS = (10, 30, 120)
@@ -187,19 +196,25 @@ def configuration_of(mode: str) -> str:
 
 def search(day: datetime) -> pd.DataFrame:
     """Lists the RSLC products that start on a day."""
-    response = requests.get(
-        SEARCH_URL,
-        params={
-            "dataset": "NISAR",
-            "processingLevel": "RSLC",
-            "start": f"{day:%Y-%m-%d}T00:00:00Z",
-            "end": f"{day:%Y-%m-%d}T23:59:59Z",
-            "output": "geojson",
-            "maxResults": "5000",
-        },
-        timeout=600,
-    )
-    response.raise_for_status()
+    for attempt in range(5):
+        try:
+            response = requests.get(
+                SEARCH_URL,
+                params={
+                    "dataset": "NISAR",
+                    "processingLevel": "RSLC",
+                    "start": f"{day:%Y-%m-%d}T00:00:00Z",
+                    "end": f"{day:%Y-%m-%d}T23:59:59Z",
+                    "output": "geojson",
+                    "maxResults": "5000",
+                },
+                timeout=600,
+            )
+            response.raise_for_status()
+            break
+        except requests.RequestException:
+            if attempt == 4:
+                raise
     catalog = pd.DataFrame(
         [
             {
@@ -477,34 +492,24 @@ def score_chunk(chunk, day, satellite_for) -> dict[str, float]:
     return results
 
 
-def validate(key, day, tle, entry, orbit, catalog, products, write) -> None:
-    """Scores a configuration, and writes its results if requested."""
+def measure(key, day, entry, orbit, catalog, products) -> dict | None:
+    """Measures a configuration on a day of data."""
     chosen = [p for p in products if p["configuration"] == key]
     frames = catalog[(catalog.configuration == key) & (catalog.coverage == "full")]
-    print(f"--- {key}: {len(chosen)} grids, {len(frames)} full frames", flush=True)
+    print(
+        f"--- {key}, {day:%Y-%m-%d}: {len(chosen)} grids, {len(frames)} full frames",
+        flush=True,
+    )
     if not chosen:
-        return
+        return None
 
     def satellite_for(time_step: float):
         return entry.to_satellite(orbit, key, time_step=time_step, platform=PLATFORM)
 
     satellite = satellite_for(TIME_STEPS[0])
     edges = score_edges(chosen, orbit, day, satellite.instruments[0])
-    for edge, values in edges.items():
-        print(
-            f"swath edge, {edge} range: median {np.median(values):.2f} km, p95 "
-            f"{np.percentile(values, 95):.2f} km",
-            flush=True,
-        )
     points = epoch_points(chosen)
     differences = score_epochs(points, satellite, day)
-    found = np.isfinite(differences)
-    epochs = summarize(differences[found])
-    print(
-        f"epochs: {int(found.sum())} of {len(points)} points observed, median "
-        f"{epochs['median']:+.3f} s, p95 {epochs['p95']:.3f} s",
-        flush=True,
-    )
     lattice = generate_points_fibonacci_lattice(POINT_SPACING)
     observed = observe_passes(lattice, chosen, day)
     ids = np.sort(observed.point_id.unique())
@@ -521,13 +526,51 @@ def validate(key, day, tle, entry, orbit, catalog, products, write) -> None:
         area = pd.DataFrame(
             list(pool.map(lambda c: score_chunk(c, day, satellite_for), chunks))
         )
-    for time_step in TIME_STEPS:
+    return {
+        "satellite": satellite,
+        "edges": edges,
+        "points": points,
+        "differences": differences,
+        "passes": passes,
+        "area": area,
+    }
+
+
+def validate(key, days, tle, entry, orbit, catalogs, write) -> None:
+    """Scores a configuration on one or more days, and writes its results if asked."""
+    results = {}
+    for day in days:
+        catalog, products = catalogs[day]
+        result = measure(key, day, entry, orbit, catalog, products)
+        if result is not None:
+            results[day] = result
+    if not results:
+        return
+    edges = {
+        edge: np.concatenate([r["edges"][edge] for r in results.values()])
+        for edge in ("near", "far")
+    }
+    for edge, values in edges.items():
         print(
-            f"swath IoU at {time_step} s over {len(area)} chunks: median "
-            f"{area[f'iou_{time_step}'].median():.5f}, p5 "
-            f"{area[f'iou_{time_step}'].quantile(0.05):.5f}",
+            f"swath edge, {edge} range: median {np.median(values):.2f} km, p95 "
+            f"{np.percentile(values, 95):.2f} km",
             flush=True,
         )
+    differences = np.concatenate([r["differences"] for r in results.values()])
+    found = np.isfinite(differences)
+    epochs = summarize(differences[found])
+    print(
+        f"epochs: {int(found.sum())} of {len(differences)} points observed, median "
+        f"{epochs['median']:+.3f} s, p95 {epochs['p95']:.3f} s",
+        flush=True,
+    )
+    counts = {
+        name: sum(r["passes"][name] for r in results.values())
+        for name in ("matched", "observed", "predicted")
+    }
+    passes = {**compute_pass_scores(**counts), **counts}
+    print(json.dumps(passes), flush=True)
+    area = pd.concat([r["area"] for r in results.values()], ignore_index=True)
     metrics = [
         {"name": "pass_recall", "value": float(passes["pass_recall"])},
         *[
@@ -538,30 +581,60 @@ def validate(key, day, tle, entry, orbit, catalog, products, write) -> None:
             }
             for edge, values in edges.items()
         ],
-        *[
+    ]
+    if area.empty:
+        print("swath IoU: no chunks of full frames", flush=True)
+    else:
+        for time_step in TIME_STEPS:
+            print(
+                f"swath IoU at {time_step} s over {len(area)} chunks: median "
+                f"{area[f'iou_{time_step}'].median():.5f}, p5 "
+                f"{area[f'iou_{time_step}'].quantile(0.05):.5f}",
+                flush=True,
+            )
+        metrics += [
             {"name": name, "value": float(value), "scope": f"time step {time_step} s"}
             for time_step in TIME_STEPS
             for name, value in (
                 ("footprint_iou_median", area[f"iou_{time_step}"].median()),
                 ("footprint_iou_p5", area[f"iou_{time_step}"].quantile(0.05)),
             )
-        ],
+        ]
+    metrics += [
         {"name": "epoch_p95", "value": float(epochs["p95"])},
         {"name": "epoch_median", "value": float(epochs["median"])},
     ]
     print(json.dumps(metrics), flush=True)
-    if not write:
-        return
+    if write:
+        write_results(key, results, tle, entry, metrics)
+
+
+def write_results(key, results, tle, entry, metrics) -> None:
+    """Writes a configuration's record and fixture."""
+    days = list(results)
+    # pooled days keep the fixture's day, to which the seconds of its passes refer
+    fixture_day = days[0]
+    if len(days) > 1:
+        with np.load(FIXTURE_PATH, allow_pickle=False) as data:
+            if data["tle"].tolist() != list(tle):
+                raise ValueError("the fixture's element set differs from the days'")
+            fixture_day = datetime.fromisoformat(str(data["day"]))
+    points = np.concatenate(
+        [
+            r["points"][np.isfinite(r["differences"])]
+            + [0, 0, (day - fixture_day).total_seconds()]
+            for day, r in results.items()
+        ]
+    )
     rng = np.random.default_rng(1)
-    fixture = points[found][
-        rng.choice(int(found.sum()), min(FIXTURE_PASSES, int(found.sum())), False)
-    ]
+    fixture = points[rng.choice(len(points), min(FIXTURE_PASSES, len(points)), False)]
     update_fixture(
         FIXTURE_PATH,
         tle=np.array(tle),
-        day=np.array(day.isoformat()),
+        day=np.array(fixture_day.isoformat()),
         **{f"passes_{key}": fixture},
     )
+    gaps = [get_holdout_gap(day, FIT_DAY) for day in days]
     update_record(
         RECORD_PATH,
         "lsar",
@@ -573,39 +646,49 @@ def validate(key, day, tle, entry, orbit, catalog, products, write) -> None:
             "source": "docs/validation/validate_catalog_lsar.py",
             "reference": "Geolocation grids, orbits, and bounding polygons of NISAR "
             "Level 1 RSLC products",
-            "period": f"{day:%Y-%m-%d}",
+            "period": ", ".join(f"{day:%Y-%m-%d}" for day in days),
             "platform": PLATFORM,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
+            "holdout_gap_days": None if None in gaps else min(gaps),
             "metrics": metrics,
-            "fixture_metrics": recompute_passes(satellite, 0, day, fixture),
+            "fixture_metrics": recompute_passes(
+                results[days[0]]["satellite"], 0, fixture_day, fixture
+            ),
         },
     )
     print(f"wrote {key} to {RECORD_PATH}")
 
 
 def main() -> None:
-    """Fits or validates the entry on a day of data."""
+    """Fits or validates the entry on one or more days of data."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
+    parser.add_argument("days", nargs="+")
     parser.add_argument("--configuration", choices=VALIDATED, action="append")
     parser.add_argument("--fit", action="store_true")
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--download-only", action="store_true")
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    catalog, products = load_day(day, arguments.directory)
+    days = [
+        datetime.fromisoformat(day).replace(tzinfo=timezone.utc)
+        for day in arguments.days
+    ]
+    catalogs = {day: load_day(day, arguments.directory) for day in days}
     if arguments.download_only:
         return
-    tle = ELEMENT_SETS[arguments.day]
+    if len({tuple(ELEMENT_SETS[day]) for day in arguments.days}) > 1:
+        raise ValueError("pooled days must share an element set")
+    tle = ELEMENT_SETS[arguments.days[0]]
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     if arguments.fit:
-        fit(products, orbit, day)
+        if len(days) > 1:
+            raise ValueError("fit on one day")
+        fit(catalogs[days[0]][1], orbit, days[0])
         return
     entry = get_entry("lsar")
-    for key in arguments.configuration or list(VALIDATED):
-        validate(key, day, tle, entry, orbit, catalog, products, arguments.write)
+    # the 77 MHz mode has its own held-out days
+    for key in arguments.configuration or ["swath_20_40mhz", "swath_5mhz"]:
+        validate(key, days, tle, entry, orbit, catalogs, arguments.write)
 
 
 if __name__ == "__main__":
