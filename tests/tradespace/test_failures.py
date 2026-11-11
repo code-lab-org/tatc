@@ -478,13 +478,15 @@ class TestManyMissions(unittest.TestCase):
     def test_simulate_many(self):
         """Histories of a replicate differ, and are the same in every design."""
         deployment = self.schedule.plan(self.layout)
-        histories = deployment.simulate_many(self.failures, RestorationPolicy(), 7, 10)
+        histories = deployment.simulate_many(
+            self.failures, RestorationPolicy(), 7, 10, sampling="random"
+        )
         self.assertEqual(len(histories), 10)
         self.assertGreater(len({tuple(h.failures) for h in histories}), 1)
         again = deployment.simulate(self.failures, RestorationPolicy(), (7, 3))
         self.assertEqual(again.failures, histories[3].failures)
         degraded = deployment.simulate_many(
-            self.failures, RestorationPolicy(restore=False), 7, 10
+            self.failures, RestorationPolicy(restore=False), 7, 10, sampling="random"
         )
         self.assertEqual(degraded[3].failures[0], histories[3].failures[0])
         self.assertEqual(
@@ -570,3 +572,121 @@ class TestManyMissions(unittest.TestCase):
             histories, self.satellites, self.observations, self._metric
         )
         np.testing.assert_allclose(direct["share mean"], missions["share mean"])
+
+
+class TestVarianceReduction(unittest.TestCase):
+    """
+    Unit tests for stratified histories and control variates.
+    """
+
+    def setUp(self):
+        self.schedule = DeploymentSchedule(years=5, development_years=1)
+        self.layout = _walker(2, 2)
+        self.failures = FailureModel(life=Exponential(0.3))
+
+    def test_lifetimes_from_uniform(self):
+        """Lives drawn from uniform numbers follow their distributions."""
+        uniform = np.array([0.05, 0.5, 0.95])
+        for life in (
+            Exponential(0.2),
+            Weibull(0.5, 30),
+            Weibull(4, 7),
+            Piecewise([0, 1, 4], [0.3, 0.05, 0.2]),
+        ):
+            lives = np.array([life.from_uniform([u]) for u in uniform])
+            np.testing.assert_allclose(1 - life.survival(lives), uniform)
+        parts = (Weibull(0.5, 30), Exponential(0.05), Weibull(5, 7))
+        bathtub = Bathtub(*parts)
+        self.assertEqual(bathtub.dimensions, 3)
+        self.assertEqual(
+            bathtub.from_uniform([0.1, 0.2, 0.3]),
+            min(part.from_uniform([u]) for part, u in zip(parts, (0.1, 0.2, 0.3))),
+        )
+        self.assertEqual(Exponential(0).from_uniform([0.5]), math.inf)
+
+    def test_strata(self):
+        """Each draw of the histories of a replicate takes each stratum once."""
+        from tatc.tradespace.mission import (
+            _Sampler,
+        )  # pylint: disable=import-outside-toplevel
+
+        count = 16
+        draws = np.array([_Sampler(3, k, count)((0, 1, 2, 0), 2) for k in range(count)])
+        for dimension in range(2):
+            strata = np.sort(np.floor(draws[:, dimension] * count).astype(int))
+            np.testing.assert_array_equal(strata, np.arange(count))
+        self.assertFalse(np.array_equal(draws[:, 0], draws[:, 1]))
+
+    def test_stratified_histories(self):
+        """Stratified histories estimate means more precisely, without bias."""
+        deployment = self.schedule.plan(self.layout)
+        estimates = {}
+        for sampling in ("random", "stratified"):
+            estimates[sampling] = np.array(
+                [
+                    np.mean(
+                        [
+                            h.metrics()["availability"]
+                            for h in deployment.simulate_many(
+                                self.failures,
+                                RestorationPolicy(restore=False),
+                                seed,
+                                20,
+                                sampling,
+                            )
+                        ]
+                    )
+                    for seed in range(40)
+                ]
+            )
+        self.assertLess(estimates["stratified"].var(), 0.5 * estimates["random"].var())
+        self.assertAlmostEqual(
+            estimates["stratified"].mean(), estimates["random"].mean(), delta=0.02
+        )
+        # common random numbers: the same failures of a slot under other policies
+        first = deployment.simulate_many(
+            self.failures, RestorationPolicy(restore=False), 1, 8
+        )
+        other = deployment.simulate_many(self.failures, RestorationPolicy(), 1, 8)
+        self.assertEqual(first[3].failures[0], other[3].failures[0])
+        with self.assertRaises(ValueError):
+            deployment.simulate_many(self.failures, None, 1, 8, sampling="antithetic")
+
+    def test_expected_metrics(self):
+        """Expected measures of a mission from many histories."""
+        deployment = self.schedule.plan(self.layout)
+        expected = deployment.expected_metrics(self.failures, histories=200)
+        self.assertTrue(0 < expected["availability"] < 1)
+        self.assertEqual(
+            deployment.expected_metrics(FailureModel(), histories=10)["availability"],
+            1.0,
+        )
+
+    def test_control_variates(self):
+        """Control variates correct means by the deviations of the controls."""
+        rng = np.random.default_rng(0)
+        estimates = {"plain": [], "controlled": []}
+        for _ in range(200):
+            x = rng.normal(0.8, 0.1, 20)
+            y = 3 * x + rng.normal(0, 0.05, 20)
+            missions = pd.DataFrame(
+                {"availability": x, "share": y, "failures": rng.poisson(2, 20)}
+            )
+            plain = summarize_missions(missions)
+            controlled = summarize_missions(missions, controls={"availability": 0.8})
+            self.assertEqual(controlled["availability"], 0.8)
+            self.assertAlmostEqual(plain["failures"], missions.failures.mean(), delta=1)
+            estimates["plain"].append(plain["share"])
+            estimates["controlled"].append(controlled["share"])
+        plain, controlled = (np.array(v) for v in estimates.values())
+        # the true mean is 3 * 0.8 = 2.4; the controls remove most of the variance
+        self.assertAlmostEqual(controlled.mean(), 2.4, delta=0.01)
+        self.assertLess(controlled.var(), 0.1 * plain.var())
+        # histories without a value are left out of the regression
+        missions = pd.DataFrame(
+            {"availability": [0.7, 0.8, 0.9, 1.0], "years": [np.nan, 1.0, 2.0, 3.0]}
+        )
+        summary = summarize_missions(missions, controls={"availability": 0.85})
+        self.assertTrue(np.isfinite(summary["years"]))
+        with self.assertRaises(ValueError):
+            summarize_missions(missions, controls={"cost": 1.0})

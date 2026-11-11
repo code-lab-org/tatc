@@ -223,6 +223,7 @@ class Deployment:
         policy: RestorationPolicy | None,
         seed: int | None,
         histories: int,
+        sampling: str = "stratified",
     ) -> list[MissionHistory]:
         """
         Simulates several histories of the mission in a replicate (see
@@ -230,6 +231,15 @@ class Deployment:
         common random numbers, the same history of the same replicate draws
         the same failures in every design. Without a seed, the one history
         without failures.
+
+        The failures of the histories are stratified by default
+        (`"stratified"`: a Latin hypercube over the histories, in which each
+        life and launch of each history draws from its own stratum of its
+        distribution, see `Lifetime.from_uniform`), which spreads the
+        histories over the distributions of the failures and estimates the
+        means of the measures of the mission more precisely than independent
+        histories (`"random"`), several times so for missions of a few
+        satellites or many, at no cost.
 
         Many histories of the failures of a replicate, whose sample of
         targets (the expensive part of an evaluation) they share, measure the
@@ -242,15 +252,48 @@ class Deployment:
                 satellites.
             seed (int | None): The seed of the replicate.
             histories (int): The number of histories.
+            sampling (str): `"stratified"` or `"random"`.
 
         Returns:
             list[MissionHistory]: the histories
         """
+        # pylint: disable=import-outside-toplevel
+        from .mission import _simulate_many
+
         if histories < 1:
             raise ValueError("histories must be at least 1")
         if seed is None:
             return [self.simulate(failures, policy, None)]
-        return [self.simulate(failures, policy, (seed, k)) for k in range(histories)]
+        return _simulate_many(self, failures, policy, seed, histories, sampling)
+
+    def expected_metrics(
+        self,
+        failures: FailureModel,
+        policy: RestorationPolicy | None = None,
+        histories: int = 1000,
+        seed: int = 0,
+        sampling: str = "stratified",
+    ) -> dict[str, float]:
+        """
+        Estimates the expected measures of the mission (see
+        `MissionHistory.metrics`, such as its `availability`) from many
+        simulated histories (see `expected_metrics`).
+
+        Args:
+            failures (FailureModel): The failures.
+            policy (RestorationPolicy | None): The policy for failed
+                satellites.
+            histories (int): The number of histories.
+            seed (int): The seed of the histories.
+            sampling (str): The sampling of their failures.
+
+        Returns:
+            dict[str, float]: the mean of each measure
+        """
+        # pylint: disable=import-outside-toplevel
+        from .mission import expected_metrics
+
+        return expected_metrics(self, failures, policy, histories, seed, sampling)
 
     def phases(self, satellites: Sequence[Satellite | str]) -> list[Phase]:
         """

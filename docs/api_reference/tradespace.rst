@@ -81,7 +81,7 @@ Deployment
    :members: plan, launches_of
 
 .. autoclass:: tatc.tradespace.Deployment
-   :members: simulate, simulate_many, planned, phases, begin, end, deployed, units
+   :members: simulate, simulate_many, expected_metrics, planned, phases, begin, end, deployed, units
 
 .. autoclass:: tatc.tradespace.Launch
 
@@ -97,7 +97,7 @@ Failures and Missions
    :members: life_of
 
 .. autoclass:: tatc.tradespace.Lifetime
-   :members: survival, hazard, cumulative_hazard, sample
+   :members: survival, hazard, cumulative_hazard, sample, from_uniform, dimensions
 
 .. autoclass:: tatc.tradespace.Exponential
 

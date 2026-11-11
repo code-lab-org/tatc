@@ -84,6 +84,27 @@ class Lifetime:
         Returns:
             float: the life
         """
+        return self.from_uniform(rng.random(self.dimensions))
+
+    @property
+    def dimensions(self) -> int:
+        """int: The uniform numbers that determine a life (see
+        `from_uniform`)."""
+        return 1
+
+    def from_uniform(self, uniform: Sequence[float]) -> float:
+        """
+        Gets the life determined by uniform numbers in [0, 1) (as many as
+        `dimensions`): the life whose cumulative distribution is the uniform
+        number (the inverse of the distribution), so that stratified
+        uniform numbers give stratified lives (see `Deployment.simulate_many`).
+
+        Args:
+            uniform (Sequence[float]): The uniform numbers.
+
+        Returns:
+            float: the life (years, infinite if the satellite never fails)
+        """
         raise NotImplementedError
 
 
@@ -110,6 +131,11 @@ class Exponential(Lifetime):
 
     def sample(self, rng):
         return math.inf if self.rate == 0 else float(rng.exponential(1 / self.rate))
+
+    def from_uniform(self, uniform):
+        if self.rate == 0:
+            return math.inf
+        return float(-math.log1p(-float(uniform[0])) / self.rate)
 
 
 @dataclass(frozen=True)
@@ -141,6 +167,10 @@ class Weibull(Lifetime):
 
     def sample(self, rng):
         return float(self.scale * rng.weibull(self.shape))
+
+    def from_uniform(self, uniform):
+        hazard = -math.log1p(-float(uniform[0]))
+        return float(self.scale * hazard ** (1 / self.shape))
 
 
 @dataclass(frozen=True)
@@ -175,6 +205,17 @@ class Bathtub(Lifetime):
 
     def sample(self, rng):
         return min((c.sample(rng) for c in self.causes), default=math.inf)
+
+    @property
+    def dimensions(self) -> int:
+        return max(sum(c.dimensions for c in self.causes), 1)
+
+    def from_uniform(self, uniform):
+        lives, start = [], 0
+        for cause in self.causes:
+            lives.append(cause.from_uniform(uniform[start : start + cause.dimensions]))
+            start += cause.dimensions
+        return min(lives, default=math.inf)
 
 
 @dataclass(frozen=True)
@@ -222,7 +263,13 @@ class Piecewise(Lifetime):
 
     def sample(self, rng):
         # the age at which the cumulative hazard reaches a unit exponential draw
-        target = float(rng.exponential(1.0))
+        return self._age_at(float(rng.exponential(1.0)))
+
+    def from_uniform(self, uniform):
+        return self._age_at(-math.log1p(-float(uniform[0])))
+
+    def _age_at(self, target: float) -> float:
+        """The age at which the cumulative hazard reaches a target."""
         cumulative = 0.0
         for start, end, rate in zip(self.breaks, self._ends(), self.rates):
             span = end - start

@@ -229,9 +229,10 @@ class _Simulation:
         failures: FailureModel,
         policy: RestorationPolicy,
         seed: int | Sequence[int] | None,
+        uniforms: Callable[[tuple, int], np.ndarray] | None = None,
     ):
         self.deployment, self.failures, self.policy = deployment, failures, policy
-        self.seed = seed
+        self.seed, self.uniforms = seed, uniforms
         self.schedule = deployment.schedule
         self.end = deployment.end
         self.history = MissionHistory(
@@ -281,11 +282,16 @@ class _Simulation:
         life = self.failures.life_of(self.deployment.planes[plane][0])
         if life is None:
             return math.inf
+        if self.uniforms is not None:
+            key = (0, plane, position, generation)
+            return life.from_uniform(self.uniforms(key, life.dimensions))
         return life.sample(self._rng(0, plane, position, generation))
 
     def _launch_fails(self, *key: int) -> bool:
         if self.seed is None or self.failures.launch == 0:
             return False
+        if self.uniforms is not None:
+            return bool(self.uniforms((1, *key), 1)[0] < self.failures.launch)
         return bool(self._rng(1, *key).random() < self.failures.launch)
 
     # --- events
@@ -773,6 +779,7 @@ def summarize_missions(
     missions: pd.DataFrame,
     quantiles: Mapping[str, float | Sequence[float]] | None = None,
     requirements: Sequence[Requirement] = (),
+    controls: Mapping[str, float] | None = None,
 ) -> dict[str, float]:
     """
     Summarizes histories of a mission (see `evaluate_missions`) as the
@@ -781,6 +788,17 @@ def summarize_missions(
     p<percent>`, such as `"accurate mean p10"` for the 0.1 quantile, the
     risk of the mission), and the share of the histories that meet each
     requirement on a column (`P(<column> <operator> <value>)`).
+
+    With `controls`, the means are estimated with control variates: columns
+    whose expected values are known (such as the `availability` of a
+    mission, which simulations alone estimate precisely and cheaply, see
+    `Deployment.expected_metrics`), and which vary with the other columns
+    from history to history. The mean of each other column is corrected by
+    the deviation of the controls' means from their expected values, times
+    the regression of the column on the controls over the histories,
+    which removes the share of its variance that the controls explain (a
+    share of `rho ** 2` for a correlation `rho`): fewer histories give the
+    same precision. The quantiles and probabilities are not corrected.
 
     The quantiles and probabilities are over the histories of a replicate,
     whose statistics over the replicates (such as their mean, see
@@ -791,12 +809,16 @@ def summarize_missions(
         missions (pandas.DataFrame): A row per history.
         quantiles (Mapping | None): The quantiles of columns, by column.
         requirements (Sequence[Requirement]): Requirements on columns.
+        controls (Mapping[str, float] | None): The expected values of
+            columns that are control variates, if any.
 
     Returns:
         dict[str, float]: the summary
     """
     numeric = missions.select_dtypes("number")
     summary = {column: float(numeric[column].mean()) for column in numeric.columns}
+    if controls:
+        summary.update(_controlled_means(numeric, controls))
     for column, values in (quantiles or {}).items():
         for q in [values] if isinstance(values, (int, float)) else values:
             summary[f"{column} p{100 * q:g}"] = float(numeric[column].quantile(q))
@@ -807,3 +829,130 @@ def summarize_missions(
         statement = f"{requirement.name} {requirement.operator} {requirement.value:g}"
         summary[f"P({statement})"] = float(np.mean(met))
     return summary
+
+
+def _controlled_means(numeric: pd.DataFrame, controls: Mapping[str, float]) -> dict:
+    """
+    Estimates the means of columns with control variates (see
+    `summarize_missions`): each column's mean less the regression of the
+    column on the controls applied to the deviations of the controls' means
+    from their expected values, over the histories in which the column and
+    the controls are known.
+    """
+    names = list(controls)
+    missing = set(names) - set(numeric.columns)
+    if missing:
+        raise ValueError(f"no columns of controls {sorted(missing)}")
+    expected = np.array([float(controls[name]) for name in names])
+    means = {name: float(value) for name, value in zip(names, expected)}
+    for column in numeric.columns:
+        if column in controls:
+            continue
+        data = numeric[[column, *names]].to_numpy(dtype=float)
+        data = data[np.all(np.isfinite(data), axis=1)]
+        if len(data) <= len(names) + 1:
+            continue
+        y, x = data[:, 0], data[:, 1:]
+        centered = x - x.mean(axis=0)
+        if not np.any(centered):
+            continue
+        beta = np.linalg.lstsq(centered, y - y.mean(), rcond=None)[0]
+        means[column] = float(y.mean() - (x.mean(axis=0) - expected) @ beta)
+    return means
+
+
+class _Sampler:
+    """
+    The uniform numbers of the failures of a history of a replicate,
+    stratified over the histories of the replicate (see
+    `Deployment.simulate_many`): a Latin hypercube in which, for each draw
+    (each life and launch), history `k` of `K` takes a uniform number in its
+    stratum of a permutation of the `K` strata of [0, 1). Each draw is keyed
+    by its key, so that the same draw of the same history of a replicate
+    takes the same number in every design (common random numbers).
+    """
+
+    def __init__(self, seed: int, index: int, histories: int):
+        self.seed, self.index, self.histories = seed, index, histories
+
+    def __call__(self, key: tuple, dimensions: int) -> np.ndarray:
+        strata = np.random.default_rng([self.seed, 1, self.histories, *key])
+        orders = [strata.permutation(self.histories) for _ in range(dimensions)]
+        jitter = np.random.default_rng([self.seed, 2, self.index, *key])
+        offsets = jitter.random(dimensions)
+        return np.array(
+            [
+                (order[self.index] + offset) / self.histories
+                for order, offset in zip(orders, offsets)
+            ]
+        )
+
+
+SAMPLINGS = ("random", "stratified")
+"""The samplings of the failures of histories (see `Deployment.simulate_many`)."""
+
+
+def _simulate_many(
+    deployment: Deployment,
+    failures: FailureModel,
+    policy: RestorationPolicy | None,
+    seed: int,
+    histories: int,
+    sampling: str,
+) -> list[MissionHistory]:
+    """
+    Simulates the histories of a replicate (see `Deployment.simulate_many`).
+    """
+    if sampling not in SAMPLINGS:
+        raise ValueError(f"sampling must be one of {SAMPLINGS}, not {sampling!r}")
+    if sampling == "random":
+        return [
+            deployment.simulate(failures, policy, (seed, k)) for k in range(histories)
+        ]
+    return [
+        _Simulation(
+            deployment,
+            failures,
+            policy or RestorationPolicy(),
+            (seed, k),
+            _Sampler(seed, k, histories),
+        ).run()
+        for k in range(histories)
+    ]
+
+
+def expected_metrics(
+    deployment: Deployment,
+    failures: FailureModel,
+    policy: RestorationPolicy | None = None,
+    histories: int = 1000,
+    seed: int = 0,
+    sampling: str = "stratified",
+) -> dict[str, float]:
+    """
+    Estimates the expected measures of a mission (see
+    `MissionHistory.metrics`, such as its `availability`) from many
+    simulated histories, without evaluating their phases: precise and
+    cheap, as the expected values of control variates (see
+    `summarize_missions`).
+
+    Args:
+        deployment (Deployment): The deployment.
+        failures (FailureModel): The failures.
+        policy (RestorationPolicy | None): The policy for failed satellites.
+        histories (int): The number of histories.
+        seed (int): The seed of the histories.
+        sampling (str): The sampling of their failures.
+
+    Returns:
+        dict[str, float]: the mean of each measure
+    """
+    rows = pd.DataFrame(
+        [
+            history.metrics()
+            for history in _simulate_many(
+                deployment, failures, policy, seed, histories, sampling
+            )
+        ]
+    )
+    return {column: float(rows[column].mean()) for column in rows.columns}
