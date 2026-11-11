@@ -2,7 +2,7 @@
   "entry_id": "atlas",
   "configurations": {
     "beam_pairs": {
-      "digest": "d9404044acf0a39764f2d82e93750b73ffc302df4c429b1db5477ce89fc5af5e",
+      "digest": "667a1dc0178e3b4c539753823f444bec26dcdf558407204a32d80344865bbd9d",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_atlas.py",
@@ -67,5 +67,5 @@
       }
     }
   },
-  "standard_version": 2
+  "standard_version": 5
 }

@@ -23,7 +23,8 @@ Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`:
     python docs/validation/validate_catalog_lsar.py <data directory> 2026-11-04
 
 Several days pool their results, as for the 77 MHz mode, of which few products are
-acquired; they share an element set, and the fixture keeps its day:
+acquired, each with its own element set; the fixture keeps the passes of the first day,
+with its element set:
 
     python docs/validation/validate_catalog_lsar.py <data directory> 2026-11-01 \
         2026-11-02 2026-11-03 2026-11-05 --configuration swath_77mhz
@@ -72,6 +73,7 @@ from validation_io import (
     get_holdout_gap,
     match_passes,
     predict_passes,
+    read_element_set_file,
     recompute_passes,
     up,
     update_fixture,
@@ -98,10 +100,25 @@ ELEMENT_SETS = {
     ],
 }
 # the 77 MHz mode's held-out days, pooled, whose products became available on
-# 2026-11-09 and 10, with the element set of 2026-11-04 (epoch 2026-11-08), the only
-# public one of these days at hand
-for _day in ("2026-11-01", "2026-11-02", "2026-11-03", "2026-11-05"):
-    ELEMENT_SETS[_day] = ELEMENT_SETS["2026-11-04"]
+# 2026-11-09 and 10, each with the element set nearest the middle of the day from
+# docs/validation/nisar_2026-11-01.3le (they were first tested with the element set of
+# 2026-11-04 above, whose epoch is 3 to 7 days after them)
+POOLED_DAYS = ("2026-11-01", "2026-11-02", "2026-11-03", "2026-11-05")
+ELEMENT_SET_FILE = pathlib.Path(__file__).parent / "nisar_2026-11-01.3le"
+NORAD_ID = 65053
+
+
+def get_element_set(day: str) -> list[str]:
+    """Gets the element set with which a day of data is tested."""
+    if day in POOLED_DAYS:
+        return read_element_set_file(
+            ELEMENT_SET_FILE,
+            NORAD_ID,
+            datetime.fromisoformat(day).replace(tzinfo=timezone.utc),
+        )
+    return ELEMENT_SETS[day]
+
+
 # groups of modes, by the bandwidth codes of the product names, whose swaths differ: the
 # modes with a 20 or 40 MHz band, those with only a 5 MHz band, and the 77 MHz mode
 CONFIGURATIONS = ("swath_20_40mhz", "swath_5mhz", "swath_77mhz")
@@ -536,11 +553,12 @@ def measure(key, day, entry, orbit, catalog, products) -> dict | None:
     }
 
 
-def validate(key, days, tle, entry, orbit, catalogs, write) -> None:
+def validate(key, days, tles, entry, catalogs, write) -> None:
     """Scores a configuration on one or more days, and writes its results if asked."""
     results = {}
     for day in days:
         catalog, products = catalogs[day]
+        orbit = GeneralPerturbationsOrbit.from_tle(tles[day])
         result = measure(key, day, entry, orbit, catalog, products)
         if result is not None:
             results[day] = result
@@ -606,33 +624,29 @@ def validate(key, days, tle, entry, orbit, catalogs, write) -> None:
     ]
     print(json.dumps(metrics), flush=True)
     if write:
-        write_results(key, results, tle, entry, metrics)
+        write_results(key, results, tles, entry, metrics)
 
 
-def write_results(key, results, tle, entry, metrics) -> None:
+def write_results(key, results, tles, entry, metrics) -> None:
     """Writes a configuration's record and fixture."""
     days = list(results)
-    # pooled days keep the fixture's day, to which the seconds of its passes refer
+    # the passes of the first day, with its element set: shared by the
+    # configurations of a single day, and kept apart for pooled days, whose element
+    # sets differ
     fixture_day = days[0]
-    if len(days) > 1:
-        with np.load(FIXTURE_PATH, allow_pickle=False) as data:
-            if data["tle"].tolist() != list(tle):
-                raise ValueError("the fixture's element set differs from the days'")
-            fixture_day = datetime.fromisoformat(str(data["day"]))
-    points = np.concatenate(
-        [
-            r["points"][np.isfinite(r["differences"])]
-            + [0, 0, (day - fixture_day).total_seconds()]
-            for day, r in results.items()
-        ]
-    )
+    points = results[fixture_day]["points"][
+        np.isfinite(results[fixture_day]["differences"])
+    ]
     rng = np.random.default_rng(1)
     fixture = points[rng.choice(len(points), min(FIXTURE_PASSES, len(points)), False)]
+    suffix = f"_{key}" if len(days) > 1 else ""
     update_fixture(
         FIXTURE_PATH,
-        tle=np.array(tle),
-        day=np.array(fixture_day.isoformat()),
-        **{f"passes_{key}": fixture},
+        **{
+            f"tle{suffix}": np.array(tles[fixture_day]),
+            f"day{suffix}": np.array(fixture_day.isoformat()),
+            f"passes_{key}": fixture,
+        },
     )
     gaps = [get_holdout_gap(day, FIT_DAY) for day in days]
     update_record(
@@ -676,19 +690,22 @@ def main() -> None:
     catalogs = {day: load_day(day, arguments.directory) for day in days}
     if arguments.download_only:
         return
-    if len({tuple(ELEMENT_SETS[day]) for day in arguments.days}) > 1:
-        raise ValueError("pooled days must share an element set")
-    tle = ELEMENT_SETS[arguments.days[0]]
-    orbit = GeneralPerturbationsOrbit.from_tle(tle)
+    tles = {day: get_element_set(name) for day, name in zip(days, arguments.days)}
+    for day, tle in tles.items():
+        print(f"{day:%Y-%m-%d}: element set {tle[0][18:32]}", flush=True)
     if arguments.fit:
         if len(days) > 1:
             raise ValueError("fit on one day")
-        fit(catalogs[days[0]][1], orbit, days[0])
+        fit(
+            catalogs[days[0]][1],
+            GeneralPerturbationsOrbit.from_tle(tles[days[0]]),
+            days[0],
+        )
         return
     entry = get_entry("lsar")
     # the 77 MHz mode has its own held-out days
     for key in arguments.configuration or ["swath_20_40mhz", "swath_5mhz"]:
-        validate(key, days, tle, entry, orbit, catalogs, arguments.write)
+        validate(key, days, tles, entry, catalogs, arguments.write)
 
 
 if __name__ == "__main__":

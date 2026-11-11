@@ -37,6 +37,8 @@ class _PushbroomFixture:
     platform: str
     configuration: str = "swath"
     passes_key: str = "passes"
+    tle_key: str = "tle"
+    day_key: str = "day"
     instrument_index: int | None = 0
     time_step: float = TIME_STEP
 
@@ -45,10 +47,10 @@ class _PushbroomFixture:
         with np.load(FIXTURES / f"{cls.entry_id}.npz", allow_pickle=False) as data:
             cls.data = {key: data[key] for key in data.files}
         cls.entry = get_entry(cls.entry_id)
-        cls.day = datetime.fromisoformat(str(cls.data["day"]))
+        cls.day = datetime.fromisoformat(str(cls.data[cls.day_key]))
         # the day is the period of the analysis, for a schedule of the attitude
         cls.satellite = cls.entry.to_satellite(
-            GeneralPerturbationsOrbit.from_tle(cls.data["tle"].tolist()),
+            GeneralPerturbationsOrbit.from_tle(cls.data[cls.tle_key].tolist()),
             cls.configuration,
             time_step=cls.time_step,
             platform=cls.platform,
@@ -235,14 +237,16 @@ class TestLsarNarrowBandFixture(_PushbroomFixture, unittest.TestCase):
 
 class TestLsar77MhzFixture(_PushbroomFixture, unittest.TestCase):
     """
-    Regression tests of the L-SAR entry's 77 MHz mode, whose passes, from several
-    days, are timed from the fixture's day.
+    Regression tests of the L-SAR entry's 77 MHz mode, tested on several days, whose
+    fixture keeps the passes of the first with its element set.
     """
 
     entry_id = "lsar"
     platform = "nisar"
     configuration = "swath_77mhz"
     passes_key = "passes_swath_77mhz"
+    tle_key = "tle_swath_77mhz"
+    day_key = "day_swath_77mhz"
 
 
 if __name__ == "__main__":

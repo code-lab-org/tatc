@@ -769,8 +769,8 @@ class TestEntryStatus(unittest.TestCase):
         Test that the L-SAR entry is partial: its modes with a 20 or 40 MHz band miss
         the near-range edges, those with only a 5 MHz band miss a point of a small
         sample, and both fail the swath area at long time steps. The 77 MHz mode,
-        tested on four pooled days with an element set of a later day, fails its
-        epochs, and its swath area is not tested, as its frames are partial.
+        tested on four pooled days with an element set of each day, passes every
+        gate tested, but its swath area is not tested, as its frames are partial.
         """
         entry = get_entry("lsar")
         self.assertEqual(entry.validation.tier, Tier.PARTIAL)
@@ -791,11 +791,7 @@ class TestEntryStatus(unittest.TestCase):
                     "footprint_iou_median",
                     "footprint_iou_p5",
                 ],
-                "swath_77mhz": [
-                    "footprint_iou_median",
-                    "footprint_iou_p5",
-                    "epoch_p95",
-                ],
+                "swath_77mhz": ["footprint_iou_median", "footprint_iou_p5"],
             },
         )
         self.assertEqual(
