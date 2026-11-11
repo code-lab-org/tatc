@@ -658,6 +658,15 @@ class TestEcostressFixture(_StepSwathFixture, unittest.TestCase):
     platform = "iss"
 
 
+class TestEmitFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the EMIT entry, on the International Space Station.
+    """
+
+    entry_id = "emit"
+    platform = "iss"
+
+
 class TestPoseidon4Fixture(_StepSwathFixture, unittest.TestCase):
     """
     Regression tests of the Poseidon-4 entry's nadir view.

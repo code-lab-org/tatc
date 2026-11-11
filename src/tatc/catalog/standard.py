@@ -13,13 +13,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-STANDARD_VERSION = 3
+STANDARD_VERSION = 5
 """The version of the thresholds in `get_gates`."""
 
-COMPATIBLE_VERSIONS = (1, 2, 3)
+COMPATIBLE_VERSIONS = (1, 2, 3, 4, 5)
 """
-Versions whose results still apply: version 2 only added the lidar class, and
-version 3 the altimeter class.
+Versions whose results still apply: version 2 only added the lidar class, version 3
+the altimeter class, version 4 the scatterometer class, and version 5 the regional
+geostationary class.
 """
 
 MIN_HOLDOUT_GAP_DAYS = 30
@@ -36,8 +37,10 @@ class InstrumentClass(str, Enum):
     CONICAL = "conical"
     SAR = "sar"
     GEOSTATIONARY = "geostationary"
+    GEOSTATIONARY_REGIONAL = "geostationary_regional"
     LIDAR = "lidar"
     ALTIMETER = "altimeter"
+    SCATTEROMETER = "scatterometer"
 
 
 class Grade(str, Enum):
@@ -109,6 +112,9 @@ _BEAM_SPACING = Gate("beam_spacing_error_median", 0.2, True, "km")
 # version 3: the distance across track of a nadir altimeter's measurements from the
 # predicted ground track
 _TRACK_OFFSET = Gate("track_offset_median", 0.5, True, "km")
+# version 5: the intersection over union of a geostationary instrument's predicted
+# field of regard with the area imaged in a scan of a region
+_FIELD_OF_REGARD_IOU = Gate("field_of_regard_iou", 0.95, False, "")
 
 # gates that do not depend on the epoch accuracy of a grade
 _SWEEP_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
@@ -124,6 +130,14 @@ _SWEEP_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
     # products of nadir altimeters omit measurements by surface and quality, so
     # predicted measurements that were not made are not errors (no precision gate)
     InstrumentClass.ALTIMETER: (_SEGMENT_RECALL, _TRACK_OFFSET),
+    # version 4: side-looking swaths, as for SAR; wind products omit land and sea
+    # ice, so predicted passes that were not measured are not errors (no precision)
+    InstrumentClass.SCATTEROMETER: (
+        _PASS_RECALL,
+        _SWATH_EDGE,
+        _IOU_SAR,
+        _IOU_SAR_LOW,
+    ),
 }
 _SAMPLE_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
     InstrumentClass.CROSS_TRACK: (_SAMPLE_SIZE, _PIXEL_POSITION),
@@ -149,6 +163,12 @@ def get_gates(instrument_class: InstrumentClass, grade: Grade) -> tuple[Gate, ..
         if grade != Grade.COVERAGE:
             raise ValueError("geostationary instruments have only a coverage grade")
         return (_PRODUCT_LIMIT,)
+    if instrument_class == InstrumentClass.GEOSTATIONARY_REGIONAL:
+        if grade != Grade.COVERAGE:
+            raise ValueError(
+                "regional geostationary instruments have only a coverage grade"
+            )
+        return (_FIELD_OF_REGARD_IOU,)
     if grade == Grade.SAMPLE_SIZE:
         if instrument_class not in _SAMPLE_GATES:
             raise ValueError(f"{instrument_class.value} has no sample_size grade")

@@ -1,6 +1,7 @@
 """
-Regression tests that recompute the results of the ICESat-2 ATLAS entry from a reduced
-fixture, written by `docs/validation/validate_catalog_atlas.py`.
+Regression tests that recompute the results of the lidar entries (ICESat-2 ATLAS and
+GEDI) from reduced fixtures, written by `docs/validation/validate_catalog_atlas.py`
+and `docs/validation/validate_catalog_gedi.py`.
 
 These detect changes in TAT-C's results without network access. They do not themselves
 establish agreement with the reference data, which the script does.
@@ -20,21 +21,25 @@ from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 
-FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "atlas.npz"
+FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 MAX_FIXTURE_BYTES = 200e3
 
 
-class TestAtlasFixture(unittest.TestCase):
+class _LidarFixture:
     """
-    Regression tests of the ATLAS entry: beam segments sampled over Antarctica, each
-    tested against the view of its pair of beams.
+    Tests shared by the lidar entries: segments or shots, each tested against the view
+    of its beam or pair of beams.
     """
+
+    entry_id: str
+    configuration: str
+    platform: str
 
     @classmethod
     def setUpClass(cls):
-        with np.load(FIXTURE, allow_pickle=False) as data:
+        with np.load(FIXTURES / f"{cls.entry_id}.npz", allow_pickle=False) as data:
             cls.data = {key: data[key] for key in data.files}
-        cls.entry = get_entry("atlas")
+        cls.entry = get_entry(cls.entry_id)
         cls.orbit = GeneralPerturbationsOrbit.from_tle(cls.data["tle"].tolist())
         cls.day = datetime.fromisoformat(str(cls.data["day"]))
 
@@ -42,15 +47,16 @@ class TestAtlasFixture(unittest.TestCase):
         """
         Test that the fixture stays small, as it is part of the repository.
         """
-        self.assertLess(FIXTURE.stat().st_size, MAX_FIXTURE_BYTES)
+        size = (FIXTURES / f"{self.entry_id}.npz").stat().st_size
+        self.assertLess(size, MAX_FIXTURE_BYTES)
 
     def test_segments(self):
         """
-        Test that the recorded segments are observed by their pairs' views, with the
+        Test that the recorded segments are observed by their views, with the
         recorded epochs.
         """
         satellite = self.entry.to_satellite(
-            self.orbit, "beam_pairs", time_step=1, platform="icesat-2"
+            self.orbit, self.configuration, time_step=1, platform=self.platform
         )
         differences = []
         for latitude, longitude, seconds, pair in self.data["passes"]:
@@ -72,7 +78,7 @@ class TestAtlasFixture(unittest.TestCase):
             )
         differences = np.array(differences, dtype=float)
         found = np.isfinite(differences)
-        recorded = self.entry.record.configurations["beam_pairs"].fixture_metrics
+        recorded = self.entry.record.configurations[self.configuration].fixture_metrics
         self.assertEqual(100 * float(found.mean()), recorded["passes_found"])
         self.assertAlmostEqual(
             float(summarize(differences[found])["p95"]),
@@ -80,13 +86,12 @@ class TestAtlasFixture(unittest.TestCase):
             places=4,
         )
 
-    def test_pairs_ordered_left_to_right(self):
+    def test_views_ordered_left_to_right(self):
         """
-        Test that the views of the pairs are ordered from left to right, without gaps
-        between them.
+        Test that the views are ordered from left to right, without gaps between them.
         """
         satellite = self.entry.to_satellite(
-            self.orbit, "beam_pairs", time_step=1, platform="icesat-2"
+            self.orbit, self.configuration, time_step=1, platform=self.platform
         )
         rolls = [i.roll_angle for i in satellite.instruments]
         self.assertEqual(rolls, sorted(rolls, reverse=True))
@@ -95,6 +100,28 @@ class TestAtlasFixture(unittest.TestCase):
                 left.roll_angle - left.cross_track_field_of_view / 2,
                 right.roll_angle + right.cross_track_field_of_view / 2,
             )
+
+
+class TestAtlasFixture(_LidarFixture, unittest.TestCase):
+    """
+    Regression tests of the ATLAS entry: beam segments sampled over Antarctica, each
+    tested against the view of its pair of beams.
+    """
+
+    entry_id = "atlas"
+    configuration = "beam_pairs"
+    platform = "icesat-2"
+
+
+class TestGediFixture(_LidarFixture, unittest.TestCase):
+    """
+    Regression tests of the GEDI entry: shots where GEDI points near nadir, each
+    tested against the view of its beam.
+    """
+
+    entry_id = "gedi"
+    configuration = "beams"
+    platform = "iss"
 
 
 if __name__ == "__main__":

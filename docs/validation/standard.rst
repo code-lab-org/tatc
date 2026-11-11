@@ -7,7 +7,7 @@ entry must show before it is called validated, so that entries can be compared
 and the claim means the same for each. An entry's tier is computed from its
 results and these thresholds, and cannot be declared.
 
-This is version 3 of the standard. The thresholds of version 1 were drafted from
+This is version 5 of the standard. The thresholds of version 1 were drafted from
 the earlier results below, so they can show little about those instruments. They
 were frozen before validating instruments new to TAT-C, which are their first real
 test. Changing a threshold requires a new version and a stated reason here.
@@ -37,6 +37,19 @@ Versions
        than in a swath. No threshold of earlier versions changed, so their results
        still apply. The altimeter gates mirror the lidar gates and were frozen
        before any altimeter data were analyzed.
+   * - 4
+     - Adds the scatterometer class, for real-aperture scatterometers (Metop ASCAT),
+       which observe swaths beside a nadir gap but are not SAR. Its gates are those
+       of the SAR class, so that a class filter does not mix the two. No threshold
+       of earlier versions changed, so their results still apply. The gates were
+       adopted before any scatterometer data were analyzed.
+   * - 5
+     - Adds the regional geostationary class, for geostationary instruments that
+       scan a fixed region rather than the Earth's disk (TEMPO), whose fields of
+       regard a local zenith angle does not bound. Its gate is the intersection over
+       union of the predicted field of regard with the area imaged in a scan, at
+       least 0.95, as for swaths. No threshold of earlier versions changed, so their
+       results still apply. The gate was frozen before any TEMPO data were analyzed.
 
 Rules
 =====
@@ -120,7 +133,7 @@ rather than a swath:
      - Cross-track
      - Pushbroom
      - Conical
-     - SAR
+     - SAR, scatterometer
      - Geostationary
    * - Pass recall
      - ≥ 99%
@@ -188,11 +201,17 @@ rather than a swath:
      -
      -
      - ≤ 0.5 deg
+   * - Field of regard IoU with the area imaged in a scan (regional geostationary)
+     -
+     -
+     -
+     -
+     - ≥ 0.95
 
 Pushbroom imagers, SAR, and lidar have no precision gate because they acquire or
 point according to plans, so a predicted observation that was not made is not an
 error of geometry. Nor do altimeters, whose products omit measurements by surface
-and quality.
+and quality, or scatterometers, whose wind products omit land and sea ice.
 
 Back-Test
 =========

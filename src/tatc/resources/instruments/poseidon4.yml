@@ -9,6 +9,11 @@ platforms:
     norad_id: 46984
     status: operational
     as_of: 2026-11-09
+  - id: sentinel-6b
+    name: Sentinel-6B
+    norad_id: 66514
+    status: operational
+    as_of: 2026-11-09
 data_products:
   - name: Sentinel-6A Level 2 low-resolution near-real-time reduced product (JASON_CS_S6A_L2_ALT_LR_RED_OST_NRT_F)
     provider: NASA PO.DAAC
@@ -45,3 +50,4 @@ configurations:
 limitations:
   - The measurements' positions are the satellite's nadir, so the track offset tests the element set as much as the view.
   - The view observes everywhere along the ground track, whereas products omit measurements by surface and quality.
+  - On Sentinel-6B, recorded as a transfer (JASON_CS_S6B_L2_ALT_LR_RED_OST_NRT_G, 2026-11-08, with a public element set), every sampled measurement was within the view at its time, with the track within 0.107 km (median) and epochs within 0.11 s (95th percentile). Using the configuration on Sentinel-6B warns, as for any platform on which it was not validated.

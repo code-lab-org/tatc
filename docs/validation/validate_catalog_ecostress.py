@@ -17,7 +17,8 @@ requests (about 5 GB a day), and every 50th sample (and the last). The fit of
 2026-10-04 read every fourth scene instead.
 
     python docs/validation/validate_catalog_ecostress.py <data directory> 2026-10-04 --fit
-    python docs/validation/validate_catalog_ecostress.py <data directory> 2026-11-07
+    python docs/validation/validate_catalog_ecostress.py <data directory> 2026-10-04 --fit-view
+    python docs/validation/validate_catalog_ecostress.py <data directory> 2026-11-08
 
 ECOSTRESS images scenes over land and coastal waters, whose gaps are not compared.
 
@@ -46,6 +47,7 @@ from gesdisc_scanner import (
     Setup,
     find_granules,
     fit,
+    fit_view,
     fit_yaw,
     validate_swath,
 )
@@ -58,6 +60,10 @@ ELEMENTS = {
     "2026-11-07": (
         "1 25544U 98067A   26313.20747964  .00008201  00000+0  15534-3 0  9995",
         "2 25544  51.6321 302.4538 0007297   5.2479 354.8585 15.49270212594231",
+    ),
+    "2026-11-08": (
+        "1 25544U 98067A   26314.17503267  .00009346  00000+0  17575-3 0  9996",
+        "2 25544  51.6322 297.6644 0007292   8.9462 351.1656 15.49289712594382",
     ),
 }
 GEOLOCATION = Product(
@@ -181,6 +187,11 @@ def main() -> None:
     parser.add_argument("day")
     parser.add_argument("--fit", action="store_true")
     parser.add_argument("--write", action="store_true")
+    parser.add_argument(
+        "--fit-view",
+        action="store_true",
+        help="center the view in TAT-C's frame, with the entry's yaw and pitch",
+    )
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
@@ -192,6 +203,10 @@ def main() -> None:
         f"{len(reference.gaps)} gaps over a minute",
         flush=True,
     )
+    if arguments.fit_view:
+        attitude = get_entry("ecostress").configurations["swath"].attitude
+        fit_view(reference, "inertial", attitude["yaw_angle"], attitude["pitch_angle"])
+        return
     if arguments.fit:
         for frame in ("inertial", "earth_fixed"):
             fit(reference, frame)

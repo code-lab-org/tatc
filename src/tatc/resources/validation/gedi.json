@@ -1,0 +1,71 @@
+{
+  "entry_id": "gedi",
+  "configurations": {
+    "beams": {
+      "digest": "c3a0b66369a92f24d8b87b58ede804c777f2d1016383cfb33d58c28ac3f2d571",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_gedi.py",
+      "reference": "GEDI01_B version 003 (every 200th shot, where the beams' center lies within 1 deg of nadir)",
+      "period": "2026-06-08",
+      "platform": "iss",
+      "holdout_gap_days": 38,
+      "metrics": [
+        {
+          "name": "segment_recall",
+          "value": 99.55000000000001,
+          "scope": "time step 1 s"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.543105028,
+          "scope": "time step 1 s"
+        },
+        {
+          "name": "epoch_median",
+          "value": 1.136048875,
+          "scope": "time step 1 s"
+        },
+        {
+          "name": "segment_recall",
+          "value": 99.55000000000001,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.543105028,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "epoch_median",
+          "value": 1.136048875,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "segment_recall",
+          "value": 99.55000000000001,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.543105028,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "epoch_median",
+          "value": 1.136048875,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "beam_spacing_error_median",
+          "value": 0.026380082429530827
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 1.5583851070999999
+      }
+    }
+  },
+  "standard_version": 5
+}
