@@ -257,12 +257,12 @@ class TestCostSchedule(unittest.TestCase):
         }
         self.layout = _walker(planes=3, per_plane=4)
 
-    def _estimate(self, **schedule):
+    def _estimate(self, layout=None, **schedule):
         model = CostModel(**self.terms, schedule=CostSchedule(**schedule))
-        return model.estimate(self.layout)
+        return model.estimate(self.layout if layout is None else layout)
 
     def test_undiscounted(self):
-        """Without discounting or intervals, dated costs are the estimate's."""
+        """Without rates, intervals, or discounting, dated costs are the estimate's."""
         nominal = CostModel(**self.terms).estimate(self.layout)
         dated = self._estimate()
         for element in ("development", "production", "launch", "operations"):
@@ -270,7 +270,9 @@ class TestCostSchedule(unittest.TestCase):
         self.assertAlmostEqual(dated.present_value, nominal.total)
         self.assertEqual(dated.units, nominal.units)
         self.assertEqual(dated.launches, nominal.launches)
+        self.assertEqual(dated.deployments, [(3.0, 4)] * 3)
         self.assertIsNone(nominal.present_value)
+        self.assertIsNone(nominal.deployed)
         self.assertNotIn("cost present", nominal.metrics())
 
     def test_present_value(self):
@@ -287,25 +289,61 @@ class TestCostSchedule(unittest.TestCase):
         self.assertAlmostEqual(metrics["cost present"], dated.present_value)
         self.assertLess(metrics["cost present"], metrics["cost"])
 
-    def test_deployment_plan(self):
-        """Planes deployed at intervals are launched later and operated less."""
-        dated = self._estimate(development_years=2, deployment_interval=1)
-        launches = [(t, a) for t, element, a in dated.flows if element == "launch"]
-        # 3 planes a year apart, and their replacements 3 years later
-        self.assertEqual([t for t, _ in launches], [2, 3, 4, 5, 6, 7])
-        # the second and third planes miss 1 and 2 years of 4 satellites
+    def test_production_rate(self):
+        """A production line deploys planes as their satellites are built."""
+        dated = self._estimate(development_years=2, production_rate=8)
+        # 4 satellites a plane at 8 a year: ready every half year
+        self.assertEqual([time for time, _ in dated.deployments], [2.5, 3.0, 3.5])
+        self.assertAlmostEqual(dated.deployed, 3.5)
+        production = [f for f in dated.flows if f[1] == "production"]
+        self.assertAlmostEqual(production[0][0], 2.25)  # middle of [2, 2.5)
+        self.assertAlmostEqual(production[0][2], self.terms["satellites"].production(4))
+        # more satellites take longer to deploy
+        larger = self._estimate(
+            _walker(planes=3, per_plane=6), development_years=2, production_rate=8
+        )
+        self.assertGreater(larger.deployed, dated.deployed)
+
+    def test_launch_cadence(self):
+        """Launches are at least an interval apart, a plane taking several."""
+        dated = self._estimate(development_years=2, launch_interval=1)
+        launches = sorted(t for t, element, _ in dated.flows if element == "launch")
+        # 2 launches of each plane (a capacity of 3 satellites), a year apart,
+        # and the replacements 3 years later of those before the end of the
+        # mission (6 years after the first launch, at year 8)
+        self.assertEqual(launches, [2, 3, 4, 5, 5, 6, 6, 7, 7])
+        self.assertEqual([time for time, _ in dated.deployments], [2, 4, 6])
+        self.assertEqual(dated.launches, 6 + 3)
+        # satellites launched later are operated for less of the mission
         nominal = CostModel(**self.terms).estimate(self.layout)
-        self.assertAlmostEqual(dated.operations, nominal.operations - 4 * (1 + 2))
-        # production is paid in the year before each deployment, units in order
-        production = [
-            (t, a) for t, element, a in dated.flows if element == "production"
-        ]
-        self.assertEqual(production[0][0], 1.5)
-        self.assertAlmostEqual(production[0][1], self.terms["satellites"].production(4))
+        self.assertLess(dated.operations, nominal.operations)
+        expected = 5 * 6 + sum(2 * (8 - t) for t in [2, 3, 4, 5, 6, 7])
+        self.assertAlmostEqual(dated.operations, expected)
+
+    def test_development_by_type(self):
+        """Types of satellites are developed over their own durations."""
+        model = CostModel(
+            {
+                "new": SatelliteCost(development=50, first_unit=5, development_years=5),
+                "heritage": SatelliteCost(development=10, first_unit=5),
+            },
+            schedule=CostSchedule(development_years=2),
+        )
+        dated = model.estimate(
+            {
+                "new": _walker(planes=1, per_plane=2),
+                "heritage": _walker(planes=1, per_plane=2),
+            }
+        )
+        self.assertEqual(sorted(dated.deployments), [(2.0, 2), (5.0, 2)])
+        development = [f for f in dated.flows if f[1] == "development"]
+        self.assertEqual(max(time for time, *_ in development), 4.5)
+        with self.assertRaises(ValueError):
+            SatelliteCost(development_years=-1)
 
     def test_annual(self):
         """Annual costs add to the total, and their peak is a metric."""
-        dated = self._estimate(development_years=2, deployment_interval=1)
+        dated = self._estimate(development_years=2, launch_interval=1)
         annual = dated.annual()
         self.assertAlmostEqual(annual["total"].sum(), dated.total)
         self.assertEqual(list(annual.index), list(range(0, 8)))
@@ -324,7 +362,10 @@ class TestCostSchedule(unittest.TestCase):
             grown.present["development"], 2 * base.present["development"]
         )
         self.assertAlmostEqual(grown.present["launch"], base.present["launch"])
-        with self.assertRaises(ValueError):
-            CostSchedule(production_lead=-1)
-        with self.assertRaises(ValueError):
-            CostSchedule(discount_rate=-1)
+        for invalid in (
+            {"production_rate": 0},
+            {"launch_interval": -1},
+            {"discount_rate": -1},
+        ):
+            with self.assertRaises(ValueError):
+                CostSchedule(**invalid)

@@ -14,12 +14,21 @@ constant-year amounts. Cost risk enters as uncertain growth factors (see
 parameters, so that statistics of the cost over replicates (such as a 0.7
 `Quantile`) are objectives or requirements.
 
-An optional schedule (`CostSchedule`) dates the costs: development before
-the first launch, the production of each plane's satellites before it is
-deployed, the deployment of planes at intervals (and of replacements at the
-end of their design life), and operations from deployment to the end of the
-mission. The dated costs give the present value of the cost at a discount
-rate, and the cost of each year (such as its peak, for annual budgets).
+An optional schedule (`CostSchedule`) dates the costs from rates, so that
+each design's schedule follows from its satellites and planes: development
+of each type of satellite, the production of its satellites on a line at a
+production rate, launches at a cadence as satellites are ready, replacements
+at the end of their design life, and operations from launch to the end of
+the mission. The dated costs give the present value of the cost at a
+discount rate, and the cost of each year (such as its peak, for annual
+budgets). A schedule that is itself a decision (such as the launch cadence)
+is a design variable, with the model built for each design::
+
+    def evaluate(built):
+        d, satellites = built
+        schedule = dataclasses.replace(SCHEDULE, launch_interval=d.launch_interval)
+        model = dataclasses.replace(MODEL, schedule=schedule)
+        return model.estimate(d.layout).metrics()
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -80,18 +89,23 @@ class SatelliteCost:
         first_unit (float): The recurring cost of the first unit.
         learning_rate (float): The learning rate, in (0, 1].
         mass (float | None): The mass (kg), for launches priced by mass.
+        development_years (float | None): The duration of its development,
+            with a schedule (see `CostSchedule`), if not the schedule's.
     """
 
     development: float = 0.0
     first_unit: float = 0.0
     learning_rate: float = 1.0
     mass: float | None = None
+    development_years: float | None = None
 
     def __post_init__(self):
         if not 0 < self.learning_rate <= 1:
             raise ValueError("learning_rate must be in (0, 1]")
         if self.development < 0 or self.first_unit < 0:
             raise ValueError("costs must not be negative")
+        if self.development_years is not None and self.development_years < 0:
+            raise ValueError("development_years must not be negative")
 
     def production(self, units: int) -> float:
         """
@@ -179,49 +193,72 @@ class OperationsCost:
 @dataclass(frozen=True)
 class CostSchedule:
     """
-    A schedule of the costs of a constellation, and the discount rate of
-    their present value.
+    A schedule of the costs of a constellation, from rates, and the discount
+    rate of their present value.
 
-    Times are in years from the start of development, which begins
-    `start` years after the present (the date of present values).
-    Development spreads its cost evenly over `development_years`, at the end
-    of which the first plane is deployed; the others follow at intervals of
-    `deployment_interval` (in the order of the layouts' planes), and their
-    replacements at the end of each design life. The satellites of each
-    deployment (units, in the order of the learning curve) are paid for
-    evenly over the `production_lead` before it, and its launch when it is
-    deployed. Operations cost a fixed amount in each year of the mission
-    (its `years` after the first deployment), and each satellite from its
-    deployment to the end of the mission. Costs spread over a period are
-    dated at the middle of each of its years.
+    Times are in years from the start of development, which begins `start`
+    years after the present (the date of present values). The schedule of a
+    design follows from its satellites and planes:
 
-    A cost at time `t` has a present value of `cost / (1 + discount_rate)
-    ** (start + t)`.
+    * Each type of satellite is developed over `development_years` (or its
+      own, see `SatelliteCost`), its cost spread evenly.
+    * Its satellites are then produced on one line, in the order of the
+      planes, at `production_rate` satellites a year (or at once, if
+      `None`), each plane's paid for evenly while they are produced.
+    * Planes are launched in the order they are ready, at most one launch
+      every `launch_interval` years: a plane of several dedicated launches
+      (see `LaunchCost`) takes several, and its satellites are spread over
+      them. A launch is paid for when it flies.
+    * The mission lasts `years` (see `CostModel`) from the first launch.
+      Each satellite is replaced at the end of its design life (if before
+      the end of the mission), its replacement produced at the production
+      rate just before it is needed and launched then.
+    * Operations cost a fixed amount in each year of the mission, and each
+      satellite from its launch to the end of the mission.
+
+    Costs spread over a period are dated at the middle of each of its
+    years. A cost at time `t` has a present value of `cost / (1 +
+    discount_rate) ** (start + t)`.
 
     Args:
         discount_rate (float): The annual discount rate (such as 0.03).
-        development_years (float): The duration of development, before the
-            first deployment.
-        production_lead (float): The duration of the production of the
-            satellites of a deployment, before it.
-        deployment_interval (float): The years between the deployments of
-            successive planes.
+        development_years (float): The duration of development, before
+            production.
+        production_rate (float | None): The satellites of each type produced
+            a year, or `None` for production that takes no time.
+        launch_interval (float): The least time (years) between launches.
         start (float): The years from the present to the start of
             development.
     """
 
     discount_rate: float = 0.0
     development_years: float = 3.0
-    production_lead: float = 1.0
-    deployment_interval: float = 0.0
+    production_rate: float | None = None
+    launch_interval: float = 0.0
     start: float = 0.0
 
     def __post_init__(self):
         if self.discount_rate <= -1:
             raise ValueError("discount_rate must be greater than -1")
-        for name in ("development_years", "production_lead", "deployment_interval"):
+        for name in ("development_years", "launch_interval"):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must not be negative")
+        if self.production_rate is not None and self.production_rate <= 0:
+            raise ValueError("production_rate must be positive")
+
+    def producing(self, satellites: int) -> float:
+        """
+        Gets the time to produce satellites on one line.
+
+        Args:
+            satellites (int): The number of satellites.
+
+        Returns:
+            float: the time (years)
+        """
+        return (
+            0.0 if self.production_rate is None else satellites / self.production_rate
+        )
 
     def discount(self, time: float) -> float:
         """
@@ -277,6 +314,16 @@ class CostEstimate:
     (years from the start of development), element, and amount of each."""
     present: dict[str, float] | None = None
     """dict | None: The present value of each element, with a schedule."""
+    deployments: list[tuple[float, int]] = field(default_factory=list)
+    """list: The launches of the first satellites of the planes, with a
+    schedule: the time (years from the start of development) and number of
+    satellites of each."""
+
+    @property
+    def deployed(self) -> float | None:
+        """float | None: The time (years from the start of development) by
+        which every plane is deployed, with a schedule."""
+        return max((time for time, _ in self.deployments), default=None)
 
     @property
     def total(self) -> float:
@@ -413,9 +460,9 @@ class CostModel:
         mission.
 
         With a schedule (see `CostSchedule`), the estimate dates its costs,
-        and gives their present value and annual costs; satellites deployed
-        after the first are operated for less of the mission, which
-        lowers the cost of operations.
+        and gives their present value, annual costs, and deployments:
+        satellites launched after the first are operated, and may be
+        replaced, for less of the mission, which lowers their costs.
 
         Growth factors multiply the estimate, such as uncertain parameters of
         cost growth drawn for each replicate (for example,
@@ -483,6 +530,7 @@ class CostModel:
         Estimates the dated costs of the planes of each type of satellite
         (see `estimate` and `CostSchedule`).
         """
+        # pylint: disable=too-many-locals
         schedule = self.schedule
         estimate = CostEstimate()
         flows: list[tuple[float, str, float]] = []
@@ -492,51 +540,93 @@ class CostModel:
                 (time, element, amount * factors[element]) for time, amount in amounts
             )
 
-        first = schedule.development_years
-        end = first + self.years
         if self.launch.per_kg > 0 and any(
             self._get_type(name).mass is None for name in fleets
         ):
             raise ValueError("launches priced by mass require masses")
-        plane = 0
+        # development, then production of each type's planes on its line
+        planes = []  # (ready, name, cost, satellites)
+        batches: dict[Any, list[tuple[float, float, int]]] = {}
         for name, sizes in fleets.items():
             cost = self._get_type(name)
             sizes = [size + spares for size in sizes if size > 0]
             if not sizes:
                 continue
-            add("development", _spread(cost.development, 0.0, first))
-            built = 0
+            developed = (
+                schedule.development_years
+                if cost.development_years is None
+                else cost.development_years
+            )
+            add("development", _spread(cost.development, 0.0, developed))
+            line = developed
             for size in sizes:
-                deployed = first + plane * schedule.deployment_interval
-                plane += 1
-                for generation in range(self.generations):
-                    time = deployed + generation * (self.design_life or 0.0)
-                    production = cost.production(built + size) - cost.production(built)
-                    built += size
-                    add(
-                        "production",
-                        _spread(production, time - schedule.production_lead, time),
+                ready = line + schedule.producing(size)
+                batches.setdefault(name, []).append((line, ready, size))
+                planes.append((ready, name, cost, size))
+                line = ready
+        if not planes:
+            estimate.flows, estimate.present = [], dict.fromkeys(ELEMENTS, 0.0)
+            return estimate
+        # launches in the order planes are ready, at the launch cadence
+        launches = []  # (time, name, cost, satellites, dedicated)
+        cadence = -math.inf
+        for ready, name, cost, size in sorted(planes, key=lambda plane: plane[0]):
+            count = self.launch.launches(size, cost.mass) or 1
+            first = max(ready, cadence)
+            for j in range(count):
+                carried = size // count + (1 if j < size % count else 0)
+                launches.append(
+                    (
+                        first + j * schedule.launch_interval,
+                        name,
+                        cost,
+                        carried,
+                        self.launch.per_launch > 0,
                     )
-                    launches = self.launch.launches(size, cost.mass)
-                    estimate.launches += launches
-                    launch = launches * self.launch.per_launch + size * (
-                        self.launch.per_satellite
-                        + self.launch.per_kg * (cost.mass or 0.0)
-                    )
-                    add("launch", [(time, launch)])
-                operated = max(end - deployed, 0.0)
-                add(
-                    "operations",
-                    _spread(
-                        self.operations.per_satellite_year * size * operated,
-                        deployed,
-                        end,
-                    ),
                 )
+            cadence = first + count * schedule.launch_interval
+            estimate.deployments.append((first, size))
+        originals = list(launches)
+        begin = min(time for time, *_ in launches)
+        end = begin + self.years
+        # replacements at the end of each design life, before the end
+        for time, name, cost, carried, dedicated in originals:
+            if self.design_life is None:
+                break
+            need = time + self.design_life
+            while need < end - 1e-9:
+                produced = need - schedule.producing(carried)
+                batches.setdefault(name, []).append((produced, need, carried))
+                launches.append((need, name, cost, carried, dedicated))
+                need += self.design_life
+        # production in order along each type's learning curve
+        for name, items in batches.items():
+            cost = self._get_type(name)
+            built = 0
+            for produced, ready, size in sorted(items, key=lambda item: item[0]):
+                amount = cost.production(built + size) - cost.production(built)
+                built += size
+                add("production", _spread(amount, produced, ready))
             estimate.units["satellites" if name is None else str(name)] = built
-        add("operations", _spread(self.operations.per_year * self.years, first, end))
+        for time, name, cost, carried, dedicated in launches:
+            estimate.launches += int(dedicated)
+            price = (self.launch.per_launch if dedicated else 0.0) + carried * (
+                self.launch.per_satellite + self.launch.per_kg * (cost.mass or 0.0)
+            )
+            add("launch", [(time, price)])
+        # operations of the mission, and of each satellite from its launch
+        add("operations", _spread(self.operations.per_year * self.years, begin, end))
+        for time, _, _, carried, _ in originals:
+            add(
+                "operations",
+                _spread(
+                    self.operations.per_satellite_year * carried * (end - time),
+                    time,
+                    end,
+                ),
+            )
         flows = [flow for flow in flows if flow[2] != 0]
-        estimate.flows = sorted(flows)
+        estimate.flows = sorted(flows, key=lambda flow: (flow[0], flow[1]))
         for element in ELEMENTS:
             setattr(
                 estimate,
