@@ -132,6 +132,8 @@ Failures and Missions
 
 .. autofunction:: tatc.tradespace.summarize_missions
 
+.. autofunction:: tatc.tradespace.allocate_histories
+
 Costs
 -----
 

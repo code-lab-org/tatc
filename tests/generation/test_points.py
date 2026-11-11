@@ -15,6 +15,7 @@ from tatc.utils.projection import _transform
 from tatc.generation import (
     generate_points_fibonacci_lattice,
     generate_points_random,
+    generate_points_rotated_lattice,
     generate_points_uniform_angular_distance,
     generate_points_uniform_spacing,
 )
@@ -496,3 +497,68 @@ class TestGeneratePointsRandom(unittest.TestCase):
         ]:
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 generate_points_random(10, **kwargs)
+
+
+class TestGeneratePointsRotatedLattice(unittest.TestCase):
+    """
+    Unit tests for randomly rotated Fibonacci lattices.
+    """
+
+    def test_points(self):
+        """Lattices have the number of points, reproducibly, uniform by area."""
+        points = generate_points_rotated_lattice(500, seed=3)
+        self.assertEqual(len(points), 500)
+        self.assertEqual(list(points.columns), ["point_id", "geometry"])
+        self.assertEqual(points.crs, "EPSG:4326")
+        same = generate_points_rotated_lattice(500, seed=3)
+        self.assertTrue(points.geometry.geom_equals(same.geometry).all())
+        other = generate_points_rotated_lattice(500, seed=4)
+        self.assertFalse(points.geometry.geom_equals(other.geometry).all())
+        self.assertEqual(len(generate_points_rotated_lattice(0, seed=1)), 0)
+        with self.assertRaises(ValueError):
+            generate_points_rotated_lattice(-1)
+        # uniform by area: the sine of latitude is uniform on [-1, 1]
+        sines = np.concatenate(
+            [
+                np.sin(
+                    np.radians(generate_points_rotated_lattice(200, seed=k).geometry.y)
+                )
+                for k in range(100)
+            ]
+        )
+        self.assertAlmostEqual(sines.mean(), 0, delta=0.01)
+        self.assertAlmostEqual(sines.var(), 1 / 3, delta=0.01)
+        elevated = generate_points_rotated_lattice(10, elevation=100, seed=1)
+        self.assertTrue((elevated.geometry.z == 100).all())
+
+    def test_mask(self):
+        """About the number of points fall in a mask."""
+        for mask in (
+            box(-30, -20, 40, 35),
+            box(-180, 60, 180, 90),
+            Polygon([(-100, 20), (-80, 25), (-90, 45)]),
+        ):
+            counts = [
+                len(generate_points_rotated_lattice(100, mask=mask, seed=k))
+                for k in range(50)
+            ]
+            self.assertAlmostEqual(np.mean(counts), 100, delta=2)
+            self.assertLess(max(counts) - min(counts), 15)
+        with self.assertRaises(ValueError):
+            generate_points_rotated_lattice(
+                10, mask=Polygon([(0, 0), (1, 1), (0, 1), (1, 0)])
+            )
+
+    def test_stratification(self):
+        """Lattices estimate shares of the surface with less variance."""
+        region = box(-60, -10, 30, 50)
+
+        def share(points):
+            return points.geometry.within(region).mean()
+
+        lattices = [
+            share(generate_points_rotated_lattice(200, seed=k)) for k in range(60)
+        ]
+        randoms = [share(generate_points_random(200, seed=k)) for k in range(60)]
+        self.assertAlmostEqual(np.mean(lattices), np.mean(randoms), delta=0.02)
+        self.assertLess(np.var(lattices), 0.5 * np.var(randoms))

@@ -258,7 +258,7 @@ class Deployment:
             list[MissionHistory]: the histories
         """
         # pylint: disable=import-outside-toplevel
-        from .mission import _simulate_many
+        from .histories import _simulate_many
 
         if histories < 1:
             raise ValueError("histories must be at least 1")
@@ -291,7 +291,7 @@ class Deployment:
             dict[str, float]: the mean of each measure
         """
         # pylint: disable=import-outside-toplevel
-        from .mission import expected_metrics
+        from .histories import expected_metrics
 
         return expected_metrics(self, failures, policy, histories, seed, sampling)
 

@@ -39,13 +39,12 @@ from .deployment import (
     Launch,
     Production,
 )
+from .histories import allocate_histories, evaluate_missions, summarize_missions
 from .mission import (
     MissionHistory,
     Phase,
     PhaseCache,
-    evaluate_missions,
     evaluate_phases,
-    summarize_missions,
     summarize_phases,
 )
 from .failures import (
@@ -149,6 +148,7 @@ __all__ = [
     "Variable",
     "Weibull",
     "aggregate",
+    "allocate_histories",
     "build_constellation",
     "configure",
     "confirm",

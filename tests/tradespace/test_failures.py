@@ -32,6 +32,7 @@ from tatc.tradespace import (
     Uncertain,
     Weibull,
     aggregate,
+    allocate_histories,
     build_constellation,
     configure,
     evaluate_missions,
@@ -606,7 +607,7 @@ class TestVarianceReduction(unittest.TestCase):
 
     def test_strata(self):
         """Each draw of the histories of a replicate takes each stratum once."""
-        from tatc.tradespace.mission import (
+        from tatc.tradespace.histories import (
             _Sampler,
         )  # pylint: disable=import-outside-toplevel
 
@@ -690,3 +691,66 @@ class TestVarianceReduction(unittest.TestCase):
         self.assertTrue(np.isfinite(summary["years"]))
         with self.assertRaises(ValueError):
             summarize_missions(missions, controls={"cost": 1.0})
+
+
+class TestAllocateHistories(unittest.TestCase):
+    """
+    Unit tests for dividing evaluations between replicates and histories.
+    """
+
+    def _pilot(self, between, within, replicates=200, histories=20, seed=0):
+        rng = np.random.default_rng(seed)
+        rows = []
+        for _ in range(replicates):
+            expected = rng.normal(50, between)
+            missions = pd.DataFrame({"share": rng.normal(expected, within, histories)})
+            rows.append(summarize_missions(missions, spread=True))
+        return pd.DataFrame(rows)
+
+    def test_recommendation(self):
+        """Histories balance the variances and costs of the two levels."""
+        records = self._pilot(between=2, within=6)
+        self.assertIn("share sd", records.columns)
+        result = allocate_histories(
+            records,
+            "share",
+            20,
+            replicate_seconds=100,
+            history_seconds=1,
+            standard_error=0.5,
+        )
+        # sqrt(100 * 36 / (1 * 4)) = 30
+        self.assertAlmostEqual(result["histories"], 30, delta=6)
+        self.assertAlmostEqual(result["between"], 2, delta=0.4)
+        self.assertAlmostEqual(result["within"], 6, delta=0.3)
+        variance = result["between"] ** 2 + result["within"] ** 2 / result["histories"]
+        self.assertEqual(result["replicates"], math.ceil(variance / 0.25))
+        self.assertAlmostEqual(
+            result["cost"], result["replicates"] * result["replicate cost"]
+        )
+        # costlier histories call for fewer of them
+        fewer = allocate_histories(records, "share", 20, 100, 10)
+        self.assertLess(fewer["histories"], result["histories"])
+
+    def test_limits(self):
+        """Without variance between replicates, the most histories."""
+        records = self._pilot(between=0, within=6, replicates=50)
+        result = allocate_histories(records, "share", 20, 100, 1, max_histories=500)
+        self.assertLessEqual(result["histories"], 500)
+        self.assertGreater(result["histories"], 100)
+        # a standard error that two replicates achieve: the fewest histories
+        enough = allocate_histories(records, "share", 20, 100, 1, standard_error=0.5)
+        self.assertEqual(enough["replicates"], 2)
+        self.assertLess(enough["histories"], 100)
+        self.assertLessEqual(
+            enough["between"] ** 2 + enough["within"] ** 2 / enough["histories"],
+            2 * 0.5**2 + 1e-9,
+        )
+        # means that vary less than independent histories can (stratified)
+        steady = records.assign(share=50.0)
+        with self.assertWarns(UserWarning):
+            allocate_histories(steady, "share", 20, 100, 1)
+        with self.assertRaises(ValueError):
+            allocate_histories(records.iloc[:1], "share", 20, 100, 1)
+        with self.assertRaises(ValueError):
+            allocate_histories(records, "share", 20, 0, 1)
