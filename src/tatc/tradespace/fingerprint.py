@@ -6,18 +6,22 @@ other definitions are not reused.
 A fingerprint describes values by their content where it can: plain values
 (numbers, strings, dates and times, and their containers), pydantic models
 (such as satellites and instruments), small arrays, the nodes of design
-spaces, and functions, by their code, the values they close over and their
-defaults, and the plain values and functions of the same module that they
-refer to as globals. Other objects (such as data frames) are described by
-their type only: identify them by a namespace (see `ResultStore` and
-`SatelliteCache`). Functions of other modules (such as TAT-C's) are
-described by their names, as the version of TAT-C is part of a fingerprint.
+spaces, dataclasses (such as cost models) by their fields, and functions, by
+their code, the values they close over and their defaults, and the
+constants (numbers, strings, dates and times, and tuples of them),
+dataclasses, and functions of the same module that they refer to as globals
+(not mutable containers, which are often state, such as caches). Other
+objects (such as data frames) are described by their type only: identify
+them by a namespace (see `ResultStore` and `SatelliteCache`). Functions of
+other modules (such as TAT-C's) are described by their names, as the version
+of TAT-C is part of a fingerprint.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import hashlib
 import json
@@ -59,7 +63,8 @@ def _code(code: types.CodeType, depth: int, seen: set) -> dict:
 def _function(function: types.FunctionType, depth: int, seen: set) -> dict:
     """
     Describes a function: its code, the values it closes over, its defaults,
-    and the plain values and functions of its module it refers to as globals.
+    and the constants, dataclasses, and functions of its module it refers to
+    as globals.
     """
     if id(function) in seen:
         return {"function": function.__qualname__, "recursive": True}
@@ -78,7 +83,7 @@ def _function(function: types.FunctionType, depth: int, seen: set) -> dict:
         if isinstance(value, types.FunctionType):
             if value.__module__ == module:
                 referenced[name] = _function(value, depth + 1, seen)
-        elif _is_plain(value):
+        elif _is_constant(value) or _is_dataclass(value):
             referenced[name] = _describe(value, depth + 1, seen)
     return {
         "function": function.__qualname__,
@@ -88,6 +93,11 @@ def _function(function: types.FunctionType, depth: int, seen: set) -> dict:
         "keyword defaults": _describe(function.__kwdefaults__, depth + 1, seen),
         "globals": referenced,
     }
+
+
+def _is_dataclass(value: Any) -> bool:
+    """Whether a value is an instance of a dataclass (such as a cost model)."""
+    return dataclasses.is_dataclass(value) and not isinstance(value, type)
 
 
 def _has_contents(cell: Any) -> bool:
@@ -112,21 +122,21 @@ def _global_names(code: types.CodeType) -> list[str]:
 _PLAIN = (type(None), bool, int, float, str, bytes, date, time, timedelta, np.generic)
 
 
-def _is_plain(value: Any, depth: int = 0) -> bool:
+def _is_constant(value: Any, depth: int = 0) -> bool:
     """
-    Whether a value is plain: a number, string, date or time, or a (small)
-    container of them.
+    Whether a value is a constant: a number, string, date or time, or a
+    (small) tuple or frozen set of them. Mutable containers (lists,
+    dictionaries, and sets) are not constants: as globals, they are often
+    state (such as caches) rather than definitions, whose contents change
+    as a study runs.
     """
     if isinstance(value, _PLAIN):
         return True
     if depth > 3:
         return False
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return len(value) <= _MAX_ITEMS and all(_is_plain(v, depth + 1) for v in value)
-    if isinstance(value, dict):
+    if isinstance(value, (tuple, frozenset)):
         return len(value) <= _MAX_ITEMS and all(
-            _is_plain(k, depth + 1) and _is_plain(v, depth + 1)
-            for k, v in value.items()
+            _is_constant(v, depth + 1) for v in value
         )
     return False
 
@@ -151,6 +161,14 @@ def _describe(value: Any, depth: int = 0, seen: set | None = None) -> Any:
         return value.isoformat()
     if isinstance(value, timedelta):
         return {"timedelta": value.total_seconds()}
+    if _is_dataclass(value):
+        return {
+            **_type(value),
+            **{
+                item.name: _describe(getattr(value, item.name), depth + 1, seen)
+                for item in dataclasses.fields(value)
+            },
+        }
     if isinstance(value, BaseModel):
         return {**_type(value), **value.model_dump(mode="json")}
     if isinstance(value, np.ndarray):

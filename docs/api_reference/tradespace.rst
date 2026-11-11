@@ -69,6 +69,28 @@ Constellations
 
 .. autofunction:: tatc.tradespace.remove_failures
 
+Costs
+-----
+
+.. automodule:: tatc.tradespace.cost
+   :no-members:
+
+.. autoclass:: tatc.tradespace.CostModel
+   :members: estimate, generations
+
+.. autoclass:: tatc.tradespace.SatelliteCost
+   :members: production
+
+.. autoclass:: tatc.tradespace.LaunchCost
+   :members: launches
+
+.. autoclass:: tatc.tradespace.OperationsCost
+
+.. autoclass:: tatc.tradespace.CostEstimate
+   :members: total, metrics
+
+.. autofunction:: tatc.tradespace.plane_sizes
+
 Trade Studies
 -------------
 

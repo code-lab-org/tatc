@@ -1,6 +1,6 @@
 """
 Trade space analysis: design spaces of (hierarchical) design variables and
-uncertain parameters, building blocks of constellations,
+uncertain parameters, building blocks of constellations (and their life-cycle cost),
 trade studies that evaluate their designs (with caches
 of analyses by satellite, in parallel), statistics of replicates and
 requirements on them, Pareto efficiency (with the uncertainty of replicates),
@@ -14,6 +14,14 @@ and searches with optimizers (Optuna and pymoo, optional dependencies).
 
 from .cache import SatelliteCache, get_satellite_key
 from .confirmation import Confirmation, confirm
+from .cost import (
+    CostEstimate,
+    CostModel,
+    LaunchCost,
+    OperationsCost,
+    SatelliteCost,
+    plane_sizes,
+)
 from .constellations import (
     build_constellation,
     count_planes,
@@ -68,6 +76,8 @@ __all__ = [
     "Choice",
     "ChoiceValues",
     "Confirmation",
+    "CostEstimate",
+    "CostModel",
     "Derived",
     "Design",
     "DesignSpace",
@@ -75,9 +85,11 @@ __all__ = [
     "Fixed",
     "Infeasible",
     "Integer",
+    "LaunchCost",
     "Maximum",
     "Mean",
     "Minimum",
+    "OperationsCost",
     "Probability",
     "Quantile",
     "Real",
@@ -87,6 +99,7 @@ __all__ = [
     "Requirement",
     "ResultStore",
     "SatelliteCache",
+    "SatelliteCost",
     "Scope",
     "Screening",
     "StandardDeviation",
@@ -111,6 +124,7 @@ __all__ = [
     "pareto_front",
     "pareto_probability",
     "pareto_ranks",
+    "plane_sizes",
     "planes_space",
     "refine",
     "remove_failures",

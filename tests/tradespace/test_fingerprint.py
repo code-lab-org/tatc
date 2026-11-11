@@ -16,9 +16,11 @@ import pandas as pd
 
 from tatc.schemas import Instrument
 from tatc.tradespace import (
+    CostModel,
     DesignSpace,
     Integer,
     Real,
+    SatelliteCost,
     Study,
     Uncertain,
     get_fingerprint,
@@ -33,6 +35,20 @@ def _helper(x):
 
 def _uses_helper(d):
     return {"value": _helper(d.a)}
+
+
+MODEL = None
+CACHES = {}
+
+
+def _uses_cache(d):
+    if d not in CACHES:
+        CACHES[d] = object()
+    return CACHES[d]
+
+
+def _uses_model(d):
+    return {"cost": MODEL.estimate(d.layout).total}
 
 
 def _space(high=4, fixed=1.0, spread=1.0):
@@ -109,6 +125,24 @@ class TestFingerprint(unittest.TestCase):
             get_fingerprint(pd.DataFrame({"a": [1]})),
             get_fingerprint(pd.DataFrame({"a": [2]})),
         )
+
+    def test_global_state(self):
+        """Mutable globals (such as caches) do not change the fingerprint."""
+        before = get_fingerprint(_uses_cache)
+        _uses_cache(1)
+        self.assertEqual(before, get_fingerprint(_uses_cache))
+
+    def test_dataclasses(self):
+        """Dataclasses, such as cost models, are described by their fields."""
+        cheap = CostModel(SatelliteCost(first_unit=10))
+        dear = CostModel(SatelliteCost(first_unit=12))
+        self.assertNotEqual(get_fingerprint(cheap), get_fingerprint(dear))
+        global MODEL  # pylint: disable=global-statement
+        MODEL = cheap
+        before = get_fingerprint(_uses_model)
+        MODEL = dear
+        # a dataclass that a function refers to as a global
+        self.assertNotEqual(before, get_fingerprint(_uses_model))
 
     def test_study(self):
         """A study's fingerprint changes with its seed and random numbers."""
