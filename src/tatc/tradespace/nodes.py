@@ -7,6 +7,8 @@ values, choices, and repetitions (see `tatc.tradespace.DesignSpace`).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -61,7 +63,8 @@ class _Domain:
     """
     The values a variable may take where it is decided: a finite list of
     levels, or a continuous interval. The kind (`"real"`, `"integer"`, or
-    `"categorical"`) and the step between levels inform optimizers.
+    `"categorical"`) and the step between levels inform optimizers, as does
+    whether categorical levels depend on earlier decisions (`dynamic`).
     """
 
     levels: list | None = None
@@ -70,6 +73,7 @@ class _Domain:
     log: bool = False
     kind: str = "categorical"
     step: float | None = None
+    dynamic: bool = False
 
     def from_unit(self, u: float) -> Any:
         """
@@ -105,9 +109,16 @@ class _Domain:
 
     def suggest(self, trial: Any, name: str) -> Any:
         """
-        Suggests a value of the domain with an Optuna trial.
+        Suggests a value of the domain with an Optuna trial. Optuna requires
+        the same options of a categorical parameter in every trial, so the
+        options of a categorical variable that depend on earlier decisions
+        are a parameter of their own for each set of options (named by the
+        path and a hash of the options).
         """
         if self.kind == "categorical":
+            if self.dynamic:
+                text = json.dumps(self.levels, sort_keys=True, default=str)
+                name = f"{name}#{hashlib.sha1(text.encode()).hexdigest()[:8]}"
             return trial.suggest_categorical(name, self.levels)
         if self.kind == "integer":
             return trial.suggest_int(
@@ -244,7 +255,7 @@ class Categorical(Variable):
         options = list(_resolve(self.options, scope))
         if len(options) == 0:
             raise Infeasible("no options")
-        return _Domain(levels=options)
+        return _Domain(levels=options, dynamic=callable(self.options))
 
     def __repr__(self) -> str:
         return f"Categorical({self.options!r})"

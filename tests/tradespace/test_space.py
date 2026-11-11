@@ -231,3 +231,65 @@ class TestRealize(unittest.TestCase):
         design = space.enumerate()[0]
         self.assertIsNone(design.epoch)
         self.assertEqual({design.realize(r).epoch for r in range(20)}, {"jan", "jul"})
+
+
+class TestEnumeration(unittest.TestCase):
+    """
+    Unit tests for the enumeration of unordered repetitions, which walks only
+    one order of their items.
+    """
+
+    @staticmethod
+    def _every_walk(space):
+        """Enumerates by walking every order of the items."""
+        # pylint: disable=import-outside-toplevel,protected-access
+        from tatc.tradespace.space import _Context, _Odometer
+
+        odometer = _Odometer()
+        ctx = _Context(choose=odometer.choose)
+        designs = {}
+        while True:
+            try:
+                design = space._design(ctx)
+                designs.setdefault(design.key, design)
+            except Infeasible:
+                pass
+            if not odometer.advance():
+                return list(designs.values())
+
+    def test_same_designs(self):
+        """Walking one order of unordered items gives the same designs."""
+        spaces = [
+            DesignSpace(
+                items=Repeat(
+                    DesignSpace(
+                        kind=Choice(
+                            a=DesignSpace(x=Integer(0, 2)),
+                            b=DesignSpace(y=Categorical(["p", "q"]), z=Integer(5, 12)),
+                        )
+                    ),
+                    count=Integer(0, 3),
+                    ordered=False,
+                )
+            ),
+            DesignSpace(
+                outer=Repeat(
+                    DesignSpace(
+                        inner=Repeat(
+                            DesignSpace(v=Integer(0, 2)),
+                            count=Integer(1, 2),
+                            ordered=False,
+                        )
+                    ),
+                    count=Integer(1, 2),
+                    ordered=False,
+                ),
+                constraints=[lambda d: len(d.outer) < 2 or d.outer[0].inner[0].v != 1],
+            ),
+        ]
+        for space in spaces:
+            expected = self._every_walk(space)
+            designs = space.enumerate()
+            self.assertEqual([d.key for d in designs], [d.key for d in expected])
+            self.assertEqual([d.flat() for d in designs], [d.flat() for d in expected])
+            self.assertEqual(space.size(), len(expected))

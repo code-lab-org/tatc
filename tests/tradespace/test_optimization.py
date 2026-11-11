@@ -372,3 +372,81 @@ class TestRequirements(unittest.TestCase):
             requirements=self.REQUIREMENTS,
         )
         self.assertEqual(result.pop.get("G").shape[1], 2)
+
+
+@unittest.skipUnless(HAS_OPTUNA, "optuna is not installed")
+class TestOptunaSearch(unittest.TestCase):
+    """
+    Unit tests for searches with Optuna: dynamic options, batches, and budgets.
+    """
+
+    def test_dynamic_options(self):
+        """Categorical options that depend on earlier decisions are searched."""
+        import optuna  # pylint: disable=import-outside-toplevel
+
+        space = DesignSpace(
+            kind=Categorical(["a", "b"]),
+            option=Categorical(lambda d: ["x", "y"] if d.kind == "a" else ["z"]),
+        )
+        study = Study(space, lambda d: d, lambda d: {"f": float(d.option == "x")})
+        optuna_study, results = optimize_optuna(
+            study,
+            {"f": "max"},
+            n_trials=20,
+            sampler=optuna.samplers.RandomSampler(seed=1),
+        )
+        self.assertEqual(set(results.option), {"x", "y", "z"})
+        self.assertEqual(optuna_study.best_value, 1.0)
+
+    def test_default_sampler(self):
+        """The default sampler lies about pending trials in batches."""
+        study = Study(DesignSpace(x=Integer(0, 9)), lambda d: d, lambda d: {"f": d.x})
+        batched, _ = optimize_optuna(study, {"f": "min"}, n_trials=4, batch_size=2)
+        single, _ = optimize_optuna(study, {"f": "min"}, n_trials=2, batch_size=1)
+        # pylint: disable=protected-access
+        self.assertTrue(batched.sampler._constant_liar)
+        self.assertFalse(single.sampler._constant_liar)
+
+    def test_max_designs(self):
+        """The search stops once it has evaluated the most designs."""
+        study = Study(DesignSpace(x=Integer(0, 2)), lambda d: d, lambda d: {"f": d.x})
+        optuna_study, results = optimize_optuna(
+            study, {"f": "min"}, n_trials=50, max_designs=2, batch_size=1
+        )
+        self.assertEqual(results.design.nunique(), 2)
+        self.assertLessEqual(len(optuna_study.trials), 50)
+
+    def test_partially_infeasible(self):
+        """A design infeasible in some replicates violates by their share."""
+        space = DesignSpace(x=Integer(0, 1), noise=Uncertain.uniform(0, 1))
+
+        def build(d):
+            if d.x == 1 and d.noise < 0.5:
+                raise ValueError("unlucky")
+            return d
+
+        study = Study(space, build, lambda d: {"f": d.x}, replicates=8)
+        evaluations = Evaluations(study, {"f": "max"})
+        values = evaluations.evaluate(space.enumerate())
+        self.assertIsNotNone(values[0])
+        self.assertIsNone(values[1])
+        share = evaluations.infeasibility[space.enumerate()[1].key]
+        self.assertGreater(share, 0)
+        self.assertLess(share, 1)
+        optuna_study, _ = optimize_optuna(study, {"f": "max"}, n_trials=6)
+        for trial in optuna_study.trials:
+            if trial.params.get("x") == 1:
+                self.assertAlmostEqual(trial.constraints["feasibility"], share)
+
+    def test_records_checked_first(self):
+        """A study of several records per evaluation fails after one design."""
+        calls = []
+
+        def evaluate(d):
+            calls.append(d.x)
+            return pd.DataFrame({"f": [d.x, d.x]}, index=pd.Index([0, 1], name="k"))
+
+        study = Study(DesignSpace(x=Integer(0, 9)), lambda d: d, evaluate)
+        with self.assertRaises(ValueError):
+            Evaluations(study, {"f": "min"}).evaluate(study.space.enumerate())
+        self.assertEqual(len(calls), 1)

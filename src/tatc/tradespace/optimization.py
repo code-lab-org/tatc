@@ -73,7 +73,12 @@ class Evaluations:
         self.violations: dict[str, tuple[float, ...] | None] = {}
         """dict: The violation of each requirement by each evaluated design
         (by key), or `None` if it is infeasible."""
+        self.infeasibility: dict[str, float] = {}
+        """dict: The share of the replicates of each evaluated design (by
+        key) that are infeasible (0 for a feasible design), the violation of
+        its feasibility for constraint-aware optimizers."""
         self._records: list[pd.DataFrame] = []
+        self._checked = False
 
     @property
     def results(self) -> pd.DataFrame:
@@ -86,7 +91,10 @@ class Evaluations:
     def evaluate(self, designs: list[Design]) -> list[tuple[float, ...] | None]:
         """
         Gets the objectives of designs, evaluating those not yet evaluated
-        together (see also `violations`).
+        together (see also `violations`). A design is infeasible if any of
+        its replicates is (see `infeasibility`). The first design evaluated
+        is evaluated alone, to check that the study's evaluations give one
+        record each before evaluating others.
 
         Args:
             designs (list[Design]): The designs.
@@ -96,31 +104,43 @@ class Evaluations:
                 the order of the objectives, or `None` if it is infeasible
         """
         new = list({d.key: d for d in designs if d.key not in self.values}.values())
+        if new and not self._checked:
+            self._run(new[:1])
+            new = new[1:]
         if new:
-            records = self.study.run(new)
-            self._records.append(records)
-            if records.groupby(["design", "replicate"]).size().max() > 1:
-                raise ValueError(
-                    "objectives need one record per evaluation: make the "
-                    + "study's evaluate function return a mapping of metrics"
-                )
-            infeasible = set(records.loc[~records["feasible"], "design"])
-            for key in infeasible:
-                self.values[key] = self.violations[key] = None
-            feasible = records[~records["design"].isin(infeasible)]
-            if len(feasible) > 0:
-                metrics = sorted({s.column for s in self.statistics.values()})
-                keys, _, matrices = _get_matrices(feasible, metrics)
-                values, _ = _evaluate(self.statistics, [], matrices)
-                for i, key in enumerate(keys):
-                    self.values[key] = tuple(
-                        float(values[name][i]) for name in self.objectives
-                    )
-                    self.violations[key] = tuple(
-                        float(requirement.violation(values[requirement.name][i]))
-                        for requirement in self.requirements
-                    )
+            self._run(new)
         return [self.values[d.key] for d in designs]
+
+    def _run(self, designs: list[Design]) -> None:
+        """
+        Evaluates designs, recording their objectives and violations.
+        """
+        records = self.study.run(designs)
+        self._records.append(records)
+        if records.groupby(["design", "replicate"]).size().max() > 1:
+            raise ValueError(
+                "objectives need one record per evaluation: make the "
+                + "study's evaluate function return a mapping of metrics"
+            )
+        self._checked = self._checked or bool(records["feasible"].any())
+        shares = 1.0 - records.groupby("design")["feasible"].mean()
+        self.infeasibility.update(shares.astype(float).to_dict())
+        infeasible = set(shares.index[shares > 0])
+        for key in infeasible:
+            self.values[key] = self.violations[key] = None
+        feasible = records[~records["design"].isin(infeasible)]
+        if len(feasible) > 0:
+            metrics = sorted({s.column for s in self.statistics.values()})
+            keys, _, matrices = _get_matrices(feasible, metrics)
+            values, _ = _evaluate(self.statistics, [], matrices)
+            for i, key in enumerate(keys):
+                self.values[key] = tuple(
+                    float(values[name][i]) for name in self.objectives
+                )
+                self.violations[key] = tuple(
+                    float(requirement.violation(values[requirement.name][i]))
+                    for requirement in self.requirements
+                )
 
     def worst(self) -> list[float]:
         """
@@ -154,6 +174,7 @@ def optimize_optuna(
     constraints: bool = True,
     statistics: Mapping[str, Statistic | str] | None = None,
     requirements: Sequence[Requirement] = (),
+    max_designs: int | None = None,
 ) -> tuple[Any, pd.DataFrame]:
     """
     Searches a study's design space with Optuna: each trial suggests a design
@@ -163,8 +184,8 @@ def optimize_optuna(
     With `constraints`, each trial records the violation of the constraints
     of its design (`trial.set_constraint`, under the name `"feasibility"`):
     0 for a feasible design, the amount by which it violates a constraint of
-    the design space (see `DesignSpace`), or 1 if the study finds it
-    infeasible. Optuna's constraint-aware samplers (such as TPE and NSGA-II)
+    the design space (see `DesignSpace`), or the share of its replicates
+    that the study finds infeasible. Optuna's constraint-aware samplers (such as TPE and NSGA-II)
     then prefer feasible designs, and infeasible designs that violate their
     constraints less. An infeasible trial is told the worst objectives of the
     feasible designs evaluated before it, which these samplers do not use to
@@ -177,16 +198,26 @@ def optimize_optuna(
 
     Trials are asked in batches, whose designs are evaluated together (in
     parallel, if the study is) before they are told. A batch defaults to one
-    trial per worker of the study.
+    trial per worker of the study. The default sampler is TPE, which, in
+    batches, tells its pending trials the worst values evaluated so far
+    (`constant_liar`), so that a batch spreads its trials rather than
+    suggesting nearly the same design several times.
+
+    Samplers suggest designs evaluated before, especially in small design
+    spaces: such trials are told the objectives of the design without
+    evaluating it again. The trials (`n_trials`) are then a poor measure of
+    the cost of a search; `max_designs` limits the designs evaluated
+    instead (the search stops once it has evaluated as many, or after
+    `n_trials`).
 
     Args:
         study (Study): The study that evaluates designs.
         objectives (Mapping[str, str]): The objectives: columns of the
             results and their directions (`"min"` or `"max"`).
         n_trials (int): The number of trials.
-        sampler (optuna.samplers.BaseSampler | None): The sampler, if not
-            Optuna's default (TPE with one objective, NSGA-II with several);
-            ignored with an `optuna_study`.
+        sampler (optuna.samplers.BaseSampler | None): The sampler, or `None`
+            for TPE (with a constant liar in batches); ignored with an
+            `optuna_study`.
         optuna_study (optuna.Study | None): A study to continue, whose
             directions are those of the objectives.
         batch_size (int | None): The number of trials evaluated together.
@@ -195,6 +226,7 @@ def optimize_optuna(
         statistics (Mapping[str, Statistic | str] | None): Statistics, by
             name, of objectives and requirements that are not means.
         requirements (Sequence[Requirement]): Requirements on statistics.
+        max_designs (int | None): The most designs to evaluate, if limited.
 
     Returns:
         tuple[optuna.Study, pandas.DataFrame]: the Optuna study, and the
@@ -212,9 +244,11 @@ def optimize_optuna(
         "minimize" if direction == "min" else "maximize"
         for direction in evaluations.objectives.values()
     ]
-    if optuna_study is None:
-        optuna_study = optuna.create_study(directions=directions, sampler=sampler)
     batch_size = batch_size or study.workers
+    if optuna_study is None:
+        if sampler is None:
+            sampler = optuna.samplers.TPESampler(constant_liar=batch_size > 1)
+        optuna_study = optuna.create_study(directions=directions, sampler=sampler)
     constrained = constraints and hasattr(optuna.trial.Trial, "set_constraint")
     if requirements and not constrained:
         raise ValueError("requirements need constraints (and Optuna 5 or later)")
@@ -234,8 +268,13 @@ def optimize_optuna(
 
     remaining = n_trials
     while remaining > 0:
+        size = min(batch_size, remaining)
+        if max_designs is not None:
+            size = min(size, max_designs - len(evaluations.values))
+            if size <= 0:
+                break
         trials, designs = [], []
-        for _ in range(min(batch_size, remaining)):
+        for _ in range(size):
             trial = optuna_study.ask()
             try:
                 design = study.space.suggest(trial)
@@ -246,12 +285,12 @@ def optimize_optuna(
             trial.set_user_attr("design", design.key)
             trials.append(trial)
             designs.append(design)
-        remaining -= min(batch_size, remaining)
+        remaining -= size
         for trial, design, values in zip(
             trials, designs, evaluations.evaluate(designs)
         ):
             if values is None:
-                infeasible(trial, 1.0)
+                infeasible(trial, evaluations.infeasibility[design.key])
             else:
                 if constrained:
                     violations = evaluations.violations[design.key]
@@ -275,9 +314,9 @@ def make_pymoo_problem(
     objectives are negated), and its constraint (`G <= 0`) is violated by
     designs that violate a constraint of the design space (by the amount of
     the violation, see `DesignSpace`) or that the study finds infeasible (by
-    1). Each requirement is a further constraint, whose value is its
-    violation (see `Requirement.violation`). The designs of a population are
-    evaluated together.
+    the share of their infeasible replicates). Each requirement is a further
+    constraint, whose value is its violation (see `Requirement.violation`).
+    The designs of a population are evaluated together.
 
     The problem keeps its evaluations (`evaluations`, see `Evaluations`),
     whose `results` are those of every evaluation (see `Study.run`).
@@ -338,6 +377,8 @@ def make_pymoo_problem(
             unmet = np.zeros((len(designs), n_requirements))
             for i, design in enumerate(designs):
                 value = None if design is None else next(values)
+                if design is not None and value is None:
+                    violation[i] = max(evaluations.infeasibility[design.key], 1e-9)
                 if value is not None:
                     value = np.where(np.isnan(value), evaluations.worst(), value)
                     costs[i] = signs * np.asarray(value)

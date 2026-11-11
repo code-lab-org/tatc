@@ -4,7 +4,9 @@ Unit tests for trade studies.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import tempfile
 import unittest
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
@@ -12,7 +14,15 @@ import numpy as np
 import pandas as pd
 
 from tatc.schemas import CircularOrbit, Satellite, WalkerConstellation
-from tatc.tradespace import DesignSpace, Integer, Real, Study, Uncertain, summarize
+from tatc.tradespace import (
+    DesignSpace,
+    Integer,
+    Real,
+    ResultStore,
+    Study,
+    Uncertain,
+    summarize,
+)
 
 
 class TestStudy(unittest.TestCase):
@@ -168,3 +178,44 @@ class TestStudy(unittest.TestCase):
         self.assertEqual(len(summary), 18)
         b = summary[(summary.sensor == "b") & (summary.planes == 3)]
         self.assertTrue((b.value == 6).all())
+
+
+class TestErrors(unittest.TestCase):
+    """
+    Unit tests for errors of evaluations.
+    """
+
+    def setUp(self):
+        self.space = DesignSpace(a=Integer(1, 4))
+        self.fail = True
+
+    def _evaluate(self, d):
+        if self.fail and d.a == 3:
+            raise RuntimeError("diverged")
+        return {"value": d.a}
+
+    def test_raise(self):
+        """Errors other than rejections of designs are raised by default."""
+        with self.assertRaises(RuntimeError):
+            Study(self.space, lambda d: d, self._evaluate).run()
+        with self.assertRaises(ValueError):
+            Study(self.space, lambda d: d, self._evaluate, errors="ignore")
+
+    def test_record(self):
+        """Errors are recorded as infeasible evaluations, which are not stored."""
+        with tempfile.TemporaryDirectory() as directory:
+            store = ResultStore(Path(directory) / "results.sqlite", "errors")
+            study = Study(
+                self.space, lambda d: d, self._evaluate, errors="record", store=store
+            )
+            results = study.run()
+            failed = results[~results.feasible]
+            self.assertEqual(list(failed.a), [3])
+            self.assertEqual(failed.error.iloc[0], "RuntimeError: diverged")
+            self.assertNotIn("_failed", results.columns)
+            self.assertEqual(len(store), 3)
+            # a later run evaluates the failed evaluation again
+            self.fail = False
+            again = study.run()
+            self.assertTrue(again.feasible.all())
+            self.assertEqual(len(store), 4)

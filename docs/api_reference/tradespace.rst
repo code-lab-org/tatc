@@ -175,4 +175,4 @@ Optimizers
 .. autofunction:: tatc.tradespace.make_pymoo_problem
 
 .. autoclass:: tatc.tradespace.Evaluations
-   :members: evaluate, results
+   :members: evaluate, results, worst

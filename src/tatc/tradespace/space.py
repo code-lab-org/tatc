@@ -25,7 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import zlib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from functools import partial
 from typing import Any
 
@@ -83,7 +83,8 @@ class _Context:
     decides a variable, `draw(path, node)` draws an uncertain parameter (or
     `None` for nominal values), and `check` enables constraints. If given,
     `record(path, domain, value)` is called with every decision, chosen or
-    prescribed.
+    prescribed. With an `odometer` (of an enumeration), the items of
+    unordered repetitions are only walked in the order of their levels.
     """
 
     def __init__(
@@ -92,9 +93,10 @@ class _Context:
         draw: Callable[[str, Uncertain], Any] | None = None,
         check: bool = True,
         record: Callable[[str, _Domain, Any], None] | None = None,
+        odometer: _Odometer | None = None,
     ):
         self.choose, self.draw, self.check = choose, draw, check
-        self.record = record
+        self.record, self.odometer = record, odometer
 
     def decide(self, path: str, domain: _Domain, prescribed: Any) -> Any:
         """
@@ -107,6 +109,13 @@ class _Context:
         if self.record is not None:
             self.record(path, domain, value)
         return value
+
+
+class _Unsorted(Infeasible):
+    """
+    Raised while enumerating a walk whose unordered items are not in the
+    order of their levels: another walk gives the same design.
+    """
 
 
 def _join(path: str, name: str) -> str:
@@ -254,20 +263,33 @@ def _walk_items(
     if publish is not None:
         publish(result)
     decisions = []
+    # with an odometer, permutations of unordered items give the same design:
+    # enumerate only the first, whose items are in the order of their levels
+    odometer = ctx.odometer if prescribed is _ABSENT and not node.ordered else None
+    previous: list[int] | None = None
     for k in range(count):
         sub = _ABSENT if prescribed is _ABSENT else prescribed[k]
-        value, decision = _walk(
-            node.item,
-            f"{path}[{k}]",
-            scope.push({}, k),
-            ctx,
-            _ABSENT if sub is None else sub,
-            result.items.append,
-        )
+        start = 0 if odometer is None else odometer.position
+        if odometer is not None and previous is not None:
+            odometer.floors.append((start, previous))
+        try:
+            value, decision = _walk(
+                node.item,
+                f"{path}[{k}]",
+                scope.push({}, k),
+                ctx,
+                _ABSENT if sub is None else sub,
+                result.items.append,
+            )
+        finally:
+            if odometer is not None and previous is not None:
+                odometer.floors.pop()
         if len(result.items) == k:
             # a value that is not a container is not published
             result.items.append(value)
         decisions.append(None if decision is _ABSENT else decision)
+        if odometer is not None:
+            previous = odometer.indices[start : odometer.position]
     return result, decisions
 
 
@@ -445,11 +467,16 @@ class _Odometer:
         self.indices: list[int] = []
         self.sizes: list[int] = []
         self.position = 0
+        self.floors: list[tuple[int, list[int]]] = []
+        """The levels of the previous unordered items (and where the
+        current items' levels start), which the current items must not
+        precede."""
 
     def choose(self, path: str, domain: _Domain) -> Any:
         """
         Chooses the level of the current digit of the odometer (adding a
-        digit, at the first level, if the walk is longer than before).
+        digit, at the first level, if the walk is longer than before), and
+        stops a walk whose unordered items precede the previous ones.
         """
         if domain.levels is None:
             raise ValueError(
@@ -462,6 +489,10 @@ class _Odometer:
             self.sizes.append(len(domain.levels))
         level = domain.levels[self.indices[self.position]]
         self.position += 1
+        for start, previous in self.floors:
+            current = self.indices[start : self.position]
+            if current < previous[: len(current)]:
+                raise _Unsorted()
         return level
 
     def advance(self) -> bool:
@@ -471,6 +502,7 @@ class _Odometer:
         """
         del self.indices[self.position :], self.sizes[self.position :]
         self.position = 0
+        self.floors.clear()
         while self.indices:
             if self.indices[-1] + 1 < self.sizes[-1]:
                 self.indices[-1] += 1
@@ -556,26 +588,36 @@ class DesignSpace(Node):
         Raises:
             ValueError: if a design variable is continuous.
         """
+        return list(self._iterate())
+
+    def _iterate(self) -> Iterator[Design]:
+        """
+        Iterates over every feasible design (see `enumerate`). The items of
+        unordered repetitions are walked in only one of their orders, so
+        that their permutations are not walked.
+        """
         odometer = _Odometer()
-        ctx = _Context(choose=odometer.choose)
-        designs: dict[str, Design] = {}
+        ctx = _Context(choose=odometer.choose, odometer=odometer)
+        keys: set[str] = set()
         while True:
             try:
                 design = self._design(ctx)
-                designs.setdefault(design.key, design)
+                if design.key not in keys:
+                    keys.add(design.key)
+                    yield design
             except Infeasible:
                 pass
             if not odometer.advance():
-                return list(designs.values())
+                return
 
     def size(self) -> int:
         """
-        Counts the feasible designs (see `enumerate`).
+        Counts the feasible designs (see `enumerate`), without keeping them.
 
         Returns:
             int: the number of designs
         """
-        return len(self.enumerate())
+        return sum(1 for _ in self._iterate())
 
     def sample(
         self,

@@ -187,3 +187,28 @@ class TestParetoProbability(unittest.TestCase):
         self.assertEqual(
             sorted(zip(winners.sensor, winners.design)), [("a", "d1"), ("b", "d0")]
         )
+
+
+class TestManyPoints(unittest.TestCase):
+    """
+    Unit tests for the dominance of many points.
+    """
+
+    def test_sweep(self):
+        """A sweep finds the same dominated points as comparisons of every pair."""
+        # pylint: disable=import-outside-toplevel,protected-access
+        from tatc.tradespace import pareto
+
+        rng = np.random.default_rng(3)
+        for costs in (
+            rng.random((500, 3)),
+            rng.integers(0, 4, (500, 3)).astype(float),
+            np.vstack([rng.random((100, 2))] * 3),
+        ):
+            np.testing.assert_array_equal(
+                pareto._dominated_sweep(costs), pareto._dominated(costs)
+            )
+        many = rng.random((pareto._SWEEP_POINTS + 10, 3))
+        frame = pd.DataFrame(many, columns=["a", "b", "c"])
+        front = pareto_front(frame, {"a": "min", "b": "min", "c": "min"})
+        np.testing.assert_array_equal(~front.to_numpy(), pareto._dominated_sweep(many))

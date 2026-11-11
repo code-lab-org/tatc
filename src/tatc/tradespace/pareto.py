@@ -97,17 +97,49 @@ def _get_tolerances(
     return values
 
 
-def _dominated(
-    costs: np.ndarray, tolerances: np.ndarray | None = None, block: int = 512
-) -> np.ndarray:
+_BLOCK_ELEMENTS = 2_000_000
+"""The most elements of the temporary arrays of a block of comparisons."""
+
+_SWEEP_POINTS = 4096
+"""The fewest points whose dominance (without tolerances) is found by a sweep."""
+
+
+def _dominated_sweep(costs: np.ndarray) -> np.ndarray:
+    """
+    Finds the points dominated by another (without tolerances) by a sweep in
+    lexicographic order, in which a point can only be dominated by points
+    before it, and is dominated by one if it is by any (dominance is
+    transitive), so that each point is compared only with the efficient
+    points before it.
+    """
+    order = np.lexsort(costs.T[::-1])
+    dominated = np.zeros(len(costs), dtype=bool)
+    efficient = np.empty((0, costs.shape[1]))
+    for index in order:
+        point = costs[index]
+        if len(efficient) > 0 and np.any(
+            np.all(efficient <= point, axis=1) & np.any(efficient < point, axis=1)
+        ):
+            dominated[index] = True
+        else:
+            efficient = np.vstack([efficient, point])
+    return dominated
+
+
+def _dominated(costs: np.ndarray, tolerances: np.ndarray | None = None) -> np.ndarray:
     """
     Finds the points (rows of costs) dominated by another, even if the other
     is penalized by the tolerances: no worse in every cost, and better in at
     least one, by at least its tolerance (absolute, plus a share of the
     magnitude of the cost of the point it would dominate, see
-    `_get_tolerances`).
+    `_get_tolerances`). Points are compared with every other in blocks,
+    whose temporary arrays are limited to a few million elements, or, for
+    many points without tolerances, by a sweep (see `_dominated_sweep`).
     """
     n = len(costs)
+    if n >= _SWEEP_POINTS and (tolerances is None or not np.any(tolerances)):
+        return _dominated_sweep(costs)
+    block = max(1, min(n, _BLOCK_ELEMENTS // max(n * costs.shape[1], 1)))
     tolerances = np.zeros((2, costs.shape[1])) if tolerances is None else tolerances
     absolute, relative = tolerances
     dominated = np.zeros(n, dtype=bool)

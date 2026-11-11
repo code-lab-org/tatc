@@ -25,6 +25,10 @@ from .store import ResultStore
 _STATUS_COLUMNS = ["design", "replicate", "feasible", "error", "seconds"]
 """Columns of the results of a study that are neither design values nor metrics."""
 
+_FAILED = "_failed"
+"""A key of the records of evaluations that failed (with `errors="record"`), which
+are not stored."""
+
 
 def _get_executor(n_jobs: int) -> Executor:
     """
@@ -67,7 +71,11 @@ class Study:
 
     A design that `build` rejects with a `ValueError` (which includes the
     validation errors of TAT-C's schemas) is recorded as infeasible, with
-    the error, rather than raised.
+    the error, rather than raised. Other errors of `build` or `evaluate`
+    are raised, which stops the study, unless `errors` is `"record"`: then
+    the evaluation is recorded as infeasible, with the type of the error and
+    its message, and is not kept in the study's store, so that a later run
+    evaluates it again.
 
     Evaluations run in parallel with `n_jobs` worker processes (or an
     `executor` with the interface of `concurrent.futures.Executor`). They are
@@ -95,6 +103,9 @@ class Study:
         executor (concurrent.futures.Executor | None): An executor to use
             instead of worker processes.
         chunks_per_job (int): The number of chunks of evaluations per worker.
+        errors (str): `"raise"` to raise the errors of evaluations (other than
+            those of designs that `build` rejects), or `"record"` to record
+            them as infeasible evaluations.
         store (ResultStore | None): A store of the records of evaluations, from
             which evaluations stored before (by a study of the same
             fingerprint, see `fingerprint`) are taken rather than evaluated
@@ -114,7 +125,10 @@ class Study:
         executor: Executor | None = None,
         chunks_per_job: int = 2,
         store: ResultStore | None = None,
+        errors: str = "raise",
     ):
+        if errors not in ("raise", "record"):
+            raise ValueError(f"errors must be 'raise' or 'record', not {errors!r}")
         if replicates < 1:
             raise ValueError("replicates must be at least 1")
         if n_jobs == 0 or n_jobs < -1:
@@ -127,6 +141,7 @@ class Study:
         self.n_jobs, self.executor = n_jobs, executor
         self.chunks_per_job = chunks_per_job
         self.store = store
+        self.errors = errors
 
     def __getstate__(self) -> dict:
         # an executor and a store are not sent to workers
@@ -145,13 +160,30 @@ class Study:
             built = self.build(realized)
         except ValueError as error:
             return [{**base, "feasible": False, "error": str(error)}]
-        outcome = self.evaluate(built)
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            if self.errors == "raise":
+                raise
+            return [self._failure(base, error)]
+        try:
+            outcome = self.evaluate(built)
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            if self.errors == "raise":
+                raise
+            return [self._failure(base, error)]
         base.update(feasible=True, seconds=time.perf_counter() - began)
         if isinstance(outcome, pd.DataFrame):
             named = any(name is not None for name in outcome.index.names)
             frame = outcome.reset_index() if named else outcome
             return [{**base, **record} for record in frame.to_dict("records")]
         return [{**base, **dict(outcome)}]
+
+    @staticmethod
+    def _failure(base: dict, error: Exception) -> dict:
+        """
+        Gets the record of an evaluation that failed.
+        """
+        message = f"{type(error).__name__}: {error}"
+        return {**base, "feasible": False, "error": message, _FAILED: True}
 
     def _run_chunk(self, tasks: list[tuple[int, Design, int]]) -> list[list[dict]]:
         """
@@ -261,7 +293,7 @@ class Study:
             for done, (i, design, replicate) in enumerate(tasks, 1):
                 records = self._evaluate(design, replicate)
                 results.append((i, replicate, records))
-                if self.store is not None:
+                if self.store is not None and not _failed(records):
                     self.store.put([(design.key, replicate, records)], context)
                 if progress is not None:
                     progress(done, total)
@@ -284,6 +316,7 @@ class Study:
                         (
                             (design.key, replicate, records)
                             for (_, design, replicate), records in zip(chunk, evaluated)
+                            if not _failed(records)
                         ),
                         context,
                     )
@@ -292,8 +325,19 @@ class Study:
                     progress(done, total)
         results.sort(key=lambda result: (result[0], result[1]))
         return pd.DataFrame.from_records(
-            [record for _, _, records in results for record in records]
+            [
+                {k: v for k, v in record.items() if k != _FAILED}
+                for _, _, records in results
+                for record in records
+            ]
         )
+
+
+def _failed(records: list[dict]) -> bool:
+    """
+    Whether the records are of an evaluation that failed.
+    """
+    return any(record.get(_FAILED, False) for record in records)
 
 
 def summarize(
