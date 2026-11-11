@@ -11,6 +11,7 @@ import numpy as np
 from tatc.tradespace import (
     Categorical,
     CostModel,
+    CostSchedule,
     DesignSpace,
     Integer,
     LaunchCost,
@@ -237,3 +238,93 @@ class TestCostModel(unittest.TestCase):
         self.assertTrue((summary["cost p70"] > summary["cost"]).all())
         ratio = summary["cost"] / np.array(nominal)
         np.testing.assert_allclose(ratio, ratio.iloc[0])  # common random numbers
+
+
+class TestCostSchedule(unittest.TestCase):
+    """
+    Unit tests for dated costs and their present value.
+    """
+
+    def setUp(self):
+        self.terms = {
+            "satellites": SatelliteCost(
+                development=90, first_unit=10, learning_rate=0.9
+            ),
+            "launch": LaunchCost(per_launch=30, capacity=3),
+            "operations": OperationsCost(per_year=5, per_satellite_year=1),
+            "years": 6,
+            "design_life": 3,
+        }
+        self.layout = _walker(planes=3, per_plane=4)
+
+    def _estimate(self, **schedule):
+        model = CostModel(**self.terms, schedule=CostSchedule(**schedule))
+        return model.estimate(self.layout)
+
+    def test_undiscounted(self):
+        """Without discounting or intervals, dated costs are the estimate's."""
+        nominal = CostModel(**self.terms).estimate(self.layout)
+        dated = self._estimate()
+        for element in ("development", "production", "launch", "operations"):
+            self.assertAlmostEqual(getattr(dated, element), getattr(nominal, element))
+        self.assertAlmostEqual(dated.present_value, nominal.total)
+        self.assertEqual(dated.units, nominal.units)
+        self.assertEqual(dated.launches, nominal.launches)
+        self.assertIsNone(nominal.present_value)
+        self.assertNotIn("cost present", nominal.metrics())
+
+    def test_present_value(self):
+        """Costs are discounted from the present to their dates."""
+        dated = self._estimate(discount_rate=0.1, development_years=3)
+        # development of 90, evenly over 3 years, dated at mid-year
+        expected = sum(30 / 1.1 ** (year + 0.5) for year in range(3))
+        self.assertAlmostEqual(dated.present["development"], expected)
+        # launches of the first generation at year 3, the second at year 6
+        self.assertAlmostEqual(dated.present["launch"], 180 / 1.1**3 + 180 / 1.1**6)
+        later = self._estimate(discount_rate=0.1, development_years=3, start=2)
+        self.assertAlmostEqual(later.present_value, dated.present_value / 1.1**2)
+        metrics = dated.metrics()
+        self.assertAlmostEqual(metrics["cost present"], dated.present_value)
+        self.assertLess(metrics["cost present"], metrics["cost"])
+
+    def test_deployment_plan(self):
+        """Planes deployed at intervals are launched later and operated less."""
+        dated = self._estimate(development_years=2, deployment_interval=1)
+        launches = [(t, a) for t, element, a in dated.flows if element == "launch"]
+        # 3 planes a year apart, and their replacements 3 years later
+        self.assertEqual([t for t, _ in launches], [2, 3, 4, 5, 6, 7])
+        # the second and third planes miss 1 and 2 years of 4 satellites
+        nominal = CostModel(**self.terms).estimate(self.layout)
+        self.assertAlmostEqual(dated.operations, nominal.operations - 4 * (1 + 2))
+        # production is paid in the year before each deployment, units in order
+        production = [
+            (t, a) for t, element, a in dated.flows if element == "production"
+        ]
+        self.assertEqual(production[0][0], 1.5)
+        self.assertAlmostEqual(production[0][1], self.terms["satellites"].production(4))
+
+    def test_annual(self):
+        """Annual costs add to the total, and their peak is a metric."""
+        dated = self._estimate(development_years=2, deployment_interval=1)
+        annual = dated.annual()
+        self.assertAlmostEqual(annual["total"].sum(), dated.total)
+        self.assertEqual(list(annual.index), list(range(0, 8)))
+        self.assertAlmostEqual(
+            dated.metrics()["cost peak annual"], annual["total"].max()
+        )
+        with self.assertRaises(ValueError):
+            CostModel(**self.terms).estimate(self.layout).annual()
+
+    def test_growth_and_validation(self):
+        """Growth multiplies dated costs, and schedules are validated."""
+        model = CostModel(**self.terms, schedule=CostSchedule(discount_rate=0.05))
+        base = model.estimate(self.layout)
+        grown = model.estimate(self.layout, growth={"development": 2.0})
+        self.assertAlmostEqual(
+            grown.present["development"], 2 * base.present["development"]
+        )
+        self.assertAlmostEqual(grown.present["launch"], base.present["launch"])
+        with self.assertRaises(ValueError):
+            CostSchedule(production_lead=-1)
+        with self.assertRaises(ValueError):
+            CostSchedule(discount_rate=-1)

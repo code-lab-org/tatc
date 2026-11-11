@@ -86,8 +86,11 @@ Costs
 
 .. autoclass:: tatc.tradespace.OperationsCost
 
+.. autoclass:: tatc.tradespace.CostSchedule
+   :members: discount
+
 .. autoclass:: tatc.tradespace.CostEstimate
-   :members: total, metrics
+   :members: total, present_value, annual, metrics
 
 .. autofunction:: tatc.tradespace.plane_sizes
 

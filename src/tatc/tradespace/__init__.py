@@ -17,6 +17,7 @@ from .confirmation import Confirmation, confirm
 from .cost import (
     CostEstimate,
     CostModel,
+    CostSchedule,
     LaunchCost,
     OperationsCost,
     SatelliteCost,
@@ -78,6 +79,7 @@ __all__ = [
     "Confirmation",
     "CostEstimate",
     "CostModel",
+    "CostSchedule",
     "Derived",
     "Design",
     "DesignSpace",
