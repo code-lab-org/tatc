@@ -234,3 +234,92 @@ def _orbit():
     return SunSynchronousOrbit(
         altitude=700e3, equator_crossing_time="10:30", epoch=EPOCH
     )
+
+
+def _walker(**kwargs):
+    """The satellites of a Walker layout (on its own) of given values."""
+    values = {
+        "inclination": 55.0,
+        "planes": 3,
+        "per_plane": 4,
+        "relative_spacing": 1,
+        "configuration": "delta",
+        **kwargs,
+    }
+    space = DesignSpace(layout=walker_space(**values))
+    (design,) = space.enumerate()
+    return design, build_constellation(
+        design.layout, IMAGER, epoch=EPOCH, altitude=700e3
+    )
+
+
+def _orbits(satellites):
+    """The (node, anomaly) of each satellite, as a set, ignoring names."""
+    return {
+        (
+            round(s.orbit.right_ascension_ascending_node % 360, 6) % 360,
+            round(s.orbit.true_anomaly % 360, 6) % 360,
+        )
+        for s in satellites
+    }
+
+
+class TestWalkerPhase(unittest.TestCase):
+    """
+    Unit tests for the phase and node of the lead satellite of Walker layouts.
+    """
+
+    def test_default(self):
+        """The lead satellite is at the origin by default."""
+        design, satellites = _walker()
+        self.assertEqual(design.layout.true_anomaly, 0)
+        self.assertEqual(design.layout.right_ascension, 0)
+        self.assertEqual(satellites[0].orbit.true_anomaly, 0)
+        self.assertEqual(satellites[0].orbit.right_ascension_ascending_node, 0)
+
+    def test_fractions(self):
+        """Fractions give angles of the intervals of distinct constellations."""
+        design, satellites = _walker(phase_fraction=0.5, node_fraction=0.25)
+        self.assertAlmostEqual(design.layout.true_anomaly, 0.5 * 360 / 4)
+        self.assertAlmostEqual(design.layout.right_ascension, 0.25 * 360 / 3)
+        self.assertAlmostEqual(satellites[0].orbit.true_anomaly, 45)
+        self.assertAlmostEqual(satellites[0].orbit.right_ascension_ascending_node, 30)
+        star, _ = _walker(configuration="star", node_fraction=0.25)
+        self.assertAlmostEqual(star.layout.right_ascension, 90)
+
+    def test_symmetries(self):
+        """A whole interval of phase or node gives the same constellation."""
+        _, base = _walker()
+        _, phased = _walker(phase_fraction=1.0)
+        self.assertEqual(_orbits(phased), _orbits(base))
+        # a shift of node by 360 / planes is a shift of phase by
+        # -360 * relative_spacing / satellites (a fraction of -1 / planes)
+        _, noded = _walker(node_fraction=1.0)
+        _, shifted = _walker(phase_fraction=-1 / 3)
+        self.assertEqual(_orbits(noded), _orbits(shifted))
+        self.assertNotEqual(_orbits(noded), _orbits(base))
+        # fractions within the intervals give other constellations
+        _, half = _walker(phase_fraction=0.5)
+        self.assertNotEqual(_orbits(half), _orbits(base))
+
+    def test_uncertain_and_designed(self):
+        """Fractions are design variables or uncertain parameters."""
+        space = DesignSpace(
+            layout=walker_space(
+                inclination=55.0,
+                planes=Integer(1, 2),
+                per_plane=2,
+                relative_spacing=0,
+                phase_fraction=Uncertain.uniform(0, 1),
+                node_fraction=Real(0, 0.5, step=0.5),
+            )
+        )
+        designs = space.enumerate()
+        self.assertEqual(len(designs), 4)
+        realized = designs[-1].realize(0)
+        fraction = realized.layout.phase_fraction
+        self.assertTrue(0 <= fraction < 1)
+        self.assertAlmostEqual(realized.layout.true_anomaly, fraction * 180)
+        self.assertAlmostEqual(realized.layout.right_ascension, 0.5 * 180)
+        # the same draw in every design (common random numbers)
+        self.assertEqual(designs[0].realize(0).layout.phase_fraction, fraction)

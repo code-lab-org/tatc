@@ -40,7 +40,7 @@ from ..schemas import (
     SunSynchronousOrbit,
     WalkerConstellation,
 )
-from .nodes import Fixed, Integer, Real, Repeat
+from .nodes import Derived, Fixed, Integer, Real, Repeat
 from .space import DesignSpace
 from .values import ChoiceValues, Scope, Values
 
@@ -62,15 +62,35 @@ def walker_space(
     relative_spacing: Any = None,
     altitude: Any = None,
     configuration: Any = "delta",
+    phase_fraction: Any = 0.0,
+    node_fraction: Any = 0.0,
     constraints: Sequence[Callable[[Scope], Any]] = (),
 ) -> DesignSpace:
     """
     Gets a fragment of a design space of Walker constellations (see
     `tatc.schemas.WalkerConstellation`): their inclination (degrees), number
     of planes, number of satellites in each plane, relative spacing of
-    satellites between planes, and (optionally, if not given to
-    `build_constellation`) altitude (meters). Each is a node of a design
-    space (such as a design variable) or a value.
+    satellites between planes, the phase and node of the lead satellite, and
+    (optionally, if not given to `build_constellation`) altitude (meters).
+    Each is a node of a design space (such as a design variable) or a value.
+
+    The phase (true anomaly) and node (right ascension of the ascending
+    node) of the lead satellite are given as fractions of the intervals over
+    which they give distinct constellations: shifting every satellite's
+    phase by `360 / per_plane` degrees moves each onto the next in its plane,
+    and shifting every plane's node by `360 / planes` degrees (of a delta
+    configuration) moves each onto the next plane, which, with the shift of
+    phase between planes (`360 * relative_spacing / satellites`), gives the
+    same constellation. Fractions in [0, 1) of both therefore give every
+    distinct constellation once, without searching the same constellation
+    at several phases or nodes. A star configuration has no such symmetry of
+    its nodes (its planes span 180 degrees, and the next plane after the
+    last is the first, in the opposite direction), so its fraction of the
+    node is of 360 degrees. The fractions may be design variables (such as
+    `Real(0, 0.75, step=0.25)`, without 1, which is the same as 0) or
+    uncertain parameters (such as `Uncertain.uniform(0, 1)`), and the
+    fragment derives the lead satellite's `true_anomaly` and `right_ascension`
+    (degrees) from them.
 
     Args:
         inclination (Any): The inclination, by default a variable from 30 to
@@ -82,6 +102,11 @@ def walker_space(
             from 0 to the number of planes less 1.
         altitude (Any): The altitude, if part of the layout.
         configuration (Any): The configuration (`"delta"` or `"star"`).
+        phase_fraction (Any): The phase of the lead satellite, as a fraction
+            of `360 / per_plane` degrees.
+        node_fraction (Any): The node of the lead satellite, as a fraction of
+            `360 / planes` degrees (delta configuration) or 360 degrees (star
+            configuration).
         constraints (Sequence[Callable]): Constraints of the fragment.
 
     Returns:
@@ -94,10 +119,26 @@ def walker_space(
         "planes": _node(planes, Integer(1, 6)),
         "per_plane": _node(per_plane, Integer(1, 6)),
         "relative_spacing": _node(relative_spacing, Integer(0, lambda d: d.planes - 1)),
+        "phase_fraction": phase_fraction,
+        "node_fraction": node_fraction,
     }
     if altitude is not None:
         children["altitude"] = altitude
+    children["true_anomaly"] = Derived(_lead_true_anomaly)
+    children["right_ascension"] = Derived(_lead_right_ascension)
     return DesignSpace(constraints=constraints, **children)
+
+
+def _lead_true_anomaly(d: Scope) -> float:
+    """The true anomaly (degrees) of the lead satellite of a Walker layout."""
+    return float(d.phase_fraction) * 360 / d.per_plane % 360
+
+
+def _lead_right_ascension(d: Scope) -> float:
+    """The right ascension of the ascending node (degrees) of the lead
+    satellite of a Walker layout."""
+    period = 360 if d.configuration == "star" else 360 / d.planes
+    return float(d.node_fraction) * period % 360
 
 
 def _distinct_crossings(d: Scope) -> bool:
@@ -323,7 +364,11 @@ def build_constellation(
             name=name,
             configuration=layout.configuration,
             orbit=CircularOrbit(
-                altitude=altitude, inclination=layout.inclination, epoch=epoch
+                altitude=altitude,
+                inclination=layout.inclination,
+                true_anomaly=getattr(layout, "true_anomaly", 0.0),
+                right_ascension_ascending_node=getattr(layout, "right_ascension", 0.0),
+                epoch=epoch,
             ),
             number_planes=layout.planes,
             number_satellites=layout.planes * layout.per_plane,
