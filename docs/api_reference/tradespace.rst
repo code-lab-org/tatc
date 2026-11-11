@@ -57,6 +57,8 @@ Constellations
 
 .. autofunction:: tatc.tradespace.sso_planes_space
 
+.. autofunction:: tatc.tradespace.planes_space
+
 .. autofunction:: tatc.tradespace.build_constellation
 
 .. autofunction:: tatc.tradespace.count_satellites

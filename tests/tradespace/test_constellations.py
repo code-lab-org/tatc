@@ -17,11 +17,13 @@ from tatc.tradespace import (
     DesignSpace,
     Integer,
     Real,
+    Repeat,
     Uncertain,
     build_constellation,
     count_planes,
     count_satellites,
     hours_to_time,
+    planes_space,
     remove_failures,
     sso_planes_space,
     walker_space,
@@ -124,7 +126,7 @@ class TestBuild(unittest.TestCase):
                 crossing=13.5,
                 satellites=4,
                 count=1,
-                phase=Uncertain.uniform(0, 360),
+                phase_fraction=Uncertain.uniform(0, 1),
                 altitude=700e3,
             ),
         )
@@ -137,7 +139,10 @@ class TestBuild(unittest.TestCase):
         gaps = np.diff(np.unwrap(np.radians(anomalies)))
         np.testing.assert_allclose(np.degrees(gaps) % 360, 90)
         self.assertEqual(satellites[0].orbit.equator_crossing_time, time(13, 30))
-        self.assertAlmostEqual(anomalies[0], design.layout.planes[0].phase)
+        plane = design.layout.planes[0]
+        self.assertAlmostEqual(anomalies[0], plane.true_anomaly)
+        # a fraction of the 90 degrees between 4 evenly spaced satellites
+        self.assertAlmostEqual(plane.true_anomaly, plane.phase_fraction * 90)
 
     def test_derived_planes(self):
         """Plane values may be derived from their index and enclosing values."""
@@ -323,3 +328,187 @@ class TestWalkerPhase(unittest.TestCase):
         self.assertAlmostEqual(realized.layout.right_ascension, 0.5 * 180)
         # the same draw in every design (common random numbers)
         self.assertEqual(designs[0].realize(0).layout.phase_fraction, fraction)
+
+
+def _minutes(value):
+    """Minutes of a time of day."""
+    return value.hour * 60 + value.minute + value.second / 60
+
+
+def _single(space):
+    """The only design of a design space."""
+    (design,) = space.enumerate()
+    return design
+
+
+class TestTrains(unittest.TestCase):
+    """
+    Unit tests for trains of satellites in planes.
+    """
+
+    def _build(self, **kwargs):
+        space = DesignSpace(
+            layout=sso_planes_space(crossing=13.5, satellites=3, count=1, **kwargs)
+        )
+        return build_constellation(
+            _single(space).layout, IMAGER, epoch=EPOCH, altitude=700e3
+        )
+
+    def test_evenly_spaced(self):
+        """Without an interval, satellites are evenly spaced."""
+        satellites = self._build()
+        anomalies = [s.orbit.true_anomaly for s in satellites]
+        np.testing.assert_allclose(anomalies, [0, 120, 240])
+
+    def test_same_ground_track(self):
+        """A train on the same ground track crosses at later local times."""
+        satellites = self._build(interval=10)
+        crossings = [_minutes(s.orbit.equator_crossing_time) for s in satellites]
+        np.testing.assert_allclose(np.diff(crossings), [10, 10], atol=0.05)
+        # each trails the one ahead by 10 minutes of a ~99 minute orbit
+        anomalies = [s.orbit.true_anomaly for s in satellites]
+        lags = np.mod(-np.diff(anomalies), 360)
+        np.testing.assert_allclose(lags, 360 * 10 / 98.8, rtol=0.01)
+        self.assertEqual(
+            [s.name for s in satellites], [f"satellite 1-{k}" for k in (1, 2, 3)]
+        )
+
+    def test_same_plane(self):
+        """A train in the same plane crosses at the same local time."""
+        satellites = self._build(interval=10, repeat_ground_track=False)
+        crossings = {_minutes(s.orbit.equator_crossing_time) for s in satellites}
+        self.assertEqual(len(crossings), 1)
+
+    def test_phase_fraction(self):
+        """Phases are fractions of the interval of distinct planes."""
+        even = self._build(phase_fraction=0.25)
+        self.assertAlmostEqual(even[0].orbit.true_anomaly, 0.25 * 120)
+        # a whole interval moves each satellite onto the next
+        shifted = self._build(phase_fraction=1.0)
+        self.assertEqual(
+            sorted(round(s.orbit.true_anomaly % 360, 6) for s in shifted),
+            sorted(round(s.orbit.true_anomaly % 360, 6) for s in self._build()),
+        )
+        # a train has no such symmetry: its interval is 360 degrees
+        train = self._build(phase_fraction=0.25, interval=10)
+        self.assertAlmostEqual(train[0].orbit.true_anomaly, 90)
+
+    def test_interval_variable(self):
+        """The interval is a design variable that may be evenly spaced."""
+        space = DesignSpace(
+            layout=sso_planes_space(
+                crossing=13.5, satellites=2, count=1, interval=Categorical([None, 5])
+            )
+        )
+        designs = space.enumerate()
+        self.assertEqual(len(designs), 2)
+        built = [
+            build_constellation(d.layout, IMAGER, epoch=EPOCH, altitude=700e3)
+            for d in designs
+        ]
+        self.assertAlmostEqual(built[0][1].orbit.true_anomaly, 180)
+        self.assertLess(np.mod(-built[1][1].orbit.true_anomaly, 360), 30)
+        with self.assertRaises(ValueError):
+            self._build(interval=0)
+
+
+class TestPlanes(unittest.TestCase):
+    """
+    Unit tests for planes of inclined orbits.
+    """
+
+    def test_uncertain_nodes(self):
+        """Nodes are uncertain by default, drawn for each replicate."""
+        space = DesignSpace(
+            layout=planes_space(inclination=30.0, satellites=2, count=Integer(1, 3)),
+            constraints=[lambda d: count_satellites(d.layout) <= 4],
+        )
+        designs = space.enumerate()
+        self.assertEqual(len(designs), 2)
+        realized = designs[1].realize(3)
+        nodes = [plane.node for plane in realized.layout.planes]
+        self.assertTrue(all(0 <= node < 360 for node in nodes))
+        self.assertNotEqual(nodes[0], nodes[1])
+        satellites = build_constellation(
+            realized.layout, IMAGER, epoch=EPOCH, altitude=550e3
+        )
+        self.assertEqual(len(satellites), 4)
+        self.assertEqual(count_planes(realized.layout), 2)
+        self.assertAlmostEqual(
+            satellites[2].orbit.right_ascension_ascending_node, nodes[1]
+        )
+        self.assertEqual(satellites[0].orbit.inclination, 30)
+
+    def test_designed_nodes_and_trains(self):
+        """Nodes may be designed, and planes may be trains."""
+        space = DesignSpace(
+            layout=planes_space(
+                inclination=Real(30, 60, step=30),
+                node=Real(0, 90, step=90),
+                satellites=2,
+                count=1,
+                interval=5,
+                repeat_ground_track=False,
+            )
+        )
+        designs = space.enumerate()
+        self.assertEqual(len(designs), 4)
+        satellites = build_constellation(
+            designs[-1].layout, IMAGER, epoch=EPOCH, altitude=550e3
+        )
+        self.assertEqual(
+            {s.orbit.right_ascension_ascending_node for s in satellites}, {90}
+        )
+        self.assertEqual({s.orbit.inclination for s in satellites}, {60})
+
+
+class TestMixedLayouts(unittest.TestCase):
+    """
+    Unit tests for constellations of several layouts.
+    """
+
+    def test_list_of_layouts(self):
+        """Several layouts are built and counted together."""
+        space = DesignSpace(
+            inclined=walker_space(
+                inclination=65.0, planes=1, per_plane=2, relative_spacing=0
+            ),
+            polar=sso_planes_space(
+                crossing=13.5, satellites=1, count=2, distinct=False
+            ),
+        )
+        design = _single(space)
+        layouts = [design.inclined, design.polar]
+        satellites = build_constellation(layouts, IMAGER, epoch=EPOCH, altitude=700e3)
+        self.assertEqual(
+            [s.name for s in satellites],
+            ["satellite A 1", "satellite A 2", "satellite B 1-1", "satellite B 2-1"],
+        )
+        self.assertEqual(count_satellites(layouts), 4)
+        self.assertEqual(count_planes(layouts), 3)
+
+    def test_repeat_of_choice(self):
+        """A repetition of a choice of layouts is a variable mix of shells."""
+        space = DesignSpace(
+            shells=Repeat(
+                Choice(
+                    walker=walker_space(
+                        inclination=65.0, planes=1, per_plane=2, relative_spacing=0
+                    ),
+                    sso=sso_planes_space(crossing=13.5, satellites=1, count=1),
+                ),
+                count=Integer(1, 2),
+            )
+        )
+        designs = space.enumerate()
+        self.assertEqual(len(designs), 2 + 4)
+        mixed = [
+            d for d in designs if [s.choice for s in d.shells] == ["walker", "sso"]
+        ]
+        (design,) = mixed
+        satellites = build_constellation(
+            design.shells, IMAGER, epoch=EPOCH, altitude=700e3
+        )
+        self.assertEqual(len(satellites), 3)
+        self.assertEqual(count_satellites(design.shells), 3)
+        self.assertEqual(count_planes(design.shells), 2)
