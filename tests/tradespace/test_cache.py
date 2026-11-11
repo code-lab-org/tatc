@@ -111,6 +111,20 @@ class TestSatelliteCache(unittest.TestCase):
             self.assertEqual(other.misses, 1)
         self.assertEqual(self.calls, ["a", "c"])
 
+    def test_disk_cache_of_other_functions(self):
+        """Results on disk are not shared by functions of other definitions."""
+        with tempfile.TemporaryDirectory() as directory:
+            for rows in (1, 1, 2):
+                cache = SatelliteCache(
+                    lambda satellite, rows=rows: pd.DataFrame(
+                        {"satellite": [satellite.name] * rows}
+                    ),
+                    directory,
+                    namespace="x",
+                )
+                self.assertEqual(len(cache(_satellite("a"))), rows)
+            self.assertEqual(len(list(Path(directory).iterdir())), 2)
+
     def test_unreadable_file(self):
         """A result that cannot be read from disk is computed again."""
         with tempfile.TemporaryDirectory() as directory:

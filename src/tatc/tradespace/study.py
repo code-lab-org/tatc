@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import os
 import time
+import warnings
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import Executor, as_completed
 from typing import Any
@@ -17,6 +18,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .fingerprint import get_fingerprint
 from .space import Design, DesignSpace
 from .store import ResultStore
 
@@ -94,7 +96,8 @@ class Study:
             instead of worker processes.
         chunks_per_job (int): The number of chunks of evaluations per worker.
         store (ResultStore | None): A store of the records of evaluations, from
-            which evaluations stored before are taken rather than evaluated
+            which evaluations stored before (by a study of the same
+            fingerprint, see `fingerprint`) are taken rather than evaluated
             again, and to which new ones are added as they complete (see
             `ResultStore`).
     """
@@ -157,6 +160,24 @@ class Study:
         return [self._evaluate(design, replicate) for _, design, replicate in tasks]
 
     @property
+    def fingerprint(self) -> str:
+        """str: A key of the definition of the study, which changes with its
+        seed, its use of common random numbers, its design space (including
+        fixed values and the distributions of uncertain parameters), its
+        build and evaluation functions (their code, the values they close
+        over, and the plain values and functions of their module they refer
+        to), and the version of TAT-C. It keys the records of a store (see
+        `ResultStore`); data that it cannot describe (such as data frames)
+        must be identified by the store's namespace."""
+        return get_fingerprint(
+            self.seed,
+            self.common_random_numbers,
+            self.space,
+            self.build,
+            self.evaluate,
+        )
+
+    @property
     def workers(self) -> int:
         """int: The number of workers that evaluate designs (1 in this process)."""
         if self.executor is not None:
@@ -209,9 +230,26 @@ class Study:
             for i, design in enumerate(unique)
         ]
         results: list[tuple[int, int, list[dict]]] = []
+        context = ""
         if self.store is not None:
             # evaluations stored before (by an interrupted or earlier run)
-            stored = self.store.get((d.key, replicate) for _, d, replicate in tasks)
+            context = self.fingerprint
+            stored = self.store.get(
+                ((d.key, replicate) for _, d, replicate in tasks), context
+            )
+            others = {
+                other: count
+                for other, count in self.store.contexts().items()
+                if other != context
+            }
+            if tasks and not stored and others:
+                warnings.warn(
+                    f"the store has {sum(others.values())} evaluations of namespace "
+                    + f"{self.store.namespace!r} by studies of other definitions "
+                    + "(seed, design space, functions, or version of TAT-C), "
+                    + "which are not reused (see Study.fingerprint)",
+                    stacklevel=2,
+                )
             results.extend(
                 (i, replicate, stored[design.key, replicate])
                 for i, design, replicate in tasks
@@ -224,7 +262,7 @@ class Study:
                 records = self._evaluate(design, replicate)
                 results.append((i, replicate, records))
                 if self.store is not None:
-                    self.store.put([(design.key, replicate, records)])
+                    self.store.put([(design.key, replicate, records)], context)
                 if progress is not None:
                     progress(done, total)
         elif tasks:
@@ -243,8 +281,11 @@ class Study:
                     results.append((i, replicate, records))
                 if self.store is not None:
                     self.store.put(
-                        (design.key, replicate, records)
-                        for (_, design, replicate), records in zip(chunk, evaluated)
+                        (
+                            (design.key, replicate, records)
+                            for (_, design, replicate), records in zip(chunk, evaluated)
+                        ),
+                        context,
                     )
                 done += len(chunk)
                 if progress is not None:

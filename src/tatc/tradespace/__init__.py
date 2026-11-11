@@ -4,7 +4,8 @@ uncertain parameters, building blocks of constellations,
 trade studies that evaluate their designs (with caches
 of analyses by satellite, in parallel), statistics of replicates and
 requirements on them, Pareto efficiency (with the uncertainty of replicates),
-adaptive replication, persistent stores of results, sensitivity analysis,
+adaptive replication, confirmation of selected designs with new replicates,
+persistent stores of results (keyed by fingerprints of studies), sensitivity analysis,
 screening with analyses of increasing fidelity,
 and searches with optimizers (Optuna and pymoo, optional dependencies).
 
@@ -12,6 +13,7 @@ and searches with optimizers (Optuna and pymoo, optional dependencies).
 """
 
 from .cache import SatelliteCache, get_satellite_key
+from .confirmation import Confirmation, confirm
 from .constellations import (
     build_constellation,
     count_planes,
@@ -38,6 +40,7 @@ from .optimization import (
     optimize_optuna,
     optimize_pymoo,
 )
+from .fingerprint import get_fingerprint
 from .pareto import hypervolume, pareto_front, pareto_probability, pareto_ranks
 from .refinement import Refinement, refine
 from .screening import Screening, screen
@@ -63,6 +66,7 @@ __all__ = [
     "Categorical",
     "Choice",
     "ChoiceValues",
+    "Confirmation",
     "Derived",
     "Design",
     "DesignSpace",
@@ -92,8 +96,10 @@ __all__ = [
     "Variable",
     "aggregate",
     "build_constellation",
+    "confirm",
     "count_planes",
     "count_satellites",
+    "get_fingerprint",
     "get_satellite_key",
     "hours_to_time",
     "hypervolume",

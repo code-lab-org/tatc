@@ -7,6 +7,7 @@ efficiency their replicates do not settle.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
@@ -38,7 +39,8 @@ class Refinement:
     @property
     def uncertain(self) -> pd.DataFrame:
         """pandas.DataFrame: The rows of `probability` whose efficiency is
-        still uncertain (as of the bounds of `refine`)."""
+        still uncertain (as of the bounds of `refine`, or with fewer than
+        its least replicates)."""
         return self.probability[self.probability["uncertain"]]
 
 
@@ -53,6 +55,7 @@ def refine(
     bounds: tuple[float, float] = (0.05, 0.95),
     step: int | None = None,
     max_replicates: int | None = None,
+    min_replicates: int = 5,
     max_rounds: int = 10,
     n_resamples: int = 500,
     seed: int = 0,
@@ -67,6 +70,12 @@ def refine(
     `max_replicates`. Rounds end when no design is uncertain (or can be
     refined), or after `max_rounds`.
 
+    A bootstrap of few replicates has few distinct resamples, and can find a
+    design surely inefficient (or efficient) by the luck of its replicates:
+    with two replicates, designs as good as the front can be efficient in
+    none of the resamples. Designs with fewer than `min_replicates` are
+    therefore uncertain whatever their probability, and are refined first.
+
     Replicates are added in order (the next indices after a design's
     replicates), so that designs refined together share their uncertain
     parameters (with common random numbers, see `Design.realize`). Designs
@@ -76,7 +85,8 @@ def refine(
     Designs that differ by less than any number of replicates could
     separate (such as designs near saturation) stay uncertain: give a
     `tolerance` of the objectives within which differences do not matter,
-    so that such designs are all efficient (see `pareto_probability`).
+    so that such designs are all efficient (see `pareto_probability`). A
+    warning is given if designs remain uncertain without a tolerance.
 
     Args:
         study (Study): The study that evaluates designs.
@@ -96,6 +106,8 @@ def refine(
             round, or `None` for the study's number of replicates.
         max_replicates (int | None): The most replicates of a design, if
             limited.
+        min_replicates (int): The fewest replicates with which a design's
+            efficiency can be settled.
         max_rounds (int): The most rounds.
         n_resamples (int): The number of resamples of each bootstrap.
         seed (int): The seed of the bootstraps.
@@ -112,6 +124,8 @@ def refine(
     step = study.replicates if step is None else step
     if step < 1:
         raise ValueError("step must be at least 1")
+    if max_replicates is not None and max_replicates < min_replicates:
+        raise ValueError("max_replicates must be at least min_replicates")
     by_key = {design.key: design for design in designs}
     frames = [results]
     history = []
@@ -127,9 +141,10 @@ def refine(
             requirements=requirements,
             tolerance=tolerance,
         )
-        probability["uncertain"] = (probability["pareto_probability"] > low) & (
-            probability["pareto_probability"] < high
-        )
+        probability["uncertain"] = (
+            (probability["pareto_probability"] > low)
+            & (probability["pareto_probability"] < high)
+        ) | (probability["replicates"] < min_replicates)
         return probability
 
     for round_ in range(max_rounds):
@@ -139,12 +154,17 @@ def refine(
         combined = pd.concat(frames, ignore_index=True)
         # the next replicate of each uncertain design
         following = combined.groupby("design")["replicate"].max() + 1
-        refined = [
-            key
+        # the replicates added to each uncertain design (fewer at the limit)
+        added_to = {
+            key: (
+                step
+                if max_replicates is None
+                else min(step, max_replicates - int(following[key]))
+            )
             for key in uncertain
             if key in by_key
-            and (max_replicates is None or following[key] + step <= max_replicates)
-        ]
+        }
+        refined = [key for key, count in added_to.items() if count > 0]
         if not refined:
             history.append(
                 {
@@ -156,11 +176,18 @@ def refine(
             )
             break
         added = 0
-        # designs with the same next replicate are evaluated together
-        for start, keys in pd.Series(following[refined]).groupby(following[refined]):
+        # designs with the same next replicates are evaluated together
+        plan = pd.DataFrame(
+            {
+                "start": following[refined].astype(int),
+                "count": [added_to[key] for key in refined],
+            },
+            index=refined,
+        )
+        for (start, count), keys in plan.groupby(["start", "count"]):
             new = study.run(
                 [by_key[key] for key in keys.index],
-                replicates=range(int(start), int(start) + step),
+                replicates=range(int(start), int(start) + int(count)),
             )
             frames.append(new)
             added += new.groupby(["design", "replicate"]).ngroups
@@ -174,6 +201,14 @@ def refine(
         )
     else:
         probability = estimate(max_rounds)
+    remaining = probability.loc[probability["uncertain"], "design"].nunique()
+    if remaining > 0 and not tolerance:
+        warnings.warn(
+            f"{remaining} designs remain uncertain: designs that differ by less "
+            + "than replicates separate stay uncertain without a tolerance of "
+            + "the objectives (see pareto_front)",
+            stacklevel=2,
+        )
     return Refinement(
         results=pd.concat(frames, ignore_index=True),
         probability=probability,

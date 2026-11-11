@@ -71,7 +71,7 @@ Trade Studies
 -------------
 
 .. autoclass:: tatc.tradespace.Study
-   :members: run, workers
+   :members: run, workers, fingerprint
 
 .. autofunction:: tatc.tradespace.summarize
 
@@ -105,7 +105,9 @@ Stores of Results
 -----------------
 
 .. autoclass:: tatc.tradespace.ResultStore
-   :members: get, put, clear
+   :members: get, put, contexts, clear
+
+.. autofunction:: tatc.tradespace.get_fingerprint
 
 Caches
 ------
@@ -136,6 +138,14 @@ Adaptive Replication
 
 .. autoclass:: tatc.tradespace.Refinement
    :members: uncertain
+
+Confirmation
+------------
+
+.. autofunction:: tatc.tradespace.confirm
+
+.. autoclass:: tatc.tradespace.Confirmation
+   :members: optimism
 
 Sensitivity
 -----------

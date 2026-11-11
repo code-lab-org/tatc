@@ -27,13 +27,14 @@ class TestResultStore(unittest.TestCase):
         self.path = Path(self.directory.name) / "results.sqlite"
         self.space = DesignSpace(a=Integer(1, 4), noise=Uncertain.uniform(0, 1))
         self.calls = []
+        self.fail_at = None
 
     def tearDown(self):
         self.directory.cleanup()
 
-    def _study(self, store, fail_at=None, **kwargs):
+    def _study(self, store, **kwargs):
         def evaluate(d):
-            if fail_at is not None and len(self.calls) == fail_at:
+            if self.fail_at is not None and len(self.calls) == self.fail_at:
                 raise _Interrupt()
             self.calls.append((d.a, d.noise))
             return {"value": d.a + d.noise}
@@ -48,6 +49,11 @@ class TestResultStore(unittest.TestCase):
         store.put([("d1", 0, [{"value": 1}]), ("d1", 1, [{"value": 2}])])
         self.assertEqual(len(store), 2)
         self.assertEqual(store.get([("d1", 1), ("d2", 0)]), {("d1", 1): [{"value": 2}]})
+        # records of another context are separate
+        store.put([("d1", 1, [{"value": 3}])], context="c")
+        self.assertEqual(store.get([("d1", 1)], "c"), {("d1", 1): [{"value": 3}]})
+        self.assertEqual(store.get([("d1", 1)])[("d1", 1)], [{"value": 2}])
+        self.assertEqual(store.contexts(), {"": 2, "c": 1})
         other = ResultStore(self.path, "y")
         self.assertEqual(len(other), 0)
         store.clear()
@@ -58,9 +64,11 @@ class TestResultStore(unittest.TestCase):
     def test_resume(self):
         """An interrupted study resumes, evaluating only what is not stored."""
         store = ResultStore(self.path, "study")
+        self.fail_at = 5
         with self.assertRaises(_Interrupt):
-            self._study(store, fail_at=5).run()
+            self._study(store).run()
         self.assertEqual(len(store), 5)
+        self.fail_at = None
         resumed = self._study(store).run()
         self.assertEqual(len(self.calls), 12)  # 5 before, 7 after
         complete = self._study(None).run()
@@ -95,3 +103,34 @@ class TestResultStore(unittest.TestCase):
         self.assertEqual(len(store), 12)
         again = study.run()
         pd.testing.assert_frame_equal(results, again)
+
+    def test_other_definitions(self):
+        """Records of studies of other definitions are not reused."""
+        store = ResultStore(self.path, "study")
+        self._study(store).run()
+        self.calls.clear()
+        self._study(store).run()
+        self.assertEqual(self.calls, [])
+        # another seed draws other uncertain values
+        with self.assertWarns(UserWarning):
+            reseeded = self._study(store, seed=1).run()
+        self.assertEqual(len(self.calls), 12)
+        self.assertNotEqual(
+            reseeded.noise.tolist(), self._study(None).run().noise.tolist()
+        )
+        # another fixed value of the design space
+        self.calls.clear()
+        self.space = DesignSpace(a=Integer(1, 4), b=2.0, noise=Uncertain.uniform(0, 1))
+        with self.assertWarns(UserWarning):
+            self._study(store).run()
+        self.assertEqual(len(self.calls), 12)
+        # another value that the evaluation closes over
+        self.calls.clear()
+        for offset in (0.0, 1.0):
+            Study(
+                self.space,
+                lambda d: d,
+                lambda d, offset=offset: self.calls.append(1) or {"value": offset},
+                store=ResultStore(self.path, "closure"),
+            ).run()
+        self.assertEqual(len(self.calls), 8)

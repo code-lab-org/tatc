@@ -26,6 +26,7 @@ from typing import Any
 import pandas as pd
 
 from ..schemas import Satellite
+from .fingerprint import get_fingerprint
 
 
 def get_satellite_key(satellite: Satellite) -> str:
@@ -60,10 +61,12 @@ class SatelliteCache:
 
     A cache on disk (`directory`) persists between sessions and is shared by
     the parallel workers of a trade study (see `Study`), each of which
-    otherwise has its own cache in memory. Its `namespace` must identify the
-    analysis (the function and its fixed arguments), as results in the
-    directory are only keyed by the namespace and the satellite: change it
-    whenever the analysis changes.
+    otherwise has its own cache in memory. Results in the directory are keyed
+    by the satellite, the fingerprint of the function (its code, the plain
+    values it closes over or refers to, and the version of TAT-C, see
+    `Study.fingerprint`), and the `namespace`, which must identify what the
+    fingerprint cannot see: the data the function uses (such as its targets)
+    and the code of other modules it calls. Change it whenever these change.
 
     Args:
         function (Callable): The analysis of one satellite.
@@ -84,6 +87,8 @@ class SatelliteCache:
         self.function = function
         self.directory = None if directory is None else Path(directory)
         self.namespace = namespace
+        self.fingerprint = get_fingerprint(function) if directory is not None else ""
+        """str: The fingerprint of the function, which keys results on disk."""
         self.hits = 0
         """int: The number of results retrieved from the cache."""
         self.misses = 0
@@ -99,7 +104,9 @@ class SatelliteCache:
         return state
 
     def _path(self, key: str) -> Path:
-        name = hashlib.sha1(f"{self.namespace}/{key}".encode()).hexdigest()
+        name = hashlib.sha1(
+            f"{self.namespace}/{self.fingerprint}/{key}".encode()
+        ).hexdigest()
         return self.directory / f"{name}.pkl"
 
     def _load(self, key: str) -> Any:

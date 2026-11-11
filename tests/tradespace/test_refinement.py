@@ -5,6 +5,7 @@ Unit tests for adaptive replication.
 """
 
 import unittest
+import warnings
 
 import numpy as np
 
@@ -141,3 +142,53 @@ class TestRefine(unittest.TestCase):
         self.assertGreaterEqual(
             settled.sum(), (tolerant.pareto_probability >= 0.95).sum()
         )
+
+    def test_min_replicates(self):
+        """Designs with few replicates are refined whatever their probability."""
+        space = DesignSpace(
+            x=Integer(0, 9), a=Uncertain.normal(0, 1), b=Uncertain.normal(0, 1)
+        )
+        # equal designs, of which two replicates find some surely inefficient
+        study = Study(
+            space,
+            lambda d: d,
+            lambda d: {"a": d.a, "b": d.b},
+            replicates=2,
+            common_random_numbers=False,
+        )
+        designs = space.enumerate()
+        results = study.run(designs)
+        objectives = {"a": "min", "b": "min"}
+        before = pareto_probability(results, objectives, n_resamples=200)
+        self.assertTrue((before.pareto_probability == 0).any())
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            refinement = refine(
+                study, designs, results, objectives, step=3, max_rounds=1
+            )
+        replicates = refinement.results.groupby("design").replicate.nunique()
+        self.assertTrue((replicates >= 5).all())
+        with self.assertRaises(ValueError):
+            refine(study, designs, results, objectives, max_replicates=3)
+
+    def test_partial_step(self):
+        """The last step of a design adds the replicates left to its limit."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            refinement = refine(
+                self.study,
+                self.designs,
+                self.results,
+                OBJECTIVES,
+                step=4,
+                max_replicates=7,
+                max_rounds=3,
+            )
+        replicates = refinement.results.groupby("design").replicate.nunique()
+        self.assertEqual(replicates.max(), 7)
+        self.assertTrue(set(replicates) <= {5, 7})
+
+    def test_warns_without_tolerance(self):
+        """Designs that remain uncertain without a tolerance give a warning."""
+        with self.assertWarns(UserWarning):
+            refine(self.study, self.designs, self.results, OBJECTIVES, max_rounds=1)

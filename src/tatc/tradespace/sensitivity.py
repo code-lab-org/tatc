@@ -56,13 +56,24 @@ def sensitivity(
     variables: Sequence[str],
     metrics: Sequence[str],
     max_levels: int = 10,
+    adjusted: bool = True,
 ) -> pd.DataFrame:
     """
     Computes the sensitivity of metrics to design variables: for each
     variable and metric, the share of the variance of the metric explained
-    by the levels of the variable (the correlation ratio, eta squared, of a
-    one-way analysis of variance), among the designs in which the variable is
-    active, and the share of the designs in which it is (`active`).
+    by the levels of the variable (of a one-way analysis of variance), among
+    the designs in which the variable is active, and the share of the designs
+    in which it is (`active`).
+
+    The share of explained variance of a sample (the correlation ratio, eta
+    squared) is biased upward: with `k` levels and `n` designs, a variable
+    that does not affect a metric explains `(k - 1) / (n - 1)` of its
+    variance on average, as the means of its levels differ by chance (0.47
+    for 10 levels and 20 designs). The adjusted share (epsilon squared)
+    removes this bias: it subtracts the variance between levels that chance
+    explains (the variance within levels, times `k - 1`), and is near 0 for
+    such a variable (it is clipped at 0, and is `NaN` with no more designs
+    than levels).
 
     A share near 1 means that the variable alone determines the metric; a
     share near 0, that the metric hardly depends on it. The shares of a full
@@ -80,6 +91,8 @@ def sensitivity(
         metrics (Sequence[str]): The columns of the metrics.
         max_levels (int): The most levels of a numeric variable, beyond which
             its values are grouped in bins of equal counts.
+        adjusted (bool): `True` for the adjusted shares, `False` for the
+            correlation ratios.
 
     Returns:
         pandas.DataFrame: a row per variable: the share of each metric's
@@ -100,7 +113,16 @@ def sensitivity(
                 continue
             levels = _levels(subset[variable], max_levels)
             means = values.groupby(levels).transform("mean")
-            row[metric] = float(((means - values.mean()) ** 2).sum()) / total
+            between = float(((means - values.mean()) ** 2).sum())
+            if not adjusted:
+                row[metric] = between / total
+                continue
+            k, n = int(pd.Series(levels).nunique()), len(subset)
+            if n <= k:
+                row[metric] = np.nan
+                continue
+            within = (total - between) / (n - k)
+            row[metric] = max((between - (k - 1) * within) / total, 0.0)
         rows.append(row)
     result = pd.DataFrame(rows).set_index("variable")
     result = result[[*metrics, "active"]]

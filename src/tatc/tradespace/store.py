@@ -21,11 +21,16 @@ class ResultStore:
     A store of the records of the evaluations of a study (see `Study.run`),
     by the key of each design and its replicate, in a SQLite database file.
 
-    The `namespace` identifies the study: its design space's build and
-    evaluation functions and their fixed inputs (such as the targets and the
-    period of the analysis), as the records are only keyed by the namespace,
-    the design, and the replicate. Change it whenever the study changes.
-    Several studies may share a file, in their own namespaces.
+    Records are also keyed by a `context`: a study gives its fingerprint
+    (see `Study.fingerprint`), which changes with its seed, its use of
+    common random numbers, the definitions of its design space and its build
+    and evaluation functions (their code, and the plain values they refer
+    to), and the version of TAT-C, so that records computed with other
+    definitions are not reused. The `namespace` identifies what a
+    fingerprint cannot see: the data the functions use (such as the targets
+    of the analysis) and the code of other modules they call. Change it
+    whenever these change. Several studies may share a file, in their own
+    namespaces.
 
     Args:
         path (str | os.PathLike): The database file (created if needed).
@@ -40,21 +45,25 @@ class ResultStore:
         with closing(self._connect()) as connection:
             with connection:
                 connection.execute(
-                    "CREATE TABLE IF NOT EXISTS results (namespace TEXT, design TEXT, "
-                    + "replicate INTEGER, records BLOB, "
-                    + "PRIMARY KEY (namespace, design, replicate))"
+                    "CREATE TABLE IF NOT EXISTS evaluations (namespace TEXT, "
+                    + "context TEXT, design TEXT, replicate INTEGER, records BLOB, "
+                    + "PRIMARY KEY (namespace, context, design, replicate))"
                 )
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.path, timeout=60)
 
-    def get(self, keys: Iterable[tuple[str, int]]) -> dict[tuple[str, int], list[dict]]:
+    def get(
+        self, keys: Iterable[tuple[str, int]], context: str = ""
+    ) -> dict[tuple[str, int], list[dict]]:
         """
         Gets the stored records of evaluations.
 
         Args:
             keys (Iterable[tuple[str, int]]): The evaluations: the key of a
                 design and its replicate.
+            context (str): The context of the evaluations (such as the
+                fingerprint of a study).
 
         Returns:
             dict: the records of each stored evaluation (others are omitted)
@@ -67,9 +76,9 @@ class ResultStore:
                 designs = sorted({design for design, _ in part})
                 marks = ",".join("?" * len(designs))
                 rows = connection.execute(
-                    "SELECT design, replicate, records FROM results "
-                    + f"WHERE namespace = ? AND design IN ({marks})",
-                    [self.namespace, *designs],
+                    "SELECT design, replicate, records FROM evaluations "
+                    + f"WHERE namespace = ? AND context = ? AND design IN ({marks})",
+                    [self.namespace, context, *designs],
                 ).fetchall()
                 wanted = set(part)
                 for design, replicate, blob in rows:
@@ -77,40 +86,56 @@ class ResultStore:
                         found[design, replicate] = pickle.loads(blob)
         return found
 
-    def put(self, items: Iterable[tuple[str, int, list[dict]]]) -> None:
+    def put(
+        self, items: Iterable[tuple[str, int, list[dict]]], context: str = ""
+    ) -> None:
         """
         Stores the records of evaluations, replacing any stored before.
 
         Args:
             items (Iterable[tuple[str, int, list[dict]]]): The evaluations: the
                 key of a design, its replicate, and its records.
+            context (str): The context of the evaluations (such as the
+                fingerprint of a study).
         """
         rows = [
-            (self.namespace, design, int(replicate), pickle.dumps(records))
+            (self.namespace, context, design, int(replicate), pickle.dumps(records))
             for design, replicate, records in items
         ]
         if rows:
             with closing(self._connect()) as connection:
                 with connection:
                     connection.executemany(
-                        "INSERT OR REPLACE INTO results VALUES (?, ?, ?, ?)", rows
+                        "INSERT OR REPLACE INTO evaluations VALUES (?, ?, ?, ?, ?)",
+                        rows,
                     )
 
-    def __len__(self) -> int:
+    def contexts(self) -> dict[str, int]:
+        """
+        Gets the contexts of the namespace's stored evaluations.
+
+        Returns:
+            dict[str, int]: the number of evaluations of each context
+        """
         with closing(self._connect()) as connection:
-            (count,) = connection.execute(
-                "SELECT COUNT(*) FROM results WHERE namespace = ?", [self.namespace]
-            ).fetchone()
-        return count
+            rows = connection.execute(
+                "SELECT context, COUNT(*) FROM evaluations WHERE namespace = ? "
+                + "GROUP BY context",
+                [self.namespace],
+            ).fetchall()
+        return dict(rows)
+
+    def __len__(self) -> int:
+        return sum(self.contexts().values())
 
     def clear(self) -> None:
         """
-        Removes the stored records of the namespace.
+        Removes the stored records of the namespace (of every context).
         """
         with closing(self._connect()) as connection:
             with connection:
                 connection.execute(
-                    "DELETE FROM results WHERE namespace = ?", [self.namespace]
+                    "DELETE FROM evaluations WHERE namespace = ?", [self.namespace]
                 )
 
     def __repr__(self) -> str:
