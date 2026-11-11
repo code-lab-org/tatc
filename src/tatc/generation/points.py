@@ -133,7 +133,9 @@ def generate_points_rotated_lattice(
     `generate_points_random`, but the points cover the sphere evenly rather
     than clustering by chance, so that statistics of samples of points (such
     as the share of points sampled sufficiently, over the replicates of a
-    trade study) vary several times less between samples of the same size.
+    trade study) vary less between samples of the same size (with about 1.5
+    to 4 times less variance for the shares of points that constellations
+    sample).
 
     With a mask, the lattice covers the sphere with about `count` points
     inside the mask (from the mask's share of the sphere's area), and the
