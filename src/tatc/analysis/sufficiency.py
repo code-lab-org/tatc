@@ -305,38 +305,61 @@ def compute_revisit_statistics(
     """
     length = (end - start).total_seconds()
     result = _get_targets(observations, targets)
-    seconds = pd.Series(
-        _get_seconds(observations[time_column], start), index=observations.index
-    )
-    rows = {}
-    for key, group in seconds.groupby(observations["target_hash"].to_numpy()):
-        t = np.sort(group.to_numpy())
-        gaps = np.diff(t)
-        edges = np.diff(np.concatenate([[0.0], t, [length]]))
-        row = {
-            "samples": len(t),
-            "revisit": gaps.mean() if len(gaps) else np.nan,
-            "max_gap": edges.max(),
-        }
-        for q in quantiles:
-            row[f"revisit p{round(100 * q)}"] = (
-                np.quantile(gaps, q) if len(gaps) else np.nan
-            )
-        rows[key] = row
-    table = pd.DataFrame.from_dict(rows, orient="index")
-    columns = ["samples", "revisit"] + [f"revisit p{round(100 * q)}" for q in quantiles]
-    for column in columns + ["max_gap"]:
-        values = (
-            result["target_hash"].map(table[column])
-            if column in table
-            else pd.Series(np.nan, index=result.index)
-        )
-        result[column] = values
-    result["samples"] = result["samples"].fillna(0).astype(int)
-    result["max_gap"] = result["max_gap"].fillna(length)
-    for column in columns[1:] + ["max_gap"]:
-        result[column] = pd.to_timedelta(result[column], unit="s")
-    return result
+    seconds = _get_seconds(observations[time_column], start)
+    codes, keys = pd.factorize(observations["target_hash"].to_numpy())
+    groups = len(keys)
+    # the samples of each target in order of time, and the gaps between them
+    order = np.lexsort((seconds, codes))
+    t, c = seconds[order], codes[order]
+    counts = np.bincount(c, minlength=groups)
+    ends = np.cumsum(counts)
+    same = c[1:] == c[:-1]
+    gaps, gap_codes = (t[1:] - t[:-1])[same], c[1:][same]
+    gap_counts = np.bincount(gap_codes, minlength=groups)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        revisit = np.bincount(gap_codes, weights=gaps, minlength=groups) / gap_counts
+    # the longest time without a sample, from the start to the end of the period
+    longest = np.full(groups, -np.inf)
+    if len(t) > 0:
+        longest = np.maximum(t[ends - counts], length - t[ends - 1])
+        np.maximum.at(longest, gap_codes, gaps)
+    # quantiles of the gaps of each target (by linear interpolation, as numpy)
+    gap_order = np.lexsort((gaps, gap_codes))
+    ordered = gaps[gap_order]
+    gap_starts = np.cumsum(gap_counts) - gap_counts
+    has_gaps = gap_counts > 0
+    revisits = {}
+    for q in quantiles:
+        position = q * np.maximum(gap_counts - 1, 0)
+        below = np.floor(position).astype(int)
+        above = np.minimum(below + 1, np.maximum(gap_counts - 1, 0))
+        low = np.where(has_gaps, gap_starts + below, 0)
+        high = np.where(has_gaps, gap_starts + above, 0)
+        if len(ordered) > 0:
+            value = ordered[low] + (ordered[high] - ordered[low]) * (position - below)
+        else:
+            value = np.zeros(groups)
+        revisits[f"revisit p{round(100 * q)}"] = np.where(has_gaps, value, np.nan)
+    # the statistics of every target (without samples: none, and the whole period)
+    index = pd.Index(keys).get_indexer(result["target_hash"].to_numpy())
+    found = index >= 0
+    picked = np.where(found, index, 0)
+
+    def per_target(values: np.ndarray, missing: float) -> np.ndarray:
+        if groups == 0:
+            return np.full(len(index), missing)
+        return np.where(found, values[picked], missing)
+
+    columns = {
+        "samples": per_target(counts, 0).astype(int),
+        "revisit": pd.to_timedelta(per_target(revisit, np.nan), unit="s"),
+        **{
+            name: pd.to_timedelta(per_target(values, np.nan), unit="s")
+            for name, values in revisits.items()
+        },
+        "max_gap": pd.to_timedelta(per_target(longest, length), unit="s"),
+    }
+    return result.assign(**columns)
 
 
 def compute_local_time_coverage(
