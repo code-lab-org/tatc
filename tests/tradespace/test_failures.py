@@ -10,6 +10,7 @@ import unittest
 from dataclasses import dataclass
 
 import numpy as np
+import pandas as pd
 
 from tatc.tradespace import (
     Bathtub,
@@ -22,16 +23,22 @@ from tatc.tradespace import (
     LaunchCost,
     Lifetime,
     OperationsCost,
+    PhaseCache,
     Piecewise,
+    Requirement,
     RestorationPolicy,
     SatelliteCost,
     Study,
     Uncertain,
     Weibull,
     aggregate,
+    build_constellation,
     configure,
+    evaluate_missions,
+    evaluate_phases,
     pareto_front,
     policy_space,
+    summarize_missions,
     walker_space,
 )
 
@@ -433,3 +440,133 @@ class TestPolicySpace(unittest.TestCase):
         # degrading is the cheapest, and a policy that restores is the most available
         self.assertIn((False, 0, 0), policies)
         self.assertGreater(len(policies), 1)
+
+
+class TestManyMissions(unittest.TestCase):
+    """
+    Unit tests for many histories of missions in a replicate, and their
+    evaluation with a cache.
+    """
+
+    def setUp(self):
+        from datetime import (
+            datetime,
+            timezone,
+        )  # pylint: disable=import-outside-toplevel
+
+        from tatc.schemas import Instrument  # pylint: disable=import-outside-toplevel
+
+        self.schedule = DeploymentSchedule(
+            years=5, development_years=1, production_rate=4, launch_capacity=3
+        )
+        self.layout = _walker(2, 2)
+        self.satellites = build_constellation(
+            self.layout,
+            Instrument(name="imager", field_of_regard=60),
+            epoch=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            altitude=700e3,
+        )
+        names = [s.name for s in self.satellites]
+        self.observations = pd.DataFrame({"satellite": names * 5, "target": range(20)})
+        self.failures = FailureModel(life=Exponential(0.3), launch=0.05)
+        self.calls = []
+
+    def _metric(self, observations):
+        self.calls.append(len(observations))
+        return {"share": 25.0 * observations["satellite"].nunique()}
+
+    def test_simulate_many(self):
+        """Histories of a replicate differ, and are the same in every design."""
+        deployment = self.schedule.plan(self.layout)
+        histories = deployment.simulate_many(self.failures, RestorationPolicy(), 7, 10)
+        self.assertEqual(len(histories), 10)
+        self.assertGreater(len({tuple(h.failures) for h in histories}), 1)
+        again = deployment.simulate(self.failures, RestorationPolicy(), (7, 3))
+        self.assertEqual(again.failures, histories[3].failures)
+        degraded = deployment.simulate_many(
+            self.failures, RestorationPolicy(restore=False), 7, 10
+        )
+        self.assertEqual(degraded[3].failures[0], histories[3].failures[0])
+        self.assertEqual(
+            len(deployment.simulate_many(self.failures, None, None, 10)), 1
+        )
+        self.assertIs(deployment.planned(), deployment.planned())
+        with self.assertRaises(ValueError):
+            deployment.simulate_many(self.failures, None, 7, 0)
+
+    def test_phase_cache(self):
+        """A cache evaluates each set of satellites once, as without it."""
+        deployment = self.schedule.plan(self.layout)
+        histories = deployment.simulate_many(self.failures, RestorationPolicy(), 7, 20)
+        cache = PhaseCache(self._metric)
+        for history in histories:
+            phases = history.phases(self.satellites)
+            cached = cache.evaluate(phases, self.observations, self.satellites, "r0")
+            direct = evaluate_phases(phases, self.observations, self._metric)
+            pd.testing.assert_frame_equal(cached, direct)
+        self.assertGreater(cache.hits, cache.misses)
+        # satellites of the same content (other names) share results
+        renamed = [
+            s.model_copy(update={"name": f"other {k}"})
+            for k, s in enumerate(self.satellites)
+        ]
+        observations = self.observations.replace(
+            {s.name: r.name for s, r in zip(self.satellites, renamed)}
+        )
+        misses = cache.misses
+        cache.evaluate(histories[0].phases(renamed), observations, renamed, "r0")
+        self.assertEqual(cache.misses, misses)
+        # other observations (another context) are evaluated again
+        cache.evaluate(
+            histories[0].phases(self.satellites),
+            self.observations,
+            self.satellites,
+            "r1",
+        )
+        self.assertGreater(cache.misses, misses)
+        cache.clear()
+        self.assertEqual((cache.hits, cache.misses), (0, 0))
+
+    def test_evaluate_and_summarize(self):
+        """Histories are evaluated, priced, and summarized as one record."""
+        deployment = self.schedule.plan(self.layout)
+        histories = deployment.simulate_many(self.failures, RestorationPolicy(), 7, 30)
+        model = CostModel(
+            SatelliteCost(development=10, first_unit=5), launch=LaunchCost(per_launch=3)
+        )
+        missions = evaluate_missions(
+            histories,
+            self.satellites,
+            self.observations,
+            PhaseCache(self._metric),
+            context="r0",
+            cost_model=model,
+        )
+        self.assertEqual(len(missions), 30)
+        for column in (
+            "share mean",
+            "availability",
+            "failures",
+            "cost",
+            "cost present",
+        ):
+            self.assertIn(column, missions.columns)
+        summary = summarize_missions(
+            missions,
+            quantiles={"share mean": [0.1, 0.5], "cost": 0.7},
+            requirements=[Requirement("share mean", ">=", 60)],
+        )
+        self.assertAlmostEqual(summary["share mean"], missions["share mean"].mean())
+        self.assertAlmostEqual(
+            summary["share mean p10"], missions["share mean"].quantile(0.1)
+        )
+        self.assertIn("share mean p50", summary)
+        self.assertIn("cost p70", summary)
+        self.assertAlmostEqual(
+            summary["P(share mean >= 60)"], (missions["share mean"] >= 60).mean()
+        )
+        # without a cache, the same evaluations
+        direct = evaluate_missions(
+            histories, self.satellites, self.observations, self._metric
+        )
+        np.testing.assert_allclose(direct["share mean"], missions["share mean"])

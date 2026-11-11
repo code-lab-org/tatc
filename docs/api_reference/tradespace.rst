@@ -81,7 +81,7 @@ Deployment
    :members: plan, launches_of
 
 .. autoclass:: tatc.tradespace.Deployment
-   :members: simulate, phases, begin, end, deployed, units
+   :members: simulate, simulate_many, planned, phases, begin, end, deployed, units
 
 .. autoclass:: tatc.tradespace.Launch
 
@@ -124,6 +124,13 @@ Failures and Missions
 .. autofunction:: tatc.tradespace.evaluate_phases
 
 .. autofunction:: tatc.tradespace.summarize_phases
+
+.. autoclass:: tatc.tradespace.PhaseCache
+   :members: evaluate, clear
+
+.. autofunction:: tatc.tradespace.evaluate_missions
+
+.. autofunction:: tatc.tradespace.summarize_missions
 
 Costs
 -----

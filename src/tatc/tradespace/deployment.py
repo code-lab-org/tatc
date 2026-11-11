@@ -137,6 +137,7 @@ class Deployment:
     """list[Launch]: The launches (and planned replacements), in order."""
     masses: dict[Any, float | None] = field(default_factory=dict)
     """dict: The mass (kg) of each type of satellite, if given."""
+    _planned: MissionHistory | None = field(default=None, repr=False, compare=False)
 
     @property
     def begin(self) -> float:
@@ -169,7 +170,7 @@ class Deployment:
         self,
         failures: FailureModel | None = None,
         policy: RestorationPolicy | None = None,
-        seed: int | None = None,
+        seed: int | Sequence[int] | None = None,
     ) -> MissionHistory:
         """
         Simulates the mission: the deployment, with the failures of its
@@ -190,8 +191,9 @@ class Deployment:
             failures (FailureModel | None): The failures, or `None` for none.
             policy (RestorationPolicy | None): The policy for failed
                 satellites, or `None` to restore them by producing new ones.
-            seed (int | None): The seed of the replicate, or `None` for no
-                failures.
+            seed (int | Sequence[int] | None): The seed of the replicate (or
+                a sequence of integers, such as the seed and the index of a
+                history, see `simulate_many`), or `None` for no failures.
 
         Returns:
             MissionHistory: the history of the mission
@@ -202,6 +204,53 @@ class Deployment:
         return _Simulation(
             self, failures or FailureModel(), policy or RestorationPolicy(), seed
         ).run()
+
+    def planned(self) -> MissionHistory:
+        """
+        Gets the history of the mission without failures (see `simulate`),
+        simulated once.
+
+        Returns:
+            MissionHistory: the history
+        """
+        if self._planned is None:
+            self._planned = self.simulate()
+        return self._planned
+
+    def simulate_many(
+        self,
+        failures: FailureModel,
+        policy: RestorationPolicy | None,
+        seed: int | None,
+        histories: int,
+    ) -> list[MissionHistory]:
+        """
+        Simulates several histories of the mission in a replicate (see
+        `simulate`), history `k` drawn from the seed and `k`, so that, with
+        common random numbers, the same history of the same replicate draws
+        the same failures in every design. Without a seed, the one history
+        without failures.
+
+        Many histories of the failures of a replicate, whose sample of
+        targets (the expensive part of an evaluation) they share, measure the
+        risk of a mission at little cost (see `evaluate_missions` and
+        `PhaseCache`).
+
+        Args:
+            failures (FailureModel): The failures.
+            policy (RestorationPolicy | None): The policy for failed
+                satellites.
+            seed (int | None): The seed of the replicate.
+            histories (int): The number of histories.
+
+        Returns:
+            list[MissionHistory]: the histories
+        """
+        if histories < 1:
+            raise ValueError("histories must be at least 1")
+        if seed is None:
+            return [self.simulate(failures, policy, None)]
+        return [self.simulate(failures, policy, (seed, k)) for k in range(histories)]
 
     def phases(self, satellites: Sequence[Satellite | str]) -> list[Phase]:
         """
@@ -215,7 +264,7 @@ class Deployment:
         Returns:
             list[Phase]: the phases, in order
         """
-        return self.simulate().phases(satellites)
+        return self.planned().phases(satellites)
 
 
 @dataclass(frozen=True)

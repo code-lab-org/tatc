@@ -39,7 +39,15 @@ from .deployment import (
     Launch,
     Production,
 )
-from .mission import MissionHistory, Phase, evaluate_phases, summarize_phases
+from .mission import (
+    MissionHistory,
+    Phase,
+    PhaseCache,
+    evaluate_missions,
+    evaluate_phases,
+    summarize_missions,
+    summarize_phases,
+)
 from .failures import (
     Bathtub,
     Exponential,
@@ -117,6 +125,7 @@ __all__ = [
     "MissionHistory",
     "OperationsCost",
     "Phase",
+    "PhaseCache",
     "Piecewise",
     "Probability",
     "Production",
@@ -145,6 +154,7 @@ __all__ = [
     "confirm",
     "count_planes",
     "count_satellites",
+    "evaluate_missions",
     "evaluate_phases",
     "get_fingerprint",
     "get_satellite_key",
@@ -166,6 +176,7 @@ __all__ = [
     "sensitivity",
     "sso_planes_space",
     "summarize",
+    "summarize_missions",
     "summarize_phases",
     "walker_space",
 ]

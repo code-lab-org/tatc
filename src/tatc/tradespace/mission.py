@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from ..schemas import Satellite
+from .cache import get_satellite_key
 from .criteria import _OPERATORS, Requirement
 from .deployment import Deployment, DeploymentSchedule, Launch, Production, _per_type
 from .failures import FailureModel, RestorationPolicy
@@ -188,7 +189,7 @@ class MissionHistory:
         Returns:
             dict[str, float]: the metrics
         """
-        planned = self.deployment.simulate()
+        planned = self.deployment.planned()
         operated = sum(b - a for spans in self.operating.values() for a, b in spans)
         possible = sum(b - a for spans in planned.operating.values() for a, b in spans)
         delays = [restored - failed for *_, failed, restored, _ in self.restorations]
@@ -227,7 +228,7 @@ class _Simulation:
         deployment: Deployment,
         failures: FailureModel,
         policy: RestorationPolicy,
-        seed: int | None,
+        seed: int | Sequence[int] | None,
     ):
         self.deployment, self.failures, self.policy = deployment, failures, policy
         self.seed = seed
@@ -271,7 +272,8 @@ class _Simulation:
     # --- randomness
 
     def _rng(self, *key: int) -> np.random.Generator:
-        return np.random.default_rng([self.seed, *key])
+        seed = list(self.seed) if isinstance(self.seed, Sequence) else [self.seed]
+        return np.random.default_rng([*seed, *key])
 
     def _life(self, plane: int, position: int, generation: int) -> float:
         if self.seed is None:
@@ -549,25 +551,7 @@ def evaluate_phases(
         pandas.DataFrame: a row per phase: its `start`, `end`, `duration`,
             number of `satellites`, and metrics
     """
-    rows, evaluated = [], {}
-    for phase in phases:
-        key = frozenset(phase.satellites)
-        if key not in evaluated:
-            if "satellite" in observations.columns:
-                subset = observations[observations["satellite"].isin(key)]
-            else:
-                subset = observations.iloc[0:0]
-            evaluated[key] = dict(metric(subset))
-        rows.append(
-            {
-                "start": phase.start,
-                "end": phase.end,
-                "duration": phase.duration,
-                "satellites": len(phase.satellites),
-                **evaluated[key],
-            }
-        )
-    return pd.DataFrame(rows)
+    return _evaluate_phases(phases, observations, lambda subset, _: metric(subset()))
 
 
 def summarize_phases(
@@ -611,4 +595,215 @@ def summarize_phases(
         summary[f"{requirement.name} time"] = (
             float(starts[0]) if len(starts) > 0 else math.inf
         )
+    return summary
+
+
+def _evaluate_phases(
+    phases: Sequence[Phase],
+    observations: pd.DataFrame,
+    metric: Callable[[Callable[[], pd.DataFrame], frozenset], Mapping[str, float]],
+) -> pd.DataFrame:
+    """
+    Evaluates phases with a metric of a function that gets their
+    observations (only if needed) and the names of their satellites (see
+    `evaluate_phases`), each set of satellites once.
+    """
+    rows, evaluated = [], {}
+    for phase in phases:
+        names = frozenset(phase.satellites)
+        if names not in evaluated:
+
+            def subset(names: frozenset = names) -> pd.DataFrame:
+                if "satellite" in observations.columns:
+                    return observations[observations["satellite"].isin(names)]
+                return observations.iloc[0:0]
+
+            evaluated[names] = dict(metric(subset, names))
+        rows.append(
+            {
+                "start": phase.start,
+                "end": phase.end,
+                "duration": phase.duration,
+                "satellites": len(phase.satellites),
+                **evaluated[names],
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+class PhaseCache:
+    """
+    A cache of a metric of the phases of missions (see `evaluate_phases`),
+    keyed by a context that identifies the observations (such as the seed of
+    a replicate's sample of targets and the analysis period) and by the
+    content of the satellites that operate (see `get_satellite_key`), so that
+    the phases of missions with the same satellites (of other histories,
+    policies, or designs, in the same replicate) are evaluated once.
+
+    The metric must depend only on the observations, not on the names of the
+    satellites. Copies sent to the parallel workers of a study start with an
+    empty memory, which the evaluations of a chunk share (consecutive
+    evaluations of the same replicate, see `Study`).
+
+    Args:
+        metric (Callable): A function of the observations of a phase (which
+            may be empty) that gives its metrics.
+    """
+
+    def __init__(self, metric: Callable[[pd.DataFrame], Mapping[str, float]]):
+        self.metric = metric
+        self.hits = 0
+        """int: The phases taken from the cache."""
+        self.misses = 0
+        """int: The phases evaluated."""
+        self._memory: dict = {}
+
+    def __getstate__(self) -> dict:
+        state = self.__dict__.copy()
+        state["_memory"] = {}
+        return state
+
+    def evaluate(
+        self,
+        phases: Sequence[Phase],
+        observations: pd.DataFrame,
+        satellites: Sequence[Satellite] | Mapping[str, str],
+        context: Any,
+    ) -> pd.DataFrame:
+        """
+        Evaluates the phases of a mission (see `evaluate_phases`), taking
+        the metrics of the satellites of a phase from the cache if they are
+        in it.
+
+        Args:
+            phases (Sequence[Phase]): The phases.
+            observations (pandas.DataFrame): The observations of every
+                satellite, with their names (`satellite`).
+            satellites (Sequence[Satellite] | Mapping[str, str]): The
+                satellites, which key the cache by their content (or the keys
+                of their names, see `get_satellite_key`).
+            context (Any): A hashable identifier of the observations (such
+                as the seed of their targets and their period).
+
+        Returns:
+            pandas.DataFrame: a row per phase: its `start`, `end`,
+                `duration`, number of `satellites`, and metrics
+        """
+        keys = (
+            satellites
+            if isinstance(satellites, Mapping)
+            else {s.name: get_satellite_key(s) for s in satellites}
+        )
+
+        def cached(subset: Callable[[], pd.DataFrame], names: frozenset) -> dict:
+            key = (context, frozenset(keys[name] for name in names))
+            if key in self._memory:
+                self.hits += 1
+            else:
+                self.misses += 1
+                self._memory[key] = dict(self.metric(subset()))
+            return self._memory[key]
+
+        return _evaluate_phases(phases, observations, cached)
+
+    def clear(self) -> None:
+        """
+        Clears the cache and its statistics.
+        """
+        self._memory.clear()
+        self.hits = self.misses = 0
+
+    def __repr__(self) -> str:
+        return (
+            f"PhaseCache({len(self._memory)} results, "
+            + f"{self.hits} hits, {self.misses} misses)"
+        )
+
+
+def evaluate_missions(
+    histories: Sequence[MissionHistory],
+    satellites: Sequence[Satellite],
+    observations: pd.DataFrame,
+    metric: Callable[[pd.DataFrame], Mapping[str, float]] | PhaseCache,
+    context: Any = None,
+    cost_model: Any = None,
+    growth: Any = 1.0,
+) -> pd.DataFrame:
+    """
+    Evaluates histories of a mission (such as those of a replicate, see
+    `Deployment.simulate_many`): for each, the mean of each metric over the
+    phases of the mission (`<metric> mean`, see `summarize_phases`), its
+    measures (see `MissionHistory.metrics`), and its cost (see
+    `CostEstimate.metrics`, with a cost model). The histories share the
+    observations of the replicate, so that a `PhaseCache` (as the metric)
+    evaluates each set of operating satellites once.
+
+    Args:
+        histories (Sequence[MissionHistory]): The histories.
+        satellites (Sequence[Satellite]): The satellites (see
+            `MissionHistory.phases`).
+        observations (pandas.DataFrame): The observations of every
+            satellite, with their names (`satellite`).
+        metric (Callable | PhaseCache): A function of the observations of a
+            phase that gives its metrics, or a cache of one.
+        context (Any): A hashable identifier of the observations, for a
+            cache.
+        cost_model (CostModel | None): A model of the cost of each history.
+        growth (float | Mapping[str, float]): The growth of the cost.
+
+    Returns:
+        pandas.DataFrame: a row per history
+    """
+    rows = []
+    keys = {s.name: get_satellite_key(s) for s in satellites}
+    for history in histories:
+        phases = history.phases(satellites)
+        if isinstance(metric, PhaseCache):
+            capability = metric.evaluate(phases, observations, keys, context)
+        else:
+            capability = evaluate_phases(phases, observations, metric)
+        row = {**summarize_phases(capability), **history.metrics()}
+        if cost_model is not None:
+            row.update(cost_model.estimate(history, growth).metrics())
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def summarize_missions(
+    missions: pd.DataFrame,
+    quantiles: Mapping[str, float | Sequence[float]] | None = None,
+    requirements: Sequence[Requirement] = (),
+) -> dict[str, float]:
+    """
+    Summarizes histories of a mission (see `evaluate_missions`) as the
+    metrics of an evaluation: the mean of each column over the histories
+    (by the same name), quantiles of columns over the histories (`<column>
+    p<percent>`, such as `"accurate mean p10"` for the 0.1 quantile, the
+    risk of the mission), and the share of the histories that meet each
+    requirement on a column (`P(<column> <operator> <value>)`).
+
+    The quantiles and probabilities are over the histories of a replicate,
+    whose statistics over the replicates (such as their mean, see
+    `aggregate`) combine the risk of the mission with the uncertainty of the
+    replicates' other parameters (such as their targets).
+
+    Args:
+        missions (pandas.DataFrame): A row per history.
+        quantiles (Mapping | None): The quantiles of columns, by column.
+        requirements (Sequence[Requirement]): Requirements on columns.
+
+    Returns:
+        dict[str, float]: the summary
+    """
+    numeric = missions.select_dtypes("number")
+    summary = {column: float(numeric[column].mean()) for column in numeric.columns}
+    for column, values in (quantiles or {}).items():
+        for q in [values] if isinstance(values, (int, float)) else values:
+            summary[f"{column} p{100 * q:g}"] = float(numeric[column].quantile(q))
+    for requirement in requirements:
+        met = _OPERATORS[requirement.operator](
+            missions[requirement.name].to_numpy(dtype=float), requirement.value
+        )
+        statement = f"{requirement.name} {requirement.operator} {requirement.value:g}"
+        summary[f"P({statement})"] = float(np.mean(met))
     return summary
