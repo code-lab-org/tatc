@@ -47,6 +47,8 @@ Designs
 
 .. autoclass:: tatc.tradespace.Scope
 
+.. autofunction:: tatc.tradespace.configure
+
 Constellations
 --------------
 
@@ -107,6 +109,8 @@ Failures and Missions
 
 .. autoclass:: tatc.tradespace.RestorationPolicy
    :members: ground_spares_of
+
+.. autofunction:: tatc.tradespace.policy_space
 
 .. automodule:: tatc.tradespace.mission
    :no-members:

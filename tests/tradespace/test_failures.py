@@ -18,13 +18,20 @@ from tatc.tradespace import (
     DesignSpace,
     Exponential,
     FailureModel,
+    Integer,
     LaunchCost,
     Lifetime,
     OperationsCost,
     Piecewise,
     RestorationPolicy,
     SatelliteCost,
+    Study,
+    Uncertain,
     Weibull,
+    aggregate,
+    configure,
+    pareto_front,
+    policy_space,
     walker_space,
 )
 
@@ -330,3 +337,99 @@ class TestSimulation(unittest.TestCase):
         self.assertEqual(
             RestorationPolicy(ground_spares={"a": 2}).ground_spares_of("b"), 0
         )
+
+
+class TestPolicySpace(unittest.TestCase):
+    """
+    Unit tests for policies as decisions of designs.
+    """
+
+    def test_fragment(self):
+        """Policies are enumerated, without spares that are never used."""
+        space = policy_space(orbit_spares=Integer(0, 1), ground_spares=Integer(0, 1))
+        flats = [d.flat() for d in space.enumerate()]
+        self.assertEqual(len(flats), 5)
+        self.assertNotIn(
+            {"restore": False, "orbit_spares": 1, "ground_spares": 0}, flats
+        )
+        loose = policy_space(
+            orbit_spares=Integer(0, 1),
+            ground_spares=Integer(0, 1),
+            require_restoration=False,
+        )
+        self.assertEqual(len(loose.enumerate()), 8)
+        with self.assertRaises(ValueError):
+            policy_space(drift=0.1)
+
+    def test_configure(self):
+        """Values of a design configure a policy or a schedule."""
+        space = DesignSpace(
+            policy=policy_space(
+                restore=True, ground_spares=Integer(1, 2), drift_years=0.5
+            ),
+            launch_interval=Integer(0, 1),
+        )
+        design = space.enumerate()[-1]
+        base = RestorationPolicy(procurement_years=0.3)
+        policy = configure(base, design.policy)
+        self.assertEqual(
+            (policy.restore, policy.ground_spares, policy.drift_years), (True, 2, 0.5)
+        )
+        self.assertEqual(policy.procurement_years, 0.3)
+        schedule = configure(DeploymentSchedule(years=5), design.values, years=6)
+        self.assertEqual((schedule.launch_interval, schedule.years), (1, 6))
+        with self.assertRaises(ValueError):
+            configure(base, design.policy, unknown=1)
+        with self.assertRaises(TypeError):
+            configure(RestorationPolicy, design.policy)
+
+    def test_trade_of_policies(self):
+        """Policies trade cost against availability on a front."""
+        schedule = DeploymentSchedule(
+            years=5, development_years=1, production_rate=4, launch_capacity=3
+        )
+        failures = FailureModel(life=Exponential(0.3), launch=0.05)
+        model = CostModel(
+            SatelliteCost(development=10, first_unit=5),
+            launch=LaunchCost(per_launch=3),
+            operations=OperationsCost(per_satellite_year=1),
+        )
+        space = DesignSpace(
+            layout=walker_space(
+                inclination=55.0, planes=Integer(1, 2), per_plane=2, relative_spacing=0
+            ),
+            policy=policy_space(
+                orbit_spares=Integer(0, 1), ground_spares=Integer(0, 1)
+            ),
+            failure_seed=Uncertain.seed(),
+        )
+
+        def evaluate(d):
+            deployment = schedule.plan(d.layout, spares=d.policy.orbit_spares)
+            history = deployment.simulate(
+                failures, configure(RestorationPolicy(), d.policy), d.failure_seed
+            )
+            return {
+                "cost": model.estimate(history).total,
+                "availability": history.metrics()["availability"],
+            }
+
+        designs = space.enumerate()
+        self.assertEqual(len(designs), 2 * 5)
+        results = Study(space, lambda d: d, evaluate, replicates=30).run(designs)
+        summary = aggregate(results, ["cost", "availability"])
+        front = summary[pareto_front(summary, {"cost": "min", "availability": "max"})]
+        policies = {
+            (
+                row["policy.restore"],
+                row["policy.orbit_spares"],
+                row["policy.ground_spares"],
+            )
+            for _, row in results.drop_duplicates("design")
+            .set_index("design")
+            .loc[front.design]
+            .iterrows()
+        }
+        # degrading is the cheapest, and a policy that restores is the most available
+        self.assertIn((False, 0, 0), policies)
+        self.assertGreater(len(policies), 1)

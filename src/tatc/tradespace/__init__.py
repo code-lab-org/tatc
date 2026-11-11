@@ -48,6 +48,7 @@ from .failures import (
     Piecewise,
     RestorationPolicy,
     Weibull,
+    policy_space,
 )
 from .criteria import (
     Maximum,
@@ -86,7 +87,7 @@ from .nodes import (
 from .space import Design, DesignSpace
 from .store import ResultStore
 from .study import Study, summarize
-from .values import ChoiceValues, RepeatValues, Scope, Values
+from .values import ChoiceValues, RepeatValues, Scope, Values, configure
 
 __all__ = [
     "Bathtub",
@@ -140,6 +141,7 @@ __all__ = [
     "Weibull",
     "aggregate",
     "build_constellation",
+    "configure",
     "confirm",
     "count_planes",
     "count_satellites",
@@ -157,6 +159,7 @@ __all__ = [
     "pareto_ranks",
     "plane_sizes",
     "planes_space",
+    "policy_space",
     "refine",
     "remove_failures",
     "screen",

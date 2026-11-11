@@ -10,7 +10,9 @@ the earliest of competing causes), or given by intervals of age
 (`Piecewise`). A `FailureModel` gives the life of each type of satellite and
 the probability that a launch fails, and a `RestorationPolicy` whether and
 how failed satellites are restored: by spares in orbit, by spares on the
-ground, or by satellites built when needed.
+ground, or by satellites built when needed. A policy is a decision of a
+design with a fragment of a design space (`policy_space`), whose values
+configure it (see `configure`).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -18,11 +20,15 @@ ground, or by satellites built when needed.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, fields
 from typing import Any
 
 import numpy as np
+
+from .nodes import Categorical
+from .space import DesignSpace
+from .values import Scope
 
 
 class Lifetime:
@@ -340,3 +346,68 @@ class RestorationPolicy:
         if isinstance(self.ground_spares, Mapping):
             return int(self.ground_spares.get(kind, 0))
         return int(self.ground_spares)
+
+
+def _spares_restore(d: Scope) -> bool:
+    """Whether spares are only kept by a policy that restores failures."""
+    return bool(d.restore) or (d.orbit_spares == 0 and d.ground_spares == 0)
+
+
+def policy_space(
+    *,
+    restore: Any = None,
+    orbit_spares: Any = 0,
+    ground_spares: Any = 0,
+    replenish: Any = False,
+    require_restoration: bool = True,
+    constraints: Sequence[Callable[[Scope], Any]] = (),
+    **others: Any,
+) -> DesignSpace:
+    """
+    Gets a fragment of a design space of policies for failed satellites (see
+    `RestorationPolicy`), for trades of their cost against their
+    robustness: whether to `restore` failed satellites (by default a
+    variable, `False` or `True`), the spares in orbit in each plane
+    (`orbit_spares`, which a deployment plans, see the `spares` of
+    `DeploymentSchedule.plan`), the spares on the ground (`ground_spares`),
+    whether to `replenish` used spares, and other fields of the policy (such
+    as `drift_years`). Each is a node of a design space (such as a design
+    variable) or a value.
+
+    A design's policy is configured from the values of the fragment, and its
+    deployment planned with their spares in orbit::
+
+        policy = configure(BASE_POLICY, d.policy)
+        deployment = SCHEDULE.plan(d.layout, spares=d.policy.orbit_spares)
+        history = deployment.simulate(FAILURES, policy, d.failure_seed)
+
+    Spares without restoration would never be used, so a constraint excludes
+    them (unless `require_restoration` is `False`).
+
+    Args:
+        restore (Any): Whether to restore failed satellites, by default a
+            variable.
+        orbit_spares (Any): The spares in orbit in each plane.
+        ground_spares (Any): The spares on the ground.
+        replenish (Any): Whether to replenish used spares.
+        require_restoration (bool): `True` to exclude spares without
+            restoration.
+        constraints (Sequence[Callable]): Other constraints of the fragment.
+        **others (Any): Other fields of `RestorationPolicy`.
+
+    Returns:
+        DesignSpace: the fragment
+    """
+    names = {field.name for field in fields(RestorationPolicy)}
+    unknown = set(others) - names
+    if unknown:
+        raise ValueError(f"no fields of RestorationPolicy named {sorted(unknown)}")
+    children = {
+        "restore": Categorical([False, True]) if restore is None else restore,
+        "orbit_spares": orbit_spares,
+        "ground_spares": ground_spares,
+        "replenish": replenish,
+        **others,
+    }
+    rules = ([_spares_restore] if require_restoration else []) + list(constraints)
+    return DesignSpace(constraints=rules, **children)

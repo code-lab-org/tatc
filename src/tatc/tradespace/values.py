@@ -7,6 +7,7 @@ design spaces.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Iterator, Mapping
 from typing import Any
 
@@ -163,3 +164,32 @@ class Scope:
 
     def __getitem__(self, name: str) -> Any:
         return getattr(self, name)
+
+
+def configure(base: Any, values: Any = None, **overrides: Any) -> Any:
+    """
+    Configures a dataclass (such as a `RestorationPolicy` or a
+    `DeploymentSchedule`) from the values of a design: the fields of `base`
+    that the values name (such as those of `policy_space`, or design
+    variables named after fields) are replaced by them, as are those given
+    as keyword arguments. Values that name no field are ignored.
+
+    Args:
+        base (Any): The dataclass instance, whose other fields are kept.
+        values (Any): The values of a design (a `Values` or `ChoiceValues`
+            view, or a mapping), or `None`.
+        **overrides (Any): Other values of fields.
+
+    Returns:
+        Any: a copy of `base` with the values of its fields
+    """
+    if not dataclasses.is_dataclass(base) or isinstance(base, type):
+        raise TypeError("configure requires a dataclass instance")
+    if isinstance(values, ChoiceValues):
+        values = values.value
+    names = {field.name for field in dataclasses.fields(base)}
+    changes = {name: values[name] for name in (values or {}) if name in names}
+    unknown = set(overrides) - names
+    if unknown:
+        raise ValueError(f"no fields named {sorted(unknown)}")
+    return dataclasses.replace(base, **changes, **overrides)
