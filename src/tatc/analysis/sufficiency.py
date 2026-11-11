@@ -55,12 +55,10 @@ def _get_targets(
     or those observed.
     """
     if targets is None:
-        first = observations.drop_duplicates("target_hash")
-        return gpd.GeoDataFrame(
-            {"target_hash": first["target_hash"].to_numpy()},
-            geometry=first.geometry.to_numpy(),
-            crs="EPSG:4326",
-        )
+        first = ~observations["target_hash"].duplicated().to_numpy()
+        result = observations.loc[first, ["target_hash", "geometry"]]
+        result = result.reset_index(drop=True)
+        return result if result.crs is not None else result.set_crs("EPSG:4326")
     geometry = targets if isinstance(targets, gpd.GeoSeries) else targets.geometry
     return gpd.GeoDataFrame(
         {"target_hash": _hash_geometries(geometry)},
@@ -134,6 +132,60 @@ def _error_terms(
     return float(pairs), float(max(pairs - 2 * cross + within, 0.0))
 
 
+def _error_terms_by_group(
+    seconds: np.ndarray,
+    codes: np.ndarray,
+    groups: int,
+    length: float,
+    scales: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Computes the error terms (see `_error_terms`) of the samples of each
+    group (such as a target) at once: the samples' times (seconds), the code
+    of the group of each (0 to `groups` - 1), and the decorrelation time of
+    each group. Gives the number of samples of each group, the mean
+    correlation between pairs of its samples, and the variance of its
+    sampling error (`NaN` without samples).
+
+    The sum of the correlations between pairs of samples follows, for the
+    samples of a group in order of time, from the recursion `S_j = exp(-(t_j
+    - t_(j-1)) / scale) * (S_(j-1) + 1)` (the sum of the correlations of
+    sample `j` with those before it), stepped for every group at once.
+    """
+    if length <= 0 or np.any(scales <= 0):
+        raise ValueError("the length and decorrelation time must be positive")
+    order = np.lexsort((seconds, codes))
+    t, c = seconds[order], codes[order]
+    counts = np.bincount(c, minlength=groups)
+    first = np.concatenate([[0], np.cumsum(counts)[:-1]])
+    position = np.arange(len(t)) - first[c]
+    width = int(counts.max()) if len(counts) > 0 and len(t) > 0 else 0
+    table = np.zeros((groups, max(width, 1)))
+    table[c, position] = t
+    recent = np.zeros(groups)  # S of the latest sample of each group
+    total = np.zeros(groups)  # sum of S over the samples of each group
+    for k in range(1, width):
+        active = counts > k
+        gap = table[active, k] - table[active, k - 1]
+        recent[active] = np.exp(-gap / scales[active]) * (recent[active] + 1)
+        total[active] += recent[active]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        pairs = (counts + 2 * total) / counts.astype(float) ** 2
+        cross = np.bincount(
+            c, weights=_exponential_integral(t, length, scales[c]), minlength=groups
+        ) / (counts * length)
+        within = (
+            2
+            * (scales * length - scales**2 * (1 - np.exp(-length / scales)))
+            / length**2
+        )
+        variance = np.maximum(pairs - 2 * cross + within, 0.0)
+    empty = counts == 0
+    pairs[empty] = np.nan
+    variance[empty] = np.nan
+    return counts, pairs, variance
+
+
 def estimate_sampling_error(
     observations: gpd.GeoDataFrame,
     start: datetime,
@@ -184,40 +236,39 @@ def estimate_sampling_error(
         geopandas.GeoDataFrame: a row per target
     """
     length = (end - start).total_seconds()
+    result = _get_targets(observations, targets)
+    seconds = _get_seconds(observations[time_column], start)
+    codes, keys = pd.factorize(observations["target_hash"].to_numpy())
+    # the decorrelation time of each observed target
     if isinstance(decorrelation_time, (Mapping, pd.Series)):
         scales = {
             key: pd.Timedelta(value).total_seconds()
             for key, value in dict(decorrelation_time).items()
         }
+        per_group = np.array([scales[key] for key in keys], dtype=float)
     else:
-        scales = None
-        scale = decorrelation_time.total_seconds()
-    result = _get_targets(observations, targets)
-    seconds = pd.Series(
-        _get_seconds(observations[time_column], start), index=observations.index
+        per_group = np.full(len(keys), decorrelation_time.total_seconds())
+    counts, pairs, variance = _error_terms_by_group(
+        seconds, codes, len(keys), length, per_group
     )
-    groups = seconds.groupby(observations["target_hash"].to_numpy())
-    terms = {
-        key: _error_terms(
-            group.to_numpy(), length, scale if scales is None else scales[key]
-        )
-        for key, group in groups
-    }
-    variance = {key: value[1] for key, value in terms.items()}
-    correlation = {key: value[0] for key, value in terms.items()}
-    counts = groups.size()
-    result["samples"] = result["target_hash"].map(counts).fillna(0).astype(int)
-    relative_variance = result["target_hash"].map(variance).astype(float)
+    # the group of each target (-1 for targets without samples)
+    index = pd.Index(keys).get_indexer(result["target_hash"].to_numpy())
+    found = index >= 0
+    picked = np.where(found, index, 0)
+    samples = np.where(found, counts[picked], 0).astype(int)
+    relative_error = np.sqrt(np.where(found, variance[picked], np.nan))
+    with np.errstate(divide="ignore"):
+        effective = np.where(found, 1 / pairs[picked], 0.0)
     if isinstance(standard_deviation, (Mapping, pd.Series)):
-        sigma = result["target_hash"].map(standard_deviation).astype(float)
+        sigma = result["target_hash"].map(standard_deviation).to_numpy(dtype=float)
     else:
         sigma = float(standard_deviation)
-    result["relative_error"] = np.sqrt(relative_variance)
-    result["sampling_error"] = result["relative_error"] * sigma
-    result["effective_samples"] = (
-        1 / result["target_hash"].map(correlation).astype(float)
-    ).fillna(0.0)
-    return result
+    return result.assign(
+        samples=samples,
+        relative_error=relative_error,
+        sampling_error=relative_error * sigma,
+        effective_samples=effective,
+    )
 
 
 def compute_revisit_statistics(
