@@ -78,6 +78,9 @@ class MissionHistory:
     """list: The restorations: their plane, position, the time of the failure
     and of the restoration, and the source (`"orbit"`, `"ground"`, or
     `"production"`)."""
+    weight: float = 1.0
+    """float: The likelihood ratio of the history, drawn from stressed
+    failures (see `Deployment.simulate_many`), or 1."""
 
     @property
     def schedule(self) -> DeploymentSchedule:
@@ -230,9 +233,13 @@ class _Simulation:
         policy: RestorationPolicy,
         seed: int | Sequence[int] | None,
         uniforms: Callable[[tuple, int], np.ndarray] | None = None,
+        stress: float = 1.0,
+        launch_stress: float = 1.0,
     ):
         self.deployment, self.failures, self.policy = deployment, failures, policy
         self.seed, self.uniforms = seed, uniforms
+        self.stress, self.launch_stress = stress, launch_stress
+        self.log_weight = 0.0
         self.schedule = deployment.schedule
         self.end = deployment.end
         self.history = MissionHistory(
@@ -276,23 +283,44 @@ class _Simulation:
         seed = list(self.seed) if isinstance(self.seed, Sequence) else [self.seed]
         return np.random.default_rng([*seed, *key])
 
-    def _life(self, plane: int, position: int, generation: int) -> float:
+    def _life(
+        self, plane: int, position: int, generation: int, start: float = 0.0
+    ) -> float:
         if self.seed is None:
             return math.inf
         life = self.failures.life_of(self.deployment.planes[plane][0])
         if life is None:
             return math.inf
+        key = (0, plane, position, generation)
+        if self.stress != 1.0:
+            uniform = (
+                self.uniforms(key, life.dimensions)
+                if self.uniforms is not None
+                else self._rng(*key).random(life.dimensions)
+            )
+            value, log_ratio = life.stressed(uniform, self.stress, self.end - start)
+            self.log_weight += log_ratio
+            return value
         if self.uniforms is not None:
-            key = (0, plane, position, generation)
             return life.from_uniform(self.uniforms(key, life.dimensions))
-        return life.sample(self._rng(0, plane, position, generation))
+        return life.sample(self._rng(*key))
 
     def _launch_fails(self, *key: int) -> bool:
         if self.seed is None or self.failures.launch == 0:
             return False
-        if self.uniforms is not None:
-            return bool(self.uniforms((1, *key), 1)[0] < self.failures.launch)
-        return bool(self._rng(1, *key).random() < self.failures.launch)
+        uniform = (
+            self.uniforms((1, *key), 1)[0]
+            if self.uniforms is not None
+            else self._rng(1, *key).random()
+        )
+        p = self.failures.launch
+        if self.launch_stress == 1.0:
+            return bool(uniform < p)
+        stressed = min(p * self.launch_stress, 0.5)
+        failed = bool(uniform < stressed)
+        ratio = p / stressed if failed else (1 - p) / (1 - stressed)
+        self.log_weight += math.log(ratio)
+        return failed
 
     # --- events
 
@@ -330,6 +358,7 @@ class _Simulation:
         for plane, since in self.spares_since.items():
             if self.spares[plane] > 0:
                 self.history.parked.append((since, self.end, self.spares[plane]))
+        self.history.weight = math.exp(self.log_weight)
         self.history.production.sort(key=lambda batch: batch.begin)
         self.history.launches.sort(key=lambda launch: (launch.time, launch.plane))
         return self.history
@@ -459,7 +488,7 @@ class _Simulation:
         slot = self.slots[plane, position]
         slot["generation"] += 1
         slot["up"], slot["pending"] = time, False
-        life = self._life(plane, position, slot["generation"])
+        life = self._life(plane, position, slot["generation"], time)
         if time + life < self.end:
             self._push(time + life, "fail", plane, position, slot["generation"])
 

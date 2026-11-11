@@ -97,7 +97,7 @@ Failures and Missions
    :members: life_of
 
 .. autoclass:: tatc.tradespace.Lifetime
-   :members: survival, hazard, cumulative_hazard, sample, from_uniform, dimensions
+   :members: survival, hazard, cumulative_hazard, sample, from_uniform, dimensions, stressed
 
 .. autoclass:: tatc.tradespace.Exponential
 
@@ -133,6 +133,8 @@ Failures and Missions
 .. autofunction:: tatc.tradespace.summarize_missions
 
 .. autofunction:: tatc.tradespace.allocate_histories
+
+.. autofunction:: tatc.tradespace.expected_missions
 
 Costs
 -----

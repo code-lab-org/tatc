@@ -39,7 +39,12 @@ from .deployment import (
     Launch,
     Production,
 )
-from .histories import allocate_histories, evaluate_missions, summarize_missions
+from .histories import (
+    allocate_histories,
+    evaluate_missions,
+    expected_missions,
+    summarize_missions,
+)
 from .mission import (
     MissionHistory,
     Phase,
@@ -156,6 +161,7 @@ __all__ = [
     "count_satellites",
     "evaluate_missions",
     "evaluate_phases",
+    "expected_missions",
     "get_fingerprint",
     "get_satellite_key",
     "get_source_hash",

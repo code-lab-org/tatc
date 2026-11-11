@@ -37,9 +37,11 @@ from tatc.tradespace import (
     configure,
     evaluate_missions,
     evaluate_phases,
+    expected_missions,
     pareto_front,
     policy_space,
     summarize_missions,
+    summarize_phases,
     walker_space,
 )
 
@@ -754,3 +756,217 @@ class TestAllocateHistories(unittest.TestCase):
             allocate_histories(records.iloc[:1], "share", 20, 100, 1)
         with self.assertRaises(ValueError):
             allocate_histories(records, "share", 20, 0, 1)
+
+
+class TestExpectedMissions(unittest.TestCase):
+    """
+    Unit tests for exact expectations of missions without restoration.
+    """
+
+    def setUp(self):
+        from datetime import (
+            datetime,
+            timezone,
+        )  # pylint: disable=import-outside-toplevel
+
+        from tatc.schemas import Instrument  # pylint: disable=import-outside-toplevel
+
+        self.layout = _walker(2, 2)
+        self.satellites = build_constellation(
+            self.layout,
+            Instrument(name="imager", field_of_regard=60),
+            epoch=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            altitude=700e3,
+        )
+        names = [s.name for s in self.satellites]
+        self.observations = pd.DataFrame({"satellite": names * 3, "target": range(12)})
+
+    @staticmethod
+    def _metric(observations):
+        # a nonlinear metric of the operating satellites (the first counts double)
+        names = set(observations["satellite"]) if len(observations) else set()
+        score = len(names) + ("satellite 1" in names)
+        return {"score": float(score**2)}
+
+    def _compare(self, schedule, failures):
+        deployment = schedule.plan(self.layout)
+        exact = expected_missions(
+            deployment,
+            failures,
+            self.satellites,
+            self.observations,
+            PhaseCache(self._metric),
+        )
+        histories = deployment.simulate_many(
+            failures, RestorationPolicy(restore=False), 3, 4000
+        )
+        missions = evaluate_missions(
+            histories, self.satellites, self.observations, PhaseCache(self._metric)
+        )
+        error = missions["score mean"].std() / np.sqrt(len(missions))
+        self.assertAlmostEqual(
+            exact["score mean"], missions["score mean"].mean(), delta=4 * error
+        )
+        self.assertAlmostEqual(
+            exact["availability"], missions["availability"].mean(), delta=0.01
+        )
+        self.assertGreaterEqual(exact["coverage"], 0.999)
+        return exact
+
+    def test_matches_simulation(self):
+        """Expectations are the means of many simulated histories."""
+        failures = FailureModel(life=Exponential(0.2), launch=0.1)
+        self._compare(
+            DeploymentSchedule(years=5, development_years=1, production_rate=2),
+            failures,
+        )
+        # planned replacements, which a failed launch leaves to the old satellites
+        self._compare(
+            DeploymentSchedule(years=6, design_life=2, development_years=1), failures
+        )
+        bathtub = FailureModel(
+            life=Bathtub(Weibull(0.5, 40), Exponential(0.05), Weibull(4, 5)),
+            launch=0.05,
+        )
+        self._compare(DeploymentSchedule(years=5, launch_interval=0.5), bathtub)
+
+    def test_without_failures(self):
+        """Without failures, the expectation is the mission's."""
+        deployment = DeploymentSchedule(
+            years=4, development_years=1, production_rate=2
+        ).plan(self.layout)
+        exact = expected_missions(
+            deployment, FailureModel(), self.satellites, self.observations, self._metric
+        )
+        phases = deployment.phases(self.satellites)
+        planned = summarize_phases(
+            evaluate_phases(phases, self.observations, self._metric)
+        )
+        self.assertAlmostEqual(exact["score mean"], planned["score mean"], places=6)
+        self.assertEqual(exact["availability"], 1.0)
+        # every launch fails: nothing operates
+        lost = expected_missions(
+            deployment,
+            FailureModel(launch=1.0),
+            self.satellites,
+            self.observations,
+            self._metric,
+        )
+        self.assertEqual(lost["availability"], 0.0)
+        self.assertEqual(lost["score mean"], 0.0)
+
+    def test_limits(self):
+        """Sets are enumerated within limits."""
+        deployment = DeploymentSchedule(years=4).plan(self.layout)
+        failures = FailureModel(life=Exponential(0.5))
+        with self.assertRaises(ValueError):
+            expected_missions(
+                deployment,
+                failures,
+                self.satellites,
+                self.observations,
+                self._metric,
+                max_sets=3,
+            )
+        with self.assertRaises(ValueError):
+            expected_missions(
+                deployment,
+                failures,
+                self.satellites[:3],
+                self.observations,
+                self._metric,
+            )
+
+
+class TestImportanceSampling(unittest.TestCase):
+    """
+    Unit tests for histories of stressed failures and their weights.
+    """
+
+    def test_stressed_lives(self):
+        """Stressed lives are weighted to their distribution, up to a horizon."""
+        rng = np.random.default_rng(0)
+        for life in (
+            Exponential(0.1),
+            Weibull(2, 8),
+            Bathtub(Weibull(0.5, 40), Exponential(0.05)),
+        ):
+            draws = [
+                life.stressed(rng.random(life.dimensions), 4.0, 5.0)
+                for _ in range(20000)
+            ]
+            lives = np.array([d[0] for d in draws])
+            weights = np.exp([d[1] for d in draws])
+            self.assertAlmostEqual(weights.mean(), 1.0, delta=0.03)
+            # the weighted share that survives the horizon is this distribution's
+            survived = np.sum(weights * (lives > 5)) / weights.sum()
+            self.assertAlmostEqual(
+                survived, float(life.survival(np.array([5.0]))[0]), delta=0.02
+            )
+            # the stressed lives fail more often
+            self.assertGreater(
+                (lives <= 5).mean(), 1 - life.survival(np.array([5.0]))[0]
+            )
+
+    def test_rare_losses(self):
+        """Stress estimates the probability of a rare loss with less variance."""
+        deployment = DeploymentSchedule(years=5).plan(_walker(1, 3))
+        failures = FailureModel(life=Exponential(0.01))
+        p = 1 - math.exp(-0.05)
+        exact = 3 * p**2 * (1 - p) + p**3
+        estimates = {}
+        for stress in (1.0, 8.0):
+            values = []
+            for seed in range(25):
+                histories = deployment.simulate_many(
+                    failures, RestorationPolicy(restore=False), seed, 200, stress=stress
+                )
+                rows = pd.DataFrame(
+                    [{**h.metrics(), "weight": h.weight} for h in histories]
+                )
+                summary = summarize_missions(
+                    rows, requirements=[Requirement("failures", ">=", 2)]
+                )
+                values.append(summary["P(failures >= 2)"])
+                if stress > 1:
+                    self.assertGreater(summary["effective histories"], 30)
+            estimates[stress] = np.array(values)
+        self.assertAlmostEqual(estimates[8.0].mean(), exact, delta=0.001)
+        self.assertLess(estimates[8.0].var(), estimates[1.0].var() / 5)
+        # without stress, histories are not weighted
+        plain = deployment.simulate_many(failures, None, 1, 5)
+        self.assertTrue(all(h.weight == 1.0 for h in plain))
+        with self.assertRaises(ValueError):
+            deployment.simulate_many(failures, None, 1, 5, stress=0)
+
+    def test_stressed_launches(self):
+        """Stressed launches are weighted to their probability of failure."""
+        deployment = DeploymentSchedule(years=2).plan(_walker(1, 2))
+        failures = FailureModel(launch=0.02)
+        histories = deployment.simulate_many(
+            failures, RestorationPolicy(restore=False), 4, 3000, stress=10.0
+        )
+        weights = np.array([h.weight for h in histories])
+        lost = np.array([h.launches[0].failed for h in histories])
+        self.assertGreater(lost.mean(), 0.1)  # stressed: failures are common
+        self.assertAlmostEqual(
+            np.sum(weights * lost) / weights.sum(), 0.02, delta=0.005
+        )
+
+    def test_weighted_summaries(self):
+        """Weighted histories give weighted statistics."""
+        missions = pd.DataFrame(
+            {"value": [1.0, 2.0, 3.0, 4.0], "weight": [4.0, 1.0, 1.0, 2.0]}
+        )
+        summary = summarize_missions(
+            missions,
+            quantiles={"value": 0.5},
+            requirements=[Requirement("value", ">=", 3)],
+            spread=True,
+        )
+        self.assertAlmostEqual(summary["value"], (4 + 2 + 3 + 8) / 8)
+        self.assertEqual(summary["value p50"], 1.0)  # half the weight is at 1
+        self.assertAlmostEqual(summary["P(value >= 3)"], 3 / 8)
+        self.assertAlmostEqual(summary["effective histories"], 64 / 22)
+        self.assertNotIn("weight", summary)
+        self.assertGreater(summary["value sd"], 0)

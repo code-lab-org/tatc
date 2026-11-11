@@ -224,6 +224,8 @@ class Deployment:
         seed: int | None,
         histories: int,
         sampling: str = "stratified",
+        stress: float = 1.0,
+        launch_stress: float | None = None,
     ) -> list[MissionHistory]:
         """
         Simulates several histories of the mission in a replicate (see
@@ -241,6 +243,19 @@ class Deployment:
         histories (`"random"`), several times so for missions of a few
         satellites or many, at no cost.
 
+        With a `stress`, the failures are drawn from stressed distributions
+        for importance sampling, which samples rare outcomes (such as the
+        loss of several satellites of a reliable constellation) more often:
+        the hazards of the lives of the satellites times the stress, and the
+        probability that a launch fails times the `launch_stress` (by
+        default the stress, at most 0.5). Each history is weighted by its
+        likelihood ratio (`MissionHistory.weight`, see `Lifetime.stressed`),
+        which `summarize_missions` applies to every statistic. A stress
+        that samples the outcomes of interest about as often as the others
+        estimates their probabilities (and the quantiles of their tails)
+        with far fewer histories; too large a stress makes a few weights
+        dominate (see the effective number of histories).
+
         Many histories of the failures of a replicate, whose sample of
         targets (the expensive part of an evaluation) they share, measure the
         risk of a mission at little cost (see `evaluate_missions` and
@@ -253,6 +268,9 @@ class Deployment:
             seed (int | None): The seed of the replicate.
             histories (int): The number of histories.
             sampling (str): `"stratified"` or `"random"`.
+            stress (float): The factor of the hazards of stressed failures.
+            launch_stress (float | None): The factor of the probability that
+                a launch fails, or `None` for the stress.
 
         Returns:
             list[MissionHistory]: the histories
@@ -264,7 +282,9 @@ class Deployment:
             raise ValueError("histories must be at least 1")
         if seed is None:
             return [self.simulate(failures, policy, None)]
-        return _simulate_many(self, failures, policy, seed, histories, sampling)
+        return _simulate_many(
+            self, failures, policy, seed, histories, sampling, stress, launch_stress
+        )
 
     def expected_metrics(
         self,

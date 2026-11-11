@@ -107,6 +107,44 @@ class Lifetime:
         """
         raise NotImplementedError
 
+    def stressed(
+        self, uniform: Sequence[float], factor: float, horizon: float = math.inf
+    ) -> tuple[float, float]:
+        """
+        Gets a life from a stressed distribution, whose hazard is `factor`
+        times this one's (its survival this one's to the power `factor`), for
+        importance sampling (see `Deployment.simulate_many`), and the
+        logarithm of its likelihood ratio for what a mission observes of it
+        up to a `horizon` (such as the end of the mission): the density of a
+        failure before the horizon in this distribution over its density in
+        the stressed one, `S(life) ** (1 - factor) / factor` for the survival
+        `S`, or the ratio of the survivals to the horizon,
+        `S(horizon) ** (1 - factor)`, for a life that outlasts it (whose
+        length past the horizon does not matter, and whose ratio would
+        otherwise be unbounded).
+
+        Args:
+            uniform (Sequence[float]): The uniform numbers (see
+                `from_uniform`).
+            factor (float): The factor of the hazard.
+            horizon (float): The age to which the life is observed.
+
+        Returns:
+            tuple[float, float]: the life and the logarithm of its ratio
+        """
+        life = self._stressed_life(uniform, factor)
+        if life > horizon:
+            survival = float(self.survival(np.array([horizon]))[0])
+            return life, (1.0 - factor) * math.log(survival) if survival > 0 else 0.0
+        survival = float(self.survival(np.array([life]))[0])
+        if survival <= 0:
+            return life, -math.inf
+        return life, (1.0 - factor) * math.log(survival) - math.log(factor)
+
+    def _stressed_life(self, uniform: Sequence[float], factor: float) -> float:
+        """Gets a life from the stressed distribution (see `stressed`)."""
+        return self.from_uniform([1.0 - (1.0 - float(uniform[0])) ** (1.0 / factor)])
+
 
 @dataclass(frozen=True)
 class Exponential(Lifetime):
@@ -214,6 +252,16 @@ class Bathtub(Lifetime):
         lives, start = [], 0
         for cause in self.causes:
             lives.append(cause.from_uniform(uniform[start : start + cause.dimensions]))
+            start += cause.dimensions
+        return min(lives, default=math.inf)
+
+    def _stressed_life(self, uniform, factor):
+        # each cause stressed: the sum of their hazards times the factor
+        lives, start = [], 0
+        for cause in self.causes:
+            part = uniform[start : start + cause.dimensions]
+            # pylint: disable-next=protected-access
+            lives.append(cause._stressed_life(part, factor))
             start += cause.dimensions
         return min(lives, default=math.inf)
 
