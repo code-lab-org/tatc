@@ -69,6 +69,31 @@ Constellations
 
 .. autofunction:: tatc.tradespace.remove_failures
 
+Deployment
+----------
+
+.. automodule:: tatc.tradespace.deployment
+   :no-members:
+
+.. autoclass:: tatc.tradespace.DeploymentSchedule
+   :members: plan, launches_of
+
+.. autoclass:: tatc.tradespace.Deployment
+   :members: phases, begin, end, deployed, units
+
+.. autoclass:: tatc.tradespace.Launch
+
+.. autoclass:: tatc.tradespace.Production
+
+.. autoclass:: tatc.tradespace.Phase
+   :members: duration
+
+.. autofunction:: tatc.tradespace.evaluate_phases
+
+.. autofunction:: tatc.tradespace.summarize_phases
+
+.. autofunction:: tatc.tradespace.draw_failures
+
 Costs
 -----
 
@@ -76,21 +101,17 @@ Costs
    :no-members:
 
 .. autoclass:: tatc.tradespace.CostModel
-   :members: estimate, generations
+   :members: estimate, discount
 
 .. autoclass:: tatc.tradespace.SatelliteCost
    :members: production
 
 .. autoclass:: tatc.tradespace.LaunchCost
-   :members: launches
 
 .. autoclass:: tatc.tradespace.OperationsCost
 
-.. autoclass:: tatc.tradespace.CostSchedule
-   :members: discount, producing
-
 .. autoclass:: tatc.tradespace.CostEstimate
-   :members: total, present_value, deployed, annual, metrics
+   :members: total, present_value, annual, metrics
 
 .. autofunction:: tatc.tradespace.plane_sizes
 

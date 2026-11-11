@@ -1,6 +1,7 @@
 """
 Trade space analysis: design spaces of (hierarchical) design variables and
-uncertain parameters, building blocks of constellations (and their life-cycle cost),
+uncertain parameters, building blocks of constellations (their deployment and life-cycle cost,
+and capability over the phases of deployment),
 trade studies that evaluate their designs (with caches
 of analyses by satellite, in parallel), statistics of replicates and
 requirements on them, Pareto efficiency (with the uncertainty of replicates),
@@ -17,7 +18,6 @@ from .confirmation import Confirmation, confirm
 from .cost import (
     CostEstimate,
     CostModel,
-    CostSchedule,
     LaunchCost,
     OperationsCost,
     SatelliteCost,
@@ -32,6 +32,16 @@ from .constellations import (
     remove_failures,
     sso_planes_space,
     walker_space,
+)
+from .deployment import (
+    Deployment,
+    DeploymentSchedule,
+    Launch,
+    Phase,
+    Production,
+    draw_failures,
+    evaluate_phases,
+    summarize_phases,
 )
 from .criteria import (
     Maximum,
@@ -79,7 +89,8 @@ __all__ = [
     "Confirmation",
     "CostEstimate",
     "CostModel",
-    "CostSchedule",
+    "Deployment",
+    "DeploymentSchedule",
     "Derived",
     "Design",
     "DesignSpace",
@@ -87,12 +98,15 @@ __all__ = [
     "Fixed",
     "Infeasible",
     "Integer",
+    "Launch",
     "LaunchCost",
     "Maximum",
     "Mean",
     "Minimum",
     "OperationsCost",
+    "Phase",
     "Probability",
+    "Production",
     "Quantile",
     "Real",
     "Refinement",
@@ -115,6 +129,8 @@ __all__ = [
     "confirm",
     "count_planes",
     "count_satellites",
+    "draw_failures",
+    "evaluate_phases",
     "get_fingerprint",
     "get_satellite_key",
     "hours_to_time",
@@ -134,5 +150,6 @@ __all__ = [
     "sensitivity",
     "sso_planes_space",
     "summarize",
+    "summarize_phases",
     "walker_space",
 ]

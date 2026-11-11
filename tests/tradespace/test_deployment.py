@@ -1,0 +1,203 @@
+"""
+Unit tests for the deployment of constellations and capability over its
+phases.
+
+@author Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
+import math
+import unittest
+
+import numpy as np
+import pandas as pd
+
+from tatc.tradespace import (
+    DeploymentSchedule,
+    DesignSpace,
+    Real,
+    Requirement,
+    draw_failures,
+    evaluate_phases,
+    sso_planes_space,
+    summarize_phases,
+    walker_space,
+)
+
+
+def _walker(planes=3, per_plane=4):
+    (design,) = DesignSpace(
+        layout=walker_space(
+            inclination=55.0, planes=planes, per_plane=per_plane, relative_spacing=0
+        )
+    ).enumerate()
+    return design.layout
+
+
+def _names(planes, per_plane):
+    """The names of the satellites of a Walker layout, in build order."""
+    return [f"satellite {k + 1}" for k in range(planes * per_plane)]
+
+
+class TestPlan(unittest.TestCase):
+    """
+    Unit tests for planned deployments.
+    """
+
+    def test_production_rate(self):
+        """A production line deploys planes as their satellites are built."""
+        deployment = DeploymentSchedule(development_years=2, production_rate=8).plan(
+            _walker(3, 4)
+        )
+        # 4 satellites a plane at 8 a year: ready every half year
+        self.assertEqual([l.time for l in deployment.launches], [2.5, 3.0, 3.5])
+        self.assertEqual(deployment.begin, 2.5)
+        self.assertEqual(deployment.deployed, 3.5)
+        larger = DeploymentSchedule(development_years=2, production_rate=8).plan(
+            _walker(3, 6)
+        )
+        self.assertGreater(larger.deployed, deployment.deployed)
+
+    def test_launch_cadence(self):
+        """Launches are at least an interval apart, a plane taking several."""
+        schedule = DeploymentSchedule(
+            years=6,
+            design_life=3,
+            development_years=2,
+            launch_interval=1,
+            launch_capacity=3,
+        )
+        deployment = schedule.plan(_walker(3, 4))
+        first = [l for l in deployment.launches if l.generation == 0]
+        self.assertEqual([l.time for l in first], [2, 3, 4, 5, 6, 7])
+        self.assertEqual(
+            [(l.plane, l.first, l.satellites) for l in first[:2]],
+            [(0, 0, 2), (0, 2, 2)],
+        )
+        # replacements 3 years later, before the end of the mission at year 8
+        replacements = [l.time for l in deployment.launches if l.generation > 0]
+        self.assertEqual(replacements, [5, 6, 7])
+        self.assertEqual(deployment.end, 8)
+        self.assertEqual(deployment.units, {None: 12 + 6})
+
+    def test_types_and_order(self):
+        """Types are developed over their own durations, planes in an order."""
+        schedule = DeploymentSchedule(development_years={"new": 5, "heritage": 2})
+        sso = DesignSpace(
+            layout=sso_planes_space(crossing=Real(9, 12, step=3), satellites=1, count=2)
+        )
+        layout = sso.enumerate()[0].layout
+        deployment = schedule.plan({"new": _walker(1, 2), "heritage": layout})
+        self.assertEqual(
+            sorted((l.time, l.kind) for l in deployment.launches),
+            [(2.0, "heritage"), (2.0, "heritage"), (5.0, "new")],
+        )
+        ordered = DeploymentSchedule(
+            production_rate=1, order=lambda index, plane: -plane.crossing
+        ).plan(layout)
+        crossings = [plane.crossing for plane in layout.planes]
+        latest = int(np.argmax(crossings))
+        self.assertEqual(ordered.launches[0].plane, latest)
+        with self.assertRaises(ValueError):
+            DeploymentSchedule(development_years={"new": 5}).plan(
+                _walker(), kind="heritage"
+            )
+
+    def test_mass_capacity(self):
+        """A launch carries as many satellites as its mass capacity allows."""
+        schedule = DeploymentSchedule(launch_mass_capacity=120)
+        deployment = schedule.plan(_walker(2, 4), masses=50)
+        self.assertEqual(len(deployment.launches), 4)
+        with self.assertRaises(ValueError):
+            schedule.plan(_walker(2, 4))
+        with self.assertRaises(ValueError):
+            schedule.plan(_walker(2, 4), masses=200)
+
+    def test_validation(self):
+        """Schedules are validated."""
+        for invalid in (
+            {"years": 0},
+            {"design_life": 0},
+            {"production_rate": 0},
+            {"launch_interval": -1},
+            {"launch_capacity": 0},
+            {"development_years": -1},
+        ):
+            with self.assertRaises(ValueError):
+                DeploymentSchedule(**invalid)
+
+
+class TestPhases(unittest.TestCase):
+    """
+    Unit tests for phases of a mission.
+    """
+
+    def setUp(self):
+        self.schedule = DeploymentSchedule(
+            years=4, design_life=2, development_years=1, production_rate=2
+        )
+        self.deployment = self.schedule.plan(_walker(2, 2))
+        self.names = _names(2, 2)
+
+    def test_deployment(self):
+        """Phases begin as planes are launched."""
+        phases = self.deployment.phases(self.names)
+        self.assertEqual([(p.start, p.end) for p in phases], [(2, 3), (3, 6)])
+        self.assertEqual(phases[0].satellites, tuple(self.names[:2]))
+        self.assertEqual(phases[1].satellites, tuple(self.names))
+        with self.assertRaises(ValueError):
+            self.deployment.phases(self.names[:3])
+
+    def test_failures(self):
+        """A failed satellite is missing until its replacement is launched."""
+        phases = self.deployment.phases(self.names, failures={self.names[0]: 2.5})
+        # it fails at 2.5 and its replacement launches at 4 (a design life of 2)
+        self.assertEqual(
+            [(p.start, p.end, len(p.satellites)) for p in phases],
+            [(2, 2.5, 2), (2.5, 3, 1), (3, 4, 3), (4, 6, 4)],
+        )
+
+    def test_draw_failures(self):
+        """Failures are drawn from a rate, the same for the same position."""
+        self.assertEqual(draw_failures(self.deployment, self.names, 0.5, None), {})
+        failures = draw_failures(self.deployment, self.names, 0.5, seed=3)
+        again = draw_failures(self.deployment, self.names, 0.5, seed=3)
+        self.assertEqual(failures, again)
+        self.assertTrue(all(2 <= t < 6 for t in failures.values()))
+        many = [
+            len(draw_failures(self.deployment, self.names, 0.5, seed=s))
+            for s in range(200)
+        ]
+        # about 1 - exp(-0.5 * 3.5) of each satellite fails in the mission
+        self.assertAlmostEqual(np.mean(many) / 4, 1 - math.exp(-0.5 * 3.5), delta=0.06)
+
+    def test_evaluate_and_summarize(self):
+        """Phases are evaluated with their satellites' observations, and summarized."""
+        observations = pd.DataFrame({"satellite": self.names * 3, "target": range(12)})
+        calls = []
+
+        def metric(obs):
+            calls.append(len(obs))
+            return {"targets": 25.0 * obs["satellite"].nunique()}
+
+        phases = self.deployment.phases(self.names, failures={self.names[0]: 2.5})
+        capability = evaluate_phases(phases, observations, metric)
+        self.assertEqual(list(capability.targets), [50, 25, 75, 100])
+        self.assertEqual(list(capability.satellites), [2, 1, 3, 4])
+        summary = summarize_phases(
+            capability,
+            requirements=[
+                Requirement("targets", ">=", 75),
+                Requirement("targets", ">=", 200),
+            ],
+        )
+        expected = (50 * 0.5 + 25 * 0.5 + 75 * 1 + 100 * 2) / 4
+        self.assertAlmostEqual(summary["targets mean"], expected)
+        self.assertEqual(summary["targets time"], math.inf)  # the last requirement
+        first = summarize_phases(
+            capability, requirements=[Requirement("targets", ">=", 75)]
+        )
+        self.assertEqual(first["targets time"], 3)
+        # phases of the same satellites are evaluated once
+        repeated = evaluate_phases(phases + phases, observations, metric)
+        self.assertEqual(len(repeated), 8)
+        self.assertEqual(len(calls), 4 + 4)
