@@ -9,6 +9,7 @@ import unittest
 import numpy as np
 
 from tatc.tradespace import (
+    Criteria,
     DesignSpace,
     Integer,
     Study,
@@ -103,3 +104,20 @@ class TestScreen(unittest.TestCase):
         self.assertGreaterEqual(counts[2], 10)
         with self.assertRaises(ValueError):
             screen(self.designs, [_study(0, 1)] * 3, OBJECTIVES, keep=[0.5])
+        with self.assertRaises(ValueError):
+            screen(self.designs, [_study(0, 1)], Criteria(OBJECTIVES, by="sensor"))
+
+    def test_criteria_tolerance(self):
+        """Stages use the tolerance of the criteria unless given their own."""
+        stages = [_study(0.3, 1), _study(0, 1)]
+        criteria = Criteria(OBJECTIVES, tolerance={"value": 0.6})
+        tolerant = screen(self.designs, stages, criteria, keep=0.1)
+        overridden = screen(
+            self.designs, stages, criteria, keep=0.1, tolerance={"value": 0.0}
+        )
+        self.assertGreater(len(tolerant.designs), len(overridden.designs))
+        # the last stage ranks with the criteria's tolerance
+        final = tolerant.final
+        self.assertTrue(
+            (final.pareto_rank == 0).sum() >= pareto_front(final, OBJECTIVES).sum()
+        )

@@ -7,6 +7,7 @@ Unit tests for caches of analyses by satellite.
 import pickle
 import tempfile
 import unittest
+import warnings
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -100,8 +101,6 @@ class TestSatelliteCache(unittest.TestCase):
     def test_disk_cache(self):
         """Results on disk are shared by caches of the same namespace."""
         with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaises(ValueError):
-                SatelliteCache(self.analysis, directory=directory)
             SatelliteCache(self.analysis, directory, namespace="x")(_satellite("a"))
             again = SatelliteCache(self.analysis, directory, namespace="x")
             self.assertEqual(list(again(_satellite("b")).satellite), ["b", "b"])
@@ -113,28 +112,73 @@ class TestSatelliteCache(unittest.TestCase):
 
     def test_disk_cache_of_other_functions(self):
         """Results on disk are not shared by functions of other definitions."""
+
+        def make(rows):
+            return SatelliteCache(
+                lambda satellite, rows=rows: pd.DataFrame(
+                    {"satellite": [satellite.name] * rows}
+                ),
+                directory,
+                namespace="x",
+            )
+
         with tempfile.TemporaryDirectory() as directory:
-            for rows in (1, 1, 2):
-                cache = SatelliteCache(
-                    lambda satellite, rows=rows: pd.DataFrame(
-                        {"satellite": [satellite.name] * rows}
-                    ),
-                    directory,
-                    namespace="x",
-                )
-                self.assertEqual(len(cache(_satellite("a"))), rows)
-            self.assertEqual(len(list(Path(directory).iterdir())), 2)
+            for rows in (1, 1):
+                self.assertEqual(len(make(rows)(_satellite("a"))), rows)
+            # a namespace with results only of other definitions warns
+            with self.assertWarnsRegex(
+                UserWarning, r"1 results.*defaults\[0\]: 1 -> 2"
+            ):
+                cache = make(2)
+            # once, of the caches of the definition (such as of parallel workers)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                make(2)
+            self.assertEqual(caught, [])
+            self.assertEqual(len(cache(_satellite("a"))), 2)
+            namespaces = list(Path(directory).iterdir())
+            self.assertEqual(len(namespaces), 1)
+            self.assertEqual((namespaces[0] / "namespace.txt").read_text(), "x")
+            folders = [p for p in namespaces[0].iterdir() if p.is_dir()]
+            self.assertEqual(len(folders), 2)
+            self.assertTrue(all((p / "definition.json").exists() for p in folders))
+            # results of other definitions are removed
+            self.assertEqual(cache.prune(), 1)
+            self.assertEqual(len([p for p in namespaces[0].iterdir() if p.is_dir()]), 1)
+            self.assertEqual(SatelliteCache(_name).prune(), 0)  # in memory
+
+    def test_disk_cache_of_other_data(self):
+        """Results on disk are keyed by the data the function closes over."""
+
+        def make(frame):
+            return SatelliteCache(
+                lambda satellite: frame.assign(satellite=satellite.name), directory
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            make(pd.DataFrame({"value": [1.0]}))(_satellite("a"))
+            same = make(pd.DataFrame({"value": [1.0]}))
+            same(_satellite("b"))
+            self.assertEqual((same.hits, same.misses), (1, 0))
+            with self.assertWarns(UserWarning):
+                other = make(pd.DataFrame({"value": [2.0]}))
+            self.assertEqual(list(other(_satellite("c")).value), [2.0])
+            self.assertEqual(other.misses, 1)
 
     def test_unreadable_file(self):
-        """A result that cannot be read from disk is computed again."""
+        """A result that cannot be read from disk is computed again and replaced."""
         with tempfile.TemporaryDirectory() as directory:
             cache = SatelliteCache(self.analysis, directory, namespace="x")
             cache(_satellite("a"))
-            for path in Path(directory).iterdir():
+            for path in Path(directory).rglob("*.pkl"):
                 path.write_bytes(b"not a pickle")
             again = SatelliteCache(self.analysis, directory, namespace="x")
             self.assertEqual(list(again(_satellite("b")).satellite), ["b", "b"])
             self.assertEqual(again.misses, 1)
+            # the file is replaced
+            third = SatelliteCache(self.analysis, directory, namespace="x")
+            third(_satellite("c"))
+            self.assertEqual((third.hits, third.misses), (1, 0))
 
     def test_disk_cache_in_parallel(self):
         """Workers of a study share a cache on disk, storing each result once."""
@@ -150,8 +194,8 @@ class TestSatelliteCache(unittest.TestCase):
             )
             results = study.run()
             self.assertTrue((results.rows == 2).all())
-            files = sorted(p.suffix for p in Path(directory).iterdir())
-            self.assertEqual(files, [".pkl"] * 4)
+            files = sorted(p.suffix for p in Path(directory).rglob("*.*"))
+            self.assertEqual(files, [".json"] + [".pkl"] * 4 + [".txt"])
 
     def test_pickled_cache_is_empty(self):
         """Copies of a cache (as sent to workers) start without results."""

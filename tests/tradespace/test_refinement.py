@@ -8,8 +8,10 @@ import unittest
 import warnings
 
 import numpy as np
+import pandas as pd
 
 from tatc.tradespace import (
+    Criteria,
     DesignSpace,
     Integer,
     Quantile,
@@ -18,6 +20,7 @@ from tatc.tradespace import (
     pareto_probability,
     refine,
 )
+from tatc.tradespace.refinement import _precise
 
 OBJECTIVES = {"cost": "min", "value": "max"}
 
@@ -113,8 +116,10 @@ class TestRefine(unittest.TestCase):
             self.study,
             self.designs,
             self.results,
-            {"cost": "min", "value p25": "max"},
-            statistics={"value p25": Quantile("value", 0.25)},
+            Criteria(
+                {"cost": "min", "value p25": "max"},
+                statistics={"value p25": Quantile("value", 0.25)},
+            ),
             max_rounds=1,
         )
         self.assertIn("value p25", refinement.probability.columns)
@@ -122,21 +127,15 @@ class TestRefine(unittest.TestCase):
     def test_tolerance(self):
         """A tolerance settles designs that are within it of the front."""
         strict = pareto_probability(self.results, OBJECTIVES, n_resamples=300)
-        tolerant = pareto_probability(
-            self.results, OBJECTIVES, n_resamples=300, tolerance={"value": 2.0}
-        )
+        criteria = Criteria(OBJECTIVES, tolerance={"value": 2.0})
+        tolerant = pareto_probability(self.results, criteria, n_resamples=300)
         # designs efficient for sure, of the better variant (within 2 of each other)
         self.assertGreater(
             (tolerant.pareto_probability >= 0.95).sum(),
             (strict.pareto_probability >= 0.95).sum(),
         )
         refinement = refine(
-            self.study,
-            self.designs,
-            self.results,
-            OBJECTIVES,
-            max_rounds=1,
-            tolerance={"value": 2.0},
+            self.study, self.designs, self.results, criteria, max_rounds=1
         )
         settled = refinement.probability.pareto_probability >= 0.95
         self.assertGreaterEqual(
@@ -192,3 +191,87 @@ class TestRefine(unittest.TestCase):
         """Designs that remain uncertain without a tolerance give a warning."""
         with self.assertWarns(UserWarning):
             refine(self.study, self.designs, self.results, OBJECTIVES, max_rounds=1)
+
+    def test_precision(self):
+        """A design about a tolerance from the front stops once precise enough."""
+        space = DesignSpace(variant=Integer(0, 1), noise=Uncertain.normal(0, 1))
+        # variant 1 is one tolerance below variant 0, with noise: whether it is
+        # within the tolerance of the front stays uncertain (with this seed)
+        study = Study(
+            space,
+            lambda d: d,
+            lambda d: {"cost": 1, "value": 10.0 - d.variant * (2.0 - d.noise)},
+            replicates=5,
+            seed=2,
+        )
+        designs = space.enumerate()
+        results = study.run(designs)
+        criteria = Criteria(OBJECTIVES, tolerance={"value": 2.0})
+
+        def refined(precision):
+            refinement = refine(
+                study,
+                designs,
+                results,
+                criteria,
+                step=5,
+                max_replicates=40,
+                precision=precision,
+            )
+            replicates = refinement.results.groupby("design").replicate.nunique()
+            return refinement, replicates[designs[1].key]
+
+        _, unlimited = refined(None)
+        self.assertEqual(unlimited, 40)
+        # a standard error below a tenth of the tolerance (0.2) takes about 25
+        refinement, precise = refined(0.1)
+        self.assertGreaterEqual(precise, 20)
+        self.assertLessEqual(precise, 30)
+        self.assertEqual(refinement.indifferent.design.tolist(), [designs[1].key])
+        self.assertEqual(len(refinement.uncertain), 0)
+        self.assertEqual(refinement.history.indifferent.iloc[-1], 1)
+        with self.assertRaises(ValueError):
+            refine(study, designs, results, criteria, precision=0)
+
+    def test_budget(self):
+        """A budget limits the evaluations, refining the least settled designs first."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            refinement = refine(
+                self.study, self.designs, self.results, OBJECTIVES, step=5, budget=12
+            )
+            nothing = refine(
+                self.study, self.designs, self.results, OBJECTIVES, budget=0
+            )
+        self.assertEqual(refinement.history.evaluations.sum(), 12)
+        replicates = refinement.results.groupby("design").replicate.nunique()
+        self.assertEqual(sorted(replicates[replicates > 5]), [7, 10, 10])
+        # the designs whose probability was nearest 0.5
+        before = pareto_probability(self.results, OBJECTIVES, n_resamples=500, seed=0)
+        before = before.sort_values("design")
+        distance = (before.pareto_probability - 0.5).abs()
+        nearest = before.design[distance.sort_values(kind="stable").index[:3]]
+        self.assertEqual(set(replicates[replicates > 5].index), set(nearest))
+        self.assertEqual(len(nothing.results), len(self.results))
+
+    def test_precise(self):
+        """Designs are precise if each varying objective is within its tolerance."""
+        probability = pd.DataFrame(
+            {
+                "cost": [1.0, 1.0, 1.0],
+                "cost se": [0.0, 0.0, 0.1],
+                "value": [100.0, 100.0, 100.0],
+                "value se": [1.0, 6.0, 1.0],
+            }
+        )
+        # a tolerance of 10% of 100: precise below a standard error of 5
+        criteria = Criteria(OBJECTIVES, tolerance={"value": "10%"})
+        np.testing.assert_array_equal(
+            _precise(probability, criteria, 0.5), [True, False, False]
+        )
+        np.testing.assert_array_equal(
+            _precise(probability, criteria, None), [False, False, False]
+        )
+        np.testing.assert_array_equal(
+            _precise(probability, Criteria(OBJECTIVES), 0.5), [False, False, False]
+        )

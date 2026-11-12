@@ -13,8 +13,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .criteria import Requirement, Statistic, _get_statistics, aggregate
-from .pareto import Tolerance, pareto_front
+from .criteria import Criteria, _as_criteria, aggregate
+from .pareto import pareto_front
 from .space import Design
 from .study import Study
 
@@ -29,21 +29,19 @@ class Confirmation:
     """pandas.DataFrame: The results of the new replicates (see `Study.run`)."""
     summary: pd.DataFrame
     """pandas.DataFrame: A row per design (and group): the statistics of
-    the new replicates, those of the replicates that selected the design
-    (`<statistic> selected`), the number of new `replicates`, and whether
-    the design meets the requirements (`meets_requirements`) and is
-    efficient among the confirmed designs that do (`pareto`), by the new
-    replicates."""
+    the criteria by the new replicates, those of the replicates that
+    selected the design (`<statistic> selected`), the number of new
+    `replicates`, and whether the design meets the requirements
+    (`meets_requirements`) and is efficient among the confirmed designs that
+    do (`pareto`), by the new replicates."""
+    criteria: Criteria
+    """Criteria: The criteria of the confirmation."""
 
-    def optimism(self, objectives: Mapping[str, str]) -> pd.Series:
+    def optimism(self) -> pd.Series:
         """
         Gets the optimism of selection: the mean amount by which the selecting
         replicates made the designs look better than the new replicates do,
-        in each objective (positive if they looked better).
-
-        Args:
-            objectives (Mapping[str, str]): The objectives and their
-                directions (`"min"` or `"max"`).
+        in each objective of the criteria (positive if they looked better).
 
         Returns:
             pandas.Series: the optimism of each objective, in its units
@@ -56,7 +54,7 @@ class Confirmation:
                         * (1.0 if direction == "max" else -1.0)
                     )
                 )
-                for name, direction in objectives.items()
+                for name, direction in self.criteria.objectives.items()
             }
         )
 
@@ -65,12 +63,8 @@ def confirm(
     study: Study,
     designs: Sequence[Design],
     results: pd.DataFrame,
-    objectives: Mapping[str, str],
+    criteria: Criteria | Mapping[str, str],
     replicates: int | None = None,
-    statistics: Mapping[str, Statistic | str] | None = None,
-    requirements: Sequence[Requirement] = (),
-    by: Sequence[str] = (),
-    tolerance: Mapping[str, Tolerance] | None = None,
 ) -> Confirmation:
     """
     Confirms selected designs (such as a Pareto front, or the best designs
@@ -93,21 +87,16 @@ def confirm(
         results (pandas.DataFrame): Every result that informed the selection
             (see `Study.run`), such as those of an enumeration, refinement,
             or search.
-        objectives (Mapping[str, str]): The objectives: statistics (or
-            metrics) and their directions (`"min"` or `"max"`).
+        criteria (Criteria | Mapping[str, str]): The criteria (see
+            `Criteria`), or the objectives (metrics whose means they are)
+            and their directions (`"min"` or `"max"`).
         replicates (int | None): The number of new replicates, or `None` for
             the study's number.
-        statistics (Mapping[str, Statistic | str] | None): Statistics, by
-            name, of objectives and requirements that are not means.
-        requirements (Sequence[Requirement]): Requirements on statistics.
-        by (Sequence[str]): Columns that group records of an evaluation (such
-            as a sensor), whose fronts are found separately.
-        tolerance (Mapping[str, float | str] | None): The tolerances of
-            objectives (see `pareto_front`).
 
     Returns:
         Confirmation: the new results and the summary of each design
     """
+    criteria = _as_criteria(criteria)
     count = study.replicates if replicates is None else replicates
     if count < 1:
         raise ValueError("replicates must be at least 1")
@@ -115,18 +104,12 @@ def confirm(
     keys = {design.key for design in designs}
     start = int(results["replicate"].max()) + 1 if len(results) > 0 else 0
     fresh = study.run(designs, replicates=range(start, start + count))
-    names = list(dict.fromkeys([*objectives, *(r.name for r in requirements)]))
-    resolved = _get_statistics(names, statistics)
-    resolved = {name: resolved[name] for name in names}
-    columns = ["design", *by]
+    names = criteria.names
+    columns = ["design", *criteria.by]
     selected = aggregate(
-        results[results["design"].isin(keys)],
-        resolved,
-        requirements,
-        by=by,
-        design_columns=[],
+        results[results["design"].isin(keys)], criteria, design_columns=[]
     )
-    confirmed = aggregate(fresh, resolved, requirements, by=by, design_columns=[])
+    confirmed = aggregate(fresh, criteria, design_columns=[])
     summary = confirmed[[*columns, *names, "replicates", "meets_requirements"]]
     summary = summary.merge(
         selected[[*columns, *names]].rename(
@@ -143,11 +126,8 @@ def confirm(
             "meets_requirements",
         ]
     ]
+    # the front of the designs whose objectives are known, by the new replicates
+    known = summary.dropna(subset=list(criteria.objectives))
     summary["pareto"] = False
-    groups = summary.groupby(list(by), sort=False) if by else [((), summary)]
-    for _, group in groups:
-        candidates = group[group["meets_requirements"]].dropna(subset=list(objectives))
-        if len(candidates) > 0:
-            efficient = pareto_front(candidates, objectives, tolerance)
-            summary.loc[efficient.index, "pareto"] = efficient
-    return Confirmation(results=fresh, summary=summary)
+    summary.loc[known.index, "pareto"] = pareto_front(known, criteria).to_numpy()
+    return Confirmation(results=fresh, summary=summary, criteria=criteria)

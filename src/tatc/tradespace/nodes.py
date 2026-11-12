@@ -22,7 +22,9 @@ from .values import Scope
 class Infeasible(Exception):
     """
     Raised while deciding a design that violates a constraint of its design
-    space or has a variable without feasible values.
+    space or has a variable without feasible values, and by the build or
+    evaluation functions of a study to reject a design, which is then
+    recorded as infeasible (see `Study`).
 
     Args:
         message (str): The reason.

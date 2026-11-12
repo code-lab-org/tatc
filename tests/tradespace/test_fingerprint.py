@@ -4,6 +4,7 @@ Unit tests for fingerprints of the definitions of trade studies.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import ast
 import os
 import subprocess
 import sys
@@ -15,7 +16,12 @@ from functools import partial
 import numpy as np
 import pandas as pd
 
+from shapely.geometry import Point
+
+from tatc.analysis import collect_observations
+from tatc.generation import generate_points_rotated_lattice
 from tatc.schemas import Instrument
+from tatc.tradespace import fingerprint
 from tatc.tradespace import (
     CostModel,
     DesignSpace,
@@ -24,8 +30,9 @@ from tatc.tradespace import (
     SatelliteCost,
     Study,
     Uncertain,
+    compare_definitions,
+    get_definition,
     get_fingerprint,
-    get_source_hash,
 )
 
 THRESHOLD = 4
@@ -40,6 +47,28 @@ def _uses_helper(d):
 
 
 MODEL = None
+TABLE = pd.DataFrame({"a": [1.0]})
+
+
+class _Opaque:
+    """An object described by its type only."""
+
+    def __init__(self, value):
+        self.value = value
+
+
+def _uses_table(d):
+    return {"value": TABLE.a.sum() * d.a}
+
+
+def _uses_attribute(d):
+    # an attribute named as the global `values`, which the function does not use
+    return {"value": d.values}
+
+
+values = pd.DataFrame({"a": [1.0]})  # pylint: disable=invalid-name
+
+
 CACHES = {}
 
 
@@ -51,6 +80,13 @@ def _uses_cache(d):
 
 def _uses_model(d):
     return {"cost": MODEL.estimate(d.layout).total}
+
+
+START = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+def _observe(satellite):
+    return collect_observations([], satellite, START, START + timedelta(days=1))
 
 
 def _space(high=4, fixed=1.0, spread=1.0):
@@ -122,11 +158,49 @@ class TestFingerprint(unittest.TestCase):
             get_fingerprint(np.arange(3)), get_fingerprint(np.arange(3) + 1)
         )
         self.assertEqual(get_fingerprint({1, 2, 3}), get_fingerprint({3, 2, 1}))
-        # other objects are described by their type only
+        # data frames and series by their content (and geometries by theirs)
         self.assertEqual(
+            get_fingerprint(pd.DataFrame({"a": [1]})),
+            get_fingerprint(pd.DataFrame({"a": [1]})),
+        )
+        self.assertNotEqual(
             get_fingerprint(pd.DataFrame({"a": [1]})),
             get_fingerprint(pd.DataFrame({"a": [2]})),
         )
+        self.assertNotEqual(
+            get_fingerprint(pd.Series([1.0], name="a")),
+            get_fingerprint(pd.Series([1.0], name="b")),
+        )
+        points = generate_points_rotated_lattice(5, seed=1)
+        moved = points.copy()
+        moved.loc[0, "geometry"] = Point(0, 1e-9)
+        self.assertEqual(
+            get_fingerprint(points),
+            get_fingerprint(generate_points_rotated_lattice(5, seed=1)),
+        )
+        self.assertNotEqual(get_fingerprint(points), get_fingerprint(moved))
+        # other objects are described by their type only
+        self.assertEqual(get_fingerprint(_Opaque(1)), get_fingerprint(_Opaque(2)))
+
+    def test_attributes_are_not_globals(self):
+        """Attributes named as globals do not refer to the globals."""
+        global values  # pylint: disable=global-statement,invalid-name
+        before = get_fingerprint(_uses_attribute)
+        values = pd.DataFrame({"a": [2.0]})
+        try:
+            self.assertEqual(before, get_fingerprint(_uses_attribute))
+        finally:
+            values = pd.DataFrame({"a": [1.0]})
+
+    def test_data_globals(self):
+        """Data that functions refer to as globals is described by content."""
+        global TABLE  # pylint: disable=global-statement
+        before = get_fingerprint(_uses_table)
+        TABLE = pd.DataFrame({"a": [2.0]})
+        try:
+            self.assertNotEqual(before, get_fingerprint(_uses_table))
+        finally:
+            TABLE = pd.DataFrame({"a": [1.0]})
 
     def test_global_state(self):
         """Mutable globals (such as caches) do not change the fingerprint."""
@@ -161,16 +235,103 @@ class TestFingerprint(unittest.TestCase):
         # but not with the settings of its execution
         self.assertEqual(study().fingerprint, study(n_jobs=2).fingerprint)
 
+    def test_modules(self):
+        """A definition has the modules of TAT-C (and resources) values depend on."""
+        modules = get_definition(_observe)["modules"]
+        # the module that defines a function imported from a package, not
+        # the package, and the modules that it imports
+        self.assertIn("tatc.analysis.point_sampling", modules)
+        self.assertIn("tatc.schemas.space.satellite", modules)
+        self.assertNotIn("tatc.analysis", modules)
+        self.assertNotIn("tatc.analysis.ro_sampling", modules)
+        self.assertFalse(any(m.startswith("tatc.tradespace") for m in modules))
+        self.assertIn("resources/defaults.yml", get_definition(_observe)["resources"])
+        # studies depend on the modules of studies and their design spaces
+        study = Study(_space(), lambda d: d, lambda d: {"value": d.a}).definition
+        self.assertIn("tatc.tradespace.study", study["modules"])
+        self.assertIn("tatc.tradespace.nodes", study["modules"])
+        self.assertNotIn("tatc.tradespace.pareto", study["modules"])
+        # plain values depend on no modules
+        self.assertEqual(get_definition(1, a="x")["modules"], {})
+
     def test_source(self):
-        """The source of TAT-C (its code and resources) changes the fingerprint."""
-        self.assertEqual(len(get_source_hash()), 16)
-        self.assertIs(get_source_hash(), get_source_hash())  # computed once
-        before = get_fingerprint(_space())
-        with mock.patch(
-            "tatc.tradespace.fingerprint.get_source_hash", return_value="changed"
-        ):
-            self.assertNotEqual(before, get_fingerprint(_space()))
-        self.assertEqual(before, get_fingerprint(_space()))
+        """The source of the modules values depend on changes the fingerprint."""
+        original = fingerprint._hash  # pylint: disable=protected-access
+
+        def edited(name):
+            return lambda path: "edited" if path.name == name else original(path)
+
+        before = get_fingerprint(_observe)
+        with mock.patch.object(fingerprint, "_hash", edited("point_sampling.py")):
+            self.assertNotEqual(before, get_fingerprint(_observe))
+        with mock.patch.object(fingerprint, "_hash", edited("pareto.py")):
+            self.assertEqual(before, get_fingerprint(_observe))
+        self.assertEqual(before, get_fingerprint(_observe))
+
+    def test_imports_resolve(self):
+        """Every import of a module of TAT-C resolves to modules of TAT-C."""
+        # pylint: disable=protected-access
+        files = fingerprint._module_files()
+        self.assertIn("tatc.tradespace.fingerprint", files)
+        for module in files:
+            for _, other in fingerprint._imports(module):
+                self.assertIn(other, files, f"{other} (imported by {module})")
+        modules, resources = fingerprint._get_dependencies(files)
+        self.assertEqual(set(modules), set(files))
+        self.assertTrue(resources)
+        # a constant of a package depends on its source only
+        self.assertEqual(
+            fingerprint._resolve("tatc", "__version__"), {("file", "tatc")}
+        )
+
+    def test_static_imports(self):
+        """Modules of TAT-C import modules by statements only (not by name)."""
+        # pylint: disable=protected-access
+        for module, path in fingerprint._module_files().items():
+            tree = ast.parse(path.read_bytes())
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    name = getattr(node.func, "id", getattr(node.func, "attr", None))
+                    self.assertNotIn(name, ("import_module", "__import__"), module)
+
+    def test_compare(self):
+        """Comparisons of definitions name what differs."""
+
+        def study(high=4, offset=0.0, seed=0):
+            return Study(
+                _space(high=high),
+                lambda d: d,
+                lambda d, offset=offset: {"value": d.a + offset},
+                seed=seed,
+            ).definition
+
+        base = study()
+        self.assertEqual(compare_definitions(base, study()), [])
+        self.assertEqual(
+            compare_definitions(base, study(high=5)),
+            ["space.children.a.high: 4 -> 5"],
+        )
+        self.assertEqual(
+            compare_definitions(base, study(offset=1.0)),
+            ["evaluate.defaults[0]: 0.0 -> 1.0"],
+        )
+        self.assertEqual(
+            compare_definitions(base, study(high=5, seed=1), limit=1),
+            ["seed: 0 -> 1", "1 more"],
+        )
+        other = {
+            **base,
+            "python": "cpython 0.0",
+            "modules": {**base["modules"], "tatc.tradespace.nodes": "edited"},
+        }
+        self.assertEqual(
+            compare_definitions(base, other),
+            [
+                f"python: {base['python']} -> cpython 0.0",
+                "module tatc.tradespace.nodes",
+            ],
+        )
+        self.assertTrue(base["python"].endswith(f"{sys.version_info[1]}"))
 
     def test_stable_between_sessions(self):
         """Fingerprints do not change between sessions (with other hash seeds)."""

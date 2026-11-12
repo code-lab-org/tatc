@@ -63,6 +63,7 @@ from .failures import (
     policy_space,
 )
 from .criteria import (
+    Criteria,
     Maximum,
     Mean,
     Minimum,
@@ -70,17 +71,26 @@ from .criteria import (
     Quantile,
     Requirement,
     StandardDeviation,
+    StandardError,
     Statistic,
     aggregate,
+    summarize,
 )
 from .optimization import (
     Evaluations,
+    Search,
     make_pymoo_problem,
     optimize_optuna,
     optimize_pymoo,
 )
-from .fingerprint import get_fingerprint, get_source_hash
-from .pareto import hypervolume, pareto_front, pareto_probability, pareto_ranks
+from .fingerprint import compare_definitions, get_definition, get_fingerprint
+from .pareto import (
+    hypervolume,
+    hypervolume_progress,
+    pareto_front,
+    pareto_probability,
+    pareto_ranks,
+)
 from .refinement import Refinement, refine
 from .screening import Screening, screen
 from .sensitivity import main_effects, sensitivity
@@ -98,8 +108,14 @@ from .nodes import (
 )
 from .space import Design, DesignSpace
 from .store import ResultStore
-from .study import Study, summarize
-from .values import ChoiceValues, RepeatValues, Scope, Values, configure
+from .study import Study
+from .values import (
+    ChoiceValues,
+    RepeatValues,
+    Scope,
+    Values,
+    configure,
+)
 
 __all__ = [
     "Bathtub",
@@ -109,6 +125,7 @@ __all__ = [
     "Confirmation",
     "CostEstimate",
     "CostModel",
+    "Criteria",
     "Deployment",
     "DeploymentSchedule",
     "Derived",
@@ -145,7 +162,9 @@ __all__ = [
     "SatelliteCost",
     "Scope",
     "Screening",
+    "Search",
     "StandardDeviation",
+    "StandardError",
     "Statistic",
     "Study",
     "Uncertain",
@@ -155,6 +174,7 @@ __all__ = [
     "aggregate",
     "allocate_histories",
     "build_constellation",
+    "compare_definitions",
     "configure",
     "confirm",
     "count_planes",
@@ -162,11 +182,12 @@ __all__ = [
     "evaluate_missions",
     "evaluate_phases",
     "expected_missions",
+    "get_definition",
     "get_fingerprint",
     "get_satellite_key",
-    "get_source_hash",
     "hours_to_time",
     "hypervolume",
+    "hypervolume_progress",
     "main_effects",
     "make_pymoo_problem",
     "optimize_optuna",

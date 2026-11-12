@@ -11,7 +11,10 @@ import numpy as np
 import pandas as pd
 
 from tatc.tradespace import (
+    Criteria,
+    Requirement,
     hypervolume,
+    hypervolume_progress,
     pareto_front,
     pareto_probability,
     pareto_ranks,
@@ -94,14 +97,40 @@ class TestPareto(unittest.TestCase):
         )
         # c is worse than a and b by 0.01 and 0.03 in value, within the
         # tolerance; d is not
-        loose = pareto_front(frame, objectives, tolerance={"value": 0.05})
-        self.assertEqual(list(loose), [True, True, True, False])
-        ranks = pareto_ranks(frame, objectives, tolerance={"value": 0.05})
-        self.assertEqual(list(ranks), [0, 0, 0, 1])
+        loose = Criteria(objectives, tolerance={"value": 0.05})
+        self.assertEqual(list(pareto_front(frame, loose)), [True, True, True, False])
+        self.assertEqual(list(pareto_ranks(frame, loose)), [0, 0, 0, 1])
         # a larger tolerance keeps d (worse than a by 0.5 in value)
-        self.assertTrue(pareto_front(frame, objectives, tolerance={"value": 0.6}).all())
+        looser = Criteria(objectives, tolerance={"value": 0.6})
+        self.assertTrue(pareto_front(frame, looser).all())
+
+    def test_requirements_and_groups(self):
+        """Rows that miss requirements are not efficient, and groups are separate."""
+        frame = self.frame.assign(
+            reliability=[1.0, 1.0, 0.2, 1.0, 1.0, np.nan], sensor=list("xxxxxy")
+        )
+        criteria = Criteria(
+            self.objectives, requirements=[Requirement("reliability", ">=", 0.5)]
+        )
+        front = pareto_front(frame, criteria)
+        # c (efficient by its objectives) and f (unknown) miss the
+        # requirement, and e is efficient without c
+        self.assertEqual(list(front[front].index), ["a", "b", "e"])
+        ranks = pareto_ranks(frame, criteria)
+        self.assertEqual(list(ranks[list("abde")]), [0, 0, 1, 0])
+        # those that miss it rank after, in order of their violations
+        self.assertEqual(list(ranks[["c", "f"]]), [2, 3])
+        area = hypervolume(frame, criteria, {"cost": 5, "value": 0})
+        self.assertAlmostEqual(area, 4 * 1 + 3 * 2 + 1 * 1)
+        # f is alone in its group
+        grouped = Criteria(self.objectives, by="sensor")
+        front = pareto_front(frame, grouped)
+        self.assertEqual(list(front[front].index), ["a", "b", "c", "f"])
+        self.assertEqual(pareto_ranks(frame, grouped)["f"], 0)
         with self.assertRaises(ValueError):
-            pareto_front(frame, objectives, tolerance={"other": 1})
+            hypervolume(frame, grouped, [5, 0])
+        with self.assertRaises(ValueError):
+            pareto_front(self.frame, criteria)  # no column of the requirement
 
 
 class TestRelativeTolerance(unittest.TestCase):
@@ -115,13 +144,11 @@ class TestRelativeTolerance(unittest.TestCase):
         objectives = {"cost": "min", "value": "max"}
         # 5% of 96 (4.8) tolerates 96 against 100; 5% of 3 (0.15) does not
         # tolerate 3 against 4
-        front = pareto_front(frame, objectives, tolerance={"value": "5%"})
+        front = pareto_front(frame, Criteria(objectives, tolerance={"value": "5%"}))
         self.assertEqual(list(front), [True, True, False, False])
         # an absolute tolerance of 1 does not tolerate 96 against 100
-        absolute = pareto_front(frame, objectives, tolerance={"value": 1.0})
+        absolute = pareto_front(frame, Criteria(objectives, tolerance={"value": 1.0}))
         self.assertEqual(list(absolute), [True, False, False, False])
-        with self.assertRaises(ValueError):
-            pareto_front(frame, objectives, tolerance={"value": "5"})
 
 
 class TestParetoProbability(unittest.TestCase):
@@ -181,7 +208,7 @@ class TestParetoProbability(unittest.TestCase):
             ]
         )
         probability = pareto_probability(
-            results, {"cost": "min", "value": "max"}, by=["sensor"]
+            results, Criteria({"cost": "min", "value": "max"}, by=["sensor"])
         )
         winners = probability[probability.pareto_probability == 1]
         self.assertEqual(
@@ -241,6 +268,66 @@ class TestManyPoints(unittest.TestCase):
         front = pareto_front(frame, {"a": "min", "b": "min", "c": "max"})
         self.assertGreater(front.sum(), 0)
         tolerant = pareto_front(
-            frame, {"a": "min", "b": "min", "c": "max"}, tolerance={"c": "5%"}
+            frame, Criteria({"a": "min", "b": "min", "c": "max"}, tolerance={"c": "5%"})
         )
         self.assertTrue((tolerant >= front).all())
+
+
+class TestHypervolumeProgress(unittest.TestCase):
+    """
+    Unit tests for the hypervolume of searches as they proceed.
+    """
+
+    def test_progress(self):
+        """The hypervolume of the first designs evaluated, in steps."""
+        results = pd.DataFrame(
+            {
+                "design": ["a", "a", "b", "c", "d"],
+                "replicate": [0, 1, 0, 0, 0],
+                "feasible": [True, True, True, True, False],
+                "x": [1.0, 3.0, 4.0, 1.0, np.nan],
+                "y": [4.0, 6.0, 8.0, 2.0, np.nan],
+            }
+        )
+        objectives = {"x": "min", "y": "max"}
+        # a (2, 5) and b (4, 8) dominate 58 of the box to (10, 0), and c (1,
+        # 2) adds 2; the infeasible design d adds nothing
+        progress = hypervolume_progress(results, objectives, (10, 0), step=2)
+        self.assertEqual(progress.index.tolist(), [2, 4])
+        np.testing.assert_allclose(progress.values, [58.0, 60.0])
+        last = hypervolume_progress(results, objectives, (10, 0), step=3)
+        self.assertEqual(last.index.tolist(), [3, 4])
+        np.testing.assert_allclose(last.values, [60.0, 60.0])
+        with self.assertRaises(ValueError):
+            hypervolume_progress(results, objectives, (10, 0), step=0)
+
+
+class TestStandardErrors(unittest.TestCase):
+    """
+    Unit tests for the standard errors of the objectives of designs.
+    """
+
+    def test_standard_errors(self):
+        """The bootstrap gives the standard error of each objective."""
+        rng = np.random.default_rng(0)
+        results = pd.DataFrame(
+            [
+                {
+                    "design": design,
+                    "replicate": r,
+                    "feasible": True,
+                    "x": float(i),
+                    "y": i + rng.normal(0, 2),
+                }
+                for i, design in enumerate("ab")
+                for r in range(40)
+            ]
+        )
+        probability = pareto_probability(
+            results, {"x": "min", "y": "max"}, n_resamples=2000
+        )
+        np.testing.assert_allclose(probability["x se"], 0.0)
+        expected = results.groupby("design").y.std(ddof=0) / np.sqrt(40)
+        np.testing.assert_allclose(
+            probability.set_index("design")["y se"], expected, rtol=0.15
+        )

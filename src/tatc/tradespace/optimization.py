@@ -4,38 +4,65 @@ Optuna (which searches the hierarchical design space directly, see
 `DesignSpace.suggest`) and pymoo (which searches the unit hypercube that
 encodes it, see `DesignSpace.decode`). Both are optional dependencies.
 
-The objectives of a design are statistics over its replicates of the
-metrics of its evaluations (see `Study.run`, which must give one record per
-evaluation): their means, or other statistics (see `aggregate`), such as a
-quantile or the probability of meeting a threshold. Requirements on
-statistics (see `Requirement`) are output constraints, whose violations the
-optimizers minimize along with those of the constraints of the design space.
+Designs are judged by criteria (see `Criteria`, without `by`): their
+objectives are statistics over their replicates of the metrics of their
+evaluations (see `Study.run`, which must give one record per evaluation):
+their means, or other statistics, such as a quantile or the probability of
+meeting a threshold. Requirements on statistics (see `Requirement`) are
+output constraints, whose violations the optimizers minimize along with
+those of the constraints of the design space. The tolerances of the
+criteria do not apply to searches.
 Each design is evaluated once, however often an optimizer proposes it, and
 designs proposed together are evaluated together, in parallel if the study
 is (see `Study`).
+
+A search chooses its front from one evaluation of each design (with the
+study's replicates), which favors the designs whose replicates were lucky:
+refine the designs it evaluated (see `refine`) and confirm its front (see
+`confirm`) with the designs of the search (see `Search`), as for any study.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from .criteria import (
-    Requirement,
-    Statistic,
-    _check_names,
+    Criteria,
+    _as_criteria,
     _evaluate,
     _get_matrices,
-    _get_statistics,
+    _resolve,
+    _signs,
 )
-from .pareto import _check_directions
 from .space import Design, Infeasible
 from .study import Study
+
+
+@dataclass
+class Search:
+    """
+    The outcome of a search with an optimizer (see `optimize_optuna` and
+    `optimize_pymoo`), whose designs and results refine and confirm its
+    front as for any study (see `refine` and `confirm`)::
+
+        search = optimize_optuna(study, criteria, n_trials=200)
+        refined = refine(study, search.designs, search.results, criteria)
+    """
+
+    results: pd.DataFrame
+    """pandas.DataFrame: The results of every evaluation (see `Study.run`)."""
+    designs: list[Design]
+    """list[Design]: The designs evaluated, in the order of their evaluation."""
+    state: Any
+    """Any: The optimizer's own outcome: the Optuna study (`optuna.Study`) or
+    the result of pymoo (`pymoo.core.result.Result`)."""
 
 
 class Evaluations:
@@ -46,27 +73,18 @@ class Evaluations:
 
     Args:
         study (Study): The study that evaluates designs.
-        objectives (Mapping[str, str]): The objectives: statistics (or
-            metrics, whose means they are) and their directions (`"min"` or
-            `"max"`).
-        statistics (Mapping[str, Statistic | str] | None): Statistics, by
-            name, of objectives and requirements that are not means.
-        requirements (Sequence[Requirement]): Requirements on statistics.
+        criteria (Criteria | Mapping[str, str]): The criteria, without `by`
+            (see `Criteria`), or the objectives (metrics whose means they
+            are) and their directions (`"min"` or `"max"`).
     """
 
-    def __init__(
-        self,
-        study: Study,
-        objectives: Mapping[str, str],
-        statistics: Mapping[str, Statistic | str] | None = None,
-        requirements: Sequence[Requirement] = (),
-    ):
-        _check_directions(objectives)
-        self.study, self.objectives = study, dict(objectives)
-        self.requirements = list(requirements)
-        names = list(objectives) + [r.name for r in self.requirements]
-        self.statistics = _get_statistics(names, statistics)
-        _check_names(self.statistics, self.requirements)
+    def __init__(self, study: Study, criteria: Criteria | Mapping[str, str]):
+        self.study, self.criteria = study, _as_criteria(criteria)
+        if self.criteria.by:
+            raise ValueError(
+                "searches need one record per evaluation: give criteria without `by`"
+            )
+        self._statistics = _resolve(self.criteria)
         self.values: dict[str, tuple[float, ...] | None] = {}
         """dict: The objectives of each evaluated design (by key), or `None`
         if it is infeasible."""
@@ -77,6 +95,9 @@ class Evaluations:
         """dict: The share of the replicates of each evaluated design (by
         key) that are infeasible (0 for a feasible design), the violation of
         its feasibility for constraint-aware optimizers."""
+        self.designs: dict[str, Design] = {}
+        """dict: The evaluated designs (by key), in the order of their
+        evaluation."""
         self._records: list[pd.DataFrame] = []
         self._checked = False
 
@@ -115,6 +136,7 @@ class Evaluations:
         """
         Evaluates designs, recording their objectives and violations.
         """
+        self.designs.update((design.key, design) for design in designs)
         records = self.study.run(designs)
         self._records.append(records)
         if records.groupby(["design", "replicate"]).size().max() > 1:
@@ -130,16 +152,15 @@ class Evaluations:
             self.values[key] = self.violations[key] = None
         feasible = records[~records["design"].isin(infeasible)]
         if len(feasible) > 0:
-            metrics = sorted({s.column for s in self.statistics.values()})
-            keys, _, matrices = _get_matrices(feasible, metrics)
-            values, _ = _evaluate(self.statistics, [], matrices)
+            keys, _, matrices = _get_matrices(feasible, self.criteria.metrics)
+            values, _ = _evaluate(self._statistics, [], matrices)
             for i, key in enumerate(keys):
                 self.values[key] = tuple(
-                    float(values[name][i]) for name in self.objectives
+                    float(values[name][i]) for name in self.criteria.objectives
                 )
                 self.violations[key] = tuple(
                     float(requirement.violation(values[requirement.name][i]))
-                    for requirement in self.requirements
+                    for requirement in self.criteria.requirements
                 )
 
     def worst(self) -> list[float]:
@@ -156,30 +177,28 @@ class Evaluations:
             if values is not None and not np.isnan(values).any()
         ]
         if not feasible:
-            return [0.0] * len(self.objectives)
+            return [0.0] * len(self.criteria.objectives)
         table = np.array(feasible)
         return [
             float(table[:, i].max() if direction == "min" else table[:, i].min())
-            for i, direction in enumerate(self.objectives.values())
+            for i, direction in enumerate(self.criteria.objectives.values())
         ]
 
 
 def optimize_optuna(
     study: Study,
-    objectives: Mapping[str, str],
+    criteria: Criteria | Mapping[str, str],
     n_trials: int,
     sampler: Any = None,
     optuna_study: Any = None,
     batch_size: int | None = None,
     constraints: bool = True,
-    statistics: Mapping[str, Statistic | str] | None = None,
-    requirements: Sequence[Requirement] = (),
     max_designs: int | None = None,
-) -> tuple[Any, pd.DataFrame]:
+) -> Search:
     """
     Searches a study's design space with Optuna: each trial suggests a design
-    (see `DesignSpace.suggest`) and is told the means of its objectives over
-    its replicates (or other statistics, see `statistics`).
+    (see `DesignSpace.suggest`) and is told the objectives of the criteria:
+    statistics (such as means) of its metrics over its replicates.
 
     With `constraints`, each trial records the violation of the constraints
     of its design (`trial.set_constraint`, under the name `"feasibility"`):
@@ -192,9 +211,10 @@ def optimize_optuna(
     rank it. Without `constraints` (or with a version of Optuna before 5,
     which lacks `set_constraint`), an infeasible design prunes its trial.
 
-    Each requirement is a constraint of the trials (named by its statement,
-    such as `"sufficient p10 >= 80"`), whose value is its violation (see
-    `Requirement.violation`), and which requires `constraints`.
+    Each requirement of the criteria is a constraint of the trials (named by
+    its statement, such as `"sufficient p10 >= 80"`), whose value is its
+    violation (see `Requirement.violation`), and which requires
+    `constraints`.
 
     Trials are asked in batches, whose designs are evaluated together (in
     parallel, if the study is) before they are told. A batch defaults to one
@@ -212,8 +232,9 @@ def optimize_optuna(
 
     Args:
         study (Study): The study that evaluates designs.
-        objectives (Mapping[str, str]): The objectives: columns of the
-            results and their directions (`"min"` or `"max"`).
+        criteria (Criteria | Mapping[str, str]): The criteria, without `by`
+            (see `Criteria`), or the objectives (metrics whose means they
+            are) and their directions (`"min"` or `"max"`).
         n_trials (int): The number of trials.
         sampler (optuna.samplers.BaseSampler | None): The sampler, or `None`
             for TPE (with a constant liar in batches); ignored with an
@@ -223,14 +244,10 @@ def optimize_optuna(
         batch_size (int | None): The number of trials evaluated together.
         constraints (bool): `True` to record the violations of constraints,
             `False` to prune infeasible trials.
-        statistics (Mapping[str, Statistic | str] | None): Statistics, by
-            name, of objectives and requirements that are not means.
-        requirements (Sequence[Requirement]): Requirements on statistics.
         max_designs (int | None): The most designs to evaluate, if limited.
 
     Returns:
-        tuple[optuna.Study, pandas.DataFrame]: the Optuna study, and the
-            results of every evaluation (see `Study.run`)
+        Search: the results and designs of the search, and the Optuna study
     """
     # pylint: disable=import-outside-toplevel
     try:
@@ -239,10 +256,11 @@ def optimize_optuna(
         raise ImportError(
             "optimize_optuna requires optuna (pip install optuna)"
         ) from error
-    evaluations = Evaluations(study, objectives, statistics, requirements)
+    evaluations = Evaluations(study, criteria)
+    requirements = evaluations.criteria.requirements
     directions = [
         "minimize" if direction == "min" else "maximize"
-        for direction in evaluations.objectives.values()
+        for direction in evaluations.criteria.objectives.values()
     ]
     batch_size = batch_size or study.workers
     if optuna_study is None:
@@ -252,7 +270,7 @@ def optimize_optuna(
     constrained = constraints and hasattr(optuna.trial.Trial, "set_constraint")
     if requirements and not constrained:
         raise ValueError("requirements need constraints (and Optuna 5 or later)")
-    names = [f"{r.name} {r.operator} {r.value}" for r in evaluations.requirements]
+    names = [f"{r.name} {r.operator} {r.value}" for r in requirements]
 
     def set_constraints(trial: Any, feasibility: float, violations) -> None:
         trial.set_constraint("feasibility", feasibility)
@@ -298,15 +316,10 @@ def optimize_optuna(
                 optuna_study.tell(
                     trial, list(np.where(np.isnan(values), evaluations.worst(), values))
                 )
-    return optuna_study, evaluations.results
+    return Search(evaluations.results, list(evaluations.designs.values()), optuna_study)
 
 
-def make_pymoo_problem(
-    study: Study,
-    objectives: Mapping[str, str],
-    statistics: Mapping[str, Statistic | str] | None = None,
-    requirements: Sequence[Requirement] = (),
-) -> Any:
+def make_pymoo_problem(study: Study, criteria: Criteria | Mapping[str, str]) -> Any:
     """
     Makes a pymoo problem of a study's design space: its variables are the
     unit hypercube that encodes the design space (see `DesignSpace.decode`
@@ -314,38 +327,73 @@ def make_pymoo_problem(
     objectives are negated), and its constraint (`G <= 0`) is violated by
     designs that violate a constraint of the design space (by the amount of
     the violation, see `DesignSpace`) or that the study finds infeasible (by
-    the share of their infeasible replicates). Each requirement is a further
-    constraint, whose value is its violation (see `Requirement.violation`).
+    the share of their infeasible replicates). Each requirement of the
+    criteria is a further constraint, whose value is its violation (see
+    `Requirement.violation`).
     The designs of a population are evaluated together.
 
     The problem keeps its evaluations (`evaluations`, see `Evaluations`),
-    whose `results` are those of every evaluation (see `Study.run`).
+    whose `results` are those of every evaluation (see `Study.run`), and an
+    elimination of duplicates by design (`duplicates`, a pymoo
+    `DuplicateElimination` for the `eliminate_duplicates` of an algorithm):
+    many points of the unit hypercube decode to the same design (those in the
+    same level of each variable, or that differ only in the variables of the
+    branches the design does not choose), which pymoo's elimination of equal
+    points does not see. A proposal is a duplicate if it decodes to the same
+    design (by key) as another proposal, a member of the population, or a
+    design evaluated before; proposals that violate a constraint of the
+    design space are not duplicates.
 
     Args:
         study (Study): The study that evaluates designs.
-        objectives (Mapping[str, str]): The objectives: statistics (or
-            metrics) and their directions (`"min"` or `"max"`).
-        statistics (Mapping[str, Statistic | str] | None): Statistics, by
-            name, of objectives and requirements that are not means.
-        requirements (Sequence[Requirement]): Requirements on statistics.
+        criteria (Criteria | Mapping[str, str]): The criteria, without `by`
+            (see `Criteria`), or the objectives (metrics whose means they
+            are) and their directions (`"min"` or `"max"`).
 
     Returns:
         pymoo.core.problem.Problem: the problem
     """
     # pylint: disable=import-outside-toplevel
     try:
+        from pymoo.core.duplicate import DuplicateElimination
         from pymoo.core.problem import Problem
     except ImportError as error:
         raise ImportError(
             "make_pymoo_problem requires pymoo (pip install pymoo)"
         ) from error
 
-    evaluations = Evaluations(study, objectives, statistics, requirements)
-    n_requirements = len(evaluations.requirements)
-    signs = np.array(
-        [1.0 if direction == "min" else -1.0 for direction in objectives.values()]
-    )
+    evaluations = Evaluations(study, criteria)
+    n_requirements = len(evaluations.criteria.requirements)
+    signs = _signs(evaluations.criteria)
     n_var = len(study.space.unit_paths())
+
+    def key_of(individual: Any) -> str | None:
+        """The key of the design of a proposal, or `None` if it violates a
+        constraint of the design space."""
+        try:
+            return study.space.decode(individual.X).key
+        except Infeasible:
+            return None
+
+    class DesignDuplicates(DuplicateElimination):
+        """
+        An elimination of the proposals of designs proposed or evaluated
+        before (see `make_pymoo_problem`).
+        """
+
+        def _do(self, pop: Any, other: Any, is_duplicate: np.ndarray) -> np.ndarray:
+            seen = set(evaluations.designs)
+            if other is not None:
+                seen.update(key for key in map(key_of, other) if key is not None)
+            for i, individual in enumerate(pop):
+                key = key_of(individual)
+                if key is None:
+                    continue
+                if key in seen:
+                    is_duplicate[i] = True
+                else:
+                    seen.add(key)
+            return is_duplicate
 
     class DesignSpaceProblem(Problem):
         """
@@ -361,6 +409,7 @@ def make_pymoo_problem(
                 xu=1.0,
             )
             self.evaluations = evaluations
+            self.duplicates = DesignDuplicates()
 
         def _evaluate(self, x, out, *args, **kwargs):
             designs: list[Design | None] = []
@@ -392,36 +441,63 @@ def make_pymoo_problem(
     return DesignSpaceProblem()
 
 
+def _eliminate_duplicates(algorithm: Any, duplicates: Any) -> None:
+    """
+    Makes a pymoo algorithm eliminate duplicates by design: pymoo's genetic
+    algorithms eliminate duplicates in their initialization and mating.
+    """
+    parts = [
+        algorithm,
+        getattr(algorithm, "initialization", None),
+        getattr(algorithm, "mating", None),
+    ]
+    if any(part is None or not hasattr(part, "eliminate_duplicates") for part in parts):
+        raise ValueError(
+            "distinct searches need an algorithm that eliminates duplicates in its "
+            + "initialization and mating (as pymoo's genetic algorithms do): "
+            + "pass distinct=False for others"
+        )
+    for part in parts:
+        part.eliminate_duplicates = duplicates
+
+
 def optimize_pymoo(
     study: Study,
-    objectives: Mapping[str, str],
+    criteria: Criteria | Mapping[str, str],
     algorithm: Any = None,
     termination: Any = ("n_gen", 10),
     seed: int | None = None,
-    statistics: Mapping[str, Statistic | str] | None = None,
-    requirements: Sequence[Requirement] = (),
+    distinct: bool = True,
     **kwargs: Any,
-) -> tuple[Any, pd.DataFrame]:
+) -> Search:
     """
     Searches a study's design space with a pymoo algorithm (see
-    `make_pymoo_problem`).
+    `make_pymoo_problem`). The algorithm eliminates proposals of designs
+    proposed or evaluated before (its initialization and mating, see
+    `make_pymoo_problem`'s `duplicates`), unless `distinct` is `False`, so
+    that each generation proposes as many new designs as it can: as many
+    generations then evaluate more designs, and find more of the front.
 
     Args:
         study (Study): The study that evaluates designs.
-        objectives (Mapping[str, str]): The objectives: columns of the
-            results and their directions (`"min"` or `"max"`).
+        criteria (Criteria | Mapping[str, str]): The criteria, without `by`
+            (see `Criteria`), or the objectives (metrics whose means they
+            are) and their directions (`"min"` or `"max"`).
         algorithm (pymoo.core.algorithm.Algorithm | None): The algorithm, or
             `None` for NSGA-II with populations of 20.
         termination (Any): The termination criterion of `pymoo.optimize.minimize`.
         seed (int | None): The seed of the algorithm.
-        statistics (Mapping[str, Statistic | str] | None): Statistics, by
-            name, of objectives and requirements that are not means.
-        requirements (Sequence[Requirement]): Requirements on statistics.
+        distinct (bool): `True` to eliminate the proposals of designs proposed
+            or evaluated before, `False` for the algorithm's own elimination
+            of duplicates (of equal points).
         **kwargs (Any): Other arguments of `pymoo.optimize.minimize`.
 
     Returns:
-        tuple[pymoo.core.result.Result, pandas.DataFrame]: the result of the
-            search, and the results of every evaluation (see `Study.run`)
+        Search: the results and designs of the search, and the result of pymoo
+
+    Raises:
+        ValueError: if the search is distinct but the algorithm does not
+            eliminate duplicates as pymoo's genetic algorithms do.
     """
     # pylint: disable=import-outside-toplevel
     from pymoo.optimize import minimize
@@ -430,6 +506,9 @@ def optimize_pymoo(
         from pymoo.algorithms.moo.nsga2 import NSGA2
 
         algorithm = NSGA2(pop_size=20)
-    problem = make_pymoo_problem(study, objectives, statistics, requirements)
+    problem = make_pymoo_problem(study, criteria)
+    if distinct:
+        _eliminate_duplicates(algorithm, problem.duplicates)
     result = minimize(problem, algorithm, termination, seed=seed, **kwargs)
-    return result, problem.evaluations.results
+    evaluations = problem.evaluations
+    return Search(evaluations.results, list(evaluations.designs.values()), result)

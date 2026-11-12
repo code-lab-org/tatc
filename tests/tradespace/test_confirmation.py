@@ -9,6 +9,7 @@ import unittest
 import numpy as np
 
 from tatc.tradespace import (
+    Criteria,
     DesignSpace,
     Integer,
     Probability,
@@ -63,7 +64,7 @@ class TestConfirm(unittest.TestCase):
         self.assertTrue((confirmation.summary.replicates == 20).all())
         # the new replicates follow every replicate of the results
         self.assertEqual(set(confirmation.results.replicate), set(range(3, 23)))
-        optimism = confirmation.optimism(OBJECTIVES)
+        optimism = confirmation.optimism()
         self.assertAlmostEqual(optimism["cost"], 0)
         # the 5 best of 50 designs of 3 replicates look better by about a
         # standard deviation of their means (0.58), which the new ones remove
@@ -88,9 +89,11 @@ class TestConfirm(unittest.TestCase):
             self.study,
             self.selected,
             self.results,
-            OBJECTIVES,
-            statistics={"reliability": Probability("value", ">=", 1.5)},
-            requirements=[Requirement("reliability", ">=", 0.5)],
+            Criteria(
+                OBJECTIVES,
+                statistics={"reliability": Probability("value", ">=", 1.5)},
+                requirements=[Requirement("reliability", ">=", 0.5)],
+            ),
         )
         summary = confirmation.summary
         self.assertIn("reliability selected", summary.columns)

@@ -24,13 +24,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import zlib
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from functools import partial
 from typing import Any
 
 import numpy as np
 
+from .fingerprint import _Describer
 from .nodes import (
     Choice,
     Derived,
@@ -81,7 +83,8 @@ class _Context:
     """
     How a walk of a design space decides its nodes: `choose(path, domain)`
     decides a variable, `draw(path, node)` draws an uncertain parameter (or
-    `None` for nominal values), and `check` enables constraints. If given,
+    `None` for nominal values), `fix(path, node)` gives a fixed value (or
+    `None` for its value), and `check` enables constraints. If given,
     `record(path, domain, value)` is called with every decision, chosen or
     prescribed. With an `odometer` (of an enumeration), the items of
     unordered repetitions are only walked in the order of their levels.
@@ -94,8 +97,10 @@ class _Context:
         check: bool = True,
         record: Callable[[str, _Domain, Any], None] | None = None,
         odometer: _Odometer | None = None,
+        fix: Callable[[str, Fixed], Any] | None = None,
     ):
         self.choose, self.draw, self.check = choose, draw, check
+        self.fix = fix
         self.record, self.odometer = record, odometer
 
     def decide(self, path: str, domain: _Domain, prescribed: Any) -> Any:
@@ -122,6 +127,17 @@ def _join(path: str, name: str) -> str:
     return f"{path}.{name}" if path else name
 
 
+_ITEM_INDEX = re.compile(r"\[\d+\]")
+
+
+def _generic(path: str) -> str:
+    """
+    Gets the path of a node with `[*]` for the index of any item of a
+    repetition (as of `DesignSpace.uncertain_paths`).
+    """
+    return _ITEM_INDEX.sub("[*]", path)
+
+
 def _walk(
     node: Node,
     path: str,
@@ -143,7 +159,7 @@ def _walk(
         value = ctx.decide(path, node.domain(scope), prescribed)
         return value, value
     if isinstance(node, Fixed):
-        return node.value, _ABSENT
+        return (node.value if ctx.fix is None else ctx.fix(path, node)), _ABSENT
     if isinstance(node, Derived):
         return node.function(scope), _ABSENT
     if isinstance(node, Uncertain):
@@ -373,6 +389,9 @@ class Design:
     ):
         self.space, self.decisions, self.replicate = space, decisions, replicate
         self._values = values
+        self._scenario = ""
+        """str: A description of the values of the scenario of a realized
+        design (see `realize`), `""` without one."""
         self.key = hashlib.sha1(_decision_key(decisions).encode()).hexdigest()[:12]
         """str: An identifier of the design, from its decisions only (not
         from its derived values or uncertain parameters)."""
@@ -415,7 +434,14 @@ class Design:
         _flatten(self.space, self._values, "", out)
         return out
 
-    def realize(self, replicate: int, seed: int = 0, common: bool = True) -> Design:
+    def realize(
+        self,
+        replicate: int,
+        seed: int = 0,
+        common: bool = True,
+        shift: Mapping[str, int] | None = None,
+        scenario: Mapping[str, Any] | None = None,
+    ) -> Design:
         """
         Realizes a replicate of the design: draws its uncertain parameters
         (and computes the values derived from them).
@@ -430,25 +456,65 @@ class Design:
         is also seeded by the design's key, so that draws are independent
         between designs.
 
+        A `shift` draws some parameters as in other replicates: a parameter
+        named in it (by its path, with `[*]` for the index of any item of a
+        repetition, see `DesignSpace.uncertain_paths`) is drawn as in
+        replicate `replicate + shift[name]`, and the others as in
+        `replicate`. Such a mixed replicate differs from `replicate` in the
+        named parameters only, which measures their effects on the outcomes
+        of a design (see `attribute_variance`).
+
+        A `scenario` gives fixed values and uncertain parameters other values
+        (by their paths, with `[*]` for the index of any item of a
+        repetition, as of `DesignSpace.uncertain_paths`): a condition under
+        which designs are compared, such as a requirement, rather than
+        averaged over (see `Study`). Values derived from them are derived
+        from the scenario's, and an uncertain parameter that it gives is not
+        drawn.
+
         Args:
             replicate (int): The replicate.
             seed (int): The seed of the trade study.
             common (bool): `True` to use common random numbers between
                 designs.
+            shift (Mapping[str, int] | None): The offsets of the replicates
+                as in which the named uncertain parameters are drawn, if any.
+            scenario (Mapping[str, Any] | None): The values of fixed values
+                and uncertain parameters of a scenario (by path), if any.
 
         Returns:
             Design: the realized design
+
+        Raises:
+            ValueError: if `shift` names a path that is not of an uncertain
+                parameter of the design space, or `scenario` one that is not
+                of a fixed value or an uncertain parameter.
         """
-        stream = [seed, replicate] + ([] if common else [int(self.key, 16)])
+        shift = dict(shift or {})
+        _check_uncertain(self.space, shift)
+        scenario = dict(scenario or {})
+        _check_scenario(self.space, scenario)
+        tail = [] if common else [int(self.key, 16)]
 
         def draw(path: str, node: Uncertain) -> Any:
-            rng = np.random.default_rng(stream + [zlib.crc32(path.encode())])
+            name = _generic(path)
+            if name in scenario:
+                return scenario[name]
+            drawn_in = replicate + int(shift.get(name, 0))
+            rng = np.random.default_rng(
+                [seed, drawn_in, *tail, zlib.crc32(path.encode())]
+            )
             return node.sampler(rng)
 
-        values, _ = _walk(
-            self.space, "", Scope(), _Context(draw=draw, check=False), self.decisions
-        )
-        return Design(self.space, self.decisions, values, replicate)
+        def fix(path: str, node: Fixed) -> Any:
+            return scenario.get(_generic(path), node.value)
+
+        ctx = _Context(draw=draw, check=False, fix=fix if scenario else None)
+        values, _ = _walk(self.space, "", Scope(), ctx, self.decisions)
+        realized = Design(self.space, self.decisions, values, replicate)
+        # pylint: disable-next=protected-access
+        realized._scenario = _describe_scenario(scenario)
+        return realized
 
     def __repr__(self) -> str:
         replicate = "" if self.replicate is None else f", replicate={self.replicate}"
@@ -693,6 +759,20 @@ class DesignSpace(Node):
         """
         return _unit_paths(self, "")
 
+    def uncertain_paths(self) -> list[str]:
+        """
+        Gets the paths of the uncertain parameters of the design space (see
+        `Uncertain`), in the order they are drawn, with `[*]` for the index
+        of any item of a repetition (so that the phases of every plane of a
+        constellation are one path, such as `planes[*].phase`), and with
+        the branches of choices (such as `layout.walker.phase_fraction`),
+        whether a design chooses them or not.
+
+        Returns:
+            list[str]: the paths
+        """
+        return _uncertain_paths(self, "")
+
     def decode(self, unit: Sequence[float]) -> Design:
         """
         Decodes a design from a point of the unit hypercube (a value in
@@ -792,4 +872,100 @@ def _unit_paths(node: Node, path: str) -> list[str]:
         return paths + [
             p for k in range(largest) for p in _unit_paths(node.item, f"{path}[{k}]")
         ]
+    return []
+
+
+def _fixed_paths(node: Node, path: str) -> list[str]:
+    """
+    Gets the paths of the fixed values of a node, with `[*]` for the index of
+    any item of a repetition (as `_uncertain_paths`).
+    """
+    if isinstance(node, Fixed):
+        return [path]
+    if isinstance(node, DesignSpace):
+        return [
+            p
+            for name, child in node.children.items()
+            for p in _fixed_paths(child, _join(path, name))
+        ]
+    if isinstance(node, Choice):
+        return [
+            p
+            for name, branch in node.branches.items()
+            for p in _fixed_paths(branch, _join(path, name))
+        ]
+    if isinstance(node, Repeat):
+        return _fixed_paths(node.item, f"{path}[*]")
+    return []
+
+
+def _check_scenario(space: DesignSpace, values: Mapping[str, Any]) -> None:
+    """
+    Checks that the values of a scenario are of fixed values or uncertain
+    parameters of a design space (by path), raising a `ValueError` if not.
+    """
+    if not values:
+        return
+    known = [*_fixed_paths(space, ""), *space.uncertain_paths()]
+    unknown = sorted(set(values) - set(known))
+    if unknown:
+        raise ValueError(
+            "not fixed values or uncertain parameters of the design space: "
+            + f"{unknown} (it has {known})"
+        )
+
+
+def _describe_scenario(values: Mapping[str, Any]) -> str:
+    """
+    Gets a description of the values of a scenario (`""` without values),
+    which identifies them (by their content, see `get_definition`).
+    """
+    if not values:
+        return ""
+    described = _Describer().describe(dict(values))
+    return json.dumps(described, sort_keys=True, default=str)
+
+
+def _scenario_of(design: Design) -> str:
+    """
+    Gets the description of the values of the scenario of a realized design
+    (see `Design.realize`), `""` without one.
+    """
+    return getattr(design, "_scenario", "")
+
+
+def _check_uncertain(space: DesignSpace, paths: Iterable[str]) -> None:
+    """
+    Checks that paths are of uncertain parameters of a design space (see
+    `DesignSpace.uncertain_paths`), raising a `ValueError` if not.
+    """
+    known = space.uncertain_paths()
+    unknown = sorted(set(paths) - set(known))
+    if unknown:
+        raise ValueError(
+            f"not uncertain parameters of the design space: {unknown} (it has {known})"
+        )
+
+
+def _uncertain_paths(node: Node, path: str) -> list[str]:
+    """
+    Gets the paths of the uncertain parameters of a node (see
+    `DesignSpace.uncertain_paths`).
+    """
+    if isinstance(node, Uncertain):
+        return [path]
+    if isinstance(node, DesignSpace):
+        return [
+            p
+            for name, child in node.children.items()
+            for p in _uncertain_paths(child, _join(path, name))
+        ]
+    if isinstance(node, Choice):
+        return [
+            p
+            for name, branch in node.branches.items()
+            for p in _uncertain_paths(branch, _join(path, name))
+        ]
+    if isinstance(node, Repeat):
+        return _uncertain_paths(node.item, f"{path}[*]")
     return []

@@ -1,6 +1,6 @@
 """
 Adaptive replication: replicates added only to the designs whose Pareto
-efficiency their replicates do not settle.
+efficiency their replicates do not settle, within a budget of evaluations.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -11,9 +11,10 @@ import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
-from .criteria import Requirement, Statistic
+from .criteria import Criteria, _as_criteria, _get_tolerances
 from .pareto import pareto_probability
 from .space import Design
 from .study import Study
@@ -30,45 +31,84 @@ class Refinement:
     those added (see `Study.run`)."""
     probability: pd.DataFrame
     """pandas.DataFrame: The probability that each design is efficient after
-    the last round (see `pareto_probability`)."""
+    the last round (see `pareto_probability`), and whether its efficiency is
+    `uncertain` (by the bounds of `refine`, or with fewer than its least
+    replicates) and, if so, whether it is `indifferent` (its objectives are
+    known to within the precision of their tolerances)."""
     history: pd.DataFrame = field(default_factory=pd.DataFrame)
     """pandas.DataFrame: For each round, the number of designs whose
-    efficiency is uncertain (`uncertain`), the number to which replicates
-    were added (`refined`), and the evaluations added (`evaluations`)."""
+    efficiency is uncertain (`uncertain`), of these, those that are
+    indifferent (`indifferent`), the number to which replicates were added
+    (`refined`), and the evaluations added (`evaluations`)."""
 
     @property
     def uncertain(self) -> pd.DataFrame:
         """pandas.DataFrame: The rows of `probability` whose efficiency is
-        still uncertain (as of the bounds of `refine`, or with fewer than
-        its least replicates)."""
-        return self.probability[self.probability["uncertain"]]
+        still uncertain, and that more replicates would settle (those that are
+        not indifferent)."""
+        probability = self.probability
+        return probability[probability["uncertain"] & ~probability["indifferent"]]
+
+    @property
+    def indifferent(self) -> pd.DataFrame:
+        """pandas.DataFrame: The rows of `probability` whose efficiency is
+        uncertain, but whose objectives are known to within the precision of
+        their tolerances, so that whether they are within the tolerances of
+        the front does not matter."""
+        return self.probability[self.probability["indifferent"]]
+
+
+def _precise(
+    probability: pd.DataFrame, criteria: Criteria, precision: float | None
+) -> np.ndarray:
+    """
+    Gets whether each design's objectives are known to within the precision
+    of their tolerances: the standard error of each objective that varies
+    between replicates is less than `precision` times its tolerance (at the
+    design's value). Designs whose varying objectives lack a tolerance are
+    not precise.
+    """
+    precise = np.zeros(len(probability), dtype=bool)
+    if precision is None or not criteria.tolerance:
+        return precise
+    tolerances = _get_tolerances(criteria.objectives, criteria.tolerance)
+    precise[:] = True
+    for i, name in enumerate(criteria.objectives):
+        error = probability[f"{name} se"].to_numpy(dtype=float)
+        value = np.abs(probability[name].to_numpy(dtype=float))
+        tolerance = tolerances[0, i] + tolerances[1, i] * value
+        varies = np.nan_to_num(error) > 0
+        precise &= ~varies | (error < precision * tolerance)
+    return precise
 
 
 def refine(
     study: Study,
     designs: Sequence[Design],
     results: pd.DataFrame,
-    objectives: Mapping[str, str],
-    statistics: Mapping[str, Statistic | str] | None = None,
-    requirements: Sequence[Requirement] = (),
-    by: Sequence[str] = (),
+    criteria: Criteria | Mapping[str, str],
     bounds: tuple[float, float] = (0.05, 0.95),
     step: int | None = None,
     max_replicates: int | None = None,
     min_replicates: int = 5,
     max_rounds: int = 10,
+    precision: float | None = 0.5,
+    budget: int | None = None,
     n_resamples: int = 500,
     seed: int = 0,
-    tolerance: Mapping[str, float | str] | None = None,
 ) -> Refinement:
     """
-    Adds replicates to the designs whose Pareto efficiency is uncertain,
-    until it is settled: in each round, the probability that each design is
-    efficient (and meets the requirements) is estimated by a bootstrap (see
+    Adds replicates to the designs whose Pareto efficiency (by criteria, see
+    `Criteria`) is uncertain, until it is settled: in each round, the
+    probability that each design is efficient (and meets the requirements)
+    is estimated by a bootstrap (see
     `pareto_probability`), and each design whose probability is strictly
     between the `bounds` gets `step` more replicates, up to
     `max_replicates`. Rounds end when no design is uncertain (or can be
-    refined), or after `max_rounds`.
+    refined), when the `budget` of evaluations is spent, or after
+    `max_rounds`. If a round would spend more than is left of the budget, the
+    designs with the fewest replicates (below `min_replicates`) are refined
+    first, and then those whose probability is nearest 0.5.
 
     A bootstrap of few replicates has few distinct resamples, and can find a
     design surely inefficient (or efficient) by the luck of its replicates:
@@ -83,23 +123,29 @@ def refine(
     saves the evaluations that uniform replication would spend on them.
 
     Designs that differ by less than any number of replicates could
-    separate (such as designs near saturation) stay uncertain: give a
-    `tolerance` of the objectives within which differences do not matter,
-    so that such designs are all efficient (see `pareto_probability`). A
-    warning is given if designs remain uncertain without a tolerance.
+    separate (such as designs near saturation) stay uncertain: give the
+    criteria a tolerance of the objectives within which differences do not
+    matter, so that such designs are all efficient (see
+    `pareto_probability`). A design whose distance from the front is about
+    its tolerance stays uncertain too, and more replicates settle which side
+    of the tolerance it falls on only slowly, though it does not matter: a
+    design is `indifferent`, and not refined, once the standard error of each
+    objective that varies between its replicates (see `pareto_probability`)
+    is less than `precision` times the objective's tolerance (at the
+    design's value), which saves the evaluations that would otherwise go to
+    such designs until `max_replicates`. A design whose varying objectives
+    lack a tolerance is never indifferent. A warning is given if designs
+    remain uncertain (but not indifferent) without a tolerance.
 
     Args:
         study (Study): The study that evaluates designs.
         designs (Sequence[Design]): The designs (those of the results).
         results (pandas.DataFrame): The results of the designs (see
             `Study.run`).
-        objectives (Mapping[str, str]): The objectives: statistics (or
-            metrics) and their directions (`"min"` or `"max"`).
-        statistics (Mapping[str, Statistic | str] | None): Statistics, by
-            name, of objectives and requirements that are not means.
-        requirements (Sequence[Requirement]): Requirements on statistics.
-        by (Sequence[str]): Columns that group records of an evaluation (such
-            as a sensor); a design is uncertain if it is in any group.
+        criteria (Criteria | Mapping[str, str]): The criteria, or the
+            objectives (metrics whose means they are) and their directions
+            (`"min"` or `"max"`). A design is uncertain if it is in any
+            group of the criteria's `by`.
         bounds (tuple[float, float]): The probabilities between which a
             design is uncertain.
         step (int | None): The replicates added to an uncertain design in a
@@ -109,15 +155,19 @@ def refine(
         min_replicates (int): The fewest replicates with which a design's
             efficiency can be settled.
         max_rounds (int): The most rounds.
+        precision (float | None): The standard error of an objective, as a
+            share of its tolerance, below which an uncertain design is
+            indifferent, or `None` to refine uncertain designs until
+            `max_replicates`.
+        budget (int | None): The most evaluations to add (a design in a
+            replicate), if limited.
         n_resamples (int): The number of resamples of each bootstrap.
         seed (int): The seed of the bootstraps.
-        tolerance (Mapping[str, float | str] | None): The tolerances of
-            objectives (by name, zero if not given): values, or percentages of
-            values (such as `"5%"`, see `pareto_front`).
 
     Returns:
         Refinement: the results, the final probabilities, and the history
     """
+    criteria = _as_criteria(criteria)
     low, high = bounds
     if not 0 <= low < high <= 1:
         raise ValueError("bounds must satisfy 0 <= low < high <= 1")
@@ -126,63 +176,94 @@ def refine(
         raise ValueError("step must be at least 1")
     if max_replicates is not None and max_replicates < min_replicates:
         raise ValueError("max_replicates must be at least min_replicates")
+    if precision is not None and precision <= 0:
+        raise ValueError("precision must be positive (or None)")
+    if budget is not None and budget < 0:
+        raise ValueError("budget must not be negative")
     by_key = {design.key: design for design in designs}
     frames = [results]
     history = []
+    spent = 0
 
     def estimate(round_: int) -> pd.DataFrame:
         probability = pareto_probability(
             pd.concat(frames, ignore_index=True),
-            objectives,
-            by=by,
+            criteria,
             n_resamples=n_resamples,
             seed=seed + round_,
-            statistics=statistics,
-            requirements=requirements,
-            tolerance=tolerance,
         )
+        few = probability["replicates"] < min_replicates
         probability["uncertain"] = (
             (probability["pareto_probability"] > low)
             & (probability["pareto_probability"] < high)
-        ) | (probability["replicates"] < min_replicates)
+        ) | few
+        probability["indifferent"] = (
+            probability["uncertain"] & ~few & _precise(probability, criteria, precision)
+        )
         return probability
 
     for round_ in range(max_rounds):
         probability = estimate(round_)
-        uncertain = probability.groupby("design")["uncertain"].any()
-        uncertain = list(uncertain[uncertain].index)
+        grouped = probability.groupby("design")
+        uncertain = grouped["uncertain"].any()
+        # a design is indifferent if it is in every group in which it is uncertain
+        settling = (
+            (probability["uncertain"] & ~probability["indifferent"])
+            .groupby(probability["design"])
+            .any()
+        )
+        indifferent = uncertain & ~settling
         combined = pd.concat(frames, ignore_index=True)
-        # the next replicate of each uncertain design
         following = combined.groupby("design")["replicate"].max() + 1
-        # the replicates added to each uncertain design (fewer at the limit)
-        added_to = {
-            key: (
+        # the designs to refine, the fewest replicates and the least settled first
+        distance = (probability["pareto_probability"] - 0.5).abs()
+        priority = pd.DataFrame(
+            {
+                "few": grouped["replicates"].min() < min_replicates,
+                "distance": distance.groupby(probability["design"]).min(),
+                "replicates": grouped["replicates"].min(),
+            }
+        )
+        candidates = priority[settling.reindex(priority.index, fill_value=False)]
+        candidates = candidates.sort_values(
+            ["few", "distance", "replicates"], ascending=[False, True, True]
+        )
+        left = None if budget is None else budget - spent
+        added_to = {}
+        for key in candidates.index:
+            if key not in by_key:
+                continue
+            count = (
                 step
                 if max_replicates is None
                 else min(step, max_replicates - int(following[key]))
             )
-            for key in uncertain
-            if key in by_key
+            if left is not None:
+                count = min(count, left)
+            if count <= 0:
+                continue
+            added_to[key] = count
+            if left is not None:
+                left -= count
+                if left == 0:
+                    break
+        record = {
+            "round": round_,
+            "uncertain": int(uncertain.sum()),
+            "indifferent": int(indifferent.sum()),
+            "refined": len(added_to),
+            "evaluations": 0,
         }
-        refined = [key for key, count in added_to.items() if count > 0]
-        if not refined:
-            history.append(
-                {
-                    "round": round_,
-                    "uncertain": len(uncertain),
-                    "refined": 0,
-                    "evaluations": 0,
-                }
-            )
+        if not added_to:
+            history.append(record)
             break
-        added = 0
         # designs with the same next replicates are evaluated together
         plan = pd.DataFrame(
             {
-                "start": following[refined].astype(int),
-                "count": [added_to[key] for key in refined],
+                "start": following[list(added_to)].astype(int),
+                "count": list(added_to.values()),
             },
-            index=refined,
+            index=list(added_to),
         )
         for (start, count), keys in plan.groupby(["start", "count"]):
             new = study.run(
@@ -190,23 +271,19 @@ def refine(
                 replicates=range(int(start), int(start) + int(count)),
             )
             frames.append(new)
-            added += new.groupby(["design", "replicate"]).ngroups
-        history.append(
-            {
-                "round": round_,
-                "uncertain": len(uncertain),
-                "refined": len(refined),
-                "evaluations": added,
-            }
-        )
+            record["evaluations"] += new.groupby(["design", "replicate"]).ngroups
+        spent += record["evaluations"]
+        history.append(record)
     else:
         probability = estimate(max_rounds)
-    remaining = probability.loc[probability["uncertain"], "design"].nunique()
-    if remaining > 0 and not tolerance:
+    remaining = probability.loc[
+        probability["uncertain"] & ~probability["indifferent"], "design"
+    ].nunique()
+    if remaining > 0 and not criteria.tolerance:
         warnings.warn(
             f"{remaining} designs remain uncertain: designs that differ by less "
             + "than replicates separate stay uncertain without a tolerance of "
-            + "the objectives (see pareto_front)",
+            + "the objectives (see Criteria)",
             stacklevel=2,
         )
     return Refinement(

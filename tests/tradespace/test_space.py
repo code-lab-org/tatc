@@ -12,6 +12,7 @@ from tatc.tradespace import (
     Choice,
     Derived,
     DesignSpace,
+    Fixed,
     Infeasible,
     Integer,
     Real,
@@ -231,6 +232,72 @@ class TestRealize(unittest.TestCase):
         design = space.enumerate()[0]
         self.assertIsNone(design.epoch)
         self.assertEqual({design.realize(r).epoch for r in range(20)}, {"jan", "jul"})
+
+    def test_scenario(self):
+        """A scenario gives fixed values and uncertain parameters other values."""
+        space = DesignSpace(
+            a=Integer(1, 2),
+            level=Fixed(1.0),
+            double=Derived(lambda d: 2 * d.level),
+            u=Uncertain.uniform(0, 1),
+            v=Uncertain.uniform(0, 1),
+            parts=Repeat(DesignSpace(k=Fixed(1)), count=2),
+        )
+        design = space.enumerate()[0]
+        plain = design.realize(3, seed=5)
+        scenario = {"level": 3.0, "u": 0.25, "parts[*].k": 7}
+        changed = design.realize(3, seed=5, scenario=scenario)
+        self.assertEqual((changed.level, changed.double, changed.u), (3.0, 6.0, 0.25))
+        self.assertEqual([part.k for part in changed.parts], [7, 7])
+        # other parameters are drawn as without the scenario
+        self.assertEqual(changed.v, plain.v)
+        self.assertEqual((plain.level, plain.double), (1.0, 2.0))
+        self.assertEqual(design.realize(3, seed=5, scenario={}).flat(), plain.flat())
+        for values in ({"a": 2}, {"double": 1.0}, {"w": 1}):
+            with self.subTest(values=values):
+                with self.assertRaises(ValueError):
+                    design.realize(3, scenario=values)
+
+    def test_uncertain_paths(self):
+        """Uncertain parameters are listed by path, with [*] for items."""
+        self.assertEqual(_planes_space().uncertain_paths(), ["planes[*].phase"])
+        space = DesignSpace(
+            seed=Uncertain.seed(),
+            layout=Choice(
+                a=DesignSpace(phase=Uncertain.uniform(0, 1)),
+                b=DesignSpace(planes=Repeat(Uncertain.uniform(0, 1), count=2)),
+            ),
+        )
+        self.assertEqual(
+            space.uncertain_paths(), ["seed", "layout.a.phase", "layout.b.planes[*]"]
+        )
+        self.assertEqual(DesignSpace(a=Integer(1, 2)).uncertain_paths(), [])
+
+    def test_shift(self):
+        """A shift draws named parameters as in other replicates."""
+        space = DesignSpace(
+            u=Uncertain.uniform(0, 1),
+            v=Uncertain.uniform(0, 1),
+            planes=Repeat(DesignSpace(phase=Uncertain.uniform(0, 360)), count=2),
+        )
+        design = space.enumerate()[0]
+        mixed = design.realize(3, seed=5, shift={"u": 10, "planes[*].phase": 1})
+        self.assertEqual(mixed.u, design.realize(13, seed=5).u)
+        self.assertEqual(mixed.v, design.realize(3, seed=5).v)
+        self.assertEqual(
+            [p.phase for p in mixed.planes],
+            [p.phase for p in design.realize(4, seed=5).planes],
+        )
+        self.assertEqual(mixed.replicate, 3)
+        self.assertEqual(
+            design.realize(3, shift={"u": 0}).flat(), design.realize(3).flat()
+        )
+        independent = design.realize(3, common=False, shift={"u": 10})
+        self.assertEqual(independent.u, design.realize(13, common=False).u)
+        with self.assertRaises(ValueError):
+            design.realize(3, shift={"w": 1})
+        with self.assertRaises(ValueError):
+            design.realize(3, shift={"planes[0].phase": 1})
 
 
 class TestEnumeration(unittest.TestCase):

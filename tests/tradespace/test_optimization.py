@@ -13,6 +13,7 @@ import pandas as pd
 from tatc.tradespace import (
     Categorical,
     Choice,
+    Criteria,
     DesignSpace,
     Evaluations,
     Infeasible,
@@ -67,7 +68,7 @@ def _build(design):
     if design.layout.choice == "single":
         return {"cost": 2.0 * design.layout.quality, "value": design.layout.quality}
     if any(p.size == 2 and p.satellites == 4 for p in design.layout.planes):
-        raise ValueError("too heavy")
+        raise Infeasible("too heavy")
     cost = sum(p.satellites * p.size + 1 for p in design.layout.planes)
     value = sum(np.sqrt(p.satellites) * p.size for p in design.layout.planes)
     return {"cost": cost, "value": value + design.noise}
@@ -192,12 +193,13 @@ class TestOptuna(unittest.TestCase):
 
         optuna.logging.set_verbosity(optuna.logging.WARNING)
         summary, exact = _exact_hypervolume()
-        optuna_study, results = optimize_optuna(
+        search = optimize_optuna(
             _study(),
             OBJECTIVES,
             n_trials=150,
             sampler=optuna.samplers.NSGAIISampler(seed=1, population_size=20),
         )
+        optuna_study, results = search.state, search.results
         self.assertEqual(len(optuna_study.trials), 150)
         found = summarize(results, list(OBJECTIVES))
         self.assertLessEqual(found.design.nunique(), 150)
@@ -218,13 +220,60 @@ class TestPymoo(unittest.TestCase):
         )  # pylint: disable=import-outside-toplevel
 
         _, exact = _exact_hypervolume()
-        result, results = optimize_pymoo(
-            _study(), OBJECTIVES, termination=("n_gen", 15), seed=1
-        )
+        search = optimize_pymoo(_study(), OBJECTIVES, termination=("n_gen", 15), seed=1)
+        result, results = search.state, search.results
         self.assertEqual(result.F.shape[1], 2)
+        self.assertEqual({d.key for d in search.designs}, set(results.design))
         found = summarize(results, list(OBJECTIVES))
         self.assertGreater(hypervolume(found, OBJECTIVES, REFERENCE), 0.9 * exact)
         self.assertFalse(results.feasible.all())  # some designs were too heavy
+
+    def test_duplicates(self):
+        """Proposals of the same design, or of designs evaluated before, are
+        duplicates; proposals that violate a constraint are not."""
+        from pymoo.core.population import (  # pylint: disable=import-outside-toplevel
+            Population,
+        )
+
+        study = _study()
+        problem = make_pymoo_problem(study, OBJECTIVES)
+        single = study.space.design({"layout": ["single", {"quality": 2}]})
+        x = study.space.encode(single)
+        # the same level of each variable, and other values of the branch not chosen
+        same = x.copy()
+        same[study.space.unit_paths().index("layout.single.quality")] += 0.1
+        other = x.copy()
+        other[study.space.unit_paths().index("layout.planes.planes.count")] = 0.9
+        too_many = study.space.encode(
+            study.space.design(
+                {"layout": ["planes", {"planes": [{"satellites": 4, "size": 0.5}] * 2}]}
+            )
+        )
+        too_many[study.space.unit_paths().index("layout.planes.planes.count")] = 0.99
+        for k in range(3):
+            too_many[
+                study.space.unit_paths().index(f"layout.planes.planes[{k}].satellites")
+            ] = 0.99
+        with self.assertRaises(Infeasible):
+            study.space.decode(too_many)
+        pop = Population.new("X", np.array([x, same, other, too_many, too_many]))
+        kept = problem.duplicates.do(pop)
+        self.assertEqual(len(kept), 3)  # one of the same design, and both infeasible
+        # designs evaluated before are duplicates
+        problem.evaluations.evaluate([single])
+        self.assertEqual(len(problem.duplicates.do(pop)), 2)
+
+    def test_distinct(self):
+        """Distinct searches evaluate more designs in as many generations."""
+        distinct = optimize_pymoo(
+            _study(), OBJECTIVES, termination=("n_gen", 5), seed=1
+        )
+        plain = optimize_pymoo(
+            _study(), OBJECTIVES, termination=("n_gen", 5), seed=1, distinct=False
+        )
+        self.assertGreater(len(distinct.designs), len(plain.designs))
+        with self.assertRaises(ValueError):
+            optimize_pymoo(_study(), OBJECTIVES, algorithm=object(), seed=1)
 
 
 @unittest.skipUnless(HAS_OPTUNA, "requires optuna")
@@ -241,12 +290,12 @@ class TestOptunaConstraints(unittest.TestCase):
 
     def test_violations(self):
         """Trials record the violations of their designs' constraints."""
-        optuna_study, _ = optimize_optuna(
+        optuna_study = optimize_optuna(
             _study(),
             OBJECTIVES,
             n_trials=80,
             sampler=self.optuna.samplers.RandomSampler(seed=3),
-        )
+        ).state
         states = {trial.state for trial in optuna_study.trials}
         self.assertEqual(states, {self.optuna.trial.TrialState.COMPLETE})
         violations = [trial.constraints["feasibility"] for trial in optuna_study.trials]
@@ -264,13 +313,13 @@ class TestOptunaConstraints(unittest.TestCase):
 
     def test_pruning(self):
         """Without constraints, infeasible trials are pruned."""
-        optuna_study, _ = optimize_optuna(
+        optuna_study = optimize_optuna(
             _study(),
             OBJECTIVES,
             n_trials=60,
             sampler=self.optuna.samplers.RandomSampler(seed=3),
             constraints=False,
-        )
+        ).state
         states = {trial.state for trial in optuna_study.trials}
         self.assertIn(self.optuna.trial.TrialState.PRUNED, states)
         self.assertTrue(all(not trial.constraints for trial in optuna_study.trials))
@@ -315,62 +364,50 @@ class TestRequirements(unittest.TestCase):
     Unit tests for requirements in searches.
     """
 
-    REQUIREMENTS = [Requirement("value p0", ">=", 2)]
-    STATISTICS = {"value p0": Minimum("value")}
+    CRITERIA = Criteria(
+        OBJECTIVES,
+        statistics={"value p0": Minimum("value")},
+        requirements=[Requirement("value p0", ">=", 2)],
+    )
 
     def test_evaluations(self):
         """Evaluations give the violations of requirements on statistics."""
-        evaluations = Evaluations(
-            _study(), OBJECTIVES, self.STATISTICS, self.REQUIREMENTS
-        )
+        evaluations = Evaluations(_study(), self.CRITERIA)
         designs = [d for d in _space().enumerate() if d.layout.choice == "single"]
         values = evaluations.evaluate(designs)
         for design, value in zip(designs, values):
             violation = evaluations.violations[design.key][0]
-            # the least value over replicates is the quality less the noise
-            self.assertAlmostEqual(violation, max(2 - value[1], 0), delta=0.02)
+            # the least value over replicates is the quality less the noise,
+            # and violations are relative to the required value
+            self.assertAlmostEqual(violation, max(2 - value[1], 0) / 2, delta=0.01)
+        with self.assertRaises(ValueError):
+            Evaluations(_study(), Criteria(OBJECTIVES, by="sensor"))
 
     def test_optuna(self):
         """Trials record the violation of each requirement."""
         import optuna  # pylint: disable=import-outside-toplevel
 
         optuna.logging.set_verbosity(optuna.logging.WARNING)
-        optuna_study, _ = optimize_optuna(
+        optuna_study = optimize_optuna(
             _study(),
-            OBJECTIVES,
+            self.CRITERIA,
             n_trials=40,
             sampler=optuna.samplers.RandomSampler(seed=1),
-            statistics=self.STATISTICS,
-            requirements=self.REQUIREMENTS,
-        )
+        ).state
         keys = {tuple(sorted(trial.constraints)) for trial in optuna_study.trials}
         self.assertEqual(keys, {("feasibility", "value p0 >= 2")})
         violations = [t.constraints["value p0 >= 2"] for t in optuna_study.trials]
         self.assertTrue(any(v > 0 for v in violations))
         with self.assertRaises(ValueError):
-            optimize_optuna(
-                _study(),
-                OBJECTIVES,
-                n_trials=1,
-                constraints=False,
-                requirements=self.REQUIREMENTS,
-                statistics=self.STATISTICS,
-            )
+            optimize_optuna(_study(), self.CRITERIA, n_trials=1, constraints=False)
 
     def test_pymoo(self):
         """Problems have a constraint for each requirement."""
-        problem = make_pymoo_problem(
-            _study(), OBJECTIVES, self.STATISTICS, self.REQUIREMENTS
-        )
+        problem = make_pymoo_problem(_study(), self.CRITERIA)
         self.assertEqual(problem.n_ieq_constr, 2)
-        result, _ = optimize_pymoo(
-            _study(),
-            OBJECTIVES,
-            termination=("n_gen", 3),
-            seed=1,
-            statistics=self.STATISTICS,
-            requirements=self.REQUIREMENTS,
-        )
+        result = optimize_pymoo(
+            _study(), self.CRITERIA, termination=("n_gen", 3), seed=1
+        ).state
         self.assertEqual(result.pop.get("G").shape[1], 2)
 
 
@@ -389,20 +426,21 @@ class TestOptunaSearch(unittest.TestCase):
             option=Categorical(lambda d: ["x", "y"] if d.kind == "a" else ["z"]),
         )
         study = Study(space, lambda d: d, lambda d: {"f": float(d.option == "x")})
-        optuna_study, results = optimize_optuna(
+        search = optimize_optuna(
             study,
             {"f": "max"},
             n_trials=20,
             sampler=optuna.samplers.RandomSampler(seed=1),
         )
+        optuna_study, results = search.state, search.results
         self.assertEqual(set(results.option), {"x", "y", "z"})
         self.assertEqual(optuna_study.best_value, 1.0)
 
     def test_default_sampler(self):
         """The default sampler lies about pending trials in batches."""
         study = Study(DesignSpace(x=Integer(0, 9)), lambda d: d, lambda d: {"f": d.x})
-        batched, _ = optimize_optuna(study, {"f": "min"}, n_trials=4, batch_size=2)
-        single, _ = optimize_optuna(study, {"f": "min"}, n_trials=2, batch_size=1)
+        batched = optimize_optuna(study, {"f": "min"}, n_trials=4, batch_size=2).state
+        single = optimize_optuna(study, {"f": "min"}, n_trials=2, batch_size=1).state
         # pylint: disable=protected-access
         self.assertTrue(batched.sampler._constant_liar)
         self.assertFalse(single.sampler._constant_liar)
@@ -410,10 +448,16 @@ class TestOptunaSearch(unittest.TestCase):
     def test_max_designs(self):
         """The search stops once it has evaluated the most designs."""
         study = Study(DesignSpace(x=Integer(0, 2)), lambda d: d, lambda d: {"f": d.x})
-        optuna_study, results = optimize_optuna(
+        search = optimize_optuna(
             study, {"f": "min"}, n_trials=50, max_designs=2, batch_size=1
         )
+        optuna_study, results = search.state, search.results
         self.assertEqual(results.design.nunique(), 2)
+        # the designs of the search, in the order of their evaluation
+        self.assertEqual(
+            [design.key for design in search.designs],
+            results.design.drop_duplicates().tolist(),
+        )
         self.assertLessEqual(len(optuna_study.trials), 50)
 
     def test_partially_infeasible(self):
@@ -422,7 +466,7 @@ class TestOptunaSearch(unittest.TestCase):
 
         def build(d):
             if d.x == 1 and d.noise < 0.5:
-                raise ValueError("unlucky")
+                raise Infeasible("unlucky")
             return d
 
         study = Study(space, build, lambda d: {"f": d.x}, replicates=8)
@@ -433,7 +477,7 @@ class TestOptunaSearch(unittest.TestCase):
         share = evaluations.infeasibility[space.enumerate()[1].key]
         self.assertGreater(share, 0)
         self.assertLess(share, 1)
-        optuna_study, _ = optimize_optuna(study, {"f": "max"}, n_trials=6)
+        optuna_study = optimize_optuna(study, {"f": "max"}, n_trials=6).state
         for trial in optuna_study.trials:
             if trial.params.get("x") == 1:
                 self.assertAlmostEqual(trial.constraints["feasibility"], share)
