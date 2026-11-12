@@ -7,7 +7,7 @@ Design Spaces
 -------------
 
 .. autoclass:: tatc.tradespace.DesignSpace
-   :members: enumerate, size, sample, design, suggest, unit_paths, encode, decode
+   :members: enumerate, size, sample, design, suggest, unit_paths, uncertain_paths, encode, decode
 
 .. autoclass:: tatc.tradespace.Variable
    :members: domain
@@ -67,6 +67,23 @@ Constellations
 
 .. autofunction:: tatc.tradespace.count_planes
 
+.. autofunction:: tatc.tradespace.plane_sizes
+
+.. autoclass:: tatc.tradespace.Layout
+   :members: planes, orbits, names, satellites, build
+
+.. autoclass:: tatc.tradespace.Plane
+
+.. autofunction:: tatc.tradespace.layout_of
+
+.. autoclass:: tatc.tradespace.constellations.WalkerLayout
+
+.. autoclass:: tatc.tradespace.constellations.SSOPlanesLayout
+
+.. autoclass:: tatc.tradespace.constellations.PlanesLayout
+
+.. autoclass:: tatc.tradespace.constellations.Layouts
+
 .. autofunction:: tatc.tradespace.hours_to_time
 
 .. autofunction:: tatc.tradespace.remove_failures
@@ -86,6 +103,10 @@ Deployment
 .. autoclass:: tatc.tradespace.Launch
 
 .. autoclass:: tatc.tradespace.Production
+
+.. autoclass:: tatc.tradespace.Stage
+
+.. autoclass:: tatc.tradespace.Decision
 
 Failures and Missions
 ---------------------
@@ -155,30 +176,55 @@ Costs
 .. autoclass:: tatc.tradespace.CostEstimate
    :members: total, present_value, annual, metrics
 
-.. autofunction:: tatc.tradespace.plane_sizes
-
 Trade Studies
 -------------
 
 .. autoclass:: tatc.tradespace.Study
-   :members: run, workers, fingerprint
+   :members: run, workers, definition, fingerprint
 
-.. autofunction:: tatc.tradespace.summarize
+Observation Studies
+-------------------
 
-Statistics and Requirements
----------------------------
+.. automodule:: tatc.tradespace.observations
+   :no-members:
+
+.. autoclass:: tatc.tradespace.ObservationStudy
+   :members: satellites_of, targets_of, observations_of
+
+.. autoclass:: tatc.tradespace.Targets
+   :members: of, seed_of
+
+.. autoclass:: tatc.tradespace.Observations
+   :members: end, start_of, end_of, cache_of, context_of, __call__
+
+.. autoclass:: tatc.tradespace.MissionPlan
+   :members: growth_of, stages_of
+
+.. autoclass:: tatc.tradespace.Failures
+
+.. autofunction:: tatc.tradespace.value_of
+
+Criteria, Statistics, and Requirements
+--------------------------------------
 
 .. automodule:: tatc.tradespace.criteria
    :no-members:
 
+.. autoclass:: tatc.tradespace.Criteria
+   :members: names, metrics, statistic
+
 .. autofunction:: tatc.tradespace.aggregate
 
+.. autofunction:: tatc.tradespace.summarize
+
 .. autoclass:: tatc.tradespace.Statistic
-   :members: reduce
+   :members: reduce, columns, values_of
 
 .. autoclass:: tatc.tradespace.Mean
 
 .. autoclass:: tatc.tradespace.StandardDeviation
+
+.. autoclass:: tatc.tradespace.StandardError
 
 .. autoclass:: tatc.tradespace.Minimum
 
@@ -191,15 +237,38 @@ Statistics and Requirements
 .. autoclass:: tatc.tradespace.Requirement
    :members: violation
 
+Utility
+-------
+
+.. automodule:: tatc.tradespace.utility
+   :no-members:
+
+.. autoclass:: tatc.tradespace.Utility
+   :members: columns, scaling, evaluate, __call__
+
+.. autoclass:: tatc.tradespace.LinearUtility
+
+.. autoclass:: tatc.tradespace.ExponentialUtility
+
+.. autoclass:: tatc.tradespace.PiecewiseUtility
+
 Stores of Results
 -----------------
 
 .. autoclass:: tatc.tradespace.ResultStore
-   :members: get, put, contexts, clear
+   :members: get, put, define, definition, contexts, prune, clear
+
+Fingerprints
+------------
+
+.. automodule:: tatc.tradespace.fingerprint
+   :no-members:
 
 .. autofunction:: tatc.tradespace.get_fingerprint
 
-.. autofunction:: tatc.tradespace.get_source_hash
+.. autofunction:: tatc.tradespace.get_definition
+
+.. autofunction:: tatc.tradespace.compare_definitions
 
 Caches
 ------
@@ -208,7 +277,7 @@ Caches
    :no-members:
 
 .. autoclass:: tatc.tradespace.SatelliteCache
-   :members: get, clear, __call__
+   :members: get, prune, clear, __call__
 
 .. autofunction:: tatc.tradespace.get_satellite_key
 
@@ -221,6 +290,8 @@ Pareto Efficiency
 
 .. autofunction:: tatc.tradespace.hypervolume
 
+.. autofunction:: tatc.tradespace.hypervolume_progress
+
 .. autofunction:: tatc.tradespace.pareto_probability
 
 Adaptive Replication
@@ -229,7 +300,7 @@ Adaptive Replication
 .. autofunction:: tatc.tradespace.refine
 
 .. autoclass:: tatc.tradespace.Refinement
-   :members: uncertain
+   :members: uncertain, indifferent
 
 Confirmation
 ------------
@@ -245,6 +316,25 @@ Sensitivity
 .. autofunction:: tatc.tradespace.sensitivity
 
 .. autofunction:: tatc.tradespace.main_effects
+
+Scenarios
+---------
+
+.. automodule:: tatc.tradespace.scenarios
+   :no-members:
+
+.. autofunction:: tatc.tradespace.robustness
+
+Attribution of Variance
+-----------------------
+
+.. automodule:: tatc.tradespace.attribution
+   :no-members:
+
+.. autofunction:: tatc.tradespace.attribute_variance
+
+.. autoclass:: tatc.tradespace.Attribution
+   :members: summary, differences
 
 Screening
 ---------
@@ -266,5 +356,21 @@ Optimizers
 
 .. autofunction:: tatc.tradespace.make_pymoo_problem
 
+.. autoclass:: tatc.tradespace.Search
+
 .. autoclass:: tatc.tradespace.Evaluations
-   :members: evaluate, results, worst
+   :members: evaluate, results, worst, designs
+
+Plots
+-----
+
+.. automodule:: tatc.tradespace.plotting
+   :no-members:
+
+.. autofunction:: tatc.tradespace.plot_designs
+
+.. autofunction:: tatc.tradespace.plot_progress
+
+.. autofunction:: tatc.tradespace.plot_means
+
+.. autofunction:: tatc.tradespace.style_axes
