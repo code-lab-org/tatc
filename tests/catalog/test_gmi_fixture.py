@@ -21,9 +21,24 @@ from tatc.catalog import get_entry, get_gates
 from tatc.catalog.metrics import summarize
 from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
 
+from .common import recorded_earth_orientation
+
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "gmi.npz"
 MAX_FIXTURE_BYTES = 200e3
 SCAN_PERIOD = 1.875
+
+
+_EARTH_ORIENTATION = recorded_earth_orientation()
+
+
+def setUpModule():  # pylint: disable=invalid-name
+    """Computes with the UT1 table the catalog records were made with."""
+    _EARTH_ORIENTATION.start()
+
+
+def tearDownModule():  # pylint: disable=invalid-name
+    """Restores the installed skyfield's UT1 table."""
+    _EARTH_ORIENTATION.stop()
 
 
 class TestGmiFixture(unittest.TestCase):

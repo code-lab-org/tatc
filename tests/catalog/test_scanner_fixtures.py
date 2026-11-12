@@ -32,11 +32,26 @@ from tatc.catalog.metrics import summarize
 from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
 from tatc.utils import VelocityFrame, compute_projected_ray_position
 
+from .common import recorded_earth_orientation
+
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 MAX_FIXTURE_BYTES = 200e3
 TO_ECEF = Transformer.from_crs("EPSG:4979", "EPSG:4978", always_xy=True)
 PUBLISHED_EPOCH = datetime(2026, 10, 1, tzinfo=timezone.utc)
 SIZE_TOLERANCE = 0.03
+
+
+_EARTH_ORIENTATION = recorded_earth_orientation()
+
+
+def setUpModule():  # pylint: disable=invalid-name
+    """Computes with the UT1 table the catalog records were made with."""
+    _EARTH_ORIENTATION.start()
+
+
+def tearDownModule():  # pylint: disable=invalid-name
+    """Restores the installed skyfield's UT1 table."""
+    _EARTH_ORIENTATION.stop()
 
 
 def _ecef(lon, lat) -> np.ndarray:

@@ -45,6 +45,7 @@ underlying data, whose providers' terms apply.
 | `tempo.npz` | Grid points near and away from the edges of the area imaged by a full scan of the TEMPO Level 1 radiance product (`TEMPO_RAD_L1`, version V04), 8 November 2026, with whether each was imaged | [NASA Langley ASDC](https://asdc.larc.nasa.gov/project/TEMPO) | `docs/validation/validate_catalog_tempo.py` |
 | `emit.npz` | Pixel positions and line times of the EMIT Level 1B observation geometry (`EMITL1BRAD`, version 002), 8 November 2026 | [NASA LP DAAC](https://lpdaac.usgs.gov/products/emitl1bradv002/) | `docs/validation/validate_catalog_emit.py` |
 | `gedi.npz` | Shot positions and times of the GEDI Level 1B geolocated waveform product (`GEDI01_B`, version 003), 8 June 2026 | [NASA LP DAAC](https://lpdaac.usgs.gov/products/gedi01_bv003/) | `docs/validation/validate_catalog_gedi.py` |
+| `earth_orientation.npz` | The daily delta T (TT − UT1) table bundled with skyfield 1.55 (`skyfield/data/iers.npz`, without its leap seconds), derived from the IERS Earth orientation data and ending on 23 January 2027. The fixture tests compute with it, as the catalog records were made with it. | [Skyfield](https://rhodesmill.org/skyfield/) (MIT license), from the [IERS](https://www.iers.org/) | Copied once from skyfield 1.55 (see `tests/catalog/common.py`) |
 
-Each fixture also holds two-line element sets, used to propagate the satellite's
+Each instrument fixture also holds two-line element sets, used to propagate the satellite's
 orbit.

@@ -21,9 +21,24 @@ from tatc.analysis import collect_observations
 from tatc.catalog import get_entry
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 
+from .common import recorded_earth_orientation
+
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "tempo.npz"
 MAX_FIXTURE_BYTES = 200e3
 CHECKED = 40
+
+
+_EARTH_ORIENTATION = recorded_earth_orientation()
+
+
+def setUpModule():  # pylint: disable=invalid-name
+    """Computes with the UT1 table the catalog records were made with."""
+    _EARTH_ORIENTATION.start()
+
+
+def tearDownModule():  # pylint: disable=invalid-name
+    """Restores the installed skyfield's UT1 table."""
+    _EARTH_ORIENTATION.stop()
 
 
 class TestTempoFixture(unittest.TestCase):
