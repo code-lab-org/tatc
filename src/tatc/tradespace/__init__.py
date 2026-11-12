@@ -116,8 +116,17 @@ from .values import (
     Values,
     configure,
 )
+from .attribution import Attribution, attribute_variance
+from .scenarios import robustness
+from .utility import (
+    ExponentialUtility,
+    LinearUtility,
+    PiecewiseUtility,
+    Utility,
+)
 
 __all__ = [
+    "Attribution",
     "Bathtub",
     "Categorical",
     "Choice",
@@ -133,6 +142,7 @@ __all__ = [
     "DesignSpace",
     "Evaluations",
     "Exponential",
+    "ExponentialUtility",
     "FailureModel",
     "Fixed",
     "Infeasible",
@@ -140,6 +150,7 @@ __all__ = [
     "Launch",
     "LaunchCost",
     "Lifetime",
+    "LinearUtility",
     "Maximum",
     "Mean",
     "Minimum",
@@ -148,6 +159,7 @@ __all__ = [
     "Phase",
     "PhaseCache",
     "Piecewise",
+    "PiecewiseUtility",
     "Probability",
     "Production",
     "Quantile",
@@ -168,11 +180,13 @@ __all__ = [
     "Statistic",
     "Study",
     "Uncertain",
+    "Utility",
     "Values",
     "Variable",
     "Weibull",
     "aggregate",
     "allocate_histories",
+    "attribute_variance",
     "build_constellation",
     "compare_definitions",
     "configure",
@@ -200,6 +214,7 @@ __all__ = [
     "policy_space",
     "refine",
     "remove_failures",
+    "robustness",
     "screen",
     "sensitivity",
     "sso_planes_space",
