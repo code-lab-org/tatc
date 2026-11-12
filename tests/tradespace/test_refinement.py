@@ -54,13 +54,32 @@ class TestRefine(unittest.TestCase):
         self.designs = self.study.space.enumerate()
         self.results = self.study.run(self.designs)
 
+    def test_designs_of_results(self):
+        """Without designs, every design of the results may be refined; designs
+        may also be given by their keys."""
+        given = refine(self.study, OBJECTIVES, self.results, self.designs)
+        rebuilt = refine(self.study, OBJECTIVES, self.results)
+        pd.testing.assert_frame_equal(
+            given.results.drop(columns="seconds"),
+            rebuilt.results.drop(columns="seconds"),
+        )
+        self.assertEqual(
+            [d.key for d in rebuilt.designs], [d.key for d in self.designs]
+        )
+        keys = [d.key for d in self.designs[:4]]
+        some = refine(self.study, OBJECTIVES, self.results, keys)
+        added = some.results.iloc[len(self.results) :]
+        self.assertTrue(set(added.design) <= set(keys))
+        self.assertIn("pareto_probability", some.summary.columns)
+        self.assertIn("variant", some.summary.columns)  # the values of designs
+
     def test_refines_uncertain_designs(self):
         """Replicates are added only to uncertain designs, which become fewer."""
         refinement = refine(
             self.study,
-            self.designs,
-            self.results,
             OBJECTIVES,
+            self.results,
+            self.designs,
             step=5,
             max_rounds=6,
             n_resamples=200,
@@ -84,7 +103,7 @@ class TestRefine(unittest.TestCase):
     def test_replicates_continue(self):
         """Added replicates follow each design's own."""
         refinement = refine(
-            self.study, self.designs, self.results, OBJECTIVES, step=2, max_rounds=1
+            self.study, OBJECTIVES, self.results, self.designs, step=2, max_rounds=1
         )
         added = refinement.results.iloc[len(self.results) :]
         self.assertTrue(set(added.replicate) <= {5, 6})
@@ -94,9 +113,9 @@ class TestRefine(unittest.TestCase):
         """Refinement stops at the most replicates of a design."""
         refinement = refine(
             self.study,
-            self.designs,
-            self.results,
             OBJECTIVES,
+            self.results,
+            self.designs,
             step=3,
             max_replicates=8,
             max_rounds=5,
@@ -107,22 +126,22 @@ class TestRefine(unittest.TestCase):
         self.assertEqual(refinement.history.refined.iloc[-1], 0)
         with self.assertRaises(ValueError):
             refine(
-                self.study, self.designs, self.results, OBJECTIVES, bounds=(0.9, 0.1)
+                self.study, OBJECTIVES, self.results, self.designs, bounds=(0.9, 0.1)
             )
 
     def test_statistics(self):
         """Refinement uses the statistics of the objectives."""
         refinement = refine(
             self.study,
-            self.designs,
-            self.results,
             Criteria(
                 {"cost": "min", "value p25": "max"},
                 statistics={"value p25": Quantile("value", 0.25)},
             ),
+            self.results,
+            self.designs,
             max_rounds=1,
         )
-        self.assertIn("value p25", refinement.probability.columns)
+        self.assertIn("value p25", refinement.summary.columns)
 
     def test_tolerance(self):
         """A tolerance settles designs that are within it of the front."""
@@ -135,9 +154,9 @@ class TestRefine(unittest.TestCase):
             (strict.pareto_probability >= 0.95).sum(),
         )
         refinement = refine(
-            self.study, self.designs, self.results, criteria, max_rounds=1
+            self.study, criteria, self.results, self.designs, max_rounds=1
         )
-        settled = refinement.probability.pareto_probability >= 0.95
+        settled = refinement.summary.pareto_probability >= 0.95
         self.assertGreaterEqual(
             settled.sum(), (tolerant.pareto_probability >= 0.95).sum()
         )
@@ -163,12 +182,12 @@ class TestRefine(unittest.TestCase):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             refinement = refine(
-                study, designs, results, objectives, step=3, max_rounds=1
+                study, objectives, results, designs, step=3, max_rounds=1
             )
         replicates = refinement.results.groupby("design").replicate.nunique()
         self.assertTrue((replicates >= 5).all())
         with self.assertRaises(ValueError):
-            refine(study, designs, results, objectives, max_replicates=3)
+            refine(study, objectives, results, designs, max_replicates=3)
 
     def test_partial_step(self):
         """The last step of a design adds the replicates left to its limit."""
@@ -176,9 +195,9 @@ class TestRefine(unittest.TestCase):
             warnings.simplefilter("ignore")
             refinement = refine(
                 self.study,
-                self.designs,
-                self.results,
                 OBJECTIVES,
+                self.results,
+                self.designs,
                 step=4,
                 max_replicates=7,
                 max_rounds=3,
@@ -190,7 +209,7 @@ class TestRefine(unittest.TestCase):
     def test_warns_without_tolerance(self):
         """Designs that remain uncertain without a tolerance give a warning."""
         with self.assertWarns(UserWarning):
-            refine(self.study, self.designs, self.results, OBJECTIVES, max_rounds=1)
+            refine(self.study, OBJECTIVES, self.results, self.designs, max_rounds=1)
 
     def test_precision(self):
         """A design about a tolerance from the front stops once precise enough."""
@@ -211,9 +230,9 @@ class TestRefine(unittest.TestCase):
         def refined(precision):
             refinement = refine(
                 study,
-                designs,
-                results,
                 criteria,
+                results,
+                designs,
                 step=5,
                 max_replicates=40,
                 precision=precision,
@@ -231,17 +250,17 @@ class TestRefine(unittest.TestCase):
         self.assertEqual(len(refinement.uncertain), 0)
         self.assertEqual(refinement.history.indifferent.iloc[-1], 1)
         with self.assertRaises(ValueError):
-            refine(study, designs, results, criteria, precision=0)
+            refine(study, criteria, results, designs, precision=0)
 
     def test_budget(self):
         """A budget limits the evaluations, refining the least settled designs first."""
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             refinement = refine(
-                self.study, self.designs, self.results, OBJECTIVES, step=5, budget=12
+                self.study, OBJECTIVES, self.results, self.designs, step=5, budget=12
             )
             nothing = refine(
-                self.study, self.designs, self.results, OBJECTIVES, budget=0
+                self.study, OBJECTIVES, self.results, self.designs, budget=0
             )
         self.assertEqual(refinement.history.evaluations.sum(), 12)
         replicates = refinement.results.groupby("design").replicate.nunique()

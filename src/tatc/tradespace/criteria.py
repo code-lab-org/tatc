@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import operator as op
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -441,7 +441,16 @@ class Criteria:
     `Statistic`), the tolerances of the objectives within which differences
     do not matter, and the columns that group the records of an evaluation
     (such as a sensor), in each group of which designs are judged
-    separately.
+    separately::
+
+        criteria = Criteria(
+            {"cost p70": "min", "coverage": "max"},
+            statistics={"cost p70": Quantile("cost", 0.7)},
+            requirements=[Requirement("cost p70", "<=", 150)],
+            tolerance={"coverage": 1.0},
+        )
+        summary = aggregate(results, criteria)
+        front = summary[pareto_front(summary, criteria)]
 
     Objectives and requirements name statistics: those of `statistics`, or
     otherwise the means of the metrics of their names. A design is
@@ -609,6 +618,27 @@ def _groups(frame: pd.DataFrame, by: Sequence[str]) -> Iterator[tuple[tuple, Any
         raise ValueError(f"no columns {missing} to group by")
     for key, positions in frame.groupby(list(by), sort=False).indices.items():
         yield (key if isinstance(key, tuple) else (key,)), positions
+
+
+def _check_summary(summary: pd.DataFrame, by: Sequence[str] = ()) -> None:
+    """
+    Checks that a data frame is a summary of designs (a row per design, in
+    each group of the columns `by`), not the results of a study (a row per
+    replicate), which the functions of summaries would judge as if each
+    replicate were a design.
+    """
+    if "design" in summary.columns:
+        keys = summary[["design", *(c for c in by if c in summary.columns)]]
+    elif summary.index.name == "design" and not by:
+        keys = summary.index.to_frame()
+    else:
+        return
+    if keys.duplicated().any():
+        raise ValueError(
+            "the data frame has several rows of a design: summarize the results "
+            + "of a study (a row per replicate) first, with a row per design (see "
+            + "aggregate), or judge designs in groups (see Criteria's `by`)"
+        )
 
 
 def _get_matrices(
@@ -836,25 +866,128 @@ def _design_columns(results: pd.DataFrame, excluded: set[str]) -> list[str]:
     return [column for column in candidates if (constant[column] <= 1).all()]
 
 
+def _value_columns(
+    feasible: pd.DataFrame,
+    statistics: Mapping[str, Statistic],
+    by: Sequence[str],
+    across: Across | None,
+    design_columns: Sequence[str] | None,
+) -> list[str]:
+    """
+    Gets the columns of the values of designs that a summary keeps: those
+    given, or those that are the same in every record of each design (but
+    the metrics of the statistics, the columns of groups, and status
+    columns).
+    """
+    combined = [] if across is None else [across.column]
+    if design_columns is None:
+        metrics = {
+            column for statistic in statistics.values() for column in statistic.columns
+        }
+        design_columns = _design_columns(
+            feasible, {*_STATUS_COLUMNS, *metrics, *by, *combined}
+        )
+    return [
+        c for c in design_columns if c not in statistics and c not in (*by, *combined)
+    ]
+
+
+def _with_values(
+    frame: pd.DataFrame, group: pd.DataFrame, designs: Any, columns: Sequence[str]
+) -> None:
+    """
+    Adds the values of designs (columns of the first record of each design of
+    a group of results) to the rows of a summary of the designs.
+    """
+    first = group.drop_duplicates("design").set_index("design")
+    for column in columns:
+        frame[column] = first.loc[designs, column].to_numpy()
+
+
+def _criteria_of(
+    criteria: Criteria | Mapping[str, str] | Sequence[str] | str,
+    statistics: Mapping[str, Statistic | str] | None,
+    by: Sequence[str] | str,
+) -> tuple[Criteria | None, dict[str, Statistic], tuple[str, ...]]:
+    """
+    Gets the criteria (if any) of the arguments of `aggregate`, the
+    statistics to compute (by name), and the columns that group records.
+    """
+    by = (by,) if isinstance(by, str) else tuple(by)
+    extra = {
+        name: Mean(value) if isinstance(value, str) or _is_derived(value) else value
+        for name, value in dict(statistics or {}).items()
+    }
+    for name, statistic in extra.items():
+        if not isinstance(statistic, Statistic):
+            raise TypeError(f"statistic {name!r} is not a Statistic")
+    if isinstance(criteria, Mapping) and not set(criteria.values()) <= {"min", "max"}:
+        raise ValueError(
+            "a mapping of criteria gives the directions of objectives ('min' or "
+            + "'max'): give statistics by name as `statistics`"
+        )
+    if isinstance(criteria, (Criteria, Mapping)):
+        if by and isinstance(criteria, Criteria):
+            raise ValueError(
+                "criteria group records by their own `by`: give it to the criteria"
+            )
+        judged = _as_criteria(criteria)
+        if by:
+            judged = replace(judged, by=by)
+        if extra:
+            clashes = sorted(
+                name
+                for name in extra
+                if name in judged.names and judged.statistic(name) != extra[name]
+            )
+            if clashes:
+                raise ValueError(
+                    f"statistics that the criteria name otherwise: {clashes}"
+                )
+            judged = replace(judged, statistics={**judged.statistics, **extra})
+        return judged, _resolve(judged), judged.by
+    metrics = [criteria] if isinstance(criteria, str) else list(criteria)
+    resolved: dict[str, Statistic] = {name: Mean(name) for name in metrics}
+    resolved.update(extra)
+    if not resolved:
+        raise ValueError(
+            "give criteria, the metrics whose means to compute, or statistics"
+        )
+    return None, resolved, by
+
+
 def aggregate(
     results: pd.DataFrame,
-    statistics: Criteria | Mapping[str, Statistic | str] | Sequence[str],
+    criteria: Criteria | Mapping[str, str] | Sequence[str] | str = (),
+    *,
+    statistics: Mapping[str, Statistic | str] | None = None,
     by: Sequence[str] | str = (),
     design_columns: Sequence[str] | None = None,
 ) -> pd.DataFrame:
     """
-    Aggregates the feasible results of a study (see `Study.run`) over the
-    replicates of each design (and each group of the columns `by`, such as a
-    sensor): the statistics, by name (a metric given as a string, or in a
-    list of names, is its mean), the number of `replicates`, and the values
-    of the design.
+    Aggregates the feasible results of a study (see `Study.run`, a row per
+    replicate) into a summary of its designs (a row per design, and per
+    group of the columns `by`, such as a sensor): statistics over the
+    replicates of each design, the number of `replicates`, and the values of
+    the design (see `Design.flat`), from which `DesignSpace.designs_of`
+    rebuilds the designs.
 
-    With criteria (see `Criteria`), the statistics that they name, in each
-    group of their `by`, and the `violation` of their requirements (the sum
-    of the violations, see `Requirement`, 0 if the design meets them all)
-    and whether the design meets them (`meets_requirements`). Criteria
-    `across` a column combine the statistics of each design across its
-    groups (see `Across`), of which `replicates` is the fewest of any group.
+    The statistics are those of criteria (see `Criteria`, or a mapping of
+    objectives to their directions, which are the means of the metrics of
+    their names), or the means of metrics (a list of their names), and other
+    `statistics`, by name (a statistic, or a metric given as a string, whose
+    mean it is)::
+
+        aggregate(results, {"satellites": "min", "sufficient": "max"})
+        aggregate(results, ["sufficient", "accurate"])
+        aggregate(results, statistics={"cost p70": Quantile("cost", 0.7)})
+
+    With criteria, the summary also gives the `violation` of their
+    requirements (the sum of the violations, see `Requirement`, 0 if the
+    design meets them all) and whether the design meets them
+    (`meets_requirements`). Criteria `across` a column combine the
+    statistics of each design across its groups (see `Across`), of which
+    `replicates` is the fewest of any group.
 
     The results must have one record per evaluation (a design in a
     replicate) in each group (and in each group of the column of the
@@ -862,11 +995,13 @@ def aggregate(
 
     Args:
         results (pandas.DataFrame): The results.
-        statistics (Criteria | Mapping[str, Statistic | str] | Sequence[str]):
-            Criteria, the statistics by name, or the metrics whose means to
-            compute.
-        by (Sequence[str] | str): Other columns that group records of an
-            evaluation (those of the criteria, with criteria).
+        criteria (Criteria | Mapping[str, str] | Sequence[str] | str): The
+            criteria (or objectives and their directions), or the metrics
+            whose means to compute.
+        statistics (Mapping[str, Statistic | str] | None): Other statistics,
+            by name.
+        by (Sequence[str] | str): The columns that group records of an
+            evaluation (those of the criteria, if they have any).
         design_columns (Sequence[str] | None): The columns of the values of
             designs, or `None` for those that are the same in every
             replicate of a design (except the metrics).
@@ -874,40 +1009,14 @@ def aggregate(
     Returns:
         pandas.DataFrame: a row per design (and group)
     """
-    criteria = statistics if isinstance(statistics, Criteria) else None
-    across, combiners = None, None
-    if criteria is not None:
-        if by:
-            raise ValueError("criteria group records by their own `by`")
-        resolved, requirements, by = (
-            _resolve(criteria),
-            criteria.requirements,
-            criteria.by,
-        )
-        across = criteria.across
-        combiners = None if across is None else _combiners(criteria)
-    else:
-        if not isinstance(statistics, Mapping):
-            statistics = {name: name for name in statistics}
-        resolved = {
-            name: Mean(value) if isinstance(value, str) or _is_derived(value) else value
-            for name, value in statistics.items()
-        }
-        requirements = ()
-        by = (by,) if isinstance(by, str) else tuple(by)
+    judged, resolved, by = _criteria_of(criteria, statistics, by)
+    across, combiners, requirements = None, None, ()
+    if judged is not None:
+        requirements, across = judged.requirements, judged.across
+        combiners = None if across is None else _combiners(judged)
     feasible = results[results["feasible"]] if "feasible" in results else results
-    metrics = sorted(
-        {column for statistic in resolved.values() for column in statistic.columns}
-    )
-    combined = [] if across is None else [across.column]
     groups = _across_groups(results, across)
-    if design_columns is None:
-        design_columns = _design_columns(
-            feasible, {*_STATUS_COLUMNS, *metrics, *by, *combined}
-        )
-    design_columns = [
-        c for c in design_columns if c not in resolved and c not in (*by, *combined)
-    ]
+    columns = _value_columns(feasible, resolved, by, across, design_columns)
     frames = []
     for key, positions in _groups(feasible, by):
         group = feasible.iloc[positions]
@@ -917,19 +1026,17 @@ def aggregate(
         frame = pd.DataFrame({"design": designs})
         for name, value in zip(by, key):
             frame[name] = value
-        first = group.drop_duplicates("design").set_index("design")
-        for column in design_columns:
-            frame[column] = first.loc[designs, column].to_numpy()
+        _with_values(frame, group, designs, columns)
         for name, value in values.items():
             frame[name] = value
         frame["replicates"] = table.counts
-        if criteria is not None:
+        if judged is not None:
             frame["violation"] = violation
             frame["meets_requirements"] = violation == 0
         frames.append(frame)
     if not frames:
-        judged = ["violation", "meets_requirements"] if criteria is not None else []
-        return pd.DataFrame(columns=["design", *by, *resolved, "replicates", *judged])
+        status = ["violation", "meets_requirements"] if judged is not None else []
+        return pd.DataFrame(columns=["design", *by, *resolved, "replicates", *status])
     return pd.concat(frames, ignore_index=True)
 
 
@@ -943,7 +1050,7 @@ def summarize(
     Summarizes the metrics of the feasible results of a study over their
     replicates (see `aggregate`): for each design (and each group of the
     columns `by`, such as a sensor), the mean of each metric, its standard
-    deviation (`<metric> std`) and standard error (`<metric> sem`) between
+    deviation (`<metric> std`) and standard error (`<metric> se`) between
     replicates, and the number of replicates (`replicates`), with the values
     of the design.
 
@@ -963,5 +1070,7 @@ def summarize(
     for metric in metrics:
         statistics[metric] = Mean(metric)
         statistics[f"{metric} std"] = StandardDeviation(metric)
-        statistics[f"{metric} sem"] = StandardError(metric)
-    return aggregate(results, statistics, by=by, design_columns=design_columns)
+        statistics[f"{metric} se"] = StandardError(metric)
+    return aggregate(
+        results, statistics=statistics, by=by, design_columns=design_columns
+    )

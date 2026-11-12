@@ -9,19 +9,18 @@ import unittest
 import pandas as pd
 
 from tatc.tradespace import (
-    Capability,
     CostModel,
     DeploymentSchedule,
     DesignSpace,
     Exponential,
     FailureModel,
-    PhaseCache,
     RestorationPolicy,
     SatelliteCost,
     Stage,
-    expected_missions,
     walker_space,
 )
+from tatc.tradespace.histories import expected_missions
+from tatc.tradespace.mission import Capability, PhaseCache
 
 # three planes of two satellites
 LAYOUT = DesignSpace(layout=walker_space(inclination=60, planes=3, per_plane=2))

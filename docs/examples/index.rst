@@ -23,11 +23,18 @@ The following provide examples of TAT-C use in a Jupyter notebook environment.
   RunOSSEMonsoon.ipynb
   RunOSSEHurricane.ipynb
   SearchTradeSpace.ipynb
+  RankUncertainDesigns.ipynb
+  CompareScenarios.ipynb
+  TradeCostAndUtility.ipynb
+  PlanMissions.ipynb
 
 Note that running the above examples in a local Python environment requires additional dependencies which can be installed via::
 
   pip install tatc[examples]
 
-using the pip package manager. The trade space example also requires::
+using the pip package manager. The trade space examples also require::
 
   pip install tatc[tradespace]
+
+The trade space examples after the first (SearchTradeSpace) import its design space and study from
+``trade_space_example.py``, beside the notebooks.

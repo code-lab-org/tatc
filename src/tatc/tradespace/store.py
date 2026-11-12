@@ -112,8 +112,9 @@ class ResultStore:
     data frames of targets they close over or refer to, by their content),
     but not data that they read (such as from files) nor the code of other
     modules they call (other than TAT-C's): a `namespace` identifies these,
-    and must change whenever they do. Several studies may share a file, in
-    their own namespaces.
+    and must change whenever they do. Studies of other definitions (such as
+    variants of a study) may share a namespace, as their fingerprints keep
+    their records apart, and several namespaces may share a file.
 
     Records are kept as JSON (in the column `records` of the table `results`,
     a list of records per evaluation), which other tools can read: numbers
@@ -124,8 +125,8 @@ class ResultStore:
 
     Args:
         path (str | os.PathLike): The database file (created if needed).
-        namespace (str): An identifier of the study (and of what its
-            fingerprint cannot see).
+        namespace (str): An identifier of what the fingerprints of the
+            studies cannot see (such as data they read from files), if any.
     """
 
     def __init__(self, path: str | os.PathLike, namespace: str = ""):

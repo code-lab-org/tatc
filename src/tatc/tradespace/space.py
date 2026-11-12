@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import zlib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
@@ -31,6 +32,7 @@ from functools import partial
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from .fingerprint import _Describer
 from .nodes import (
@@ -625,22 +627,121 @@ class DesignSpace(Node):
         values, decisions = _walk(self, "", Scope(), ctx)
         return Design(self, decisions, values)
 
-    def design(self, decisions: dict) -> Design:
+    def design(
+        self, decisions: Mapping | Design | None = None, /, **overrides: Any
+    ) -> Design:
         """
-        Gets the design of given decisions (see `Design.decisions`), checking
-        its constraints.
+        Gets the design of given decisions (see `Design.decisions`), or of the
+        decisions of another design (such as of a design space this one
+        extends, see `extend`), with the decisions of some children replaced
+        (by name: a value, the decisions of a group or a choice, or a design
+        of their own space), checking its constraints::
+
+            space = base.extend(policy=policy_space(orbit_spares=Integer(0, 1)))
+            design = space.design(base_design, policy=policy_design)
 
         Args:
-            decisions (dict): The decisions.
+            decisions (Mapping | Design | None): The decisions, or a design
+                whose decisions to take.
+            **overrides (Any): The decisions of children, by name.
 
         Returns:
             Design: the design
 
         Raises:
             Infeasible: if the design violates a constraint.
+            ValueError: if an override names no child of the design space.
         """
-        values, decisions = _walk(self, "", Scope(), _Context(), decisions)
-        return Design(self, decisions, values)
+        if isinstance(decisions, Design):
+            decisions = decisions.decisions
+        merged = dict(decisions or {})
+        unknown = sorted(set(overrides) - set(self.children))
+        if unknown:
+            raise ValueError(f"no children {unknown} of the design space")
+        for name, decision in overrides.items():
+            merged[name] = (
+                decision.decisions if isinstance(decision, Design) else decision
+            )
+        values, merged = _walk(self, "", Scope(), _Context(), merged)
+        return Design(self, merged, values)
+
+    def extend(
+        self, constraints: Sequence[Callable[[Scope], Any]] = (), **children: Any
+    ) -> DesignSpace:
+        """
+        Gets a design space with other children: those named as children of
+        this one replace them (in their place), and others are added after
+        them, with this one's constraints and others. This one is unchanged::
+
+            policy_trade = space.extend(policy=policy_space(orbit_spares=Integer(0, 1)))
+            year = space.extend(epoch=Uncertain(draw_epoch))
+
+        Designs of this design space are designs of the other with the
+        decisions of its new children (see `design`).
+
+        Args:
+            constraints (Sequence[Callable]): Other constraints.
+            **children (Any): The nodes, by name.
+
+        Returns:
+            DesignSpace: the design space
+        """
+        return DesignSpace(
+            [*self.constraints, *constraints], **{**self.children, **children}
+        )
+
+    def designs_of(
+        self, frame: pd.DataFrame, keys: Iterable[str] | None = None
+    ) -> list[Design]:
+        """
+        Rebuilds designs from the rows of a data frame of their values by path
+        (see `Design.flat`): the results of a study (see `Study.run`), or a
+        summary that keeps the values of the designs (see `aggregate`). Each
+        design is rebuilt once, from its first row, in the order of its first
+        row (or of `keys`), and must have the key of its row (`design`, a
+        column or the name of the index), if the frame has one::
+
+            front = summary[pareto_front(summary, criteria)]
+            designs = space.designs_of(front)
+
+        Args:
+            frame (pandas.DataFrame): The rows.
+            keys (Iterable[str] | None): The keys of the designs to rebuild,
+                or `None` for every design of the frame.
+
+        Returns:
+            list[Design]: the designs
+
+        Raises:
+            KeyError: if the frame has no rows of a key.
+            ValueError: if the frame lacks the value of a decision of a
+                design, or its values give a design of another key.
+        """
+        rows = frame
+        if "design" not in rows.columns and rows.index.name == "design":
+            rows = rows.reset_index()
+        if "design" in rows.columns:
+            first = rows.drop_duplicates("design")
+            records = dict(zip(first["design"], first.to_dict("records")))
+            order = list(records) if keys is None else list(dict.fromkeys(keys))
+            missing = [key for key in order if key not in records]
+            if missing:
+                raise KeyError(f"no rows of designs {missing[:5]}")
+            pairs = [(key, records[key]) for key in order]
+        else:
+            if keys is not None:
+                raise ValueError("the frame has no keys of designs (`design`)")
+            pairs = [(None, record) for record in rows.to_dict("records")]
+        designs: dict[str, Design] = {}
+        for key, record in pairs:
+            design = self._design(_Context(choose=partial(_decided, record)))
+            if key is not None and design.key != key:
+                raise ValueError(
+                    f"the values of design {key} give another design ({design.key}): "
+                    + "are they of another design space?"
+                )
+            designs.setdefault(design.key, design)
+        return list(designs.values())
 
     def enumerate(self) -> list[Design]:
         """
@@ -897,6 +998,96 @@ def _fixed_paths(node: Node, path: str) -> list[str]:
     if isinstance(node, Repeat):
         return _fixed_paths(node.item, f"{path}[*]")
     return []
+
+
+def _missing(value: Any) -> bool:
+    """Whether a value of a data frame is missing (`None` or `NaN`)."""
+    return value is None or (isinstance(value, float) and math.isnan(value))
+
+
+def _decided(values: Mapping[str, Any], path: str, domain: _Domain) -> Any:
+    """
+    Gets the decision of a path from values by path (such as a row of the
+    results of a study, see `DesignSpace.designs_of`): the level of the domain
+    that equals the value (whose type a data frame may have changed, as
+    integers in a column of floats), or the value of a continuous domain.
+    """
+    value = values.get(path)
+    if _missing(value):
+        raise ValueError(
+            f"no value of {path}: rebuild designs from the results of a study, or "
+            + "from a summary that keeps the values of designs (see aggregate)"
+        )
+    if domain.levels is None:
+        return float(value)
+    for level in domain.levels:
+        try:
+            if level == value:
+                return level
+        except (TypeError, ValueError):
+            continue
+    numeric = [
+        level
+        for level in domain.levels
+        if isinstance(level, (int, float, np.number)) and not isinstance(level, bool)
+    ]
+    if isinstance(value, (int, float, np.number)):
+        for level in numeric:
+            if math.isclose(float(level), float(value), rel_tol=1e-9, abs_tol=1e-12):
+                return level
+    raise ValueError(f"{value!r} is not a level of {path} ({domain.levels})")
+
+
+def _designs(
+    space: DesignSpace,
+    designs: Iterable[Design | str] | pd.DataFrame,
+    *frames: pd.DataFrame,
+) -> list[Design]:
+    """
+    Gets designs given as designs, keys, or a data frame of designs (with
+    their keys, `design`), each once, in order: designs given by their keys
+    are rebuilt from the values of the frame (if it has them) or of other
+    frames (such as the results of a study, see `DesignSpace.designs_of`).
+    """
+    if isinstance(designs, pd.DataFrame):
+        if "design" in designs.columns:
+            items = list(designs["design"])
+        elif designs.index.name == "design":
+            items = list(designs.index)
+        else:
+            raise ValueError("the data frame has no keys of designs (`design`)")
+        frames = (designs, *frames)
+    else:
+        items = list(designs)
+    found: dict[str, Design | None] = {}
+    for item in items:
+        if isinstance(item, Design):
+            found[item.key] = item
+        elif isinstance(item, str):
+            found.setdefault(item, None)
+        else:
+            raise TypeError(f"a design or the key of one, not {item!r}")
+    for frame in frames:
+        missing = [key for key, design in found.items() if design is None]
+        if not missing:
+            break
+        rows = frame.reset_index() if "design" not in frame else frame
+        if "design" not in rows:
+            continue
+        present = [key for key in missing if key in set(rows["design"])]
+        try:
+            for design in space.designs_of(rows, present):
+                found[design.key] = design
+        except ValueError:
+            continue  # the frame lacks values of the designs: try the next
+    missing = [key for key, design in found.items() if design is None]
+    if missing:
+        raise ValueError(
+            f"the values of designs {missing[:5]} are not given: give the designs, "
+            + "or their keys with the results of a study (or a summary that keeps "
+            + "the values of designs, see aggregate)"
+        )
+    return [design for design in found.values() if design is not None]
 
 
 def _check_scenario(space: DesignSpace, values: Mapping[str, Any]) -> None:

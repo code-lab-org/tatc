@@ -180,7 +180,7 @@ class TestStatistics(unittest.TestCase):
             "reliable": Probability(self.utility, ">=", 0.5),
             "expected": Mean(self.utility),
         }
-        summary = aggregate(_results(), statistics).set_index("design")
+        summary = aggregate(_results(), statistics=statistics).set_index("design")
         self.assertEqual(summary.loc["x", "worst"], 0.0)
         self.assertEqual(summary.loc["x", "reliable"], 0.5)
         self.assertEqual(summary.loc["y", "reliable"], 1.0)

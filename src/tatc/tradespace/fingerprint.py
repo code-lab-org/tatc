@@ -667,6 +667,26 @@ def _differences(before: Any, after: Any, path: str) -> list[str]:
     return [path]
 
 
+def _without_code(description: Any) -> Any:
+    """
+    Gets a description of values without the code of their functions (the
+    instructions, constants, and names of compiled code, see
+    `_Describer.code`), which is the same for the same values with other
+    code (such as a function after it is edited, or compiled by another
+    version of Python).
+    """
+    if isinstance(description, dict):
+        code = {"code", "constants", "names"} <= set(description)
+        return {
+            key: _without_code(value)
+            for key, value in description.items()
+            if not (code and key in ("code", "constants", "names"))
+        }
+    if isinstance(description, list):
+        return [_without_code(value) for value in description]
+    return description
+
+
 def compare_definitions(before: dict, after: dict, limit: int = 5) -> list[str]:
     """
     Compares definitions (see `get_definition`), as to explain why results

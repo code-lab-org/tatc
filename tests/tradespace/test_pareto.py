@@ -215,6 +215,58 @@ class TestParetoProbability(unittest.TestCase):
             sorted(zip(winners.sensor, winners.design)), [("a", "d1"), ("b", "d0")]
         )
 
+    def test_design_values(self):
+        """Probabilities keep the values of the designs, as summaries do."""
+        results = self._results([[1, 2], [3, 4]])
+        results["size"] = results["design"].map({"d0": "small", "d1": "large"})
+        results["seed"] = results["replicate"]  # an uncertain parameter
+        probability = pareto_probability(results, {"cost": "min", "value": "max"})
+        self.assertEqual(list(probability["size"]), ["small", "large"])
+        self.assertNotIn("seed", probability.columns)
+        bare = pareto_probability(
+            results, {"cost": "min", "value": "max"}, design_columns=[]
+        )
+        self.assertNotIn("size", bare.columns)
+
+
+class TestSummaries(unittest.TestCase):
+    """
+    Unit tests for the functions of summaries given the results of a study.
+    """
+
+    def setUp(self):
+        self.results = TestParetoProbability._results([[1, 2, 3], [5, 6, 7]])
+        self.objectives = {"cost": "min", "value": "max"}
+
+    def test_results_raise(self):
+        """Results with a row per replicate are not summaries of designs."""
+        for function in (pareto_front, pareto_ranks):
+            with self.assertRaisesRegex(ValueError, "aggregate"):
+                function(self.results, self.objectives)
+        with self.assertRaisesRegex(ValueError, "aggregate"):
+            hypervolume(self.results, self.objectives, [2, 0])
+        indexed = self.results.set_index("design")
+        with self.assertRaisesRegex(ValueError, "aggregate"):
+            pareto_front(indexed, self.objectives)
+
+    def test_groups_of_designs(self):
+        """A design may have a row in each group of the criteria's `by`."""
+        summary = pd.concat(
+            [
+                pd.DataFrame({"design": ["a", "b"], "value": [1, 2], "s": "x"}),
+                pd.DataFrame({"design": ["a", "b"], "value": [2, 1], "s": "y"}),
+            ]
+        )
+        front = pareto_front(summary, Criteria({"value": "max"}, by="s"))
+        self.assertEqual(list(front), [False, True, True, False])
+        with self.assertRaises(ValueError):
+            pareto_front(summary, {"value": "max"})
+        # rows without designs are any rows
+        rows = pd.DataFrame({"value": [1, 1, 2]})
+        self.assertEqual(
+            list(pareto_front(rows, {"value": "max"})), [False, False, True]
+        )
+
 
 class TestManyPoints(unittest.TestCase):
     """

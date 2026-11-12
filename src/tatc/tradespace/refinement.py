@@ -16,46 +16,55 @@ import pandas as pd
 
 from .criteria import Criteria, _as_criteria, _get_tolerances
 from .pareto import pareto_probability
-from .space import Design
+from .space import Design, _designs
 from .study import Study
 
 
 @dataclass
 class Refinement:
     """
-    The outcome of an adaptive replication (see `refine`).
+    The outcome of an adaptive replication (see `refine`): as the outcomes of
+    other steps of a trade study (see `Confirmation`, `Screening`, and
+    `Search`), its `results`, the `summary` of its designs, and the `designs`
+    themselves, for the next step::
+
+        refinement = refine(study, criteria, results)
+        confirmation = confirm(study, criteria, refinement.results)
     """
 
     results: pd.DataFrame
     """pandas.DataFrame: The results of every evaluation, those given and
     those added (see `Study.run`)."""
-    probability: pd.DataFrame
-    """pandas.DataFrame: The probability that each design is efficient after
-    the last round (see `pareto_probability`), and whether its efficiency is
-    `uncertain` (by the bounds of `refine`, or with fewer than its least
-    replicates) and, if so, whether it is `indifferent` (its objectives are
-    known to within the precision of their tolerances)."""
+    summary: pd.DataFrame
+    """pandas.DataFrame: A row per design (and group of the criteria's `by`):
+    the probability that it is efficient after the last round (see
+    `pareto_probability`, with the values of the design), and whether its
+    efficiency is `uncertain` (by the bounds of `refine`, or with fewer than
+    its least replicates) and, if so, whether it is `indifferent` (its
+    objectives are known to within the precision of their tolerances)."""
     history: pd.DataFrame = field(default_factory=pd.DataFrame)
     """pandas.DataFrame: For each round, the number of designs whose
     efficiency is uncertain (`uncertain`), of these, those that are
     indifferent (`indifferent`), the number to which replicates were added
     (`refined`), and the evaluations added (`evaluations`)."""
+    designs: list[Design] = field(default_factory=list)
+    """list[Design]: The designs that could be refined."""
 
     @property
     def uncertain(self) -> pd.DataFrame:
-        """pandas.DataFrame: The rows of `probability` whose efficiency is
-        still uncertain, and that more replicates would settle (those that are
-        not indifferent)."""
-        probability = self.probability
-        return probability[probability["uncertain"] & ~probability["indifferent"]]
+        """pandas.DataFrame: The rows of `summary` whose efficiency is still
+        uncertain, and that more replicates would settle (those that are not
+        indifferent)."""
+        summary = self.summary
+        return summary[summary["uncertain"] & ~summary["indifferent"]]
 
     @property
     def indifferent(self) -> pd.DataFrame:
-        """pandas.DataFrame: The rows of `probability` whose efficiency is
+        """pandas.DataFrame: The rows of `summary` whose efficiency is
         uncertain, but whose objectives are known to within the precision of
         their tolerances, so that whether they are within the tolerances of
         the front does not matter."""
-        return self.probability[self.probability["indifferent"]]
+        return self.summary[self.summary["indifferent"]]
 
 
 def _precise(
@@ -84,9 +93,10 @@ def _precise(
 
 def refine(
     study: Study,
-    designs: Sequence[Design],
-    results: pd.DataFrame,
     criteria: Criteria | Mapping[str, str],
+    results: pd.DataFrame,
+    designs: Sequence[Design | str] | pd.DataFrame | None = None,
+    *,
     bounds: tuple[float, float] = (0.05, 0.95),
     step: int | None = None,
     max_replicates: int | None = None,
@@ -139,13 +149,17 @@ def refine(
 
     Args:
         study (Study): The study that evaluates designs.
-        designs (Sequence[Design]): The designs (those of the results).
-        results (pandas.DataFrame): The results of the designs (see
-            `Study.run`).
         criteria (Criteria | Mapping[str, str]): The criteria, or the
             objectives (metrics whose means they are) and their directions
             (`"min"` or `"max"`). A design is uncertain if it is in any
             group of the criteria's `by`.
+        results (pandas.DataFrame): The results of the designs (see
+            `Study.run`), such as those of an enumeration or a search.
+        designs (Sequence[Design | str] | pandas.DataFrame | None): The
+            designs that may be refined (designs, their keys, or a data
+            frame of them, such as rows of a summary), or `None` for every
+            design of the results (rebuilt from them, see
+            `DesignSpace.designs_of`).
         bounds (tuple[float, float]): The probabilities between which a
             design is uncertain.
         step (int | None): The replicates added to an uncertain design in a
@@ -166,7 +180,8 @@ def refine(
         seed (int): The seed of the bootstraps.
 
     Returns:
-        Refinement: the results, the final probabilities, and the history
+        Refinement: the results, the final probabilities, the history, and
+            the designs
     """
     criteria = _as_criteria(criteria)
     low, high = bounds
@@ -181,7 +196,8 @@ def refine(
         raise ValueError("precision must be positive (or None)")
     if budget is not None and budget < 0:
         raise ValueError("budget must not be negative")
-    by_key = {design.key: design for design in designs}
+    refined = _designs(study.space, results if designs is None else designs, results)
+    by_key = {design.key: design for design in refined}
     frames = [results]
     history = []
     spent = 0
@@ -289,6 +305,7 @@ def refine(
         )
     return Refinement(
         results=pd.concat(frames, ignore_index=True),
-        probability=probability,
+        summary=probability,
         history=pd.DataFrame(history),
+        designs=refined,
     )

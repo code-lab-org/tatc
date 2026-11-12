@@ -10,20 +10,22 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 import pandas as pd
 
-from .criteria import Criteria, Tolerance, _as_criteria, aggregate
+from .criteria import Criteria, _as_criteria, aggregate
 from .pareto import pareto_ranks
-from .space import Design
+from .space import Design, _designs
 from .study import Study
 
 
 @dataclass
 class Screening:
     """
-    The outcome of a screening (see `screen`).
+    The outcome of a screening (see `screen`): its `results`, the `summary`
+    of the designs of its last stage, and the `designs` themselves, as the
+    outcomes of other steps of a trade study (see `Refinement`).
     """
 
     results: pd.DataFrame
@@ -37,7 +39,7 @@ class Screening:
     """list[Design]: The designs analyzed in the last stage."""
 
     @property
-    def final(self) -> pd.DataFrame:
+    def summary(self) -> pd.DataFrame:
         """pandas.DataFrame: The summary of the last stage."""
         return self.summaries[-1]
 
@@ -54,13 +56,11 @@ def _per_stage(value, count: int, name: str) -> list:
 
 
 def screen(
-    designs: Sequence[Design],
     studies: Sequence[Study],
-    criteria: Criteria | Mapping[str, str],
+    criteria: Criteria | Mapping[str, str] | Sequence[Criteria | Mapping[str, str]],
+    designs: Sequence[Design] | pd.DataFrame,
+    *,
     keep: float | int | Sequence[float | int] = 0.25,
-    tolerance: (
-        Mapping[str, Tolerance] | Sequence[Mapping[str, Tolerance] | None] | None
-    ) = None,
 ) -> Screening:
     """
     Screens designs with studies of increasing fidelity (and cost): each
@@ -80,61 +80,62 @@ def screen(
 
     A cheap analysis ranks designs less exactly than an expensive one, so a
     design it ranks just behind another may be better: keep enough designs,
-    or give a `tolerance` of each objective for the stages of cheap analyses
-    (in the units of the stage's analysis, in place of the criteria's),
+    or give the stages of cheap analyses criteria of their own, with a
+    tolerance of each objective (in the units of the stage's analysis)
     within which differences do not separate fronts (see `pareto_front`),
-    so that nearly efficient designs are kept. The last stage ranks designs
-    with the tolerances of the criteria. Compare the
-    final front with one found without screening on a sample of designs to
-    check that screening does not lose efficient designs.
+    so that nearly efficient designs are kept::
+
+        cheap = Criteria(objectives, tolerance={"sufficient": 5.0})
+        screening = screen([quick, full], [cheap, objectives], designs, keep=0.1)
+
+    Compare the final front with one found without screening on a sample of
+    designs to check that screening does not lose efficient designs.
 
     Args:
-        designs (Sequence[Design]): The designs to screen.
         studies (Sequence[Study]): The studies of each stage, in order of
             increasing fidelity.
-        criteria (Criteria | Mapping[str, str]): The criteria, without
-            `by` (see `Criteria`), or the objectives (metrics whose means they
-            are) and their directions (`"min"` or `"max"`).
+        criteria (Criteria | Mapping[str, str] | Sequence): The criteria,
+            without `by` (see `Criteria`), or the objectives (metrics whose
+            means they are) and their directions (`"min"` or `"max"`): the
+            same for every stage, or those of each stage.
+        designs (Sequence[Design] | pandas.DataFrame): The designs to
+            screen, or a data frame of their values (see
+            `DesignSpace.designs_of`).
         keep (float | int | Sequence): The designs kept by each stage but the
             last: a number (int), or a share of its feasible designs (float),
             or a value for each stage.
-        tolerance (Mapping | Sequence | None): The tolerances of objectives
-            in each stage but the last, in place of those of the criteria
-            (see `Criteria`): the same for each stage, or one for each (`None`
-            for the criteria's).
 
     Returns:
-        Screening: the results and summaries of each stage
+        Screening: the results and summaries of each stage, and the designs
+            of the last
     """
-    criteria = _as_criteria(criteria)
-    if criteria.by:
-        raise ValueError(
-            "screening ranks designs by one record per evaluation: "
-            + "give criteria without `by`"
-        )
     if len(studies) == 0:
         raise ValueError("at least one study is required")
     transitions = len(studies) - 1
     keeps = _per_stage(keep, transitions, "keep")
-    if tolerance is None or isinstance(tolerance, Mapping):
-        tolerances = [tolerance] * transitions
+    if isinstance(criteria, (Criteria, Mapping)):
+        stages = [_as_criteria(criteria)] * len(studies)
     else:
-        tolerances = _per_stage(tolerance, transitions, "tolerance")
-    # the criteria of each stage: with the tolerance of a cheap stage, if any
-    stages = [
-        criteria if value is None else replace(criteria, tolerance=value)
-        for value in tolerances
-    ] + [criteria]
-    current = list({design.key: design for design in designs}.values())
+        stages = [
+            _as_criteria(c) for c in _per_stage(criteria, len(studies), "criteria")
+        ]
+    for criteria in stages:
+        if criteria.by:
+            raise ValueError(
+                "screening ranks designs by one record per evaluation: "
+                + "give criteria without `by`"
+            )
+    current = _designs(studies[0].space, designs)
     screening = Screening(results=pd.DataFrame())
     frames = []
     for stage, study in enumerate(studies):
+        criteria = stages[stage]
         results = study.run(current).assign(stage=stage)
         frames.append(results)
-        summary = aggregate(results, criteria, design_columns=[])
+        summary = aggregate(results, criteria)
         summary = summary.dropna(subset=list(criteria.objectives))
         summary = summary.reset_index(drop=True)
-        summary["pareto_rank"] = pareto_ranks(summary, stages[stage])
+        summary["pareto_rank"] = pareto_ranks(summary, criteria)
         if stage < transitions:
             amount = keeps[stage]
             count = (

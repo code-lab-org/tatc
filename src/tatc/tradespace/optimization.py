@@ -32,7 +32,7 @@ refine the designs it evaluated (see `refine`) and confirm its front (see
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -46,7 +46,9 @@ from .criteria import (
     _resolve,
     _signs,
     _Statistics,
+    aggregate,
 )
+from .pareto import pareto_front
 from .space import Design, Infeasible
 from .study import Study
 
@@ -55,11 +57,14 @@ from .study import Study
 class Search:
     """
     The outcome of a search with an optimizer (see `optimize_optuna` and
-    `optimize_pymoo`), whose designs and results refine and confirm its
-    front as for any study (see `refine` and `confirm`)::
+    `optimize_pymoo`): its `results`, the `summary` of its designs, and the
+    `designs` themselves, as the outcomes of other steps of a trade study
+    (see `Refinement`), which refine and confirm its front as for any
+    study::
 
         search = optimize_optuna(study, criteria, n_trials=200)
-        refined = refine(study, search.designs, search.results, criteria)
+        refinement = refine(study, criteria, search.results)
+        confirmation = confirm(study, criteria, refinement.results)
     """
 
     results: pd.DataFrame
@@ -69,6 +74,10 @@ class Search:
     state: Any
     """Any: The optimizer's own outcome: the Optuna study (`optuna.Study`) or
     the result of pymoo (`pymoo.core.result.Result`)."""
+    summary: pd.DataFrame = field(default_factory=pd.DataFrame)
+    """pandas.DataFrame: A row per feasible design: the statistics of the
+    criteria over its replicates (see `aggregate`), and whether it is
+    efficient by them (`pareto`, see `pareto_front`)."""
 
 
 class Evaluations:
@@ -181,6 +190,25 @@ class Evaluations:
                     float(requirement.violation(values[requirement.name][i]))
                     for requirement in self.criteria.requirements
                 )
+
+    def search(self, state: Any) -> Search:
+        """
+        Gets the outcome of a search of these evaluations.
+
+        Args:
+            state (Any): The optimizer's own outcome.
+
+        Returns:
+            Search: the search
+        """
+        results = self.results
+        summary = pd.DataFrame()
+        if len(results) > 0 and results["feasible"].any():
+            summary = aggregate(results, self.criteria)
+            summary = summary.dropna(subset=list(self.criteria.objectives))
+            summary = summary.reset_index(drop=True)
+            summary["pareto"] = pareto_front(summary, self.criteria).to_numpy()
+        return Search(results, list(self.designs.values()), state, summary)
 
     def worst(self) -> list[float]:
         """
@@ -335,7 +363,7 @@ def optimize_optuna(
                 optuna_study.tell(
                     trial, list(np.where(np.isnan(values), evaluations.worst(), values))
                 )
-    return Search(evaluations.results, list(evaluations.designs.values()), optuna_study)
+    return evaluations.search(optuna_study)
 
 
 def make_pymoo_problem(study: Study, criteria: Criteria | Mapping[str, str]) -> Any:
@@ -530,4 +558,4 @@ def optimize_pymoo(
         _eliminate_duplicates(algorithm, problem.duplicates)
     result = minimize(problem, algorithm, termination, seed=seed, **kwargs)
     evaluations = problem.evaluations
-    return Search(evaluations.results, list(evaluations.designs.values()), result)
+    return evaluations.search(result)

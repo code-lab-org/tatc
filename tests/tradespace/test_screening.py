@@ -61,7 +61,7 @@ class TestScreen(unittest.TestCase):
     def test_keeps_whole_fronts(self):
         """Each stage keeps whole fronts until it keeps enough designs."""
         screening = screen(
-            self.designs, [_study(0.3, 1), _study(0, 1)], OBJECTIVES, keep=20
+            [_study(0.3, 1), _study(0, 1)], OBJECTIVES, self.designs, keep=20
         )
         first = screening.summaries[0]
         self.assertGreaterEqual(first.kept.sum(), 20)
@@ -70,54 +70,52 @@ class TestScreen(unittest.TestCase):
         self.assertFalse((first[first.pareto_rank > last_rank].kept).any())
         self.assertEqual(len(screening.designs), first.kept.sum())
         self.assertEqual(set(screening.results.stage), {0, 1})
-        self.assertEqual(len(screening.final), len(screening.designs))
+        self.assertEqual(len(screening.summary), len(screening.designs))
 
     def test_finds_front(self):
         """A tolerance of the noise of the first stage keeps the efficient designs."""
         stages = [_study(0.3, 1), _study(0, 1)]
         # about two standard deviations of the noise of the first stage
-        screening = screen(
-            self.designs, stages, OBJECTIVES, keep=0.1, tolerance={"value": 0.6}
-        )
-        final = screening.final
+        cheap = Criteria(OBJECTIVES, tolerance={"value": 0.6})
+        screening = screen(stages, [cheap, OBJECTIVES], self.designs, keep=0.1)
+        final = screening.summary
         found = set(final.design[pareto_front(final, OBJECTIVES)])
         self.assertEqual(found, self.front)
         self.assertLess(len(screening.designs), 0.6 * len(self.designs))
         # without a tolerance, the noise loses efficient designs
-        screening = screen(self.designs, stages, OBJECTIVES, keep=0.1)
-        final = screening.final
+        screening = screen(stages, OBJECTIVES, self.designs, keep=0.1)
+        final = screening.summary
         found = set(final.design[pareto_front(final, OBJECTIVES)])
         self.assertLess(len(found & self.front), len(self.front))
 
     def test_three_stages(self):
-        """Values of keep and tolerance can be given for each transition."""
+        """Values of keep and criteria can be given for each stage."""
         screening = screen(
-            self.designs,
             [_study(0.5, 1), _study(0.1, 2), _study(0, 1)],
-            OBJECTIVES,
+            [Criteria(OBJECTIVES, tolerance={"value": 1.0}), OBJECTIVES, OBJECTIVES],
+            self.designs,
             keep=[0.5, 10],
-            tolerance=[{"value": 1.0}, None],
         )
         counts = [len(summary) for summary in screening.summaries]
         self.assertEqual(counts[0], len(self.designs))
         self.assertGreaterEqual(counts[1], 0.5 * counts[0])
         self.assertGreaterEqual(counts[2], 10)
         with self.assertRaises(ValueError):
-            screen(self.designs, [_study(0, 1)] * 3, OBJECTIVES, keep=[0.5])
+            screen([_study(0, 1)] * 3, OBJECTIVES, self.designs, keep=[0.5])
         with self.assertRaises(ValueError):
-            screen(self.designs, [_study(0, 1)], Criteria(OBJECTIVES, by="sensor"))
+            screen([_study(0, 1)] * 3, [OBJECTIVES] * 2, self.designs)
+        with self.assertRaises(ValueError):
+            screen([_study(0, 1)], Criteria(OBJECTIVES, by="sensor"), self.designs)
 
     def test_criteria_tolerance(self):
-        """Stages use the tolerance of the criteria unless given their own."""
+        """Every stage uses the tolerance of the criteria unless given its own."""
         stages = [_study(0.3, 1), _study(0, 1)]
         criteria = Criteria(OBJECTIVES, tolerance={"value": 0.6})
-        tolerant = screen(self.designs, stages, criteria, keep=0.1)
-        overridden = screen(
-            self.designs, stages, criteria, keep=0.1, tolerance={"value": 0.0}
-        )
+        tolerant = screen(stages, criteria, self.designs, keep=0.1)
+        overridden = screen(stages, [OBJECTIVES, criteria], self.designs, keep=0.1)
         self.assertGreater(len(tolerant.designs), len(overridden.designs))
         # the last stage ranks with the criteria's tolerance
-        final = tolerant.final
+        final = tolerant.summary
         self.assertTrue(
             (final.pareto_rank == 0).sum() >= pareto_front(final, OBJECTIVES).sum()
         )

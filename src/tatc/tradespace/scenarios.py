@@ -52,7 +52,7 @@ def robustness(
     each scenario, from the results of a study in each scenario (judged by
     the criteria in each scenario, see `aggregate` and `pareto_front`).
 
-    * `pareto trace`: the share of the scenarios in which the design is
+    * `pareto_trace`: the share of the scenarios in which the design is
       efficient (with the tolerances of the criteria, within which designs
       near the front are efficient, as in epoch-era analysis's fuzzy
       normalized Pareto trace). A design efficient in every scenario has a
@@ -64,7 +64,7 @@ def robustness(
       and infinite if it misses the requirements of the criteria (or is
       infeasible in every replicate). With one objective, it is the
       difference from the best design.
-    * `max regret`: the largest regret of the design over the scenarios, which
+    * `max_regret`: the largest regret of the design over the scenarios, which
       the most robust designs minimize (minimax regret).
 
     With objectives of few levels (such as numbers of satellites), regret is
@@ -90,8 +90,8 @@ def robustness(
             objective (if it has one), or else 1 (its units).
 
     Returns:
-        pandas.DataFrame: a row per design (`design`): its `pareto trace`,
-            `max regret`, and regret in each scenario (`<scenario> regret`)
+        pandas.DataFrame: a row per design (`design`): its `pareto_trace`,
+            `max_regret`, and regret in each scenario (`<scenario> regret`)
 
     Raises:
         ValueError: if the results have no scenarios, or the criteria group
@@ -144,8 +144,8 @@ def robustness(
     frame = pd.DataFrame(
         {
             "design": designs,
-            "pareto trace": (trace / max(len(scenarios), 1)).to_numpy(),
-            "max regret": regret.max(axis=1).to_numpy(),
+            "pareto_trace": (trace / max(len(scenarios), 1)).to_numpy(),
+            "max_regret": regret.max(axis=1).to_numpy(),
         }
     )
     for name in scenarios:

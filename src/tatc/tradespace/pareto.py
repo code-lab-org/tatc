@@ -25,12 +25,15 @@ from .criteria import (
     Requirement,
     _across_groups,
     _as_criteria,
+    _check_summary,
     _combiners,
     _get_tolerances,
     _groups,
     _resolve,
     _signs,
     _Statistics,
+    _value_columns,
+    _with_values,
     aggregate,
 )
 
@@ -156,11 +159,12 @@ def _dominated(costs: np.ndarray, tolerances: np.ndarray | None = None) -> np.nd
 
 
 def pareto_front(
-    frame: pd.DataFrame, criteria: Criteria | Mapping[str, str]
+    summary: pd.DataFrame, criteria: Criteria | Mapping[str, str]
 ) -> pd.Series:
     """
-    Finds the Pareto-efficient (non-dominated) rows of a data frame (such as
-    the designs of a summary of a study, see `aggregate`): those that meet
+    Finds the Pareto-efficient (non-dominated) rows of a summary of designs
+    (a row per design, such as of `aggregate`, not the results of a study,
+    which have a row per replicate): those that meet
     the requirements of the criteria (by the columns of their statistics)
     and that no other row that meets them dominates, being no worse in every
     objective and better in at least one, in each group of the criteria's
@@ -177,31 +181,37 @@ def pareto_front(
     `summarize`), or by a cheaper analysis (see `screen`).
 
     Args:
-        frame (pandas.DataFrame): The rows (such as designs).
+        summary (pandas.DataFrame): The rows (such as designs).
         criteria (Criteria | Mapping[str, str]): The criteria, or the
             objectives (columns) and their directions (`"min"` or `"max"`).
 
     Returns:
         pandas.Series: whether each row is efficient (boolean, with the
-            frame's index)
+            summary's index)
+
+    Raises:
+        ValueError: if the summary has several rows of a design (in a group
+            of the criteria's `by`), as the results of a study do.
     """
     criteria = _as_criteria(criteria)
+    _check_summary(summary, criteria.by)
     tolerances = _get_tolerances(criteria.objectives, criteria.tolerance)
-    efficient = np.zeros(len(frame), dtype=bool)
-    for _, positions in _groups(frame, criteria.by):
-        group = frame.iloc[positions]
+    efficient = np.zeros(len(summary), dtype=bool)
+    for _, positions in _groups(summary, criteria.by):
+        group = summary.iloc[positions]
         meets = _get_violation(group, criteria.requirements) == 0
         if meets.any():
             costs = _get_costs(group[meets], criteria.objectives)
             efficient[positions[meets]] = ~_dominated(costs, tolerances)
-    return pd.Series(efficient, index=frame.index, name="pareto")
+    return pd.Series(efficient, index=summary.index, name="pareto")
 
 
 def pareto_ranks(
-    frame: pd.DataFrame, criteria: Criteria | Mapping[str, str]
+    summary: pd.DataFrame, criteria: Criteria | Mapping[str, str]
 ) -> pd.Series:
     """
-    Ranks the rows of a data frame by non-dominated sorting, in each group
+    Ranks the rows of a summary of designs (a row per design, see
+    `pareto_front`) by non-dominated sorting, in each group
     of the criteria's `by`: rank 0 is the Pareto front (see `pareto_front`),
     rank 1 the front of the others, and so on, with the tolerances of the
     criteria. Rows that miss the requirements of the criteria are ranked
@@ -209,18 +219,23 @@ def pareto_ranks(
     violations of the requirements, see `Requirement`).
 
     Args:
-        frame (pandas.DataFrame): The rows (such as designs).
+        summary (pandas.DataFrame): The rows (such as designs).
         criteria (Criteria | Mapping[str, str]): The criteria, or the
             objectives (columns) and their directions (`"min"` or `"max"`).
 
     Returns:
-        pandas.Series: the rank of each row (with the frame's index)
+        pandas.Series: the rank of each row (with the summary's index)
+
+    Raises:
+        ValueError: if the summary has several rows of a design (in a group
+            of the criteria's `by`), as the results of a study do.
     """
     criteria = _as_criteria(criteria)
+    _check_summary(summary, criteria.by)
     tolerances = _get_tolerances(criteria.objectives, criteria.tolerance)
-    ranks = np.full(len(frame), -1, dtype=int)
-    for _, positions in _groups(frame, criteria.by):
-        group = frame.iloc[positions]
+    ranks = np.full(len(summary), -1, dtype=int)
+    for _, positions in _groups(summary, criteria.by):
+        group = summary.iloc[positions]
         violation = _get_violation(group, criteria.requirements)
         meets = violation == 0
         costs = _get_costs(group[meets], criteria.objectives)
@@ -234,7 +249,7 @@ def pareto_ranks(
         if (~meets).any():
             order = pd.Series(violation[~meets]).rank(method="dense").to_numpy()
             ranks[positions[~meets]] = rank + order.astype(int) - 1
-    return pd.Series(ranks, index=frame.index, name="pareto_rank")
+    return pd.Series(ranks, index=summary.index, name="pareto_rank")
 
 
 def _hypervolume(points: np.ndarray, reference: np.ndarray) -> float:
@@ -265,12 +280,13 @@ def _hypervolume(points: np.ndarray, reference: np.ndarray) -> float:
 
 
 def hypervolume(
-    frame: pd.DataFrame,
+    summary: pd.DataFrame,
     criteria: Criteria | Mapping[str, str],
     reference: Mapping[str, float] | Sequence[float],
 ) -> float:
     """
-    Computes the hypervolume of the rows of a data frame: the volume of the
+    Computes the hypervolume of the rows of a summary of designs (a row per
+    design, see `pareto_front`): the volume of the
     objective space that they dominate, up to a reference point that is
     worse than every row of interest in every objective. Rows that are not
     better than the reference in every objective, or that miss the
@@ -283,7 +299,7 @@ def hypervolume(
     which takes long with many objectives and many efficient rows.
 
     Args:
-        frame (pandas.DataFrame): The rows (such as designs), of one group
+        summary (pandas.DataFrame): The rows (such as designs), of one group
             (criteria with `by` are not accepted).
         criteria (Criteria | Mapping[str, str]): The criteria, or the
             objectives (columns) and their directions (`"min"` or `"max"`).
@@ -292,22 +308,28 @@ def hypervolume(
 
     Returns:
         float: the hypervolume, in the product of the units of the objectives
+
+    Raises:
+        ValueError: if the summary has several rows of a design, as the
+            results of a study do (see `hypervolume_progress` for those of a
+            search).
     """
     criteria = _as_criteria(criteria)
     if criteria.by:
         raise ValueError(
             "a hypervolume is of the rows of one group: give criteria without `by`"
         )
+    _check_summary(summary)
     objectives = criteria.objectives
     if isinstance(reference, Mapping):
         reference = [reference[column] for column in objectives]
     if len(reference) != len(objectives):
         raise ValueError("the reference point needs a value for each objective")
     bound = _signs(criteria) * np.asarray(reference, dtype=float)
-    if len(frame) == 0:
+    if len(summary) == 0:
         return 0.0
-    frame = frame[_get_violation(frame, criteria.requirements) == 0]
-    costs = _get_costs(frame, objectives)
+    summary = summary[_get_violation(summary, criteria.requirements) == 0]
+    costs = _get_costs(summary, objectives)
     costs = costs[np.all(costs < bound, axis=1)]
     return _hypervolume(costs, bound)
 
@@ -361,6 +383,7 @@ def pareto_probability(
     criteria: Criteria | Mapping[str, str],
     n_resamples: int = 500,
     seed: int = 0,
+    design_columns: Sequence[str] | None = None,
 ) -> pd.DataFrame:
     """
     Estimates the probability that each design is Pareto-efficient by
@@ -395,9 +418,13 @@ def pareto_probability(
             (`"min"` or `"max"`).
         n_resamples (int): The number of resamples.
         seed (int): The seed of the resamples.
+        design_columns (Sequence[str] | None): The columns of the values of
+            designs, or `None` for those that are the same in every
+            replicate of a design (see `aggregate`).
 
     Returns:
-        pandas.DataFrame: a row per design (and group): the statistics of
+        pandas.DataFrame: a row per design (and group): the values of the
+            design (see `aggregate`), the statistics of
             the criteria over every replicate, the standard error of each
             objective (`<objective> se`, its standard deviation over the
             resamples), the number of `replicates`,
@@ -415,6 +442,9 @@ def pareto_probability(
     feasible = results[results["feasible"]] if "feasible" in results else results
     combiners = None if criteria.across is None else _combiners(criteria)
     groups = _across_groups(results, criteria.across)
+    columns = _value_columns(
+        feasible, resolved, criteria.by, criteria.across, design_columns
+    )
     rng = np.random.default_rng(seed)
     frames = []
     for key, positions in _groups(feasible, criteria.by):
@@ -458,6 +488,7 @@ def pareto_probability(
         frame = pd.DataFrame({"design": designs})
         for name, value in zip(criteria.by, key):
             frame[name] = value
+        _with_values(frame, group, designs, columns)
         for name, value in values.items():
             frame[name] = value
         for name in criteria.objectives:

@@ -30,6 +30,8 @@ from tatc.tradespace import (
     SatelliteCost,
     Study,
     Uncertain,
+)
+from tatc.tradespace.fingerprint import (
     compare_definitions,
     get_definition,
     get_fingerprint,

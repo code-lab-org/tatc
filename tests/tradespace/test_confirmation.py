@@ -7,6 +7,7 @@ Unit tests for the confirmation of selected designs.
 import unittest
 
 import numpy as np
+import pandas as pd
 
 from tatc.tradespace import (
     Criteria,
@@ -58,7 +59,7 @@ class TestConfirm(unittest.TestCase):
     def test_removes_optimism(self):
         """New replicates remove the optimism of selection."""
         confirmation = confirm(
-            self.study, self.selected, self.results, OBJECTIVES, replicates=20
+            self.study, OBJECTIVES, self.results, self.selected, replicates=20
         )
         self.assertEqual(set(confirmation.summary.design), self.selected_keys)
         self.assertTrue((confirmation.summary.replicates == 20).all())
@@ -75,9 +76,22 @@ class TestConfirm(unittest.TestCase):
         )
         self.assertLess(abs(errors.mean()), 0.15)
 
+    def test_default_front(self):
+        """Without designs, the front of the results is confirmed; designs may
+        also be given by their keys or a data frame of them."""
+        summary = summarize(self.results, list(OBJECTIVES), design_columns=[])
+        front = summary[pareto_front(summary, OBJECTIVES)]
+        confirmation = confirm(self.study, OBJECTIVES, self.results)
+        self.assertEqual(set(confirmation.summary.design), set(front.design))
+        self.assertEqual({d.key for d in confirmation.designs}, set(front.design))
+        by_frame = confirm(self.study, OBJECTIVES, self.results, front)
+        pd.testing.assert_frame_equal(by_frame.summary, confirmation.summary)
+        by_keys = confirm(self.study, OBJECTIVES, self.results, list(front.design))
+        pd.testing.assert_frame_equal(by_keys.summary, confirmation.summary)
+
     def test_front(self):
         """The front is found among the confirmed designs by the new replicates."""
-        confirmation = confirm(self.study, self.selected, self.results, OBJECTIVES)
+        confirmation = confirm(self.study, OBJECTIVES, self.results, self.selected)
         summary = confirmation.summary
         np.testing.assert_array_equal(
             summary.pareto, pareto_front(summary, OBJECTIVES).to_numpy()
@@ -87,13 +101,13 @@ class TestConfirm(unittest.TestCase):
         """Requirements are judged by the new replicates."""
         confirmation = confirm(
             self.study,
-            self.selected,
-            self.results,
             Criteria(
                 OBJECTIVES,
                 statistics={"reliability": Probability("value", ">=", 1.5)},
                 requirements=[Requirement("reliability", ">=", 0.5)],
             ),
+            self.results,
+            self.selected,
         )
         summary = confirmation.summary
         self.assertIn("reliability selected", summary.columns)
@@ -102,4 +116,4 @@ class TestConfirm(unittest.TestCase):
         )
         self.assertFalse((summary.pareto & ~summary.meets_requirements).any())
         with self.assertRaises(ValueError):
-            confirm(self.study, self.selected, self.results, OBJECTIVES, replicates=0)
+            confirm(self.study, OBJECTIVES, self.results, self.selected, replicates=0)

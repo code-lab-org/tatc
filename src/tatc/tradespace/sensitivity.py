@@ -13,6 +13,8 @@ from collections.abc import Sequence
 import numpy as np
 import pandas as pd
 
+from .criteria import _check_summary
+
 
 def _levels(values: pd.Series, max_levels: int) -> pd.Series:
     """
@@ -25,7 +27,7 @@ def _levels(values: pd.Series, max_levels: int) -> pd.Series:
 
 
 def main_effects(
-    frame: pd.DataFrame, variable: str, metric: str, max_levels: int = 10
+    summary: pd.DataFrame, variable: str, metric: str, max_levels: int = 10
 ) -> pd.DataFrame:
     """
     Computes the main effects of a design variable on a metric: the mean (and
@@ -34,9 +36,9 @@ def main_effects(
     (not `NaN`, as a variable of a branch not chosen is).
 
     Args:
-        frame (pandas.DataFrame): The designs, with their values (see
-            `Design.flat`) and metrics (such as a summary of a study, see
-            `summarize` or `aggregate`).
+        summary (pandas.DataFrame): The designs, a row each, with their
+            values (see `Design.flat`) and metrics (such as a summary of a
+            study, see `aggregate`).
         variable (str): The column of the variable.
         metric (str): The column of the metric.
         max_levels (int): The most levels of a numeric variable, beyond which
@@ -46,13 +48,14 @@ def main_effects(
         pandas.DataFrame: a row per level: the `mean`, `std`, and `count` of
             the metric
     """
-    active = frame.dropna(subset=[variable, metric])
+    _check_summary(summary)
+    active = summary.dropna(subset=[variable, metric])
     levels = _levels(active[variable], max_levels)
     return active.groupby(levels, sort=True)[metric].agg(["mean", "std", "count"])
 
 
 def sensitivity(
-    frame: pd.DataFrame,
+    summary: pd.DataFrame,
     variables: Sequence[str],
     metrics: Sequence[str],
     max_levels: int = 10,
@@ -84,9 +87,9 @@ def sensitivity(
     different designs, and compare how much each matters where it applies.
 
     Args:
-        frame (pandas.DataFrame): The designs, with their values (see
-            `Design.flat`) and metrics (such as a summary of a study, see
-            `summarize` or `aggregate`).
+        summary (pandas.DataFrame): The designs, a row each, with their
+            values (see `Design.flat`) and metrics (such as a summary of a
+            study, see `aggregate`, which keeps the values of the designs).
         variables (Sequence[str]): The columns of the variables.
         metrics (Sequence[str]): The columns of the metrics.
         max_levels (int): The most levels of a numeric variable, beyond which
@@ -99,13 +102,14 @@ def sensitivity(
             variance it explains, and the share of designs in which it is
             `active`, sorted by the share of the first metric
     """
+    _check_summary(summary)
     rows = []
     for variable in variables:
         row: dict = {"variable": variable}
-        active = frame[variable].notna()
+        active = summary[variable].notna()
         row["active"] = float(active.mean())
         for metric in metrics:
-            subset = frame[active & frame[metric].notna()]
+            subset = summary[active & summary[metric].notna()]
             values = subset[metric].astype(float)
             total = float(((values - values.mean()) ** 2).sum())
             if len(subset) < 2 or total == 0:

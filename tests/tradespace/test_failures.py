@@ -21,9 +21,7 @@ from tatc.tradespace import (
     FailureModel,
     Integer,
     LaunchCost,
-    Lifetime,
     OperationsCost,
-    PhaseCache,
     Piecewise,
     Requirement,
     RestorationPolicy,
@@ -32,18 +30,20 @@ from tatc.tradespace import (
     Uncertain,
     Weibull,
     aggregate,
-    allocate_histories,
     build_constellation,
-    configure,
-    evaluate_missions,
-    evaluate_phases,
-    expected_missions,
     pareto_front,
     policy_space,
-    summarize_missions,
-    summarize_phases,
     walker_space,
 )
+from tatc.tradespace.failures import Lifetime
+from tatc.tradespace.histories import (
+    allocate_histories,
+    evaluate_missions,
+    expected_missions,
+    summarize_missions,
+)
+from tatc.tradespace.mission import PhaseCache, evaluate_phases, summarize_phases
+from tatc.tradespace.values import configure
 
 
 def _walker(planes=1, per_plane=2):
@@ -573,7 +573,7 @@ class TestManyMissions(unittest.TestCase):
         )
         self.assertEqual(len(missions), 30)
         for column in (
-            "share mean",
+            "share mission",
             "availability",
             "failures",
             "cost",
@@ -582,23 +582,26 @@ class TestManyMissions(unittest.TestCase):
             self.assertIn(column, missions.columns)
         summary = summarize_missions(
             missions,
-            quantiles={"share mean": [0.1, 0.5], "cost": 0.7},
-            requirements=[Requirement("share mean", ">=", 60)],
+            quantiles={"share mission": [0.1, 0.5], "cost": 0.7},
+            requirements=[Requirement("share mission", ">=", 60)],
         )
-        self.assertAlmostEqual(summary["share mean"], missions["share mean"].mean())
         self.assertAlmostEqual(
-            summary["share mean p10"], missions["share mean"].quantile(0.1)
+            summary["share mission"], missions["share mission"].mean()
         )
-        self.assertIn("share mean p50", summary)
-        self.assertIn("cost p70", summary)
         self.assertAlmostEqual(
-            summary["P(share mean >= 60)"], (missions["share mean"] >= 60).mean()
+            summary["share mission histories p10"],
+            missions["share mission"].quantile(0.1),
+        )
+        self.assertIn("share mission histories p50", summary)
+        self.assertIn("cost histories p70", summary)
+        self.assertAlmostEqual(
+            summary["P(share mission >= 60)"], (missions["share mission"] >= 60).mean()
         )
         # without a cache, the same evaluations
         direct = evaluate_missions(
             histories, self.satellites, self.observations, self._metric
         )
-        np.testing.assert_allclose(direct["share mean"], missions["share mean"])
+        np.testing.assert_allclose(direct["share mission"], missions["share mission"])
 
 
 class TestVarianceReduction(unittest.TestCase):
@@ -736,7 +739,7 @@ class TestAllocateHistories(unittest.TestCase):
     def test_recommendation(self):
         """Histories balance the variances and costs of the two levels."""
         records = self._pilot(between=2, within=6)
-        self.assertIn("share sd", records.columns)
+        self.assertIn("share histories std", records.columns)
         result = allocate_histories(
             records,
             "share",
@@ -827,9 +830,9 @@ class TestExpectedMissions(unittest.TestCase):
         missions = evaluate_missions(
             histories, self.satellites, self.observations, PhaseCache(self._metric)
         )
-        error = missions["score mean"].std() / np.sqrt(len(missions))
+        error = missions["score mission"].std() / np.sqrt(len(missions))
         self.assertAlmostEqual(
-            exact["score mean"], missions["score mean"].mean(), delta=4 * error
+            exact["score mission"], missions["score mission"].mean(), delta=4 * error
         )
         self.assertAlmostEqual(
             exact["availability"], missions["availability"].mean(), delta=0.01
@@ -866,7 +869,9 @@ class TestExpectedMissions(unittest.TestCase):
         planned = summarize_phases(
             evaluate_phases(phases, self.observations, self._metric)
         )
-        self.assertAlmostEqual(exact["score mean"], planned["score mean"], places=6)
+        self.assertAlmostEqual(
+            exact["score mission"], planned["score mission"], places=6
+        )
         self.assertEqual(exact["availability"], 1.0)
         # every launch fails: nothing operates
         lost = expected_missions(
@@ -877,7 +882,7 @@ class TestExpectedMissions(unittest.TestCase):
             self._metric,
         )
         self.assertEqual(lost["availability"], 0.0)
-        self.assertEqual(lost["score mean"], 0.0)
+        self.assertEqual(lost["score mission"], 0.0)
 
     def test_limits(self):
         """Sets are enumerated within limits."""
@@ -989,8 +994,8 @@ class TestImportanceSampling(unittest.TestCase):
             spread=True,
         )
         self.assertAlmostEqual(summary["value"], (4 + 2 + 3 + 8) / 8)
-        self.assertEqual(summary["value p50"], 1.0)  # half the weight is at 1
+        self.assertEqual(summary["value histories p50"], 1.0)  # half the weight is at 1
         self.assertAlmostEqual(summary["P(value >= 3)"], 3 / 8)
         self.assertAlmostEqual(summary["effective histories"], 64 / 22)
         self.assertNotIn("weight", summary)
-        self.assertGreater(summary["value sd"], 0)
+        self.assertGreater(summary["value histories std"], 0)

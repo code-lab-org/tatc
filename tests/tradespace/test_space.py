@@ -7,6 +7,8 @@ Unit tests for design spaces.
 import math
 import unittest
 
+import pandas as pd
+
 from tatc.tradespace import (
     Categorical,
     Choice,
@@ -360,3 +362,65 @@ class TestEnumeration(unittest.TestCase):
             self.assertEqual([d.key for d in designs], [d.key for d in expected])
             self.assertEqual([d.flat() for d in designs], [d.flat() for d in expected])
             self.assertEqual(space.size(), len(expected))
+
+
+class TestDesignsOf(unittest.TestCase):
+    """
+    Unit tests for designs rebuilt from data frames of their values, and for
+    designs of extended design spaces.
+    """
+
+    def setUp(self):
+        self.space = _hierarchical_space()
+        self.designs = self.space.enumerate()
+        # values by path, as in the results of a study (with missing values of
+        # the branches a design does not choose, and integers as floats)
+        self.frame = pd.DataFrame(
+            [{"design": d.key, **d.realize(0).flat()} for d in self.designs]
+        )
+
+    def test_round_trip(self):
+        """Designs rebuilt from their values are the designs."""
+        rebuilt = self.space.designs_of(self.frame)
+        self.assertEqual([d.key for d in rebuilt], [d.key for d in self.designs])
+        self.assertEqual([d.flat() for d in rebuilt][5], self.designs[5].flat())
+        # from a summary indexed by design, of some keys, in their order
+        keys = [self.designs[3].key, self.designs[1].key]
+        some = self.space.designs_of(self.frame.set_index("design"), keys)
+        self.assertEqual([d.key for d in some], keys)
+        # without keys, every row's design once
+        bare = self.frame.drop(columns="design")
+        rebuilt = self.space.designs_of(pd.concat([bare, bare]))
+        self.assertEqual(len(rebuilt), len(self.designs))
+
+    def test_errors(self):
+        """Rows without the values of decisions, or of other designs, raise."""
+        with self.assertRaises(KeyError):
+            self.space.designs_of(self.frame, ["unknown"])
+        with self.assertRaisesRegex(ValueError, "no value of altitude"):
+            self.space.designs_of(self.frame.drop(columns="altitude"))
+        other = self.frame.assign(design=self.frame.design.iloc[::-1].to_numpy())
+        with self.assertRaisesRegex(ValueError, "another design"):
+            self.space.designs_of(other)
+        wrong = self.frame.assign(altitude=1.0)
+        with self.assertRaisesRegex(ValueError, "not a level"):
+            self.space.designs_of(wrong)
+
+    def test_extend(self):
+        """Extended design spaces replace or add children, and keep constraints."""
+        space = DesignSpace(a=Integer(1, 3), b=2.0, constraints=[lambda d: d.a <= 2])
+        extended = space.extend(c=Categorical(["x", "y"]), b=Integer(0, 1))
+        self.assertEqual(list(extended.children), ["a", "b", "c"])
+        self.assertEqual(len(extended.enumerate()), 2 * 2 * 2)
+        self.assertEqual(list(space.children), ["a", "b"])  # unchanged
+        design = space.enumerate()[1]
+        derived = extended.design(design, b=1, c="y")
+        self.assertEqual((derived.a, derived.b, derived.c), (2, 1, "y"))
+        # a design of a group's own space gives its decisions
+        group = DesignSpace(k=Integer(0, 1))
+        nested = space.extend(g=group).design(design, g=group.enumerate()[1])
+        self.assertEqual(nested.g.k, 1)
+        with self.assertRaisesRegex(ValueError, "no children"):
+            extended.design(design, z=1)
+        with self.assertRaises(Infeasible):
+            extended.design({"a": 3, "b": 0, "c": "x"})

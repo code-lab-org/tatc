@@ -759,7 +759,7 @@ def summarize_phases(
     """
     Summarizes the capability of a mission over its phases (see
     `evaluate_phases`): the mean of each metric weighted by the durations of
-    the phases (`<metric> mean`, over the mission, from its first launch),
+    the phases (`<metric> mission`, over the mission, from its first launch),
     and, for each requirement on a metric, the time (years from the start of
     development) at which a phase first meets it (`<metric> time`, infinite
     if none does).
@@ -783,7 +783,7 @@ def summarize_phases(
     summary = {}
     for name in metrics:
         values = capability[name].to_numpy(dtype=float)
-        summary[f"{name} mean"] = float(np.sum(values * weights) / np.sum(weights))
+        summary[f"{name} mission"] = float(np.sum(values * weights) / np.sum(weights))
     for requirement in requirements:
         met = _OPERATORS[requirement.operator](
             capability[requirement.name].to_numpy(dtype=float), requirement.value

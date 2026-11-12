@@ -9,6 +9,7 @@ import math
 import sqlite3
 import tempfile
 import unittest
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import date, datetime, time, timedelta, timezone
@@ -17,7 +18,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from tatc.tradespace import DesignSpace, Integer, ResultStore, Study, Uncertain
+from tatc.tradespace import (
+    DesignSpace,
+    Integer,
+    ResultStore,
+    Study,
+    Uncertain,
+)
+from tatc.tradespace.fingerprint import compare_definitions
 
 
 class _Interrupt(Exception):
@@ -118,14 +126,16 @@ class TestResultStore(unittest.TestCase):
         pd.testing.assert_frame_equal(results, again)
 
     def test_other_definitions(self):
-        """Records of studies of other definitions are not reused."""
+        """Records of studies of other definitions are not reused, and studies
+        of other values share a store's namespace without a warning."""
         store = ResultStore(self.path, "study")
         self._study(store).run()
         self.calls.clear()
         self._study(store).run()
         self.assertEqual(self.calls, [])
         # another seed draws other uncertain values
-        with self.assertWarns(UserWarning):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
             reseeded = self._study(store, seed=1).run()
         self.assertEqual(len(self.calls), 12)
         self.assertNotEqual(
@@ -134,7 +144,8 @@ class TestResultStore(unittest.TestCase):
         # another fixed value of the design space
         self.calls.clear()
         self.space = DesignSpace(a=Integer(1, 4), b=2.0, noise=Uncertain.uniform(0, 1))
-        with self.assertWarns(UserWarning):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
             self._study(store).run()
         self.assertEqual(len(self.calls), 12)
         # another value that the evaluation closes over
@@ -149,9 +160,22 @@ class TestResultStore(unittest.TestCase):
             )
 
         study(0.0).run()
-        with self.assertWarnsRegex(UserWarning, r"defaults\[0\]: 0.0 -> 1.0"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
             study(1.0).run()
         self.assertEqual(len(self.calls), 8)
+
+    def test_other_code(self):
+        """A study warns of records of the same study with other code."""
+        store = ResultStore(self.path, "code")
+
+        def study(evaluate):
+            return Study(self.space, lambda d: d, evaluate, replicates=2, store=store)
+
+        study(lambda d: {"value": d.a}).run()
+        with self.assertWarnsRegex(UserWarning, "other code.*evaluate.code"):
+            edited = study(lambda d: {"value": d.a + 1}).run()
+        self.assertEqual(list(edited.value[:2]), [2, 2])
 
     def test_records_as_json(self):
         """Records are kept as JSON, and read as they were written."""
@@ -203,8 +227,11 @@ class TestResultStore(unittest.TestCase):
         self.assertEqual(store.definition(study.fingerprint), study.definition)
         self.assertIsNone(store.definition("other"))
         reseeded = self._study(store, seed=1)
-        with self.assertWarnsRegex(UserWarning, "latest differs in: seed: 0 -> 1"):
-            reseeded.run()
+        reseeded.run()
+        self.assertEqual(
+            compare_definitions(study.definition, reseeded.definition),
+            ["seed: 0 -> 1"],
+        )
         # contexts in the order they were defined, the latest last
         self.assertEqual(
             list(store.contexts()), [study.fingerprint, reseeded.fingerprint]

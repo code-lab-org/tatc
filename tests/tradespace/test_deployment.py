@@ -16,15 +16,13 @@ from tatc.tradespace import (
     DesignSpace,
     Exponential,
     FailureModel,
-    Phase,
     Real,
     Requirement,
     RestorationPolicy,
-    evaluate_phases,
     sso_planes_space,
-    summarize_phases,
     walker_space,
 )
+from tatc.tradespace.mission import Phase, evaluate_phases, summarize_phases
 
 
 def _walker(planes=3, per_plane=4):
@@ -209,7 +207,7 @@ class TestPhases(unittest.TestCase):
             ],
         )
         expected = (50 * 0.5 + 25 * 0.5 + 75 * 1 + 100 * 2) / 4
-        self.assertAlmostEqual(summary["targets mean"], expected)
+        self.assertAlmostEqual(summary["targets mission"], expected)
         self.assertEqual(summary["targets time"], math.inf)  # the last requirement
         first = summarize_phases(
             capability, requirements=[Requirement("targets", ">=", 75)]

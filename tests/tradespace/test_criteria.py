@@ -152,7 +152,11 @@ class TestAggregate(unittest.TestCase):
         """Statistics and design values are aggregated, without violations."""
         frame = aggregate(
             _results(),
-            {"value": "value", "value p25": Quantile("value", 0.25), "cost": "cost"},
+            statistics={
+                "value": "value",
+                "value p25": Quantile("value", 0.25),
+                "cost": "cost",
+            },
         ).set_index("design")
         self.assertEqual(frame.loc["a", "value"], 13)
         self.assertAlmostEqual(frame.loc["b", "value p25"], 5)
@@ -160,6 +164,32 @@ class TestAggregate(unittest.TestCase):
         self.assertTrue((frame.replicates == 4).all())
         self.assertNotIn("violation", frame.columns)
         self.assertEqual(list(aggregate(_results(), ["value"]).value), [13, 17.5, 1])
+        # a mapping of statistics by name is not one of objectives
+        with self.assertRaisesRegex(ValueError, "statistics"):
+            aggregate(_results(), {"value": "value"})
+        with self.assertRaises(ValueError):
+            aggregate(_results())
+
+    def test_objectives(self):
+        """A mapping of objectives are criteria of their means, with others."""
+        frame = aggregate(
+            _results(),
+            {"value": "max"},
+            statistics={"value p25": Quantile("value", 0.25)},
+        ).set_index("design")
+        self.assertEqual(frame.loc["a", "value"], 13)
+        self.assertAlmostEqual(frame.loc["b", "value p25"], 5)
+        self.assertTrue(frame.meets_requirements.all())
+        # statistics that the criteria name otherwise
+        with self.assertRaisesRegex(ValueError, "otherwise"):
+            aggregate(
+                _results(), {"value": "max"}, statistics={"value": Quantile("value", 1)}
+            )
+        # a statistic the criteria name the same way is not a clash
+        same = aggregate(_results(), {"value": "max"}, statistics={"value": "value"})
+        self.assertEqual(list(same.value), [13, 17.5, 1])
+        # objectives grouped by a column
+        self.assertEqual(len(aggregate(_results(), {"value": "max"}, by="size")), 3)
 
     def test_criteria(self):
         """Criteria add the violations of their requirements, relative to them."""
@@ -321,12 +351,12 @@ class TestScreenRequirements(unittest.TestCase):
             replicates=2,
         )
         screening = screen(
-            space.enumerate(),
             [study, study],
             Criteria(
                 {"cost": "min", "value": "max"},
                 requirements=[Requirement("cost", "<=", 3)],
             ),
+            space.enumerate(),
             keep=4,
         )
         first = screening.summaries[0].set_index("design")

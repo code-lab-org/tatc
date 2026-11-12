@@ -42,9 +42,9 @@ from tatc.tradespace import (
     count_planes,
     count_satellites,
     policy_space,
-    value_of,
     walker_space,
 )
+from tatc.tradespace.observations import value_of
 
 START = datetime(2026, 7, 1, tzinfo=timezone.utc)
 HOURS = timedelta(hours=3)
@@ -231,8 +231,11 @@ class TestObservationStudy(unittest.TestCase):
             plan=PLAN,
             phases=[Requirement("observed", ">=", 50)],
         ).run(designs)
-        self.assertIn("observed mean", phased)
+        self.assertIn("observed mission", phased)
         self.assertIn("observed time", phased)
+        # the years by which the plan deploys every satellite
+        planned = [SCHEDULE.plan(d.layout).deployed for d in designs for _ in range(1)]
+        self.assertEqual(list(phased.deployed), planned)
         failures = Failures(
             FAILURES, RestorationPolicy(restore=False), histories=4, seed="failure_seed"
         )
@@ -245,7 +248,7 @@ class TestObservationStudy(unittest.TestCase):
             plan=PLAN,
             failures=failures,
         ).run(designs)
-        self.assertTrue({"observed mean", "availability", "cost"} <= set(degraded))
+        self.assertTrue({"observed mission", "availability", "cost"} <= set(degraded))
         # the policy of each design
         trade = DesignSpace(
             **SPACE.children, policy=policy_space(orbit_spares=Integer(0, 1))
@@ -297,11 +300,11 @@ class TestObservationStudy(unittest.TestCase):
 
         scenarios = {"once": {}, "twice": {"times": 2}}
         both = study(1, scenarios=scenarios).run(space(1).enumerate())
-        columns = ["observed", "observed mean", "availability", "cost"]
+        columns = ["observed", "observed mission", "availability", "cost"]
         once = both[both.scenario == "once"].reset_index(drop=True)
         twice = both[both.scenario == "twice"].reset_index(drop=True)
         self.assertTrue((once.observed >= twice.observed).all())
-        self.assertTrue((once["observed mean"] > twice["observed mean"]).any())
+        self.assertTrue((once["observed mission"] > twice["observed mission"]).any())
         # as studies with the values of the scenarios
         for times, expected in ((1, once), (2, twice)):
             alone = study(times).run(space(times).enumerate())
@@ -406,9 +409,9 @@ class TestObservationStudy(unittest.TestCase):
             phases=[Requirement("observed", ">=", 50)],
             **options,
         ).run(designs)
-        means = phased.groupby("staged")[["observed mean", "cost"]].mean()
+        means = phased.groupby("staged")[["observed mission", "cost"]].mean()
         self.assertLess(
-            means.loc[True, "observed mean"], means.loc[False, "observed mean"]
+            means.loc[True, "observed mission"], means.loc[False, "observed mission"]
         )
         self.assertLess(means.loc[True, "cost"], means.loc[False, "cost"])
         # failures without restoration: histories are sampled rather than exact
@@ -452,7 +455,7 @@ class TestObservationStudy(unittest.TestCase):
                 results = ObservationStudy(
                     space, _build, _observations(), _metrics, **options, **summary
                 ).run(designs)
-                means = results.groupby("staging")[["observed mean", "cost"]].mean()
+                means = results.groupby("staging")[["observed mission", "cost"]].mean()
                 pd.testing.assert_series_equal(
                     means.loc["measured"], means.loc["delayed"], check_names=False
                 )
@@ -462,6 +465,19 @@ class TestObservationStudy(unittest.TestCase):
                 self.assertLess(
                     means.loc["never", "cost"], means.loc["delayed", "cost"]
                 )
+
+    def test_replace(self):
+        """Variants of an observation study replace its arguments."""
+        study = ObservationStudy(SPACE, _build, _observations(), _metrics)
+        phased = study.replace(layout="layout", plan=PLAN, phases=True)
+        self.assertEqual(phased.phases, ())
+        self.assertIs(phased.build, study.build)
+        self.assertIs(phased.observations, study.observations)
+        results = phased.replace(replicates=2).run(SPACE.enumerate()[:1])
+        self.assertEqual(len(results), 2)
+        self.assertIn("observed mission", results)
+        with self.assertRaises(TypeError):
+            study.replace(evaluate=_metrics)
 
     def test_invalid(self):
         """Failures and phases need a plan, and a plan needs a layout."""

@@ -17,21 +17,23 @@ from tatc.tradespace import (
     DeploymentSchedule,
     DesignSpace,
     Integer,
-    Layout,
-    Plane,
     Real,
     Repeat,
     Uncertain,
     build_constellation,
     count_planes,
     count_satellites,
+    planes_space,
+    sso_planes_space,
+    walker_space,
+)
+from tatc.tradespace.constellations import (
+    Layout,
+    Plane,
     hours_to_time,
     layout_of,
     plane_sizes,
-    planes_space,
     remove_failures,
-    sso_planes_space,
-    walker_space,
 )
 from tatc.tradespace.constellations import Layouts, SSOPlanesLayout, WalkerLayout
 

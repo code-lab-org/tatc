@@ -50,7 +50,7 @@ def evaluate_missions(
     """
     Evaluates histories of a mission (such as those of a replicate, see
     `Deployment.simulate_many`): for each, the mean of each metric over the
-    phases of the mission (`<metric> mean`, see `summarize_phases`), its
+    phases of the mission (`<metric> mission`, see `summarize_phases`), its
     measures (see `MissionHistory.metrics`), and its cost (see
     `CostEstimate.metrics`, with a cost model). The histories share the
     observations of the replicate, so that a `PhaseCache` (as the metric)
@@ -106,9 +106,12 @@ def summarize_missions(
     Summarizes histories of a mission (see `evaluate_missions`) as the
     metrics of an evaluation: the mean of each column over the histories
     (by the same name), quantiles of columns over the histories (`<column>
-    p<percent>`, such as `"accurate mean p10"` for the 0.1 quantile, the
-    risk of the mission), and the share of the histories that meet each
-    requirement on a column (`P(<column> <operator> <value>)`).
+    histories p<percent>`, such as `"accurate mission histories p10"` for the
+    0.1 quantile, the risk of the mission), and the share of the histories
+    that meet each requirement on a column (`P(<column> <operator>
+    <value>)`). The quantiles (and standard deviations) over the histories
+    of a replicate are named apart from statistics over the replicates
+    (such as a `Quantile`, see `Criteria`), which are taken of these.
 
     With `controls`, the means are estimated with control variates: columns
     whose expected values are known (such as the `availability` of a
@@ -139,7 +142,8 @@ def summarize_missions(
         controls (Mapping[str, float] | None): The expected values of
             columns that are control variates, if any.
         spread (bool): `True` to add the standard deviation of each column
-            over the histories (`<column> sd`), as for `allocate_histories`.
+            over the histories (`<column> histories std`), as for
+            `allocate_histories`.
 
     Returns:
         dict[str, float]: the summary
@@ -163,14 +167,14 @@ def summarize_missions(
             mean = _weighted_mean(values, weights)
             variance = _weighted_mean((values - mean) ** 2, weights)
             count = known.sum()
-            summary[f"{column} sd"] = (
+            summary[f"{column} histories std"] = (
                 float(np.sqrt(variance * count / (count - 1)))
                 if count > 1
                 else math.nan
             )
     for column, values in (quantiles or {}).items():
         for q in [values] if isinstance(values, (int, float)) else values:
-            summary[f"{column} p{100 * q:g}"] = _weighted_quantile(
+            summary[f"{column} histories p{100 * q:g}"] = _weighted_quantile(
                 numeric[column].to_numpy(dtype=float), weights, q
             )
     for requirement in requirements:
@@ -365,7 +369,7 @@ def allocate_histories(
     of the failures of its mission in each replicate (cheap, with a
     `PhaseCache`), from a pilot study: the records of its replicates (see
     `summarize_missions`, with `spread`), each the mean (`<metric>`) and
-    standard deviation (`<metric> sd`) of a metric over `histories`
+    standard deviation (`<metric> histories std`) of a metric over `histories`
     histories.
 
     The variance of a replicate's mean is `between + within / K` for `K`
@@ -410,7 +414,9 @@ def allocate_histories(
     if histories < 2 or replicate_seconds <= 0 or history_seconds <= 0:
         raise ValueError("a pilot needs two or more histories and positive costs")
     means = records[metric].to_numpy(dtype=float)
-    within = float(np.mean(records[f"{metric} sd"].to_numpy(dtype=float) ** 2))
+    within = float(
+        np.mean(records[f"{metric} histories std"].to_numpy(dtype=float) ** 2)
+    )
     observed = float(np.var(means, ddof=1))
     if observed < 0.5 * within / histories:
         warnings.warn(
@@ -533,7 +539,7 @@ def expected_missions(
     Computes the expected capability of a mission without restoration
     (failed satellites are not restored, but may be replaced as planned at
     the end of their design life) over its failures: the expectation of the
-    mean of each metric over the phases of the mission (`<metric> mean`, as
+    mean of each metric over the phases of the mission (`<metric> mission`, as
     `summarize_phases` gives for one history) and of its availability
     (`availability`), exactly rather than from samples of histories.
 
@@ -639,9 +645,9 @@ def expected_missions(
         for name, value in values.items():
             if name in ("start", "end", "duration", "satellites"):
                 continue
-            totals[f"{name} mean"] = totals.get(f"{name} mean", 0.0) + weight * float(
-                value
-            )
+            totals[f"{name} mission"] = totals.get(
+                f"{name} mission", 0.0
+            ) + weight * float(value)
         evaluated += weight
         sets += 1
         if evaluated >= 1 - tolerance:

@@ -18,7 +18,6 @@ from tatc.tradespace import (
     Across,
     Criteria,
     DesignSpace,
-    Evaluations,
     Fixed,
     Integer,
     Requirement,
@@ -33,6 +32,7 @@ from tatc.tradespace import (
     pareto_probability,
     robustness,
 )
+from tatc.tradespace.optimization import Evaluations
 
 HAS_OPTUNA = importlib.util.find_spec("optuna") is not None
 HAS_PYMOO = importlib.util.find_spec("pymoo") is not None
@@ -136,7 +136,7 @@ class TestStudyScenarios(unittest.TestCase):
         store = ResultStore(self.path, "scenarios")
         study = self._study(SCENARIOS, store=store)
         a = attribute_variance(
-            study, SPACE.enumerate(), ["y"], replicates=20, by=["scenario"]
+            study, ["y"], SPACE.enumerate(), replicates=20, by=["scenario"]
         )
         shares = a.shares.set_index(["design", "scenario"])["total"]
         key = SPACE.enumerate()[0].key
@@ -146,7 +146,7 @@ class TestStudyScenarios(unittest.TestCase):
         self.assertTrue(np.isnan(shares[key, "pinned"]))
         self.calls.clear()
         attribute_variance(
-            study, SPACE.enumerate(), ["y"], replicates=20, by=["scenario"]
+            study, ["y"], SPACE.enumerate(), replicates=20, by=["scenario"]
         )
         self.assertEqual(self.calls, [])
 
@@ -209,14 +209,14 @@ class TestRobustness(unittest.TestCase):
         regret: the improvement in every objective to match the front."""
         r = self._robustness()
         self.assertEqual(
-            list(r.columns), ["pareto trace", "max regret", "s1 regret", "s2 regret"]
+            list(r.columns), ["pareto_trace", "max_regret", "s1 regret", "s2 regret"]
         )
-        np.testing.assert_allclose(r["pareto trace"], [0.5, 1.0, 0.0])
+        np.testing.assert_allclose(r["pareto_trace"], [0.5, 1.0, 0.0])
         # C in s1: 1 short of B in both objectives (3 short of A in perf)
         np.testing.assert_allclose(r["s1 regret"], [0, 0, 1])
         # A in s2: 3 short of B in perf (2 in cost); C: 1 short of B in cost
         np.testing.assert_allclose(r["s2 regret"], [3, 0, 1])
-        np.testing.assert_allclose(r["max regret"], [3, 0, 1])
+        np.testing.assert_allclose(r["max_regret"], [3, 0, 1])
 
     def test_scale(self):
         """Regret is in units of the scales of the objectives."""
@@ -233,7 +233,7 @@ class TestRobustness(unittest.TestCase):
         is in tolerances by default."""
         criteria = Criteria(OBJECTIVES, tolerance={"cost": 2})
         r = self._robustness(criteria=criteria)
-        np.testing.assert_allclose(r["pareto trace"], [0.5, 1.0, 1.0])
+        np.testing.assert_allclose(r["pareto_trace"], [0.5, 1.0, 1.0])
         # A in s2: 3 short of B and C in perf
         np.testing.assert_allclose(r["s2 regret"], [3, 0, 0])
 
@@ -243,7 +243,7 @@ class TestRobustness(unittest.TestCase):
         criteria = Criteria(OBJECTIVES, requirements=[Requirement("perf", ">=", 7)])
         r = self._robustness(criteria=criteria)
         self.assertEqual(r.loc["A", "s2 regret"], math.inf)
-        self.assertEqual(r.loc["A", "max regret"], math.inf)
+        self.assertEqual(r.loc["A", "max_regret"], math.inf)
         infeasible = pd.concat([RESULTS, _results([("D", "s1", None, None)])])
         infeasible = pd.concat(
             [infeasible, _results([("D", "s2", 9, 2)])], ignore_index=True
@@ -251,7 +251,7 @@ class TestRobustness(unittest.TestCase):
         r = self._robustness(results=infeasible)
         self.assertEqual(r.loc["D", "s1 regret"], math.inf)
         self.assertEqual(r.loc["D", "s2 regret"], 0)
-        self.assertEqual(r.loc["D", "pareto trace"], 0.5)
+        self.assertEqual(r.loc["D", "pareto_trace"], 0.5)
 
     def test_invalid(self):
         """Robustness needs scenarios, and criteria by them alone."""
@@ -269,7 +269,7 @@ class TestRobustness(unittest.TestCase):
         results = Study(SPACE, lambda d: d, _evaluate, scenarios=SCENARIOS).run()
         r = robustness(results, {"y": "max", "cost": "min"})
         # every design trades y against cost, in every scenario
-        np.testing.assert_allclose(r["pareto trace"], 1.0)
+        np.testing.assert_allclose(r["pareto_trace"], 1.0)
         self.assertEqual(len(r), 3)
 
 

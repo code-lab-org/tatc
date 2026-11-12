@@ -15,7 +15,6 @@ from tatc.tradespace import (
     Choice,
     Criteria,
     DesignSpace,
-    Evaluations,
     Infeasible,
     Integer,
     Minimum,
@@ -25,12 +24,12 @@ from tatc.tradespace import (
     Study,
     Uncertain,
     hypervolume,
-    make_pymoo_problem,
     optimize_optuna,
     optimize_pymoo,
     pareto_front,
     summarize,
 )
+from tatc.tradespace.optimization import Evaluations, make_pymoo_problem
 
 HAS_OPTUNA = importlib.util.find_spec("optuna") is not None
 HAS_PYMOO = importlib.util.find_spec("pymoo") is not None
@@ -227,6 +226,12 @@ class TestPymoo(unittest.TestCase):
         found = summarize(results, list(OBJECTIVES))
         self.assertGreater(hypervolume(found, OBJECTIVES, REFERENCE), 0.9 * exact)
         self.assertFalse(results.feasible.all())  # some designs were too heavy
+        # the summary of the feasible designs, and their front
+        summary = search.summary
+        self.assertEqual(set(summary.design), set(results.design[results.feasible]))
+        np.testing.assert_array_equal(
+            summary.pareto, pareto_front(summary, OBJECTIVES).to_numpy()
+        )
 
     def test_duplicates(self):
         """Proposals of the same design, or of designs evaluated before, are

@@ -16,7 +16,7 @@ from itertools import combinations
 import numpy as np
 import pandas as pd
 
-from .space import Design, DesignSpace, _check_uncertain, _generic
+from .space import Design, DesignSpace, _check_uncertain, _designs, _generic
 from .study import Study
 
 _SHARES = ("first", "total")
@@ -461,8 +461,9 @@ def _shares(
 
 def attribute_variance(
     study: Study,
-    designs: Sequence[Design],
     metrics: Sequence[str],
+    designs: Sequence[Design] | pd.DataFrame,
+    *,
     parameters: Sequence[str] | Mapping[str, Sequence[str]] | None = None,
     replicates: int | None = None,
     by: Sequence[str] = (),
@@ -520,8 +521,10 @@ def attribute_variance(
 
     Args:
         study (Study): The study that evaluates designs.
-        designs (Sequence[Design]): The designs.
         metrics (Sequence[str]): The metrics (columns of the results).
+        designs (Sequence[Design] | pandas.DataFrame): The designs, or a data
+            frame of their values (such as rows of a summary that keeps them,
+            see `DesignSpace.designs_of`).
         parameters (Sequence[str] | Mapping[str, Sequence[str]] | None): The
             uncertain parameters to attribute variance to (by their paths,
             see `DesignSpace.uncertain_paths`), groups of them (by name), or
@@ -545,7 +548,7 @@ def attribute_variance(
         raise ValueError("n_resamples must be at least 2")
     groups = _groups_of(study.space, parameters)
     metrics, by = list(metrics), tuple(by)
-    unique = list({design.key: design for design in designs}.values())
+    unique = _designs(study.space, designs)
     plain = study.run(unique, replicates=range(2 * n))
     missing = [column for column in (*metrics, *by) if column not in plain.columns]
     if missing and plain["feasible"].any():

@@ -22,11 +22,11 @@ from tatc.tradespace import (
     Uncertain,
     aggregate,
     count_satellites,
-    plane_sizes,
     planes_space,
     sso_planes_space,
     walker_space,
 )
+from tatc.tradespace.constellations import plane_sizes
 
 
 def _design(**children):
@@ -235,7 +235,7 @@ class TestCostModel(unittest.TestCase):
 
         results = Study(space, lambda d: d, evaluate, replicates=20).run(designs)
         summary = aggregate(
-            results, {"cost": "cost", "cost p70": Quantile("cost", 0.7)}
+            results, statistics={"cost": "cost", "cost p70": Quantile("cost", 0.7)}
         )
         # the 0.7 quantile of a growth skewed upward exceeds the mean
         self.assertTrue((summary["cost p70"] > summary["cost"]).all())

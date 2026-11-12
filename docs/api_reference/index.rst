@@ -11,6 +11,6 @@ The following provide documentation on the Python API to TAT-C.
   catalog
   generation/index
   analysis/index
-  tradespace
+  tradespace/index
   preprocess/index
   utils/index

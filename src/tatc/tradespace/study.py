@@ -21,7 +21,12 @@ from typing import Any, NamedTuple
 import pandas as pd
 from pydantic import ValidationError
 
-from .fingerprint import _fingerprint_of, compare_definitions, get_definition
+from .fingerprint import (
+    _fingerprint_of,
+    _without_code,
+    compare_definitions,
+    get_definition,
+)
 from .nodes import Infeasible
 from .space import (
     Design,
@@ -29,6 +34,7 @@ from .space import (
     _check_scenario,
     _check_uncertain,
     _describe_scenario,
+    _designs,
 )
 from .store import ResultStore
 
@@ -81,7 +87,11 @@ def _get_executor(n_jobs: int) -> Executor:
 class Study:
     """
     A trade study: designs from a design space, each built into an
-    architecture (or any object to evaluate) and evaluated in replicates.
+    architecture (or any object to evaluate) and evaluated in replicates::
+
+        study = Study(space, build, evaluate, replicates=5, n_jobs=-1, store=store)
+        results = study.run()  # every design, a row per replicate
+        more = study.replace(replicates=20).run(designs)
 
     Each replicate realizes a design (see `Design.realize`), builds it with
     `build`, and evaluates the result with `evaluate`, which returns its
@@ -176,7 +186,11 @@ class Study:
             fingerprint, see `fingerprint`) are taken rather than evaluated
             again, and to which new ones are added as they complete (see
             `ResultStore`), by the workers that evaluate them (so its file
-            must be reachable from them).
+            must be reachable from them). Studies of other definitions may
+            share a store (and its namespace): their fingerprints keep their
+            evaluations apart. A warning is given if the store has
+            evaluations of the same study with other code (of its functions,
+            of TAT-C, or of Python), which are not reused.
         scenarios (Mapping[str, Mapping[str, Any]] | None): The scenarios
             in which to evaluate designs, if any: the values of fixed values
             and uncertain parameters of each (by path), by name.
@@ -340,6 +354,61 @@ class Study:
             for name, values in self.scenarios.items()
         ]
 
+    def replace(self, **changes: Any) -> Study:
+        """
+        Gets a study like this one with some of its arguments changed (by
+        name, as of its class), such as a variant with more replicates, in
+        scenarios, or of another design space::
+
+            confirming = study.replace(replicates=20)
+            policies = study.replace(space=space.extend(policy=POLICY))
+
+        Args:
+            **changes (Any): The arguments to change.
+
+        Returns:
+            Study: the study, of the same class
+
+        Raises:
+            TypeError: if a change names no argument of the study's class.
+        """
+        arguments = self._arguments()
+        unknown = sorted(set(changes) - set(arguments))
+        if unknown:
+            raise TypeError(f"{type(self).__name__} has no arguments {unknown}")
+        return type(self)(**{**arguments, **changes})
+
+    def _arguments(self) -> dict[str, Any]:
+        """
+        Gets the arguments of the study, by name, from which `replace` makes
+        another (a subclass with other arguments gives its own).
+        """
+        if type(self).__init__ is not Study.__init__:
+            raise TypeError(
+                f"{type(self).__name__} does not give its arguments to replace"
+            )
+        return {
+            "space": self.space,
+            "build": self.build,
+            "evaluate": self.evaluate,
+            **self._settings(),
+        }
+
+    def _settings(self) -> dict[str, Any]:
+        """Gets the settings of the study (the arguments of every study but
+        its design space and functions), by name."""
+        return {
+            "replicates": self.replicates,
+            "seed": self.seed,
+            "common_random_numbers": self.common_random_numbers,
+            "n_jobs": self.n_jobs,
+            "executor": self.executor,
+            "chunks_per_job": self.chunks_per_job,
+            "store": self.store,
+            "errors": self.errors,
+            "scenarios": self.scenarios,
+        }
+
     @property
     def definition(self) -> dict:
         """dict: The definition of the study (see `get_definition`), which
@@ -377,7 +446,7 @@ class Study:
 
     def run(
         self,
-        designs: Iterable[Design] | None = None,
+        designs: Iterable[Design] | pd.DataFrame | None = None,
         progress: Callable[[int, int], None] | None = None,
         replicates: Iterable[int] | None = None,
         shift: Mapping[str, int] | None = None,
@@ -399,9 +468,10 @@ class Study:
         scenario in each replicate.
 
         Args:
-            designs (Iterable[Design] | None): The designs, or `None` for
-                every design of the design space (see
-                `DesignSpace.enumerate`).
+            designs (Iterable[Design] | pandas.DataFrame | None): The designs,
+                a data frame of their values (such as a summary that keeps
+                them, see `DesignSpace.designs_of`), or `None` for every
+                design of the design space (see `DesignSpace.enumerate`).
             progress (Callable | None): A function called as evaluations
                 complete with the number completed and the number of
                 evaluations (not counting those taken from the store).
@@ -424,8 +494,9 @@ class Study:
         shift = {name: int(offset) for name, offset in (shift or {}).items() if offset}
         _check_uncertain(self.space, shift)
         cases = self._cases(shift)
-        designs = self.space.enumerate() if designs is None else designs
-        unique = list({design.key: design for design in designs}.values())
+        unique = (
+            self.space.enumerate() if designs is None else _designs(self.space, designs)
+        )
         # tasks in the order of replicates (and scenarios), whose designs share
         # uncertain values
         tasks = [
@@ -594,27 +665,32 @@ def _takes_design(function: Callable) -> bool:
 
 def _warn_other_definitions(store: ResultStore, context: str, definition: dict) -> None:
     """
-    Warns if a store has evaluations of its namespace by studies of other
-    definitions (which a study does not reuse), with the differences from
-    the definition of the latest (see `compare_definitions`).
+    Warns if a store has evaluations of its namespace by the same study with
+    other code (its functions', TAT-C's, or Python's: the same values but for
+    the code of functions, see `_without_code`), which a study does not
+    reuse, with the differences (see `compare_definitions`). Studies of other
+    values (such as other settings) share a namespace without a warning, as
+    their fingerprints keep their evaluations apart.
     """
-    others = {
-        other: count for other, count in store.contexts().items() if other != context
-    }
+    contexts = store.contexts()
+    others = [other for other in contexts if other != context]
     if not others:
         return
-    message = (
-        f"the store has {sum(others.values())} evaluations of namespace "
-        + f"{store.namespace!r} by studies of other definitions, which are not "
-        + "reused (see Study.fingerprint)"
-    )
-    for other in reversed(list(others)):
+    values = _without_code(definition.get("values", {}))
+    for other in reversed(others):
         before = store.definition(other)
-        if before is not None:
-            differences = compare_definitions(before, definition)
-            message += "; the latest differs in: " + "; ".join(differences)
-            break
-    warnings.warn(message, stacklevel=3)
+        if before is None or _without_code(before.get("values", {})) != values:
+            continue
+        differences = compare_definitions(before, definition)
+        warnings.warn(
+            f"the store has {contexts[other]} evaluations of namespace "
+            + f"{store.namespace!r} by this study with other code, which are not "
+            + "reused (see Study.fingerprint, and ResultStore.prune to remove "
+            + "them); it differs in: "
+            + "; ".join(differences),
+            stacklevel=3,
+        )
+        return
 
 
 def _unstored(records: list[dict]) -> bool:

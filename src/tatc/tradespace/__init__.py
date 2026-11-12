@@ -1,78 +1,35 @@
 """
-Trade space analysis: design spaces of (hierarchical) design variables and
-uncertain parameters, building blocks of constellations (their deployment and life-cycle cost,
-and capability over the phases of deployment),
-trade studies that evaluate their designs (in scenarios, with caches
-of analyses by satellite, in parallel), studies of the observations of
-constellations (their targets, deployment, costs, failures, and phases), criteria that judge designs by
-statistics of their replicates (of metrics or their utility) and requirements on them, Pareto efficiency
-(with the uncertainty of replicates),
-adaptive replication, confirmation of selected designs with new replicates,
-persistent stores of results (keyed by fingerprints of studies), sensitivity analysis
-(to design variables, and attribution of variance to uncertain parameters),
-screening with analyses of increasing fidelity,
-searches with optimizers (Optuna and pymoo, optional dependencies),
-and plots of results (matplotlib, an optional dependency).
+Trade space analysis of constellations.
+
+A trade study declares a design space (`DesignSpace`), evaluates its designs
+in replicates that draw its uncertain parameters (`Study`, or
+`ObservationStudy` for the observations, deployment, costs, and failures of
+constellations) into results (a row per replicate), judges designs by
+criteria (`Criteria`) on summaries of the results (`aggregate`, a row per
+design) and their Pareto efficiency (`pareto_front`), and settles the
+uncertainty of its replicates (`refine`, `confirm`), or finds efficient
+designs of spaces too large to enumerate (`screen`, `optimize_optuna`,
+`optimize_pymoo`).
+
+This package exports the functions and classes of trade studies. The parts
+from which they are made (such as the layouts of constellations, the
+simulation of missions, and fingerprints) are in its modules.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from .attribution import Attribution, attribute_variance
-from .cache import SatelliteCache, get_satellite_key
-from .confirmation import Confirmation, confirm
-from .cost import (
-    CostEstimate,
-    CostModel,
-    LaunchCost,
-    OperationsCost,
-    SatelliteCost,
-)
+from .attribution import attribute_variance
+from .cache import SatelliteCache
+from .confirmation import confirm
 from .constellations import (
     build_constellation,
     count_planes,
     count_satellites,
-    Layout,
-    Plane,
-    hours_to_time,
-    layout_of,
-    plane_sizes,
     planes_space,
-    remove_failures,
     sso_planes_space,
     walker_space,
 )
-from .deployment import (
-    Deployment,
-    DeploymentSchedule,
-    Launch,
-    Production,
-    Stage,
-)
-from .histories import (
-    allocate_histories,
-    evaluate_missions,
-    expected_missions,
-    summarize_missions,
-)
-from .mission import (
-    Capability,
-    Decision,
-    MissionHistory,
-    Phase,
-    PhaseCache,
-    evaluate_phases,
-    summarize_phases,
-)
-from .failures import (
-    Bathtub,
-    Exponential,
-    FailureModel,
-    Lifetime,
-    Piecewise,
-    RestorationPolicy,
-    Weibull,
-    policy_space,
-)
+from .cost import CostModel, LaunchCost, OperationsCost, SatelliteCost
 from .criteria import (
     Across,
     Criteria,
@@ -84,38 +41,19 @@ from .criteria import (
     Requirement,
     StandardDeviation,
     StandardError,
-    Statistic,
     aggregate,
     summarize,
 )
-from .optimization import (
-    Evaluations,
-    Search,
-    make_pymoo_problem,
-    optimize_optuna,
-    optimize_pymoo,
+from .deployment import DeploymentSchedule, Stage
+from .failures import (
+    Bathtub,
+    Exponential,
+    FailureModel,
+    Piecewise,
+    RestorationPolicy,
+    Weibull,
+    policy_space,
 )
-from .fingerprint import compare_definitions, get_definition, get_fingerprint
-from .observations import (
-    Failures,
-    MissionPlan,
-    ObservationStudy,
-    Observations,
-    Targets,
-    value_of,
-)
-from .pareto import (
-    hypervolume,
-    hypervolume_progress,
-    pareto_front,
-    pareto_probability,
-    pareto_ranks,
-)
-from .plotting import plot_designs, plot_means, plot_progress, style_axes
-from .refinement import Refinement, refine
-from .screening import Screening, screen
-from .scenarios import robustness
-from .sensitivity import main_effects, sensitivity
 from .nodes import (
     Categorical,
     Choice,
@@ -126,126 +64,102 @@ from .nodes import (
     Real,
     Repeat,
     Uncertain,
-    Variable,
 )
+from .observations import Failures, MissionPlan, ObservationStudy, Observations, Targets
+from .optimization import optimize_optuna, optimize_pymoo
+from .pareto import (
+    hypervolume,
+    hypervolume_progress,
+    pareto_front,
+    pareto_probability,
+    pareto_ranks,
+)
+from .plotting import plot_designs, plot_means, plot_progress, style_axes
+from .refinement import refine
+from .scenarios import robustness
+from .screening import screen
+from .sensitivity import main_effects, sensitivity
 from .space import Design, DesignSpace
 from .store import ResultStore
 from .study import Study
 from .utility import ExponentialUtility, LinearUtility, PiecewiseUtility, Utility
-from .values import ChoiceValues, RepeatValues, Scope, Values, configure
 
 __all__ = [
-    "Across",
-    "Attribution",
-    "Bathtub",
-    "Capability",
+    # design spaces
     "Categorical",
     "Choice",
-    "ChoiceValues",
-    "Confirmation",
-    "CostEstimate",
-    "CostModel",
-    "Criteria",
-    "Decision",
-    "Deployment",
-    "DeploymentSchedule",
     "Derived",
     "Design",
     "DesignSpace",
-    "Evaluations",
-    "Exponential",
-    "ExponentialUtility",
-    "FailureModel",
-    "Failures",
     "Fixed",
     "Infeasible",
     "Integer",
-    "Launch",
+    "Real",
+    "Repeat",
+    "Uncertain",
+    "build_constellation",
+    "count_planes",
+    "count_satellites",
+    "planes_space",
+    "policy_space",
+    "sso_planes_space",
+    "walker_space",
+    # studies
+    "Bathtub",
+    "CostModel",
+    "DeploymentSchedule",
+    "Exponential",
+    "FailureModel",
+    "Failures",
     "LaunchCost",
-    "Layout",
-    "Lifetime",
-    "LinearUtility",
-    "Maximum",
-    "Mean",
-    "Minimum",
-    "MissionHistory",
     "MissionPlan",
     "ObservationStudy",
     "Observations",
     "OperationsCost",
-    "Phase",
-    "PhaseCache",
     "Piecewise",
-    "PiecewiseUtility",
-    "Plane",
-    "Probability",
-    "Production",
-    "Quantile",
-    "Real",
-    "Refinement",
-    "Repeat",
-    "RepeatValues",
-    "Requirement",
     "RestorationPolicy",
     "ResultStore",
     "SatelliteCache",
     "SatelliteCost",
-    "Scope",
-    "Screening",
-    "Search",
     "Stage",
-    "StandardDeviation",
-    "StandardError",
-    "Statistic",
     "Study",
     "Targets",
-    "Uncertain",
-    "Utility",
-    "Values",
-    "Variable",
     "Weibull",
+    # criteria and summaries
+    "Across",
+    "Criteria",
+    "ExponentialUtility",
+    "LinearUtility",
+    "Maximum",
+    "Mean",
+    "Minimum",
+    "PiecewiseUtility",
+    "Probability",
+    "Quantile",
+    "Requirement",
+    "StandardDeviation",
+    "StandardError",
+    "Utility",
     "aggregate",
-    "allocate_histories",
-    "attribute_variance",
-    "build_constellation",
-    "compare_definitions",
-    "configure",
-    "confirm",
-    "count_planes",
-    "count_satellites",
-    "evaluate_missions",
-    "evaluate_phases",
-    "expected_missions",
-    "get_definition",
-    "get_fingerprint",
-    "get_satellite_key",
-    "hours_to_time",
     "hypervolume",
     "hypervolume_progress",
-    "layout_of",
     "main_effects",
-    "make_pymoo_problem",
-    "optimize_optuna",
-    "optimize_pymoo",
     "pareto_front",
     "pareto_probability",
     "pareto_ranks",
-    "plane_sizes",
-    "planes_space",
+    "robustness",
+    "sensitivity",
+    "summarize",
+    # refinement and searches
+    "attribute_variance",
+    "confirm",
+    "optimize_optuna",
+    "optimize_pymoo",
+    "refine",
+    "screen",
+    # plots
     "plot_designs",
     "plot_means",
     "plot_progress",
-    "policy_space",
-    "refine",
-    "remove_failures",
-    "robustness",
-    "screen",
-    "sensitivity",
-    "sso_planes_space",
     "style_axes",
-    "summarize",
-    "summarize_missions",
-    "summarize_phases",
-    "value_of",
-    "walker_space",
 ]

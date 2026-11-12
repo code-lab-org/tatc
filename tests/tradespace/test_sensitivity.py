@@ -61,6 +61,16 @@ class TestSensitivity(unittest.TestCase):
         binned = main_effects(self.frame, "c", "metric", max_levels=4)
         self.assertEqual(len(binned), 4)
 
+    def test_results_raise(self):
+        """The results of a study (a row per replicate) are not summaries."""
+        results = pd.DataFrame(
+            {"design": ["x", "x", "y", "y"], "a": [1, 1, 2, 2], "metric": [1, 2, 3, 4]}
+        )
+        with self.assertRaisesRegex(ValueError, "aggregate"):
+            sensitivity(results, ["a"], ["metric"])
+        with self.assertRaisesRegex(ValueError, "aggregate"):
+            main_effects(results, "a", "metric")
+
     def test_irrelevant_variable(self):
         """The adjusted share of a variable that does not matter is near 0."""
         rng = np.random.default_rng(1)

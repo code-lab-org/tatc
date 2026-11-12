@@ -20,8 +20,8 @@ from tatc.tradespace import (
     Integer,
     SatelliteCache,
     Study,
-    get_satellite_key,
 )
+from tatc.tradespace.cache import get_satellite_key
 
 EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
 

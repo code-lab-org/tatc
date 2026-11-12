@@ -190,10 +190,36 @@ class TestStudy(unittest.TestCase):
         first = results[results.design == summary.design[0]]
         self.assertAlmostEqual(summary["score"][0], first.score.mean())
         self.assertAlmostEqual(summary["score std"][0], first.score.std())
-        self.assertAlmostEqual(summary["score sem"][0], first.score.std() / np.sqrt(3))
+        self.assertAlmostEqual(summary["score se"][0], first.score.std() / np.sqrt(3))
+        self.assertNotIn("score sem", summary.columns)
         # a metric may also be a value of the design
         overlap = summarize(results, ["score", "planes"], design_columns=["planes"])
         self.assertEqual(list(overlap.columns).count("planes"), 1)
+
+    def test_replace_and_frames(self):
+        """Variants of a study replace arguments; designs may be data frames."""
+        study = Study(
+            self.space,
+            lambda d: d,
+            lambda d: {"score": d.planes + d.noise},
+            replicates=2,
+            seed=3,
+        )
+        more = study.replace(replicates=4)
+        self.assertEqual((more.replicates, more.seed), (4, 3))
+        self.assertIs(more.evaluate, study.evaluate)
+        self.assertEqual(study.replicates, 2)
+        results = more.run()
+        self.assertEqual(len(results), 9 * 4)
+        with self.assertRaisesRegex(TypeError, "no arguments"):
+            study.replace(replicate=3)
+        # designs given by a data frame of their values (such as a summary)
+        summary = summarize(results, ["score"])
+        best = summary.nlargest(2, "score")
+        again = study.run(best)
+        self.assertEqual(list(again.design.unique()), list(best.design))
+        with self.assertRaisesRegex(ValueError, "not given"):
+            study.run(list(best.design))
 
     def test_summarize_by(self):
         """Summaries group the records of an evaluation."""
