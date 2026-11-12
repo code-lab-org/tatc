@@ -160,7 +160,8 @@ def refine(
             indifferent, or `None` to refine uncertain designs until
             `max_replicates`.
         budget (int | None): The most evaluations to add (a design in a
-            replicate), if limited.
+            replicate, which a study with scenarios evaluates in each), if
+            limited.
         n_resamples (int): The number of resamples of each bootstrap.
         seed (int): The seed of the bootstraps.
 

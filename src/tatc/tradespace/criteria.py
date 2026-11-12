@@ -308,6 +308,98 @@ class Requirement:
         return np.where(np.isnan(statistic), np.nan, violation)
 
 
+_RULES = ("worst", "mean")
+
+
+@dataclass(frozen=True)
+class Across:
+    """
+    A rule that combines the statistics of each design across the groups of
+    a column of the results, such as the scenarios of a study (see `Study`),
+    so that criteria (see `Criteria`) judge each design once, rather than in
+    each group (as criteria `by` the column do): each statistic is computed
+    over the replicates in each group, and then combined across the groups.
+
+    * `"worst"`: a statistic is its worst value in any group: the largest of
+      an objective to minimize (the smallest of one to maximize), and the
+      worst of a statistic of requirements for them (the smallest for `">="`),
+      so that a design meets a requirement only if it does in every group,
+      as a design robust to the scenarios must.
+    * `"mean"`: a statistic is its mean over the groups, weighted by their
+      `weights` (equal if not given), as an expectation over scenarios of
+      these probabilities.
+
+    `rules` combine some statistics (by name) otherwise than `rule`: for
+    example, objectives of the mean over scenarios, with a requirement in
+    every scenario on a statistic of another name::
+
+        Criteria(
+            {"accurate": "max", "satellites": "min"},
+            statistics={"accurate anywhere": "accurate"},
+            requirements=[Requirement("accurate anywhere", ">=", 40)],
+            across=Across("scenario", "mean", rules={"accurate anywhere": "worst"}),
+        )
+
+    The worst of a statistic needs its direction: that of the objective or
+    the requirements that name it, which must agree. Requirements and
+    tolerances apply to the combined statistics. A design is judged only if
+    it has feasible results in every group of the results (in each group of
+    the criteria's `by`).
+
+    Combining the statistics of the groups (such as the worst of the means)
+    differs from a statistic of the worst group of each replicate (the mean
+    of the worst in each replicate), which, for a mean, is more pessimistic.
+
+    Args:
+        column (str): The column of the groups, such as `"scenario"`.
+        rule (str): How statistics are combined: `"worst"` or `"mean"`.
+        weights (Mapping[Any, float] | None): The weights of the mean of the
+            groups (by value of the column), or `None` for equal weights:
+            normalized over the groups of the results, each of which must
+            have one.
+        rules (Mapping[str, str]): The rules of some statistics (by name), in
+            place of `rule`.
+    """
+
+    column: str = "scenario"
+    rule: str = "worst"
+    weights: Mapping[Any, float] | None = None
+    rules: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self):
+        if not isinstance(self.column, str) or not self.column:
+            raise TypeError("the column must be a name (a non-empty string)")
+        rules = dict(self.rules)
+        for rule in [self.rule, *rules.values()]:
+            if rule not in _RULES:
+                raise ValueError(f"a rule must be one of {list(_RULES)}, not {rule!r}")
+        weights = None if self.weights is None else dict(self.weights)
+        if weights is not None and not all(
+            np.isfinite(float(w)) and float(w) > 0 for w in weights.values()
+        ):
+            raise ValueError("the weights of groups must be positive")
+        object.__setattr__(self, "rules", rules)
+        object.__setattr__(self, "weights", weights)
+
+    def weights_of(self, groups: Sequence[Any]) -> np.ndarray:
+        """
+        Gets the weights of the mean of groups, normalized.
+
+        Args:
+            groups (Sequence[Any]): The groups (values of the column).
+
+        Returns:
+            numpy.ndarray: the weight of each group, which sum to 1
+        """
+        if self.weights is None:
+            return np.full(len(groups), 1.0 / max(len(groups), 1))
+        missing = [group for group in groups if group not in self.weights]
+        if missing:
+            raise ValueError(f"groups of {self.column!r} without weights: {missing}")
+        weights = np.array([float(self.weights[group]) for group in groups])
+        return weights / weights.sum()
+
+
 Tolerance = float | str
 """A tolerance of an objective: a value in its units, or a share of its value
 (a string of a percentage, such as `"5%"`)."""
@@ -357,6 +449,11 @@ class Criteria:
     them is as good in every objective and better in at least one, by more
     than the tolerances (see `pareto_front`).
 
+    Designs evaluated in several groups of a column (such as the scenarios
+    of a study, see `Study`) are judged in each group with criteria `by` the
+    column, or once with criteria `across` it (see `Across`), which combine
+    their statistics across the groups: their worst, or their mean.
+
     The functions that judge designs (`aggregate`, `pareto_front`,
     `pareto_ranks`, `hypervolume`, `pareto_probability`, `refine`,
     `confirm`, `screen`, and the searches of `optimize_optuna` and
@@ -377,6 +474,9 @@ class Criteria:
         by (Sequence[str] | str): The columns that group the records of an
             evaluation (such as a sensor), in each group of which designs are
             judged separately.
+        across (Across | None): The rule that combines the statistics of
+            each design across the groups of a column (such as the
+            scenarios), if any.
     """
 
     objectives: Mapping[str, str]
@@ -384,6 +484,7 @@ class Criteria:
     requirements: Sequence[Requirement] = ()
     tolerance: Mapping[str, Tolerance] = field(default_factory=dict)
     by: Sequence[str] | str = ()
+    across: Across | None = None
 
     def __post_init__(self):
         if not isinstance(self.objectives, Mapping):
@@ -415,6 +516,17 @@ class Criteria:
         object.__setattr__(self, "requirements", requirements)
         object.__setattr__(self, "tolerance", tolerance)
         object.__setattr__(self, "by", by)
+        if self.across is not None:
+            if not isinstance(self.across, Across):
+                raise TypeError("across must be an Across (or None)")
+            if self.across.column in by:
+                raise ValueError(
+                    f"criteria cannot both group and combine {self.across.column!r}"
+                )
+            unknown = sorted(set(self.across.rules) - set(self.names))
+            if unknown:
+                raise ValueError(f"rules of names that are not statistics: {unknown}")
+            _combiners(self)  # checks that each statistic has a worst, if needed
 
     @property
     def names(self) -> list[str]:
@@ -500,12 +612,16 @@ def _groups(frame: pd.DataFrame, by: Sequence[str]) -> Iterator[tuple[tuple, Any
 
 
 def _get_matrices(
-    group: pd.DataFrame, columns: Sequence[str]
+    group: pd.DataFrame,
+    columns: Sequence[str],
+    designs: pd.Index | None = None,
+    replicates: pd.Index | None = None,
 ) -> tuple[pd.Index, pd.Index, dict[str, np.ndarray]]:
     """
     Gets the values of metrics of each design (rows) in each replicate
     (columns) of the results of a group, which must have one record per
-    evaluation (a design in a replicate).
+    evaluation (a design in a replicate): of the designs and replicates of
+    the group, or of those given (`NaN` without a record).
     """
     missing = [column for column in columns if column not in group.columns]
     if missing:
@@ -522,11 +638,13 @@ def _get_matrices(
         raise ValueError(
             "the results have several records of an evaluation (a design in a "
             + "replicate): give the columns that separate them as `by` (of the "
-            + "criteria)"
+            + "criteria), or combine their groups `across` (see Across)"
             + (f", such as {varying}" if varying else "")
         )
-    designs = pd.Index(group["design"].drop_duplicates())
-    replicates = pd.Index(sorted(group["replicate"].unique()))
+    if designs is None:
+        designs = pd.Index(group["design"].drop_duplicates())
+    if replicates is None:
+        replicates = pd.Index(sorted(group["replicate"].unique()))
     matrices = {}
     for column in columns:
         table = group.pivot(index="design", columns="replicate", values=column)
@@ -559,6 +677,153 @@ def _evaluate(
     return values, violation
 
 
+def _combiners(criteria: Criteria) -> dict[str, str]:
+    """
+    Gets how each statistic of criteria is combined across the groups of
+    their `across` (see `Across`): by its largest (`"max"`) or smallest
+    (`"min"`) value, its worst, or by its `"mean"`.
+    """
+    across = criteria.across
+    worst: dict[str, set[str]] = {}
+    for name, direction in criteria.objectives.items():
+        worst.setdefault(name, set()).add("max" if direction == "min" else "min")
+    for requirement in criteria.requirements:
+        sense = "min" if requirement.operator in (">=", ">") else "max"
+        worst.setdefault(requirement.name, set()).add(sense)
+    combiners = {}
+    for name in criteria.names:
+        if across.rules.get(name, across.rule) == "mean":
+            combiners[name] = "mean"
+        elif name not in worst:
+            raise ValueError(
+                f"statistic {name!r} has no worst across {across.column!r}: it is "
+                + "neither an objective nor required (combine it by its mean, "
+                + "see Across)"
+            )
+        elif len(worst[name]) > 1:
+            raise ValueError(
+                f"the objective and requirements of statistic {name!r} disagree on "
+                + "its worst: give it another name (in the statistics) for each"
+            )
+        else:
+            combiners[name] = next(iter(worst[name]))
+    return combiners
+
+
+def _across_groups(results: pd.DataFrame, across: Across | None) -> list | None:
+    """
+    Gets the groups of results (values of a column, in order) across which
+    criteria combine statistics, if any.
+    """
+    if across is None:
+        return None
+    if across.column not in results.columns:
+        raise ValueError(
+            f"the results have no column {across.column!r} to combine across "
+            + "(such as the scenarios of a study, see Study)"
+        )
+    return list(pd.unique(results[across.column]))
+
+
+class _Statistics:
+    """
+    The statistics of the designs of the feasible results of a group (of the
+    criteria's `by`), over every replicate or some of them (see `evaluate`),
+    from the values of their metrics in each replicate: in each group of a
+    column, combined across the groups (see `Across`), if any. Designs
+    without results in every group are left out.
+
+    Args:
+        results (pandas.DataFrame): The feasible results of a group.
+        statistics (Mapping[str, Statistic]): The statistics, by name.
+        requirements (Sequence[Requirement]): The requirements.
+        across (Across | None): The rule that combines the groups of a
+            column, if any.
+        combiners (Mapping[str, str] | None): How each statistic is combined
+            (see `_combiners`), with a rule.
+        groups (Sequence | None): The groups of the column (of every result),
+            with a rule.
+    """
+
+    def __init__(
+        self,
+        results: pd.DataFrame,
+        statistics: Mapping[str, Statistic],
+        requirements: Sequence[Requirement] = (),
+        across: Across | None = None,
+        combiners: Mapping[str, str] | None = None,
+        groups: Sequence | None = None,
+    ):
+        self.statistics, self.requirements = statistics, requirements
+        self.combiners = combiners
+        metrics = sorted(
+            {
+                column
+                for statistic in statistics.values()
+                for column in statistic.columns
+            }
+        )
+        if across is None:
+            self.designs, self.replicates, matrices = _get_matrices(results, metrics)
+            self.matrices = [matrices]
+            self.counts = (
+                results.groupby("design")["replicate"]
+                .nunique()
+                .reindex(self.designs)
+                .to_numpy()
+            )
+            return
+        self.weights = (
+            across.weights_of(groups) if "mean" in combiners.values() else None
+        )
+        parts = [
+            results[(results[across.column] == group).to_numpy()] for group in groups
+        ]
+        complete = set.intersection(*(set(part["design"]) for part in parts))
+        designs = results["design"].drop_duplicates()
+        self.designs = pd.Index(designs[designs.isin(complete)])
+        self.replicates = pd.Index(sorted(results["replicate"].unique()))
+        self.matrices = [
+            _get_matrices(part, metrics, self.designs, self.replicates)[2]
+            for part in parts
+        ]
+        self.counts = (
+            results.groupby(["design", across.column])["replicate"]
+            .nunique()
+            .groupby(level="design")
+            .min()
+            .reindex(self.designs)
+            .to_numpy()
+        )
+
+    def evaluate(
+        self, columns: np.ndarray | None = None
+    ) -> tuple[dict[str, np.ndarray], np.ndarray]:
+        """
+        Computes the statistics of each design (of the replicates `columns`
+        of the matrices, or all) and the total violation of the requirements.
+        """
+        if self.combiners is None:
+            return _evaluate(
+                self.statistics, self.requirements, self.matrices[0], columns
+            )
+        parts = [_evaluate(self.statistics, (), m, columns)[0] for m in self.matrices]
+        values = {}
+        for name in self.statistics:
+            stacked = np.vstack([part[name] for part in parts])
+            how = self.combiners[name]
+            if how == "max":
+                values[name] = stacked.max(axis=0)
+            elif how == "min":
+                values[name] = stacked.min(axis=0)
+            else:
+                values[name] = self.weights @ stacked
+        violation = np.zeros(len(self.designs))
+        for requirement in self.requirements:
+            violation = violation + requirement.violation(values[requirement.name])
+        return values, violation
+
+
 def _design_columns(results: pd.DataFrame, excluded: set[str]) -> list[str]:
     """
     Gets the columns of the values of designs: those (other than `excluded`)
@@ -587,10 +852,13 @@ def aggregate(
     With criteria (see `Criteria`), the statistics that they name, in each
     group of their `by`, and the `violation` of their requirements (the sum
     of the violations, see `Requirement`, 0 if the design meets them all)
-    and whether the design meets them (`meets_requirements`).
+    and whether the design meets them (`meets_requirements`). Criteria
+    `across` a column combine the statistics of each design across its
+    groups (see `Across`), of which `replicates` is the fewest of any group.
 
     The results must have one record per evaluation (a design in a
-    replicate) in each group.
+    replicate) in each group (and in each group of the column of the
+    criteria's `across`).
 
     Args:
         results (pandas.DataFrame): The results.
@@ -607,6 +875,7 @@ def aggregate(
         pandas.DataFrame: a row per design (and group)
     """
     criteria = statistics if isinstance(statistics, Criteria) else None
+    across, combiners = None, None
     if criteria is not None:
         if by:
             raise ValueError("criteria group records by their own `by`")
@@ -615,6 +884,8 @@ def aggregate(
             criteria.requirements,
             criteria.by,
         )
+        across = criteria.across
+        combiners = None if across is None else _combiners(criteria)
     else:
         if not isinstance(statistics, Mapping):
             statistics = {name: name for name in statistics}
@@ -628,14 +899,21 @@ def aggregate(
     metrics = sorted(
         {column for statistic in resolved.values() for column in statistic.columns}
     )
+    combined = [] if across is None else [across.column]
+    groups = _across_groups(results, across)
     if design_columns is None:
-        design_columns = _design_columns(feasible, {*_STATUS_COLUMNS, *metrics, *by})
-    design_columns = [c for c in design_columns if c not in resolved and c not in by]
+        design_columns = _design_columns(
+            feasible, {*_STATUS_COLUMNS, *metrics, *by, *combined}
+        )
+    design_columns = [
+        c for c in design_columns if c not in resolved and c not in (*by, *combined)
+    ]
     frames = []
     for key, positions in _groups(feasible, by):
         group = feasible.iloc[positions]
-        designs, _, matrices = _get_matrices(group, metrics)
-        values, violation = _evaluate(resolved, requirements, matrices)
+        table = _Statistics(group, resolved, requirements, across, combiners, groups)
+        designs = table.designs
+        values, violation = table.evaluate()
         frame = pd.DataFrame({"design": designs})
         for name, value in zip(by, key):
             frame[name] = value
@@ -644,9 +922,7 @@ def aggregate(
             frame[column] = first.loc[designs, column].to_numpy()
         for name, value in values.items():
             frame[name] = value
-        frame["replicates"] = (
-            group.groupby("design")["replicate"].nunique().reindex(designs).to_numpy()
-        )
+        frame["replicates"] = table.counts
         if criteria is not None:
             frame["violation"] = violation
             frame["meets_requirements"] = violation == 0

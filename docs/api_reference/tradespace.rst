@@ -237,6 +237,9 @@ Criteria, Statistics, and Requirements
 .. autoclass:: tatc.tradespace.Requirement
    :members: violation
 
+.. autoclass:: tatc.tradespace.Across
+   :members: weights_of
+
 Utility
 -------
 

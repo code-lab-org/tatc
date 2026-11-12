@@ -95,9 +95,15 @@ def robustness(
 
     Raises:
         ValueError: if the results have no scenarios, or the criteria group
-            records by other columns.
+            records by other columns or combine them across scenarios (see
+            `Across`, by which searches find robust designs).
     """
     criteria = _as_criteria(criteria)
+    if criteria.across is not None:
+        raise ValueError(
+            "robustness judges designs in each scenario: give criteria without "
+            + "`across`"
+        )
     if criteria.by not in ((), (scenario,)):
         raise ValueError(
             f"criteria judge designs by the scenario ({scenario!r}) alone: "

@@ -4,6 +4,7 @@ Unit tests for scenarios of studies and the robustness of designs across them.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import importlib.util
 import math
 import tempfile
 import unittest
@@ -14,8 +15,10 @@ import numpy as np
 import pandas as pd
 
 from tatc.tradespace import (
+    Across,
     Criteria,
     DesignSpace,
+    Evaluations,
     Fixed,
     Integer,
     Requirement,
@@ -24,8 +27,15 @@ from tatc.tradespace import (
     Uncertain,
     aggregate,
     attribute_variance,
+    optimize_optuna,
+    optimize_pymoo,
+    pareto_front,
+    pareto_probability,
     robustness,
 )
+
+HAS_OPTUNA = importlib.util.find_spec("optuna") is not None
+HAS_PYMOO = importlib.util.find_spec("pymoo") is not None
 
 SPACE = DesignSpace(x=Integer(1, 3), level=Fixed(1.0), noise=Uncertain.uniform(0, 1))
 SCENARIOS = {"low": {}, "high": {"level": 3.0}, "pinned": {"noise": 0.5}}
@@ -251,6 +261,8 @@ class TestRobustness(unittest.TestCase):
             robustness(RESULTS, Criteria(OBJECTIVES, by="other"))
         r = robustness(RESULTS, Criteria(OBJECTIVES, by="scenario"))
         self.assertEqual(len(r), 3)
+        with self.assertRaises(ValueError):
+            robustness(RESULTS, Criteria(OBJECTIVES, across=Across()))
 
     def test_study(self):
         """The robustness of the designs of a study in scenarios."""
@@ -259,6 +271,208 @@ class TestRobustness(unittest.TestCase):
         # every design trades y against cost, in every scenario
         np.testing.assert_allclose(r["pareto trace"], 1.0)
         self.assertEqual(len(r), 3)
+
+
+class TestAcross(unittest.TestCase):
+    """
+    Unit tests for criteria that combine statistics across scenarios.
+    """
+
+    def _summary(self, criteria, results=RESULTS):
+        summary = aggregate(results, criteria)
+        summary["pareto"] = pareto_front(summary, criteria)
+        return summary.set_index("design")
+
+    def test_worst(self):
+        """Each objective is its worst over the scenarios, and designs are
+        judged once."""
+        summary = self._summary(Criteria(OBJECTIVES, across=Across()))
+        self.assertEqual(list(summary.index), ["A", "B", "C"])
+        self.assertNotIn("scenario", summary.columns)
+        np.testing.assert_allclose(summary.perf, [6, 8, 7])
+        np.testing.assert_allclose(summary.cost, [5, 3, 4])
+        np.testing.assert_array_equal(summary.replicates, [1, 1, 1])
+        self.assertEqual(list(summary.pareto), [False, True, False])
+
+    def test_mean(self):
+        """Each objective is its mean over the scenarios, weighted by their
+        weights (normalized over the scenarios of the results)."""
+        summary = self._summary(Criteria(OBJECTIVES, across=Across(rule="mean")))
+        np.testing.assert_allclose(summary.perf, [8, 8.5, 8])
+        weighted = Across(rule="mean", weights={"s1": 3, "s2": 1, "s3": 2})
+        summary = self._summary(Criteria(OBJECTIVES, across=weighted))
+        np.testing.assert_allclose(summary.perf, [9, 8.25, 7.5])
+        self.assertEqual(list(summary.pareto), [True, True, False])
+        unweighted = Across("scenario", "mean", {"s1": 1})
+        with self.assertRaises(ValueError):
+            aggregate(RESULTS, Criteria(OBJECTIVES, across=unweighted))
+
+    def test_requirements(self):
+        """A requirement is met by the combined statistic: in every scenario,
+        by the worst; a statistic of another name may be combined otherwise
+        than the objectives."""
+        required = [Requirement("perf", ">=", 7)]
+        criteria = Criteria(OBJECTIVES, requirements=required, across=Across())
+        summary = self._summary(criteria)
+        self.assertEqual(list(summary.meets_requirements), [False, True, True])
+        criteria = Criteria(
+            OBJECTIVES,
+            statistics={"perf floor": "perf"},
+            requirements=[Requirement("perf floor", ">=", 7)],
+            across=Across(rule="mean", rules={"perf floor": "worst"}),
+        )
+        summary = self._summary(criteria)
+        np.testing.assert_allclose(summary.perf, [8, 8.5, 8])
+        np.testing.assert_allclose(summary["perf floor"], [6, 8, 7])
+        self.assertEqual(list(summary.meets_requirements), [False, True, True])
+        self.assertAlmostEqual(summary.loc["A", "violation"], 1 / 7)
+        # the worst of a requirement to stay at most a value is its largest
+        below = Criteria(
+            {"perf": "max"},
+            statistics={"spent": "cost"},
+            requirements=[Requirement("spent", "<=", 4)],
+            across=Across(),
+        )
+        summary = self._summary(below)
+        self.assertEqual(list(summary.meets_requirements), [False, True, True])
+
+    def test_incomplete(self):
+        """Designs without feasible results in every scenario are not judged."""
+        more = _results(
+            [("D", "s1", 20, 1), ("E", "s1", 20, 1), ("E", "s2", None, None)]
+        )
+        results = pd.concat([RESULTS, more], ignore_index=True)
+        summary = self._summary(Criteria(OBJECTIVES, across=Across()), results)
+        self.assertEqual(list(summary.index), ["A", "B", "C"])
+
+    def test_agrees_with_scenarios(self):
+        """The worst and the mean of the statistics in a study's scenarios."""
+        results = Study(
+            SPACE, lambda d: d, _evaluate, replicates=3, scenarios=SCENARIOS
+        ).run()
+        objectives = {"y": "max", "cost": "min"}
+        by_scenario = aggregate(results, Criteria(objectives, by="scenario"))
+        y = by_scenario.pivot(index="design", columns="scenario", values="y")
+        for rule, expected in (("worst", y.min(axis=1)), ("mean", y.mean(axis=1))):
+            criteria = Criteria(objectives, across=Across(rule=rule))
+            summary = aggregate(results, criteria).set_index("design")
+            np.testing.assert_allclose(summary.y, expected.loc[summary.index])
+        probability = pareto_probability(
+            results, Criteria(objectives, across=Across()), n_resamples=20
+        ).set_index("design")
+        np.testing.assert_allclose(probability.y, y.min(axis=1).loc[probability.index])
+        np.testing.assert_array_equal(probability.replicates, 3)
+        self.assertTrue(probability.pareto.all())
+
+    def test_resamples_share_replicates(self):
+        """A bootstrap draws each replicate in every scenario at once."""
+        rows = [
+            {
+                "design": "A",
+                "replicate": r,
+                "scenario": s,
+                "feasible": True,
+                "perf": v,
+            }
+            for r in range(6)
+            for s, v in (("s1", float(r)), ("s2", 10.0 - r))
+        ]
+        results = pd.DataFrame(rows)
+        mean = Criteria({"perf": "max"}, across=Across(rule="mean"))
+        probability = pareto_probability(results, mean, n_resamples=50)
+        self.assertAlmostEqual(probability["perf"].iloc[0], 5.0)
+        self.assertAlmostEqual(probability["perf se"].iloc[0], 0.0)
+        worst = Criteria({"perf": "max"}, across=Across())
+        probability = pareto_probability(results, worst, n_resamples=50)
+        self.assertGreater(probability["perf se"].iloc[0], 0.0)
+
+    def test_invalid(self):
+        """Rules, weights, and the statistics combined by their worst are
+        checked."""
+        with self.assertRaises(ValueError):
+            Across(rule="best")
+        with self.assertRaises(ValueError):
+            Across(rules={"perf": "best"})
+        with self.assertRaises(ValueError):
+            Across(rule="mean", weights={"s1": 0})
+        with self.assertRaises(TypeError):
+            Across(column="")
+        with self.assertRaises(TypeError):
+            Criteria(OBJECTIVES, across="scenario")
+        with self.assertRaises(ValueError):
+            Criteria(OBJECTIVES, by="scenario", across=Across())
+        with self.assertRaises(ValueError):
+            Criteria(OBJECTIVES, across=Across(rules={"other": "mean"}))
+        # a statistic without a direction has no worst, unless combined by its mean
+        with self.assertRaises(ValueError):
+            Criteria(OBJECTIVES, statistics={"extra": "perf"}, across=Across())
+        Criteria(
+            OBJECTIVES,
+            statistics={"extra": "perf"},
+            across=Across(rules={"extra": "mean"}),
+        )
+        # an objective and a requirement that disagree on its worst
+        with self.assertRaises(ValueError):
+            Criteria(
+                OBJECTIVES,
+                requirements=[Requirement("perf", "<=", 9)],
+                across=Across(),
+            )
+        with self.assertRaises(ValueError):
+            aggregate(
+                RESULTS.drop(columns="scenario"), Criteria(OBJECTIVES, across=Across())
+            )
+
+
+def _scenario_study():
+    return Study(SPACE, lambda d: d, _evaluate, replicates=2, scenarios=SCENARIOS)
+
+
+class TestSearchAcross(unittest.TestCase):
+    """
+    Unit tests for searches across scenarios.
+    """
+
+    def test_evaluations(self):
+        """A search judges each design across the scenarios, as aggregate does."""
+        criteria = Criteria({"y": "max", "cost": "min"}, across=Across())
+        evaluations = Evaluations(_scenario_study(), criteria)
+        designs = SPACE.enumerate()
+        values = evaluations.evaluate(designs)
+        summary = aggregate(evaluations.results, criteria).set_index("design")
+        for design, (y, cost) in zip(designs, values):
+            self.assertAlmostEqual(y, summary.loc[design.key, "y"])
+            self.assertAlmostEqual(cost, summary.loc[design.key, "cost"])
+        self.assertEqual(len(evaluations.results), 3 * 2 * len(SCENARIOS))
+
+    def test_needs_across(self):
+        """A search of a study with several scenarios needs criteria across them."""
+        evaluations = Evaluations(_scenario_study(), {"y": "max", "cost": "min"})
+        with self.assertRaisesRegex(ValueError, "across"):
+            evaluations.evaluate(SPACE.enumerate()[:1])
+        # a study with one scenario has one record per evaluation
+        one = Study(SPACE, lambda d: d, _evaluate, scenarios={"high": {"level": 3.0}})
+        Evaluations(one, {"y": "max", "cost": "min"}).evaluate(SPACE.enumerate())
+
+    @unittest.skipUnless(HAS_PYMOO, "requires pymoo")
+    def test_pymoo(self):
+        """pymoo searches across the scenarios."""
+        # pylint: disable-next=import-outside-toplevel
+        from pymoo.algorithms.moo.nsga2 import NSGA2
+
+        criteria = Criteria({"y": "max", "cost": "min"}, across=Across(rule="mean"))
+        search = optimize_pymoo(
+            _scenario_study(), criteria, NSGA2(pop_size=4), ("n_gen", 2), seed=1
+        )
+        self.assertEqual(set(search.results.scenario), set(SCENARIOS))
+        self.assertGreater(len(search.designs), 0)
+
+    @unittest.skipUnless(HAS_OPTUNA, "requires optuna")
+    def test_optuna(self):
+        """Optuna searches across the scenarios."""
+        criteria = Criteria({"y": "max", "cost": "min"}, across=Across())
+        search = optimize_optuna(_scenario_study(), criteria, n_trials=6)
+        self.assertEqual(set(search.results.scenario), set(SCENARIOS))
 
 
 if __name__ == "__main__":

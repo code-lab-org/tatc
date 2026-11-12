@@ -73,6 +73,7 @@ from .failures import (
     policy_space,
 )
 from .criteria import (
+    Across,
     Criteria,
     Maximum,
     Mean,
@@ -133,6 +134,7 @@ from .utility import ExponentialUtility, LinearUtility, PiecewiseUtility, Utilit
 from .values import ChoiceValues, RepeatValues, Scope, Values, configure
 
 __all__ = [
+    "Across",
     "Attribution",
     "Bathtub",
     "Categorical",

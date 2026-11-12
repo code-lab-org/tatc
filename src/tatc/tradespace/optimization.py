@@ -12,6 +12,11 @@ meeting a threshold. Requirements on statistics (see `Requirement`) are
 output constraints, whose violations the optimizers minimize along with
 those of the constraints of the design space. The tolerances of the
 criteria do not apply to searches.
+
+A search of a study with several scenarios (see `Study`) evaluates each
+design in every scenario, and judges it by criteria `across` the scenarios
+(see `Across`): by its worst or its mean over them, such as for designs
+robust to scenarios that cannot be told apart in advance.
 Each design is evaluated once, however often an optimizer proposes it, and
 designs proposed together are evaluated together, in parallel if the study
 is (see `Study`).
@@ -35,11 +40,12 @@ import pandas as pd
 
 from .criteria import (
     Criteria,
+    _across_groups,
     _as_criteria,
-    _evaluate,
-    _get_matrices,
+    _combiners,
     _resolve,
     _signs,
+    _Statistics,
 )
 from .space import Design, Infeasible
 from .study import Study
@@ -85,6 +91,8 @@ class Evaluations:
                 "searches need one record per evaluation: give criteria without `by`"
             )
         self._statistics = _resolve(self.criteria)
+        across = self.criteria.across
+        self._combiners = None if across is None else _combiners(self.criteria)
         self.values: dict[str, tuple[float, ...] | None] = {}
         """dict: The objectives of each evaluated design (by key), or `None`
         if it is infeasible."""
@@ -139,7 +147,16 @@ class Evaluations:
         self.designs.update((design.key, design) for design in designs)
         records = self.study.run(designs)
         self._records.append(records)
-        if records.groupby(["design", "replicate"]).size().max() > 1:
+        across = self.criteria.across
+        groups = _across_groups(records, across)
+        keys = ["design", "replicate", *([] if across is None else [across.column])]
+        if records.groupby(keys).size().max() > 1:
+            if across is None and "scenario" in records.columns:
+                raise ValueError(
+                    "a study with several scenarios gives a record per scenario: "
+                    + "give criteria `across` the scenarios (see Across), or "
+                    + "search a study with one scenario"
+                )
             raise ValueError(
                 "objectives need one record per evaluation: make the "
                 + "study's evaluate function return a mapping of metrics"
@@ -152,9 +169,11 @@ class Evaluations:
             self.values[key] = self.violations[key] = None
         feasible = records[~records["design"].isin(infeasible)]
         if len(feasible) > 0:
-            keys, _, matrices = _get_matrices(feasible, self.criteria.metrics)
-            values, _ = _evaluate(self._statistics, [], matrices)
-            for i, key in enumerate(keys):
+            table = _Statistics(
+                feasible, self._statistics, (), across, self._combiners, groups
+            )
+            values, _ = table.evaluate()
+            for i, key in enumerate(table.designs):
                 self.values[key] = tuple(
                     float(values[name][i]) for name in self.criteria.objectives
                 )

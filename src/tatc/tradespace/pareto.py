@@ -23,14 +23,15 @@ import pandas as pd
 from .criteria import (
     Criteria,
     Requirement,
+    _across_groups,
     _as_criteria,
-    aggregate,
-    _evaluate,
-    _get_matrices,
+    _combiners,
     _get_tolerances,
     _groups,
     _resolve,
     _signs,
+    _Statistics,
+    aggregate,
 )
 
 
@@ -381,7 +382,9 @@ def pareto_probability(
     understates the uncertainty. Designs may have different replicates (as
     after `refine`): replicates are drawn from all of them, and each design's
     statistics are those of its drawn replicates (or of all of its
-    replicates, if none is drawn).
+    replicates, if none is drawn). With criteria `across` the scenarios of a
+    study (see `Across`), a drawn replicate is drawn in every scenario, in
+    which it has the same uncertain parameters.
 
     Args:
         results (pandas.DataFrame): The results of a study (see
@@ -410,13 +413,17 @@ def pareto_probability(
     signs = _signs(criteria)
     tolerances = _get_tolerances(criteria.objectives, criteria.tolerance)
     feasible = results[results["feasible"]] if "feasible" in results else results
-    metrics = criteria.metrics
+    combiners = None if criteria.across is None else _combiners(criteria)
+    groups = _across_groups(results, criteria.across)
     rng = np.random.default_rng(seed)
     frames = []
     for key, positions in _groups(feasible, criteria.by):
         group = feasible.iloc[positions]
-        designs, replicates, matrices = _get_matrices(group, metrics)
-        values, violation = _evaluate(resolved, requirements, matrices)
+        table = _Statistics(
+            group, resolved, requirements, criteria.across, combiners, groups
+        )
+        designs, replicates = table.designs, table.replicates
+        values, violation = table.evaluate()
 
         def front(values, violation):
             costs = np.column_stack(
@@ -435,9 +442,7 @@ def pareto_probability(
         squares = {name: np.zeros(len(designs)) for name in criteria.objectives}
         for _ in range(n_resamples):
             drawn = rng.integers(0, len(replicates), len(replicates))
-            sample, sample_violation = _evaluate(
-                resolved, requirements, matrices, drawn
-            )
+            sample, sample_violation = table.evaluate(drawn)
             # designs without a drawn replicate keep the statistics of all of theirs
             for name in sample:
                 missing = np.isnan(sample[name]) & ~np.isnan(values[name])
@@ -459,9 +464,7 @@ def pareto_probability(
             mean = sums[name] / n_resamples
             variance = np.maximum(squares[name] / n_resamples - mean**2, 0.0)
             frame[f"{name} se"] = np.sqrt(variance)
-        frame["replicates"] = (
-            group.groupby("design")["replicate"].nunique().reindex(designs).to_numpy()
-        )
+        frame["replicates"] = table.counts
         frame["meets_requirements"] = meets
         frame["pareto"] = efficient
         frame["pareto_probability"] = counts / n_resamples
