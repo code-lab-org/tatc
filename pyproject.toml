@@ -109,6 +109,7 @@ preprocess = [
 ]
 tradespace = [
     "joblib",
+    "matplotlib",
     "optuna",
     "pymoo"
 ]
