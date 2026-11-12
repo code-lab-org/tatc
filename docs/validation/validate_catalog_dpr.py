@@ -12,6 +12,7 @@ needed fields of the product's files are read, with range requests:
     python docs/validation/validate_catalog_dpr.py <data directory> 2026-10-03 --fit
     python docs/validation/validate_catalog_dpr.py <data directory> 2026-10-03
     python docs/validation/validate_catalog_dpr.py <data directory> 2026-07-20
+    python docs/validation/validate_catalog_dpr.py <data directory> 2026-11-10
 
 It also validates the entry's sample size configuration, following
 `ValidateSampleSizes`. The gated metrics compare sizes with footprints published in
@@ -44,11 +45,16 @@ from validation_io import read_element_set_file
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
 NORAD_ID = 39574
 FIT_DAY = datetime(2026, 10, 3, tzinfo=timezone.utc)
-# the element set of `ValidateConicalGMI` for the day of the fit
+# the element set of `ValidateConicalGMI` for the day of the fit, and a public element
+# set from CelesTrak, with an epoch after the day of data, for a later held-out day
 ELEMENTS = {
     "2026-10-03": (
         "1 39574U 14009C   26277.54227627  .00004528  00000+0  10004-3 0  9997",
         "2 39574  64.9701 301.6724 0010793 268.6572  91.3332 15.45217995714704",
+    ),
+    "2026-11-10": (
+        "1 39574U 14009C   26315.61017546  .00006513  00000+0  14350-3 0  9999",
+        "2 39574  64.9689 174.1431 0011469 256.2485 103.7379 15.44776426720584",
     ),
 }
 ELEMENT_SET_FILE = REPOSITORY / "docs" / "validation" / "gpm_2026-07-15.3le"

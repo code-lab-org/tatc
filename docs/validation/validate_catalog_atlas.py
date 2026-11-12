@@ -23,6 +23,12 @@ With `--write`, it writes the entry's validation record and the reduced fixture 
 which unit tests recompute the results. A record of the day of the fit has no
 holdout, which the entry's validation reports as a gap.
 
+With `--same-day-element-set`, it tests instead with the element set nearest the middle
+of the day from docs/validation/icesat2_2026-11-04.3le, for comparison with the views'
+intended use with an element set a few days old; it does not write a record:
+
+    python docs/validation/validate_catalog_atlas.py <data directory> 2026-11-04         --same-day-element-set
+
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
@@ -45,7 +51,13 @@ from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.constants import EARTH_MEAN_RADIUS, timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
-from validation_io import RemoteFile, get_holdout_gap, update_fixture, update_record
+from validation_io import (
+    RemoteFile,
+    get_holdout_gap,
+    read_element_set_file,
+    update_fixture,
+    update_record,
+)
 
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
 RECORD_PATH = REPOSITORY / "src" / "tatc" / "resources" / "validation" / "atlas.json"
@@ -64,6 +76,8 @@ ELEMENTS = {
         "2 43613  91.9941 329.8453 0000721   8.7128 351.4134 15.28274788454479",
     ),
 }
+ELEMENT_SET_FILE = pathlib.Path(__file__).parent / "icesat2_2026-11-04.3le"
+NORAD_ID = 43613
 CONFIGURATION = "beam_pairs"
 PAIRS = ("gt1", "gt2", "gt3")
 BEAMS = ("gt1l", "gt1r", "gt2l", "gt2r", "gt3l", "gt3r")
@@ -304,11 +318,18 @@ def main() -> None:
     parser.add_argument("day")
     parser.add_argument("--fit", action="store_true")
     parser.add_argument("--write", action="store_true")
+    parser.add_argument("--same-day-element-set", action="store_true")
     arguments = parser.parse_args()
+    if arguments.same_day_element_set and (arguments.write or arguments.fit):
+        parser.error("--same-day-element-set neither fits nor writes a record")
     arguments.directory.mkdir(parents=True, exist_ok=True)
 
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    tle = list(ELEMENTS[arguments.day])
+    tle = (
+        read_element_set_file(ELEMENT_SET_FILE, NORAD_ID, day)
+        if arguments.same_day_element_set
+        else list(ELEMENTS[arguments.day])
+    )
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     segments = add_offsets(load_day(day, arguments.directory), orbit)
     print(

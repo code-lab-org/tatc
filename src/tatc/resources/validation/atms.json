@@ -64,7 +64,7 @@
       }
     },
     "swath": {
-      "digest": "dc5858003bc7e6acbfbd7ed678d7f8685f55920c80ab21584836885e4c5bc68d",
+      "digest": "b05ed81204ec49166c38805c94b006e2f976ddcb3019d4860a7334924f5cfb4a",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_atms.py",
@@ -91,7 +91,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9869429046013887
+          "value": 0.9989132282156962
         },
         {
           "name": "transfer_pass_recall",
@@ -115,7 +115,7 @@
         },
         {
           "name": "transfer_footprint_iou_median",
-          "value": 0.9829354849614084,
+          "value": 0.9948722191554508,
           "scope": "noaa-21, 2026-11-05"
         }
       ],
@@ -167,7 +167,7 @@
       }
     },
     "swath_noaa_21": {
-      "digest": "ed3f85c071180057b0fd6861d64d18ce699a07b9c2f26e82b126217a75d19b3d",
+      "digest": "a688ecbd6aa004f86243d81cd600f88b7c6666c27710bbafbcf847afd43c9aaf",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_atms.py",
@@ -194,7 +194,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9858101627080771
+          "value": 0.9955844942739329
         }
       ],
       "fixture_metrics": {
@@ -203,5 +203,5 @@
       }
     }
   },
-  "standard_version": 2
+  "standard_version": 5
 }

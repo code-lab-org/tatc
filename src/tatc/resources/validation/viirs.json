@@ -64,7 +64,7 @@
       }
     },
     "swath": {
-      "digest": "b45584059811c3d58a112fbd98be5b5cb4737b67da0b2787b8f0d47561ad55bf",
+      "digest": "be11dfbef71b6a962c089ff2a0c8e8ccd967dc9f1a21dc16e259d0701aaf8f51",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_viirs.py",
@@ -91,7 +91,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9774215988205399
+          "value": 0.9869957393856083
         },
         {
           "name": "transfer_pass_recall",
@@ -115,7 +115,7 @@
         },
         {
           "name": "transfer_footprint_iou_median",
-          "value": 0.9736058577838963,
+          "value": 0.9853331982861818,
           "scope": "noaa-21, 2026-11-05"
         }
       ],
@@ -125,7 +125,7 @@
       }
     },
     "swath_noaa_21": {
-      "digest": "8945c9e0bd08ee18e80cc541ff4d6a6d702da3fe54883d5711a9af00e1f4bb17",
+      "digest": "edc0174a0abdd30c703180034a05f9323136dd5e104767ee7e596b1fc4e7feaa",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_viirs.py",
@@ -152,7 +152,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.978426193934284
+          "value": 0.9897826330491215
         }
       ],
       "fixture_metrics": {
@@ -161,5 +161,5 @@
       }
     }
   },
-  "standard_version": 2
+  "standard_version": 5
 }

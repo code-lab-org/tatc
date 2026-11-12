@@ -33,6 +33,7 @@ configurations:
           field_of_regard: 84.0596
           cross_track_field_of_view: 13.2534
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle_profile: [[5.0, -33.9764], [15.0, -33.9816], [25.0, -34.1778], [35.0, -34.0636], [45.0, -33.8413], [55.0, -33.6525], [65.0, -33.4377], [75.0, -33.1923], [95.0, -33.4341], [105.0, -33.2322], [115.0, -33.4752], [125.0, -33.6529], [135.0, -33.8551], [145.0, -34.0057], [155.0, -34.2058], [165.0, -33.9991], [175.0, -33.9867], [185.0, -33.9198], [195.0, -34.0132], [205.0, -33.6428], [215.0, -33.2437], [225.0, -32.8205], [255.0, -32.5578], [275.0, -32.4235], [305.0, -32.7648], [315.0, -33.0536], [325.0, -33.233], [335.0, -33.4873], [345.0, -33.8205], [355.0, -34.0149]]
           is_rectangular: true
         provenance:
@@ -44,6 +45,7 @@ configurations:
             source: validate_catalog_csar.py --fit, the median difference of the look angles of the near-range and far-range points of 4,067 grid lines of 402 IW products
             platform: sentinel-1c
             period: "2026-10-02"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
@@ -59,7 +61,8 @@ configurations:
       - The roll profile has no values for the bins centered at 85, 235, 245, 265, 285, and 295 deg of argument of latitude, where no IW products were acquired on the fitting day, so it is interpolated there between its neighbors.
       - The field of view is fixed, while the swath's measured field of view varies from 12.9 to 13.8 deg (5th to 95th percentile), so the swath edges differ by several kilometers where it is narrower or wider than its median.
       - Points at the edges of the swath can be missed. On held-out data, 98.98% of observed points were predicted, under the standard's 99%; on the fitting day, every missed point was in the outermost column of its product's geolocation grid, at the near-range or far-range edge.
-      - At long time steps, the view, far from nadir and tailored to a long along-track field of view, reaches beyond the swath. On held-out data, the swath's intersection over union was 0.956 (5th percentile 0.924) at 10 s, but 0.919 (0.853) at 30 s and 0.716 (0.673) at 120 s, which fail the standard's limit of 0.90 for both, so use time steps of 10 s.
+      - The swath is the strip the view's cross-track line sweeps (is_swept), so it does not depend on the time step. On held-out data (2026-08-12), the swath's intersection over union was 0.974 (5th percentile 0.958) at time steps of 10 to 120 s.
+      - Swept swaths were added after the configuration's holdout, where views tailored to the time step reached beyond the swath at long time steps; the swath's intersection over union was 0.956 (5th percentile 0.924) at 10 s, but 0.919 (0.853) at 30 s and 0.716 (0.673) at 120 s. The results above are rescored with swept swaths on the same data, with the other results unchanged.
       - Images are formed in the plane perpendicular to the Earth-fixed velocity (zero-Doppler geometry), so a user-supplied attitude should keep the Earth-fixed frame.
   ew:
     grade: timing
@@ -73,6 +76,7 @@ configurations:
           field_of_regard: 85.1558
           cross_track_field_of_view: 23.59
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle_profile: [[55.0, -29.3132], [65.0, -29.0873], [75.0, -28.8875], [85.0, -28.9802], [95.0, -28.9198], [105.0, -29.0416], [115.0, -29.1599], [125.0, -29.4477], [135.0, -29.6679], [245.0, -28.1753], [255.0, -27.8132], [275.0, -27.9972], [285.0, -27.8965], [295.0, -28.1186]]
           is_rectangular: true
         provenance:
@@ -84,6 +88,7 @@ configurations:
             source: validate_catalog_csar.py --fit, the median difference of the look angles of the near-range and far-range points of 1,927 grid lines of 97 EW products
             platform: sentinel-1c
             period: "2026-10-02"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
@@ -98,9 +103,10 @@ configurations:
     limitations:
       - EW products were acquired on the fitting day at arguments of latitude from about 50 to 140 deg and from 240 to 300 deg, around the poles, so the roll profile is interpolated across the long gaps between them, where it has no data.
       - The field of view is fixed, while the swath's measured field of view varies from 23.3 to 24.1 deg (5th to 95th percentile).
-      - At long time steps, the view, far from nadir and tailored to a long along-track field of view, reaches beyond the swath. On held-out data, the swath's intersection over union was 0.978 (5th percentile 0.968) at 10 s and 0.955 (0.923) at 30 s, but 0.818 (0.741) at 120 s, which fails the standard's limit of 0.90 for both, so use time steps of 30 s or less.
+      - The swath is the strip the view's cross-track line sweeps (is_swept), so it does not depend on the time step. On data held out on 2026-11-10 (39 days from the fit), 99.16% of observed points were predicted, with the swath edges within 7.6 km (near range) and 9.5 km (far range) at the 95th percentile, epochs within 0.34 s (95th percentile), and the swath's intersection over union 0.989 (median; 0.976 at the 5th percentile) at time steps of 10 to 120 s.
+      - Swept swaths were added after the configuration's first holdout, on 2026-08-12, where views tailored to the time step reached beyond the swath at long time steps; the swath's intersection over union was 0.978 (5th percentile 0.968) at 10 s and 0.955 (0.923) at 30 s, but 0.818 (0.741) at 120 s, failing the standard's 0.90. Rescored with swept swaths, it was 0.990 (0.983) at every time step, with the other results unchanged (99.53% of points predicted, edges within 5.5 km and 4.7 km); the configuration was then tested on 2026-11-10, a day not used before, which its record holds.
       - Images are formed in the plane perpendicular to the Earth-fixed velocity (zero-Doppler geometry), so a user-supplied attitude should keep the Earth-fixed frame.
 limitations:
-  - The fitted values were measured on Sentinel-1C. On Sentinel-1D, they are a transfer that warns on use; on 2026-11-05, results were like Sentinel-1C's, with 98.6% (IW) and 98.7% (EW) of points found, edges within 7.8 km (IW) and 11.1 km (EW) at the 95th percentile, and intersection over union failing at 30 s and longer.
+  - The fitted values were measured on Sentinel-1C. On Sentinel-1D, they are a transfer that warns on use; on 2026-11-05, results were like Sentinel-1C's, with 98.6% (IW) and 98.7% (EW) of points found, edges within 7.8 km (IW) and 11.1 km (EW) at the 95th percentile, and the swath's intersection over union 0.974 (IW) and 0.988 (EW) at every time step.
   - The Stripmap and Wave modes are not represented, and the roll angles within a mode, which the mission sets by its beam and plans, are taken as those of the fitting day.
   - Sentinel-1 acquires according to plans, so TAT-C predicts which points it can observe, not which it will.

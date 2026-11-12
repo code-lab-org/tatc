@@ -28,6 +28,7 @@ configurations:
           field_of_regard: 95.3644
           cross_track_field_of_view: 70.0146
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: -12.6749
           is_rectangular: true
         provenance:
@@ -39,6 +40,7 @@ configurations:
             source: validate_catalog_olci.py --fit, between the outermost tie points (22.33 deg to the left and 47.68 deg to the right)
             platform: sentinel-3a
             period: "2026-10-04"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step

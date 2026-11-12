@@ -21,6 +21,7 @@ Needs the `validation` extra:
 
     python docs/validation/validate_catalog_tropomi.py <data directory> 2026-10-05 --fit
     python docs/validation/validate_catalog_tropomi.py <data directory> 2026-11-05
+    python docs/validation/validate_catalog_tropomi.py <data directory> 2026-11-10
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
@@ -78,6 +79,11 @@ ELEMENT_SETS = {
     "2026-11-05": [
         "1 42969U 17064A   26311.28829078  .00000048  00000+0  44053-4 0  9996",
         "2 42969  98.8082 252.4800 0000829  99.6231 260.5039 14.19499222469868",
+    ],
+    # a fresh held-out day for swept swaths, not used before
+    "2026-11-10": [
+        "1 42969U 17064A   26315.30604670  .00000068  00000+0  53520-4 0  9993",
+        "2 42969  98.8091 256.4758 0000925 101.4950 258.6329 14.19500041470438",
     ],
 }
 

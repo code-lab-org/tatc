@@ -2,7 +2,7 @@
   "entry_id": "omps_nm",
   "configurations": {
     "swath": {
-      "digest": "b79d5b8bd320011c4ea895ffc81b569badaa9598819bcc51924dbb05bf467d82",
+      "digest": "f4c2a37a0a87cdc3c9d400e4430dce483b27b22ad12b55e827792524736430fe",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_omps.py",
@@ -29,7 +29,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9824504513866243
+          "value": 0.9900281696947634
         }
       ],
       "fixture_metrics": {
@@ -38,7 +38,7 @@
       }
     },
     "swath_noaa_20": {
-      "digest": "3ce1a47116da2fdf48f6f35fde384cb38b0b4d3bd57f8d204d868936ff7ab170",
+      "digest": "4d3ad5fb855d592975f403f34904189470d57ae1c4e35e8c3f99b42fbe1c0e5e",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_omps.py",
@@ -65,7 +65,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.986546721200696
+          "value": 0.9950646182896654
         }
       ],
       "fixture_metrics": {
@@ -74,5 +74,5 @@
       }
     }
   },
-  "standard_version": 3
+  "standard_version": 5
 }

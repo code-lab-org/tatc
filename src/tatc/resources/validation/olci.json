@@ -2,7 +2,7 @@
   "entry_id": "olci",
   "configurations": {
     "swath": {
-      "digest": "66f3befd6f3c541e4f47537769224a44e523588d1a140799aef60e08ab01ed89",
+      "digest": "1c621fd237a9da173904db099c16b3b49999262d3e3f7e755ea2a833232d9488",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_olci.py",
@@ -29,7 +29,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9750812455951472
+          "value": 0.9902064346272009
         }
       ],
       "fixture_metrics": {
@@ -38,5 +38,5 @@
       }
     }
   },
-  "standard_version": 2
+  "standard_version": 5
 }

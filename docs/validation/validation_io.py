@@ -476,7 +476,10 @@ def score_swath_area(
         geometry = unary_union(
             [
                 compute_ground_track(
-                    satellite, times, instrument_index=i
+                    satellite,
+                    times,
+                    instrument_index=i,
+                    time_step=timedelta(seconds=time_step),
                 ).geometry.iloc[0]
                 for i in indices
             ]

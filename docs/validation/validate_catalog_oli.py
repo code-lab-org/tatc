@@ -406,7 +406,9 @@ def score_chunk(chunk, scenes, corners, satellite_for) -> dict[str, float]:
             (first + pd.Timedelta(seconds=step * (i + 0.5))).floor("us").to_pydatetime()
             for i in range(n)
         ]
-        track = compute_ground_track(satellite_for(step), times)
+        track = compute_ground_track(
+            satellite_for(step), times, time_step=timedelta(seconds=float(step))
+        )
         predicted = to_local(track.geometry.iloc[0], to_plane)
         results[f"iou_{time_step}"] = (
             predicted.intersection(observed).area / predicted.union(observed).area

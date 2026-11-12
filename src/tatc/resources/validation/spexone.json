@@ -2,7 +2,7 @@
   "entry_id": "spexone",
   "configurations": {
     "swath": {
-      "digest": "1ea1fd7c7bc48f3310996c45ecb8008cbe2e8d80fb502737bb37cef8bbb532e5",
+      "digest": "c5506a9ce8f316f15800faa49ff680a5e44214d784e9b2f0451792de63f0706e",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_spexone.py",
@@ -29,7 +29,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9713616010834836
+          "value": 0.9787303146603152
         }
       ],
       "fixture_metrics": {
@@ -38,5 +38,5 @@
       }
     }
   },
-  "standard_version": 3
+  "standard_version": 5
 }

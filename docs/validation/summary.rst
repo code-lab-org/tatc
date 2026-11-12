@@ -67,8 +67,8 @@ Instruments and Pointing
      - NOAA-20 ATMS, CrIS, and VIIRS; Terra and Aqua MODIS; Metop-B IASI; GPM DPR; Metop-C MHS and AVHRR; Aqua
        AIRS and AMSU-A; PACE OCI; NOAA-20 CERES; ISS ECOSTRESS
      - On held-out data, 99.8 to 100% of passes predicted (ATMS, CrIS, VIIRS, MODIS, IASI, DPR); epochs within 0.25 s
-       (ATMS), 0.40 s (CrIS), 0.44 s (MODIS), 0.55 s (DPR), and 2.0 s (VIIRS) at the 95th percentile; swath width
-       within 0.15 to 3.3 km (median) with measured fields of regard; pixel centers within 0.9 to 2.9 km (median;
+       (ATMS), 0.40 s (CrIS), 0.44 s (MODIS), 0.60 s (DPR), and 2.0 s (VIIRS) at the 95th percentile; swath width
+       within 0.20 to 3.3 km (median) with measured fields of regard; pixel centers within 1.4 to 2.9 km (median;
        ATMS, VIIRS, MODIS, DPR). MHS, with its published scan, observed 99.97% of passes predicted, with epochs within
        1.7 s, swath width within 0.8 km, and pixel centers within 5.7 km (median), along track of where MHS samples
        them. AIRS and AMSU-A, with their published scans, observed 99.9% of passes predicted, with epochs within
@@ -77,9 +77,8 @@ Instruments and Pointing
        within 0.16 s (95th percentile), swath width within 1.3 km, and pixel centers within 0.5 km (median); without
        its yaw of 0.29 deg, epochs were within 1.1 s. OCI, whose tilt fore or aft follows a daily schedule set by
        the subsolar latitude and which is blind while the tilt changes, predicted 99.9% of the passes observed on
-       held-out data, with 97.3% of its predicted passes observed, epochs within 0.55 s (95th percentile), and swath
-       width within 0.8 km (median), but swath IoU 0.931 at 120 s (0.985 at 10 s), as the view tailored to a long
-       time step, tilted 20 deg, widens the swath.
+       held-out data, with 97.4% of its predicted passes observed, epochs within 0.55 s (95th percentile), swath
+       width within 0.9 km (median), and swath IoU 0.997.
        On sibling satellites, as transfers, MHS and AVHRR on Metop-B passed every swath test, while NOAA-20's angles
        on NOAA-21 placed ATMS's pixels within 10.5 km and VIIRS's swath width within 21 km (median); fitted on
        NOAA-21, with ATMS's scan rotated 0.93 deg, ATMS's pixels were within 3.2 km and the swath widths of ATMS and
@@ -89,27 +88,27 @@ Instruments and Pointing
        43 km (all) at the 95th percentile with public methods, which observe a scan at one instant and do not rotate
        the array of fields of view (:doc:`ValidateImagerCrIS`). On held-out data, CERES (first sweep of each
        record) predicted 99.6% of observed passes, with 99.4% of predicted passes observed, epochs within 0.29 s (95th
-       percentile), and swath IoU 0.998, but swath width within 7.9 km (median), its edges 60 deg from nadir; ECOSTRESS,
+       percentile), and swath IoU 0.999, but swath width within 7.9 km (median), its edges 60 deg from nadir; ECOSTRESS,
        with fitted yaw and pitch and its view centered in TAT-C's frame, had 98.4% of predicted passes observed,
-       epochs within 0.72 s, swath width within 0.62 km, and swath IoU 0.988 at 10 s, but predicted 98.9% of observed
-       passes, and swath IoU was 0.898 at 120 s (:doc:`catalog`)
+       epochs within 0.72 s, swath width within 0.62 km, and swath IoU 0.988, but predicted 98.9% of observed passes
+       (:doc:`catalog`)
    * - Pushbroom imagers (`PointedInstrument`)
      - Sentinel-2 MSI, Landsat 9 OLI, Sentinel-5P TROPOMI, Sentinel-3A OLCI, PACE HARP2 and SPEXone, NOAA-20 and
        NOAA-21 OMPS Nadir Mapper, OCO-2, ISS EMIT
-     - On held-out data, 99.8% or more of passes predicted; swath width within 0.1 to 2.0 km and swath IoU 0.97 or
-       more (median) at time steps of up to 30 s, but 0.949 (MSI) and 0.937 (TROPOMI) at 120 s; epochs within 1.3 s
-       (OLI), 2.1 s (TROPOMI), and 2.6 s (MSI, one view) at the 95th percentile (:doc:`catalog`). MSI's epochs within
+     - On held-out data, 99.8% or more of passes predicted; swath width within 0.1 to 2.0 km and swath IoU 0.99 or
+       more (median); epochs within 1.3 s (OLI), 2.1 s (TROPOMI), and 2.6 s (MSI, one view) at the 95th percentile
+       (:doc:`catalog`). MSI's epochs within
        0.26 s (95th percentile) with a view per detector module and a geocentric nadir (:doc:`ValidatePushbroomMSI`).
        OLCI, a single view rolled 12.7 deg away from the sun, on held-out tie points: 99.8% of passes predicted,
-       epochs within 0.13 s (95th percentile), and swath IoU 0.975, but swath width within 9.9 km (:doc:`catalog`).
+       epochs within 0.13 s (95th percentile), and swath IoU 0.990, but swath width within 9.9 km (:doc:`catalog`).
        On held-out data, HARP2 (near-nadir view) and SPEXone predicted 99.99 and 99.86% of passes, with epochs within
-       0.44 and 0.22 s (95th percentile), swath width within 0.6 km, and swath IoU 0.990 and 0.971. The OMPS Nadir
-       Mapper predicted 99.3 to 99.4% of passes, with swath IoU 0.98 or more, but epochs within 19 to 20 s and swath
+       0.44 and 0.22 s (95th percentile), swath width within 0.6 km, and swath IoU 0.9996 and 0.979. The OMPS Nadir
+       Mapper predicted 99.3 to 99.4% of passes, with swath IoU 0.99 or more, but epochs within 19 to 20 s and swath
        width within 5.9 to 7.1 km, as its swath bows along track. OCO-2's narrow slit (about 10 km) observed 90.4%
-       (nadir) and 89.4% (glint) of sampled soundings, with epochs within 0.88 and 1.24 s, and swath IoU 0.44 and 0.17
+       (nadir) and 89.4% (glint) of sampled soundings, with epochs within 0.88 and 1.24 s, and swath IoU 0.45 and 0.41
        (:doc:`catalog`). EMIT, with fitted yaw and pitch and its view centered in TAT-C's frame, observed 94.6%
        of sampled pixels on held-out data, with epochs within 0.25 s and swath width within 0.05 km, but missed pixels
-       within about 1.5 km of one edge of its 75 km swath, and swath IoU was 0.92 at 10 s; with its roll measured from
+       within about 1.5 km of one edge of its 75 km swath, and swath IoU was 0.925; with its roll measured from
        the geodetic nadir instead, its view had lain 4.0 to 4.5 km to one side (:doc:`catalog`)
    * - Conical scanners (`ConicalInstrument`)
      - GCOM-W AMSR2, GPM GMI, SMAP radiometer, DMSP F18 SSMIS
@@ -124,30 +123,31 @@ Instruments and Pointing
      - NISAR, Sentinel-1C
      - Epochs within 0.3 and 0.44 s (95th percentile) of zero-Doppler times; footprint IoU 0.93 to 0.96 (median); roll
        steering profiles bring swath edges within 6 to 7 km (:doc:`ValidateSARNISAR`, :doc:`ValidateSARSentinel1`).
-       On held-out Sentinel-1C data, swath edges within 4.7 to 6.9 km (95th percentile) in IW and EW modes, but 98.98%
-       of IW passes predicted, the misses at the swath edges, and swath IoU 0.956 (IW) and 0.978 (EW) at 10 s, falling
-       to 0.72 and 0.82 at 120 s (:doc:`catalog`). On held-out NISAR data of its modes with a 20 or 40 MHz band,
+       On held-out Sentinel-1C data, IW's swath edges within 6.7 to 6.9 km (95th percentile) and swath IoU 0.974, but
+       98.98% of its passes predicted, the misses at the swath edges; EW, on a later held-out day, predicted 99.16% of
+       passes, with edges within 7.6 to 9.5 km and swath IoU 0.989 (:doc:`catalog`). On held-out NISAR data of its modes with a 20 or 40 MHz band,
        99.27% of passes predicted, epochs within 0.92 s, and far-range edges within 6.8 km, but near-range edges
-       within 12.1 km (95th percentile) with a fixed field of view, and swath IoU 0.959 at 10 s, falling to 0.73 at
-       120 s (:doc:`catalog`)
+       within 12.1 km (95th percentile) with a fixed field of view, and swath IoU 0.974 (:doc:`catalog`). NISAR's 77 MHz mode, on four held-out days with an element set of each day:
+       99.01% of passes predicted, edges within 3.1 km and epochs within 0.13 s (95th percentile); with an element set
+       3 to 7 days later, edges within 8.9 km and epochs within 1.28 s, as it lay 1.7 to 9.2 km ahead of the products'
+       orbits along track (:doc:`catalog`)
    * - Wide-swath interferometer (two rolled instruments)
      - SWOT KaRIn
      - Every pixel 11 to 59 km from the ground track observed by the instrument on its side, none in the nadir gap;
        epochs within 0.04 s after removing the orbit offset (:doc:`ValidateSwathSWOT`). On held-out data, with the
        edges of good-quality heights (about 7.5 to 61 km from the ground track), 99.05% of passes predicted, edges
-       within 3.0 km and epochs within 0.52 s (95th percentile), and swath IoU 0.988 or more at time steps of up to
-       120 s (:doc:`catalog`)
+       within 3.0 km and epochs within 0.52 s (95th percentile), and swath IoU 0.993 (:doc:`catalog`)
    * - Scatterometer (two rolled instruments)
      - Metop-C ASCAT
      - On held-out data, with row times recovered from the product's rounded times, 99.83% of passes predicted,
-       edges of the wind vector cells within 7.2 km (95th percentile), swath IoU 0.973 or more (median) at time
-       steps of up to 120 s, and epochs within 1.9 s (95th percentile) of the cells' rows (:doc:`catalog`)
+       edges of the wind vector cells within 7.2 km (95th percentile), swath IoU 0.983 (median), and epochs within 1.9 s (95th percentile) of the cells' rows (:doc:`catalog`)
    * - Narrow-beam lidar
      - ICESat-2 ATLAS, GEDI
      - Beams located within about 2 km with a TLE, so a view about 4 km wide predicts 95% of their observations
        (:doc:`ValidateLidarICESat2`). With views about 4.9 km wide fitted over Antarctica, held-out data a month
        later had every sampled segment within its pair's view and the pairs' spacing within 0.02 km, but epochs 5.5 s
-       early (median) with an element set 4 days old, consistent with its along-track error (:doc:`catalog`).
+       early (median) with an element set 4 days from the data, consistent with its along-track error; with an
+       element set of the day, within 0.37 s (95th percentile) (:doc:`catalog`).
        GEDI's eight beams, as views fitted where GEDI points within 1 deg of nadir: on held-out data, 99.9% of
        sampled shots within their views and the beams' spacing within 0.026 km, but epochs 2.4 s early (median),
        consistent with beams pointing behind the plane across track; with a pitch fitted on the fitting day, 99.55%
@@ -291,12 +291,18 @@ numerical error in TAT-C:
 * **Measured instrument parameters.** Nominal fields of regard gave swaths 11 km
   too narrow (ATMS) and 47 km too wide (VIIRS); parameters fitted to geolocated
   samples close the gap.
-* **Time step.** A pushbroom, narrow cross-track, or SAR view tailored to the analysis time step
-  departs further from the swath as the time step grows: swath IoU falls from
-  about 0.95 or more at 10 s to 0.94 to 0.95 (MSI, TROPOMI, DPR), 0.72 to 0.82
-  (Sentinel-1C), and 0.73 to 0.76 (NISAR) at 120 s. Use time steps of 30 s or
-  less, or 10 s for Sentinel-1's IW mode and NISAR. KaRIn's swaths, near nadir,
-  keep an IoU of 0.98 or more at 120 s.
+* **Time step.** A view tailored to the analysis time step stretches along
+  track, and its rigid footprint departs from the swath as the time step grows,
+  most for views far from nadir, tilted, or yawed. Swept instruments
+  (`is_swept`), as in every pointed configuration of the catalog, take as their
+  swath the strip their cross-track line sweeps, which does not depend on the
+  time step. All results above are with swept swaths, at time steps of 10, 30,
+  and 120 s. Before they were added, the catalog's swath IoU at 120 s had been
+  0.72 to 0.82 (Sentinel-1C), 0.73 to 0.76 (NISAR), 0.73 (EMIT), 0.90 (ECOSTRESS), 0.93 to 0.95
+  (OCI, MSI, TROPOMI, DPR), and 0.17 (OCO-2 glint). Records were rescored on
+  the same held-out data, with every other result unchanged; MSI, TROPOMI,
+  DPR, OCI, and Sentinel-1's EW mode, whose tiers changed, were tested again on
+  a later held-out day, which their records hold.
 * **Element set age.** Use element sets near the analysis period, especially
   for low orbits with strong drag or frequent maneuvers (ISS, GPM), a
   multi-element `GeneralPerturbationsOrbit` for past periods, and a maintained

@@ -213,6 +213,15 @@ point according to plans, so a predicted observation that was not made is not an
 error of geometry. Nor do altimeters, whose products omit measurements by surface
 and quality, or scatterometers, whose wind products omit land and sea ice.
 
+A swath's IoU is measured at several time steps, up to 120 s, and gated at the
+lowest. Configurations whose instruments are swept (`is_swept`), as every
+pointed configuration with a view tailored to the time step is, take as their
+swath the strip their cross-track line sweeps, as observations of points do, so
+the IoU at each time step measures that line, not a view stretched along track
+to cover the step. Swept swaths changed no threshold. Records were rescored with
+them on the same held-out data, and configurations whose tier changed were tested
+again on a later held-out day (:doc:`summary`).
+
 Back-Test
 =========
 

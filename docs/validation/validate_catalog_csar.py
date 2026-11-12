@@ -20,6 +20,7 @@ Needs the `validation` extra:
 
     python docs/validation/validate_catalog_csar.py <data directory> 2026-10-02 --fit
     python docs/validation/validate_catalog_csar.py <data directory> 2026-08-12
+    python docs/validation/validate_catalog_csar.py <data directory> 2026-11-10 --mode ew
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
@@ -88,11 +89,16 @@ TRANSFER_ELEMENTS = {
     ],
 }
 NORAD_ID = 62261
-# the element set of the validation notebook, for the fit day
+# the element set of the validation notebook, for the fit day, and a public element
+# set from CelesTrak, with an epoch after the day of data, for a later held-out day
 ELEMENT_SETS = {
     "2026-10-02": [
         "1 62261U 24235A   26275.78977191 -.00000047  00000+0 -21660-6 0  9997",
         "2 62261  98.1826 281.5711 0001343  90.3841 269.7512 14.59198718 97106",
+    ],
+    "2026-11-10": [
+        "1 62261U 24235A   26315.56119245  .00000131  00000+0  37523-4 0  9991",
+        "2 62261  98.1823 320.7686 0001279  88.3683 271.7663 14.59200135102901",
     ],
 }
 MODES = {"iw": "IW", "ew": "EW"}
@@ -481,7 +487,9 @@ def score_chunk(chunk, products, day, satellite_for) -> dict[str, float]:
         n = max(1, int(round(duration / time_step)))
         step = duration / n
         times = to_utc(day, start + step * (np.arange(n) + 0.5))
-        track = compute_ground_track(satellite_for(step), times)
+        track = compute_ground_track(
+            satellite_for(step), times, time_step=timedelta(seconds=float(step))
+        )
         geometry = track.geometry.iloc[0]
         predicted = unary_union(
             [
@@ -699,11 +707,15 @@ def validate_mode(key, day, tle, entry, orbit, products, write) -> None:
     fixture = points[found][
         rng.choice(int(found.sum()), min(FIXTURE_PASSES, int(found.sum())), False)
     ]
+    # each mode keeps its own element set and day, since modes may be tested on
+    # different days
     update_fixture(
         FIXTURE_PATH,
-        tle=np.array(tle),
-        day=np.array(day.isoformat()),
-        **{f"passes_{key}": fixture},
+        **{
+            f"tle_{key}": np.array(tle),
+            f"day_{key}": np.array(day.isoformat()),
+            f"passes_{key}": fixture,
+        },
     )
     update_record(
         RECORD_PATH,

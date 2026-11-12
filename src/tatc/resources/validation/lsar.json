@@ -2,7 +2,7 @@
   "entry_id": "lsar",
   "configurations": {
     "swath_20_40mhz": {
-      "digest": "64b6792cf14aa9ec487788088277be3d41f06da395c9cef561fb4d11b1965be6",
+      "digest": "e67e1e5d49acea59d3d35bca921f519a83dd3d31f98c548fb6e2ba0baf85407f",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_lsar.py",
@@ -27,32 +27,32 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9590115006486803,
+          "value": 0.9738143054142925,
           "scope": "time step 10 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9239180853934219,
+          "value": 0.9458082390503432,
           "scope": "time step 10 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9250085665940424,
+          "value": 0.9738143207918529,
           "scope": "time step 30 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.8192044127348738,
+          "value": 0.9458084082984045,
           "scope": "time step 30 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.7307474113757555,
+          "value": 0.9738143054182018,
           "scope": "time step 120 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.6918885813641412,
+          "value": 0.9458084616970737,
           "scope": "time step 120 s"
         },
         {
@@ -70,7 +70,7 @@
       }
     },
     "swath_5mhz": {
-      "digest": "5dcb9ae9747ff5c5e7a195c89bad837d06eb91e41c8fba1eefaaa9d8543f803d",
+      "digest": "f8b48d01faf157ff78d710527be59e46478af30b6b114a004d996af433de4874",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_lsar.py",
@@ -95,32 +95,32 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9478177117781734,
+          "value": 0.9757848285539369,
           "scope": "time step 10 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.9478177117781734,
+          "value": 0.9757848285539369,
           "scope": "time step 10 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.8621282230020262,
+          "value": 0.9757848853853915,
           "scope": "time step 30 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.8621282230020262,
+          "value": 0.9757848853853915,
           "scope": "time step 30 s"
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.755472649945832,
+          "value": 0.9757849137976636,
           "scope": "time step 120 s"
         },
         {
           "name": "footprint_iou_p5",
-          "value": 0.755472649945832,
+          "value": 0.9757849137976636,
           "scope": "time step 120 s"
         },
         {
@@ -136,7 +136,45 @@
         "passes_found": 100.0,
         "epoch_p95": 0.36542056
       }
+    },
+    "swath_77mhz": {
+      "digest": "487fa95b160e4567932ce285f6396f7222da083e56cc66a112cab00f0f4bf6f2",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_lsar.py",
+      "reference": "Geolocation grids, orbits, and bounding polygons of NISAR Level 1 RSLC products",
+      "period": "2026-11-01, 2026-11-02, 2026-11-03, 2026-11-05",
+      "platform": "nisar",
+      "holdout_gap_days": 30,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.00990099009901
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 3.1307952744433973,
+          "scope": "near range"
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 2.124450542426133,
+          "scope": "far range"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.12899474715
+        },
+        {
+          "name": "epoch_median",
+          "value": -0.02563027200000001
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.1304822434
+      }
     }
   },
-  "standard_version": 1
+  "standard_version": 5
 }

@@ -18,6 +18,13 @@ Entries
 
 .. autoclass:: tatc.catalog.InstrumentPayload
 
+Attitudes by Day
+----------------
+
+.. autopydantic_model:: tatc.catalog.TiltSchedule
+
+.. autofunction:: tatc.catalog.get_subsolar_latitude
+
 Validation Status
 -----------------
 

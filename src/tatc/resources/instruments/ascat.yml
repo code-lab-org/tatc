@@ -29,6 +29,7 @@ configurations:
           roll_angle: 34.1656
           cross_track_field_of_view: 21.3587
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           roll_angle: &left
@@ -37,6 +38,7 @@ configurations:
             platform: metop-c
             period: "2026-10-05"
           cross_track_field_of_view: *left
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: &tailored
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
@@ -49,6 +51,7 @@ configurations:
           roll_angle: -34.1649
           cross_track_field_of_view: 21.3596
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           roll_angle: &right
@@ -57,11 +60,13 @@ configurations:
             platform: metop-c
             period: "2026-10-05"
           cross_track_field_of_view: *right
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
     limitations:
       - The swaths are those of the 25 km wind vector cells, each of which ASCAT's fore, mid, and aft beams observe at different times, the fore and aft beams (45 deg ahead of and behind the mid beam) about one to two minutes before and after, by the swaths' distance from the ground track (about 370 to 850 km); a cell's epoch is that of its row.
-      - On data held out on 2026-11-08 (34 days from the fit), 99.83% of passes were predicted, the edges were within 7.2 km (95th percentile), the swaths' intersection over union was 0.973 or more (median) and 0.964 or more (5th percentile) at time steps of up to 120 s, and epochs were within 1.91 s (95th percentile). A pass is observed within half a cell (12.5 km) of a cell, which leaves the cells' corners out, so 85.9% of predicted passes were observed; precision is not gated for this class.
+      - On data held out on 2026-11-08 (34 days from the fit), 99.83% of passes were predicted, the edges were within 7.2 km (95th percentile), the swaths' intersection over union was 0.983 (median) and 0.976 (5th percentile) at time steps of 10 to 120 s, as the swaths are the strips the views' cross-track lines sweep (is_swept), and epochs were within 1.91 s (95th percentile). A pass is observed within half a cell (12.5 km) of a cell, which leaves the cells' corners out, so 85.9% of predicted passes were observed; precision is not gated for this class.
+      - Rescored after swept swaths (is_swept) were added, on the same data, with the other results unchanged; with views tailored to the time step, the swaths' intersection over union had been 0.991 (median; 0.983 at the 5th percentile) at 10 s, 0.992 (0.984) at 30 s, and 0.973 (0.964) at 120 s.
       - The product stores the times of rows to 128 s; they are recovered as rows 3.75 s apart, within 0.375 s of the stored times' rounding. On the fitting day, the edges lay 0.16 deg ahead of the plane across track at the recovered times (about 0.4 s), which is not modeled.
 limitations:
   - Winds are retrieved over the ocean, without sea ice; the swaths are those of the cells' geometry, which the product gives everywhere.

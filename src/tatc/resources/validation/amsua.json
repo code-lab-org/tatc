@@ -44,7 +44,7 @@
       }
     },
     "swath": {
-      "digest": "c74e41783545953005c0326540108cadd12d9dc06c8506789445f331d41e3c30",
+      "digest": "369162ad7568ddcffbc1e3e81552c52f471f7b2232da5e94cc9be7f7f3928bce",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_amsua.py",
@@ -71,7 +71,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9860036195386874
+          "value": 0.9979001473835111
         }
       ],
       "fixture_metrics": {
@@ -80,5 +80,5 @@
       }
     }
   },
-  "standard_version": 2
+  "standard_version": 5
 }

@@ -31,6 +31,7 @@ configurations:
           field_of_regard: 20
           cross_track_field_of_view: 11.0404
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           roll_angle: 0.7829
           is_rectangular: true
         provenance:
@@ -43,6 +44,7 @@ configurations:
             platform: iss
             period: "2026-10-04"
           roll_angle: *measured_view
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
@@ -52,7 +54,7 @@ configurations:
     limitations:
       - The yaw of 3.7416 deg is measured with validate_catalog_emit.py --fit on 2026-10-04, from the slope of the pixels' along-track on their cross-track tangents (from 3.64 to 3.84 deg at the 5th and 95th percentiles), with the station's position interpolated to each line's time. The pitch (-7.5608 deg), roll, and field of view are fitted with --fit-view on the same day, to center the middle and outermost pixels in TAT-C's view frame. The pitch places the swath about 56 km behind the station.
       - The fit uses every 16th line of each scene and every 25th pixel, with the times of every 8th of those lines, interpolated between them.
-      - On data held out on 2026-11-08 (35 days from the fit), epochs were within 0.25 s (95th percentile) and the swath width within 0.05 km (median), but 94.6% of a sample of 1,000 pixels were observed within two minutes of their times, and the swath's intersection over union with the strip between the outermost pixels was 0.92 at a time step of 10 s, 0.91 at 30 s, and 0.73 at 120 s (median of 8 segments of 120 s), failing both gates. Diagnosed after the run, the missed pixels lay within about 1.5 km of one edge, consistent with the station's roll varying from day to day (by 0.12 deg, about 0.9 km, between the fit and 2026-11-07) and the error of an element set two days old across track, which the narrow swath (about 75 km) cannot absorb at the recall gate.
+      - On data held out on 2026-11-08 (35 days from the fit), epochs were within 0.25 s (95th percentile) and the swath width within 0.05 km (median), but 94.6% of a sample of 1,000 pixels were observed within two minutes of their times, and the swath's intersection over union with the strip between the outermost pixels was 0.925 (median of 8 segments of 120 s) at time steps of 10 to 120 s, failing both gates. Rescored after swept swaths (is_swept) were added, on the same data, with the other results unchanged; with views tailored to the time step, it had been 0.92 at 10 s, 0.91 at 30 s, and 0.73 at 120 s. Diagnosed after the run, the missed pixels lay within about 1.5 km of one edge, consistent with the station's roll varying from day to day (by 0.12 deg, about 0.9 km, between the fit and 2026-11-07) and the error of an element set two days old across track, which the narrow swath (about 75 km) cannot absorb at the recall gate.
       - The roll, pitch, and field of view were changed after the run on 2026-11-07 recorded below, and the configuration tested again on 2026-11-08 (above). They had been measured with --fit (a roll of 0.3073 deg from the geodetic nadir, a pitch of -7.5841 deg, and a field of view of 11.0943 deg).
       - On data held out on 2026-11-07 (34 days from the fit), with the earlier roll, pitch, and field of view, epochs were within 0.86 s (95th percentile) and the swath width within 0.47 km (median), but only 92.3% of a sample of 1,000 pixels were observed within two minutes of their times, and the swath's intersection over union with the strip between the outermost pixels was 0.85 at a time step of 10 s and 0.69 at 120 s (median of 6 segments of 120 s), failing both gates. Diagnosed after the run, the view lay 4.0 to 4.5 km to one side of the observed swath (median, both edges; first reported as 6.4 to 6.9 km, from projections that omitted the roll), and the missed pixels lay along that edge, whereas the angles fitted on the held-out day barely differ. The roll, measured from the geodetic nadir at each line's time, does not center the view that TAT-C rolls, pitches, and yaws.
 limitations:

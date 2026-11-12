@@ -7,9 +7,9 @@
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_dpr.py",
       "reference": "Footprints of the TC PRIMED documentation; beam positions of GPM_2ADPR version 08",
-      "period": "2026-07-20",
+      "period": "2026-11-10",
       "platform": "gpm",
-      "holdout_gap_days": 75,
+      "holdout_gap_days": 38,
       "metrics": [
         {
           "name": "sample_size_within_3pct",
@@ -21,64 +21,64 @@
         },
         {
           "name": "pixel_position_median",
-          "value": 0.9057017296873197
+          "value": 1.4141303980159452
         },
         {
           "name": "pixel_position_p95",
-          "value": 3.892342467870352
+          "value": 4.324023228563047
         },
         {
           "name": "spacing_along_ratio_median",
-          "value": 1.000121108258955
+          "value": 1.0000826737847548
         },
         {
           "name": "spacing_cross_ratio_median",
-          "value": 0.9997097198688037
+          "value": 0.9997279049149927
         }
       ],
       "fixture_metrics": {
         "sample_size_within_3pct": 100.0,
-        "pixel_position_median": 1.0435313670615138,
-        "spacing_along_ratio_median": 1.0001470891455386,
-        "spacing_cross_ratio_median": 0.9996463544212115
+        "pixel_position_median": 1.4406098527651623,
+        "spacing_along_ratio_median": 1.000064945096927,
+        "spacing_cross_ratio_median": 0.9996342006903236
       }
     },
     "swath": {
-      "digest": "2d335101f7086353b7ee08b5469d48e323d9a7528cdb96f39828a688169072df",
+      "digest": "882b5b5f11d8ad70d370902f965b65f3557a5a70d58ea9cb444c02d5e94b5f85",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_dpr.py",
       "reference": "GPM_2ADPR version 08 (beam positions of the full swath)",
-      "period": "2026-07-20",
+      "period": "2026-11-10",
       "platform": "gpm",
-      "holdout_gap_days": 75,
+      "holdout_gap_days": 38,
       "metrics": [
         {
           "name": "pass_recall",
-          "value": 99.89830015981403
+          "value": 99.79777553083923
         },
         {
           "name": "pass_precision",
-          "value": 99.74854932301741
+          "value": 99.70816028734987
         },
         {
           "name": "epoch_p95",
-          "value": 0.5505235317999999
+          "value": 0.6036209651999999
         },
         {
           "name": "swath_width_median",
-          "value": 0.1521456784644106
+          "value": 0.19792412373842672
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9417330482955538
+          "value": 0.996068973072096
         }
       ],
       "fixture_metrics": {
         "passes_found": 100.0,
-        "epoch_p95": 0.6366860527
+        "epoch_p95": 0.5795258645499999
       }
     }
   },
-  "standard_version": 2
+  "standard_version": 5
 }

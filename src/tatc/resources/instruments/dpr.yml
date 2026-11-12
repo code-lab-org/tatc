@@ -28,6 +28,7 @@ configurations:
           field_of_regard: 34.0073
           cross_track_field_of_view: 34.0073
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           field_of_regard: &measured_extent
@@ -36,6 +37,7 @@ configurations:
             platform: gpm
             period: "2026-10-03"
           cross_track_field_of_view: *measured_extent
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view:
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
@@ -44,7 +46,8 @@ configurations:
             source: Models a scanned swath as a rectangular view
     limitations:
       - The view is centered on nadir. The outermost beams measure 17.05 deg to the left and 16.95 deg to the right.
-      - On held-out data, the swath's IoU is 0.994 at a time step of 10 s and 0.984 at 30 s, but 0.942 at 120 s, below the gate; use time steps of 30 s or less.
+      - The swath is the strip the view's cross-track line sweeps (is_swept), so it does not depend on the time step. On data held out on 2026-11-10 (38 days from the fit), 99.80% of observed passes were predicted, with the swath width within 0.20 km (median), epochs within 0.60 s (95th percentile), and the swath's intersection over union 0.996 at time steps of 10 to 120 s.
+      - Swept swaths were added after the configuration's first holdout, on 2026-07-20, where views tailored to the time step departed from the swath at long time steps; the swath's intersection over union was 0.994 at 10 s and 0.984 at 30 s, but 0.942 at 120 s, failing the standard's 0.95. Rescored with swept swaths, it was 0.997 at every time step, with the other results unchanged; the configuration was then tested on 2026-11-10, a day not used before, which its record holds.
       - Since May 2018, the Ka-band radar scans the same 49 beams as the Ku-band radar; earlier, its matched and high-sensitivity beams covered a narrower swath, which this configuration does not represent.
   beams:
     grade: sample_size
@@ -94,6 +97,7 @@ configurations:
             period: "2026-10-03"
     limitations:
       - TAT-C projects all pixels of a scan at one instant, at the time the product gives for the scan.
+      - The record holds 2026-11-10, on which the swath configuration was tested again, with pixel positions within 1.41 km (median) and 4.32 km (95th percentile); on the first holdout, 2026-07-20, they were within 0.91 km and 3.89 km.
 limitations:
   - GPM periodically flies backward (yaw flips). The scan is nearly symmetric, so the swath is unchanged, but the small roll of the beams configuration changes sign.
   - Products report precipitation only where the radar detects it; these configurations describe where the radar samples, not where it detects precipitation.

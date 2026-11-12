@@ -219,7 +219,9 @@ def score_strips(satellite_for, reference: Reference, segments) -> tuple[float, 
                 first + timedelta(seconds=time_step * (i + 0.5))
                 for i in range(int(SEGMENT // time_step))
             ]
-            predicted = compute_ground_track(satellite, times).geometry.iloc[0]
+            predicted = compute_ground_track(
+                satellite, times, time_step=timedelta(seconds=time_step)
+            ).geometry.iloc[0]
             observed = observed_strip(reference, lines[::SEGMENT_LINE_STRIDE])
             union = area(predicted.union(observed))
             scores.append(area(predicted.intersection(observed)) / union)

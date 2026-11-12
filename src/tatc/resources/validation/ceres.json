@@ -2,7 +2,7 @@
   "entry_id": "ceres",
   "configurations": {
     "swath": {
-      "digest": "561fd060c3c380b6051eb0c4b306c9bcc3fd30e19f6a62b2c70af72659208850",
+      "digest": "502da50334b599f443ad05a8fe9238e13cb97975974b8987353f1a5a7567bbb0",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_ceres.py",
@@ -29,7 +29,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.9984616577160752
+          "value": 0.9994761831424892
         }
       ],
       "fixture_metrics": {
@@ -38,5 +38,5 @@
       }
     }
   },
-  "standard_version": 3
+  "standard_version": 5
 }

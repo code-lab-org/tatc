@@ -2,7 +2,7 @@
   "entry_id": "oco2",
   "configurations": {
     "nadir": {
-      "digest": "09c90ef5cda00d639308853a12702032afcf9d8287d549f343d00864cd63fcb7",
+      "digest": "c449b1266d6a9d23c6f2a3f31c5c29627153d562b2fd4e8802a6bea6b16551fb",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_oco2.py",
@@ -29,7 +29,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.440877118090536
+          "value": 0.448221500705728
         }
       ],
       "fixture_metrics": {
@@ -38,7 +38,7 @@
       }
     },
     "glint": {
-      "digest": "d20a73c18684d72478669945a343434ce2c4df6d49b133a01da8b116c8c51d92",
+      "digest": "5e5e2514972d07b5ca4809fe207647ffce5e74c174837b9fe02d2717dc872f37",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
       "source": "docs/validation/validate_catalog_oco2.py",
@@ -65,7 +65,7 @@
         },
         {
           "name": "footprint_iou_median",
-          "value": 0.17285409815199954
+          "value": 0.4077767374507504
         }
       ],
       "fixture_metrics": {
@@ -74,5 +74,5 @@
       }
     }
   },
-  "standard_version": 3
+  "standard_version": 5
 }

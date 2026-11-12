@@ -29,6 +29,7 @@ configurations:
           roll_angle: 0.3507
           cross_track_field_of_view: 0.5824
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           roll_angle: &measured
@@ -37,6 +38,7 @@ configurations:
             platform: icesat-2
             period: "2026-10-01"
           cross_track_field_of_view: *measured
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: &tailored
             kind: derived
             source: compute_along_track_field_of_view, from the orbit and time step
@@ -49,10 +51,12 @@ configurations:
           roll_angle: -0.0511
           cross_track_field_of_view: 0.5870
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           roll_angle: *measured
           cross_track_field_of_view: *measured
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
@@ -61,16 +65,19 @@ configurations:
           roll_angle: -0.4511
           cross_track_field_of_view: 0.5872
           along_track_field_of_view: {tailor: time_step}
+          is_swept: true
           is_rectangular: true
         provenance:
           roll_angle: *measured
           cross_track_field_of_view: *measured
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
           along_track_field_of_view: *tailored
           is_rectangular: *rectangular
     limitations:
       - Each view is about 4.9 km wide, whereas a beam's footprint is about 11 m wide. The width holds the error of an element set a few days old (about 2.5 days at the fit), so a view shows where a pair may observe, not the area it observes. Older element sets need wider views.
       - The views follow the ground track of the element set's orbit, where ICESat-2 points its beams along their reference tracks, as over Antarctica, where the configuration was fitted and tested. Elsewhere, ICESat-2 often points them off the reference tracks (8 to 15 km between 40 deg S and 60 deg N, in ValidateLidarICESat2), which these views do not represent.
       - Each pair's strong and weak beams, about 90 m apart across track and 2.5 km along track, share one view.
-      - On held-out data (4 November 2026, with an element set about 4 days old), the views contained every sampled segment, but TAT-C's epochs preceded the segments' times by 5.5 s (median), failing the timing gate. This is consistent with an along-track error of the element set, such as after an orbit adjustment that it does not represent, as ValidateLidarICESat2 also found; epochs are only as accurate as the element set along track.
+      - On held-out data (4 November 2026, with an element set of 8 November, about 4 days from the data), the views contained every sampled segment, but TAT-C's epochs preceded the segments' times by 5.5 s (median), failing the timing gate. This is consistent with an along-track error of the element set, such as after an orbit adjustment that it does not represent, as ValidateLidarICESat2 also found; epochs are only as accurate as the element set along track.
+      - The same held-out data tested afterward with the element set of the day (epoch nearest its middle, from docs/validation/icesat2_2026-11-04.3le; validate_catalog_atlas.py --same-day-element-set) had every sampled segment within its pair's view, the pairs' spacing within 0.021 km, and epochs within 0.37 s (95th percentile; +0.03 s median), passing the timing gate. The record keeps the element set a few days from the data, the age for which the views' widths were fitted, so this result is not counted toward the tier.
 limitations:
   - TAT-C does not find ICESat-2's 91-day repeat cycle from an element set; declare it as a maintained orbit (see ValidateLidarICESat2).
