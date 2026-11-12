@@ -590,7 +590,9 @@ class _Simulation:
             self.line[kind] = ready
             self.history.production.append(Production(kind, begin, ready, count))
             launches = self.schedule.launches_of(
-                count, self.deployment.masses.get(kind)
+                count,
+                self.deployment.masses.get(kind),
+                self._plane(plane),
             )
             position = 0
             for j in range(launches):
@@ -638,22 +640,28 @@ class _Simulation:
                     time = booked + interval
         return time
 
-    def _capacity(self, kind: Any) -> float:
+    def _plane(self, plane: int) -> tuple[int, Any]:
+        """The index and values of a plane (see `DeploymentSchedule`)."""
+        values = self.deployment.plane_values
+        return plane, values[plane] if plane < len(values) else None
+
+    def _capacity(self, plane: int, kind: Any) -> float:
         capacity = math.inf
         if self.schedule.launch_capacity is not None:
             capacity = self.schedule.launch_capacity
-        if self.schedule.launch_mass_capacity is not None:
+        mass_capacity = self.schedule.mass_capacity_of(self._plane(plane))
+        if mass_capacity is not None:
             mass = self.deployment.masses.get(kind)
             if mass is not None:
-                capacity = min(
-                    capacity, math.floor(self.schedule.launch_mass_capacity / mass)
-                )
+                capacity = min(capacity, math.floor(mass_capacity / mass))
         return capacity
 
     def _book(self, plane: int, kind: Any, ready: float, item: tuple) -> None:
         """Books an item on a launch of a plane: an open one, or a new one."""
         for booking in self.open.get(plane, []):
-            if booking.time >= ready and len(booking.items) < self._capacity(kind):
+            if booking.time >= ready and len(booking.items) < self._capacity(
+                plane, kind
+            ):
                 booking.items.append(item)
                 return
         time = self._slot(ready + self.policy.batch_years)

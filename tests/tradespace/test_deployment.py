@@ -14,9 +14,12 @@ import pandas as pd
 from tatc.tradespace import (
     DeploymentSchedule,
     DesignSpace,
+    Exponential,
+    FailureModel,
     Phase,
     Real,
     Requirement,
+    RestorationPolicy,
     evaluate_phases,
     sso_planes_space,
     summarize_phases,
@@ -42,6 +45,37 @@ class TestPlan(unittest.TestCase):
     """
     Unit tests for planned deployments.
     """
+
+    def test_mass_capacity_by_plane(self):
+        """A launch capacity in mass may differ by plane (such as by inclination),
+        for the launches of a deployment and those of its restorations."""
+
+        def capacity(index, values):
+            del values  # the planes of a Walker constellation have none
+            return 100.0 if index == 0 else 200.0
+
+        schedule = DeploymentSchedule(years=5, launch_mass_capacity=capacity)
+        deployment = schedule.plan(_walker(2, 4), masses=50.0)
+        launches = {
+            plane: sum(l.plane == plane for l in deployment.launches)
+            for plane in (0, 1)
+        }
+        self.assertEqual(launches, {0: 2, 1: 1})
+        self.assertEqual(deployment.plane_values, [None, None])
+        with self.assertRaises(ValueError):
+            schedule.launches_of(4, 50.0)
+        self.assertEqual(schedule.launches_of(4, 50.0, (1, None)), 1)
+        # restorations that wait to share a launch fill it to the plane's capacity
+        history = deployment.simulate(
+            FailureModel(life=Exponential(2.0)),
+            RestorationPolicy(batch_years=1.0),
+            seed=0,
+        )
+        restorations = [l for l in history.launches if l.purpose == "restoration"]
+        self.assertTrue(any(l.plane == 1 and l.satellites > 2 for l in restorations))
+        self.assertTrue(
+            all(l.satellites <= (2 if l.plane == 0 else 4) for l in restorations)
+        )
 
     def test_production_rate(self):
         """A production line deploys planes as their satellites are built."""

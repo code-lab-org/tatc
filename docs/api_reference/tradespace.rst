@@ -95,7 +95,7 @@ Deployment
    :no-members:
 
 .. autoclass:: tatc.tradespace.DeploymentSchedule
-   :members: plan, launches_of
+   :members: plan, launches_of, mass_capacity_of
 
 .. autoclass:: tatc.tradespace.Deployment
    :members: simulate, simulate_many, expected_metrics, planned, phases, begin, end, deployed, units
@@ -198,7 +198,7 @@ Observation Studies
    :members: end, start_of, end_of, cache_of, context_of, __call__
 
 .. autoclass:: tatc.tradespace.MissionPlan
-   :members: growth_of, stages_of
+   :members: schedule_of, cost_model_of, masses_of, growth_of, stages_of
 
 .. autoclass:: tatc.tradespace.Failures
 

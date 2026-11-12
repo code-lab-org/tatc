@@ -4,6 +4,7 @@ Unit tests for studies of the observations of constellations.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import dataclasses
 import pickle
 import tempfile
 import unittest
@@ -25,6 +26,7 @@ from tatc.tradespace import (
     FailureModel,
     Failures,
     Integer,
+    LaunchCost,
     MissionPlan,
     ObservationStudy,
     Observations,
@@ -342,6 +344,46 @@ class TestObservationStudy(unittest.TestCase):
             space, _build, observations, _metrics, layout="layout", replicates=4
         ).run(space.enumerate()[:2])
         self.assertEqual(set(results.epoch), {START, later})
+
+    def test_sizing(self):
+        """Plans size the schedule and costs of each design by its values, and
+        limit launches by the masses of the cost model."""
+        designs = [d for d in SPACE.enumerate() if d.layout.per_plane == 2]
+
+        def cost_model(d):
+            """Satellites that cost more to develop higher (an illustrative relationship)."""
+            development = 10 * d.altitude / 600e3
+            return CostModel(
+                SatelliteCost(development=development, first_unit=2, mass=100),
+                launch=LaunchCost(per_launch=1),
+            )
+
+        def schedule(d):
+            """Launches that lift two satellites to 600 km, and one to 700 km."""
+            capacity = 250.0 if d.altitude < 650e3 else 150.0
+            return dataclasses.replace(SCHEDULE, launch_mass_capacity=capacity)
+
+        def study(plan):
+            return ObservationStudy(
+                SPACE, _build, _observations(), _metrics, layout="layout", plan=plan
+            )
+
+        results = study(MissionPlan(schedule, cost_model)).run(designs)
+        by_altitude = results.groupby("altitude")[["cost development", "cost launch"]]
+        means = by_altitude.mean()
+        self.assertAlmostEqual(
+            means.loc[700e3, "cost development"] / means.loc[600e3, "cost development"],
+            7 / 6,
+        )
+        # a launch of each plane at 600 km, and of each satellite at 700 km
+        planes = results.groupby("altitude")["planes"].mean()
+        self.assertAlmostEqual(means.loc[600e3, "cost launch"], planes[600e3])
+        self.assertAlmostEqual(means.loc[700e3, "cost launch"], 2 * planes[700e3])
+        # given masses take the place of those of the cost model
+        light = study(MissionPlan(schedule, cost_model, masses=50.0)).run(designs)
+        self.assertAlmostEqual(
+            light.groupby("altitude")["cost launch"].mean()[700e3], planes[700e3]
+        )
 
     def test_stages(self):
         """Plans stage the deployments of designs that decide to."""

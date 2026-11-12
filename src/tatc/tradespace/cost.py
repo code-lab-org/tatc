@@ -8,8 +8,8 @@ TAT-C does not include cost-estimating relationships, whose common forms are
 restricted or need calibration to an organization's experience: the costs of
 each type of satellite (such as the satellites of each payload) and of
 launches and operations are given, as values or functions of a design (such
-as a mass-based relationship), in a currency of the user's choice and
-constant-year amounts. Cost risk enters as uncertain growth factors (see
+as a mass-based relationship, as a `MissionPlan` of each design sizes them),
+in a currency of the user's choice and constant-year amounts. Cost risk enters as uncertain growth factors (see
 `CostModel.estimate`), drawn for each replicate like other uncertain
 parameters, so that statistics of the cost over replicates (such as a 0.7
 `Quantile`) are objectives or requirements.

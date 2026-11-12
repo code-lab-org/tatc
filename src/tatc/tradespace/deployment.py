@@ -128,6 +128,9 @@ class Deployment:
     """list[Launch]: The launches (and planned replacements), in order."""
     masses: dict[Any, float | None] = field(default_factory=dict)
     """dict: The mass (kg) of each type of satellite, if given."""
+    plane_values: list[Any] = field(default_factory=list)
+    """list: The values of each plane in the design (see `Plane`), in the
+    order of `planes`, as given to functions of the schedule of a plane."""
     stages: tuple[Stage, ...] = ()
     """tuple[Stage, ...]: The stages deployed only if their rules decide to
     (whose planes the production and launches above do not include)."""
@@ -362,8 +365,11 @@ class DeploymentSchedule:
         launch_interval (float): The least time between launches.
         launch_capacity (int | None): The most satellites of a launch, if
             limited.
-        launch_mass_capacity (float | None): The most mass (kg) of a launch,
-            if limited (which requires the masses of the satellites).
+        launch_mass_capacity (float | Callable | None): The most mass (kg) of
+            a launch, if limited (which requires the masses of the
+            satellites): a value, or a function of the index and values of a
+            plane (as for `order`), such as for planes at different
+            inclinations, to which a launcher lifts different masses.
         order (Callable | None): A function of the index and values of a
             plane (`None` for the planes of a Walker layout) that gives the
             key by which its type's planes are produced and launched, if
@@ -376,7 +382,7 @@ class DeploymentSchedule:
     production_rate: PerType | None = None
     launch_interval: float = 0.0
     launch_capacity: int | None = None
-    launch_mass_capacity: float | None = None
+    launch_mass_capacity: float | Callable[[int, Any], float] | None = None
     order: Callable[[int, Any], Any] | None = None
 
     def __post_init__(self):
@@ -397,13 +403,38 @@ class DeploymentSchedule:
         if any(value < 0 for value in values):
             raise ValueError("development_years must not be negative")
 
-    def launches_of(self, satellites: int, mass: float | None = None) -> int:
+    def mass_capacity_of(self, plane: tuple[int, Any] | None = None) -> float | None:
+        """
+        Gets the most mass (kg) of a launch to a plane, if limited.
+
+        Args:
+            plane (tuple[int, Any] | None): The index and values of the plane,
+                for a capacity that is a function of the plane.
+
+        Returns:
+            float | None: the capacity, or `None` if not limited
+        """
+        capacity = self.launch_mass_capacity
+        if capacity is None or not callable(capacity):
+            return capacity
+        if plane is None:
+            raise ValueError("a launch capacity of each plane needs the plane")
+        return float(capacity(*plane))
+
+    def launches_of(
+        self,
+        satellites: int,
+        mass: float | None = None,
+        plane: tuple[int, Any] | None = None,
+    ) -> int:
         """
         Gets the launches of a plane of satellites.
 
         Args:
             satellites (int): The number of satellites.
             mass (float | None): The mass (kg) of each satellite.
+            plane (tuple[int, Any] | None): The index and values of the plane,
+                for a capacity in mass that is a function of the plane.
 
         Returns:
             int: the number of launches
@@ -411,10 +442,11 @@ class DeploymentSchedule:
         count = 1
         if self.launch_capacity is not None:
             count = max(count, math.ceil(satellites / self.launch_capacity))
-        if self.launch_mass_capacity is not None:
+        capacity = self.mass_capacity_of(plane)
+        if capacity is not None:
             if mass is None:
                 raise ValueError("a launch capacity in mass requires masses")
-            per_launch = math.floor(self.launch_mass_capacity / mass)
+            per_launch = math.floor(capacity / mass)
             if per_launch < 1:
                 raise ValueError("a satellite exceeds the mass capacity of a launch")
             count = max(count, math.ceil(satellites / per_launch))
@@ -480,6 +512,7 @@ class DeploymentSchedule:
                 size, values = plane.satellites, plane.values
                 index = len(deployment.planes)
                 deployment.planes.append((name, size, spares if size > 0 else 0))
+                deployment.plane_values.append(values)
                 if size > 0 and index not in staged:
                     listed.append((index, size + spares, values))
             if self.order is not None:
@@ -499,7 +532,9 @@ class DeploymentSchedule:
             raise ValueError("a deployment requires satellites (that are not staged)")
         cadence = -math.inf
         for ready, index, name, size, mass in sorted(planes, key=lambda p: p[0]):
-            count = self.launches_of(size, mass)
+            count = self.launches_of(
+                size, mass, (index, deployment.plane_values[index])
+            )
             first = max(ready, cadence)
             position = 0
             for j in range(count):

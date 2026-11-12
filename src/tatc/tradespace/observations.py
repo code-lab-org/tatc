@@ -330,9 +330,25 @@ class MissionPlan:
     `DeploymentSchedule.plan`) and its costs (see `CostModel`), from the
     values of the design (see `value_of`).
 
+    The schedule and the cost model may be functions of the (realized)
+    design, which size them by its values with relationships of the study's
+    own (TAT-C includes none, see the module `tatc.tradespace.cost`): for
+    example, the costs of a type of satellite from the mass of its payload,
+    or the capacity of launches to the design's altitude::
+
+        def schedule(d):
+            return dataclasses.replace(SCHEDULE, launch_mass_capacity=capacity(d.altitude))
+
+        PLAN = MissionPlan(schedule, COST_MODEL, kind="payload")
+
+    Launches limited in mass take the masses of the satellites from the cost
+    model (`SatelliteCost.mass`, of each type), unless `masses` are given.
+
     Args:
-        schedule (DeploymentSchedule): The schedule of the deployment.
-        cost_model (CostModel | None): The costs, or `None`.
+        schedule (DeploymentSchedule | Callable): The schedule of the
+            deployment, or a function of the design that gives it.
+        cost_model (CostModel | Callable | None): The costs, a function of the
+            design that gives them, or `None`.
         kind (Any): The kind of the satellites (for schedules and costs of
             several kinds), as a value of the design.
         spares (Any): The spares in orbit in each plane, or a value of the
@@ -345,14 +361,71 @@ class MissionPlan:
             (see `Stage`), or a function of the (realized) design that gives
             them, such as of a decision whether to stage it and of the values
             its rules read.
+        masses (Any): The mass (kg) of the satellites (or of each type, a
+            mapping), or a value of the design, for launches limited in mass,
+            or `None` for the masses of the cost model.
     """
 
-    schedule: DeploymentSchedule
-    cost_model: CostModel | None = None
+    schedule: DeploymentSchedule | Callable[[Design], DeploymentSchedule]
+    cost_model: CostModel | Callable[[Design], CostModel] | None = None
     kind: Any = None
     spares: Any = 0
     growth: Any = 1.0
     stages: Any = ()
+    masses: Any = None
+
+    def schedule_of(self, design: Design) -> DeploymentSchedule:
+        """
+        Gets the schedule of the deployment of a design.
+
+        Args:
+            design (Design): The (realized) design.
+
+        Returns:
+            DeploymentSchedule: the schedule
+        """
+        if isinstance(self.schedule, DeploymentSchedule):
+            return self.schedule
+        return self.schedule(design)
+
+    def cost_model_of(self, design: Design) -> CostModel | None:
+        """
+        Gets the cost model of a design.
+
+        Args:
+            design (Design): The (realized) design.
+
+        Returns:
+            CostModel | None: the cost model, if any
+        """
+        if self.cost_model is None or isinstance(self.cost_model, CostModel):
+            return self.cost_model
+        return self.cost_model(design)
+
+    def masses_of(self, design: Design, cost_model: CostModel | None = None) -> Any:
+        """
+        Gets the masses of the satellites of a design, for launches limited in
+        mass: the given masses (or the value of the design they name), or
+        those of the types of satellites of its cost model, if any.
+
+        Args:
+            design (Design): The (realized) design.
+            cost_model (CostModel | None): The design's cost model.
+
+        Returns:
+            Any: a mass, a mapping of types to masses, or `None`
+        """
+        if self.masses is not None:
+            if isinstance(self.masses, (int, float, Mapping)):
+                return self.masses
+            return value_of(design, self.masses)
+        if cost_model is None:
+            return None
+        satellites = cost_model.satellites
+        if isinstance(satellites, Mapping):
+            masses = {kind: cost.mass for kind, cost in satellites.items()}
+            return None if all(m is None for m in masses.values()) else masses
+        return satellites.mass
 
     def stages_of(self, design: Design) -> tuple:
         """
@@ -461,14 +534,17 @@ class _Evaluation:
         if self.plan is not None:
             policy, spares = self._policy(design)
             kind = value_of(design, self.plan.kind)
-            deployment = self.plan.schedule.plan(
-                layout, kind=kind, spares=spares, stages=self.plan.stages_of(design)
+            cost_model = self.plan.cost_model_of(design)
+            deployment = self.plan.schedule_of(design).plan(
+                layout,
+                kind=kind,
+                spares=spares,
+                masses=self.plan.masses_of(design, cost_model),
+                stages=self.plan.stages_of(design),
             )
             growth = self.plan.growth_of(design)
-            if self.plan.cost_model is not None:
-                record.update(
-                    self.plan.cost_model.estimate(deployment, growth).metrics()
-                )
+            if cost_model is not None:
+                record.update(cost_model.estimate(deployment, growth).metrics())
         metrics = _given_design(self.metrics, design)
         record.update(metrics(observations))
         # the metrics of phases are cached by the observations and, if they
@@ -490,7 +566,7 @@ class _Evaluation:
                 observations,
                 self._phase_cache,
                 context=context,
-                cost_model=self.plan.cost_model,
+                cost_model=cost_model,
                 growth=growth,
                 design=design,
             )
