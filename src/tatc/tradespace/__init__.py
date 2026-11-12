@@ -21,13 +21,16 @@ from .cost import (
     LaunchCost,
     OperationsCost,
     SatelliteCost,
-    plane_sizes,
 )
 from .constellations import (
     build_constellation,
     count_planes,
     count_satellites,
+    Layout,
+    Plane,
     hours_to_time,
+    layout_of,
+    plane_sizes,
     planes_space,
     remove_failures,
     sso_planes_space,
@@ -38,6 +41,7 @@ from .deployment import (
     DeploymentSchedule,
     Launch,
     Production,
+    Stage,
 )
 from .histories import (
     allocate_histories,
@@ -46,6 +50,7 @@ from .histories import (
     summarize_missions,
 )
 from .mission import (
+    Decision,
     MissionHistory,
     Phase,
     PhaseCache,
@@ -135,6 +140,7 @@ __all__ = [
     "CostEstimate",
     "CostModel",
     "Criteria",
+    "Decision",
     "Deployment",
     "DeploymentSchedule",
     "Derived",
@@ -149,6 +155,7 @@ __all__ = [
     "Integer",
     "Launch",
     "LaunchCost",
+    "Layout",
     "Lifetime",
     "LinearUtility",
     "Maximum",
@@ -160,6 +167,7 @@ __all__ = [
     "PhaseCache",
     "Piecewise",
     "PiecewiseUtility",
+    "Plane",
     "Probability",
     "Production",
     "Quantile",
@@ -175,6 +183,7 @@ __all__ = [
     "Scope",
     "Screening",
     "Search",
+    "Stage",
     "StandardDeviation",
     "StandardError",
     "Statistic",
@@ -202,6 +211,7 @@ __all__ = [
     "hours_to_time",
     "hypervolume",
     "hypervolume_progress",
+    "layout_of",
     "main_effects",
     "make_pymoo_problem",
     "optimize_optuna",

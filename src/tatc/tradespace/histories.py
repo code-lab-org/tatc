@@ -14,7 +14,7 @@ import itertools
 import math
 import warnings
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -22,16 +22,19 @@ import pandas as pd
 from ..schemas import Satellite
 from .cache import get_satellite_key
 from .criteria import _OPERATORS, Requirement
-from .deployment import Deployment
 from .failures import FailureModel, RestorationPolicy
 from .mission import (
     MissionHistory,
     Phase,
     PhaseCache,
     _Simulation,
+    _given_design,
     evaluate_phases,
     summarize_phases,
 )
+
+if TYPE_CHECKING:
+    from .deployment import Deployment
 
 
 def evaluate_missions(
@@ -42,6 +45,7 @@ def evaluate_missions(
     context: Any = None,
     cost_model: Any = None,
     growth: Any = 1.0,
+    design: Any = None,
 ) -> pd.DataFrame:
     """
     Evaluates histories of a mission (such as those of a replicate, see
@@ -64,6 +68,8 @@ def evaluate_missions(
             cache.
         cost_model (CostModel | None): A model of the cost of each history.
         growth (float | Mapping[str, float]): The growth of the cost.
+        design (Design | None): The (realized) design of the mission, for a
+            metric with a parameter named `design` (see `PhaseCache`).
 
     Returns:
         pandas.DataFrame: a row per history (with its likelihood ratio,
@@ -75,9 +81,11 @@ def evaluate_missions(
     for history in histories:
         phases = history.phases(satellites)
         if isinstance(metric, PhaseCache):
-            capability = metric.evaluate(phases, observations, keys, context)
+            capability = metric.evaluate(phases, observations, keys, context, design)
         else:
-            capability = evaluate_phases(phases, observations, metric)
+            capability = evaluate_phases(
+                phases, observations, _given_design(metric, design)
+            )
         row = {**summarize_phases(capability), **history.metrics()}
         if weighted:
             row["weight"] = history.weight
@@ -519,6 +527,7 @@ def expected_missions(
     tolerance: float = 1e-3,
     steps: int = 400,
     max_sets: int = 200_000,
+    design: Any = None,
 ) -> dict[str, float]:
     """
     Computes the expected capability of a mission without restoration
@@ -565,8 +574,17 @@ def expected_missions(
 
     Returns:
         dict[str, float]: the expected metrics
+
+    Raises:
+        ValueError: if the deployment is staged (see `Stage`), whose launches
+            depend on its rules.
     """
     # pylint: disable=too-many-locals
+    if deployment.stages:
+        raise ValueError(
+            "exact expectations need a deployment that is not staged: "
+            + "simulate histories of a staged deployment instead"
+        )
     names = [s.name for s in satellites]
     built = sum(b for _, b, _ in deployment.planes)
     if len(names) != built:
@@ -611,9 +629,13 @@ def expected_missions(
     for weight, members in weights:
         phase = Phase(begin, end, tuple(names[k] for k in members))
         if isinstance(metric, PhaseCache):
-            values = metric.evaluate([phase], observations, keys, context).iloc[0]
+            values = metric.evaluate([phase], observations, keys, context, design).iloc[
+                0
+            ]
         else:
-            values = evaluate_phases([phase], observations, metric).iloc[0]
+            values = evaluate_phases(
+                [phase], observations, _given_design(metric, design)
+            ).iloc[0]
         for name, value in values.items():
             if name in ("start", "end", "duration", "satellites"):
                 continue

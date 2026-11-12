@@ -9,13 +9,16 @@ from datetime import datetime, time, timezone
 
 import numpy as np
 
-from tatc.schemas import Instrument, Satellite
+from tatc.schemas import CircularOrbit, Instrument, Satellite
 from tatc.tradespace import (
     Categorical,
     Choice,
     Derived,
+    DeploymentSchedule,
     DesignSpace,
     Integer,
+    Layout,
+    Plane,
     Real,
     Repeat,
     Uncertain,
@@ -23,11 +26,14 @@ from tatc.tradespace import (
     count_planes,
     count_satellites,
     hours_to_time,
+    layout_of,
+    plane_sizes,
     planes_space,
     remove_failures,
     sso_planes_space,
     walker_space,
 )
+from tatc.tradespace.constellations import Layouts, SSOPlanesLayout, WalkerLayout
 
 EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
 IMAGER = Instrument(name="imager", field_of_regard=60)
@@ -512,3 +518,106 @@ class TestMixedLayouts(unittest.TestCase):
         self.assertEqual(len(satellites), 3)
         self.assertEqual(count_satellites(design.shells), 3)
         self.assertEqual(count_planes(design.shells), 2)
+
+
+class _Pair(Layout):
+    """Two satellites in each of two planes of given nodes, for the tests."""
+
+    def __init__(self, nodes, altitude=None):
+        self.nodes, self.altitude = nodes, altitude
+
+    def planes(self):
+        return [Plane(2, node) for node in self.nodes]
+
+    def orbits(self, epoch, altitude=None):
+        altitude = self.altitude if altitude is None else altitude
+        return [
+            [
+                CircularOrbit(
+                    altitude=altitude,
+                    inclination=50,
+                    right_ascension_ascending_node=node,
+                    true_anomaly=anomaly,
+                    epoch=epoch,
+                )
+                for anomaly in (0, 180)
+            ]
+            for node in self.nodes
+        ]
+
+
+class TestLayout(unittest.TestCase):
+    """
+    Unit tests for layouts.
+    """
+
+    def test_layout_of(self):
+        """The values of each fragment are those of a layout."""
+        designs = _space().enumerate()
+        walker = next(d for d in designs if d.layout.choice == "walker")
+        sso = next(d for d in designs if d.layout.choice == "sso")
+        self.assertIsInstance(layout_of(walker.layout), WalkerLayout)
+        self.assertIsInstance(layout_of(sso.layout), SSOPlanesLayout)
+        both = layout_of([walker.layout, sso.layout])
+        self.assertIsInstance(both, Layouts)
+        self.assertEqual(both.satellites, count_satellites(walker.layout) + 1)
+        self.assertIs(layout_of(both), both)
+        planes = layout_of(sso.layout).planes()
+        self.assertEqual(planes[0].values.crossing, sso.layout.planes[0].crossing)
+        self.assertIsNone(layout_of(walker.layout).planes()[0].values)
+        with self.assertRaises(ValueError):
+            layout_of({"kind": "flower"})
+
+    def test_walker_planes(self):
+        """The satellites of a Walker layout follow each other plane by plane."""
+        space = DesignSpace(
+            layout=walker_space(
+                inclination=60.0, planes=3, per_plane=2, relative_spacing=1
+            )
+        )
+        layout = layout_of(_single(space).layout)
+        self.assertEqual([p.satellites for p in layout.planes()], [2, 2, 2])
+        orbits = layout.orbits(EPOCH, 700e3)
+        nodes = [{o.right_ascension_ascending_node for o in plane} for plane in orbits]
+        self.assertEqual(nodes, [{0.0}, {120.0}, {240.0}])
+        self.assertEqual(
+            [s.name for s in layout.build(IMAGER, epoch=EPOCH, altitude=700e3)],
+            [f"satellite {k}" for k in range(1, 7)],
+        )
+        with self.assertRaises(ValueError):
+            layout.orbits(EPOCH)  # no altitude
+
+    def test_custom_layout(self):
+        """Other layouts are built, counted, and deployed as the others."""
+        layout = _Pair([0, 90], altitude=600e3)
+        satellites = build_constellation(layout, IMAGER, epoch=EPOCH)
+        self.assertEqual(
+            [s.name for s in satellites],
+            ["satellite 1-1", "satellite 1-2", "satellite 2-1", "satellite 2-2"],
+        )
+        self.assertEqual(satellites[2].orbit.right_ascension_ascending_node, 90)
+        self.assertEqual(count_satellites(layout), 4)
+        self.assertEqual(count_planes(layout), 2)
+        self.assertEqual(plane_sizes(layout), [2, 2])
+        # the nodes of the planes order their deployment (90, 45, then 0)
+        schedule = DeploymentSchedule(
+            years=3, production_rate=2, order=lambda index, node: -node
+        )
+        layouts = [layout, _Pair([45], altitude=600e3)]
+        deployment = schedule.plan(layouts)
+        self.assertEqual([launch.plane for launch in deployment.launches], [1, 2, 0])
+        phases = deployment.phases(build_constellation(layouts, IMAGER, epoch=EPOCH))
+        self.assertEqual([len(phase.satellites) for phase in phases], [2, 4, 6])
+
+    def test_mismatched_orbits(self):
+        """A layout whose orbits do not match its planes is not built."""
+
+        class Short(_Pair):
+            """A layout with an orbit missing."""
+
+            def orbits(self, epoch, altitude=None):
+                orbits = super().orbits(epoch, altitude)
+                return [orbits[0][:1], *orbits[1:]]
+
+        with self.assertRaises(ValueError):
+            Short([0, 90], altitude=600e3).build(IMAGER, epoch=EPOCH)

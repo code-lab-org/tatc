@@ -40,36 +40,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .constellations import PLANES, SSO_PLANES, WALKER, _kind, _layout, _layouts
 from .deployment import Deployment
 from .mission import MissionHistory
 
 ELEMENTS = ("development", "production", "launch", "operations")
 """The elements of the cost of a constellation."""
-
-
-def plane_sizes(layout: Any) -> list[int]:
-    """
-    Gets the number of satellites of each orbit plane of a layout (the
-    values of `walker_space`, `sso_planes_space`, or `planes_space`, or of a
-    choice of them), or of several (a list or a repetition of layouts).
-
-    Args:
-        layout (Any): The values of the layout (or layouts).
-
-    Returns:
-        list[int]: the number of satellites of each plane
-    """
-    several = _layouts(layout)
-    if several is not None:
-        return [size for item in several for size in plane_sizes(item)]
-    layout = _layout(layout)
-    kind = _kind(layout)
-    if kind == WALKER:
-        return [int(layout.per_plane)] * int(layout.planes)
-    if kind in (SSO_PLANES, PLANES):
-        return [int(plane.satellites) for plane in layout.planes]
-    raise ValueError(f"unknown layout {kind!r}")
 
 
 @dataclass(frozen=True)

@@ -14,7 +14,8 @@ import itertools
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any
+from functools import partial
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -22,8 +23,12 @@ import pandas as pd
 from ..schemas import Satellite
 from .cache import get_satellite_key
 from .criteria import _OPERATORS, Requirement
-from .deployment import Deployment, DeploymentSchedule, Launch, Production, _per_type
+from .events import Launch, Production, _per_type
 from .failures import FailureModel, RestorationPolicy
+from .study import _takes_design
+
+if TYPE_CHECKING:
+    from .deployment import Deployment, DeploymentSchedule
 
 
 @dataclass(frozen=True)
@@ -81,6 +86,9 @@ class MissionHistory:
     weight: float = 1.0
     """float: The likelihood ratio of the history, drawn from stressed
     failures (see `Deployment.simulate_many`), or 1."""
+    stages: list[float | None] = field(default_factory=list)
+    """list: When each stage of the deployment was decided (years from the
+    start of development, see `Stage`), or `None` if it was not."""
 
     @property
     def schedule(self) -> DeploymentSchedule:
@@ -196,7 +204,7 @@ class MissionHistory:
         operated = sum(b - a for spans in self.operating.values() for a, b in spans)
         possible = sum(b - a for spans in planned.operating.values() for a, b in spans)
         delays = [restored - failed for *_, failed, restored, _ in self.restorations]
-        return {
+        metrics = {
             "failures": float(len(self.failures)),
             "launch failures": float(sum(launch.failed for launch in self.launches)),
             "restorations": float(len(self.restorations)),
@@ -206,6 +214,32 @@ class MissionHistory:
             "restoration years": float(np.mean(delays)) if delays else math.nan,
             "availability": operated / possible if possible > 0 else math.nan,
         }
+        if self.deployment.stages:
+            metrics["stages deployed"] = float(
+                sum(time is not None for time in self.stages)
+            )
+        return metrics
+
+
+@dataclass(frozen=True)
+class Decision:
+    """
+    What the rule of a stage of a deployment knows when it decides whether to
+    deploy the stage (see `Stage`).
+    """
+
+    time: float
+    """float: The time of the decision, in years after the first launch."""
+    stage: int
+    """int: The stage (its index)."""
+    operating: int
+    """int: The number of satellites operating."""
+    history: MissionHistory
+    """MissionHistory: The history of the mission so far: its production,
+    launches, failures, restorations, and the periods of operation that
+    have ended."""
+    deployed: tuple[int, ...]
+    """tuple[int, ...]: The stages deployed so far."""
 
 
 @dataclass
@@ -276,6 +310,7 @@ class _Simulation:
         self.booked = sorted(launch.time for launch in deployment.launches)
         self.open: dict[int, list[_Booking]] = {}
         self.launches_of_plane: dict[int, int] = {}
+        self.decided: dict[int, float] = {}
 
     # --- randomness
 
@@ -343,6 +378,9 @@ class _Simulation:
                 self._push(ready, "stock", kind, count)
         for launch in self.deployment.launches:
             self._push(launch.time, "planned", launch)
+        for index, stage in enumerate(self.deployment.stages):
+            for time in stage.times:
+                self._push(self.deployment.begin + time, "decide", index)
         steps = 0
         while self.events:
             time, _, kind, payload = heapq.heappop(self.events)
@@ -359,6 +397,9 @@ class _Simulation:
             if self.spares[plane] > 0:
                 self.history.parked.append((since, self.end, self.spares[plane]))
         self.history.weight = math.exp(self.log_weight)
+        self.history.stages = [
+            self.decided.get(index) for index in range(len(self.deployment.stages))
+        ]
         self.history.production.sort(key=lambda batch: batch.begin)
         self.history.launches.sort(key=lambda launch: (launch.time, launch.plane))
         return self.history
@@ -397,6 +438,23 @@ class _Simulation:
                     launch.plane,
                     max(0, min(spares, level - self.spares[launch.plane])),
                 )
+
+    def _on_decide(self, time: float, index: int) -> None:
+        if index in self.decided:
+            return  # deployed at an earlier decision
+        stage = self.deployment.stages[index]
+        if stage.rule is not None:
+            decision = Decision(
+                time - self.deployment.begin,
+                index,
+                sum(slot["up"] is not None for slot in self.slots.values()),
+                self.history,
+                tuple(sorted(self.decided)),
+            )
+            if not stage.rule(decision):
+                return
+        self.decided[index] = time
+        self._deploy(time, stage)
 
     def _on_fail(self, time: float, plane: int, position: int, generation: int) -> None:
         slot = self.slots[plane, position]
@@ -515,6 +573,50 @@ class _Simulation:
         self.spares[plane] += change
         self.spares_since[plane] = time
 
+    def _deploy(self, time: float, stage: Any) -> None:
+        """
+        Deploys the planes of a stage: produced after its lead time (on their
+        type's line), launched at the next launch slots, and replaced at the
+        end of their design life.
+        """
+        life = self.schedule.design_life
+        for plane in stage.planes:
+            kind, size, spares = self.deployment.planes[plane]
+            count = size + spares
+            if count == 0:
+                continue
+            begin = max(self.line[kind], time + stage.lead_years)
+            ready = begin + self._producing(kind, count)
+            self.line[kind] = ready
+            self.history.production.append(Production(kind, begin, ready, count))
+            launches = self.schedule.launches_of(
+                count, self.deployment.masses.get(kind)
+            )
+            position = 0
+            for j in range(launches):
+                carried = count // launches + (1 if j < count % launches else 0)
+                at = self._slot(ready)
+                self.booked = sorted(self.booked + [at])
+                self._push(at, "planned", Launch(at, plane, kind, position, carried))
+                need, generation = at + (math.inf if life is None else life), 1
+                while need < self.end - 1e-9:
+                    self.history.production.append(
+                        Production(
+                            kind,
+                            need - self._producing(kind, carried),
+                            need,
+                            carried,
+                            "replacement",
+                        )
+                    )
+                    replacement = Launch(
+                        need, plane, kind, position, carried, generation, "replacement"
+                    )
+                    self.booked = sorted(self.booked + [need])
+                    self._push(need, "planned", replacement)
+                    need, generation = need + life, generation + 1
+                position += carried
+
     def _producing(self, kind: Any, count: int) -> float:
         rate = _per_type(self.schedule.production_rate, kind, "production rate")
         return 0.0 if rate is None else count / rate
@@ -574,6 +676,18 @@ def evaluate_phases(
     period (the observations of the full constellation, by satellite, such
     as from a `SatelliteCache`, filtered to those of each phase). Phases of
     the same satellites are evaluated once.
+
+    The phases are quasi-static: each is evaluated over the same window, as
+    if the geometry of the constellation (and the season) were that of the
+    window throughout the mission. This misses the drift of the relative
+    nodes of shells of different inclinations or altitudes (which precess at
+    different rates), the drift of the local times of planes that are not
+    sun-synchronous, and seasons (for metrics that depend on the sun, or on
+    fields that vary with the seasons). Replicates average over these if the
+    epoch of the window is an uncertain parameter drawn over the mission (see
+    `Observations`), as are the relative nodes of shells (such as the nodes
+    of `planes_space`). A constellation whose planes share an altitude and
+    inclination keeps its geometry, so that only seasons remain.
 
     Args:
         phases (Sequence[Phase]): The phases (see `MissionHistory.phases`).
@@ -666,6 +780,14 @@ def _evaluate_phases(
     return pd.DataFrame(rows)
 
 
+def _given_design(metric: Callable, design: Any) -> Callable:
+    """
+    Gets a metric of observations alone: the metric, given the design if it
+    has a parameter named `design` (see `Study`).
+    """
+    return partial(metric, design=design) if _takes_design(metric) else metric
+
+
 class PhaseCache:
     """
     A cache of a metric of the phases of missions (see `evaluate_phases`),
@@ -675,17 +797,21 @@ class PhaseCache:
     the phases of missions with the same satellites (of other histories,
     policies, or designs, in the same replicate) are evaluated once.
 
-    The metric must depend only on the observations, not on the names of the
-    satellites. Copies sent to the parallel workers of a study start with an
-    empty memory, which the evaluations of a chunk share (consecutive
-    evaluations of the same replicate, see `Study`).
+    The metric must depend only on the observations (of the one window of
+    the observations, see `evaluate_phases`), not on the names of the
+    satellites. A metric with a parameter named `design` is given the design
+    of the mission (see `evaluate`), on which it must depend only through
+    what the context identifies (such as a scenario). Copies sent to the
+    parallel workers of a study start with an empty memory, which the
+    evaluations of a chunk share (consecutive evaluations of the same
+    replicate, see `Study`).
 
     Args:
         metric (Callable): A function of the observations of a phase (which
             may be empty) that gives its metrics.
     """
 
-    def __init__(self, metric: Callable[[pd.DataFrame], Mapping[str, float]]):
+    def __init__(self, metric: Callable[..., Mapping[str, float]]):
         self.metric = metric
         self.hits = 0
         """int: The phases taken from the cache."""
@@ -704,6 +830,7 @@ class PhaseCache:
         observations: pd.DataFrame,
         satellites: Sequence[Satellite] | Mapping[str, str],
         context: Any,
+        design: Any = None,
     ) -> pd.DataFrame:
         """
         Evaluates the phases of a mission (see `evaluate_phases`), taking
@@ -719,6 +846,8 @@ class PhaseCache:
                 of their names, see `get_satellite_key`).
             context (Any): A hashable identifier of the observations (such
                 as the seed of their targets and their period).
+            design (Design | None): The (realized) design of the mission,
+                for a metric with a parameter named `design`.
 
         Returns:
             pandas.DataFrame: a row per phase: its `start`, `end`,
@@ -730,13 +859,15 @@ class PhaseCache:
             else {s.name: get_satellite_key(s) for s in satellites}
         )
 
+        metric = _given_design(self.metric, design)
+
         def cached(subset: Callable[[], pd.DataFrame], names: frozenset) -> dict:
             key = (context, frozenset(keys[name] for name in names))
             if key in self._memory:
                 self.hits += 1
             else:
                 self.misses += 1
-                self._memory[key] = dict(self.metric(subset()))
+                self._memory[key] = dict(metric(subset()))
             return self._memory[key]
 
         return _evaluate_phases(phases, observations, cached)

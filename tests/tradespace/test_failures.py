@@ -296,6 +296,30 @@ class TestSimulation(unittest.TestCase):
         # launched at 1, failed at 2.5, replaced at 3, failed at 4.5
         self.assertEqual(history.operating[0, 0], [(1, 2.5), (3, 4.5)])
 
+    def test_design_life_does_not_retire(self):
+        """A satellite whose planned replacement fails to launch operates past
+        its design life, and the replacement is not flown again."""
+        schedule = DeploymentSchedule(years=6, design_life=2, development_years=1)
+        deployment = schedule.plan(self.layout)
+        launches_fail = FailureModel(launch=0.5)
+        for seed in range(50):
+            history = deployment.simulate(
+                launches_fail, RestorationPolicy(restore=False), seed
+            )
+            deployed = [l for l in history.launches if l.purpose == "deployment"]
+            replaced = [l for l in history.launches if l.purpose == "replacement"]
+            if not deployed[0].failed and replaced[0].failed:
+                break
+        else:
+            self.fail("no history with a failed replacement")
+        failed = replaced[0]
+        spans = history.operating[failed.plane, failed.first]
+        self.assertTrue(any(a < failed.time < b for a, b in spans))
+        # only the planned replacements are launched: none is flown again
+        self.assertEqual(
+            len(replaced), sum(l.purpose == "replacement" for l in deployment.launches)
+        )
+
     def test_common_random_numbers(self):
         """The satellite at the same position fails at the same age."""
         failures = FailureModel(life=Exponential(0.3), launch=0.1)
