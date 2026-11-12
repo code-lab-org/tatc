@@ -6,12 +6,16 @@ Unit tests for staged deployments.
 
 import unittest
 
+import pandas as pd
+
 from tatc.tradespace import (
+    Capability,
     CostModel,
     DeploymentSchedule,
     DesignSpace,
     Exponential,
     FailureModel,
+    PhaseCache,
     RestorationPolicy,
     SatelliteCost,
     Stage,
@@ -29,6 +33,16 @@ COSTS = CostModel(SatelliteCost(development=10, first_unit=2))
 
 def _layout():
     return LAYOUT.enumerate()[0].layout
+
+
+NAMES = [f"s{i}" for i in range(6)]
+# an observation of each satellite, so that the metric counts those operating
+OBSERVATIONS = pd.DataFrame({"satellite": NAMES})
+
+
+def _count(observations):
+    """The number of satellites that observe."""
+    return {"observing": float(observations.satellite.nunique())}
 
 
 def _launches(history, plane):
@@ -113,6 +127,91 @@ class TestStages(unittest.TestCase):
         # the same history draws the same failures again
         again = deployment.simulate_many(failures, policy, seed=1, histories=20)
         self.assertEqual([h.stages for h in again], [h.stages for h in histories])
+
+    def test_capability(self):
+        """Rules read the capability of the satellites operating at a decision."""
+        seen = []
+
+        def rule(decision):
+            seen.append((decision.time, decision.operating, decision.capability))
+            return decision.capability["observing"] < 4
+
+        deployment = SCHEDULE.plan(_layout(), stages=[Stage(2, [0.0, 0.5], rule)])
+        deployment.capability = Capability(NAMES, OBSERVATIONS, _count)
+        history = deployment.simulate()
+        # the first plane alone at the first launch (the second is launched later)
+        self.assertEqual(seen, [(0.0, 2, {"observing": 2.0})])
+        self.assertEqual(history.stages, [deployment.begin])
+        # the planned history (of the availability) reads it too
+        self.assertEqual(history.metrics()["stages deployed"], 1.0)
+        self.assertEqual(deployment.planned().stages, [deployment.begin])
+        later = SCHEDULE.plan(_layout(), stages=[Stage(2, 0.5, rule)])
+        later.capability = deployment.capability
+        self.assertEqual(later.simulate().stages, [None])
+        # without a capability, a rule cannot read it
+        unmeasured = SCHEDULE.plan(_layout(), stages=[Stage(2, 0.0, rule)])
+        with self.assertRaisesRegex(ValueError, "capability"):
+            unmeasured.simulate()
+
+    def test_capability_of_failures(self):
+        """The capability at a decision follows failures, as rules on them do."""
+        failures = FailureModel(life=Exponential(0.1))
+        policy = RestorationPolicy(restore=False)
+        by_count = SCHEDULE.plan(
+            _layout(),
+            stages=[Stage(2, [0.5, 1.0, 1.5, 2.0], lambda d: d.operating < 4)],
+        )
+        measured = SCHEDULE.plan(
+            _layout(),
+            stages=[
+                Stage(
+                    2,
+                    [0.5, 1.0, 1.5, 2.0],
+                    lambda d: d.capability["observing"] < 4,
+                )
+            ],
+        )
+        cache = PhaseCache(_count)
+        measured.capability = Capability(
+            NAMES, OBSERVATIONS, cache, context="replicate"
+        )
+        expected = by_count.simulate_many(failures, policy, seed=1, histories=20)
+        histories = measured.simulate_many(failures, policy, seed=1, histories=20)
+        self.assertEqual([h.stages for h in histories], [h.stages for h in expected])
+        self.assertTrue(any(h.stages[0] is not None for h in histories))
+        # each set of satellites read at a decision is evaluated once
+        self.assertGreater(cache.hits, 0)
+
+    def test_capability_reads(self):
+        """A capability evaluates sets of satellites by name, or by position, only
+        when read."""
+        calls = []
+
+        def metric(observations):
+            calls.append(len(observations))
+            return _count(observations)
+
+        capability = Capability(NAMES, OBSERVATIONS, metric)
+        self.assertEqual(capability(["s0", "s3"]), {"observing": 2.0})
+        planes = SCHEDULE.plan(_layout()).planes
+        self.assertEqual(capability.at(planes, [(1, 0), (2, 1)]), {"observing": 2.0})
+        self.assertEqual(capability(set()), {"observing": 0.0})
+        self.assertEqual(calls, [2, 2, 0])
+        # a rule that does not read it does not evaluate it
+        deployment = SCHEDULE.plan(_layout(), stages=[Stage(2, 0.0, lambda d: True)])
+        deployment.capability = capability
+        deployment.simulate()
+        self.assertEqual(len(calls), 3)
+        with self.assertRaises(ValueError):
+            capability(["s9"])
+        with self.assertRaises(ValueError):
+            Capability(NAMES[:4], OBSERVATIONS, metric).at(planes, [(0, 0)])
+        # a cache keys satellites given by name by their names
+        cache = PhaseCache(_count)
+        cached = Capability(NAMES, OBSERVATIONS, cache)
+        cached(["s0", "s1"])
+        cached(["s1", "s0"])
+        self.assertEqual((cache.hits, cache.misses), (1, 1))
 
     def test_lead_and_launches(self):
         """A lead time delays production, and launch capacity splits launches."""

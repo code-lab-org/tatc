@@ -12,9 +12,9 @@ from __future__ import annotations
 import heapq
 import itertools
 import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from functools import partial
+from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -225,7 +225,10 @@ class MissionHistory:
 class Decision:
     """
     What the rule of a stage of a deployment knows when it decides whether to
-    deploy the stage (see `Stage`).
+    deploy the stage (see `Stage`): the satellites operating and the history
+    so far, and the capability of the satellites operating (see
+    `capability`), such as for a stage deployed only if the satellites in
+    orbit fall short of a requirement.
     """
 
     time: float
@@ -240,6 +243,32 @@ class Decision:
     have ended."""
     deployed: tuple[int, ...]
     """tuple[int, ...]: The stages deployed so far."""
+    _measure: Callable[[], dict[str, float]] | None = field(
+        default=None, repr=False, compare=False
+    )
+
+    @cached_property
+    def capability(self) -> dict[str, float]:
+        """dict[str, float]: The metrics of the satellites operating at the
+        decision, as of a phase in which they operate (see `Capability`):
+        the capability of the satellites in orbit then, evaluated only if a
+        rule reads it. It is the capability that the evaluation computes,
+        as if the mission measured it exactly and at once: a rule that
+        decides from an estimate adds its error (such as from an uncertain
+        parameter of the design), and one that waits for a measurement
+        decides later.
+
+        Raises:
+            ValueError: if the deployment has no capability (see
+                `Deployment.capability`, which the evaluations of an
+                `ObservationStudy` with a `MissionPlan` give)."""
+        if self._measure is None:
+            raise ValueError(
+                "the capability of the satellites at a decision needs a "
+                + "deployment with a capability (see Deployment.capability), "
+                + "as the evaluations of an ObservationStudy with a plan give"
+            )
+        return dict(self._measure())
 
 
 @dataclass
@@ -444,12 +473,23 @@ class _Simulation:
             return  # deployed at an earlier decision
         stage = self.deployment.stages[index]
         if stage.rule is not None:
+            operating = [
+                position
+                for position, slot in self.slots.items()
+                if slot["up"] is not None
+            ]
+            capability = self.deployment.capability
             decision = Decision(
                 time - self.deployment.begin,
                 index,
-                sum(slot["up"] is not None for slot in self.slots.values()),
+                len(operating),
                 self.history,
                 tuple(sorted(self.decided)),
+                (
+                    None
+                    if capability is None
+                    else partial(capability.at, self.deployment.planes, operating)
+                ),
             )
             if not stage.rule(decision):
                 return
@@ -769,12 +809,7 @@ def _evaluate_phases(
     for phase in phases:
         names = frozenset(phase.satellites)
         if names not in evaluated:
-
-            def subset(names: frozenset = names) -> pd.DataFrame:
-                if "satellite" in observations.columns:
-                    return observations[observations["satellite"].isin(names)]
-                return observations.iloc[0:0]
-
+            subset = partial(_subset, observations, names)
             evaluated[names] = dict(metric(subset, names))
         rows.append(
             {
@@ -786,6 +821,13 @@ def _evaluate_phases(
             }
         )
     return pd.DataFrame(rows)
+
+
+def _subset(observations: pd.DataFrame, names: frozenset) -> pd.DataFrame:
+    """The observations of the satellites of names (none if not by satellite)."""
+    if "satellite" in observations.columns:
+        return observations[observations["satellite"].isin(names)]
+    return observations.iloc[0:0]
 
 
 def _given_design(metric: Callable, design: Any) -> Callable:
@@ -870,15 +912,26 @@ class PhaseCache:
         metric = _given_design(self.metric, design)
 
         def cached(subset: Callable[[], pd.DataFrame], names: frozenset) -> dict:
-            key = (context, frozenset(keys[name] for name in names))
-            if key in self._memory:
-                self.hits += 1
-            else:
-                self.misses += 1
-                self._memory[key] = dict(metric(subset()))
-            return self._memory[key]
+            return self._metrics(
+                (context, frozenset(keys[name] for name in names)), subset, metric
+            )
 
         return _evaluate_phases(phases, observations, cached)
+
+    def _metrics(
+        self,
+        key: tuple,
+        subset: Callable[[], pd.DataFrame],
+        metric: Callable[[pd.DataFrame], Mapping[str, float]],
+    ) -> dict:
+        """The metrics of a set of satellites (keyed by the context and the
+        keys of the satellites), from the memory if they are in it."""
+        if key in self._memory:
+            self.hits += 1
+        else:
+            self.misses += 1
+            self._memory[key] = dict(metric(subset()))
+        return self._memory[key]
 
     def clear(self) -> None:
         """
@@ -891,4 +944,118 @@ class PhaseCache:
         return (
             f"PhaseCache({len(self._memory)} results, "
             + f"{self.hits} hits, {self.misses} misses)"
+        )
+
+
+class Capability:
+    """
+    The capability of the satellites that operate together at a time of a
+    mission: the metrics of their observations, as of a phase in which they
+    operate (over the study's representative period, see
+    `evaluate_phases`), which the rules of stages read at their decisions
+    (see `Decision.capability` and `Deployment.capability`). The
+    evaluations of an `ObservationStudy` with a `MissionPlan` give their
+    deployments the capability of their satellites, with the cache of their
+    phases: the satellites operating at a decision are those of a phase of
+    the mission, which the evaluation evaluates anyway.
+
+    Args:
+        satellites (Sequence[Satellite | str]): The satellites (or their
+            names), in the order of the planes (see `MissionHistory.phases`).
+        observations (pandas.DataFrame): The observations of every
+            satellite, with their names (`satellite`).
+        metric (Callable | PhaseCache): A function of the observations of
+            satellites (which may be empty) that gives their metrics, or a
+            cache of one (which keys satellites by their content, or by the
+            names given for them).
+        context (Any): A hashable identifier of the observations, for a
+            cache (see `PhaseCache`).
+        design (Design | None): The (realized) design of the mission, for a
+            metric with a parameter named `design`.
+    """
+
+    def __init__(
+        self,
+        satellites: Sequence[Satellite | str],
+        observations: pd.DataFrame,
+        metric: Callable[..., Mapping[str, float]] | PhaseCache,
+        context: Any = None,
+        design: Any = None,
+    ):
+        # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self.satellites = list(satellites)
+        """list: The satellites (or their names), in the order of the planes."""
+        self.observations = observations
+        """pandas.DataFrame: The observations of every satellite."""
+        self.metric = metric
+        """Callable | PhaseCache: The metric, or a cache of one."""
+        self.context = context
+        """Any: The identifier of the observations, for a cache."""
+        self.design = design
+        """Design | None: The (realized) design of the mission."""
+        self._names = _names(self.satellites)
+
+    @cached_property
+    def _keys(self) -> dict[str, str]:
+        """The keys of the satellites in a cache, by name."""
+        return {
+            name: (
+                get_satellite_key(satellite)
+                if isinstance(satellite, Satellite)
+                else name
+            )
+            for name, satellite in zip(self._names, self.satellites)
+        }
+
+    def __call__(self, names: Iterable[str]) -> dict[str, float]:
+        """
+        Gets the metrics of satellites that operate together.
+
+        Args:
+            names (Iterable[str]): The names of the satellites.
+
+        Returns:
+            dict[str, float]: the metrics
+        """
+        names = frozenset(names)
+        unknown = names - set(self._names)
+        if unknown:
+            raise ValueError(f"satellites that are not given: {sorted(unknown)}")
+        subset = partial(_subset, self.observations, names)
+        metric = (
+            self.metric.metric if isinstance(self.metric, PhaseCache) else self.metric
+        )
+        metric = _given_design(metric, self.design)
+        if isinstance(self.metric, PhaseCache):
+            key = (self.context, frozenset(self._keys[name] for name in names))
+            # pylint: disable-next=protected-access
+            return dict(self.metric._metrics(key, subset, metric))
+        return dict(metric(subset()))
+
+    def at(
+        self,
+        planes: Sequence[tuple[Any, int, int]],
+        positions: Iterable[tuple[int, int]],
+    ) -> dict[str, float]:
+        """
+        Gets the metrics of the satellites at positions of the planes of a
+        deployment (see `Deployment.planes`).
+
+        Args:
+            planes (Sequence[tuple[Any, int, int]]): The planes: the type of
+                their satellites, and the number of satellites and of spares.
+            positions (Iterable[tuple[int, int]]): The plane and position of
+                each satellite.
+
+        Returns:
+            dict[str, float]: the metrics
+        """
+        offsets = np.cumsum([0] + [built for _, built, _ in planes])
+        if len(self._names) != offsets[-1]:
+            raise ValueError(
+                f"expected {offsets[-1]} satellites for the planes, "
+                + f"not {len(self._names)}"
+            )
+        return self(
+            self._names[offsets[plane] + position] for plane, position in positions
         )

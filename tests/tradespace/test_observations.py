@@ -421,6 +421,48 @@ class TestObservationStudy(unittest.TestCase):
         self.assertTrue(degraded.feasible.all())
         self.assertTrue(any("stages deployed" in column for column in degraded))
 
+    def test_capability_rules(self):
+        """Rules of stages read the capability of the satellites operating at a
+        decision, by the study's metrics, in phases and in histories."""
+        stagings = ["delayed", "measured", "never", "never measured"]
+        space = DesignSpace(**SPACE.children, staging=Categorical(stagings))
+
+        def stages(design):
+            """A second plane deployed at the first launch, if a rule decides to."""
+            rules = {
+                "delayed": None,
+                "measured": lambda decision: decision.capability["observed"] <= 100,
+                "never": lambda decision: False,
+                "never measured": lambda decision: decision.capability["observed"] < 0,
+            }
+            return [Stage(1, 0.0, rules[design.staging])]
+
+        designs = [
+            d
+            for d in space.enumerate()
+            if d.layout.planes == 2 and d.layout.per_plane == 1
+        ]
+        plan = MissionPlan(SCHEDULE, COSTS, stages=stages)
+        options = {"layout": "layout", "plan": plan, "replicates": 2}
+        failures = Failures(
+            FAILURES, RestorationPolicy(restore=False), histories=4, seed="failure_seed"
+        )
+        for summary in ({"phases": True}, {"failures": failures}):
+            with self.subTest(summary=list(summary)):
+                results = ObservationStudy(
+                    space, _build, _observations(), _metrics, **options, **summary
+                ).run(designs)
+                means = results.groupby("staging")[["observed mean", "cost"]].mean()
+                pd.testing.assert_series_equal(
+                    means.loc["measured"], means.loc["delayed"], check_names=False
+                )
+                pd.testing.assert_series_equal(
+                    means.loc["never measured"], means.loc["never"], check_names=False
+                )
+                self.assertLess(
+                    means.loc["never", "cost"], means.loc["delayed", "cost"]
+                )
+
     def test_invalid(self):
         """Failures and phases need a plan, and a plan needs a layout."""
         observations = _observations()

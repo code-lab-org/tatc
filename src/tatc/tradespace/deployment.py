@@ -23,8 +23,9 @@ mean of a metric and the time until it first meets a requirement.
 
 A deployment may be staged (see `Stage`): planes that are produced and
 launched only if a rule decides to, at times during the mission, from what
-it knows then (see `Decision`), such as a second plane that is launched only
-if the mission turns out to need it. Whether and how to stage a deployment
+it knows then (see `Decision`, which includes the capability of the
+satellites in orbit), such as a second plane that is launched only if the
+mission turns out to need it. Whether and how to stage a deployment
 is a decision of a design, whose flexibility (the cost saved where a stage
 is not needed, against the capability lost by deferring it where it is) the
 analyses of a study compare with deployments that are not staged.
@@ -45,7 +46,7 @@ from .events import Launch, PerType, Production, _per_type
 from .failures import FailureModel, RestorationPolicy
 from .histories import _simulate_many
 from .histories import expected_metrics as _expected_metrics
-from .mission import Decision, MissionHistory, Phase, _Simulation
+from .mission import Capability, Decision, MissionHistory, Phase, _Simulation
 from .values import Values
 
 
@@ -68,7 +69,12 @@ class Stage:
     parameter or a value of a scenario, known by the time of the decision)
     reads them from the design, as stages made for each design (see
     `MissionPlan`) can: for example, `Stage([1], 1.0, lambda decision:
-    design.decorrelation_time < timedelta(hours=6))`.
+    design.decorrelation_time < timedelta(hours=6))`. A rule may instead
+    read what the satellites in orbit achieve (see `Decision.capability`),
+    as a mission that does not know such values measures them: for example,
+    `Stage([1], 1.0, lambda decision: decision.capability["accurate"] <
+    50)`, which deploys the plane if the satellites operating then sample
+    fewer than half the points accurately.
 
     Args:
         planes (Sequence[int] | int): The planes of the stage (their indices,
@@ -134,7 +140,12 @@ class Deployment:
     stages: tuple[Stage, ...] = ()
     """tuple[Stage, ...]: The stages deployed only if their rules decide to
     (whose planes the production and launches above do not include)."""
-    _planned: MissionHistory | None = field(default=None, repr=False, compare=False)
+    capability: Capability | None = field(default=None, repr=False, compare=False)
+    """Capability | None: The capability of the satellites, which the rules
+    of stages may read at their decisions (see `Decision.capability`) in
+    every simulation of the deployment, as the evaluations of an
+    `ObservationStudy` with a `MissionPlan` give it."""
+    _planned: tuple | None = field(default=None, repr=False, compare=False)
 
     @property
     def begin(self) -> float:
@@ -207,14 +218,14 @@ class Deployment:
     def planned(self) -> MissionHistory:
         """
         Gets the history of the mission without failures (see `simulate`),
-        simulated once.
+        simulated once (for its capability).
 
         Returns:
             MissionHistory: the history
         """
-        if self._planned is None:
-            self._planned = self.simulate()
-        return self._planned
+        if self._planned is None or self._planned[0] is not self.capability:
+            self._planned = (self.capability, self.simulate())
+        return self._planned[1]
 
     def simulate_many(
         self,

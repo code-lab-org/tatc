@@ -55,6 +55,7 @@ from .histories import (
     summarize_missions,
 )
 from .mission import (
+    Capability,
     Decision,
     MissionHistory,
     Phase,
@@ -137,6 +138,7 @@ __all__ = [
     "Across",
     "Attribution",
     "Bathtub",
+    "Capability",
     "Categorical",
     "Choice",
     "ChoiceValues",

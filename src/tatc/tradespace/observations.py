@@ -31,7 +31,7 @@ from .criteria import Requirement
 from .deployment import DeploymentSchedule
 from .failures import FailureModel, RestorationPolicy
 from .histories import evaluate_missions, expected_missions, summarize_missions
-from .mission import PhaseCache, _given_design, evaluate_phases, summarize_phases
+from .mission import Capability, PhaseCache, _given_design, summarize_phases
 from .space import Design, DesignSpace, _scenario_of
 from .study import Study, _takes_design
 from .values import configure
@@ -360,7 +360,9 @@ class MissionPlan:
         stages (Sequence[Stage] | Callable): The stages of the deployment
             (see `Stage`), or a function of the (realized) design that gives
             them, such as of a decision whether to stage it and of the values
-            its rules read.
+            its rules read. Their rules may also read the capability of the
+            satellites operating at a decision, by the study's metrics (see
+            `Decision.capability`).
         masses (Any): The mass (kg) of the satellites (or of each type, a
             mapping), or a value of the design, for launches limited in mass,
             or `None` for the masses of the cost model.
@@ -531,6 +533,11 @@ class _Evaluation:
         layout = value_of(design, self.layout)
         if layout is not None:
             record["planes"] = count_planes(layout)
+        # the metrics of phases are cached by the observations and, if they
+        # are given the design, by its scenario
+        context = self.observations.context_of(design)
+        if _takes_design(self.metrics):
+            context = (context, _scenario_of(design))
         if self.plan is not None:
             policy, spares = self._policy(design)
             kind = value_of(design, self.plan.kind)
@@ -542,16 +549,15 @@ class _Evaluation:
                 masses=self.plan.masses_of(design, cost_model),
                 stages=self.plan.stages_of(design),
             )
+            # the capability that the rules of stages read at their decisions
+            deployment.capability = Capability(
+                satellites, observations, self._phase_cache, context, design
+            )
             growth = self.plan.growth_of(design)
             if cost_model is not None:
                 record.update(cost_model.estimate(deployment, growth).metrics())
         metrics = _given_design(self.metrics, design)
         record.update(metrics(observations))
-        # the metrics of phases are cached by the observations and, if they
-        # are given the design, by its scenario
-        context = self.observations.context_of(design)
-        if _takes_design(self.metrics):
-            context = (context, _scenario_of(design))
         if self.failures is not None:
             histories = deployment.simulate_many(
                 self.failures.model,
@@ -601,8 +607,8 @@ class _Evaluation:
                     }
                 )
         elif self.phases is not None:
-            capability = evaluate_phases(
-                deployment.phases(satellites), observations, metrics
+            capability = self._phase_cache.evaluate(
+                deployment.phases(satellites), observations, satellites, context, design
             )
             record.update(summarize_phases(capability, requirements=self.phases))
         return record

@@ -98,7 +98,7 @@ Deployment
    :members: plan, launches_of, mass_capacity_of
 
 .. autoclass:: tatc.tradespace.Deployment
-   :members: simulate, simulate_many, expected_metrics, planned, phases, begin, end, deployed, units
+   :members: simulate, simulate_many, expected_metrics, planned, phases, begin, end, deployed, units, stages, capability
 
 .. autoclass:: tatc.tradespace.Launch
 
@@ -107,6 +107,7 @@ Deployment
 .. autoclass:: tatc.tradespace.Stage
 
 .. autoclass:: tatc.tradespace.Decision
+   :members: time, stage, operating, history, deployed, capability
 
 Failures and Missions
 ---------------------
@@ -148,6 +149,10 @@ Failures and Missions
 
 .. autoclass:: tatc.tradespace.PhaseCache
    :members: evaluate, clear
+
+.. autoclass:: tatc.tradespace.Capability
+   :members: at
+   :special-members: __call__
 
 .. autofunction:: tatc.tradespace.evaluate_missions
 
