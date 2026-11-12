@@ -23,24 +23,11 @@ from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 
-from .common import recorded_earth_orientation
+from .common import use_fixture_earth_orientation
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 MAX_FIXTURE_BYTES = 200e3
 TIME_STEP = 10
-
-
-_EARTH_ORIENTATION = recorded_earth_orientation()
-
-
-def setUpModule():  # pylint: disable=invalid-name
-    """Computes with the UT1 table the catalog records were made with."""
-    _EARTH_ORIENTATION.start()
-
-
-def tearDownModule():  # pylint: disable=invalid-name
-    """Restores the installed skyfield's UT1 table."""
-    _EARTH_ORIENTATION.stop()
 
 
 class _PushbroomFixture:
@@ -60,6 +47,7 @@ class _PushbroomFixture:
     @classmethod
     def setUpClass(cls):
         with np.load(FIXTURES / f"{cls.entry_id}.npz", allow_pickle=False) as data:
+            use_fixture_earth_orientation(cls, data)
             cls.data = {key: data[key] for key in data.files}
         cls.entry = get_entry(cls.entry_id)
         cls.day = datetime.fromisoformat(str(cls.data[cls.day_key]))

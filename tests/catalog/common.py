@@ -4,48 +4,65 @@ Helpers shared by the tests of catalog fixtures.
 The fixture tests compare values computed now with values recorded by the
 validation scripts to a fraction of a millisecond, which is fine enough to see
 the difference between UT1 tables. TAT-C's timescale uses the table bundled with
-the installed skyfield, which changes between skyfield releases and is
-extrapolated past its last date, so these tests compute with the table the
-records were made with (skyfield 1.55's, saved as
-`fixtures/earth_orientation.npz` in skyfield's own encoding).
+the installed skyfield, which changes between skyfield releases (predicted values
+become measured ones) and is extrapolated past its last date. So each fixture
+holds the delta T (TT - UT1) its records were made with, sampled around its days
+(`delta_t_tt`, `delta_t`, written by `docs/validation/validation_io.py`), and its
+tests compute with those samples.
 
-Re-recording fixture metrics with a different table (a different skyfield, or a
-validation day past 23 January 2027, where this table ends) needs a new snapshot,
-written from the skyfield used to record, and every fixture record rescored.
+Times outside a fixture's days use the installed table. Only the checks of
+published footprint dimensions use such a time (a circular orbit on 1 October
+2026), and they compare shares of dimensions within 3%, which UT1 moves by far
+too little to change.
 """
 
-import pathlib
 from unittest import mock
 
 import numpy as np
-from skyfield.timelib import build_delta_t
 
 from tatc.constants import timescale
 
-EARTH_ORIENTATION = pathlib.Path(__file__).parent / "fixtures" / "earth_orientation.npz"
+# samples further apart than this (days) belong to different days of a fixture
+_MAX_SAMPLE_GAP = 0.25
 
 
-def _load_recorded_delta_t() -> tuple:
+def _build_delta_t_function(sample_tt, sample_delta_t, fallback):
     """
-    Returns the daily TT dates (Julian days) and delta T values (seconds) of the
-    recorded table, decoded as skyfield decodes its bundled `iers.npz`.
+    Returns a delta T function that interpolates a fixture's samples linearly
+    within the days they cover, as skyfield interpolates its daily table, and uses
+    `fallback` elsewhere.
     """
-    with np.load(EARTH_ORIENTATION) as arrays:
-        daily_tt = arrays["tt_jd_minus_arange"] + np.arange(
-            len(arrays["tt_jd_minus_arange"])
+    sample_tt = np.asarray(sample_tt, dtype=float)
+    sample_delta_t = np.asarray(sample_delta_t, dtype=float)
+
+    def delta_t_function(tt):
+        tt_array = np.atleast_1d(np.asarray(tt, dtype=float))
+        upper = np.searchsorted(sample_tt, tt_array).clip(1, len(sample_tt) - 1)
+        inside = (
+            (tt_array >= sample_tt[0])
+            & (tt_array <= sample_tt[-1])
+            & (sample_tt[upper] - sample_tt[upper - 1] <= _MAX_SAMPLE_GAP)
         )
-        daily_delta_t = (arrays["delta_t_1e7"] / 1e7).round(7)
-    return daily_tt, daily_delta_t
+        values = np.interp(tt_array, sample_tt, sample_delta_t)
+        if not inside.all():
+            values[~inside] = fallback(tt_array[~inside])
+        return values if np.ndim(tt) else float(values[0])
+
+    return delta_t_function
 
 
-def recorded_earth_orientation() -> mock._patch:
+def use_fixture_earth_orientation(test_class, fixture) -> None:
     """
-    Returns a patcher that makes TAT-C's shared timescale use the UT1 table the
-    catalog records were made with. Start it in `setUpModule` and stop it in
-    `tearDownModule`. It changes the timescale object in place, because modules
-    import it by name.
+    Makes TAT-C's shared timescale use a fixture's delta T samples until the
+    tests of a class end. Call it in `setUpClass` with the fixture's arrays. It
+    changes the timescale in place, because modules import it by name.
     """
-    table = _load_recorded_delta_t()
-    return mock.patch.multiple(
-        timescale, delta_t_table=table, delta_t_function=build_delta_t(table)
+    patcher = mock.patch.object(
+        timescale,
+        "delta_t_function",
+        _build_delta_t_function(
+            fixture["delta_t_tt"], fixture["delta_t"], timescale.delta_t_function
+        ),
     )
+    patcher.start()
+    test_class.addClassCleanup(patcher.stop)

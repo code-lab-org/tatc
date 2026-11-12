@@ -30,6 +30,7 @@ from tatc.analysis import (
 )
 from tatc.catalog import STANDARD_VERSION
 from tatc.catalog.metrics import compute_mask_iou, compute_pass_scores, summarize
+from tatc.constants import timescale
 from tatc.schemas import CircularOrbit, Point
 from tatc.utils import VelocityFrame, compute_projected_ray_position
 
@@ -492,14 +493,73 @@ def score_swath_area(
     return min(scores)
 
 
+def _utc_date(value) -> pd.Timestamp:
+    """Returns the start of the UTC day of a time, read as UTC if naive."""
+    time = pd.Timestamp(value)
+    time = time.tz_localize("UTC") if time.tzinfo is None else time.tz_convert("UTC")
+    return time.normalize()
+
+
+def get_fixture_days(arrays: dict) -> list:
+    """
+    Returns the UTC dates a fixture's arrays record, from its `time` and `day`
+    arrays and its `day_<mode>` arrays.
+    """
+    keys = [k for k in arrays if k in ("day", "time") or k.startswith("day_")]
+    return sorted({_utc_date(str(arrays[k])) for k in keys})
+
+
+def get_earth_orientation_samples(day) -> tuple:
+    """
+    Returns the delta T (TT - UT1, seconds) the installed skyfield gives from a
+    day before to two days after a day, as TT Julian dates and values, sampled
+    hourly and at the knots of its daily table, so that interpolating the samples
+    linearly gives the values skyfield gives.
+    """
+    start = _utc_date(day) - pd.Timedelta(days=1)
+    tt = timescale.from_datetimes(
+        [(start + pd.Timedelta(hours=h)).to_pydatetime() for h in range(72 + 1)]
+    ).tt
+    table = getattr(timescale, "delta_t_table", None)
+    if table is not None:
+        knots = np.asarray(table[0])
+        tt = np.union1d(tt, knots[(knots > tt[0]) & (knots < tt[-1])])
+    return tt, np.asarray(timescale.delta_t_function(tt), dtype=float)
+
+
+def add_earth_orientation(fixture: dict, written=None) -> dict:
+    """
+    Returns a fixture's arrays with the delta T (TT - UT1) samples of its days
+    (`delta_t_tt`, `delta_t`), which the unit tests compute with instead of the
+    installed skyfield's table, so that recorded values stay reproducible across
+    skyfield releases. Samples are computed for the days of the arrays `written`
+    (by default, all of them); samples of the fixture's other days are kept, as
+    its records of those days were made with them.
+    """
+    written = fixture if written is None else written
+    samples = [get_earth_orientation_samples(d) for d in get_fixture_days(written)]
+    tt = np.asarray(fixture.get("delta_t_tt", []), dtype=float)
+    delta_t = np.asarray(fixture.get("delta_t", []), dtype=float)
+    keep = np.ones(len(tt), dtype=bool)
+    for day_tt, _ in samples:
+        keep &= (tt < day_tt[0]) | (tt > day_tt[-1])
+    tt = np.concatenate([tt[keep]] + [day_tt for day_tt, _ in samples])
+    delta_t = np.concatenate([delta_t[keep]] + [values for _, values in samples])
+    tt, first = np.unique(tt, return_index=True)
+    return {**fixture, "delta_t_tt": tt, "delta_t": delta_t[first]}
+
+
 def update_fixture(path: pathlib.Path, **arrays) -> None:
-    """Writes arrays to a fixture, keeping the others."""
+    """
+    Writes arrays to a fixture, keeping the others, with the delta T samples of
+    the days written (see `add_earth_orientation`).
+    """
     existing = {}
     if path.exists():
         with np.load(path, allow_pickle=False) as data:
             existing = {key: data[key] for key in data.files}
     path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(path, **{**existing, **arrays})
+    np.savez_compressed(path, **add_earth_orientation({**existing, **arrays}, arrays))
 
 
 def update_record(path: pathlib.Path, entry_id: str, key: str, results: dict) -> None:

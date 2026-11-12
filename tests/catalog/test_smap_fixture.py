@@ -21,25 +21,12 @@ from tatc.analysis import compute_sample_sizes
 from tatc.catalog import get_entry, get_gates
 from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit
 
-from .common import recorded_earth_orientation
+from .common import use_fixture_earth_orientation
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "smap_radiometer.npz"
 SCAN_PERIOD = 4.11
 PLATFORM = "smap"
 CONFIGURATION = "footprints"
-
-
-_EARTH_ORIENTATION = recorded_earth_orientation()
-
-
-def setUpModule():  # pylint: disable=invalid-name
-    """Computes with the UT1 table the catalog records were made with."""
-    _EARTH_ORIENTATION.start()
-
-
-def tearDownModule():  # pylint: disable=invalid-name
-    """Restores the installed skyfield's UT1 table."""
-    _EARTH_ORIENTATION.stop()
 
 
 def _observe(satellite, time, longitude, latitude):
@@ -62,6 +49,7 @@ class TestSmapFootprintsFixture(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         with np.load(FIXTURE, allow_pickle=False) as data:
+            use_fixture_earth_orientation(cls, data)
             cls.data = {key: data[key] for key in data.files}
         cls.entry = get_entry("smap_radiometer")
         cls.day = datetime.fromisoformat(str(cls.data["day"]))

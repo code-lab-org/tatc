@@ -49,7 +49,14 @@ from tatc.catalog.metrics import compute_mask_iou
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from tatc.utils import VelocityFrame, compute_view_tangents
-from validation_io import RemoteFile, ecef, get_holdout_gap, get_with_retries, up
+from validation_io import (
+    RemoteFile,
+    add_earth_orientation,
+    ecef,
+    get_holdout_gap,
+    get_with_retries,
+    up,
+)
 
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
 RECORD_PATH = REPOSITORY / "src" / "tatc" / "resources" / "validation" / "tempo.json"
@@ -377,9 +384,13 @@ def validate(day, tle, scan, write) -> None:
     fixture = np.stack([lat[sample], lon[sample], observed[sample]], axis=-1)
     np.savez_compressed(
         FIXTURE_PATH,
-        tle=np.array(tle),
-        time=np.array(time.isoformat()),
-        points=fixture,
+        **add_earth_orientation(
+            {
+                "tle": np.array(tle),
+                "time": np.array(time.isoformat()),
+                "points": fixture,
+            }
+        ),
     )
     fixture_predicted = predict_grid(satellite, track, lon[sample], lat[sample])
     record = {

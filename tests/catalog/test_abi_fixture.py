@@ -21,23 +21,10 @@ from tatc.catalog import get_entry, get_gates
 from tatc.catalog.metrics import compute_product_limit_error
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 
-from .common import recorded_earth_orientation
+from .common import use_fixture_earth_orientation
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 MAX_FIXTURE_BYTES = 200e3
-
-
-_EARTH_ORIENTATION = recorded_earth_orientation()
-
-
-def setUpModule():  # pylint: disable=invalid-name
-    """Computes with the UT1 table the catalog records were made with."""
-    _EARTH_ORIENTATION.start()
-
-
-def tearDownModule():  # pylint: disable=invalid-name
-    """Restores the installed skyfield's UT1 table."""
-    _EARTH_ORIENTATION.stop()
 
 
 class _GeostationaryFixture:
@@ -55,6 +42,7 @@ class _GeostationaryFixture:
     def setUpClass(cls):
         cls.fixture = FIXTURES / f"{cls.entry_id}.npz"
         with np.load(cls.fixture, allow_pickle=False) as data:
+            use_fixture_earth_orientation(cls, data)
             cls.data = {key: data[key] for key in data.files}
         cls.entry = get_entry(cls.entry_id)
         cls.orbit = GeneralPerturbationsOrbit.from_tle(cls.data["tle"].tolist())
