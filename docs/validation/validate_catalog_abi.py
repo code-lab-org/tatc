@@ -30,6 +30,7 @@ from tatc.catalog.metrics import compute_product_limit_error
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from tatc.utils import compute_field_of_regard
+from validation_io import add_earth_orientation
 
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
 RECORD_PATH = REPOSITORY / "src" / "tatc" / "resources" / "validation" / "abi.json"
@@ -247,7 +248,7 @@ def main(directory: pathlib.Path) -> None:
         }
 
     FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(FIXTURE_PATH, **fixture)
+    np.savez_compressed(FIXTURE_PATH, **add_earth_orientation(fixture))
     RECORD_PATH.parent.mkdir(parents=True, exist_ok=True)
     record = {
         "entry_id": "abi",

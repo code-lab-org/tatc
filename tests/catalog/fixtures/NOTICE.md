@@ -47,4 +47,6 @@ underlying data, whose providers' terms apply.
 | `gedi.npz` | Shot positions and times of the GEDI Level 1B geolocated waveform product (`GEDI01_B`, version 003), 8 June 2026 | [NASA LP DAAC](https://lpdaac.usgs.gov/products/gedi01_bv003/) | `docs/validation/validate_catalog_gedi.py` |
 
 Each fixture also holds two-line element sets, used to propagate the satellite's
-orbit.
+orbit, and the delta T (TT - UT1) its records were made with, sampled around its days
+from the table bundled with the skyfield that recorded it, which derives from the
+[IERS](https://www.iers.org/) Earth orientation data.

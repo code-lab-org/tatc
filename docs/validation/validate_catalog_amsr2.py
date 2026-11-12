@@ -52,6 +52,7 @@ from tatc.catalog import STANDARD_VERSION, get_entry
 from tatc.catalog.metrics import compute_mask_iou, compute_pass_scores, summarize
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
+import validation_io
 
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
 RECORD_PATH = REPOSITORY / "src" / "tatc" / "resources" / "validation" / "amsr2.json"
@@ -535,13 +536,8 @@ def compute_spacing_ratios(day, satellite, name: str, rows) -> tuple[float, floa
 
 
 def update_fixture(**arrays) -> None:
-    """Writes arrays to the fixture, keeping the others."""
-    existing = {}
-    if FIXTURE_PATH.exists():
-        with np.load(FIXTURE_PATH, allow_pickle=False) as data:
-            existing = {key: data[key] for key in data.files}
-    FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(FIXTURE_PATH, **{**existing, **arrays})
+    """Writes arrays to the fixture, keeping the others, with delta T samples."""
+    validation_io.update_fixture(FIXTURE_PATH, **arrays)
 
 
 def update_record(key: str, configuration: dict) -> None:

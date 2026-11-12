@@ -21,6 +21,8 @@ from tatc.analysis import collect_observations
 from tatc.catalog import get_entry
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 
+from .common import use_fixture_earth_orientation
+
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "tempo.npz"
 MAX_FIXTURE_BYTES = 200e3
 CHECKED = 40
@@ -34,6 +36,7 @@ class TestTempoFixture(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         with np.load(FIXTURE, allow_pickle=False) as data:
+            use_fixture_earth_orientation(cls, data)
             cls.data = {key: data[key] for key in data.files}
         cls.entry = get_entry("tempo")
         cls.time = datetime.fromisoformat(str(cls.data["time"]))

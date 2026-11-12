@@ -21,6 +21,8 @@ from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 
+from .common import use_fixture_earth_orientation
+
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 MAX_FIXTURE_BYTES = 200e3
 
@@ -38,6 +40,7 @@ class _LidarFixture:
     @classmethod
     def setUpClass(cls):
         with np.load(FIXTURES / f"{cls.entry_id}.npz", allow_pickle=False) as data:
+            use_fixture_earth_orientation(cls, data)
             cls.data = {key: data[key] for key in data.files}
         cls.entry = get_entry(cls.entry_id)
         cls.orbit = GeneralPerturbationsOrbit.from_tle(cls.data["tle"].tolist())

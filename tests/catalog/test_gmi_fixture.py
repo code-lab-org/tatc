@@ -21,6 +21,8 @@ from tatc.catalog import get_entry, get_gates
 from tatc.catalog.metrics import summarize
 from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
 
+from .common import use_fixture_earth_orientation
+
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "gmi.npz"
 MAX_FIXTURE_BYTES = 200e3
 SCAN_PERIOD = 1.875
@@ -34,6 +36,7 @@ class TestGmiFixture(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         with np.load(FIXTURE, allow_pickle=False) as data:
+            use_fixture_earth_orientation(cls, data)
             cls.data = {key: data[key] for key in data.files}
         cls.entry = get_entry("gmi")
         cls.orbit = GeneralPerturbationsOrbit.from_tle(cls.data["tle"].tolist())
@@ -104,6 +107,7 @@ class TestGmiSampleSizeFixture(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         with np.load(FIXTURE, allow_pickle=False) as data:
+            use_fixture_earth_orientation(cls, data)
             cls.data = {key: data[key] for key in data.files}
         cls.entry = get_entry("gmi")
         cls.day = datetime.fromisoformat(str(cls.data["day"]))
