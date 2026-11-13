@@ -21,14 +21,14 @@ classifiers = [
     "Development Status :: 4 - Beta"
 ]
 dependencies = [
-    "geopandas >= 0.13.2",
+    "geopandas >= 1.0",
     "numba",
     "numpy",
-    "pandas",
+    "pandas >= 2.0",
     "pydantic >= 2.6",
     "pyproj",
-    "shapely >= 2",
-    "skyfield >= 1.48",
+    "shapely >= 2.0.1",
+    "skyfield >= 1.49",
     "sgp4",
     "spiceypy",
     "typing-extensions",
