@@ -20,6 +20,7 @@ The following provide examples of TAT-C use in a Jupyter notebook environment.
   CollectRO.ipynb
   CollectLimb.ipynb
   CollectSpace.ipynb
+  AssessSamplingSufficiency.ipynb
   RunOSSEMonsoon.ipynb
   RunOSSEHurricane.ipynb
   SearchTradeSpace.ipynb
@@ -32,7 +33,7 @@ Note that running the above examples in a local Python environment requires addi
 
   pip install tatc[examples]
 
-using the pip package manager. The trade space examples also require::
+using the pip package manager. The AssessSamplingSufficiency example also requires xarray (``pip install xarray``) for its nature run. The trade space examples also require::
 
   pip install tatc[tradespace]
 
