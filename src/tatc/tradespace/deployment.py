@@ -129,9 +129,12 @@ class Deployment:
     development: dict[Any, float] = field(default_factory=dict)
     """dict: The end of the development of each type of satellite (years)."""
     production: list[Production] = field(default_factory=list)
-    """list[Production]: The production of the satellites, in order."""
+    """list[Production]: The production of the satellites, in order (of a
+    sustained constellation, also of replacements launched after the end of
+    the mission, see `DeploymentSchedule`)."""
     launches: list[Launch] = field(default_factory=list)
-    """list[Launch]: The launches (and planned replacements), in order."""
+    """list[Launch]: The launches (and planned replacements) of the mission,
+    in order."""
     masses: dict[Any, float | None] = field(default_factory=dict)
     """dict: The mass (kg) of each type of satellite, if given."""
     plane_values: list[Any] = field(default_factory=list)
@@ -168,10 +171,12 @@ class Deployment:
     @property
     def units(self) -> dict[Any, int]:
         """dict: The satellites produced of each type (including replacements
-        and spares)."""
+        and spares, and, of a sustained constellation, those in production
+        at the end of the mission)."""
         units: dict[Any, int] = {}
         for batch in self.production:
-            units[batch.kind] = units.get(batch.kind, 0) + batch.satellites
+            if not self.schedule.sustained or batch.begin < self.end:
+                units[batch.kind] = units.get(batch.kind, 0) + batch.satellites
         return units
 
     def simulate(
@@ -353,12 +358,22 @@ class DeploymentSchedule:
       or mass, or one per plane), at most one every `launch_interval` years,
       in the order the planes are ready.
     * The mission lasts `years` from the first launch. Satellites are
-      replaced at the end of their `design_life` (if before the end of the
-      mission), each replacement produced at the production rate just
-      before it is needed and launched then. A design life does not retire
-      a satellite: one that is not replaced (as near the end of the mission,
-      or if its replacement's launch fails) operates until it fails (by the
-      wear-out of its life, see `FailureModel`).
+      replaced at the end of their `design_life` (one for every type, or one
+      for each; if before the end of the mission), each replacement produced
+      at the production rate just before it is needed and launched then. A
+      design life does not retire a satellite: one that is not replaced (as
+      near the end of the mission, or if its replacement's launch fails)
+      operates until it fails (by the wear-out of its life, see
+      `FailureModel`).
+    * A `sustained` constellation (such as of an operational program, whose
+      mission is the period of a study) is replaced after the end of the
+      mission as before it: the replacements needed after the end are
+      produced (their production begun before the end, or within the
+      development years of their type after it, for the development of a
+      later block of production, see `SatelliteCost.block_size`), though
+      not launched in the mission, and its costs are those incurred by the
+      end (see `CostModel.estimate`), which count the units in production
+      at the end by the share produced.
 
     A schedule that is itself a decision (such as the launch cadence) is a
     design variable, with the schedule made for each design (such as with
@@ -366,9 +381,9 @@ class DeploymentSchedule:
 
     Args:
         years (float): The duration of the mission, from the first launch.
-        design_life (float | None): The design life of the satellites, or
-            `None` if they last the mission (or fail, see
-            `Deployment.simulate`).
+        design_life (float | Mapping | None): The design life of the
+            satellites (of each type), or `None` if they last the mission (or
+            fail, see `Deployment.simulate`).
         development_years (float | Mapping): The duration of development of
             each type of satellite, before production.
         production_rate (float | Mapping | None): The satellites of each type
@@ -385,21 +400,27 @@ class DeploymentSchedule:
             plane (`None` for the planes of a Walker layout) that gives the
             key by which its type's planes are produced and launched, if
             not in the order of the layouts.
+        sustained (bool): Whether the constellation is replaced after the
+            end of the mission, whose costs are then those incurred by the
+            end.
     """
 
     years: float = 1.0
-    design_life: float | None = None
+    design_life: PerType | None = None
     development_years: PerType = 0.0
     production_rate: PerType | None = None
     launch_interval: float = 0.0
     launch_capacity: int | None = None
     launch_mass_capacity: float | Callable[[int, Any], float] | None = None
     order: Callable[[int, Any], Any] | None = None
+    sustained: bool = False
 
     def __post_init__(self):
         if self.years <= 0:
             raise ValueError("years must be positive")
-        if self.design_life is not None and self.design_life <= 0:
+        lives = self.design_life
+        values = lives.values() if isinstance(lives, Mapping) else [lives]
+        if any(life is not None and life <= 0 for life in values):
             raise ValueError("design_life must be positive")
         if self.launch_interval < 0:
             raise ValueError("launch_interval must not be negative")
@@ -413,6 +434,46 @@ class DeploymentSchedule:
         values = years.values() if isinstance(years, Mapping) else [years]
         if any(value < 0 for value in values):
             raise ValueError("development_years must not be negative")
+
+    def design_life_of(self, kind: Any = None) -> float | None:
+        """
+        Gets the design life of a type of satellite.
+
+        Args:
+            kind (Any): The type of the satellites.
+
+        Returns:
+            float | None: the design life (years), or `None` if they last
+                the mission
+        """
+        return _per_type(self.design_life, kind, "design life")
+
+    def _replacements(
+        self, kind: Any, time: float, satellites: int, end: float
+    ) -> list[tuple[float, float, int]]:
+        """
+        Gets the planned replacements of satellites launched at a time: the
+        start of the production and the launch of each, and its generation.
+        Replacements are launched before the end of the mission, or, for a
+        sustained constellation, produced after it from those whose
+        production begins within the development years of their type after
+        the end (whose later blocks of production may be developed before
+        it).
+        """
+        life = self.design_life_of(kind)
+        if life is None:
+            return []
+        rate = _per_type(self.production_rate, kind, "production rate")
+        producing = 0.0 if rate is None else satellites / rate
+        horizon = end
+        if self.sustained:
+            horizon += float(_per_type(self.development_years, kind, "development"))
+        replacements = []
+        need, generation = time + life, 1
+        while (need - producing if self.sustained else need) < horizon - 1e-9:
+            replacements.append((need - producing, need, generation))
+            need, generation = need + life, generation + 1
+        return replacements
 
     def mass_capacity_of(self, plane: tuple[int, Any] | None = None) -> float | None:
         """
@@ -558,23 +619,17 @@ class DeploymentSchedule:
                 position += carried
             cadence = first + count * self.launch_interval
         end = deployment.end
-        if self.design_life is not None:
-            for launch in list(deployment.launches):
-                rate = _per_type(self.production_rate, launch.kind, "production rate")
-                need, generation = launch.time + self.design_life, 1
-                while need < end - 1e-9:
-                    produced = need - (
-                        0.0 if rate is None else launch.satellites / rate
+        for launch in list(deployment.launches):
+            for produced, need, generation in self._replacements(
+                launch.kind, launch.time, launch.satellites, end
+            ):
+                deployment.production.append(
+                    Production(
+                        launch.kind, produced, need, launch.satellites, "replacement"
                     )
-                    deployment.production.append(
-                        Production(
-                            launch.kind,
-                            produced,
-                            need,
-                            launch.satellites,
-                            "replacement",
-                        )
-                    )
+                )
+                # not those of a sustained constellation after the end
+                if need < end - 1e-9:
                     deployment.launches.append(
                         Launch(
                             need,
@@ -586,7 +641,6 @@ class DeploymentSchedule:
                             "replacement",
                         )
                     )
-                    need, generation = need + self.design_life, generation + 1
         deployment.production.sort(key=lambda batch: batch.begin)
         deployment.launches.sort(key=lambda launch: (launch.time, launch.plane))
         return deployment

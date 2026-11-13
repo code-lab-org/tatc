@@ -329,6 +329,41 @@ class TestDatedCosts(unittest.TestCase):
             {"satellites": 1},
         )
 
+    def test_sustained(self):
+        """The costs of a sustained constellation are those incurred by the end
+        of the mission: the share of each development and production before
+        it, also of a block whose first unit is produced after it."""
+        model = CostModel(
+            SatelliteCost(development=90, first_unit=10, block_size=2),
+            launch=LaunchCost(per_launch=30),
+        )
+        terms = {
+            "years": 5,
+            "design_life": 2,
+            "development_years": 3,
+            "production_rate": 0.5,
+        }
+        # units produced over [3, 5], [5, 7], [7, 9], [9, 11], and [11, 13]
+        # (the last two after the end at 10), in blocks of two
+        ending = model.estimate(DeploymentSchedule(**terms).plan(_walker(1, 1)))
+        sustained = model.estimate(
+            DeploymentSchedule(**terms, sustained=True).plan(_walker(1, 1))
+        )
+        self.assertEqual(ending.units, {"satellites": 3})
+        self.assertEqual(ending.development, 90 + 90)
+        self.assertEqual(ending.production, 30)
+        self.assertEqual(sustained.units, {"satellites": 4})
+        self.assertEqual(sustained.blocks, {"satellites": 2})
+        # the third block is developed over [8, 11], two thirds by the end
+        self.assertAlmostEqual(sustained.development, 90 + 90 + 60)
+        # half of the fourth unit, and none of the fifth
+        self.assertAlmostEqual(sustained.production, 30 + 5)
+        # the fourth unit is launched after the end
+        self.assertEqual(sustained.launch, ending.launch)
+        self.assertEqual(sustained.launch, 3 * 30)
+        self.assertLess(max(time for time, *_ in sustained.flows), 10)
+        self.assertAlmostEqual(sustained.annual()["total"].sum(), sustained.total)
+
     def test_operations_from_launch(self):
         """Satellites launched later are operated for less of the mission."""
         dated = self._estimate(development_years=2, launch_interval=1)

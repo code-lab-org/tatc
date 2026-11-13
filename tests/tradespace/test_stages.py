@@ -4,6 +4,7 @@ Unit tests for staged deployments.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import dataclasses
 import unittest
 
 import pandas as pd
@@ -75,6 +76,19 @@ class TestStages(unittest.TestCase):
         self.assertEqual(launched[1], (decided + 2 / 4 + 3, "replacement"))
         self.assertEqual(history.operating[2, 0][0][0], decided + 2 / 4)
         self.assertEqual(history.metrics()["stages deployed"], 1.0)
+
+    def test_sustained(self):
+        """A deployed stage of a sustained constellation is replaced after the
+        end of the mission as the other planes are: produced, not launched."""
+        schedule = dataclasses.replace(SCHEDULE, design_life=3.75, sustained=True)
+        history = schedule.plan(_layout(), stages=[Stage(2, 1.0)]).simulate()
+        self.assertEqual(history.end, 6.5)
+        # launched at 3, its replacement needed at 6.75, after the end
+        self.assertEqual(_launches(history, 2), [(3.0, "deployment")])
+        after = [(b.begin, b.end) for b in history.production if b.end > history.end]
+        self.assertEqual(after, [(6.25, 6.75)])
+        # eleven units of 2: five planes launched, and half of the sixth
+        self.assertAlmostEqual(COSTS.estimate(history).production, 11 * 2)
 
     def test_not_deployed(self):
         """A stage that its rule does not deploy is neither produced nor launched."""

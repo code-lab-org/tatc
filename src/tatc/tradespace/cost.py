@@ -35,9 +35,12 @@ A deployment dates the costs: development of each type of satellite (and
 of each later block of its production, see `SatelliteCost.block_size`),
 production of its satellites, launches, replacements, and operations from
 launch to the end of the mission, so that each design's costs follow from
-its satellites and planes. The dated costs give the present value of the
-cost at a discount rate, and the cost of each year (such as its peak, for
-annual budgets)::
+its satellites and planes. The costs of a constellation sustained after the
+end of its mission (such as of an operational program over the period of a
+study, see `DeploymentSchedule`) are those incurred by the end, which count
+the units in production then by the share produced. The dated costs give
+the present value of the cost at a discount rate, and the cost of each year
+(such as its peak, for annual budgets)::
 
     def evaluate(built):
         d, satellites = built
@@ -360,17 +363,20 @@ class OperationsCost:
     per_satellite_year: float = 0.0
 
 
-def _spread(amount: float, begin: float, end: float) -> list[tuple[float, float]]:
+def _spread(
+    amount: float, begin: float, end: float, until: float = math.inf
+) -> list[tuple[float, float]]:
     """
     Spreads an amount evenly from `begin` to `end` (years), dated at the
-    middle of each of its years (or at `begin`, if it has no duration).
+    middle of each of its years (or at `begin`, if it has no duration), the
+    part before `until` (the end of a sustained mission).
     """
     if end <= begin:
-        return [(begin, amount)]
+        return [(begin, amount)] if begin < until else []
     flows = []
-    time = begin
-    while time < end - 1e-12:
-        step = min(1.0, end - time)
+    time, stop = begin, min(end, until)
+    while time < stop - 1e-12:
+        step = min(1.0, stop - time)
         flows.append((time + step / 2, amount * step / (end - begin)))
         time += step
     return flows
@@ -393,7 +399,8 @@ class CostEstimate:
     """float: The cost of operations."""
     units: dict[str, int] = field(default_factory=dict)
     """dict: The units built of each type of satellite (including
-    replacements and spares)."""
+    replacements and spares, and those in production at the end of a
+    sustained mission)."""
     launches: int = 0
     """int: The launches priced per launch."""
     flows: list[tuple[float, str, float]] = field(default_factory=list)
@@ -666,6 +673,19 @@ class CostModel:
         develops its type again (a share of its development), dated over the
         type's development just before the production of its first unit.
 
+        The costs of a sustained constellation (see `DeploymentSchedule`),
+        such as of an operational program over the period of a study, are
+        those incurred by the end of the mission: of each cost spread over a
+        duration (the development of each type and block, and the production
+        of each batch of satellites), the share before the end, so that the
+        units in production at the end count by the share produced (as in M.
+        W. Maier, K. L. Yeakel, and E. B. Wendoloski, "Cost Variance Analysis
+        in Constellation Architecture Studies," IEEE Systems Journal 17(2),
+        2023), and a later block counts the share of its development before
+        the end, whether or not its first unit is in production. The units
+        (and blocks) of the estimate are those whose production begins
+        before the end.
+
         Growth factors multiply the estimate, such as uncertain parameters of
         cost growth drawn for each replicate (for example,
         `Uncertain(lambda rng: rng.triangular(0.9, 1.0, 1.5))`), whose
@@ -712,6 +732,8 @@ class CostModel:
             self._get_type(kind).mass is None for kind in history.development
         ):
             raise ValueError("launches priced by mass require masses")
+        # the costs of a sustained constellation are those incurred by the end
+        until = history.end if history.schedule.sustained else math.inf
         developed_components: set[str] = set()
         for kind, developed in sorted(
             history.development.items(), key=lambda item: item[1]
@@ -723,8 +745,9 @@ class CostModel:
                 if c.name not in developed_components
             )
             developed_components.update(c.name for c in cost.components)
-            add("development", _spread(amount, 0.0, developed), kind)
+            add("development", _spread(amount, 0.0, developed, until), kind)
         built: dict[Any, int] = {}
+        begun: dict[Any, int] = {}
         for batch in history.production:
             cost = self._get_type(batch.kind)
             before = built.get(batch.kind, 0)
@@ -732,7 +755,13 @@ class CostModel:
                 before
             )
             built[batch.kind] = before + batch.satellites
-            add("production", _spread(amount, batch.begin, batch.end), batch.kind)
+            if batch.begin < until:
+                begun[batch.kind] = begun.get(batch.kind, 0) + batch.satellites
+            add(
+                "production",
+                _spread(amount, batch.begin, batch.end, until),
+                batch.kind,
+            )
             if cost.block_size is not None and cost.redevelopment > 0:
                 # the development of each later block, before its first unit
                 duration = history.development.get(batch.kind, 0.0)
@@ -751,13 +780,14 @@ class CostModel:
                                 cost.redevelopment * cost.total_development,
                                 begins - duration,
                                 begins,
+                                until,
                             ),
                             batch.kind,
                         )
-        estimate.units = {_type_name(kind): units for kind, units in built.items()}
+        estimate.units = {_type_name(kind): units for kind, units in begun.items()}
         estimate.blocks = {
             _type_name(kind): self._get_type(kind).blocks(units)
-            for kind, units in built.items()
+            for kind, units in begun.items()
         }
         begin, end = history.begin, history.end
         for launch in history.launches:

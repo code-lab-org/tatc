@@ -134,6 +134,48 @@ class TestPlan(unittest.TestCase):
                 _walker(), kind="heritage"
             )
 
+    def test_design_life_by_type(self):
+        """Each type of satellite has its own design life (or none)."""
+        schedule = DeploymentSchedule(
+            years=6, design_life={"short": 2, "long": None}, development_years=1
+        )
+        deployment = schedule.plan({"short": _walker(1, 2), "long": _walker(1, 2)})
+        replacements = [
+            (l.kind, l.time) for l in deployment.launches if l.purpose == "replacement"
+        ]
+        self.assertEqual(replacements, [("short", 3), ("short", 5)])
+        self.assertEqual(deployment.units, {"short": 6, "long": 2})
+        self.assertEqual(schedule.design_life_of("short"), 2)
+        self.assertIsNone(schedule.design_life_of("long"))
+        with self.assertRaises(ValueError):
+            DeploymentSchedule(design_life={"short": 2}).plan(_walker(), kind="long")
+
+    def test_sustained(self):
+        """A sustained constellation's replacements are produced after the end
+        of the mission (from within its development years after the end), but
+        not launched in it."""
+        terms = {
+            "years": 5,
+            "design_life": 2,
+            "development_years": 3,
+            "production_rate": 0.5,
+        }
+        ending = DeploymentSchedule(**terms).plan(_walker(1, 1))
+        sustained = DeploymentSchedule(**terms, sustained=True).plan(_walker(1, 1))
+        self.assertEqual(sustained.end, 10)
+        self.assertEqual(
+            [(b.begin, b.end) for b in ending.production], [(3, 5), (5, 7), (7, 9)]
+        )
+        self.assertEqual(
+            [(b.begin, b.end) for b in sustained.production],
+            [(3, 5), (5, 7), (7, 9), (9, 11), (11, 13)],
+        )
+        self.assertEqual([l.time for l in sustained.launches], [5, 7, 9])
+        self.assertEqual(sustained.launches, ending.launches)
+        # those in production at the end, not those begun after it
+        self.assertEqual(sustained.units, {None: 4})
+        self.assertEqual(ending.units, {None: 3})
+
     def test_mass_capacity(self):
         """A launch carries as many satellites as its mass capacity allows."""
         schedule = DeploymentSchedule(launch_mass_capacity=120)
@@ -149,6 +191,7 @@ class TestPlan(unittest.TestCase):
         for invalid in (
             {"years": 0},
             {"design_life": 0},
+            {"design_life": {"a": 2, "b": 0}},
             {"production_rate": 0},
             {"launch_interval": -1},
             {"launch_capacity": 0},

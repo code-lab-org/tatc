@@ -619,7 +619,6 @@ class _Simulation:
         type's line), launched at the next launch slots, and replaced at the
         end of their design life.
         """
-        life = self.schedule.design_life
         for plane in stage.planes:
             kind, size, spares = self.deployment.planes[plane]
             count = size + spares
@@ -640,23 +639,20 @@ class _Simulation:
                 at = self._slot(ready)
                 self.booked = sorted(self.booked + [at])
                 self._push(at, "planned", Launch(at, plane, kind, position, carried))
-                need, generation = at + (math.inf if life is None else life), 1
-                while need < self.end - 1e-9:
+                # pylint: disable-next=protected-access
+                for produced, need, generation in self.schedule._replacements(
+                    kind, at, carried, self.end
+                ):
                     self.history.production.append(
-                        Production(
-                            kind,
-                            need - self._producing(kind, carried),
-                            need,
-                            carried,
-                            "replacement",
-                        )
+                        Production(kind, produced, need, carried, "replacement")
                     )
+                    if need >= self.end - 1e-9:
+                        continue  # of a sustained constellation, after the end
                     replacement = Launch(
                         need, plane, kind, position, carried, generation, "replacement"
                     )
                     self.booked = sorted(self.booked + [need])
                     self._push(need, "planned", replacement)
-                    need, generation = need + life, generation + 1
                 position += carried
 
     def _producing(self, kind: Any, count: int) -> float:

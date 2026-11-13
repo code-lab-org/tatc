@@ -293,12 +293,14 @@ Trade Studies
        expected costs, standard deviations, and covariance of the constellations within their sampling error, and
        the probability that one costs more than the other (97.8%; 94.8% with independent draws); Table I's growth
        factors reproduced (:doc:`ValidateCostVarianceNSOSA`)
-   * - Production blocks (`DeploymentSchedule`, `SatelliteCost.block_size`)
+   * - Production blocks and study periods (`DeploymentSchedule`, `SatelliteCost.block_size`)
      - Launch schedules and production blocks of the same study
      - Launches, production of later units, and developments of both blocks of the geostationary configuration
-       reproduced to the month; TAT-C counts the units launched within the mission, not the share of units in
-       production at the end of the study period, which lowers the costs by about 2% and the probability above to
-       95.9% (:doc:`ValidateCostVarianceNSOSA`)
+       reproduced to the month; over the study period (a sustained constellation, with a design life of each
+       configuration), the published numbers of developments and units of two of three configurations
+       reproduced, and one constellation's expected cost; the third configuration's published numbers cannot be
+       derived from its schedule, which costs the constellation that flies it 4% more than published and raises
+       the probability above to 99.9% (:doc:`ValidateCostVarianceNSOSA`)
 
 Modeling Guidance
 =================
@@ -351,6 +353,13 @@ numerical error in TAT-C:
   distributions are correlated slightly less (0.486 for 0.5, with the cost
   growth factors of formal risk assessments). Use about 0.514 to correlate the
   costs of components by 0.5.
+* **Costs within a study period.** A mission that is not sustained costs the
+  satellites it launches by its end. To compare operational constellations
+  over a fixed study period, as architecture studies do, use
+  `DeploymentSchedule(sustained=True)`, which counts the share of the units
+  (and later blocks' developments) in production at the end; the two differ by
+  2 to 7% of the cost of a constellation over 30 years, unevenly between
+  alternatives.
 * **Navigation constellations.** Model the operational satellites (those with
   healthy broadcast ephemerides); public TLE groups include others, which make
   DOP 4 to 16% optimistic.
@@ -366,9 +375,6 @@ Not Modeled
 * Pointing limits in `collect_space_observations`, such as an antenna's field
   of view, and slews between attitudes, which are instantaneous.
 * Acquisition plans, downlink processing time, and data gaps.
-* Costs within a study period: the costs of a deployment are those of the
-  satellites it launches before the end of its mission, not the share of the
-  units in production at the end of a fixed study period.
 * Daily cycles of sampled fields: sampling errors model a stationary field, so
   sun-synchronous sampling of a field with a strong daily cycle has errors up
   to 25% larger than predicted, and a small bias (2 to 3% for IMERG
