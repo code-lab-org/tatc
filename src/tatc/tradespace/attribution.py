@@ -340,7 +340,8 @@ def _tables(
     def table(part: pd.DataFrame) -> pd.DataFrame:
         indexed = part.set_index([*by, "replicate"])
         feasible = indexed["feasible"].astype(bool).to_numpy()
-        values = indexed.reindex(columns=list(metrics)).to_numpy(dtype=float)
+        # a copy, as pandas may give a read-only view of the frame
+        values = indexed.reindex(columns=list(metrics)).to_numpy(dtype=float, copy=True)
         values[~feasible] = np.nan
         frame = pd.DataFrame(values, index=indexed.index, columns=list(metrics))
         frame["feasible"] = feasible
