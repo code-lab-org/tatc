@@ -1059,6 +1059,7 @@ def _compute_horizon_region(
 def _clip_to_horizon(
     position: npt.NDArray,
     direction: npt.NDArray,
+    center: npt.NDArray,
     nadir: npt.NDArray,
     along: npt.NDArray,
     elevation: float,
@@ -1075,6 +1076,8 @@ def _clip_to_horizon(
         position (numpy.typing.NDArray): The instrument position (meters, Earth-fixed, shape (3,)).
         direction (numpy.typing.NDArray): The directions of the rays on the
             boundary of the view (Earth-fixed, shape (3, K)).
+        center (numpy.typing.NDArray): The direction of the center of the
+            view, inside its boundary (Earth-fixed, shape (3,)).
         nadir (numpy.typing.NDArray): The nadir unit vector (Earth-fixed, shape (3,)).
         along (numpy.typing.NDArray): The along-track unit vector (Earth-fixed, shape (3,)).
         elevation (float): The elevation (meters) at which project the footprint.
@@ -1141,9 +1144,9 @@ def _clip_to_horizon(
         origin, level, np.cross(nadir[:, np.newaxis], level, axis=0), ground_elevation
     )
     horizon = Polygon(to_plane(limb - origin))
-    # a view whose center (the mean direction of its boundary) projects
-    # outside its boundary contains nadir, and lies outside its boundary
-    center = np.sum(direction / np.linalg.norm(direction, axis=0), axis=1)
+    # a view whose center projects outside its boundary contains nadir, and
+    # lies outside its boundary; the mean direction of the boundary would not
+    # do, as it lies on the boundary of a view of 180 degrees about nadir
     if view.contains(Point(to_plane(center[:, np.newaxis])[0])):
         visible = shapely.intersection(view, horizon)
     else:
@@ -1379,21 +1382,39 @@ def compute_footprint(
     # footprint polygons (one per time), built at once from their points
     # (split along the anti-meridian and poles, and repaired if invalid)
     footprints = _build_split_polygons(geos[0].T, geos[1].T)
-    for i in np.flatnonzero(
+    looking_up = np.flatnonzero(
         _is_looking_up(position[:, 0], elevation, ground_elevation)
-    ):
+    )
+    if len(looking_up) > 0:
         # clip views toward a target above the instrument to the horizon
-        # (including views about nadir, whose boundaries may be visible)
-        clipped = _clip_to_horizon(
-            position[:, 0, i],
-            direction[:, :, i],
-            nadir[:, 0, i],
-            along[:, 0, i],
-            elevation,
-            ground_elevation,
+        # (including views about nadir, whose boundaries may be visible),
+        # given the center of each view (its ray before adding its extent)
+        is_scan = view_geometry == ViewGeometry.SCAN
+        _, center, *_ = _compute_rays(
+            orbit_track,
+            0,
+            0,
+            roll_angle,
+            0 if is_scan else pitch_angle,
+            False,
+            (0,),
+            velocity_frame,
+            nadir_reference,
+            pitch_angle if is_scan else 0,
+            attitude,
         )
-        if clipped is not None:
-            footprints[i] = clipped
+        for i in looking_up:
+            clipped = _clip_to_horizon(
+                position[:, 0, i],
+                direction[:, :, i],
+                center[:, 0, i],
+                nadir[:, 0, i],
+                along[:, 0, i],
+                elevation,
+                ground_elevation,
+            )
+            if clipped is not None:
+                footprints[i] = clipped
     # project the footprints to the elevation
     return list(shapely.force_3d(footprints, elevation))
 
