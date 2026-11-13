@@ -5,6 +5,7 @@ Unit tests for studies of the observations of constellations.
 """
 
 import dataclasses
+import importlib.util
 import math
 import pickle
 import tempfile
@@ -50,6 +51,8 @@ from tatc.tradespace import (
     walker_space,
 )
 from tatc.tradespace.observations import value_of
+
+HAS_JOBLIB = importlib.util.find_spec("joblib") is not None
 
 START = datetime(2026, 7, 1, tzinfo=timezone.utc)
 HOURS = timedelta(hours=3)
@@ -557,6 +560,7 @@ class TestObservationStudy(unittest.TestCase):
                 phases=True,
             )
 
+    @unittest.skipUnless(HAS_JOBLIB, "requires joblib")
     def test_parallel(self):
         """Studies of observations run in parallel, with a cache on disk."""
         designs = SPACE.enumerate()

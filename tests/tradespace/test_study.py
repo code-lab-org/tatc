@@ -4,6 +4,7 @@ Unit tests for trade studies.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import importlib.util
 import tempfile
 import unittest
 import warnings
@@ -30,6 +31,8 @@ from tatc.tradespace import (
     Uncertain,
     summarize,
 )
+
+HAS_JOBLIB = importlib.util.find_spec("joblib") is not None
 
 
 class TestStudy(unittest.TestCase):
@@ -164,6 +167,7 @@ class TestStudy(unittest.TestCase):
             **kwargs,
         )
 
+    @unittest.skipUnless(HAS_JOBLIB, "requires joblib")
     def test_parallel_matches_sequential(self):
         """Evaluations in worker processes give the results of a sequential run."""
         sequential = self._noise_study().run()

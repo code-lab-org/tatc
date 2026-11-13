@@ -4,6 +4,7 @@ Unit tests for persistent stores of results.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import importlib.util
 import json
 import math
 import sqlite3
@@ -26,6 +27,8 @@ from tatc.tradespace import (
     Uncertain,
 )
 from tatc.tradespace.fingerprint import compare_definitions
+
+HAS_JOBLIB = importlib.util.find_spec("joblib") is not None
 
 
 class _Interrupt(Exception):
@@ -109,6 +112,7 @@ class TestResultStore(unittest.TestCase):
         self.assertEqual(len(self.calls), 4 * 2)
         self.assertEqual(len(results), 4 * 5)
 
+    @unittest.skipUnless(HAS_JOBLIB, "requires joblib")
     def test_parallel(self):
         """Parallel studies store their evaluations as chunks complete."""
         store = ResultStore(self.path, "study")

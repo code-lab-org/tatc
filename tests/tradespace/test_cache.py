@@ -4,6 +4,7 @@ Unit tests for caches of analyses by satellite.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import importlib.util
 import pickle
 import tempfile
 import unittest
@@ -22,6 +23,8 @@ from tatc.tradespace import (
     Study,
 )
 from tatc.tradespace.cache import get_satellite_key
+
+HAS_JOBLIB = importlib.util.find_spec("joblib") is not None
 
 EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -180,6 +183,7 @@ class TestSatelliteCache(unittest.TestCase):
             third(_satellite("c"))
             self.assertEqual((third.hits, third.misses), (1, 0))
 
+    @unittest.skipUnless(HAS_JOBLIB, "requires joblib")
     def test_disk_cache_in_parallel(self):
         """Workers of a study share a cache on disk, storing each result once."""
         satellites = [_satellite(f"s{i}", anomaly=30 * (i % 4)) for i in range(40)]
