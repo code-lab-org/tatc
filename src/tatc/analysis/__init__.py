@@ -2,6 +2,10 @@
 Defines analysis functions.
 """
 
+from .airborne_track import (
+    collect_airborne_ground_track,
+    compute_airborne_edge_points,
+)
 from .coincidence import (
     find_coincident_ground_track,
     find_coincident_observations,
@@ -65,6 +69,7 @@ __all__ = [
     "OrbitOutput",
     "ScanDirection",
     "aggregate_observations",
+    "collect_airborne_ground_track",
     "collect_downlinks",
     "collect_feature_observations",
     "collect_ground_pixels",
@@ -80,6 +85,7 @@ __all__ = [
     "collect_ro_observations",
     "collect_space_observations",
     "compute_access_periods",
+    "compute_airborne_edge_points",
     "compute_dop",
     "compute_ground_track",
     "compute_latencies",
