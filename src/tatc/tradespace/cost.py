@@ -31,7 +31,8 @@ Architecture Studies," IEEE Systems Journal 17(2), 2023), and comparisons
 between them (such as the probability that one costs more than another, see
 `exceedance`) see the differences of their costs.
 
-A deployment dates the costs: development of each type of satellite,
+A deployment dates the costs: development of each type of satellite (and
+of each later block of its production, see `SatelliteCost.block_size`),
 production of its satellites, launches, replacements, and operations from
 launch to the end of the mission, so that each design's costs follow from
 its satellites and planes. The dated costs give the present value of the
@@ -214,6 +215,17 @@ class SatelliteCost:
     alone). The growths of components may be correlated (when drawn, see
     `CostModel.correlation`).
 
+    Satellites may be produced in blocks of `block_size` units, each block
+    after the first a new design of the type (as its components become
+    obsolete over a long mission of replacements): its development is
+    repeated (a share of it, `redevelopment`, 1 for a full redesign) before
+    its first unit is produced, and the learning curve restarts with its
+    first unit, so that a type replaced over decades costs the development
+    and first units of each block (as in M. W. Maier, K. L. Yeakel, and E.
+    B. Wendoloski, "Cost Variance Analysis in Constellation Architecture
+    Studies," IEEE Systems Journal 17(2), 2023). Smaller blocks cost more
+    developments and first units for the same satellites.
+
     Args:
         development (float): The nonrecurring cost (besides that of its
             components).
@@ -223,6 +235,11 @@ class SatelliteCost:
         mass (float | None): The mass (kg), for launches priced by mass.
         components (Sequence[Component]): The components, if any, of
             distinct names.
+        block_size (int | None): The units of each block of production, or
+            `None` for one block of every unit.
+        redevelopment (float): The share of the development (with that of
+            its components, `total_development`) repeated for each block
+            after the first.
     """
 
     development: float = 0.0
@@ -230,12 +247,22 @@ class SatelliteCost:
     learning_rate: float = 1.0
     mass: float | None = None
     components: Sequence[Component] = ()
+    block_size: int | None = None
+    redevelopment: float = 1.0
 
     def __post_init__(self):
         if not 0 < self.learning_rate <= 1:
             raise ValueError("learning_rate must be in (0, 1]")
         if self.development < 0 or self.first_unit < 0:
             raise ValueError("costs must not be negative")
+        if self.block_size is not None and (
+            isinstance(self.block_size, bool)
+            or not isinstance(self.block_size, numbers.Integral)
+            or self.block_size < 1
+        ):
+            raise ValueError("block_size must be a positive integer (or None)")
+        if self.redevelopment < 0:
+            raise ValueError("redevelopment must not be negative")
         components = tuple(self.components)
         if not all(isinstance(c, Component) for c in components):
             raise TypeError("components must be Components")
@@ -262,7 +289,8 @@ class SatelliteCost:
     def production(self, units: int) -> float:
         """
         Gets the recurring cost of building units (the sum of the costs of
-        units 1 to `units` on the learning curve, from `total_first_unit`).
+        units 1 to `units` on the learning curve, from `total_first_unit`,
+        which restarts with each block).
 
         Args:
             units (int): The number of units.
@@ -273,9 +301,29 @@ class SatelliteCost:
         if units <= 0:
             return 0.0
         exponent = math.log2(self.learning_rate)
-        return float(
-            self.total_first_unit * np.sum(np.arange(1, units + 1) ** exponent)
-        )
+        size = units if self.block_size is None else int(self.block_size)
+        full, rest = divmod(units, size)
+
+        def curve(count: int) -> float:
+            return float(np.sum(np.arange(1, count + 1) ** exponent))
+
+        return float(self.total_first_unit * (full * curve(size) + curve(rest)))
+
+    def blocks(self, units: int) -> int:
+        """
+        Gets the number of blocks of production that building units starts.
+
+        Args:
+            units (int): The number of units.
+
+        Returns:
+            int: the blocks (1 for any units without a block size)
+        """
+        if units <= 0:
+            return 0
+        if self.block_size is None:
+            return 1
+        return -(-units // int(self.block_size))
 
 
 @dataclass(frozen=True)
@@ -353,6 +401,9 @@ class CostEstimate:
     development), element, and amount of each."""
     present: dict[str, float] = field(default_factory=dict)
     """dict: The present value of each element."""
+    blocks: dict[str, int] = field(default_factory=dict)
+    """dict: The blocks of production of each type of satellite (see
+    `SatelliteCost.block_size`)."""
 
     @property
     def total(self) -> float:
@@ -610,7 +661,10 @@ class CostModel:
         otherwise the means of their distributions, for expected costs). A
         component that several types of the deployment carry is developed
         once, with the type whose development ends first (and by its growth
-        factor), and produced with each type (on its learning curve).
+        factor), and produced with each type (on its learning curve). Each
+        block of production after the first (see `SatelliteCost.block_size`)
+        develops its type again (a share of its development), dated over the
+        type's development just before the production of its first unit.
 
         Growth factors multiply the estimate, such as uncertain parameters of
         cost growth drawn for each replicate (for example,
@@ -679,7 +733,32 @@ class CostModel:
             )
             built[batch.kind] = before + batch.satellites
             add("production", _spread(amount, batch.begin, batch.end), batch.kind)
+            if cost.block_size is not None and cost.redevelopment > 0:
+                # the development of each later block, before its first unit
+                duration = history.development.get(batch.kind, 0.0)
+                size = int(cost.block_size)
+                for unit in range(before, before + batch.satellites):
+                    if unit > 0 and unit % size == 0:
+                        begins = (
+                            batch.begin
+                            + (unit - before)
+                            * (batch.end - batch.begin)
+                            / batch.satellites
+                        )
+                        add(
+                            "development",
+                            _spread(
+                                cost.redevelopment * cost.total_development,
+                                begins - duration,
+                                begins,
+                            ),
+                            batch.kind,
+                        )
         estimate.units = {_type_name(kind): units for kind, units in built.items()}
+        estimate.blocks = {
+            _type_name(kind): self._get_type(kind).blocks(units)
+            for kind, units in built.items()
+        }
         begin, end = history.begin, history.end
         for launch in history.launches:
             cost = self._get_type(launch.kind)

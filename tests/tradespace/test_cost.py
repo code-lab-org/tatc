@@ -68,6 +68,17 @@ class TestSatelliteCost(unittest.TestCase):
         with self.assertRaises(ValueError):
             SatelliteCost(development=-1)
 
+    def test_blocks(self):
+        """The learning curve restarts with each block of production."""
+        blocks = SatelliteCost(first_unit=10, learning_rate=0.9, block_size=2)
+        self.assertAlmostEqual(blocks.production(2), 10 + 9)
+        self.assertAlmostEqual(blocks.production(5), 3 * 10 + 2 * 9)
+        self.assertEqual([blocks.blocks(n) for n in (0, 1, 2, 3, 5)], [0, 1, 1, 2, 3])
+        self.assertEqual(SatelliteCost(first_unit=10).blocks(7), 1)
+        for invalid in ({"block_size": 0}, {"block_size": 2.5}, {"redevelopment": -1}):
+            with self.assertRaises(ValueError):
+                SatelliteCost(**invalid)
+
 
 class TestPlaneSizes(unittest.TestCase):
     """
@@ -288,6 +299,36 @@ class TestDatedCosts(unittest.TestCase):
         self.assertAlmostEqual(production[0][0], 2.25)  # middle of [2, 2.5)
         self.assertAlmostEqual(production[0][2], self.terms["satellites"].production(4))
 
+    def test_blocks(self):
+        """Each block of production after the first develops its type again,
+        just before its first unit, and restarts the learning curve."""
+        self.terms["satellites"] = dataclasses.replace(
+            self.terms["satellites"], block_size=4, redevelopment=0.5
+        )
+        dated = self._estimate(development_years=2, production_rate=8)
+        self.assertEqual(dated.units, {"satellites": 24})
+        self.assertEqual(dated.blocks, {"satellites": 6})
+        self.assertAlmostEqual(dated.development, 90 + 5 * 45)
+        learning = SatelliteCost(first_unit=10, learning_rate=0.9)
+        self.assertAlmostEqual(dated.production, 6 * learning.production(4))
+        development = [
+            (t, a) for t, element, a in dated.flows if element == "development"
+        ]
+        # the second block (the second plane of the first generation, produced
+        # from 2.5) is developed over the two years before
+        self.assertIn((1.0, 22.5), development)
+        self.assertIn((2.0, 22.5), development)
+        # the fourth (the first replacements, produced from 5.25)
+        self.assertIn((3.75, 22.5), development)
+        self.assertIn((4.75, 22.5), development)
+        # without blocks, one
+        self.assertEqual(
+            CostModel(SatelliteCost(development=90))
+            .estimate(DeploymentSchedule(years=6, design_life=3).plan(self.layout))
+            .blocks,
+            {"satellites": 1},
+        )
+
     def test_operations_from_launch(self):
         """Satellites launched later are operated for less of the mission."""
         dated = self._estimate(development_years=2, launch_interval=1)
@@ -372,6 +413,15 @@ class TestComponents(unittest.TestCase):
         self.assertAlmostEqual(estimate.production, 2 * expected_first_unit)
         # a satellite without components costs as before
         self.assertEqual(SatelliteCost(development=5).total_development, 5)
+
+    def test_redevelopment(self):
+        """Blocks develop their components again, grown by their factors."""
+        satellite = dataclasses.replace(self.satellite, block_size=1)
+        estimate = CostModel(satellite).estimate(
+            DeploymentSchedule().plan(_walker(1, 2))
+        )
+        self.assertAlmostEqual(estimate.development, 2 * satellite.total_development)
+        self.assertAlmostEqual(estimate.production, 2 * satellite.total_first_unit)
 
     def test_invalid(self):
         """Components need names, costs that are not negative, and growth."""

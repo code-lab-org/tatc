@@ -123,7 +123,7 @@ Costs
    :members: estimate, draw, score_names, discount
 
 .. autoclass:: tatc.tradespace.SatelliteCost
-   :members: production, total_development, total_first_unit
+   :members: production, blocks, total_development, total_first_unit
 
 .. autoclass:: tatc.tradespace.Component
    :members: uncertain, factor
