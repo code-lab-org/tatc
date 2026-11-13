@@ -1,0 +1,71 @@
+{
+  "entry_id": "atlas",
+  "configurations": {
+    "beam_pairs": {
+      "digest": "667a1dc0178e3b4c539753823f444bec26dcdf558407204a32d80344865bbd9d",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_atlas.py",
+      "reference": "ATL08QL version 007 (land segments south of 60 deg S)",
+      "period": "2026-11-04",
+      "platform": "icesat-2",
+      "holdout_gap_days": 34,
+      "metrics": [
+        {
+          "name": "segment_recall",
+          "value": 100.0,
+          "scope": "time step 1 s"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 6.92087549125,
+          "scope": "time step 1 s"
+        },
+        {
+          "name": "epoch_median",
+          "value": -5.5285554985,
+          "scope": "time step 1 s"
+        },
+        {
+          "name": "segment_recall",
+          "value": 100.0,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 6.92087549125,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "epoch_median",
+          "value": -5.5285554985,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "segment_recall",
+          "value": 100.0,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 6.92087549125,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "epoch_median",
+          "value": -5.5285554985,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "beam_spacing_error_median",
+          "value": 0.02074784303558941
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 6.85040269705
+      }
+    }
+  },
+  "standard_version": 5
+}

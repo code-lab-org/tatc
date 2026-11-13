@@ -1,0 +1,84 @@
+{
+  "entry_id": "ascat",
+  "configurations": {
+    "swaths": {
+      "digest": "5d9d3f2ba6c6b2a59be1a0fb383cd836acbd56df2a78be1dc5251ce092f002b9",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_ascat.py",
+      "reference": "ASCATC-L2-25km (wind vector cell positions and row times)",
+      "period": "2026-11-08",
+      "platform": "metop-c",
+      "holdout_gap_days": 34,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.83481554402417
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 6.600266454694279,
+          "scope": "left inner"
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 7.189867852210363,
+          "scope": "left outer"
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 6.729383080378532,
+          "scope": "right inner"
+        },
+        {
+          "name": "swath_edge_p95",
+          "value": 7.16328675149022,
+          "scope": "right outer"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9833311101612827,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.9757280412261321,
+          "scope": "time step 10 s"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9833311101612827,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.9757280412261321,
+          "scope": "time step 30 s"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9833311101612827,
+          "scope": "time step 120 s"
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.9757280412261321,
+          "scope": "time step 120 s"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.91275536025
+        },
+        {
+          "name": "epoch_median",
+          "value": 0.371873582
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 1.8460118375499996
+      }
+    }
+  },
+  "standard_version": 5
+}

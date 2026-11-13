@@ -773,16 +773,24 @@ def _get_rectangular_ray_coefficients(
     boundary of a rectangular view (see `compute_projected_ray_position`).
 
     Args:
-        angle (float): ray angle (radians) about the view center.
+        angle (float): ray angle (radians) about the view center, of any
+            value (wrapped to [0, 2*pi)).
         tan_a_2 (float): the tangent of the along-track half field of view.
         tan_c_2 (float): the tangent of the cross-track half field of view.
 
     Returns:
         tuple[float, float]: the along-track and cross-track coefficients.
     """
+    angle = np.mod(angle, 2 * np.pi)
     # find orientation of rectangle corner (the ratio of the half-width
     # tangents, not of the fields of view, which differ for wide views)
     theta = np.arctan2(tan_a_2, tan_c_2)
+    # a ray at a corner lies on two edges; it is assigned to the edge whose
+    # formula stays finite there: the left or right edge, unless the view
+    # has no cross-track extent (theta = pi/2), and otherwise the top or
+    # bottom edge, which fails if the view has no along-track extent
+    # (theta = 0), as for a line across track
+    on_sides = tan_a_2 <= tan_c_2
     # compose the ray by walking around the rectangle boundary: the (v, c)
     # coefficients are determined together, one segment at a time, rather
     # than by two independently re-derived branch chains. Corners are at
@@ -790,25 +798,25 @@ def _get_rectangular_ray_coefficients(
     # 3*pi/2 splits are just internal subdivisions of a single flat edge
     # (each formula is continuous across them) chosen to keep every
     # tan() argument close to zero.
-    if angle <= theta:
+    if angle < theta or (angle == theta and on_sides):
         # right edge, upper half
         return tan_c_2 * np.tan(angle), tan_c_2
     if angle < np.pi / 2:
         # top edge, right half
         return tan_a_2, tan_a_2 * np.tan(np.pi / 2 - angle)
-    if angle <= np.pi - theta:
+    if angle < np.pi - theta or (angle == np.pi - theta and not on_sides):
         # top edge, left half
         return tan_a_2, -tan_a_2 * np.tan(angle - np.pi / 2)
     if angle < np.pi:
         # left edge, upper half
         return tan_c_2 * np.tan(np.pi - angle), -tan_c_2
-    if angle < np.pi + theta:
+    if angle < np.pi + theta or (angle == np.pi + theta and on_sides):
         # left edge, lower half
         return -tan_c_2 * np.tan(angle - np.pi), -tan_c_2
     if angle < 3 * np.pi / 2:
         # bottom edge, right half
         return -tan_a_2, -tan_a_2 * np.tan(3 * np.pi / 2 - angle)
-    if angle <= 2 * np.pi - theta:
+    if angle < 2 * np.pi - theta or (angle == 2 * np.pi - theta and not on_sides):
         # bottom edge, left half
         return -tan_a_2, tan_a_2 * np.tan(angle - 3 * np.pi / 2)
     # right edge, lower half
@@ -1386,6 +1394,135 @@ def compute_footprint(
         )
         if clipped is not None:
             footprints[i] = clipped
+    # project the footprints to the elevation
+    return list(shapely.force_3d(footprints, elevation))
+
+
+def compute_swept_footprints(
+    orbit_track: Geocentric,
+    counts: npt.ArrayLike,
+    cross_track_field_of_view: float,
+    roll_angle: npt.ArrayLike = 0,
+    pitch_angle: npt.ArrayLike = 0,
+    number_points: int | None = None,
+    elevation: float = 0,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
+    view_geometry: ViewGeometry = ViewGeometry.FRAME,
+    attitude: Any = None,
+) -> list[Polygon | MultiPolygon]:
+    """
+    Compute the footprints swept by an instrument's cross-track line over
+    spans of time: the strip between the points the line's ends trace on the
+    ground, closed by the line at the start and end of each span. The line is
+    the set of directions in the view whose along-track angle relative to the
+    view center is zero (in `ViewGeometry.SCAN`, the scan plane), spanning the
+    cross-track field of view, as observed by
+    `tatc.analysis.collect_observations` when the view sweeps over a point.
+    Unlike the footprint of a view at an instant (see `compute_footprint`),
+    the strip does not depend on the along-track field of view, so a swath of
+    consecutive spans does not depend on their length.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): The satellite
+            position/velocity at the times of all spans, in order: those of
+            each span (at least two, from its start to its end), followed by
+            those of the next.
+        counts (numpy.typing.ArrayLike): The number of times of each span.
+        cross_track_field_of_view (float): The angular (degrees) view
+            orthogonal to velocity.
+        roll_angle (numpy.typing.ArrayLike): The roll angle (degrees), a
+            scalar or one per time (see `compute_footprint`).
+        pitch_angle (numpy.typing.ArrayLike): The pitch angle (degrees), a
+            scalar or one per time (see `compute_footprint`).
+        number_points (int | None): The number of points across the line.
+            Defaults to one more than the runtime configuration's number of
+            points per side of a rectangular footprint.
+        elevation (float): The elevation (meters) at which project the footprints.
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
+        nadir_reference (NadirReference): The definition of the nadir
+            direction from which the view is rotated.
+        view_geometry (ViewGeometry): The geometry in which the fields of view
+            are defined.
+        attitude (Any): The attitude of the spacecraft's body (see
+            `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
+            which the view is rotated, or `None` for a body aligned with the
+            nadir frame (in `velocity_frame`).
+
+    Returns:
+        list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The
+            footprint of each span.
+    """
+    counts = np.atleast_1d(np.asarray(counts, dtype=int))
+    if len(counts) == 0:
+        return []
+    if np.any(counts < 2):
+        raise ValueError("each span needs at least two times")
+    if number_points is None:
+        number_points = config.get_rc().footprint_points_rectangular_side + 1
+    number_points = max(2, number_points)
+    # positions across the line, from its left end (1) to its right end (-1)
+    s = np.linspace(1, -1, number_points)
+    if view_geometry == ViewGeometry.SCAN:
+        # rays at cross-track angles from the roll angle, in the scan plane
+        # that the pitch angle tilts about the cross-track axis
+        *rays, _ = _compute_rays(
+            orbit_track,
+            0,
+            0,
+            np.asarray(roll_angle) + s[:, None] * cross_track_field_of_view / 2,
+            0,
+            False,
+            np.zeros(number_points),
+            velocity_frame,
+            nadir_reference,
+            pitch_angle,
+            attitude,
+        )
+    else:
+        # rays of an elliptical view without along-track extent, at the
+        # angles whose cross-track tangents are s * tan(field of view / 2)
+        *rays, _ = _compute_rays(
+            orbit_track,
+            cross_track_field_of_view,
+            0,
+            roll_angle,
+            pitch_angle,
+            False,
+            np.degrees(np.arccos(s)),
+            velocity_frame,
+            nadir_reference,
+            attitude=attitude,
+        )
+    geos, _ = _project_rays(*(np.reshape(x, (3, -1)) for x in rays[:4]), elevation)
+    # longitudes and latitudes with shape (points across the line, times)
+    lon, lat = np.reshape(geos[:2], (2, number_points, -1))
+    if lon.shape[1] != np.sum(counts):
+        raise ValueError("the counts must sum to the number of times")
+    footprints = np.empty(len(counts), dtype=object)
+    starts = np.concatenate([[0], np.cumsum(counts)[:-1]])
+    # build the rings of spans with the same number of times together
+    for count in np.unique(counts):
+        index = np.flatnonzero(counts == count)
+        columns = starts[index, None] + np.arange(count)
+        rings = []
+        for values in (lon, lat):
+            # the left end forward in time, the line at the end from left to
+            # right, the right end backward in time, and the line at the start
+            # from right to left (without repeating the corners)
+            rings.append(
+                np.concatenate(
+                    [
+                        values[0][columns],
+                        values[1:, columns[:, -1]].T,
+                        values[-1][columns[:, -2::-1]],
+                        values[-2:0:-1, columns[:, 0]].T,
+                    ],
+                    axis=1,
+                )
+            )
+        footprints[index] = _build_split_polygons(*rings)
     # project the footprints to the elevation
     return list(shapely.force_3d(footprints, elevation))
 

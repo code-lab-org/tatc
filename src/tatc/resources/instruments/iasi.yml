@@ -1,0 +1,105 @@
+id: iasi
+name: IASI
+aliases: [Infrared Atmospheric Sounding Interferometer]
+instrument_class: cross_track
+selection: Cross-track infrared sounder with thousands of spectral channels, among the largest contributors to forecast impact in the studies compared.
+platforms:
+  - id: metop-b
+    name: Metop-B
+    norad_id: 38771
+    status: extended
+    as_of: 2026-11-04
+data_products:
+  - name: GHRSST Level 2P skin sea surface temperature from IASI on Metop-B (OSI SAF)
+    provider: NASA PO.DAAC
+    url: https://podaac.jpl.nasa.gov/dataset/IASI_SST_METOP_B-OSISAF-L2P-v1.0
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: coverage
+    description: The swath scanned between the outermost centers of fields of regard, with a view tailored to the analysis time step.
+    platforms: [metop-b]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: IASI
+          field_of_regard: 96.6306
+          cross_track_field_of_view: 96.6306
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          field_of_regard: &measured_extent
+            kind: measured
+            source: validate_catalog_iasi.py --fit, between the outermost centers of fields of regard, over 1,082 scans
+            platform: metop-b
+            period: "2026-10-03"
+          cross_track_field_of_view: *measured_extent
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - The product's times are in whole seconds, and the phase of its scans changes between days while staying fixed within a day, so they carry an offset that differs by day. The median difference of epochs was 0.23 s on 2026-11-04 and 0.97 s on 2026-11-06. It is not calibrated, as the orbit is what it would be calibrated against.
+      - The swath is that of the centers of fields of regard, so it leaves out about half a footprint at each edge.
+  pixels:
+    grade: sample_size
+    description: The centers of IASI's 30 fields of regard, with footprints the size of one of the four pixels of each.
+    platforms: [metop-b]
+    velocity_frame: earth_fixed
+    attitude:
+      yaw_angle: 1.329
+    instruments:
+      - type: pointed
+        parameters:
+          name: IASI
+          field_of_regard: 102
+          cross_track_field_of_view: 99.96
+          along_track_field_of_view: 3.332
+          cross_track_pixels: 30
+          roll_angle: -0.0131
+          is_rectangular: true
+          cross_track_oversampling: -2.9596
+          along_track_oversampling: -2.9596
+          scan_period: 8
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Wider than the field of view, so that it does not clip the scan
+          cross_track_field_of_view: &measured_spacing
+            kind: measured
+            source: validate_catalog_iasi.py --fit, 30 fields of regard at a fitted spacing of 3.332 deg
+            platform: metop-b
+            period: "2026-10-03"
+          along_track_field_of_view: *measured_spacing
+          cross_track_pixels:
+            kind: nominal
+            source: IASI has 30 fields of regard per scan
+          roll_angle:
+            kind: measured
+            source: validate_catalog_iasi.py --fit, the fitted offset of the scan
+            platform: metop-b
+            period: "2026-10-03"
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          cross_track_oversampling: &oversampling
+            kind: derived
+            source: One minus the fitted spacing divided by a pixel width of 0.8415 deg, from a published 12 km at nadir from 817 km
+          along_track_oversampling: *oversampling
+          scan_period:
+            kind: nominal
+            source: IASI scans every 8 s
+    limitations:
+      - The yaw of 1.329 deg is not a physical yaw. It tilts the view so that pixels projected at the middle of a scan lie where IASI samples them, over the 6.3 s it takes to step across a scan, left to right. It moves the epochs of observations by up to 3.4 s, so use the swath configuration for times. It was fitted on 2026-10-03, with the other angles.
+      - The median position difference passes on the day tested, at 1.89 km on 2026-11-04, but was 6.38 km on 2026-11-06, over the limit of 6 km, with the same values. About 1 s of that day's difference is consistent with the offset of the product's times, at about 6.6 km/s, so the result depends on the day.
+      - Each pixel of this configuration is a field of regard, which holds four of IASI's pixels. Their array of two by two turns with the scan and is not represented, so positions are those of the center of the array, and the spacing is not that of IASI's pixels.
+      - The pixel width comes from the published nadir footprint, so that comparison is not independent. The footprint at the swath edge, of 39 km by 20 km, is the independent one, and it comes from a secondary source.
+limitations:
+  - The fitted angles were measured on Metop-B, from positions along the ground track of the central fields of regard and heights from a later element set, as its product does not record satellite positions. IASI also flies on Metop-C, on which these configurations were not tested.
+  - The product holds pixel positions, over land as well as sea, for sea surface temperature rather than for radiances.

@@ -1,0 +1,222 @@
+id: tropomi
+name: TROPOMI
+aliases: [TROPOspheric Monitoring Instrument, Sentinel-5P]
+instrument_class: pushbroom
+selection: Pushbroom spectrometer with open, daily, global products of atmospheric composition.
+platforms:
+  - id: sentinel-5p
+    name: Sentinel-5P
+    norad_id: 42969
+    status: extended
+    as_of: 2026-11-05
+data_products:
+  - name: Sentinel-5P TROPOMI Aerosol Index (L2__AER_AI), near real time
+    provider: Sentinel-5P Level 2 on the Registry of Open Data on AWS
+    url: https://registry.opendata.aws/sentinel5p/
+    access: open
+default_configuration: swath
+configurations:
+  swath:
+    grade: coverage
+    description: The swath of the 5.5 km by 3.5 km pixels, as a union of views that follow the curve of its lines, each tailored to the analysis time step.
+    platforms: [sentinel-5p]
+    velocity_frame: earth_fixed
+    grouping: union
+    instruments:
+      - type: pointed
+        parameters:
+          name: TROPOMI pixels 0 to 32
+          field_of_regard: 120
+          cross_track_field_of_view: 5.424
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: 51.4378
+          pitch_angle: -4.1966
+          is_rectangular: true
+        provenance:
+          field_of_regard: &regard
+            kind: derived
+            source: Wider than the swath, so that it does not clip the views
+          cross_track_field_of_view: &fitted
+            kind: measured
+            source: validate_catalog_tropomi.py --fit, the median directions of the ends of pixels of 6,188 lines, from recorded satellite positions
+            platform: sentinel-5p
+            period: "2026-10-05"
+          roll_angle: *fitted
+          pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: &tailored
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular: &rectangular
+            kind: derived
+            source: Models part of a line of a pushbroom swath as a rectangular view
+      - type: pointed
+        parameters:
+          name: TROPOMI pixels 32 to 48
+          field_of_regard: 120
+          cross_track_field_of_view: 4.1214
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: 46.695
+          pitch_angle: -3.4414
+          is_rectangular: true
+        provenance:
+          field_of_regard: *regard
+          cross_track_field_of_view: *fitted
+          roll_angle: *fitted
+          pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: TROPOMI pixels 48 to 80
+          field_of_regard: 120
+          cross_track_field_of_view: 8.1566
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: 40.5871
+          pitch_angle: -2.6026
+          is_rectangular: true
+        provenance:
+          field_of_regard: *regard
+          cross_track_field_of_view: *fitted
+          roll_angle: *fitted
+          pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: TROPOMI pixels 80 to 128
+          field_of_regard: 120
+          cross_track_field_of_view: 12.1236
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: 30.481
+          pitch_angle: -1.4866
+          is_rectangular: true
+        provenance:
+          field_of_regard: *regard
+          cross_track_field_of_view: *fitted
+          roll_angle: *fitted
+          pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: TROPOMI pixels 128 to 304
+          field_of_regard: 120
+          cross_track_field_of_view: 43.9607
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: 2.4757
+          pitch_angle: -0.7784
+          is_rectangular: true
+        provenance:
+          field_of_regard: *regard
+          cross_track_field_of_view: *fitted
+          roll_angle: *fitted
+          pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: TROPOMI pixels 304 to 368
+          field_of_regard: 120
+          cross_track_field_of_view: 16.0855
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: -27.5081
+          pitch_angle: -1.2543
+          is_rectangular: true
+        provenance:
+          field_of_regard: *regard
+          cross_track_field_of_view: *fitted
+          roll_angle: *fitted
+          pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: TROPOMI pixels 368 to 400
+          field_of_regard: 120
+          cross_track_field_of_view: 8.123
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: -39.5785
+          pitch_angle: -2.4598
+          is_rectangular: true
+        provenance:
+          field_of_regard: *regard
+          cross_track_field_of_view: *fitted
+          roll_angle: *fitted
+          pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: TROPOMI pixels 400 to 416
+          field_of_regard: 120
+          cross_track_field_of_view: 4.1022
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: -45.6591
+          pitch_angle: -3.276
+          is_rectangular: true
+        provenance:
+          field_of_regard: *regard
+          cross_track_field_of_view: *fitted
+          roll_angle: *fitted
+          pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: TROPOMI pixels 416 to 432
+          field_of_regard: 120
+          cross_track_field_of_view: 3.8629
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: -49.6092
+          pitch_angle: -3.8835
+          is_rectangular: true
+        provenance:
+          field_of_regard: *regard
+          cross_track_field_of_view: *fitted
+          roll_angle: *fitted
+          pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: TROPOMI pixels 432 to 450
+          field_of_regard: 120
+          cross_track_field_of_view: 2.3412
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: -52.6794
+          pitch_angle: -4.3812
+          is_rectangular: true
+        provenance:
+          field_of_regard: *regard
+          cross_track_field_of_view: *fitted
+          roll_angle: *fitted
+          pitch_angle: *fitted
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+    limitations:
+      - The views are a union, so analyze them with instrument_index=None. The default analyzes only the first view, at one edge of the swath.
+      - Each view is straight, and a line is within about 2 s of its view's center, at the view's ends.
+      - The swath is the union of the strips the views' cross-track lines sweep (is_swept), so it does not depend on the time step. On data held out on 2026-11-10 (36 days from the fit), 99.96% of observed passes were predicted, with the swath width within 1.97 km (median), epochs within 2.10 s (95th percentile), and the swath's intersection over union 0.9992 at time steps of 10 to 120 s.
+      - Swept swaths were added after the configuration's first holdout, on 2026-11-05, where views far from nadir, tailored to a long time step, reached beyond the curved edges of the swath; the swath's intersection over union was 0.998 at 10 s and 0.994 at 30 s, but 0.937 at 120 s, failing the standard's 0.95. Rescored with swept swaths, it was 0.9992 at every time step, with the other results unchanged; the configuration was then tested on 2026-11-10, a day not used before, which its record holds.
+      - TROPOMI's data products cover the sunlit part of each orbit, whereas these views observe whenever a target is in view, unless a solar limit is added.
+      - The views were fitted to the pixels of the ultraviolet and visible bands, and do not represent the 5.5 km by 7 km pixels of the shortwave infrared bands.

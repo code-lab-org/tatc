@@ -35,3 +35,23 @@ jobs:
 
     - name: Run unit tests
       run: python -m unittest
+
+  wheel-contents:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.13'
+
+    - name: Build wheel
+      run: |
+        pip install build
+        python -m build --wheel
+
+    - name: Check packaged resources
+      run: python tests/check_wheel_contents.py dist/*.whl

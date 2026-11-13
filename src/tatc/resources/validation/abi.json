@@ -1,0 +1,73 @@
+{
+  "entry_id": "abi",
+  "standard_version": 1,
+  "configurations": {
+    "full_disk": {
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_abi.py",
+      "period": "2026-10-03T12:00Z",
+      "platform": "goes-19",
+      "digest": "0f24250ef8d0f2c98436fe13b243610e5617b920edc31c6c4ea794c3b1326e73",
+      "reference": "ABI-L2-ACMF clear sky mask, every 8th pixel",
+      "metrics": [
+        {
+          "name": "imaged_pixels_observed",
+          "value": 100.0
+        },
+        {
+          "name": "elevation_error_max",
+          "value": 0.00037989186479592263
+        }
+      ],
+      "fixture_metrics": {
+        "imaged_pixels_observed": 100.0,
+        "elevation_error_max": 0.00037431447341873536
+      }
+    },
+    "sst_good_quality": {
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_abi.py",
+      "period": "2026-10-03T12:00Z",
+      "platform": "goes-19",
+      "digest": "61f9d59e6d03c56b386b70e62a6f025e9f21eacfcd6bec545120e5d067823023",
+      "reference": "ABI-L2-SSTF SST and quality flags",
+      "metrics": [
+        {
+          "name": "product_limit",
+          "value": 0.36221414264765883
+        },
+        {
+          "name": "good_pixels_observed",
+          "value": 99.15966386554622
+        }
+      ],
+      "fixture_metrics": {
+        "product_limit": 0.31548953875399377
+      }
+    },
+    "lst_good_quality": {
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_abi.py",
+      "period": "2026-10-03T12:00Z",
+      "platform": "goes-19",
+      "digest": "3c44900855e1fb4542e9f2948171c27c9cec3723ff52a082ecc9d919bf13ffb9",
+      "reference": "ABI-L2-LSTF LST and quality flags",
+      "metrics": [
+        {
+          "name": "product_limit",
+          "value": 0.2648005116611287
+        },
+        {
+          "name": "good_pixels_observed",
+          "value": 99.67672413793103
+        }
+      ],
+      "fixture_metrics": {
+        "product_limit": 0.2588730783312698
+      }
+    }
+  }
+}

@@ -1,0 +1,98 @@
+id: oci
+name: OCI
+aliases: [Ocean Color Instrument, PACE OCI]
+instrument_class: cross_track
+selection: Hyperspectral cross-track scanner of NASA's PACE mission (2024), for ocean color, aerosols, and clouds, whose telescope tilts fore or aft to avoid sun glint, with open data products.
+platforms:
+  - id: pace
+    name: PACE
+    norad_id: 58928
+    status: operational
+    as_of: 2026-11-10
+data_products:
+  - name: PACE OCI Level-1B Science Data (PACE_OCI_L1B_SCI), version 3
+    provider: NASA OB.DAAC
+    url: https://search.earthdata.nasa.gov/search?q=PACE_OCI_L1B_SCI
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath scanned between the outermost samples, tilted aft over the southern part of the sunlit half orbit and forward over the northern part, changing at a latitude scheduled by day, with a view tailored to the analysis time step. Build it with the start and end of the analysis.
+    platforms: [pace]
+    velocity_frame: earth_fixed
+    attitude_schedule:
+      fore_pitch_angle: 19.8555
+      aft_pitch_angle: -19.8149
+      odd_day_offset: 5.2097
+      even_day_offset: -0.8697
+      transition: 1.681
+      return_argument_of_latitude: 180
+      blind_before: 14.96
+      blind_after: 19.37
+      provenance:
+        fore_pitch_angle: &measured_tilt
+          kind: measured
+          source: validate_catalog_oci.py --fit, the along-track angle of the samples forward and aft
+          platform: pace
+          period: "2026-10-04"
+        aft_pitch_angle: *measured_tilt
+        odd_day_offset: &measured_schedule
+          kind: measured
+          source: validate_catalog_oci.py --switches, the median by day of the spacecraft's geodetic latitude where the tilt changes to forward, less the subsolar latitude at noon (UTC), by the parity of the day of the year (standard deviation 0.018 deg over 55 days)
+          platform: pace
+          period: 2026-08-15 to 2026-10-08
+        even_day_offset: *measured_schedule
+        transition:
+          kind: measured
+          source: validate_catalog_oci.py --fit, the arc of argument of latitude over which the tilt changes, about 26 s
+          platform: pace
+          period: "2026-10-04"
+        return_argument_of_latitude:
+          kind: placeholder
+          source: The tilt changes back in the dark half of the orbit, which has no data; placed at the descending node
+        blind_before: &measured_blind
+          kind: measured
+          source: validate_catalog_oci.py --blind, at full resolution, the median over 51 changes to forward of the end of the last valid scan before the tilt crosses zero (14.96 s before) and of the start of the first valid scan after it (19.37 s after); every scan between is flagged
+          platform: pace
+          period: 2026-08-20, 2026-09-15, 2026-10-04 and 2026-10-07
+        blind_after: *measured_blind
+    instruments:
+      - type: pointed
+        parameters:
+          name: OCI
+          field_of_regard: 120
+          cross_track_field_of_view: 113.235
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the tilted view, whose edges are about 58.8 deg from nadir, with a margin for its along-track extent
+          cross_track_field_of_view:
+            kind: measured
+            source: validate_catalog_oci.py --fit, between the outermost samples in the tilted view (113.234 deg forward, 113.237 deg aft)
+            platform: pace
+            period: "2026-10-04"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - The tilt changes from aft to forward where the spacecraft's geodetic latitude reaches the subsolar latitude at noon (UTC) plus 5.21 deg on days of odd day of the year, and less 0.87 deg on even days, as measured from 2026-08-15 to 2026-10-08. Whether the alternation follows the day of the year or a count of days across a new year is not known. On 2 of the 55 days, the last two changes of the day came about 0.8 deg south of the others. The schedule is set by the mission and may change.
+      - A first version, whose profile fixed the change at the latitude of 2026-10-04, failed on held-out data of 2026-11-04, where the change came near 17 deg S (epochs within 72.6 s at the 95th percentile; 93.7% of predicted passes observed; intersection over union 0.909 at 120 s). The schedule was then fitted, and tested on a later day.
+      - A second version, without the blind interval, placed passes within 0.55 s at the 95th percentile on held-out data of 2026-11-07, but 93.9% of predicted passes were observed (2026-11-08 gave 93.8%), as it counted ground swept while the tilt changes, which the product flags. The blind interval was then measured on days of the fitting period, and tested on a later day.
+      - The swath is the strip the view's cross-track line sweeps (is_swept), trimmed to the blind interval, so it does not depend on the time step. On data held out on 2026-11-10 (33 days from the fitting data, with a public element set), 99.86% of observed passes were predicted and 97.39% of predicted passes observed, with epochs within 0.55 s (95th percentile), the swath width within 0.94 km (median), and the swath's intersection over union 0.997 at time steps of 10 to 120 s. The day's data have 14 gaps of over a minute, so the swath's area was compared over the longest span without one, 49.3 min, not a full orbit.
+      - Swept swaths were added after the holdout of 2026-11-09 (32 days from the fitting data), where views tailored to the time step widened the swath at long time steps, as the view tailored to 120 s (63 deg along track), tilted 20 deg, reached about 2,800 km from the subsatellite point at its corners; 99.89% of observed passes were predicted and 97.28% of predicted passes observed, with epochs within 0.55 s (95th percentile) and the swath width within 0.81 km (median), but the swath's intersection over union was 0.985 at 10 s, 0.960 at 30 s, and 0.931 at 120 s, failing the standard's 0.95. Rescored with swept swaths, it was 0.998 at every time step, with the other results unchanged; the configuration was then tested on 2026-11-10, a day not used before, which its record holds.
+      - The tilt changes back in the dark half of the orbit, where the product has no data, at an argument of latitude placed at 180 deg, with the blind interval measured for the change to forward; analyses there describe a tilt that was not tested.
+      - The scan line is rotated by about 0.1 deg from perpendicular to the Earth-fixed ground track (a fitted yaw), which is not modeled.
+      - The swath width of a pointed instrument follows its field of regard, centered on nadir, which does not describe this tilted view; its width is that between the projections of its edges.
+      - OCI images the sunlit half of each orbit, whereas the view observes whenever a target is in view, unless a solar limit is added.
+limitations:
+  - PACE flies with yaw steering, and the scan is nearly perpendicular to the Earth-fixed ground track, so the configuration uses the Earth-fixed frame.
+  - No configuration gives sample sizes, as no published instantaneous field of view was used.
+  - The tilt schedule is that of the days tested; it is set by the mission and may change.

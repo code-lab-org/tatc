@@ -1,0 +1,116 @@
+id: modis
+name: MODIS
+aliases: [Moderate Resolution Imaging Spectroradiometer]
+instrument_class: cross_track
+selection: Cross-track imager with the broadest range of applications in the literature, and open data products since 2000.
+platforms:
+  - id: terra
+    name: Terra
+    norad_id: 25994
+    status: extended
+    as_of: 2026-11-05
+  - id: aqua
+    name: Aqua
+    norad_id: 27424
+    status: extended
+    as_of: 2026-11-05
+data_products:
+  - name: MODIS/Terra geolocation (MOD03), Collection 7
+    provider: NASA LAADS DAAC
+    url: https://ladsweb.modaps.eosdis.nasa.gov/missions-and-measurements/products/MOD03
+    access: registration
+  - name: MODIS/Aqua geolocation (MYD03), Collection 7
+    provider: NASA LAADS DAAC
+    url: https://ladsweb.modaps.eosdis.nasa.gov/missions-and-measurements/products/MYD03
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath scanned between the outermost 1 km frame centers, with a view tailored to the analysis time step.
+    platforms: [terra]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: MODIS
+          field_of_regard: 109.918
+          cross_track_field_of_view: 109.918
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          field_of_regard: &measured_extent
+            kind: measured
+            source: ValidateDriftMODIS, Test 3, 1,353 frame spacings of a fitted 0.08124 deg
+            platform: terra
+            period: "2026-10-04"
+          cross_track_field_of_view: *measured_extent
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - TAT-C observes all pixels of a view at one instant, whereas MODIS sweeps the Earth in about 0.45 s.
+      - The view is centered on nadir. The outermost frames measure 54.91 deg to the left and 55.00 deg to the right.
+  pixels:
+    grade: sample_size
+    description: The 1 km pixels of a scan, of 1,354 frames and 10 detectors, whose footprints grow toward the swath edges.
+    platforms: [terra]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: MODIS
+          field_of_regard: 112
+          cross_track_field_of_view: 109.999
+          along_track_field_of_view: 0.8123
+          cross_track_pixels: 1354
+          along_track_pixels: 10
+          roll_angle: -0.046
+          view_geometry: scan
+          is_rectangular: true
+          scan_period: 1.477
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Wider than the field of view, so that it does not clip the scan
+          cross_track_field_of_view:
+            kind: measured
+            source: ValidateDriftMODIS, Test 3, 1,354 frames of a fitted 0.08124 deg
+            platform: terra
+            period: "2026-10-04"
+          along_track_field_of_view:
+            kind: measured
+            source: ValidateDriftMODIS, Test 3, 10 detectors, from 0.7311 deg over the 9 spacings between the first and last
+            platform: terra
+            period: "2026-10-04"
+          cross_track_pixels:
+            kind: nominal
+            source: The 1 km bands have 1,354 frames per scan
+          along_track_pixels:
+            kind: nominal
+            source: The 1 km bands have 10 detectors
+          roll_angle:
+            kind: measured
+            source: ValidateDriftMODIS, Test 3, the fitted offset of the scan angle
+            platform: terra
+            period: "2026-10-04"
+          view_geometry:
+            kind: derived
+            source: A scanner keeps a constant angular extent along track (ValidateDriftMODIS, Test 3)
+          is_rectangular:
+            kind: derived
+            source: Models a scan as a rectangular view
+          scan_period:
+            kind: nominal
+            source: ValidateSampleSizes, the scan period of MODIS
+    limitations:
+      - The pixels are of the 1 km bands, not the 250 m or 500 m bands.
+      - Pixels are projected at the center time of a scan, so those near the swath edges are displaced along track by about 1.5 km from where MODIS samples them.
+limitations:
+  - The fitted angles were measured on Terra, and tested on 2026-11-05. Terra's orbit has drifted since its last inclination adjustment in 2020, so use element sets near the analysis times.
+  - On Aqua, these configurations are a transfer that warns on use. The same values were tested on one day of Aqua data, 2026-11-05, whose results are in the validation record but do not count toward the tier.

@@ -1,0 +1,103 @@
+id: omps_nm
+name: OMPS Nadir Mapper
+aliases: [Ozone Mapping and Profiler Suite Nadir Mapper, OMPS NM, OMPS total column]
+instrument_class: pushbroom
+selection: Ultraviolet imaging spectrometer that maps total column ozone each day, on the operational JPSS satellites, with open data products.
+platforms:
+  - id: noaa-21
+    name: NOAA-21
+    norad_id: 54234
+    status: operational
+    as_of: 2026-11-09
+  - id: noaa-20
+    name: NOAA-20
+    norad_id: 43013
+    status: operational
+    as_of: 2026-11-09
+data_products:
+  - name: OMPS Nadir Mapper total column geolocation (OMPS-TC-GEO)
+    provider: NOAA Open Data Dissemination
+    url: https://registry.opendata.aws/noaa-jpss/
+    access: open
+default_configuration: swath_noaa_21
+configurations:
+  swath_noaa_21:
+    grade: timing
+    description: The swath imaged between the outermost samples of NOAA-21's Nadir Mapper, with a view tailored to the analysis time step.
+    platforms: [noaa-21]
+    velocity_frame: inertial
+    attitude:
+      yaw_angle: -0.1848
+      pitch_angle: 0.0544
+    instruments:
+      - type: pointed
+        parameters:
+          name: OMPS Nadir Mapper
+          field_of_regard: 110.66
+          cross_track_field_of_view: 109.9998
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: 0.3252
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the view, rolled by its offset
+          cross_track_field_of_view: &measured_noaa_21
+            kind: measured
+            source: validate_catalog_omps.py --fit, the outermost samples 55.3251 deg left and 54.6747 deg right of the geodetic nadir (inertial frame)
+            platform: noaa-21
+            period: "2026-10-01"
+          roll_angle: *measured_noaa_21
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models an imaged swath as a rectangular view
+    limitations:
+      - The yaw of -0.1848 deg and pitch of 0.0544 deg are measured with validate_catalog_omps.py --fit on 2026-10-01, from the slope of the samples' along-track on their cross-track tangents (the same within 0.001 deg at every latitude) and the along-track angle of the sample nearest nadir, in the inertial frame.
+  swath_noaa_20:
+    grade: timing
+    description: The swath imaged between the outermost samples of NOAA-20's Nadir Mapper, with a view tailored to the analysis time step.
+    platforms: [noaa-20]
+    velocity_frame: inertial
+    attitude:
+      yaw_angle: -0.2944
+      pitch_angle: 0.1859
+    instruments:
+      - type: pointed
+        parameters:
+          name: OMPS Nadir Mapper
+          field_of_regard: 109.07
+          cross_track_field_of_view: 108.6016
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: -0.2294
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the view, rolled by its offset
+          cross_track_field_of_view: &measured_noaa_20
+            kind: measured
+            source: validate_catalog_omps.py --fit, the outermost samples 54.0714 deg left and 54.5302 deg right of the geodetic nadir (inertial frame)
+            platform: noaa-20
+            period: "2026-10-01"
+          roll_angle: *measured_noaa_20
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models an imaged swath as a rectangular view
+    limitations:
+      - The yaw of -0.2944 deg and pitch of 0.1859 deg are measured with validate_catalog_omps.py --fit on 2026-10-01, from the slope of the samples' along-track on their cross-track tangents (the same within 0.02 deg at every latitude) and the along-track angle of the sample nearest nadir, in the inertial frame.
+limitations:
+  - The samples do not lie on a line across track. They bow aft toward the swath's edges, from about 0 deg along track near nadir to about 8.5 deg (NOAA-21) and 7.8 deg (NOAA-20) at the edges, about 150 km behind a straight line, which a view cannot represent. On data held out on 2026-11-05, epochs were therefore within 19.9 s (NOAA-21) and 19.1 s (NOAA-20) at the 95th percentile (median -5.6 and -5.1 s), and the swath widths, between the outermost samples, within 7.1 and 5.9 km (median), whereas 99.3% or more of observed passes were predicted and the swath's intersection over union was 0.99 or more (0.98 or more with views tailored to the time step, before swept swaths were added; rescored on the same data). The bow was found on the fitting day, after the fit and before the holdout.
+  - NOAA-20 and NOAA-21 do not steer their yaw, so the configurations use the inertial frame.
+  - The Nadir Mapper images the sunlit part of each orbit, whereas the view observes whenever a target is in view, unless a solar limit is added.
+  - No configuration gives sample sizes, as no published instantaneous field of view was used.
+  - Each platform has its own configuration, fitted to its own data; NOAA-20 images fewer, wider samples than NOAA-21.

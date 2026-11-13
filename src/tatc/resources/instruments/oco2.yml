@@ -1,0 +1,93 @@
+id: oco2
+name: OCO-2
+aliases: [Orbiting Carbon Observatory-2]
+instrument_class: pushbroom
+selection: Grating spectrometer that measures carbon dioxide in eight soundings across a narrow slit, observing at nadir or at the sun glint, with open data products.
+platforms:
+  - id: oco-2
+    name: OCO-2
+    norad_id: 40059
+    status: operational
+    as_of: 2026-11-09
+data_products:
+  - name: OCO-2 Level 1B science (OCO2_L1B_Science), version 11.2
+    provider: NASA GES DISC
+    url: https://disc.gsfc.nasa.gov/datasets/OCO2_L1B_Science_11.2/summary
+    access: registration
+default_configuration: nadir
+configurations:
+  nadir:
+    grade: timing
+    description: The swath of the slit in nadir mode, between the first and eighth soundings, with a view tailored to the analysis time step.
+    platforms: [oco-2]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: OCO-2
+          field_of_regard: 120
+          cross_track_field_of_view: 0.6318
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the view tailored to a time step
+          cross_track_field_of_view:
+            kind: measured
+            source: validate_catalog_oco2.py --fit, the median angle between the first and eighth soundings seen from the spacecraft in nadir mode
+            platform: oco-2
+            period: "2026-10-04"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models the slit's swath as a rectangular view
+    limitations:
+      - OCO-2 turns its slit with the spacecraft's yaw to keep it perpendicular to the solar principal plane, from about 11 deg off the cross-track direction over the south of the day side to about 127 deg over the north (measured on 2026-10-04 by validate_catalog_oco2.py --fit). The view is not turned, as a turned body would also turn the view tailored to the time step along the slit, so the swath is the slit's length across track, wider than OCO-2's where the slit turns toward the ground track (up to about eight times, near 20 deg north).
+  glint:
+    grade: timing
+    description: The swath of the slit in glint mode, with the body pointed short of the sun glint, toward nadir, and a view tailored to the analysis time step.
+    platforms: [oco-2]
+    velocity_frame: earth_fixed
+    attitude:
+      type: glint
+      max_off_nadir_angle: 51.0
+      offset_angle_profile: [[21.0, 4.21], [23.0, 4.338], [25.0, 4.789], [27.0, 5.18], [29.0, 5.538], [31.0, 5.888], [33.0, 6.227], [35.0, 6.551], [37.0, 6.864], [39.0, 7.16], [41.0, 7.445], [43.0, 7.711], [45.0, 7.965], [47.0, 8.2], [49.0, 8.42], [51.0, 8.626], [53.0, 8.817], [55.0, 9.01], [57.0, 9.18], [59.0, 9.326], [61.0, 9.394]]
+    instruments:
+      - type: pointed
+        parameters:
+          name: OCO-2
+          field_of_regard: 180
+          cross_track_field_of_view: 0.6318
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the body's pointing toward the glint and the view tailored to a time step
+          cross_track_field_of_view:
+            kind: measured
+            source: validate_catalog_oco2.py --fit, the median angle between the first and eighth soundings seen from the spacecraft in nadir mode
+            platform: oco-2
+            period: "2026-10-04"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models the slit's swath as a rectangular view
+    limitations:
+      - The offset profile and the limit of 51.0 deg from nadir are measured with validate_catalog_oco2.py --fit on 2026-10-04, from the soundings' center and TAT-C's specular point seen from the spacecraft's position in the product (residual 0.02 deg, median), as ValidatePointingOCO2 measured from 14 to 30 September 2026. Beyond the limit, the attitude points the body at nadir, whereas OCO-2 does not observe.
+      - The slit's orientation in glint mode is not modeled.
+limitations:
+  - On data held out on 2026-11-07, the views observed 90.4% (nadir) and 89.4% (glint) of a sample of 1,000 soundings within two minutes of their times, with epochs within 0.88 and 1.24 s (95th percentile) and swath widths within 0.21 and 0.53 km (median) of the distance between the first and eighth soundings. The swath, about 10 km wide, is narrower than the views' errors, as soundings at the slit's ends lie about 4.5 km from its center, which is about 2 km from the view's (ValidatePointingOCO2), and the slit turns toward the ground track in nadir mode. Over eight segments of 360 s, the intersection over union of the predicted swath with the strip between the first and eighth soundings was 0.45 (nadir) and 0.41 (glint) at time steps of 10 to 120 s, as the swaths are the strips the views' cross-track lines sweep (is_swept). Rescored after swept swaths (is_swept) were added, on the same data, with the other results unchanged; with views tailored to the time step, it had been 0.44 (nadir) and 0.17 (glint, at a time step of 120 s; 0.40 at 10 s).
+  - The validation was changed after a first run on 2026-11-07, without changing the entry. That run scored the swath as for wide scanners, with a global lattice of points 100 km apart and a grid of 0.1 deg, too coarse for a swath of 10 km, and with the swath width of the field of regard, which is set wide to contain the views tailored to time steps (3,178 km); it was replaced by a sample of soundings and segments of the track.
+  - OCO-2 alternates its modes by orbit (most odd orbits in glint mode and even orbits in nadir mode, ValidatePointingOCO2), and points at ground sites in a target mode; each configuration models one mode. An AttitudeSchedule of their attitudes, by orbit, models a schedule of modes.
+  - OCO-2 observes the sunlit part of each orbit, whereas the views observe whenever a target is in view, unless a solar limit is added.
+  - No configuration gives sample sizes.

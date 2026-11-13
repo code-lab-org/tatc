@@ -1,0 +1,55 @@
+id: ahi
+name: AHI
+aliases: [Advanced Himawari Imager]
+instrument_class: geostationary
+selection: Imager of Japan's operational Himawari geostationary weather satellites over Asia and the western Pacific, with open data products.
+platforms:
+  - id: himawari-9
+    name: Himawari-9
+    norad_id: 41836
+    status: operational
+    as_of: 2026-11-09
+data_products:
+  - name: Himawari-9 AHI Level 2 full-disk cloud products (NOAA Enterprise algorithms)
+    provider: NOAA Open Data Dissemination
+    url: https://registry.opendata.aws/noaa-himawari/
+    access: open
+default_configuration: full_disk
+configurations:
+  full_disk:
+    grade: coverage
+    description: The Earth's disk, as imaged by a full-disk scan.
+    platforms: [himawari-9]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: instrument
+        parameters:
+          name: AHI
+          field_of_regard: 17.4
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Spans the Earth's disk from geostationary altitude
+    limitations:
+      - A larger field of regard would pass the same test, which shows that the disk is observed rather than the value of the field of regard.
+  cloud_top_height:
+    grade: coverage
+    description: Where the cloud top height product is retrieved (local zenith angle up to about 79.4 degrees).
+    platforms: [himawari-9]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: instrument
+        parameters:
+          name: AHI cloud top height
+          field_of_regard: 17.084361
+        provenance:
+          field_of_regard:
+            kind: measured
+            source: validate_catalog_ahi.py --fit, compute_field_of_regard(35785863, 90 - 79.3798), from the greatest local zenith angle at which the cloud top height is retrieved at full resolution, with the fixed grid's nominal position
+            platform: himawari-9
+            period: "2026-10-01T12:00Z"
+    limitations:
+      - The product declares no bound of local zenith angle; the bound is measured as the greatest angle at which it retrieves a height, which it does only for cloudy pixels.
+      - On the held-out scan of 2026-11-08T12:00Z, the product retrieved heights up to 79.384 deg (0.005 deg from the fit), but the boundary of predicted observations lay up to 0.70 deg from it, beyond the gate's 0.5 deg. A field of regard is a cone about nadir, and so near the limb it meets the flattened Earth at local zenith angles that vary with latitude, from about 79.1 deg in the tropics to 79.9 deg at high latitudes.
+limitations:
+  - The scan is not modeled. Every point is available at any time, without the 10 minute cadence of a full-disk scan or the Japan and target sectors.

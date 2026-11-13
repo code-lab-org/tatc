@@ -1,0 +1,48 @@
+id: ssmis
+name: SSMIS
+aliases: [Special Sensor Microwave Imager/Sounder]
+instrument_class: conical
+selection: Conical microwave imager and sounder of the DMSP satellites, continuing the SSM/I record of sea ice, precipitation, and ocean surface winds since 1987, with open data products and wide use in numerical weather prediction.
+platforms:
+  - id: dmsp-f18
+    name: DMSP F18
+    norad_id: 35951
+    status: extended
+    as_of: 2026-11-03
+data_products:
+  - name: GPM_1CF18SSMIS
+    provider: NASA GES DISC
+    url: https://disc.gsfc.nasa.gov/datasets/GPM_1CF18SSMIS_08/summary
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The arc scanned by the low-frequency samples (S1, 19 and 22 GHz), with a view tailored to the analysis time step.
+    platforms: [dmsp-f18]
+    velocity_frame: inertial
+    instruments:
+      - type: conical
+        parameters:
+          name: SSMIS S1
+          cone_angle: 45.403
+          scan_center_azimuth: -1.745
+          scan_half_width: 70.990
+          along_track_field_of_view: {tailor: time_step}
+        provenance:
+          cone_angle: &measured
+            kind: measured
+            source: validate_catalog_ssmis.py --fit, from the S1 samples and the recorded spacecraft positions (printed to 3 decimals)
+            platform: dmsp-f18
+            period: "2026-10-04"
+          scan_center_azimuth: *measured
+          scan_half_width: *measured
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+    limitations:
+      - The arc is that of the centers of the S1 samples, about 142 deg of the 144 deg active scan; the other groups of samples (37, 91, and 150 to 183 GHz) were not used to fit it.
+limitations:
+  - DMSP does not steer its yaw, so the configuration uses the inertial frame, in which the fitted scan center is constant within about 0.01 deg around the orbit.
+  - No configuration gives sample sizes, as no published beam widths were found, and published footprints conflict (at 19 GHz, 42.4 km by 70.1 km in the GPM product's description, and 74 km by 45 km in the SSMIS user manual's effective field of view).
+  - The configuration was tested on DMSP F18. SSMIS also flies on DMSP F16 and F17, on which it was not tested.

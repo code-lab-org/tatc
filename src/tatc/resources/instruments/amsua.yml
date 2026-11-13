@@ -1,0 +1,88 @@
+id: amsua
+name: AMSU-A
+aliases: [Advanced Microwave Sounding Unit-A]
+instrument_class: cross_track
+selection: Cross-track microwave temperature sounder with long-standing evidence of impact in numerical weather prediction, and open data products of Aqua's AMSU-A since 2002.
+platforms:
+  - id: aqua
+    name: Aqua
+    norad_id: 27424
+    status: extended
+    as_of: 2026-11-05
+data_products:
+  - name: AIRS/Aqua L1B AMSU (A1/A2) geolocated and calibrated brightness temperatures (AIRABRAD), version 005
+    provider: NASA GES DISC
+    url: https://disc.gsfc.nasa.gov/datasets/AIRABRAD_005/summary
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: coverage
+    description: The swath scanned between the outermost footprint centers, with a view tailored to the analysis time step.
+    platforms: [aqua]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: AMSU-A
+          field_of_regard: 96.6666667
+          cross_track_field_of_view: 96.6666667
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          field_of_regard: &nominal_extent
+            kind: nominal
+            source: The outermost of AMSU-A's 30 footprints, spaced 3.333 deg, are 48.33 deg from nadir
+          cross_track_field_of_view: *nominal_extent
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - TAT-C observes all pixels of a view at one instant, whereas AMSU-A steps through its 30 footprints over about 5.9 s of each 8 s scan. Epochs are tested at the coverage grade; on the validation day, their 95th percentile was 2.18 s.
+  footprints:
+    grade: sample_size
+    description: The 30 footprint positions of a scan, whose sizes and spacing `compute_sample_sizes` gives.
+    platforms: [aqua]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: AMSU-A
+          field_of_regard: 100.0
+          cross_track_field_of_view: 100.0
+          along_track_field_of_view: 3.3333333
+          cross_track_pixels: 30
+          is_rectangular: true
+          cross_track_oversampling: -0.010101
+          along_track_oversampling: -0.010101
+          scan_period: 8.0
+        provenance:
+          field_of_regard: &nominal_spacing
+            kind: nominal
+            source: AMSU-A's 30 footprints are spaced 3.333 deg
+          cross_track_field_of_view: *nominal_spacing
+          along_track_field_of_view: *nominal_spacing
+          cross_track_pixels:
+            kind: nominal
+            source: AMSU-A has 30 Earth views per scan
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          cross_track_oversampling: &oversampling
+            kind: derived
+            source: One minus the footprint spacing divided by the published beam width of 3.3 deg
+          along_track_oversampling: *oversampling
+          scan_period:
+            kind: nominal
+            source: AMSU-A scans every 8 s
+    limitations:
+      - Pixels are projected at the time the scan looks at nadir, whereas AMSU-A samples its footprints up to 2.94 s before or after it.
+      - The product's documentation gives a footprint 45 km in diameter at nadir, about 10% larger than its published beam width of 3.3 deg gives at Aqua's nominal altitude of 705 km (about 40.6 km), so the published footprint fails the gate.
+limitations:
+  - Aqua does not steer its yaw, so the configurations use the inertial frame.
+  - These configurations were tested on Aqua. AMSU-A also flies on other satellites, on which they were not tested.

@@ -1,0 +1,42 @@
+{
+  "entry_id": "tropomi",
+  "configurations": {
+    "swath": {
+      "digest": "6dd777f2374b8062437f0f7437e4b22db0994867904b99869abc86ed890998a5",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_tropomi.py",
+      "reference": "Sentinel-5P TROPOMI aerosol index product (near real time)",
+      "period": "2026-11-10",
+      "platform": "sentinel-5p",
+      "holdout_gap_days": 36,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.95517705064994
+        },
+        {
+          "name": "epoch_p95",
+          "value": 2.0950852515000005
+        },
+        {
+          "name": "epoch_median",
+          "value": 0.4218723165
+        },
+        {
+          "name": "swath_width_median",
+          "value": 1.9698558414184955
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9992485574844769
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 2.0062314133499988
+      }
+    }
+  },
+  "standard_version": 5
+}

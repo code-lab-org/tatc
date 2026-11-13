@@ -1,0 +1,65 @@
+id: harp2
+name: HARP2
+aliases: [Hyper-Angular Rainbow Polarimeter 2]
+instrument_class: pushbroom
+selection: Wide-angle imaging polarimeter of NASA's PACE mission, which views clouds and aerosols at up to 60 angles along track, with open data products.
+platforms:
+  - id: pace
+    name: PACE
+    norad_id: 58928
+    status: operational
+    as_of: 2026-11-09
+data_products:
+  - name: PACE HARP2 Level 1B (PACE_HARP2_L1B_SCI), version 4
+    provider: NASA OB.DAAC
+    url: https://search.earthdata.nasa.gov/search?q=PACE_HARP2_L1B_SCI
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath of HARP2's near-nadir view (at 664 nm, 0.6 deg forward), with a view tailored to the analysis time step.
+    platforms: [pace]
+    velocity_frame: earth_fixed
+    attitude:
+      yaw_angle: 0.2093
+    instruments:
+      - type: pointed
+        parameters:
+          name: HARP2
+          field_of_regard: 100.9
+          cross_track_field_of_view: 94.1535
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: -3.3726
+          pitch_angle: 0.5635
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the view, rolled by its offset
+          cross_track_field_of_view: &measured_view
+            kind: measured
+            source: validate_catalog_harp2.py --fit, the outermost samples of the near-nadir view 43.7042 deg left and 50.4493 deg right of the geodetic nadir (Earth-fixed frame)
+            platform: pace
+            period: "2026-10-04"
+          roll_angle: *measured_view
+          pitch_angle:
+            kind: measured
+            source: validate_catalog_harp2.py --fit, the along-track angle of the sample nearest nadir (the view's nominal angle is 0.6 deg)
+            platform: pace
+            period: "2026-10-04"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models an imaged swath as a rectangular view
+    limitations:
+      - The yaw of 0.2093 deg is measured with validate_catalog_harp2.py --fit on 2026-10-04, from the slope of the samples' along-track on their cross-track tangents (from -0.23 to -0.18 deg at the 5th and 95th percentiles), in the Earth-fixed frame.
+      - HARP2 views each place at up to 60 angles along track, from about 57 deg forward to 56 deg aft, over about seven minutes; only the near-nadir view is modeled. The swaths of the other views lie over the same ground, at other times.
+limitations:
+  - PACE flies with yaw steering, so the configuration uses the Earth-fixed frame.
+  - HARP2 images the sunlit part of each orbit, whereas the view observes whenever a target is in view, unless a solar limit is added.
+  - No configuration gives sample sizes, as no published instantaneous field of view was used.

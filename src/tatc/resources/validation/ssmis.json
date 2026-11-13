@@ -1,0 +1,42 @@
+{
+  "entry_id": "ssmis",
+  "configurations": {
+    "swath": {
+      "digest": "9e367bd86d4b2e1cc8e2e50ad0eb46f83fca7b69ae489721bb074803817dd54a",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_ssmis.py",
+      "reference": "GPM_1CF18SSMIS version 08 (positions of the S1 samples)",
+      "period": "2026-11-03",
+      "platform": "dmsp-f18",
+      "holdout_gap_days": 30,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.70690114575007
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.60074527548576
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.5059889039499998
+        },
+        {
+          "name": "swath_width_median",
+          "value": 2.573352605975233
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9923645765603081
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.48150465934999936
+      }
+    }
+  },
+  "standard_version": 2
+}

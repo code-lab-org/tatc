@@ -1,0 +1,129 @@
+{
+  "entry_id": "avhrr",
+  "configurations": {
+    "pixels": {
+      "digest": "dcfebefeca4069deec30f6a8c67926425d988e24586907d48c43d7a6695f952e",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_avhrr.py",
+      "reference": "Footprint published by the NWP SAF; sample positions of AVHRRF_MC-STAR-L2P version 2.80",
+      "period": "2026-10-03",
+      "platform": "metop-c",
+      "holdout_gap_days": 33,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 0.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 3.7351913964918104
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 0.46910680261752546
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 1.1194897473001948
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.0001617303232877
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9995512240575739
+        },
+        {
+          "name": "transfer_pixel_position_median",
+          "value": 3.5772483028056428,
+          "scope": "metop-b, 2026-11-05"
+        },
+        {
+          "name": "transfer_pixel_position_p95",
+          "value": 10.562146610291842,
+          "scope": "metop-b, 2026-11-05"
+        },
+        {
+          "name": "transfer_spacing_along_ratio_median",
+          "value": 1.0001178280515057,
+          "scope": "metop-b, 2026-11-05"
+        },
+        {
+          "name": "transfer_spacing_cross_ratio_median",
+          "value": 0.998824579342425,
+          "scope": "metop-b, 2026-11-05"
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 0.0,
+        "pixel_position_median": 0.4312066820797901,
+        "spacing_along_ratio_median": 1.0005238732532653,
+        "spacing_cross_ratio_median": 0.9995554502485684
+      }
+    },
+    "swath": {
+      "digest": "bf446fbb3e2739c9e8abeb1755bccd57cf220b8259840979cdb26d3fca1f6edd",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_avhrr.py",
+      "reference": "AVHRRF_MC-STAR-L2P version 2.80 (sample positions and times)",
+      "period": "2026-10-03",
+      "platform": "metop-c",
+      "holdout_gap_days": 33,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.38381460856918
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.38761840972155
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.16136003609999996
+        },
+        {
+          "name": "swath_width_median",
+          "value": 1.2505307143111712
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9941550719962053
+        },
+        {
+          "name": "transfer_pass_recall",
+          "value": 99.63817185826039,
+          "scope": "metop-b, 2026-11-05"
+        },
+        {
+          "name": "transfer_pass_precision",
+          "value": 99.8015792670581,
+          "scope": "metop-b, 2026-11-05"
+        },
+        {
+          "name": "transfer_epoch_p95",
+          "value": 0.9961136716499998,
+          "scope": "metop-b, 2026-11-05"
+        },
+        {
+          "name": "transfer_swath_width_median",
+          "value": 4.809549974447349,
+          "scope": "metop-b, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_median",
+          "value": 0.9934098601993996,
+          "scope": "metop-b, 2026-11-05"
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 98.33333333333333,
+        "epoch_p95": 0.15150611120000002
+      }
+    }
+  },
+  "standard_version": 5
+}

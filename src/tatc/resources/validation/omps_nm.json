@@ -1,0 +1,78 @@
+{
+  "entry_id": "omps_nm",
+  "configurations": {
+    "swath_noaa_21": {
+      "digest": "f4c2a37a0a87cdc3c9d400e4430dce483b27b22ad12b55e827792524736430fe",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_omps.py",
+      "reference": "OMPS-TC-GEO (sample positions and times), NOAA Open Data Dissemination",
+      "period": "2026-11-05",
+      "platform": "noaa-21",
+      "holdout_gap_days": 35,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.38942395057242
+        },
+        {
+          "name": "pass_precision",
+          "value": 85.75953336678374
+        },
+        {
+          "name": "epoch_p95",
+          "value": 19.864090383399997
+        },
+        {
+          "name": "swath_width_median",
+          "value": 7.120701586989918
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9900281696947634
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 18.04092930554999
+      }
+    },
+    "swath_noaa_20": {
+      "digest": "4d3ad5fb855d592975f403f34904189470d57ae1c4e35e8c3f99b42fbe1c0e5e",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_omps.py",
+      "reference": "OMPS-TC-GEO (sample positions and times), NOAA Open Data Dissemination",
+      "period": "2026-11-05",
+      "platform": "noaa-20",
+      "holdout_gap_days": 35,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.34259305026939
+        },
+        {
+          "name": "pass_precision",
+          "value": 81.66930797675647
+        },
+        {
+          "name": "epoch_p95",
+          "value": 19.1431448369
+        },
+        {
+          "name": "swath_width_median",
+          "value": 5.9036565579480955
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9950646182896654
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 19.3603290015
+      }
+    }
+  },
+  "standard_version": 5
+}

@@ -1,0 +1,42 @@
+{
+  "entry_id": "ceres",
+  "configurations": {
+    "swath": {
+      "digest": "502da50334b599f443ad05a8fe9238e13cb97975974b8987353f1a5a7567bbb0",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_ceres.py",
+      "reference": "CER_ES8_NOAA20-FM6 Edition1 (footprint positions, projected to the ellipsoid, and times)",
+      "period": "2026-09-30",
+      "platform": "noaa-20",
+      "holdout_gap_days": 36,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.63977836745356
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.42925350199624
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.28536734799999997
+        },
+        {
+          "name": "swath_width_median",
+          "value": 7.866075973370346
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9994761831424892
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.23780964599999993
+      }
+    }
+  },
+  "standard_version": 5
+}

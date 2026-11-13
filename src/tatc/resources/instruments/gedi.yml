@@ -1,0 +1,157 @@
+id: gedi
+name: GEDI
+aliases: [Global Ecosystem Dynamics Investigation]
+instrument_class: lidar
+selection: Multibeam lidar on the International Space Station that measures forest structure and canopy height in eight tracks, with open data products.
+platforms:
+  - id: iss
+    name: International Space Station
+    norad_id: 25544
+    status: operational
+    as_of: 2026-11-09
+data_products:
+  - name: GEDI L1B Geolocated Waveform Data (GEDI01_B), version 003
+    provider: NASA LP DAAC
+    url: https://lpdaac.usgs.gov/products/gedi01_bv003/
+    access: registration
+default_configuration: beams
+configurations:
+  beams:
+    grade: timing
+    description: The eight beam tracks, as narrow views that contain where each beam observes while GEDI points within a degree of nadir, given an element set of the day. Analyze one beam at a time with its instrument index (0 on the left, 7 on the right).
+    platforms: [iss]
+    velocity_frame: inertial
+    attitude:
+      pitch_angle: -3.2916
+    grouping: alternatives
+    instruments:
+      - type: pointed
+        parameters:
+          name: GEDI BEAM0000
+          roll_angle: 0.4794
+          cross_track_field_of_view: 2.0438
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          roll_angle: &measured
+            kind: measured
+            source: validate_catalog_gedi.py --fit, the median and spread (99.5th percentile) of the beam's offsets from the ground track of the element set nearest the middle of the day, where the beams' center lay within 1 deg of nadir
+            platform: iss
+            period: "2026-05-01"
+          cross_track_field_of_view: *measured
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: &tailored
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular: &rectangular
+            kind: derived
+            source: Models the band containing a beam's track as a rectangular view
+      - type: pointed
+        parameters:
+          name: GEDI BEAM0001
+          roll_angle: 0.3949
+          cross_track_field_of_view: 2.0574
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          roll_angle: *measured
+          cross_track_field_of_view: *measured
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: GEDI BEAM0010
+          roll_angle: 0.3278
+          cross_track_field_of_view: 2.0467
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          roll_angle: *measured
+          cross_track_field_of_view: *measured
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: GEDI BEAM0011
+          roll_angle: 0.2441
+          cross_track_field_of_view: 2.062
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          roll_angle: *measured
+          cross_track_field_of_view: *measured
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: GEDI BEAM0101
+          roll_angle: 0.1364
+          cross_track_field_of_view: 2.0643
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          roll_angle: *measured
+          cross_track_field_of_view: *measured
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: GEDI BEAM0110
+          roll_angle: 0.053
+          cross_track_field_of_view: 2.0442
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          roll_angle: *measured
+          cross_track_field_of_view: *measured
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: GEDI BEAM1000
+          roll_angle: -0.0482
+          cross_track_field_of_view: 2.0719
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          roll_angle: *measured
+          cross_track_field_of_view: *measured
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+      - type: pointed
+        parameters:
+          name: GEDI BEAM1011
+          roll_angle: -0.1315
+          cross_track_field_of_view: 2.0861
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          roll_angle: *measured
+          cross_track_field_of_view: *measured
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view: *tailored
+          is_rectangular: *rectangular
+    limitations:
+      - Each view is about 15 km wide (2.06 deg), whereas a beam's footprint is about 25 m wide and the eight tracks span about 4.5 km. The width holds where the beams lie while GEDI points within 1 deg of nadir (80.9% of shots on the fitting day), with the error of an element set of the day, so a view shows where a beam may observe, not the area it observes.
+      - GEDI points its beams off nadir by plan, slewing several degrees on some passes (about 3.6 deg on 1 May 2026), which these views do not represent; shots where the beams' center lay more than 1 deg from nadir were not compared.
+      - The views' centers lie 0.6 km apart in order, as do the beams' tracks, which the lasers' dithering sets.
+      - The body's pitch of -3.2916 deg is measured with validate_catalog_gedi.py --fit on 2026-05-01, from the shots' median offset along the ground track of the element set (24.39 km behind, 21.34 to 27.07 km at the 95th and 5th percentiles), at the station's median altitude of 424.1 km. It was added after the run on 2026-06-05 recorded below, and the configuration tested again on 2026-06-08.
+      - On data held out on 2026-06-08 (38 days from the fit, with the pitch, with the beams' center within 1 deg of nadir for 85.9% of shots), 99.55% of sampled shots were within their beams' views at their times, and the spacing between adjacent beams was within 0.026 km (median) of the views', but TAT-C's epochs followed the shots' times by 1.1 s (median; 1.5 s at the 95th percentile), failing the timing gate. The pitch, measured as 24.4 km on the fitting day, moved the epochs by about 3.5 s, more than the offset of about 18 km on 2026-06-05; the along-track offset varies between days, by the station's attitude or GEDI's pointing, which were not measured.
+      - On data held out on 2026-06-05 (35 days from the fit, without the pitch, with the beams' center within 1 deg of nadir for 92.2% of shots), 99.9% of sampled shots were within their beams' views at their times, and the spacing between adjacent beams was within 0.026 km (median) of the views', but TAT-C's epochs preceded the shots' times by 2.4 s (median; 2.8 s at the 95th percentile), failing the timing gate. A steady offset of about 18 km along track is consistent with the beams pointing behind the plane across track (the station's attitude and GEDI's mounting, as ECOSTRESS's pitch), which the views do not model; the fit measured offsets across track only.
+limitations:
+  - GEDI was stored on the station from March 2023 to April 2024, without observing. Its processed data were available until 10 June 2026 when the entry was made.
+  - The station's orbit decays and is reboosted often, so element sets age quickly; the views were fitted and tested with element sets within hours of the data.

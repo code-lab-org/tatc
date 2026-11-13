@@ -7,12 +7,12 @@ Object schemas for nadir-pointing instruments.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
 
-from pydantic import BaseModel, Field, PrivateAttr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 from shapely import MultiPolygon, Polygon
 from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
@@ -36,6 +36,13 @@ class Instrument(BaseModel):
     Remote sensing instrument.
     """
 
+    # unknown fields are errors: a misspelled field must not silently fall back
+    # to its default, which could change the results of an analysis
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["instrument"] = Field(
+        default="instrument", description="Instrument type discriminator."
+    )
     name: str = Field(default="Default", description="Instrument name.")
     field_of_regard: float = Field(
         default=180,
@@ -138,6 +145,22 @@ class Instrument(BaseModel):
         bound = self.model_copy()
         bound._attitude = attitude  # pylint: disable=protected-access
         return bound
+
+    def is_observing(self, orbit_track: Geocentric) -> npt.NDArray[np.bool_]:
+        """
+        Determines if the instrument observes at each time of an orbit track:
+        outside the blind intervals of the attitude of the space system that
+        carries it (see `tatc.schemas.Attitude.blind_intervals`), if any.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+
+        Returns:
+            numpy.typing.NDArray: Array of indicators: `True` if the instrument observes.
+        """
+        if self._attitude is None:
+            return np.ones(np.size(orbit_track.t.tt), dtype=bool)  # type: ignore
+        return np.reshape(self._attitude.is_observing(orbit_track), -1)
 
     @model_validator(mode="after")
     def check_target_solar_elevation_range(self) -> "Instrument":
@@ -255,9 +278,10 @@ class Instrument(BaseModel):
         self, orbit_track: Geocentric, target: GeographicPosition | None = None
     ) -> npt.NDArray[np.bool_]:
         """Determines if an instrument can provide a valid observations: the
-        instrument's sunlit state and the target's sunlit state, solar
-        elevation angle (without atmospheric refraction), and glint angle
-        must satisfy any requirements.
+        instrument must observe (see `is_observing`), and the instrument's
+        sunlit state and the target's sunlit state, solar elevation angle
+        (without atmospheric refraction), and glint angle must satisfy any
+        requirements.
 
         Args:
             orbit_track (skyfield.positionlib.Geocentric): orbit track position/velocity from Skyfield
@@ -269,7 +293,7 @@ class Instrument(BaseModel):
         if target is None:
             # support backwards compatibility
             target = wgs84.subpoint_of(orbit_track)
-        is_valid = np.ones(np.size(orbit_track.t.tt), dtype=bool)  # type: ignore
+        is_valid = self.is_observing(orbit_track)
         if self.req_self_sunlit is not None:
             # compare requirement to satellite sunlit condition
             is_self_sunlit_valid = orbit_track.is_sunlit(de421) == self.req_self_sunlit

@@ -1,0 +1,129 @@
+{
+  "entry_id": "mhs",
+  "configurations": {
+    "beams": {
+      "digest": "291de4c0921c1c0341917876fe99e671a10e1e212e6066f5c5ee2bb79b980eba",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_mhs.py",
+      "reference": "Footprints of the TC PRIMED documentation; beam positions of GPM_1CMETOPCMHS version 08",
+      "period": "2026-10-05",
+      "platform": "metop-c",
+      "holdout_gap_days": 31,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 2.3925680427563156
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 5.718507510883375
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 10.825275682088622
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.000254008310056
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9997300910893527
+        },
+        {
+          "name": "transfer_pixel_position_median",
+          "value": 5.967680944473871,
+          "scope": "metop-b, 2026-11-05"
+        },
+        {
+          "name": "transfer_pixel_position_p95",
+          "value": 11.102676423572087,
+          "scope": "metop-b, 2026-11-05"
+        },
+        {
+          "name": "transfer_spacing_along_ratio_median",
+          "value": 1.000322520547596,
+          "scope": "metop-b, 2026-11-05"
+        },
+        {
+          "name": "transfer_spacing_cross_ratio_median",
+          "value": 0.9997213580621862,
+          "scope": "metop-b, 2026-11-05"
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 5.775344627565959,
+        "spacing_along_ratio_median": 1.0003471507269104,
+        "spacing_cross_ratio_median": 0.9996922283529703
+      }
+    },
+    "swath": {
+      "digest": "5f1d822acf8ea40bca9f0338de998fa0673b72b47e2a05ccec8cd25acd049d1d",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_mhs.py",
+      "reference": "GPM_1CMETOPCMHS version 08 (beam positions)",
+      "period": "2026-10-05",
+      "platform": "metop-c",
+      "holdout_gap_days": 31,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.9682640431609
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.9682640431609
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.6841226988
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.7793855928219855
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9990627777941308
+        },
+        {
+          "name": "transfer_pass_recall",
+          "value": 100.0,
+          "scope": "metop-b, 2026-11-05"
+        },
+        {
+          "name": "transfer_pass_precision",
+          "value": 100.0,
+          "scope": "metop-b, 2026-11-05"
+        },
+        {
+          "name": "transfer_epoch_p95",
+          "value": 1.7365758375,
+          "scope": "metop-b, 2026-11-05"
+        },
+        {
+          "name": "transfer_swath_width_median",
+          "value": 0.7861793352242094,
+          "scope": "metop-b, 2026-11-05"
+        },
+        {
+          "name": "transfer_footprint_iou_median",
+          "value": 0.9990795352690144,
+          "scope": "metop-b, 2026-11-05"
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 1.63393000305
+      }
+    }
+  },
+  "standard_version": 5
+}

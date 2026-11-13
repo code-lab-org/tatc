@@ -1,0 +1,90 @@
+id: smap_radiometer
+name: SMAP radiometer
+aliases: [SMAP, Soil Moisture Active Passive radiometer]
+instrument_class: conical
+selection: L-band radiometer of NASA's Soil Moisture Active Passive (SMAP) mission, which scans a full circle about 1,000 km wide, with open soil moisture and sea surface salinity products.
+platforms:
+  - id: smap
+    name: SMAP
+    norad_id: 40376
+    status: operational
+    as_of: 2026-10-24
+data_products:
+  - name: SPL1BTB
+    provider: NASA NSIDC DAAC
+    url: https://nsidc.org/data/spl1btb
+    access: registration
+default_configuration: looks
+configurations:
+  looks:
+    grade: timing
+    description: The full circle that the radiometer scans, which observes each point twice on a pass, looking forward and aft, with a view tailored to the analysis time step.
+    platforms: [smap]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: conical
+        parameters:
+          name: SMAP radiometer
+          cone_angle: 35.431
+          scan_center_azimuth: 0
+          scan_half_width: 180
+          along_track_field_of_view: {tailor: time_step}
+        provenance:
+          cone_angle:
+            kind: measured
+            source: ValidateGridSMAP, the angle from nadir of a boresight at the median incidence angle of a day of looks (39.97 deg), at the mean altitude, on a spherical Earth (printed to 3 decimals)
+            platform: smap
+            period: "2026-10-24"
+          scan_center_azimuth:
+            kind: nominal
+            source: A full circle has no center; 0 deg by convention
+          scan_half_width:
+            kind: nominal
+            source: The antenna rotates through a full circle
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+    limitations:
+      - A pass observes each point twice, about two minutes apart; `collect_observations` reports each look as an observation.
+  footprints:
+    grade: sample_size
+    description: The radiometer's beam on the circle of the looks configuration, whose footprints and spacing `compute_sample_sizes` gives.
+    platforms: [smap]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: conical
+        parameters:
+          name: SMAP radiometer
+          cone_angle: 35.431
+          scan_center_azimuth: 0
+          scan_half_width: 180
+          along_track_field_of_view: {tailor: time_step}
+          beam_width: 2.4
+          scan_sample_spacing: 1.4892
+        provenance:
+          cone_angle:
+            kind: measured
+            source: ValidateGridSMAP, as for the looks configuration
+            platform: smap
+            period: "2026-10-24"
+          scan_center_azimuth:
+            kind: nominal
+            source: A full circle has no center; 0 deg by convention
+          scan_half_width:
+            kind: nominal
+            source: The antenna rotates through a full circle
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          beam_width:
+            kind: nominal
+            source: The radiometer's 3 dB beamwidth of 2.4 deg (Piepmeier et al., IEEE Transactions on Geoscience and Remote Sensing, 2017)
+          scan_sample_spacing:
+            kind: derived
+            source: Samples every 17 ms (Long and Brodzik, Frontiers in Remote Sensing, 2023) at the antenna's 14.6 rpm (JPL SMAP specifications)
+    limitations:
+      - The footprints are those of the beam. The radiometer averages each sample along the scan over about 14 ms, which smears it to an effective field of view of about 39 km by 47 km (Piepmeier et al., 2017).
+      - The published footprints are not labeled by axis; their major axis lies in the plane of incidence, which is along track at the scan's center (forward).
+      - The sizes agree within 0.4% with the instantaneous field of view of 36 km by 47 km of Piepmeier et al. (2017), which they compute from the same beam width, but are 3.8 to 5.0% smaller than the 3 dB field of view of 38 km by 49 km of the JPL SMAP specifications, so half of the published dimensions are within 3%, under the standard's 90%.
+limitations:
+  - SMAP's radar, which failed in 2015, is not represented.

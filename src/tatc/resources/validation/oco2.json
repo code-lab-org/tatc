@@ -1,0 +1,78 @@
+{
+  "entry_id": "oco2",
+  "configurations": {
+    "nadir": {
+      "digest": "c449b1266d6a9d23c6f2a3f31c5c29627153d562b2fd4e8802a6bea6b16551fb",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_oco2.py",
+      "reference": "OCO2_L1B_Science version 11.2 (sounding positions and times, nadir orbits)",
+      "period": "2026-11-07",
+      "platform": "oco-2",
+      "holdout_gap_days": 34,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 90.4
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.88058521665
+        },
+        {
+          "name": "epoch_median",
+          "value": -0.10782402149999998
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.2084465466890142
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.448221500705728
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 96.66666666666667,
+        "epoch_p95": 0.8599056667499999
+      }
+    },
+    "glint": {
+      "digest": "5e5e2514972d07b5ca4809fe207647ffce5e74c174837b9fe02d2717dc872f37",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_oco2.py",
+      "reference": "OCO2_L1B_Science version 11.2 (sounding positions and times, glint orbits)",
+      "period": "2026-11-07",
+      "platform": "oco-2",
+      "holdout_gap_days": 34,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 89.4
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.23703926315
+        },
+        {
+          "name": "epoch_median",
+          "value": 0.04199793
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.5328657080740569
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.4077767374507504
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 91.66666666666666,
+        "epoch_p95": 1.2700150375999997
+      }
+    }
+  },
+  "standard_version": 5
+}

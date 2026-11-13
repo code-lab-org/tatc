@@ -1,0 +1,119 @@
+{
+  "entry_id": "gmi",
+  "standard_version": 1,
+  "configurations": {
+    "feeds": {
+      "digest": "7a88b43962de1f39c462f46e95dc206ac99e019a77f2be98e888feb45e7bf499",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_gmi.py",
+      "reference": "GPM_1CGPMGMI version 08",
+      "period": "2026-07-20",
+      "platform": "gpm",
+      "holdout_gap_days": 75,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 100.0,
+          "scope": "S1"
+        },
+        {
+          "name": "pass_recall",
+          "value": 99.92687385740402,
+          "scope": "S2"
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.93521218011014,
+          "scope": "S1"
+        },
+        {
+          "name": "pass_precision",
+          "value": 100.0,
+          "scope": "S2"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.6279699588,
+          "scope": "S1"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.6260146824,
+          "scope": "S2"
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.21630576047534122,
+          "scope": "S1"
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.24828414592397166,
+          "scope": "S2"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9991927097328555,
+          "scope": "S1"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9991680701200586,
+          "scope": "S2"
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.637898751
+      }
+    },
+    "sample_size": {
+      "digest": "5ea1adca77c77a9d04b7cb4f546c8c456c1ab0ce5a14d041277a7e0d4fe23a6f",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_gmi.py",
+      "reference": "Footprints of the GMI L1B ATBD and TC PRIMED; spacing of GPM_1CGPMGMI version 08",
+      "period": "2026-07-20",
+      "platform": "gpm",
+      "holdout_gap_days": 75,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 2.255355692693106
+        },
+        {
+          "name": "spacing_arc_ratio_median",
+          "value": 1.007112412328898,
+          "scope": "S1"
+        },
+        {
+          "name": "spacing_scan_ratio_median",
+          "value": 1.0426759889850952,
+          "scope": "S1"
+        },
+        {
+          "name": "spacing_arc_ratio_median",
+          "value": 1.0077581631927366,
+          "scope": "S2"
+        },
+        {
+          "name": "spacing_scan_ratio_median",
+          "value": 1.042396088164316,
+          "scope": "S2"
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "spacing_arc_ratio_median_S1": 1.0071002751057956,
+        "spacing_scan_ratio_median_S1": 1.0427009183995617,
+        "spacing_arc_ratio_median_S2": 1.0082763856420462,
+        "spacing_scan_ratio_median_S2": 1.0425728327551935
+      }
+    }
+  }
+}

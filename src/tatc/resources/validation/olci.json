@@ -1,0 +1,42 @@
+{
+  "entry_id": "olci",
+  "configurations": {
+    "swath": {
+      "digest": "1c621fd237a9da173904db099c16b3b49999262d3e3f7e755ea2a833232d9488",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_olci.py",
+      "reference": "S3A_OL_1_EFR (tie point positions and times)",
+      "period": "2026-11-04",
+      "platform": "sentinel-3a",
+      "holdout_gap_days": 31,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.7623420114508
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.27972479036767
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.13211156899999996
+        },
+        {
+          "name": "swath_width_median",
+          "value": 9.881394903508713
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9902064346272009
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.128510134
+      }
+    }
+  },
+  "standard_version": 5
+}

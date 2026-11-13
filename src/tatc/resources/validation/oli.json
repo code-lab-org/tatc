@@ -1,0 +1,85 @@
+{
+  "entry_id": "oli",
+  "configurations": {
+    "swath": {
+      "digest": "37118d2d6c5b18ed3b50f4d03d80daae862f69e92a1b567032009ebc33855714",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_oli.py",
+      "reference": "USGS Landsat Collection 2 scene footprints and center times; angle coefficient files of Level-2 products",
+      "period": "2026-10-03",
+      "platform": "landsat-9",
+      "holdout_gap_days": 33,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.83611930514586
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.2809867844
+        },
+        {
+          "name": "epoch_median",
+          "value": 0.456341377
+        },
+        {
+          "name": "epoch_scene_center_p95",
+          "value": 0.4219331757500001
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.1855234634626686
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9914803885720455
+        },
+        {
+          "name": "footprint_iou_p5",
+          "value": 0.9832772502058373
+        },
+        {
+          "name": "transfer_pass_recall",
+          "value": 99.93434011818779,
+          "scope": "landsat-8, 2026-10-03"
+        },
+        {
+          "name": "transfer_epoch_p95",
+          "value": 1.3622517328,
+          "scope": "landsat-8, 2026-10-03"
+        },
+        {
+          "name": "transfer_epoch_median",
+          "value": 0.377211151,
+          "scope": "landsat-8, 2026-10-03"
+        },
+        {
+          "name": "transfer_epoch_scene_center_p95",
+          "value": 0.5171684911,
+          "scope": "landsat-8, 2026-10-03"
+        },
+        {
+          "name": "transfer_swath_width_median",
+          "value": 0.41581098942962125,
+          "scope": "landsat-8, 2026-10-03"
+        },
+        {
+          "name": "transfer_footprint_iou_median",
+          "value": 0.9925913178292143,
+          "scope": "landsat-8, 2026-10-03"
+        },
+        {
+          "name": "transfer_footprint_iou_p5",
+          "value": 0.983689751013026,
+          "scope": "landsat-8, 2026-10-03"
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 1.25379784005
+      }
+    }
+  },
+  "standard_version": 5
+}

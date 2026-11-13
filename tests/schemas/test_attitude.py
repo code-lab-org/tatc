@@ -10,10 +10,16 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 from pydantic import ValidationError
 from shapely.geometry import Point as ShapelyPoint
+from shapely.geometry import box
 from skyfield.api import wgs84
 from skyfield.framelib import itrs
 
-from tatc.analysis import collect_ground_track, collect_observations
+from tatc.analysis import (
+    collect_ground_track,
+    collect_observations,
+    collect_region_observations,
+    compute_ground_track,
+)
 from tatc.schemas import (
     Attitude,
     AttitudeSchedule,
@@ -29,6 +35,7 @@ from tatc.schemas import (
     WalkerConstellation,
 )
 from tatc.utils import VelocityFrame, compute_glint_angle, geodesic_distance
+from tatc.utils.orbital import compute_argument_of_latitude
 from tatc.utils.time import _to_time
 
 
@@ -298,6 +305,153 @@ class TestAttitude(unittest.TestCase):
         )
         self.assertGreater(tracks[0].distance(tracks[180]), 5)
         self.assertLess(tracks[180].distance(mirrored), 1e-6)
+
+
+class TestBlindIntervals(unittest.TestCase):
+    """
+    Unit tests for the blind intervals of an attitude, in which instruments do
+    not observe.
+    """
+
+    def setUp(self):
+        self.start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        self.end = self.start + timedelta(days=1)
+        self.orbit = SunSynchronousOrbit(
+            altitude=700e3, equator_crossing_time="10:30", epoch=self.start
+        )
+        self.gp_orbit = self.orbit.to_gp_orbit()
+        self.instrument = PointedInstrument(
+            name="p", cross_track_field_of_view=100, along_track_field_of_view=1
+        )
+        self.times = [self.start + timedelta(seconds=30 * i) for i in range(400)]
+        self.track = self.gp_orbit.get_orbit_track_at_time(_to_time(self.times))
+        self.argument = compute_argument_of_latitude(
+            self.track.position.m, self.track.velocity.m_per_s
+        )
+
+    def _satellite(self, attitude):
+        return Satellite(
+            name="s", orbit=self.orbit, instruments=[self.instrument], attitude=attitude
+        )
+
+    def _arguments(self, times):
+        track = self.gp_orbit.get_orbit_track_at_time(_to_time(list(times)))
+        return np.atleast_1d(
+            compute_argument_of_latitude(track.position.m, track.velocity.m_per_s)
+        )
+
+    def test_validation(self):
+        """
+        Test that the bounds of blind intervals lie in [0, 360), that an interval
+        has a length, and that intervals are sorted.
+        """
+        with self.assertRaises(ValidationError):
+            Attitude(blind_intervals=[(10, 360)])
+        with self.assertRaises(ValidationError):
+            Attitude(blind_intervals=[(10, 10)])
+        with self.assertRaises(ValidationError):
+            Attitude(blind_intervals=[])
+        attitude = Attitude(blind_intervals=[(200, 210), (10, 20)])
+        self.assertEqual(attitude.blind_intervals, [(10, 20), (200, 210)])
+
+    def test_observing_outside_intervals(self):
+        """
+        Test that instruments observe outside the blind intervals, including one
+        that contains the ascending node, for a vector or a single time.
+        """
+        attitude = Attitude(blind_intervals=[(350, 10), (90, 100)])
+        blind = (
+            (self.argument >= 350)
+            | (self.argument < 10)
+            | ((self.argument >= 90) & (self.argument < 100))
+        )
+        self.assertTrue(np.any(blind))
+        np.testing.assert_array_equal(attitude.is_observing(self.track), ~blind)
+        np.testing.assert_array_equal(Attitude().is_observing(self.track), True)
+        single = self.gp_orbit.get_orbit_track_at_time(_to_time(self.times[0]))
+        self.assertEqual(np.shape(attitude.is_observing(single)), ())
+        instrument = self._satellite(attitude).get_instrument()
+        np.testing.assert_array_equal(instrument.is_observing(self.track), ~blind)
+        np.testing.assert_array_equal(
+            instrument.is_valid_observation(self.track), ~blind
+        )
+        np.testing.assert_array_equal(self.instrument.is_observing(self.track), True)
+
+    def test_schedule(self):
+        """
+        Test that a schedule gives each time the blind intervals of its segment,
+        and that target and glint attitudes always observe.
+        """
+        change = self.times[200]
+        schedule = AttitudeSchedule.from_attitudes(
+            [self.start, change],
+            [Attitude(blind_intervals=[(0, 180)]), GlintAttitude()],
+        )
+        after = np.array([t >= change for t in self.times])
+        np.testing.assert_array_equal(
+            schedule.is_observing(self.track), after | (self.argument >= 180)
+        )
+        target = TargetAttitude(targets=[Point(id=0, latitude=0, longitude=0)])
+        np.testing.assert_array_equal(target.is_observing(self.track), True)
+
+    def test_observations(self):
+        """
+        Test that point observations in blind intervals are omitted, and the
+        others kept.
+        """
+        points = [
+            ShapelyPoint(longitude, latitude)
+            for longitude in range(-180, 180, 40)
+            for latitude in (-50, -20, 10, 40)
+        ]
+        attitude = Attitude(blind_intervals=[(0, 180)])
+        seeing = collect_observations(
+            points, self._satellite(Attitude()), self.start, self.end
+        )
+        blind = collect_observations(
+            points, self._satellite(attitude), self.start, self.end
+        )
+        ascending = self._arguments(seeing.epoch.dt.to_pydatetime()) < 180
+        self.assertGreater(ascending.sum(), 0)
+        self.assertGreater((~ascending).sum(), 0)
+        self.assertEqual(
+            sorted(blind.epoch), sorted(seeing.epoch[~ascending].to_list())
+        )
+
+    def test_ground_track(self):
+        """
+        Test that footprints in blind intervals are not valid observations, and
+        are omitted from the dissolved ground track.
+        """
+        attitude = Attitude(blind_intervals=[(0, 180)])
+        track = collect_ground_track(self._satellite(attitude), self.times)
+        np.testing.assert_array_equal(track.valid_obs, self.argument >= 180)
+        swath = compute_ground_track(self._satellite(attitude), self.times)
+        full = compute_ground_track(self._satellite(Attitude()), self.times)
+        self.assertLess(swath.geometry.iloc[0].area, 0.7 * full.geometry.iloc[0].area)
+
+    def test_region_periods(self):
+        """
+        Test that a region's periods of observation end where a blind interval
+        starts: periods of ascending passes over the equator end at the ascending
+        node.
+        """
+        region = box(-30, -20, 30, 20)
+        attitude = Attitude(blind_intervals=[(0, 180)])
+        seeing = collect_region_observations(
+            region, self._satellite(Attitude()), self.start, self.end
+        )
+        blind = collect_region_observations(
+            region, self._satellite(attitude), self.start, self.end
+        )
+        self.assertGreater(len(blind), 0)
+        self.assertLess(
+            (blind.end - blind.start).sum(), 0.9 * (seeing.end - seeing.start).sum()
+        )
+        for column in ("start", "end"):
+            argument = self._arguments(blind[column].dt.to_pydatetime())
+            # within a second of motion (about 0.06 deg) of the descending half
+            self.assertTrue(np.all((argument >= 179.9) | (argument < 0.1)))
 
 
 class TestTargetAttitude(unittest.TestCase):

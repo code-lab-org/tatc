@@ -1,0 +1,690 @@
+"""
+Regression tests that recompute the results of the entries of cross-track scanners
+from reduced fixtures, written by `docs/validation/validate_catalog_atms.py`,
+`docs/validation/validate_catalog_viirs.py`,
+`docs/validation/validate_catalog_modis.py`,
+`docs/validation/validate_catalog_iasi.py`,
+`docs/validation/validate_catalog_cris.py`,
+`docs/validation/validate_catalog_dpr.py`,
+`docs/validation/validate_catalog_mhs.py`,
+`docs/validation/validate_catalog_airs.py`,
+`docs/validation/validate_catalog_amsua.py`, and
+`docs/validation/validate_catalog_avhrr.py`.
+
+These detect changes in TAT-C's results without network access. They do not themselves
+establish agreement with the reference data, which the scripts do.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
+import pathlib
+import unittest
+from datetime import datetime, timedelta, timezone
+
+import geopandas as gpd
+import numpy as np
+import pandas as pd
+from pyproj import Transformer
+
+from tatc.analysis import collect_observations, compute_sample_sizes
+from tatc.catalog import get_entry, get_gates
+from tatc.catalog.metrics import summarize
+from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
+from tatc.utils import VelocityFrame, compute_projected_ray_position
+
+from .common import use_fixture_earth_orientation
+
+FIXTURES = pathlib.Path(__file__).parent / "fixtures"
+MAX_FIXTURE_BYTES = 200e3
+TO_ECEF = Transformer.from_crs("EPSG:4979", "EPSG:4978", always_xy=True)
+PUBLISHED_EPOCH = datetime(2026, 10, 1, tzinfo=timezone.utc)
+SIZE_TOLERANCE = 0.03
+
+
+def _ecef(lon, lat) -> np.ndarray:
+    return np.stack(TO_ECEF.transform(lon, lat, 0.0), axis=-1)
+
+
+def _observations(satellite, names, epochs, lon, lat) -> gpd.GeoDataFrame:
+    return gpd.GeoDataFrame(
+        {
+            "satellite": satellite.name,
+            "instrument": names,
+            "epoch": pd.DatetimeIndex(epochs),
+        },
+        geometry=gpd.points_from_xy(lon, lat),
+        crs="EPSG:4326",
+    )
+
+
+class _SwathFixture:
+    """
+    Tests shared by the swath configurations of cross-track scanners.
+    """
+
+    entry_id: str
+    fixture_name: str | None = None
+    swath_key = "swath"
+    platform = "noaa-20"
+
+    @classmethod
+    def setUpClass(cls):
+        name = cls.fixture_name or cls.entry_id
+        with np.load(FIXTURES / f"{name}.npz", allow_pickle=False) as data:
+            use_fixture_earth_orientation(cls, data)
+            cls.data = {key: data[key] for key in data.files}
+        cls.entry = get_entry(cls.entry_id)
+        cls.orbit = GeneralPerturbationsOrbit.from_tle(cls.data["tle"].tolist())
+        cls.day = datetime.fromisoformat(str(cls.data["day"]))
+
+    def time_step(self) -> float:
+        """
+        Gets the analysis time step of the fixture's passes.
+        """
+        raise NotImplementedError
+
+    def test_fixture_size(self):
+        """
+        Test that the fixture stays small, as it is part of the repository.
+        """
+        name = self.fixture_name or self.entry_id
+        size = (FIXTURES / f"{name}.npz").stat().st_size
+        self.assertLess(size, MAX_FIXTURE_BYTES)
+
+    def test_passes(self):
+        """
+        Test that the recorded passes are predicted, and that this does not move.
+        """
+        satellite = self.entry.to_satellite(
+            self.orbit,
+            self.swath_key,
+            time_step=self.time_step(),
+            platform=self.platform,
+        )
+        differences = []
+        for latitude, longitude, seconds in self.data["passes"]:
+            time = self.day + timedelta(seconds=float(seconds))
+            found = collect_observations(
+                Point(latitude=float(latitude), longitude=float(longitude)),
+                satellite,
+                time - timedelta(minutes=10),
+                time + timedelta(minutes=10),
+            )
+            differences.append(
+                min(
+                    ((e - pd.Timestamp(time)).total_seconds() for e in found.epoch),
+                    key=abs,
+                )
+                if not found.empty
+                else np.nan
+            )
+        differences = np.array(differences, dtype=float)
+        recorded = self.entry.record.configurations[self.swath_key].fixture_metrics
+        self.assertEqual(
+            100 * float(np.isfinite(differences).mean()), recorded["passes_found"]
+        )
+        self.assertAlmostEqual(
+            float(summarize(differences)["p95"]), recorded["epoch_p95"], places=4
+        )
+
+
+class _ScannerFixture(_SwathFixture):
+    """
+    Tests shared by the entries of cross-track scanners, with a sample size
+    configuration.
+    """
+
+    sizes_key: str
+    footprints: tuple
+    meets_published_gate = True
+    meets_pixel_gate = True
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.satellite = cls.entry.to_satellite(
+            cls.orbit, cls.sizes_key, platform=cls.platform
+        )
+        cls.names = np.array([i.name for i in cls.satellite.instruments])
+        cls.recorded = cls.entry.record.configurations[cls.sizes_key].fixture_metrics
+
+    def spacing_names(self, rows: np.ndarray) -> np.ndarray:
+        """
+        Gets the names of the instruments of rows of measured spacing.
+        """
+        raise NotImplementedError
+
+    def recompute_pixel_differences(self) -> np.ndarray:
+        """
+        Gets the differences (km) between recomputed pixels and the fixture's samples.
+        """
+        raise NotImplementedError
+
+    def test_published_dimensions(self):
+        """
+        Test that published footprint dimensions meet the gate and do not move.
+        """
+        errors = []
+        for name, altitude, inclination, angle, along, cross in self.footprints:
+            orbit = CircularOrbit(
+                altitude=altitude * 1e3, inclination=inclination, epoch=PUBLISHED_EPOCH
+            )
+            satellite = self.entry.to_satellite(orbit, self.sizes_key)
+            time = PUBLISHED_EPOCH + timedelta(minutes=10)
+            target = compute_projected_ray_position(
+                orbit.to_gp_orbit().get_orbit_track(time),
+                0,
+                0,
+                angle,
+                0,
+                velocity_frame=VelocityFrame.INERTIAL,
+            )
+            sizes = compute_sample_sizes(
+                _observations(
+                    satellite,
+                    [name],
+                    [time],
+                    [target.longitude.degrees],
+                    [target.latitude.degrees],
+                ),
+                satellite,
+            )
+            errors += [
+                abs(sizes.sample_along.iloc[0] / 1e3 / along - 1),
+                abs(sizes.sample_cross.iloc[0] / 1e3 / cross - 1),
+            ]
+        within = 100 * float(np.mean(np.array(errors) <= SIZE_TOLERANCE))
+        configuration = self.entry.configurations[self.sizes_key]
+        gates = get_gates(self.entry.instrument_class, configuration.grade)
+        limit = next(g.limit for g in gates if g.metric == "sample_size_within_3pct")
+        self.assertEqual(within >= limit, self.meets_published_gate)
+        self.assertEqual(within, self.recorded["sample_size_within_3pct"])
+
+    def test_pixels(self):
+        """
+        Test that pixels are positioned as recorded, and meet the gate if the entry
+        does.
+        """
+        differences = self.recompute_pixel_differences()
+        median = float(np.median(differences))
+        configuration = self.entry.configurations[self.sizes_key]
+        gates = get_gates(self.entry.instrument_class, configuration.grade)
+        limit = next(g.limit for g in gates if g.metric == "pixel_position_median")
+        self.assertEqual(median <= limit, self.meets_pixel_gate)
+        self.assertAlmostEqual(
+            median, self.recorded["pixel_position_median"], delta=0.01
+        )
+
+    def test_spacing(self):
+        """
+        Test that the reported spacing of samples does not move.
+        """
+        rows = self.data["spacing"]
+        sizes = compute_sample_sizes(
+            _observations(
+                self.satellite,
+                self.spacing_names(rows),
+                [
+                    self.day + timedelta(seconds=float(s))
+                    for s in self.data["spacing_seconds"]
+                ],
+                rows[:, 1],
+                rows[:, 0],
+            ),
+            self.satellite,
+        )
+        self.assertAlmostEqual(
+            float(np.nanmedian(sizes.spacing_along.to_numpy() / 1e3 / rows[:, 2])),
+            self.recorded["spacing_along_ratio_median"],
+            places=4,
+        )
+        self.assertAlmostEqual(
+            float(np.nanmedian(sizes.spacing_cross.to_numpy() / 1e3 / rows[:, 3])),
+            self.recorded["spacing_cross_ratio_median"],
+            places=4,
+        )
+
+
+class TestAtmsFixture(_ScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the ATMS entry's configurations of NOAA-20.
+    """
+
+    entry_id = "atms"
+    fixture_name = "atms_noaa_20"
+    swath_key = "swath_noaa_20"
+    sizes_key = "beams_noaa_20"
+    footprints = (
+        ("ATMS channels 1-2", 824, 98.7, 0, 74.8, 74.8),
+        ("ATMS channels 1-2", 824, 98.7, 52.725, 141.8, 323.1),
+        ("ATMS channels 3-16", 824, 98.7, 0, 31.6, 31.6),
+        ("ATMS channels 3-16", 824, 98.7, 52.725, 60.0, 136.7),
+        ("ATMS channels 17-22", 824, 98.7, 0, 15.8, 15.8),
+        ("ATMS channels 17-22", 824, 98.7, 52.725, 30.0, 68.4),
+    )
+
+    def time_step(self) -> float:
+        return 8 / 3
+
+    def spacing_names(self, rows: np.ndarray) -> np.ndarray:
+        return np.full(len(rows), "ATMS channels 3-16")
+
+    def recompute_pixel_differences(self) -> np.ndarray:
+        instrument = self.satellite.get_instrument(1)
+        orbit = self.satellite.orbit.to_gp_orbit()
+        differences = []
+        for seconds, pixel, _, lat, lon in self.data["pixels"]:
+            position = instrument.compute_projected_pixel_position(
+                orbit.get_orbit_track(self.day + timedelta(seconds=float(seconds))),
+                int(pixel),
+                0,
+            )
+            predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
+            differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
+        return np.array(differences)
+
+
+class TestAtmsNoaa21Fixture(TestAtmsFixture):
+    """
+    Regression tests of the ATMS entry's configurations of NOAA-21.
+    """
+
+    fixture_name = "atms_noaa_21"
+    swath_key = "swath_noaa_21"
+    sizes_key = "beams_noaa_21"
+    platform = "noaa-21"
+
+
+class TestViirsFixture(_ScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the VIIRS entry's configurations of NOAA-20.
+    """
+
+    entry_id = "viirs"
+    fixture_name = "viirs_noaa_20"
+    swath_key = "swath_noaa_20"
+    sizes_key = "zones_noaa_20"
+    footprints = (
+        ("VIIRS zone 2", 824, 98.7, 0, 0.742, 0.776),
+        ("VIIRS zone 4", 824, 98.7, 56.0, 1.60, 1.58),
+    )
+
+    def time_step(self) -> float:
+        return float(self.data["scan_period"])
+
+    def spacing_names(self, rows: np.ndarray) -> np.ndarray:
+        return self.names[rows[:, 4].astype(int)]
+
+    def recompute_pixel_differences(self) -> np.ndarray:
+        orbit = self.satellite.orbit.to_gp_orbit()
+        differences = []
+        for seconds, zone, pixel, _, lat, lon in self.data["pixels"]:
+            track = orbit.get_orbit_track(self.day + timedelta(seconds=float(seconds)))
+            instrument = self.satellite.get_instrument(int(zone))
+            fore, aft = (
+                instrument.compute_projected_pixel_position(track, int(pixel), detector)
+                for detector in (7, 8)
+            )
+            predicted = (
+                _ecef(fore.longitude.degrees, fore.latitude.degrees)
+                + _ecef(aft.longitude.degrees, aft.latitude.degrees)
+            ) / 2
+            differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
+        return np.array(differences)
+
+
+class TestViirsNoaa21Fixture(_SwathFixture, unittest.TestCase):
+    """
+    Regression tests of the VIIRS entry's swath configuration of NOAA-21.
+    """
+
+    entry_id = "viirs"
+    fixture_name = "viirs_noaa_21"
+    swath_key = "swath_noaa_21"
+    platform = "noaa-21"
+
+    def time_step(self) -> float:
+        return float(self.data["scan_period"])
+
+
+class TestModisFixture(_ScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the MODIS entry.
+    """
+
+    entry_id = "modis"
+    sizes_key = "pixels"
+    platform = "terra"
+    footprints = (
+        ("MODIS", 705, 98.2, 0, 1.0, 1.0),
+        ("MODIS", 705, 98.2, 55.0, 2.0, 4.8),
+    )
+
+    def time_step(self) -> float:
+        return 1.477
+
+    def spacing_names(self, rows: np.ndarray) -> np.ndarray:
+        return np.full(len(rows), "MODIS")
+
+    def recompute_pixel_differences(self) -> np.ndarray:
+        instrument = self.satellite.get_instrument(0)
+        orbit = self.satellite.orbit.to_gp_orbit()
+        differences = []
+        for seconds, frame, pixel, height, _, lat, lon in self.data["pixels"]:
+            position = instrument.compute_projected_pixel_position(
+                orbit.get_orbit_track(self.day + timedelta(seconds=float(seconds))),
+                int(frame),
+                int(pixel),
+                elevation=float(height),
+            )
+            predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
+            differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
+        return np.array(differences)
+
+
+class TestIasiFixture(_ScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the IASI entry, whose published footprint at the swath edge
+    does not meet the gate, so that the entry is partial.
+    """
+
+    entry_id = "iasi"
+    sizes_key = "pixels"
+    platform = "metop-b"
+    meets_published_gate = False
+    footprints = (
+        ("IASI", 817, 98.7, 0, 12.0, 12.0),
+        ("IASI", 817, 98.7, 48.3, 20.0, 39.0),
+    )
+
+    def time_step(self) -> float:
+        return 8
+
+    def spacing_names(self, rows: np.ndarray) -> np.ndarray:
+        return np.full(len(rows), "IASI")
+
+    def recompute_pixel_differences(self) -> np.ndarray:
+        instrument = self.satellite.get_instrument(0)
+        orbit = self.satellite.orbit.to_gp_orbit()
+        differences = []
+        for seconds, pixel, _, lat, lon in self.data["pixels"]:
+            position = instrument.compute_projected_pixel_position(
+                orbit.get_orbit_track(self.day + timedelta(seconds=float(seconds))),
+                int(pixel),
+                0,
+            )
+            predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
+            differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
+        return np.array(differences)
+
+
+class _BeamScannerFixture(_ScannerFixture):
+    """
+    Tests shared by entries whose fixtures give a pixel of one instrument per row.
+    """
+
+    size_instrument: str
+
+    def spacing_names(self, rows: np.ndarray) -> np.ndarray:
+        return np.full(len(rows), self.size_instrument)
+
+    def recompute_pixel_differences(self) -> np.ndarray:
+        instrument = self.satellite.get_instrument(0)
+        orbit = self.satellite.orbit.to_gp_orbit()
+        differences = []
+        for seconds, pixel, _, lat, lon in self.data["pixels"]:
+            position = instrument.compute_projected_pixel_position(
+                orbit.get_orbit_track(self.day + timedelta(seconds=float(seconds))),
+                int(pixel),
+                0,
+            )
+            predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
+            differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
+        return np.array(differences)
+
+
+class TestDprFixture(_BeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the DPR entry.
+    """
+
+    entry_id = "dpr"
+    sizes_key = "beams"
+    size_instrument = "DPR"
+    platform = "gpm"
+    footprints = (
+        ("DPR", 400, 65, 0, 5.04, 5.04),
+        ("DPR", 400, 65, 17.0, 5.04, 5.57),
+        ("DPR", 435, 65, 0, 5.48, 5.48),
+        ("DPR", 435, 65, 17.0, 5.48, 6.05),
+    )
+
+    def time_step(self) -> float:
+        return 10
+
+
+class TestMhsFixture(_BeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the MHS entry.
+    """
+
+    entry_id = "mhs"
+    sizes_key = "beams"
+    size_instrument = "MHS"
+    platform = "metop-c"
+    footprints = (
+        ("MHS", 817, 98.7, 0, 15.9, 15.9),
+        ("MHS", 817, 98.7, 49.444, 27.1, 52.8),
+    )
+
+    def time_step(self) -> float:
+        return 8 / 3
+
+
+class TestAirsFixture(_BeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the AIRS entry, whose published footprint at the scan's edge
+    does not meet the gate.
+    """
+
+    entry_id = "airs"
+    sizes_key = "footprints"
+    size_instrument = "AIRS"
+    platform = "aqua"
+    meets_published_gate = False
+    footprints = (
+        ("AIRS", 705, 98.2, 0, 13.5, 13.5),
+        ("AIRS", 705, 98.2, 48.95, 21.4, 41.0),
+    )
+
+    def time_step(self) -> float:
+        return 8 / 3
+
+
+class TestAmsuaFixture(_BeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the AMSU-A entry, whose published footprint does not meet the
+    gate.
+    """
+
+    entry_id = "amsua"
+    sizes_key = "footprints"
+    size_instrument = "AMSU-A"
+    platform = "aqua"
+    meets_published_gate = False
+    footprints = (("AMSU-A", 705, 98.2, 0, 45.0, 45.0),)
+
+    def time_step(self) -> float:
+        return 8.0
+
+
+class TestAvhrrFixture(_BeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the AVHRR entry, whose published footprint does not meet the
+    gate.
+    """
+
+    entry_id = "avhrr"
+    sizes_key = "pixels"
+    size_instrument = "AVHRR"
+    platform = "metop-c"
+    meets_published_gate = False
+    footprints = (("AVHRR", 817, 98.7, 0, 1.1, 1.1),)
+
+    def time_step(self) -> float:
+        return 10
+
+
+class TestCrisFixture(_ScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the CrIS entry, whose pixels do not meet the gates, so that
+    the entry is partial.
+    """
+
+    entry_id = "cris"
+    sizes_key = "pixels"
+    meets_published_gate = False
+    meets_pixel_gate = False
+    footprints = (
+        ("CrIS", 824, 98.7, 0, 14.0, 14.0),
+        ("CrIS", 824, 98.7, 49.43, 24.0, 48.0),
+    )
+
+    def time_step(self) -> float:
+        return 8
+
+    def recompute_pixel_differences(self) -> np.ndarray:
+        instrument = self.satellite.get_instrument(0)
+        orbit = self.satellite.orbit.to_gp_orbit()
+        differences = []
+        for seconds, cross, along, _, lat, lon in self.data["pixels"]:
+            position = instrument.compute_projected_pixel_position(
+                orbit.get_orbit_track(self.day + timedelta(seconds=float(seconds))),
+                int(cross),
+                int(along),
+            )
+            predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
+            differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
+        return np.array(differences)
+
+    def test_spacing(self):
+        """
+        The spacing of CrIS's samples is not measured.
+        """
+        self.skipTest("the spacing of CrIS's samples is not measured")
+
+
+class _StepSwathFixture(_SwathFixture):
+    """
+    Tests of swath configurations whose fixture passes were recomputed at a fixed
+    time step.
+    """
+
+    step: float = 10
+
+    def time_step(self) -> float:
+        return self.step
+
+
+class TestOmpsNmFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the OMPS Nadir Mapper entry's configuration of NOAA-21.
+    """
+
+    entry_id = "omps_nm"
+    fixture_name = "omps_nm_noaa_21"
+    swath_key = "swath_noaa_21"
+    platform = "noaa-21"
+
+
+class TestOmpsNmNoaa20Fixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the OMPS Nadir Mapper entry's configuration of NOAA-20.
+    """
+
+    entry_id = "omps_nm"
+    fixture_name = "omps_nm_noaa_20"
+    swath_key = "swath_noaa_20"
+    platform = "noaa-20"
+
+
+class TestCeresFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the CERES entry, at the period of its records (6.6 s).
+    """
+
+    entry_id = "ceres"
+    step = 6.6
+
+
+class TestHarp2Fixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the HARP2 entry's near-nadir view.
+    """
+
+    entry_id = "harp2"
+    platform = "pace"
+
+
+class TestSpexoneFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the SPEXone entry's nadir view.
+    """
+
+    entry_id = "spexone"
+    platform = "pace"
+
+
+class TestOco2NadirFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the OCO-2 entry in nadir mode.
+    """
+
+    entry_id = "oco2"
+    fixture_name = "oco2_nadir"
+    swath_key = "nadir"
+    platform = "oco-2"
+
+
+class TestOco2GlintFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the OCO-2 entry in glint mode, whose body points short of
+    the sun glint.
+    """
+
+    entry_id = "oco2"
+    fixture_name = "oco2_glint"
+    swath_key = "glint"
+    platform = "oco-2"
+
+
+class TestEcostressFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the ECOSTRESS entry, on the International Space Station.
+    """
+
+    entry_id = "ecostress"
+    platform = "iss"
+
+
+class TestEmitFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the EMIT entry, on the International Space Station.
+    """
+
+    entry_id = "emit"
+    platform = "iss"
+
+
+class TestPoseidon4Fixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the Poseidon-4 entry's nadir view.
+    """
+
+    entry_id = "poseidon4"
+    swath_key = "nadir"
+    platform = "sentinel-6a"
+
+
+if __name__ == "__main__":
+    unittest.main()

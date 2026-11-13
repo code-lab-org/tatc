@@ -1,0 +1,65 @@
+id: ecostress
+name: ECOSTRESS
+aliases: [ECOsystem Spaceborne Thermal Radiometer Experiment on Space Station, PHyTIR]
+instrument_class: cross_track
+selection: Thermal infrared radiometer on the International Space Station, whose orbit samples each place at varying times of day, used for evapotranspiration and water stress, with open data products.
+platforms:
+  - id: iss
+    name: International Space Station
+    norad_id: 25544
+    status: operational
+    as_of: 2026-11-09
+data_products:
+  - name: ECOSTRESS Level 1B geolocation (ECO_L1B_GEO) and attitude and ephemeris (ECO_L1B_ATT), version 002
+    provider: NASA LP DAAC
+    url: https://lpdaac.usgs.gov/products/eco_l1b_geov002/
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath swept between the outermost samples, with a view tailored to the analysis time step.
+    platforms: [iss]
+    velocity_frame: inertial
+    attitude:
+      yaw_angle: 3.7876
+      pitch_angle: -7.2427
+    instruments:
+      - type: pointed
+        parameters:
+          name: ECOSTRESS
+          field_of_regard: 56
+          cross_track_field_of_view: 52.9914
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: 0.8654
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the view, rolled and pitched, whose corners are about 28.0 deg from nadir
+          cross_track_field_of_view: &measured_view
+            kind: measured
+            source: validate_catalog_ecostress.py --fit-view, the roll and field of view that center the outermost samples in TAT-C's view frame, with the body's yaw and pitch, and the station's position and velocity of the product (inertial frame)
+            platform: iss
+            period: "2026-10-04"
+          roll_angle: *measured_view
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a swept swath as a rectangular view
+    limitations:
+      - The yaw of 3.7876 deg is measured with validate_catalog_ecostress.py --fit on 2026-10-04, from the slope of the samples' along-track on their cross-track tangents (from 3.71 to 3.90 deg at the 5th and 95th percentiles), with the station's position at each sweep's start time. The pitch (-7.2427 deg), roll, and field of view are fitted with --fit-view on the same day, to center the middle and outermost samples in TAT-C's view frame. The pitch places the swath about 53 km behind the station; it may include an offset of the sweeps' times.
+      - Each sweep images 128 lines at once; the fit uses the middle line of every fourth sweep of every fourth scene.
+      - The roll, pitch, and field of view were changed after the run on 2026-11-07 recorded below, and the configuration tested again on 2026-11-08. The roll had been measured from the geodetic nadir (0.5028 deg, with a pitch of -7.2599 deg and a field of view of 53.2204 deg), which does not center a view that TAT-C also pitches and yaws; EMIT's entry, fitted the same way, was found to lie 4 km to one side of its swath.
+      - On data held out on 2026-11-08 (35 days from the fit), 98.87% of observed passes were predicted, below the gate's 99%, and 98.40% of predicted passes observed, with epochs within 0.72 s (95th percentile) and the swath width within 0.62 km (median). The swath's intersection over union was 0.988 at time steps of 10 to 120 s, as the swath is the strip the view's cross-track line sweeps (is_swept). Rescored after swept swaths were added, on the same data, with the other results unchanged; with views tailored to the time step, which the body's yaw and pitch skew, it had been 0.988 at 10 s and 0.977 at 30 s, but 0.898 at 120 s, below the gate's 0.95. The swath is compared over spans of up to 4.3 min between gaps in the scenes.
+      - On data held out on 2026-11-07, with the earlier roll, pitch, and field of view, 99.42% of observed passes were predicted and 97.54% of predicted passes observed, with epochs within 0.84 s (95th percentile) and the swath width within 2.11 km (median), but the swath's intersection over union, with views tailored to the time step (before swept swaths were added), was 0.930 at a time step of 120 s, below the gate's 0.95 (0.965 at 10 s and 0.962 at 30 s), as a long view yawed and pitched with the body has skewed ends. The swath is compared over spans of up to 5.1 min between gaps in the scenes.
+      - The validation script was changed after a first run on 2026-11-07, without changing the entry. That run read every fourth scene, whose spans without gaps (0.8 min at most) were too short to compare the swath, and found passes within 10 km of a sample, fewer than the spacing of the samples kept (precision 59.15%); it was replaced by blocks of eight consecutive scenes in every 32 and a radius of 20 km.
+limitations:
+  - The station flies in a fixed attitude relative to its orbit, without yaw steering, so the configuration uses the inertial frame. Its attitude changes for operations such as dockings, which are not modeled.
+  - ECOSTRESS images scenes over land and coastal waters by plan, whereas the view observes whenever a target is in view.
+  - The station's orbit decays and is reboosted often, so element sets age quickly.
+  - No configuration gives sample sizes, as no published instantaneous field of view was used.

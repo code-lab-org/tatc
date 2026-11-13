@@ -1,0 +1,118 @@
+id: amsr2
+name: AMSR2
+aliases: [Advanced Microwave Scanning Radiometer 2]
+instrument_class: conical
+selection: Conically scanning microwave imager of JAXA's GCOM-W, in the afternoon constellation, whose open products include sea surface temperature, sea ice, precipitation, and soil moisture.
+platforms:
+  - id: gcom-w
+    name: GCOM-W
+    norad_id: 38337
+    status: operational
+    as_of: 2026-11-01
+data_products:
+  - name: GPM_1CGCOMW1AMSR2
+    provider: NASA GES DISC
+    url: https://disc.gsfc.nasa.gov/datasets/GPM_1CGCOMW1AMSR2_08/summary
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The scan of the 10.65 GHz samples (group S1 of the Level 1C product), which the channels from 6.925 to 36.5 GHz share, flying forward.
+    platforms: [gcom-w]
+    velocity_frame: inertial
+    instruments:
+      - type: conical
+        parameters:
+          name: AMSR2
+          cone_angle: 47.564
+          scan_center_azimuth: 0.498
+          scan_half_width: 75.332
+          along_track_field_of_view: {tailor: time_step}
+        provenance:
+          cone_angle: &measured
+            kind: measured
+            source: ValidateConicalAMSR2, Test 2 (printed to 3 decimals)
+            platform: gcom-w
+            period: "2026-09-26"
+          scan_center_azimuth: *measured
+          scan_half_width: *measured
+          along_track_field_of_view: &tailored
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+    limitations:
+      - The 89 GHz samples (groups S5 and S6) were not used to fit the scan, which assumes they share the cone and sector of the 10.65 GHz samples.
+  sample_size:
+    grade: sample_size
+    description: The beams of AMSR2's channels at the angles of the swath configuration, whose footprints and spacing `compute_sample_sizes` gives. Analyze one at a time with its instrument index.
+    platforms: [gcom-w]
+    velocity_frame: inertial
+    grouping: alternatives
+    instruments:
+      - type: conical
+        parameters: &low_frequency
+          name: AMSR2 6.925 and 7.3 GHz
+          cone_angle: 47.564
+          scan_center_azimuth: 0.498
+          scan_half_width: 75.332
+          along_track_field_of_view: {tailor: time_step}
+          beam_width: 1.8
+          scan_sample_spacing: 0.6225
+        provenance: &low_frequency_provenance
+          cone_angle: *measured
+          scan_center_azimuth: *measured
+          scan_half_width: *measured
+          along_track_field_of_view: *tailored
+          beam_width: &beam_width
+            kind: nominal
+            source: JAXA AMSR2 channel set (beam width)
+          scan_sample_spacing:
+            kind: measured
+            source: ValidateSampleSizes, Test 3 (243 samples of the 10.65 GHz group)
+            platform: gcom-w
+            period: "2026-09-26"
+      - type: conical
+        parameters:
+          <<: *low_frequency
+          name: AMSR2 10.65 GHz
+          beam_width: 1.2
+        provenance: *low_frequency_provenance
+      - type: conical
+        parameters:
+          <<: *low_frequency
+          name: AMSR2 18.7 GHz
+          beam_width: 0.65
+        provenance: *low_frequency_provenance
+      - type: conical
+        parameters:
+          <<: *low_frequency
+          name: AMSR2 23.8 GHz
+          beam_width: 0.75
+        provenance: *low_frequency_provenance
+      - type: conical
+        parameters:
+          <<: *low_frequency
+          name: AMSR2 36.5 GHz
+          beam_width: 0.35
+        provenance: *low_frequency_provenance
+      - type: conical
+        parameters:
+          <<: *low_frequency
+          name: AMSR2 89.0 GHz
+          beam_width: 0.15
+          scan_sample_spacing: 0.31125
+        provenance:
+          cone_angle: *measured
+          scan_center_azimuth: *measured
+          scan_half_width: *measured
+          along_track_field_of_view: *tailored
+          beam_width: *beam_width
+          scan_sample_spacing:
+            kind: derived
+            source: Half the measured spacing of the 10.65 GHz group, as the 89 GHz groups of GPM_1CGCOMW1AMSR2 have 486 samples per scan to its 243
+    limitations:
+      - The 89 GHz samples (groups S5 and S6) were not used to fit the scan, which assumes they share the cone and sector of the 10.65 GHz samples.
+      - The sizes match 10 of the 12 footprint dimensions that JAXA publishes within 3%, under the standard's 90%. The 18.7 GHz footprint is 9.8% narrower across track than JAXA's 14 km, which is wider than its 0.65 deg beam gives (the 0.75 deg beam at 23.8 GHz gives about 14.6 km, for JAXA's 15 km), and the 10.65 GHz footprint is 3.2% shorter along track.
+      - The spacing between scans is about 2% larger than measured, as the tailored along-track field of view assumes the orbit's fastest ground speed and lowest height. The standard does not gate spacing; the record reports it.
+limitations:
+  - The fitted angles depend on the altitude of about 700 km, at which GCOM-W flies.

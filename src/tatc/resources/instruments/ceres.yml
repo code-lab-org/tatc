@@ -1,0 +1,55 @@
+id: ceres
+name: CERES
+aliases: [Clouds and the Earth's Radiant Energy System]
+instrument_class: cross_track
+selection: Broadband radiometer that measures the Earth's radiation budget, flown since 1997 and heavily used in climate research, with open data products.
+platforms:
+  - id: noaa-20
+    name: NOAA-20
+    norad_id: 43013
+    status: operational
+    as_of: 2026-11-09
+data_products:
+  - name: CERES NOAA-20 FM6 ES-8 (CER_ES8_NOAA20-FM6), Edition1
+    provider: NASA Langley ASDC
+    url: https://asdc.larc.nasa.gov/project/CERES
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: coverage
+    description: The swath of CERES's cross-track scan on NOAA-20, between the outermost footprint centers, with a view tailored to the analysis time step.
+    platforms: [noaa-20]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: CERES
+          field_of_regard: 119.9692
+          cross_track_field_of_view: 119.9692
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          field_of_regard: &measured_extent
+            kind: measured
+            source: validate_catalog_ceres.py --fit, between the outermost footprint centers projected to the ellipsoid (59.9884 deg left, 59.9808 deg right of the geodetic nadir, inertial frame)
+            platform: noaa-20
+            period: "2026-08-25"
+          cross_track_field_of_view: *measured_extent
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - TAT-C observes all footprints of a view at one instant, whereas CERES sweeps the Earth in about 1.9 s, twice in each 6.6 s record and in opposite directions, so a footprint is observed up to about 1 s before or after the middle of its sweep.
+      - The product places footprints at the top of the atmosphere (30 km); they are compared on the ellipsoid, projected along the line of sight from the spacecraft.
+      - On data held out on 2026-09-30, 99.6% of observed passes were predicted and 99.4% of predicted passes observed, with epochs within 0.29 s (95th percentile) and the swath's intersection over union 0.9995 (0.998 with views tailored to the time step, before swept swaths were added; rescored on the same data), but the swath width, which a field of regard gives on a spherical Earth, differed by 7.9 km (median) from that between the outermost footprints, beyond the gate's 5 km. The difference grows toward the horizon, which the swath's edges, 60 deg from nadir, approach.
+      - The validation script was changed twice before its recorded run, without changing the entry. A run on the fitting day took both sweeps of each record as scans, whose cells crossed, and was replaced by the first sweep alone; a first run on 2026-09-30 kept every fourth footprint of a sweep, too sparse at the swath's edges to find the passes there (55.99% of predicted passes found), and was replaced by every footprint.
+limitations:
+  - NOAA-20 does not steer its yaw, so the configuration uses the inertial frame.
+  - Only the cross-track mode is modeled. CERES instruments also scan in other modes (rotating azimuth plane or along track) on some days, and those on Terra and Aqua differ.
+  - No configuration gives sample sizes, as no published footprint size was used.

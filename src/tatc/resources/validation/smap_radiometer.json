@@ -1,0 +1,79 @@
+{
+  "entry_id": "smap_radiometer",
+  "configurations": {
+    "looks": {
+      "digest": "ca3c6cdb3aea9144061cb5594ceefedb81608d68f34e565475ea76e6c9343efd",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_smap.py",
+      "reference": "SPL1BTB (footprint positions and times)",
+      "period": "2026-09-20",
+      "platform": "smap",
+      "holdout_gap_days": 34,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 100.0
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.23495929983476
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.13861008795
+        },
+        {
+          "name": "epoch_median",
+          "value": 0.0037470155
+        },
+        {
+          "name": "swath_width_median",
+          "value": 2.103950896930008
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9975498341560446
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.14018917109999995
+      }
+    },
+    "footprints": {
+      "digest": "8b58cf9ab3ef01c04ca505141a40751442adc77cb7a856db63baf865a53ce0de",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_smap.py",
+      "reference": "Footprints of Piepmeier et al. (2017) and the JPL SMAP specifications; spacing of SPL1BTB",
+      "period": "2026-09-20",
+      "platform": "smap",
+      "holdout_gap_days": 34,
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 50.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 4.948199750160875
+        },
+        {
+          "name": "spacing_arc_ratio_median",
+          "value": 1.0001580345733925
+        },
+        {
+          "name": "spacing_scan_ratio_median",
+          "value": 1.017490613864489
+        }
+      ],
+      "fixture_metrics": {
+        "sample_size_within_3pct": 50.0,
+        "spacing_arc_ratio_median": 1.000688552543529,
+        "spacing_scan_ratio_median": 1.0163489921080546
+      }
+    }
+  },
+  "standard_version": 2
+}

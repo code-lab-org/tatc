@@ -1,0 +1,54 @@
+id: tempo
+name: TEMPO
+aliases: [Tropospheric Emissions Monitoring of Pollution]
+instrument_class: geostationary_regional
+selection: Geostationary ultraviolet and visible imaging spectrometer that measures air quality over North America about hourly in daylight, hosted on Intelsat 40e, with open data products.
+platforms:
+  - id: intelsat-40e
+    name: Intelsat 40e
+    norad_id: 56174
+    status: operational
+    as_of: 2026-11-09
+data_products:
+  - name: TEMPO geolocated Earth radiances (TEMPO_RAD_L1), version V04
+    provider: NASA Langley ASDC
+    url: https://asdc.larc.nasa.gov/project/TEMPO
+    access: registration
+default_configuration: field_of_regard
+configurations:
+  field_of_regard:
+    grade: coverage
+    description: The region that a full scan images, as a rectangular view pointed north of the sub-satellite point.
+    platforms: [intelsat-40e]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: TEMPO
+          field_of_regard: 20
+          cross_track_field_of_view: 4.9113
+          along_track_field_of_view: 8.7427
+          roll_angle: 5.4277
+          pitch_angle: -0.2203
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the view, whose corners are about 9 deg from nadir
+          cross_track_field_of_view: &measured
+            kind: measured
+            source: validate_catalog_tempo.py --fit, the view that centers the median tangents of the edges of the area a full scan imaged (the outer corners of its outermost pixels, ultraviolet band), seen from the satellite's position in the product
+            platform: intelsat-40e
+            period: "2026-10-06"
+          along_track_field_of_view: *measured
+          roll_angle: *measured
+          pitch_angle: *measured
+          is_rectangular:
+            kind: derived
+            source: Models the region, a slit stepped across it, as a rectangular view
+    limitations:
+      - The view observes the whole region at every time, whereas TEMPO's slit steps from east to west across it, a full scan taking about an hour, so a place is observed once in each scan, at a time that depends on its longitude. Epochs are not tested.
+      - TEMPO scans in daylight, with partial scans of the east or west of the region early and late in the day, and scans of smaller areas in special operations; the view observes at all times, unless a solar limit is added.
+      - On the fitting day, the edges lay within 0.006 deg of the view's (between the 5th and 95th percentiles), measured in the inertial frame of the satellite's motion, which carries the view's angles. The pixels of the visible band are located slightly differently, and were not compared.
+limitations:
+  - The north-western corner of the region extends beyond the Earth's limb, where some pixels are not located; the area imaged is the outline of the located pixels.

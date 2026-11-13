@@ -1,0 +1,147 @@
+id: lsar
+name: L-SAR
+aliases: [NISAR, NISAR L-SAR, NISAR L-band SAR]
+instrument_class: sar
+selection: L-band synthetic aperture radar of the NASA-ISRO SAR (NISAR) mission, which images the land and ice surfaces of the Earth every 12 days, with open data products.
+platforms:
+  - id: nisar
+    name: NISAR
+    norad_id: 65053
+    status: operational
+    as_of: 2026-11-04
+data_products:
+  - name: NISAR Level 1 Range-Doppler Single-Look Complex (RSLC)
+    provider: NASA ASF DAAC
+    url: https://asf.alaska.edu/datasets/daac/nisar/
+    access: registration
+default_configuration: swath_20_40mhz
+configurations:
+  swath_20_40mhz:
+    grade: timing
+    description: The swath of about 240 km of the modes with a 20 or 40 MHz band, looking to the left, whose look angles are a profile of roll angles around the orbit, with a view tailored to the analysis time step.
+    platforms: [nisar]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: L-SAR 20 and 40 MHz
+          field_of_regard: 85.0972
+          cross_track_field_of_view: 11.5185
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle_profile: [[5.0, 35.3307], [15.0, 35.3268], [25.0, 35.3266], [35.0, 35.1984], [45.0, 35.2218], [55.0, 35.1403], [65.0, 35.1658], [75.0, 35.2387], [85.0, 35.2538], [95.0, 35.3167], [105.0, 35.2261], [115.0, 35.1728], [125.0, 35.2199], [135.0, 35.2622], [145.0, 35.3129], [155.0, 35.329], [165.0, 35.3789], [175.0, 35.5064], [185.0, 35.3481], [195.0, 35.3745], [205.0, 35.2988], [215.0, 35.5596], [235.0, 34.8494], [255.0, 34.9288], [265.0, 35.002], [275.0, 34.8772], [285.0, 34.9166], [305.0, 35.0395], [325.0, 35.0039], [335.0, 35.217], [345.0, 35.3757], [355.0, 35.2889]]
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Twice the largest far-range look angle of the fitting data (41.55 deg), plus 1 deg
+          cross_track_field_of_view:
+            kind: measured
+            source: validate_catalog_lsar.py --fit, the median difference of the look angles of the near-range and far-range points of 45,538 grid lines of 95 RSLC products
+            platform: nisar
+            period: "2026-10-02"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          roll_angle_profile:
+            kind: measured
+            source: validate_catalog_lsar.py --fit, the median roll angle (the mean of the near-range and far-range look angles) of the grid lines in each 10 deg bin of argument of latitude
+            platform: nisar
+            period: "2026-10-02"
+          is_rectangular:
+            kind: derived
+            source: Models the swath of each zero-Doppler line as a rectangular view
+    limitations:
+      - The roll profile has no values for the bins centered at 225, 245, 295, and 315 deg of argument of latitude, where no sampled products of these modes were acquired on the fitting day, so it is interpolated there between its neighbors.
+      - The field of view is fixed, while the swath's measured field of view varies from 11.2 to 12.2 deg (5th to 95th percentile) between modes and around the orbit, so the swath edges differ by several kilometers where it is narrower or wider than its median. On held-out data, the near-range edges were within 12.1 km (95th percentile), over the standard's 10 km, and the far-range edges within 6.8 km.
+      - The swath is the strip the view's cross-track line sweeps (is_swept), so it does not depend on the time step. On held-out data, the swath's intersection over union was 0.974 (5th percentile 0.946) at time steps of 10 to 120 s. Rescored after swept swaths (is_swept) were added, on the same data, with the other results unchanged; with views tailored to the time step, far from nadir, it had been 0.959 (0.924) at 10 s, but 0.925 (0.819) at 30 s and 0.731 (0.692) at 120 s.
+      - Images are formed in the plane perpendicular to the Earth-fixed velocity (zero-Doppler geometry), so a user-supplied attitude should keep the Earth-fixed frame.
+  swath_5mhz:
+    grade: timing
+    description: The slightly narrower swath of the modes with only a 5 MHz band, looking to the left, whose look angles are a profile of roll angles around the orbit, with a view tailored to the analysis time step.
+    platforms: [nisar]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: L-SAR 5 MHz
+          field_of_regard: 84.0846
+          cross_track_field_of_view: 10.8778
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle_profile: [[15.0, 35.5631], [25.0, 35.5356], [35.0, 35.5127], [65.0, 35.3698], [75.0, 35.4828], [85.0, 35.448], [95.0, 35.4196], [105.0, 35.4753], [115.0, 35.5109], [125.0, 35.5191], [135.0, 35.4435], [145.0, 35.4995], [155.0, 35.4995], [165.0, 35.5475], [235.0, 35.4686], [245.0, 35.347], [255.0, 35.0549], [285.0, 35.1876], [295.0, 35.3739], [305.0, 35.432]]
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Twice the largest far-range look angle of the fitting data (41.04 deg), plus 1 deg
+          cross_track_field_of_view:
+            kind: measured
+            source: validate_catalog_lsar.py --fit, the median difference of the look angles of the near-range and far-range points of 23,573 grid lines of 55 RSLC products
+            platform: nisar
+            period: "2026-10-02"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          roll_angle_profile:
+            kind: measured
+            source: validate_catalog_lsar.py --fit, the median roll angle (the mean of the near-range and far-range look angles) of the grid lines in each 10 deg bin of argument of latitude
+            platform: nisar
+            period: "2026-10-02"
+          is_rectangular:
+            kind: derived
+            source: Models the swath of each zero-Doppler line as a rectangular view
+    limitations:
+      - The roll profile has no values for the bins centered at 5, 45, 55, 175, 185, 195, 205, 215, 225, 265, 275, 315, 325, 335, 345, and 355 deg of argument of latitude, where no sampled products of these modes were acquired on the fitting day, so it is interpolated there between its neighbors.
+      - The field of view is fixed, while the swath's measured field of view varies from 10.7 to 11.1 deg (5th to 95th percentile) between modes and around the orbit, so the swath edges differ by several kilometers where it is narrower or wider than its median.
+      - Few products of these modes were acquired on the held-out day (7, of which 4 were full frames), so its results are a small sample. Of the 19 lattice points observed in them, 18 were predicted (94.7%), under the standard's 99%; on the fitting day, 99.7% of 309 were. The swath's intersection over union was 0.976 at time steps of 10 to 120 s, as the swath is the strip the view's cross-track line sweeps (is_swept). Rescored after swept swaths (is_swept) were added, on the same data, with the other results unchanged; with views tailored to the time step, it had been 0.948 at 10 s, but 0.862 at 30 s and 0.755 at 120 s.
+      - Images are formed in the plane perpendicular to the Earth-fixed velocity (zero-Doppler geometry), so a user-supplied attitude should keep the Earth-fixed frame.
+  swath_77mhz:
+    grade: timing
+    description: The narrower swath of the 77 MHz mode, looking to the left, whose look angles are a profile of roll angles around the orbit, with a view tailored to the analysis time step.
+    platforms: [nisar]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: L-SAR 77 MHz
+          field_of_regard: 74.147
+          cross_track_field_of_view: 6.1643
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle_profile: [[65.0, 32.9323], [75.0, 32.8418], [85.0, 32.8588], [95.0, 32.8882], [105.0, 32.8133], [115.0, 32.8637], [235.0, 32.9619], [245.0, 32.9469], [295.0, 32.984], [305.0, 32.9989]]
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Twice the largest far-range look angle of the fitting data (36.07 deg), plus 1 deg
+          cross_track_field_of_view:
+            kind: measured
+            source: validate_catalog_lsar.py --fit, the median difference of the look angles of the near-range and far-range points of 11,022 grid lines of 26 RSLC products
+            platform: nisar
+            period: "2026-10-02"
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          roll_angle_profile:
+            kind: measured
+            source: validate_catalog_lsar.py --fit, the median roll angle (the mean of the near-range and far-range look angles) of the grid lines in each 10 deg bin of argument of latitude
+            platform: nisar
+            period: "2026-10-02"
+          is_rectangular:
+            kind: derived
+            source: Models the swath of each zero-Doppler line as a rectangular view
+    limitations:
+      - The roll profile has values only for the bins centered at 65 to 115, 235, 245, 295, and 305 deg of argument of latitude, where the 26 products of the mode on the fitting day were acquired, so it is interpolated elsewhere between its neighbors (from 32.81 to 33.00 deg).
+      - The field of view is fixed, while the swath's measured field of view varies from 5.91 to 6.28 deg (5th to 95th percentile) on the fitting day.
+      - The configuration was added on 2026-11-10, when products of the mode acquired from 2026-11-01 to 2026-11-05 became available, after the other configurations' holdout. It is tested on the products of 2026-11-01, 2026-11-02, 2026-11-03, and 2026-11-05 together (30 to 34 days from the fit, chosen before any results), each with the element set whose epoch is nearest the middle of the day (from docs/validation/nisar_2026-11-01.3le).
+      - Every product of the mode on the fitting and held-out days is a partial frame, whose bounding polygon outlines only its valid data, so the swath's area is not compared.
+      - On the held-out days (30 products), 100 of the 101 lattice points observed were predicted (99.01%), the near-range and far-range edges were within 3.1 and 2.1 km (95th percentile), and the epochs within 0.13 s (95th percentile; -0.03 s median), passing every gate tested.
+      - The held-out days were first tested, before element sets of those days were at hand, with the element set of 2026-11-04 (epoch 2026-11-08), 3 to 7 days after them, and the configuration was tested again with element sets of each day after those results, without changing it. With the later element set, 100 of the 101 points were predicted, and the near-range and far-range edges were within 8.9 and 8.8 km (95th percentile), but TAT-C's epochs preceded the zero-Doppler times by 1.14 s (median; 1.28 s at the 95th percentile), failing the timing gate. The difference shrinks as the element set's epoch nears the day (1.2 s on 2026-11-01, 0.35 s on 2026-11-05), as does the element set's position ahead of the products' recorded orbits along track (9.2 km on 2026-11-01, 1.7 km on 2026-11-05, against 0.08 km on the fitting day), so it measures the element set's age more than the view; the edges' distances include the same offset along track. On the fitting day, the edges were within 5.4 and 2.1 km and the epochs within 0.21 s.
+      - Images are formed in the plane perpendicular to the Earth-fixed velocity (zero-Doppler geometry), so a user-supplied attitude should keep the Earth-fixed frame.
+limitations:
+  - The S-band radar (S-SAR) is not represented.
+  - NISAR acquires according to plans, so TAT-C predicts which points it can observe, not which it will.

@@ -1,0 +1,111 @@
+id: avhrr
+name: AVHRR
+aliases: [Advanced Very High Resolution Radiometer, AVHRR/3]
+instrument_class: cross_track
+selection: Cross-track imager with the longest record of any weather satellite imager, flown since 1978 and still carried by Metop-B and Metop-C, with open full-resolution swath products.
+platforms:
+  - id: metop-c
+    name: Metop-C
+    norad_id: 43689
+    status: operational
+    as_of: 2026-11-05
+  - id: metop-b
+    name: Metop-B
+    norad_id: 38771
+    status: operational
+    as_of: 2026-11-05
+data_products:
+  - name: GHRSST NOAA/STAR Metop-C AVHRR FRAC ACSPO L2P (AVHRRF_MC-STAR-L2P-v2.80), version 2.80
+    provider: NASA PO.DAAC
+    url: https://podaac.jpl.nasa.gov/dataset/AVHRRF_MC-STAR-L2P-v2.80
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath scanned between the outermost full-resolution samples, with a view tailored to the analysis time step.
+    platforms: [metop-c]
+    velocity_frame: earth_fixed
+    attitude:
+      yaw_angle: 0.2943
+    instruments:
+      - type: pointed
+        parameters:
+          name: AVHRR
+          field_of_regard: 110.4002
+          cross_track_field_of_view: 110.4002
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          field_of_regard: &measured_extent
+            kind: measured
+            source: validate_catalog_avhrr.py --fit, between the outermost samples (printed to 4 decimals)
+            platform: metop-c
+            period: "2026-11-05"
+          cross_track_field_of_view: *measured_extent
+          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
+          along_track_field_of_view:
+            kind: derived
+            source: compute_along_track_field_of_view, from the orbit and time step
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - The view is centered on nadir, because the swath width of a pointed instrument follows its field of regard. The outermost samples measure 54.98 deg to the left and 55.42 deg to the right, so each modeled edge lies about 0.22 deg (about 18 km on the ground) to the left of the measured one.
+      - The yaw of 0.2943 deg rotates the scan line as measured, from perpendicular to the Earth-fixed ground track, with along-track tangents fitted on cross-track tangents on 2026-11-05 (constant within about 0.01 deg around the orbit). A first version without it failed the timing gate on held-out data of 2026-10-05 (epochs within 1.12 s at the 95th percentile); this version was then tested on 2026-10-03, a day not run before.
+  pixels:
+    grade: sample_size
+    description: The 2048 full-resolution samples of a scan line, whose sizes and spacing `compute_sample_sizes` gives.
+    platforms: [metop-c]
+    velocity_frame: earth_fixed
+    attitude:
+      yaw_angle: 0.2943
+    instruments:
+      - type: pointed
+        parameters:
+          name: AVHRR
+          field_of_regard: 111.0054
+          cross_track_field_of_view: 110.5544
+          along_track_field_of_view: 0.0744845
+          cross_track_pixels: 2048
+          roll_angle: -0.2255
+          is_rectangular: true
+          cross_track_oversampling: 0.27526
+          scan_period: 0.16666666666666666
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: The rolled view, so that every pixel can be observed
+          cross_track_field_of_view:
+            kind: measured
+            source: validate_catalog_avhrr.py --fit, a fitted spacing of 0.0539816 deg over 2048 samples
+            platform: metop-c
+            period: "2026-11-05"
+          along_track_field_of_view:
+            kind: nominal
+            source: AVHRR/3's instantaneous field of view of 1.3 mrad (GCMD instrument keywords)
+          cross_track_pixels:
+            kind: nominal
+            source: AVHRR/3 has 2048 Earth views per scan line
+          roll_angle:
+            kind: measured
+            source: validate_catalog_avhrr.py --fit, the offset of the fitted sample angles
+            platform: metop-c
+            period: "2026-11-05"
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          cross_track_oversampling:
+            kind: derived
+            source: One minus the fitted spacing divided by the instantaneous field of view of 1.3 mrad
+          scan_period:
+            kind: nominal
+            source: AVHRR/3 scans six lines a second
+    limitations:
+      - The outermost sample on either side lies about 0.05 deg nearer nadir than the fitted line through the others.
+      - The NWP SAF gives a footprint of 1.1 km at nadir, without an altitude. At Metop's nominal altitude of 817 km, the instantaneous field of view of 1.3 mrad gives about 1.06 km, 3.7% smaller, which fails the gate's tolerance of 3%.
+limitations:
+  - Metop flies with yaw steering, so its scan is perpendicular to the ground track; the configurations use the Earth-fixed frame.
+  - The product records no spacecraft position, so the fit measured angles from the position given by the element set.
+  - These configurations were tested on Metop-C. On Metop-B, they are a transfer that warns on use; on 2026-11-05, 99.64% of passes were found, with epochs within 1.00 s (95th percentile), swath width within 4.8 km, and pixels 3.6 km from the samples (median). AVHRR/3 flew on earlier Metop and NOAA satellites, on which they were not tested.
