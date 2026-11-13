@@ -357,7 +357,7 @@ class TestCollectSpaceObservations(unittest.TestCase):
             self.assertTrue(row.start <= row.closest_time <= row.end)
             duration = (row.end - row.start).total_seconds()
             times = [
-                row.start.to_pydatetime() + timedelta(seconds=float(s))
+                row.start.to_pydatetime(warn=False) + timedelta(seconds=float(s))
                 for s in np.linspace(0, duration, int(duration * 10) + 1)
             ]
             t = timescale.from_datetimes(times)

@@ -37,7 +37,6 @@ import numpy as np
 import pandas as pd
 from pyproj import Geod, Transformer
 from shapely.geometry import Polygon
-from shapely.ops import transform as shapely_transform
 from shapely.ops import unary_union
 from skyfield.positionlib import ICRF
 from skyfield.framelib import itrs
@@ -57,6 +56,7 @@ from validation_io import (
     ecef,
     get_holdout_gap,
     recompute_passes,
+    transform_geometry,
     up,
     update_fixture,
     update_record,
@@ -212,7 +212,7 @@ def observed_strip(reference: Reference, frames: np.ndarray):
 
 def area(geometry) -> float:
     """Gets the area (m2) of a geometry in longitude and latitude."""
-    return shapely_transform(TO_EQUAL_AREA.transform, geometry).area
+    return transform_geometry(TO_EQUAL_AREA.transform, geometry).area
 
 
 def score_strips(satellite_for, reference: Reference, segments) -> tuple[float, dict]:

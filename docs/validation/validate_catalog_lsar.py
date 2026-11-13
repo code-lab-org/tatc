@@ -50,7 +50,6 @@ import pandas as pd
 import requests
 import shapely
 from pyproj import Transformer
-from shapely.ops import transform as transform_geometry
 from shapely.ops import unary_union
 
 import tatc
@@ -75,6 +74,7 @@ from validation_io import (
     predict_passes,
     read_element_set_file,
     recompute_passes,
+    transform_geometry,
     up,
     update_fixture,
     update_record,
@@ -466,12 +466,8 @@ def unwrap(geometry):
     """Shifts the longitudes of a polygon across the antimeridian to be continuous."""
     lon = np.array(geometry.exterior.coords)[:, 0]
     if lon.max() - lon.min() > 180:
-        return shapely.ops.transform(
-            lambda x, y, z=None: (
-                np.where(np.asarray(x) < 0, np.asarray(x) + 360, x),
-                y,
-            ),
-            geometry,
+        return transform_geometry(
+            lambda x, y: (np.where(x < 0, x + 360, x), y), geometry
         )
     return geometry
 

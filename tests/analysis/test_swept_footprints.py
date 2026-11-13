@@ -12,7 +12,6 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import shapely
 from pyproj import Geod, Transformer
-from shapely.ops import transform as transform_geometry
 
 from tatc.analysis import (
     collect_ground_track,
@@ -81,6 +80,17 @@ def swept(satellite: Satellite) -> Satellite:
                 for instrument in satellite.instruments
             ]
         }
+    )
+
+
+def transform_geometry(transform, geometry):
+    """
+    Transforms the coordinates of a geometry by a function of their x and y
+    arrays (such as a pyproj transform), as the deprecated
+    `shapely.ops.transform` did.
+    """
+    return shapely.transform(
+        geometry, lambda xy: np.column_stack(transform(xy[:, 0], xy[:, 1]))
     )
 
 

@@ -26,8 +26,8 @@ import warnings
 from datetime import datetime, timedelta
 
 import numpy as np
+import shapely
 from pyproj import Transformer
-from shapely.ops import transform as transform_geometry
 
 from tatc.analysis import compute_ground_track
 from tatc.catalog import get_entry, get_entry_ids
@@ -38,6 +38,17 @@ FIXTURES = (
 )
 DURATION = 600  # seconds
 OFFSETS = (3, 9, 15)  # hours after the start of the fixture's day
+
+
+def transform_geometry(transform, geometry):
+    """
+    Transforms the coordinates of a geometry by a function of their x and y
+    arrays (such as a pyproj transform), as the deprecated
+    `shapely.ops.transform` did.
+    """
+    return shapely.transform(
+        geometry, lambda xy: np.column_stack(transform(xy[:, 0], xy[:, 1]))
+    )
 
 
 def get_fixture(
