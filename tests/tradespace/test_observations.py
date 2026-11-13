@@ -5,6 +5,7 @@ Unit tests for studies of the observations of constellations.
 """
 
 import dataclasses
+import math
 import pickle
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from tatc.analysis import collect_observations
@@ -19,6 +21,7 @@ from tatc.generation import generate_points_rotated_lattice
 from tatc.schemas import Instrument
 from tatc.tradespace import (
     Categorical,
+    Component,
     CostModel,
     DeploymentSchedule,
     DesignSpace,
@@ -37,11 +40,13 @@ from tatc.tradespace import (
     Stage,
     Study,
     Targets,
+    Triangular,
     Uncertain,
     build_constellation,
     count_planes,
     count_satellites,
     policy_space,
+    risk_space,
     walker_space,
 )
 from tatc.tradespace.observations import value_of
@@ -387,6 +392,60 @@ class TestObservationStudy(unittest.TestCase):
         self.assertAlmostEqual(
             light.groupby("altitude")["cost launch"].mean()[700e3], planes[700e3]
         )
+
+    def test_cost_risk(self):
+        """Plans draw the growth of the components of each design from its
+        scores, and resolve growth by type of satellite."""
+        growth = Triangular(0.9, 1.5)
+        model = CostModel(
+            SatelliteCost(
+                components=[Component("imager", development=10, growth=growth)]
+            ),
+            correlation=0.5,
+        )
+        space = SPACE.extend(cost_risk=risk_space(model))
+        designs = [d for d in space.enumerate() if d.layout.per_plane == 2]
+
+        def study(plan):
+            return ObservationStudy(
+                space,
+                _build,
+                _observations(),
+                _metrics,
+                layout="layout",
+                plan=plan,
+                replicates=2,
+            )
+
+        results = study(MissionPlan(SCHEDULE, model, scores="cost_risk")).run(designs)
+        score = math.sqrt(0.5) * (
+            results["cost_risk.common"] + results["cost_risk.imager"]
+        )
+        probability = 0.5 * (1 + score.map(lambda z: math.erf(z / math.sqrt(2))))
+        expected = 10 * probability.map(growth.ppf)
+        pd.testing.assert_series_equal(
+            results["cost development"], expected, check_names=False
+        )
+        # designs of a replicate share the growth (common random numbers)
+        self.assertEqual(
+            results.groupby("replicate")["cost development"].nunique().max(), 1
+        )
+        # without scores, the expected growth
+        nominal = study(MissionPlan(SCHEDULE, model)).run(designs)
+        self.assertTrue((nominal["cost development"] == 10 * growth.mean()).all())
+        # growth by type of satellite resolves the values of the design
+        plan = MissionPlan(
+            SCHEDULE, model, growth={"development": {"a": "growth", "b": np.int64(2)}}
+        )
+        design = designs[0].realize(0)
+        self.assertEqual(
+            plan.growth_of(design), {"development": {"a": design.growth, "b": 2}}
+        )
+        # scores of a group nested in another
+        nested = SPACE.extend(risk=DesignSpace(cost_risk=risk_space(model)))
+        design = nested.enumerate()[0].realize(3)
+        plan = MissionPlan(SCHEDULE, model, scores="risk.cost_risk")
+        self.assertEqual(plan.cost_model_of(design), model.draw(design.risk.cost_risk))
 
     def test_stages(self):
         """Plans stage the deployments of designs that decide to."""

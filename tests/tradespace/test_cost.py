@@ -4,12 +4,15 @@ Unit tests for life-cycle costs of constellations.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import dataclasses
+import math
 import unittest
 
 import numpy as np
 
 from tatc.tradespace import (
     Categorical,
+    Component,
     CostModel,
     DeploymentSchedule,
     DesignSpace,
@@ -19,10 +22,13 @@ from tatc.tradespace import (
     Quantile,
     SatelliteCost,
     Study,
+    Triangular,
     Uncertain,
     aggregate,
     count_satellites,
+    exceedance,
     planes_space,
+    risk_space,
     sso_planes_space,
     walker_space,
 )
@@ -299,3 +305,364 @@ class TestDatedCosts(unittest.TestCase):
         self.assertAlmostEqual(
             dated.metrics()["cost peak annual"], annual["total"].max()
         )
+
+
+NEW = Triangular(0.827, 2.274)
+"""The growth of new components (Maier et al., 2023, Table I)."""
+EXISTING = Triangular(0.981, 1.140)
+"""The growth of existing components (Maier et al., 2023, Table I)."""
+
+
+def _normal_probability(score):
+    return 0.5 * (1 + math.erf(score / math.sqrt(2)))
+
+
+class TestTriangular(unittest.TestCase):
+    """
+    Unit tests for triangular distributions of growth.
+    """
+
+    def test_moments(self):
+        """The mean and standard deviation of a triangular distribution."""
+        self.assertAlmostEqual(NEW.mean(), 1.367, places=3)
+        self.assertAlmostEqual(EXISTING.mean(), 1.0403, places=4)
+        rng = np.random.default_rng(1)
+        draws = rng.triangular(0.827, 1.0, 2.274, 200000)
+        self.assertAlmostEqual(NEW.std(), draws.std(), places=2)
+
+    def test_quantiles(self):
+        """Quantiles run from the lowest to the highest growth, through the mode."""
+        self.assertAlmostEqual(NEW.ppf(0.0), 0.827)
+        self.assertAlmostEqual(NEW.ppf(1.0), 2.274)
+        self.assertAlmostEqual(NEW.ppf((1 - 0.827) / (2.274 - 0.827)), 1.0)
+        draws = [NEW.ppf(q) for q in np.random.default_rng(2).random(100000)]
+        self.assertAlmostEqual(np.mean(draws), NEW.mean(), places=2)
+        with self.assertRaises(ValueError):
+            Triangular(1.2, 1.5)  # mode below the lowest growth
+        with self.assertRaises(ValueError):
+            Triangular(1.0, 1.0)
+
+
+class TestComponents(unittest.TestCase):
+    """
+    Unit tests for the costs of the components of satellites.
+    """
+
+    def setUp(self):
+        self.satellite = SatelliteCost(
+            development=10,
+            first_unit=1,
+            components=[
+                Component("bus", development=20, first_unit=4),
+                Component("imager", development=30, first_unit=6, growth=NEW),
+            ],
+        )
+
+    def test_expected_costs(self):
+        """Without drawn growth, components cost their expected growth."""
+        expected_development = 10 + 20 + 30 * NEW.mean()
+        expected_first_unit = 1 + 4 + 6 * NEW.mean()
+        self.assertAlmostEqual(self.satellite.total_development, expected_development)
+        self.assertAlmostEqual(self.satellite.total_first_unit, expected_first_unit)
+        self.assertAlmostEqual(self.satellite.production(2), 2 * expected_first_unit)
+        estimate = CostModel(self.satellite).estimate(
+            DeploymentSchedule().plan(_walker(1, 2))
+        )
+        self.assertAlmostEqual(estimate.development, expected_development)
+        self.assertAlmostEqual(estimate.production, 2 * expected_first_unit)
+        # a satellite without components costs as before
+        self.assertEqual(SatelliteCost(development=5).total_development, 5)
+
+    def test_invalid(self):
+        """Components need names, costs that are not negative, and growth."""
+        with self.assertRaises(ValueError):
+            Component("")
+        with self.assertRaises(ValueError):
+            Component("bus", development=-1)
+        with self.assertRaises(ValueError):
+            Component("bus", growth=-0.5)
+        with self.assertRaises(TypeError):
+            Component("bus", growth="new")
+        with self.assertRaises(ValueError):
+            SatelliteCost(components=[Component("bus"), Component("bus")])
+        with self.assertRaises(ValueError):
+            CostModel(self.satellite, correlation=1.5)
+        with self.assertRaises(TypeError):
+            SatelliteCost(components=["bus"])
+        # the name of the common score is not a component's
+        with self.assertRaises(ValueError):
+            CostModel(SatelliteCost(components=[Component("common", growth=NEW)]))
+        # types that share a component share its costs and growth
+        other = SatelliteCost(
+            components=[Component("bus", development=25, first_unit=4)]
+        )
+        with self.assertRaises(ValueError):
+            CostModel({"a": self.satellite, "b": other})
+
+    def test_score_names(self):
+        """Scores are of uncertain components, after the common score if they
+        are correlated."""
+        wide = SatelliteCost(
+            components=[
+                Component("bus", development=20, first_unit=4),
+                Component("wide imager", development=50, growth=NEW),
+            ]
+        )
+        model = CostModel({"narrow": self.satellite, "wide": wide}, correlation=0.5)
+        self.assertEqual(model.score_names(), ["common", "imager", "wide imager"])
+        self.assertEqual(CostModel(self.satellite).score_names(), ["imager"])
+        self.assertEqual(CostModel(SatelliteCost(), correlation=0.5).score_names(), [])
+
+    def test_draw(self):
+        """Growth is the quantile at the probability of the scores of the
+        component and the common score, mixed by the correlation."""
+        model = CostModel({"narrow": self.satellite}, correlation=0.5)
+        drawn = model.draw({"common": 1.0, "imager": -0.5, "other": 3.0})
+        imager = drawn.satellites["narrow"].components[1]
+        score = math.sqrt(0.5) * 1.0 + math.sqrt(0.5) * -0.5
+        self.assertAlmostEqual(imager.growth, NEW.ppf(_normal_probability(score)))
+        self.assertFalse(imager.uncertain)
+        # components of fixed growth, and the model, are unchanged
+        self.assertEqual(drawn.satellites["narrow"].components[0].growth, 1.0)
+        self.assertTrue(model.satellites["narrow"].components[1].uncertain)
+        self.assertAlmostEqual(
+            drawn.satellites["narrow"].total_development, 10 + 20 + 30 * imager.growth
+        )
+        # without correlation, the component's score alone
+        independent = CostModel(
+            SatelliteCost(components=[Component("imager", 30, growth=NEW)])
+        )
+        self.assertEqual(independent.score_names(), ["imager"])
+        growth = independent.draw({"imager": 0.0}).satellites.components[0].growth
+        self.assertAlmostEqual(growth, NEW.ppf(0.5))
+        with self.assertRaises(ValueError):
+            model.draw({"imager": 0.0})  # no common score
+
+    def test_correlation(self):
+        """Drawn growths are correlated between every pair of components, and a
+        component that types share has the same growth in each."""
+        bus = Component("bus", 1, growth=NEW)
+        model = CostModel(
+            {
+                "a": SatelliteCost(
+                    components=[bus, Component("imager", 1, growth=NEW)]
+                ),
+                "b": SatelliteCost(
+                    components=[bus, Component("sounder", 1, growth=NEW)]
+                ),
+            },
+            correlation=0.5,
+        )
+        rng = np.random.default_rng(3)
+        draws = []
+        for _ in range(4000):
+            scores = {name: rng.normal() for name in model.score_names()}
+            drawn = model.draw(scores).satellites
+            draws.append(
+                [c.growth for c in drawn["a"].components]
+                + [c.growth for c in drawn["b"].components]
+            )
+        draws = np.array(draws)
+        np.testing.assert_array_equal(draws[:, 0], draws[:, 2])
+        r = np.corrcoef(draws.T)
+        self.assertAlmostEqual(r[0, 1], 0.5, delta=0.06)
+        self.assertAlmostEqual(r[1, 3], 0.5, delta=0.06)
+        independent = dataclasses.replace(model, correlation=0.0)
+        draws = []
+        for _ in range(4000):
+            scores = {name: rng.normal() for name in independent.score_names()}
+            drawn = independent.draw(scores).satellites
+            draws.append(
+                [c.growth for c in drawn["a"].components + drawn["b"].components]
+            )
+        r = np.corrcoef(np.array(draws).T)
+        self.assertAlmostEqual(r[1, 3], 0.0, delta=0.06)
+
+    def test_shared_development(self):
+        """A component that types of a deployment share is developed once, and
+        produced with each type."""
+        bus = Component("bus", development=20, first_unit=4)
+        model = CostModel(
+            {
+                "a": SatelliteCost(
+                    development=5, components=[bus, Component("imager", 30, 6)]
+                ),
+                "b": SatelliteCost(
+                    development=7, components=[bus, Component("sounder", 10, 2)]
+                ),
+            }
+        )
+        sso = _design(
+            layout=sso_planes_space(crossing=13.5, satellites=3, count=1)
+        ).layout
+        mixed = model.estimate(
+            DeploymentSchedule().plan({"a": _walker(1, 2), "b": sso})
+        )
+        self.assertAlmostEqual(mixed.development, 5 + 30 + 7 + 10 + 20)
+        self.assertAlmostEqual(mixed.production, 2 * (4 + 6) + 3 * (4 + 2))
+        alone = model.estimate(DeploymentSchedule().plan(_walker(1, 2), kind="b"))
+        self.assertAlmostEqual(alone.development, 7 + 10 + 20)
+
+
+class TestGrowthByType(unittest.TestCase):
+    """
+    Unit tests for growth factors of each type of satellite.
+    """
+
+    def setUp(self):
+        self.model = CostModel(
+            {
+                "narrow": SatelliteCost(development=50, first_unit=10),
+                "wide": SatelliteCost(development=80, first_unit=16),
+            },
+            launch=LaunchCost(per_launch=20),
+            operations=OperationsCost(per_year=1),
+        )
+        sso = _design(
+            layout=sso_planes_space(crossing=13.5, satellites=2, count=1)
+        ).layout
+        self.deployment = DeploymentSchedule().plan(
+            {"narrow": _walker(1, 2), "wide": sso}
+        )
+
+    def test_by_type(self):
+        """Each type of satellite grows by its own factor."""
+        base = self.model.estimate(self.deployment)
+        grown = self.model.estimate(
+            self.deployment,
+            growth={
+                "development": {"narrow": 2.0, "wide": 1.0},
+                "production": {"narrow": 1.0, "wide": 1.5},
+                "launch": {"narrow": 1.0, "wide": 3.0},
+                "operations": 2.0,
+            },
+        )
+        self.assertAlmostEqual(grown.development, 2 * 50 + 80)
+        self.assertAlmostEqual(grown.production, 20 + 1.5 * 32)
+        self.assertAlmostEqual(grown.launch, 20 + 3 * 20)
+        self.assertAlmostEqual(grown.operations, 2 * base.operations)
+
+    def test_invalid(self):
+        """Growth by type needs every kind of the deployment, and is not of
+        operations."""
+        with self.assertRaises(ValueError):
+            self.model.estimate(self.deployment, growth={"development": {"narrow": 2}})
+        with self.assertRaises(ValueError):
+            self.model.estimate(
+                self.deployment, growth={"operations": {"narrow": 1, "wide": 1}}
+            )
+        single = CostModel(SatelliteCost(development=10))
+        with self.assertRaises(ValueError):
+            single.estimate(
+                DeploymentSchedule().plan(_walker(1, 2)),
+                growth={"development": {"satellites": 2}},
+            )
+
+    def test_shared_types(self):
+        """Common random numbers correlate the costs of designs of the same type
+        (as in Maier et al., 2023): the order of such designs is settled, and
+        that of designs of different types is not."""
+        space = DesignSpace(
+            imager=Categorical(["narrow", "wide"]),
+            layout=walker_space(
+                inclination=55.0, planes=1, per_plane=Integer(2, 3), relative_spacing=0
+            ),
+            narrow=Uncertain.normal(1.0, 0.3),
+            wide=Uncertain.normal(1.0, 0.3),
+        )
+        schedule = DeploymentSchedule()
+
+        def evaluate(d):
+            deployment = schedule.plan(d.layout, kind=d.imager)
+            growth = {"narrow": d.narrow, "wide": d.wide}
+            return self.model.estimate(
+                deployment, growth={"development": growth, "production": growth}
+            ).metrics()
+
+        designs = space.enumerate()
+
+        def compare(common):
+            study = Study(
+                space,
+                lambda d: d,
+                evaluate,
+                replicates=200,
+                common_random_numbers=common,
+            )
+            compared = exceedance(study.run(designs), "cost", designs)
+            return compared.set_index(["design", "other"])["exceedance"]
+
+        shared, independent = compare(True), compare(False)
+        narrow2, narrow3 = (d.key for d in designs if d.imager == "narrow")
+        wide2 = next(d.key for d in designs if d.imager == "wide")
+        # three narrow satellites cost more than two in every replicate
+        self.assertEqual(shared[(narrow3, narrow2)], 1.0)
+        self.assertLess(independent[(narrow3, narrow2)], 0.99)
+        # designs of different types are not ordered by their shared draws
+        self.assertLess(shared[(wide2, narrow3)], 1.0)
+        self.assertGreater(shared[(wide2, narrow3)], 0.0)
+
+
+class TestRiskSpace(unittest.TestCase):
+    """
+    Unit tests for the scores of the cost risk of designs.
+    """
+
+    def setUp(self):
+        self.model = CostModel(
+            {
+                30: SatelliteCost(
+                    components=[
+                        Component("bus", 20, 4, growth=EXISTING),
+                        Component("imager 30", 15, 3, growth=NEW),
+                    ],
+                ),
+                60: SatelliteCost(
+                    components=[
+                        Component("bus", 20, 4, growth=EXISTING),
+                        Component("imager 60", 30, 6, growth=NEW),
+                    ],
+                ),
+            },
+            correlation=0.5,
+        )
+
+    def test_scores(self):
+        """A standard normal score of each name, the same in every design of a
+        replicate."""
+        group = risk_space(self.model)
+        self.assertEqual(
+            list(group.children), ["common", "bus", "imager 30", "imager 60"]
+        )
+        space = DesignSpace(
+            imager=Categorical([30, 60]),
+            layout=walker_space(
+                inclination=55.0, planes=1, per_plane=2, relative_spacing=0
+            ),
+            cost_risk=group,
+        )
+        self.assertIn("cost_risk.imager 30", space.uncertain_paths())
+        narrow, wide = space.enumerate()
+        a, b = narrow.realize(4), wide.realize(4)
+        self.assertEqual(a.cost_risk["bus"], b.cost_risk["bus"])
+        # every design of a replicate draws the same growths, and the bus grows
+        # alike in both types
+        drawn = self.model.draw(a.cost_risk)
+        self.assertEqual(drawn, self.model.draw(b.cost_risk))
+        self.assertEqual(
+            drawn.satellites[30].components[0], drawn.satellites[60].components[0]
+        )
+        scores = np.array([narrow.realize(r).cost_risk["bus"] for r in range(500)])
+        self.assertAlmostEqual(scores.mean(), 0.0, delta=0.15)
+        self.assertAlmostEqual(scores.std(), 1.0, delta=0.15)
+
+    def test_invalid(self):
+        """Names are not reserved, nor have characters of paths."""
+        reserved = CostModel(SatelliteCost(components=[Component("count", growth=NEW)]))
+        with self.assertRaisesRegex(ValueError, "count"):
+            risk_space(reserved)
+        dotted = CostModel(
+            SatelliteCost(components=[Component("imager.v2", growth=NEW)])
+        )
+        with self.assertRaises(ValueError):
+            risk_space(dotted)

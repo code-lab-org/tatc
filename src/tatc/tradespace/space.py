@@ -1038,6 +1038,26 @@ def _decided(values: Mapping[str, Any], path: str, domain: _Domain) -> Any:
     raise ValueError(f"{value!r} is not a level of {path} ({domain.levels})")
 
 
+def _design_items(designs: Iterable[Design | str] | pd.DataFrame) -> list[Design | str]:
+    """
+    Gets designs given as designs, keys, or a data frame of designs (with
+    their keys, `design`, as a column or the name of the index), in order.
+    """
+    if isinstance(designs, pd.DataFrame):
+        if "design" in designs.columns:
+            items = list(designs["design"])
+        elif designs.index.name == "design":
+            items = list(designs.index)
+        else:
+            raise ValueError("the data frame has no keys of designs (`design`)")
+    else:
+        items = list(designs)
+    for item in items:
+        if not isinstance(item, (Design, str)):
+            raise TypeError(f"a design or the key of one, not {item!r}")
+    return items
+
+
 def _designs(
     space: DesignSpace,
     designs: Iterable[Design | str] | pd.DataFrame,
@@ -1050,23 +1070,13 @@ def _designs(
     frames (such as the results of a study, see `DesignSpace.designs_of`).
     """
     if isinstance(designs, pd.DataFrame):
-        if "design" in designs.columns:
-            items = list(designs["design"])
-        elif designs.index.name == "design":
-            items = list(designs.index)
-        else:
-            raise ValueError("the data frame has no keys of designs (`design`)")
         frames = (designs, *frames)
-    else:
-        items = list(designs)
     found: dict[str, Design | None] = {}
-    for item in items:
+    for item in _design_items(designs):
         if isinstance(item, Design):
             found[item.key] = item
-        elif isinstance(item, str):
-            found.setdefault(item, None)
         else:
-            raise TypeError(f"a design or the key of one, not {item!r}")
+            found.setdefault(item, None)
     for frame in frames:
         missing = [key for key, design in found.items() if design is None]
         if not missing:

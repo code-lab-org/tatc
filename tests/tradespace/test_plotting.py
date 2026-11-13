@@ -9,7 +9,14 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from tatc.tradespace import pareto_front, plot_designs, plot_means, plot_progress
+from tatc.tradespace import (
+    exceedance,
+    pareto_front,
+    plot_designs,
+    plot_exceedance,
+    plot_means,
+    plot_progress,
+)
 
 try:
     import matplotlib
@@ -104,3 +111,27 @@ class TestPlots(unittest.TestCase):
         np.testing.assert_allclose(ax.lines[0].get_ydata(), [2.0, 4.0])
         single = plot_means(results, "satellites", "resolved")
         self.assertEqual(len(single.lines), 1)
+
+    def test_exceedance(self):
+        """A matrix of the probabilities, in the order of the designs, labeled."""
+        results = pd.DataFrame(
+            {
+                "design": ["a", "a", "b", "b", "c", "c"],
+                "replicate": [0, 1, 0, 1, 0, 1],
+                "cost": [1.0, 2.0, 1.5, 1.5, 3.0, 4.0],
+                "scenario": "nominal",
+            }
+        )
+        compared = exceedance(results, "cost")
+        ax = plot_exceedance(compared, labels={"a": "first"})
+        matrix = ax.images[0].get_array()
+        self.assertEqual(matrix.shape, (3, 3))
+        self.assertEqual(matrix[2, 0], 1.0)  # c costs more than a
+        self.assertEqual(matrix[0, 1], 0.5)  # a and b, each once
+        self.assertEqual(
+            [t.get_text() for t in ax.get_yticklabels()], ["first", "b", "c"]
+        )
+        self.assertEqual(len(ax.figure.axes), 2)  # with a color bar
+        twice = pd.concat([compared, compared.assign(scenario="other")])
+        with self.assertRaises(ValueError):
+            plot_exceedance(twice)

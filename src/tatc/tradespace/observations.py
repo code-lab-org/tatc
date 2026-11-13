@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import numbers
 import os
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
@@ -54,7 +55,8 @@ or a function of the (realized) design that gives it (see `value_of`)."""
 def value_of(design: Design, reference: Reference | None) -> Any:
     """
     Gets a value of a design that a reference names: a string names a value
-    (`d.<name>`, or a path of `Design.flat`, such as `"layout.walker.planes"`),
+    (`d.<name>`, or a path of `Design.flat`, such as `"layout.walker.planes"`,
+    or of a group of values, such as `"risk.cost_risk"`),
     a function computes it from the design, and `None` is `None`.
 
     Args:
@@ -73,9 +75,19 @@ def value_of(design: Design, reference: Reference | None) -> Any:
         raise TypeError(f"a reference to a value of a design, not {reference!r}")
     if "." in reference or "[" in reference:
         values = design.flat()
-        if reference not in values:
-            raise KeyError(f"no value {reference!r} of the design")
-        return values[reference]
+        if reference in values:
+            return values[reference]
+        if "[" not in reference:
+            # a group of values (such as scores of `risk_space`), by its path
+            value: Any = design
+            try:
+                for name in reference.split("."):
+                    value = value[name]
+            except (KeyError, TypeError, AttributeError):
+                pass
+            else:
+                return value
+        raise KeyError(f"no value {reference!r} of the design")
     return getattr(design, reference)
 
 
@@ -363,6 +375,13 @@ class MissionPlan:
     Launches limited in mass take the masses of the satellites from the cost
     model (`SatelliteCost.mass`, of each type), unless `masses` are given.
 
+    The growth of the costs of the components of the cost model (see
+    `Component`) is drawn from scores that are values of the design (such as
+    a group of `risk_space`), shared by designs that share components::
+
+        space = space.extend(cost_risk=risk_space(COST_MODEL))
+        PLAN = MissionPlan(SCHEDULE, COST_MODEL, kind="payload", scores="cost_risk")
+
     Args:
         schedule (DeploymentSchedule | Callable): The schedule of the
             deployment, or a function of the design that gives it.
@@ -376,7 +395,8 @@ class MissionPlan:
         growth (float | Reference | Mapping): The growth of the costs (see
             `CostModel.estimate`): a factor, a value of the design, or a
             mapping of each element (such as `"development"`) to a factor or
-            a value of the design.
+            a value of the design, or to a mapping of each kind of satellite
+            to one.
         stages (Sequence[Stage] | Callable): The stages of the deployment
             (see `Stage`), or a function of the (realized) design that gives
             them, such as of a decision whether to stage it and of the values
@@ -387,15 +407,22 @@ class MissionPlan:
             satellites (or of each type, a mapping), or a value of the
             design, for launches limited in mass, or `None` for the masses of
             the cost model.
+        scores (Reference | None): The scores from which the growth of the
+            components of the cost model is drawn (see `CostModel.draw`), as
+            a value of the design (such as a group of `risk_space`), or
+            `None` for the expected costs of the components.
     """
 
     schedule: DeploymentSchedule | Callable[[Design], DeploymentSchedule]
     cost_model: CostModel | Callable[[Design], CostModel] | None = None
     kind: Reference | None = None
     spares: int | Reference = 0
-    growth: float | Reference | Mapping[str, float | Reference] = 1.0
+    growth: float | Reference | Mapping[str, float | Reference | Mapping[Any, Any]] = (
+        1.0
+    )
     stages: Sequence[Stage] | Callable[[Design], Sequence[Stage]] = ()
     masses: float | Mapping[Any, float] | Reference | None = None
+    scores: Reference | None = None
 
     def schedule_of(self, design: Design) -> DeploymentSchedule:
         """
@@ -413,7 +440,8 @@ class MissionPlan:
 
     def cost_model_of(self, design: Design) -> CostModel | None:
         """
-        Gets the cost model of a design.
+        Gets the cost model of a design, with the growth of its components
+        drawn from the design's scores (if any, see `CostModel.draw`).
 
         Args:
             design (Design): The (realized) design.
@@ -421,9 +449,12 @@ class MissionPlan:
         Returns:
             CostModel | None: the cost model, if any
         """
-        if self.cost_model is None or isinstance(self.cost_model, CostModel):
-            return self.cost_model
-        return self.cost_model(design)
+        model = self.cost_model
+        if model is not None and not isinstance(model, CostModel):
+            model = model(design)
+        if model is None or self.scores is None:
+            return model
+        return model.draw(value_of(design, self.scores))
 
     def masses_of(self, design: Design, cost_model: CostModel | None = None) -> Any:
         """
@@ -471,16 +502,25 @@ class MissionPlan:
             design (Design): The (realized) design.
 
         Returns:
-            Any: a factor, or a mapping of each element to its factor
+            Any: a factor, or a mapping of each element to its factor (or to
+                a mapping of each kind of satellite to its factor)
         """
-        if isinstance(self.growth, Mapping):
-            return {element: _number(design, g) for element, g in self.growth.items()}
-        return _number(design, self.growth)
+        if not isinstance(self.growth, Mapping):
+            return _number(design, self.growth)
+        growth: dict[str, Any] = {}
+        for element, value in self.growth.items():
+            if isinstance(value, Mapping):
+                growth[element] = {k: _number(design, g) for k, g in value.items()}
+            else:
+                growth[element] = _number(design, value)
+        return growth
 
 
 def _number(design: Design, value: Any) -> Any:
     """A number, or a value of a design that a reference names."""
-    return value if isinstance(value, (int, float)) else value_of(design, value)
+    if isinstance(value, numbers.Real):
+        return value
+    return value_of(design, value)
 
 
 @dataclasses.dataclass(frozen=True)

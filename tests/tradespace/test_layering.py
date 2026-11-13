@@ -16,6 +16,7 @@ PACKAGE = Path(tatc.tradespace.__file__).parent
 
 GENERAL = {
     "attribution",
+    "comparison",
     "confirmation",
     "criteria",
     "fingerprint",

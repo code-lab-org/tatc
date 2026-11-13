@@ -20,6 +20,7 @@ simulation of missions, and fingerprints) are in its modules.
 
 from .attribution import attribute_variance
 from .cache import SatelliteCache
+from .comparison import exceedance
 from .confirmation import confirm
 from .constellations import (
     build_constellation,
@@ -29,7 +30,15 @@ from .constellations import (
     sso_planes_space,
     walker_space,
 )
-from .cost import CostModel, LaunchCost, OperationsCost, SatelliteCost
+from .cost import (
+    Component,
+    CostModel,
+    LaunchCost,
+    OperationsCost,
+    SatelliteCost,
+    Triangular,
+    risk_space,
+)
 from .criteria import (
     Across,
     Criteria,
@@ -74,7 +83,13 @@ from .pareto import (
     pareto_probability,
     pareto_ranks,
 )
-from .plotting import plot_designs, plot_means, plot_progress, style_axes
+from .plotting import (
+    plot_designs,
+    plot_exceedance,
+    plot_means,
+    plot_progress,
+    style_axes,
+)
 from .refinement import refine
 from .scenarios import robustness
 from .screening import screen
@@ -106,6 +121,7 @@ __all__ = [
     "walker_space",
     # studies
     "Bathtub",
+    "Component",
     "CostModel",
     "DeploymentSchedule",
     "Exponential",
@@ -124,7 +140,9 @@ __all__ = [
     "Stage",
     "Study",
     "Targets",
+    "Triangular",
     "Weibull",
+    "risk_space",
     # criteria and summaries
     "Across",
     "Criteria",
@@ -141,6 +159,7 @@ __all__ = [
     "StandardError",
     "Utility",
     "aggregate",
+    "exceedance",
     "hypervolume",
     "hypervolume_progress",
     "main_effects",
@@ -159,6 +178,7 @@ __all__ = [
     "screen",
     # plots
     "plot_designs",
+    "plot_exceedance",
     "plot_means",
     "plot_progress",
     "style_axes",

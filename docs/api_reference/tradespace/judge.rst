@@ -54,6 +54,14 @@ Pareto Efficiency
 
 .. autofunction:: tatc.tradespace.hypervolume_progress
 
+Comparisons
+===========
+
+.. automodule:: tatc.tradespace.comparison
+   :no-members:
+
+.. autofunction:: tatc.tradespace.exceedance
+
 Scenarios
 =========
 
@@ -93,6 +101,8 @@ Plots
 .. autofunction:: tatc.tradespace.plot_designs
 
 .. autofunction:: tatc.tradespace.plot_means
+
+.. autofunction:: tatc.tradespace.plot_exceedance
 
 .. autofunction:: tatc.tradespace.plot_progress
 

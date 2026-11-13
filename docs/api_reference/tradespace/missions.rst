@@ -120,10 +120,18 @@ Costs
    :no-members:
 
 .. autoclass:: tatc.tradespace.CostModel
-   :members: estimate, discount
+   :members: estimate, draw, score_names, discount
 
 .. autoclass:: tatc.tradespace.SatelliteCost
-   :members: production
+   :members: production, total_development, total_first_unit
+
+.. autoclass:: tatc.tradespace.Component
+   :members: uncertain, factor
+
+.. autoclass:: tatc.tradespace.Triangular
+   :members: mean, std, ppf
+
+.. autofunction:: tatc.tradespace.risk_space
 
 .. autoclass:: tatc.tradespace.LaunchCost
 

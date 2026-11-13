@@ -1,9 +1,10 @@
 """
 Plots of the results of trade studies (with matplotlib, an optional
 dependency, imported when a plot is drawn): designs by two metrics, with the
-efficient designs ringed and labeled; the progress of searches; and the
-means of metrics over replicates. Each plot draws on given axes (or new
-ones) and returns them, for further labels and annotations.
+efficient designs ringed and labeled; the progress of searches; the means
+of metrics over replicates; and the probabilities that the metrics of
+designs exceed those of others. Each plot draws on given axes (or new ones)
+and returns them, for further labels and annotations.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -39,6 +40,9 @@ GRAY = "#8a8a86"
 
 GRID = "#e6e6e3"
 """The color of grids."""
+
+NEUTRAL = "#f0efec"
+"""The color of the midpoint of diverging scales (such as of even odds)."""
 
 
 def _axes(ax: Any, size: tuple[float, float]) -> Any:
@@ -305,4 +309,71 @@ def plot_means(
     style_axes(ax)
     if legend is not None and by is not None:
         ax.legend(loc=legend, fontsize=8, frameon=False)
+    return ax
+
+
+def plot_exceedance(
+    frame: pd.DataFrame,
+    labels: Mapping[str, str] | Callable[[str], str] | None = None,
+    colorbar: bool = True,
+    ax: Any = None,
+) -> Any:
+    """
+    Plots the probabilities that the metric of each design exceeds that of
+    each other design (see `exceedance`) as a matrix: a row per design and a
+    column per other, in the order of the frame, colored from blue (0: the
+    design's metric is below the other's in every replicate) through gray
+    (0.5: as likely either way) to orange (1: above it in every replicate).
+    Pairs whose order the replicates settle are blue or orange, and those
+    whose order they leave open are gray: with designs in the order of the
+    metric's mean, a band of gray along the diagonal is the designs that
+    the replicates do not tell apart.
+
+    Args:
+        frame (pandas.DataFrame): The probabilities of a group (see
+            `exceedance`).
+        labels (Mapping | Callable | None): The labels of the designs (by
+            key), or `None` for their keys.
+        colorbar (bool): `True` to draw a color bar.
+        ax (matplotlib.axes.Axes | None): The axes, or `None` for a new figure.
+
+    Returns:
+        matplotlib.axes.Axes: the axes
+
+    Raises:
+        ValueError: if the frame has several rows of a pair of designs (as of
+            several groups, of which plot one).
+    """
+    if frame.duplicated(["design", "other"]).any():
+        raise ValueError(
+            "the frame has several rows of a pair of designs: plot one group"
+        )
+    ax = _axes(ax, (6.5, 5.5))
+    # pylint: disable-next=import-outside-toplevel
+    from matplotlib.colors import LinearSegmentedColormap
+
+    rows = list(pd.unique(frame["design"]))
+    columns = list(pd.unique(frame["other"]))
+    matrix = frame.pivot(index="design", columns="other", values="exceedance")
+    matrix = matrix.reindex(index=rows, columns=columns).to_numpy(dtype=float)
+    scale = LinearSegmentedColormap.from_list(
+        "exceedance", [COLORS[0], NEUTRAL, COLORS[1]]
+    )
+    image = ax.imshow(
+        matrix, cmap=scale, vmin=0, vmax=1, interpolation="nearest", aspect="equal"
+    )
+    ax.set_xticks(range(len(columns)))
+    ax.set_xticklabels([_name(labels, key) for key in columns], rotation=90)
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([_name(labels, key) for key in rows])
+    ax.tick_params(length=0, labelsize=8, colors=INK)
+    ax.set(xlabel="Other design", ylabel="Design")
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    if colorbar:
+        legend = ax.figure.colorbar(image, ax=ax, fraction=0.046, pad=0.03)
+        legend.set_label("Probability that the design exceeds the other", fontsize=9)
+        legend.set_ticks([0, 0.25, 0.5, 0.75, 1])
+        legend.ax.tick_params(labelsize=8, length=0)
+        legend.outline.set_visible(False)
     return ax
