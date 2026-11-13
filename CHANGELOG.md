@@ -19,6 +19,7 @@ Changed:
 
 Fixed:
  - `compute_projected_ray_position` of a rectangular view without along-track extent (a line across track) projected rays at angles of 180 and 360 degrees to the view's center, rather than its ends; likewise for a view without cross-track extent at 90 degrees. Rays of rectangular views at angles outside [0, 360) degrees, such as -90, were placed far from the view, and now match the equivalent angles. Instruments, whose fields of view must be positive, were not affected.
+ - `compute_latencies` no longer renames its columns in place, which pandas 3 deprecates with a warning. Tests and validation scripts no longer use `shapely.ops.transform`, which shapely 2.2 deprecates.
 
 ## 3.6.0
 

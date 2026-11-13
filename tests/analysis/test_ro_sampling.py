@@ -457,7 +457,7 @@ class TestCollectRoObservations(unittest.TestCase):
             self.receiver, [self.transmitter, transmitter_2], self.start, self.end
         )
         self.assertTrue(set(results.transmitter.unique()) <= {"TX", "TX2"})
-        self.assertTrue((results.time.values == np.sort(results.time.values)).all())
+        self.assertTrue(results.time.is_monotonic_increasing)
 
     def test_collect_ro_observations_is_rising_is_boolean(self):
         """

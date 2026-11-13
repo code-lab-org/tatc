@@ -216,7 +216,7 @@ def compute_latencies(
 
     # compute latency
     obs["latency"] = obs["downlinked"] - obs["epoch"]
-    obs.rename(columns={"epoch": "observed"}, inplace=True)
+    obs = obs.rename(columns={"epoch": "observed"})
 
     # select relevant columns
     obs = obs[
