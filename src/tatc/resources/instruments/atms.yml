@@ -19,11 +19,11 @@ data_products:
     provider: NOAA Open Data Dissemination
     url: https://registry.opendata.aws/noaa-jpss/
     access: open
-default_configuration: swath
+default_configuration: swath_noaa_20
 configurations:
-  swath:
+  swath_noaa_20:
     grade: timing
-    description: The swath scanned between the outermost beam centers, with a view tailored to the analysis time step.
+    description: NOAA-20's swath scanned between the outermost beam centers, with a view tailored to the analysis time step.
     platforms: [noaa-20]
     velocity_frame: inertial
     instruments:
@@ -52,9 +52,9 @@ configurations:
     limitations:
       - TAT-C observes all pixels of a view at one instant, whereas ATMS sweeps its beams over about 1.7 s.
       - The view is centered on nadir. The outermost beams measure 52.84 deg to the left and 52.80 deg to the right.
-  beams:
+  beams_noaa_20:
     grade: sample_size
-    description: The 96 beam positions of a scan, in the three beam widths of ATMS's channels. Analyze one at a time with its instrument index.
+    description: NOAA-20's 96 beam positions of a scan, in the three beam widths of ATMS's channels. Analyze one at a time with its instrument index.
     platforms: [noaa-20]
     velocity_frame: inertial
     grouping: alternatives
@@ -213,4 +213,4 @@ configurations:
       - The yaw of 0.9341 deg and pitch of -0.1362 deg are those of the swath_noaa_21 configuration.
       - Pixels are projected at the time of a view, so beams near the edges of a scan are displaced along track by up to about 5 km from where ATMS samples them.
 limitations:
-  - The swath and beams configurations are fitted on NOAA-20, and swath_noaa_21 and beams_noaa_21 on NOAA-21, whose scan line is rotated by about 0.93 deg. NOAA-20's configurations on NOAA-21 are a transfer that warns on use; on 2026-11-05, the swath's passes were all found, but its width differed by 13.9 km and epochs by up to 3.3 s (95th percentile), and pixels lay 10.5 km from the beams (median). No configuration was tested on Suomi NPP.
+  - The swath_noaa_20 and beams_noaa_20 configurations are fitted on NOAA-20, and swath_noaa_21 and beams_noaa_21 on NOAA-21, whose scan line is rotated by about 0.93 deg. NOAA-20's configurations on NOAA-21 are a transfer that warns on use; on 2026-11-05, the swath's passes were all found, but its width differed by 13.9 km and epochs by up to 3.3 s (95th percentile), and pixels lay 10.5 km from the beams (median). No configuration was tested on Suomi NPP.

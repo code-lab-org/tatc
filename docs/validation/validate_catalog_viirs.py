@@ -92,7 +92,7 @@ FIT_DAYS = {
     "noaa-21": datetime(2026, 11, 5, tzinfo=timezone.utc),
 }
 CONFIGURATIONS = {
-    "noaa-20": ("swath", "zones", FIXTURES / "viirs.npz"),
+    "noaa-20": ("swath_noaa_20", "zones_noaa_20", FIXTURES / "viirs_noaa_20.npz"),
     "noaa-21": ("swath_noaa_21", None, FIXTURES / "viirs_noaa_21.npz"),
 }
 GEO = "All_Data/VIIRS-MOD-GEO-TC_All/"

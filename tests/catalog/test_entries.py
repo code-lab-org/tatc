@@ -81,6 +81,22 @@ class TestLoading(unittest.TestCase):
                     record.digest, entry.configurations[key].digest, (entry.id, key)
                 )
 
+    def test_platform_names(self):
+        """
+        Test that, in an entry with configurations fitted on more than one platform,
+        each configuration's name ends with its platform.
+        """
+        named = []
+        for entry in list_entries():
+            configurations = entry.configurations
+            if len({c.platforms for c in configurations.values()}) > 1:
+                for key, configuration in configurations.items():
+                    (platform,) = configuration.platforms
+                    suffix = "_" + platform.replace("-", "_")
+                    self.assertTrue(key.endswith(suffix), (entry.id, key))
+                named.append(entry.id)
+        self.assertEqual(named, ["atms", "omps_nm", "viirs"])
+
     def test_alias_lookup(self):
         """
         Test lookup by alias and name, ignoring case.
@@ -508,7 +524,7 @@ class TestEntryStatus(unittest.TestCase):
             for key, configuration in validation.configurations.items():
                 (platform,) = entry.configurations[key].platforms
                 self.assertEqual(configuration.record.platform, platform, key)
-                self.assertEqual(key.endswith("noaa_21"), platform == "noaa-21", key)
+                self.assertTrue(key.endswith(platform.replace("-", "_")), key)
                 self.assertEqual(configuration.record.evidence, "rerun", key)
                 self.assertEqual(
                     configuration.record.holdout_gap_days, gaps[platform], key
@@ -527,7 +543,7 @@ class TestEntryStatus(unittest.TestCase):
                 {"yaw_angle": 0.9341, "pitch_angle": -0.1362},
                 key,
             )
-        for key in ("swath", "beams"):
+        for key in ("swath_noaa_20", "beams_noaa_20"):
             self.assertEqual(entry.configurations[key].attitude, {}, key)
 
     def test_modis_entry_validated_on_terra(self):
@@ -893,7 +909,7 @@ class TestEntryStatus(unittest.TestCase):
         """
         validation = get_entry("omps_nm").validation
         self.assertEqual(validation.tier, Tier.PARTIAL)
-        for key in ("swath", "swath_noaa_20"):
+        for key in ("swath_noaa_21", "swath_noaa_20"):
             configuration = validation.configurations[key]
             self.assertEqual(
                 sorted(r.gate.metric for r in configuration.gates if not r.passed),

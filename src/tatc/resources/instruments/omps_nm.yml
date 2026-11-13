@@ -19,9 +19,9 @@ data_products:
     provider: NOAA Open Data Dissemination
     url: https://registry.opendata.aws/noaa-jpss/
     access: open
-default_configuration: swath
+default_configuration: swath_noaa_21
 configurations:
-  swath:
+  swath_noaa_21:
     grade: timing
     description: The swath imaged between the outermost samples of NOAA-21's Nadir Mapper, with a view tailored to the analysis time step.
     platforms: [noaa-21]

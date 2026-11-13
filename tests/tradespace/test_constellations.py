@@ -185,7 +185,7 @@ class TestBuild(unittest.TestCase):
         self.assertIsNotNone(satellite.attitude)
         both = build_constellation(
             design.layout,
-            ["atms:swath", "cris:swath"],
+            ["atms:swath_noaa_20", "cris:swath"],
             epoch=EPOCH,
             altitude=830e3,
             time_step=30,

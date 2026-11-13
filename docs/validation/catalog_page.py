@@ -355,9 +355,11 @@ Pass the analysis time step to configurations whose along-track field of view
 is tailored to it, and keep the attitude of the configuration: a scanner modeled
 in another velocity frame can misplace its swath edges by tens of kilometers.
 Pass the start and end of the analysis to configurations whose attitude is
-scheduled by day, such as OCI's tilt. Where a platform has configurations of its
-own (NOAA-21's ATMS and VIIRS), use them on that platform. The entries hold no
-element sets, as they age; supply a recent one for the analysis period.
+scheduled by day, such as OCI's tilt. Where an entry has configurations fitted
+on more than one platform (ATMS, VIIRS, and the OMPS Nadir Mapper), each
+configuration's name ends with its platform, such as ``swath_noaa_21``; use
+those of the platform analyzed. The entries hold no element sets, as they age;
+supply a recent one for the analysis period.
 
 """
     body = "\n".join(render_entry(entry) for entry in entries)

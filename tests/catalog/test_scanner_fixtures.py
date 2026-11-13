@@ -247,11 +247,13 @@ class _ScannerFixture(_SwathFixture):
 
 class TestAtmsFixture(_ScannerFixture, unittest.TestCase):
     """
-    Regression tests of the ATMS entry.
+    Regression tests of the ATMS entry's configurations of NOAA-20.
     """
 
     entry_id = "atms"
-    sizes_key = "beams"
+    fixture_name = "atms_noaa_20"
+    swath_key = "swath_noaa_20"
+    sizes_key = "beams_noaa_20"
     footprints = (
         ("ATMS channels 1-2", 824, 98.7, 0, 74.8, 74.8),
         ("ATMS channels 1-2", 824, 98.7, 52.725, 141.8, 323.1),
@@ -295,11 +297,13 @@ class TestAtmsNoaa21Fixture(TestAtmsFixture):
 
 class TestViirsFixture(_ScannerFixture, unittest.TestCase):
     """
-    Regression tests of the VIIRS entry.
+    Regression tests of the VIIRS entry's configurations of NOAA-20.
     """
 
     entry_id = "viirs"
-    sizes_key = "zones"
+    fixture_name = "viirs_noaa_20"
+    swath_key = "swath_noaa_20"
+    sizes_key = "zones_noaa_20"
     footprints = (
         ("VIIRS zone 2", 824, 98.7, 0, 0.742, 0.776),
         ("VIIRS zone 4", 824, 98.7, 56.0, 1.60, 1.58),
@@ -584,10 +588,12 @@ class _StepSwathFixture(_SwathFixture):
 
 class TestOmpsNmFixture(_StepSwathFixture, unittest.TestCase):
     """
-    Regression tests of the OMPS Nadir Mapper entry on NOAA-21.
+    Regression tests of the OMPS Nadir Mapper entry's configuration of NOAA-21.
     """
 
     entry_id = "omps_nm"
+    fixture_name = "omps_nm_noaa_21"
+    swath_key = "swath_noaa_21"
     platform = "noaa-21"
 
 

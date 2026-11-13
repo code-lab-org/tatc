@@ -801,7 +801,7 @@ def build_constellation(
     * an `Instrument` (or a list of instruments);
     * the identifier of an entry of the instrument catalog (see
       `tatc.catalog.get_entry`), optionally with a configuration after a
-      colon (such as `"atms:swath"`), whose instruments are built for the
+      colon (such as `"atms:swath_noaa_20"`), whose instruments are built for the
       orbit with the attitude they were validated with (and, if the
       configuration tailors a field of view, the analysis `time_step`), or
       a list of identifiers, whose instruments the satellite carries

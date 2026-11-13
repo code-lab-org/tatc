@@ -90,7 +90,7 @@ FIT_DAYS = {
     "noaa-21": datetime(2026, 11, 5, tzinfo=timezone.utc),
 }
 CONFIGURATIONS = {
-    "noaa-20": ("swath", "beams", FIXTURES / "atms.npz"),
+    "noaa-20": ("swath_noaa_20", "beams_noaa_20", FIXTURES / "atms_noaa_20.npz"),
     "noaa-21": ("swath_noaa_21", "beams_noaa_21", FIXTURES / "atms_noaa_21.npz"),
 }
 FIELDS = (

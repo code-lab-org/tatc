@@ -1,7 +1,7 @@
 {
   "entry_id": "atms",
   "configurations": {
-    "beams": {
+    "beams_noaa_20": {
       "digest": "6204bdac0a0a5f41b83b74d9d919ba45e7b5b79523a76b208625e83235f47056",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
@@ -63,7 +63,7 @@
         "spacing_cross_ratio_median": 0.9991169024652665
       }
     },
-    "swath": {
+    "swath_noaa_20": {
       "digest": "b05ed81204ec49166c38805c94b006e2f976ddcb3019d4860a7334924f5cfb4a",
       "evidence": "rerun",
       "tatc_version": "3.6.0",

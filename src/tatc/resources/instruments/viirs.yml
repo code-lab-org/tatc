@@ -19,11 +19,11 @@ data_products:
     provider: NOAA Open Data Dissemination
     url: https://registry.opendata.aws/noaa-jpss/
     access: open
-default_configuration: swath
+default_configuration: swath_noaa_20
 configurations:
-  swath:
+  swath_noaa_20:
     grade: coverage
-    description: The swath scanned between the outermost moderate-resolution pixel centers, with a view tailored to the analysis time step.
+    description: NOAA-20's swath scanned between the outermost moderate-resolution pixel centers, with a view tailored to the analysis time step.
     platforms: [noaa-20]
     velocity_frame: inertial
     instruments:
@@ -84,9 +84,9 @@ configurations:
       - The view is centered on nadir. The outermost samples measure 55.92 deg to the left and 55.98 deg to the right, about 0.2 deg narrower in all than on NOAA-20.
       - The scan line looks 0.18 deg aft at nadir (about 2.7 km), and is rotated by 0.06 deg, which are not modeled.
       - Epochs are tested only to about 2 s, because reference times are interpolated from granule outlines, so this configuration is at the coverage grade.
-  zones:
+  zones_noaa_20:
     grade: sample_size
-    description: The five on-board aggregation zones of the moderate-resolution bands across a scan, from right to left. Analyze one at a time with its instrument index, or by the zone of each scan angle.
+    description: NOAA-20's five on-board aggregation zones of the moderate-resolution bands across a scan, from right to left. Analyze one at a time with its instrument index, or by the zone of each scan angle.
     platforms: [noaa-20]
     velocity_frame: inertial
     grouping: alternatives
@@ -170,4 +170,4 @@ configurations:
       - The zones are of the moderate-resolution (M) bands, not the imagery (I) bands.
       - A single PointedInstrument of equal pixels cannot represent VIIRS's aggregation zones, so a scan needs all five instruments.
 limitations:
-  - The swath and zones configurations are fitted on NOAA-20, and swath_noaa_21 on NOAA-21. NOAA-20's configurations on NOAA-21 are a transfer that warns on use; on 2026-11-05, every pass was found, with epochs within 2.2 s (95th percentile), but the swath width differed by 21.0 km, and the zones' pixels lay 3.2 km from the samples (median), within the gate. No configuration was tested on Suomi NPP.
+  - The swath_noaa_20 and zones_noaa_20 configurations are fitted on NOAA-20, and swath_noaa_21 on NOAA-21. NOAA-20's configurations on NOAA-21 are a transfer that warns on use; on 2026-11-05, every pass was found, with epochs within 2.2 s (95th percentile), but the swath width differed by 21.0 km, and the zones' pixels lay 3.2 km from the samples (median), within the gate. No configuration was tested on Suomi NPP.
