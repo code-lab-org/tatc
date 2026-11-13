@@ -312,6 +312,26 @@ class TestPlatformAnalysis(IssConstellationTestCase):
             rtol=0.005,
         )
 
+    def test_collect_platform_track_ground_blocked_hemisphere(self):
+        """
+        Test that a view of 180 degrees about nadir toward a target above the
+        instruments is an annulus wherever the platform is: the edge of the
+        view is horizontal, which a direction averaged from its edge (rather
+        than its center) would lie on, leaving the outcome to rounding.
+        """
+        for latitude, longitude in [(-70, -100), (-60, 25), (-60, 100), (10, 50)]:
+            with self.subTest(latitude=latitude, longitude=longitude):
+                platform = self.platforms[1].model_copy(
+                    update={
+                        "latitude": latitude,
+                        "longitude": longitude,
+                        "instruments": [Instrument(field_of_regard=180)],
+                    }
+                )
+                annulus = collect_platform_track(platform, elevation=1310).geometry
+                self.assertEqual(annulus.iloc[0].geom_type, "Polygon")
+                self.assertEqual(len(annulus.iloc[0].interiors), 1)
+
     def test_collect_platform_track_terrain_mask(self):
         """
         Test that a terrain mask clips footprints toward a target above the

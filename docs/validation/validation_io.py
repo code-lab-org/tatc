@@ -21,6 +21,7 @@ import requests
 from pyproj import Transformer
 from scipy.spatial import cKDTree
 from shapely.ops import unary_union
+import shapely
 from shapely import contains_xy, prepare
 
 from tatc.analysis import (
@@ -50,6 +51,17 @@ TO_ECEF = Transformer.from_crs("EPSG:4979", "EPSG:4978", always_xy=True)
 TO_GEODETIC = Transformer.from_crs("EPSG:4978", "EPSG:4979", always_xy=True)
 
 _SESSION = requests.Session()
+
+
+def transform_geometry(transform, geometry):
+    """
+    Transforms the coordinates of a geometry by a function of their x and y
+    arrays (such as a pyproj transform), as the deprecated
+    `shapely.ops.transform` did.
+    """
+    return shapely.transform(
+        geometry, lambda xy: np.column_stack(transform(xy[:, 0], xy[:, 1]))
+    )
 
 
 def get_with_retries(url: str, session=None, **kwargs) -> requests.Response:

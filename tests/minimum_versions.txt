@@ -1,0 +1,17 @@
+# Constraints for testing TAT-C with the minimum versions of its dependencies,
+# as the unit-test workflow does on Python 3.10:
+#
+#     pip install --prefer-binary -c tests/minimum_versions.txt -e ".[preprocess]"
+#     python tests/check_minimum_versions.py
+#
+# Pin each minimum version (>=) in pyproject.toml here; the check fails for any
+# that is missing or out of step. numpy and pyproj have no minimum of their
+# own: these are the oldest versions geopandas 1.0 allows, and pandas 2.0 and
+# shapely 2.0.1 need a numpy older than 2.
+geopandas==1.0.0
+numpy==1.22.4
+pandas==2.0.0
+pydantic==2.6.0
+pyproj==3.3.0
+shapely==2.0.1
+skyfield==1.49

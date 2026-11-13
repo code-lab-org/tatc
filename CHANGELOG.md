@@ -16,9 +16,12 @@ Changed:
  - Instruments reject unknown fields, rather than ignoring them: a misspelled field in the data of a `PointedInstrument` previously gave an `Instrument` with a field of regard of 180 degrees.
  - Dumping a `Satellite` or other system with a `PointedInstrument` or `ConicalInstrument` keeps the fields of its class, and loading the data restores it. Previously, these instruments were written and restored as a base `Instrument`, without a warning. Data written by earlier versions lacks these fields, so it still loads as an `Instrument`.
  - Dumping a space system with an `attitude` omits the `velocity_frame` of its instruments, which the attitude sets, so the data can be loaded.
+ - TAT-C requires geopandas 1.0, pandas 2.0, shapely 2.0.1, and skyfield 1.49 or later, the first versions with features it uses; it did not work with the earlier minimums. The unit tests also run with these minimum versions, on Python 3.10.
 
 Fixed:
  - `compute_projected_ray_position` of a rectangular view without along-track extent (a line across track) projected rays at angles of 180 and 360 degrees to the view's center, rather than its ends; likewise for a view without cross-track extent at 90 degrees. Rays of rectangular views at angles outside [0, 360) degrees, such as -90, were placed far from the view, and now match the equivalent angles. Instruments, whose fields of view must be positive, were not affected.
+ - The footprint of a view of 180 degrees about nadir toward a target above the instruments (as from a `SurfacePlatform`) was, at some locations, the sky above the horizontal, which the view excludes, rather than the annulus between the horizontal and the horizon. Whether such a view contains nadir was judged from the mean direction of its edge, which lies on the edge; it is now judged from the center of the view.
+ - `compute_latencies` no longer renames its columns in place, which pandas 3 deprecates with a warning. Tests and validation scripts no longer use `shapely.ops.transform`, which shapely 2.2 deprecates.
 
 ## 3.6.0
 

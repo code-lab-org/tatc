@@ -1758,10 +1758,8 @@ class TestBatchObservations(unittest.TestCase):
         self.assertGreater(len(alone), 0)
         self.assertEqual(len(alone), len(together))
         for column in ["start", "epoch", "end"]:
-            difference = (alone[column].values - together[column].values).astype(
-                "int64"
-            )
-            self.assertLess(np.abs(difference).max(), 1000)
+            difference = alone[column].array - together[column].array
+            self.assertLess(abs(difference).max(), pd.Timedelta(microseconds=1))
 
     def test_screening_angle(self):
         """
