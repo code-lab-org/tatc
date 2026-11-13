@@ -1,7 +1,7 @@
 {
   "entry_id": "viirs",
   "configurations": {
-    "zones": {
+    "zones_noaa_20": {
       "digest": "0a3441f63ce27d27721039490a7a8e3830de3f19aec836d8d1534441e21e8197",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
@@ -63,7 +63,7 @@
         "spacing_cross_ratio_median": 0.9999542714798568
       }
     },
-    "swath": {
+    "swath_noaa_20": {
       "digest": "be11dfbef71b6a962c089ff2a0c8e8ccd967dc9f1a21dc16e259d0701aaf8f51",
       "evidence": "rerun",
       "tatc_version": "3.6.0",

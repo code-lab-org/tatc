@@ -1,7 +1,7 @@
 {
   "entry_id": "omps_nm",
   "configurations": {
-    "swath": {
+    "swath_noaa_21": {
       "digest": "f4c2a37a0a87cdc3c9d400e4430dce483b27b22ad12b55e827792524736430fe",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
