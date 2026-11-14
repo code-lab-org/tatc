@@ -4,7 +4,8 @@ Validation Summary
 
 The validation notebooks compare TAT-C's analyses with data from operational
 missions: recorded orbits, geolocated samples, acquisition catalogs, and
-archives of observations, mostly from 2025 and 2026. This page summarizes
+archives of observations, mostly from 2025 and 2026, and one compares its
+trade study capabilities with a published cost analysis. This page summarizes
 their headline results by capability, the modeling choices they found to
 matter, and the limits of what TAT-C models. Each result links to the notebook
 with its full method, data, and figures. Results marked as held out come from the
@@ -215,6 +216,12 @@ Coverage Analyses
      - GMI and AMSR2 within 15 minutes
      - With `instantaneous=True`, 97.7% of true coincidences found and 99.9% of those found true, within 2.4 s (95th
        percentile); 98.2% of coincident points within coincident footprints (:doc:`ValidateCoincidenceGMIAMSR2`)
+   * - Sampling error (`estimate_sampling_error`)
+     - IMERG half-hourly precipitation, Maritime Continent, July 2025; four constellation designs
+     - With the statistics of June, errors of July's monthly means at 1,600 points as predicted (RMS standardized
+       errors 1.02 to 1.05; 94 to 95% within 2 predicted standard deviations); designs ranked by an order of magnitude,
+       as predicted; independent samples (`sigma / sqrt(n)`) overpredict dense sampling by up to 1.8 times
+       (:doc:`ValidateSamplingErrorIMERG`)
 
 Limb, Occultation, and Satellite-to-Satellite Analyses
 ======================================================
@@ -270,6 +277,31 @@ Ground Systems and Navigation
      - Within 0.01% (median) of an independent computation for the same satellites, including a clock per system
        (:doc:`ValidateDopGNSS`)
 
+Trade Studies
+=============
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 25 55
+
+   * - Capability
+     - Reference
+     - Result
+   * - Correlated cost risk (`Triangular`, `Component`, `CostModel.draw`, `risk_space`, `exceedance`)
+     - Maier, Yeakel, and Wendoloski (2023): two NSOSA constellations that share a geostationary configuration
+     - With the published numbers of blocks and units, replicates with common random numbers reproduce the
+       expected costs, standard deviations, and covariance of the constellations within their sampling error, and
+       the probability that one costs more than the other (97.8%; 94.8% with independent draws); Table I's growth
+       factors reproduced (:doc:`ValidateCostVarianceNSOSA`)
+   * - Production blocks and study periods (`DeploymentSchedule`, `SatelliteCost.block_size`)
+     - Launch schedules and production blocks of the same study
+     - Launches, production of later units, and developments of both blocks of the geostationary configuration
+       reproduced to the month; over the study period (a sustained constellation, with a design life of each
+       configuration), the published numbers of developments and units of two of three configurations
+       reproduced, and one constellation's expected cost; the third configuration's published numbers cannot be
+       derived from its schedule, which costs the constellation that flies it 4% more than published and raises
+       the probability above to 99.9% (:doc:`ValidateCostVarianceNSOSA`)
+
 Modeling Guidance
 =================
 
@@ -311,6 +343,23 @@ numerical error in TAT-C:
   5 deg reproduces the acquisitions of sun-synchronous land imagers.
 * **Coincidences of samples.** Observation periods of scanning instruments last
   minutes; compare their epochs with `instantaneous=True`.
+* **Statistics of sampled fields.** A single month's standard deviation of
+  precipitation at a point predicts the next month's poorly (a correlation of
+  0.16); smoothed or regional standard deviations, from climatology or another
+  period, give calibrated sampling errors, and one regional decorrelation time
+  suffices.
+* **Correlation of cost growth.** `CostModel.correlation` correlates the normal
+  scores from which the growths of components are drawn; the growths of skewed
+  distributions are correlated slightly less (0.486 for 0.5, with the cost
+  growth factors of formal risk assessments). Use about 0.514 to correlate the
+  costs of components by 0.5.
+* **Costs within a study period.** A mission that is not sustained costs the
+  satellites it launches by its end. To compare operational constellations
+  over a fixed study period, as architecture studies do, use
+  `DeploymentSchedule(sustained=True)`, which counts the share of the units
+  (and later blocks' developments) in production at the end; the two differ by
+  2 to 7% of the cost of a constellation over 30 years, unevenly between
+  alternatives.
 * **Navigation constellations.** Model the operational satellites (those with
   healthy broadcast ephemerides); public TLE groups include others, which make
   DOP 4 to 16% optimistic.
@@ -326,6 +375,10 @@ Not Modeled
 * Pointing limits in `collect_space_observations`, such as an antenna's field
   of view, and slews between attitudes, which are instantaneous.
 * Acquisition plans, downlink processing time, and data gaps.
+* Daily cycles of sampled fields: sampling errors model a stationary field, so
+  sun-synchronous sampling of a field with a strong daily cycle has errors up
+  to 25% larger than predicted, and a small bias (2 to 3% for IMERG
+  precipitation over the Maritime Continent).
 
 Changes to TAT-C from Validation
 ================================

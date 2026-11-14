@@ -31,6 +31,11 @@ Weights for random points can be read from a GeoTIFF raster with
 :func:`tatc.preprocess.read_raster_weights` (requires the optional
 `preprocess` dependencies, ``pip install tatc[preprocess]``).
 
+Rotated Lattice
+---------------
+
+.. autofunction:: tatc.generation.generate_points_rotated_lattice
+
 Cells
 =====
 

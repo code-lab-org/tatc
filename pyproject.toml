@@ -107,6 +107,12 @@ osse = [
 preprocess = [
     "rasterio"
 ]
+tradespace = [
+    "joblib",
+    "matplotlib",
+    "optuna",
+    "pymoo"
+]
 validation = [
     "tatc[examples,preprocess]",
     "awsgnssroutils",

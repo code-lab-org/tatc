@@ -100,6 +100,111 @@ def generate_points_fibonacci_lattice(
     return gdf
 
 
+def _random_rotation(rng: np.random.Generator) -> np.ndarray:
+    """
+    Draws a rotation matrix uniformly over the rotations of a sphere (from a
+    uniform random unit quaternion, after Shoemake, 1992).
+    """
+    u1, u2, u3 = rng.random(3)
+    x, y = np.sqrt(1 - u1) * np.sin(2 * np.pi * u2), np.sqrt(1 - u1) * np.cos(
+        2 * np.pi * u2
+    )
+    z, w = np.sqrt(u1) * np.sin(2 * np.pi * u3), np.sqrt(u1) * np.cos(2 * np.pi * u3)
+    return np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ]
+    )
+
+
+def generate_points_rotated_lattice(
+    count: int,
+    elevation: float = 0,
+    mask: Polygon | MultiPolygon | None = None,
+    seed: int | np.random.Generator | None = None,
+) -> gpd.GeoDataFrame:
+    """
+    Generates geodetic points of a Fibonacci lattice (see
+    `generate_points_fibonacci_lattice`) in a random orientation: a
+    stratified sample of the sphere (randomized quasi-Monte Carlo). Each
+    point is distributed uniformly by surface area, as are those of
+    `generate_points_random`, but the points cover the sphere evenly rather
+    than clustering by chance, so that statistics of samples of points (such
+    as the share of points sampled sufficiently, over the replicates of a
+    trade study) vary less between samples of the same size (with about 1.5
+    to 4 times less variance for the shares of points that constellations
+    sample).
+
+    With a mask, the lattice covers the sphere with about `count` points
+    inside the mask (from the mask's share of the sphere's area), and the
+    number of points inside varies slightly with the orientation.
+
+    Args:
+        count (int): The number of points (about, with a mask).
+        elevation (float): The elevation (meters) above the datum in the WGS 84
+            coordinate system.
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None): An
+            optional mask to constrain points using WGS84 (EPSG:4326)
+            geodetic coordinates in a Polygon or MultiPolygon.
+        seed (int | numpy.random.Generator | None): An optional seed (or
+            generator) of the orientation.
+
+    Returns:
+        geopandas.GeoDataFrame: the data frame of generated points, each
+            identified by the hash of its geometry (`point_id`, see
+            `tatc.utils.geometry.hash_geometry`)
+    """
+    if count < 0:
+        raise ValueError(f"Count must not be negative, got {count}.")
+    rng = np.random.default_rng(seed)
+    samples = count
+    if mask is not None:
+        if not isinstance(mask, (Polygon, MultiPolygon)) or not mask.is_valid:
+            raise ValueError("Mask is not a valid Polygon or MultiPolygon.")
+        # the mask's share of the sphere, with its edges straight in
+        # longitude and latitude (as clipped): its area in a cylindrical
+        # equal-area projection (longitude and the sine of latitude, in
+        # radians) of the mask with edges divided into short segments
+        dense = shapely.segmentize(mask, 0.5)
+        projected = shapely.transform(
+            dense,
+            lambda xy: np.column_stack(
+                [np.radians(xy[:, 0]), np.sin(np.radians(xy[:, 1]))]
+            ),
+        )
+        share = projected.area / (4 * np.pi)
+        if share <= 0:
+            raise ValueError("Mask has no area.")
+        samples = int(round(count / min(share, 1.0)))
+    index = np.arange(samples)
+    # the lattice of generate_points_fibonacci_lattice, as unit vectors
+    sin_latitude = 2 * (index + 1) / (samples + 2) - 1
+    longitude = 2 * np.pi * index / ((1 + np.sqrt(5)) / 2)
+    cos_latitude = np.sqrt(1 - sin_latitude**2)
+    vectors = np.column_stack(
+        [
+            cos_latitude * np.cos(longitude),
+            cos_latitude * np.sin(longitude),
+            sin_latitude,
+        ]
+    )
+    vectors = vectors @ _random_rotation(rng).T
+    latitudes = np.degrees(np.arcsin(np.clip(vectors[:, 2], -1, 1)))
+    longitudes = np.degrees(np.arctan2(vectors[:, 1], vectors[:, 0]))
+    gdf = gpd.GeoDataFrame(
+        geometry=shapely.points(
+            longitudes, latitudes, np.full_like(longitudes, elevation)
+        ),
+        crs="EPSG:4326",
+    )
+    if mask is not None:
+        gdf = clip_to_mask(gdf, mask)
+    gdf.insert(0, "point_id", _hash_geometries(gdf.geometry))
+    return gdf
+
+
 def generate_points_uniform_spacing(
     distance: float,
     elevation: float = 0,

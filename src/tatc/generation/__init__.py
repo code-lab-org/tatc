@@ -9,6 +9,7 @@ from .cells import (
 from .points import (
     generate_points_fibonacci_lattice,
     generate_points_random,
+    generate_points_rotated_lattice,
     generate_points_uniform_angular_distance,
     generate_points_uniform_spacing,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "generate_cells_uniform_spacing",
     "generate_points_fibonacci_lattice",
     "generate_points_random",
+    "generate_points_rotated_lattice",
     "generate_points_uniform_angular_distance",
     "generate_points_uniform_spacing",
 ]

@@ -8,6 +8,7 @@ Analysis functions simulate mission operation to compute key performance metrics
   :maxdepth: 1
 
   coverage
+  sufficiency
   track
   coincidence
   feature_coverage

@@ -58,6 +58,14 @@ from .sample_sizes import compute_sample_sizes
 from .space_sampling import (
     collect_space_observations,
 )
+from .sufficiency import (
+    compare_sampled_means,
+    compute_local_time_coverage,
+    compute_revisit_statistics,
+    estimate_sampling_error,
+    sample_field,
+    sampling_error_variance,
+)
 
 __all__ = [
     "DopMethod",
@@ -79,18 +87,24 @@ __all__ = [
     "collect_region_observations",
     "collect_ro_observations",
     "collect_space_observations",
+    "compare_sampled_means",
     "compute_access_periods",
     "compute_dop",
     "compute_ground_track",
     "compute_latencies",
+    "compute_local_time_coverage",
     "compute_platform_track",
-    "compute_sample_sizes",
     "compute_radar_track",
     "compute_region_access_periods",
+    "compute_revisit_statistics",
+    "compute_sample_sizes",
+    "estimate_sampling_error",
     "find_coincident_ground_track",
     "find_coincident_observations",
     "grid_latencies",
     "grid_observations",
     "reduce_latencies",
     "reduce_observations",
+    "sample_field",
+    "sampling_error_variance",
 ]
