@@ -14,7 +14,14 @@ from collections.abc import Mapping
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria, _as_criteria, _get_tolerances, _signs, aggregate
+from .criteria import (
+    Criteria,
+    _as_criteria,
+    _get_tolerances,
+    _signs,
+    _with_values,
+    aggregate,
+)
 
 
 def _scales(criteria: Criteria, scale: Mapping[str, float] | None) -> np.ndarray:
@@ -37,6 +44,16 @@ def _scales(criteria: Criteria, scale: Mapping[str, float] | None) -> np.ndarray
     if not np.all(values > 0):
         raise ValueError("the scales of the objectives must be positive")
     return values
+
+
+def _same_in_every(table: pd.DataFrame) -> bool:
+    """Whether every row of a table has the same value in each of its columns
+    that has one."""
+    values = table.to_numpy(dtype=float)
+    reference = pd.DataFrame(values).bfill(axis=1).to_numpy()[:, :1]
+    with np.errstate(invalid="ignore"):
+        same = np.isclose(values, reference, rtol=1e-12, atol=0.0) | np.isnan(values)
+    return bool(same.all())
 
 
 def robustness(
@@ -91,9 +108,11 @@ def robustness(
 
     Returns:
         pandas.DataFrame: a row per design (`design`): the values of the
-            design (as a summary keeps them, see `aggregate`), its
-            `pareto_trace`, `max_regret`, and regret in each scenario
-            (`<scenario> regret`)
+            design (as a summary keeps them, see `aggregate`), each objective
+            in each scenario (`<scenario> <objective>`, or `<objective>` if
+            it is the same in every scenario, such as a number of
+            satellites), its `pareto_trace`, `max_regret`, and regret in each
+            scenario (`<scenario> regret`)
 
     Raises:
         ValueError: if the results have no scenarios, or the criteria group
@@ -151,10 +170,16 @@ def robustness(
         "pareto",
     }
     values = [column for column in summary.columns if column not in judged_columns]
-    first = results.drop_duplicates("design").set_index("design")
     frame = pd.DataFrame({"design": designs})
-    for column in values:
-        frame[column] = first.loc[designs, column].to_numpy()
+    _with_values(frame, results, designs, values)
+    for name in objectives:
+        table = summary.pivot(index="design", columns=scenario, values=name)
+        table = table.reindex(index=designs, columns=scenarios)
+        if _same_in_every(table):
+            frame[name] = table.bfill(axis=1).iloc[:, 0].to_numpy()
+        else:
+            for group in scenarios:
+                frame[f"{group} {name}"] = table[group].to_numpy()
     frame["pareto_trace"] = (trace / max(len(scenarios), 1)).to_numpy()
     frame["max_regret"] = regret.max(axis=1).to_numpy()
     for name in scenarios:

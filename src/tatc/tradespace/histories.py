@@ -13,23 +13,20 @@ from __future__ import annotations
 import itertools
 import math
 import warnings
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 
-from ..schemas import Satellite
-from .criteria import _OPERATORS, Requirement
+from .criteria import Requirement
 from .failures import FailureModel, RestorationPolicy
 from .mission import (
     PHASE_COLUMNS,
+    Capability,
     MissionHistory,
     Phase,
-    PhaseCache,
-    _as_cache,
     _position_names,
-    _satellite_keys,
     summarize_phases,
 )
 from .simulation import _Simulation
@@ -40,14 +37,10 @@ if TYPE_CHECKING:
 
 def evaluate_missions(
     histories: Sequence[MissionHistory],
-    satellites: Sequence[Satellite],
-    observations: pd.DataFrame,
-    metric: Callable[..., Mapping[str, float]] | PhaseCache,
+    capability: Capability,
     *,
-    context: Any = None,
     cost_model: Any = None,
     growth: Any = 1.0,
-    design: Any = None,
 ) -> pd.DataFrame:
     """
     Evaluates histories of a mission (such as those of a replicate, see
@@ -56,23 +49,15 @@ def evaluate_missions(
     measures (see `MissionHistory.metrics`), and its cost (see
     `CostEstimate.metrics`, with a cost model). The histories share the
     observations of the replicate, so that each set of operating satellites
-    is evaluated once (by a `PhaseCache` given as the metric, which keeps
-    them for other calls, or one of this call's own).
+    is evaluated once, by the capability of the satellites (see
+    `Capability.evaluate`, with the cache of its metric).
 
     Args:
         histories (Sequence[MissionHistory]): The histories.
-        satellites (Sequence[Satellite]): The satellites (see
-            `MissionHistory.phases`).
-        observations (pandas.DataFrame): The observations of every
-            satellite, with their names (`satellite`).
-        metric (Callable | PhaseCache): A function of the observations of a
-            phase that gives its metrics, or a cache of one.
-        context (Any): A hashable identifier of the observations, for a
-            cache.
+        capability (Capability): The capability of the satellites: their
+            observations (of the replicate) and metric.
         cost_model (CostModel | None): A model of the cost of each history.
         growth (float | Mapping[str, float]): The growth of the cost.
-        design (Design | None): The (realized) design of the mission, for a
-            metric with a parameter named `design` (see `PhaseCache`).
 
     Returns:
         pandas.DataFrame: a row per history (with its likelihood ratio,
@@ -80,12 +65,8 @@ def evaluate_missions(
     """
     rows = []
     weighted = any(history.weight != 1.0 for history in histories)
-    keys = _satellite_keys(satellites)
-    cache = _as_cache(metric)
     for history in histories:
-        phases = cache.evaluate(
-            history.phases(satellites), keys, observations, context, design
-        )
+        phases = capability.evaluate(history.phases(capability.satellites))
         row = {**summarize_phases(phases), **history.metrics()}
         if weighted:
             row["weight"] = history.weight
@@ -178,11 +159,8 @@ def summarize_missions(
                 numeric[column].to_numpy(dtype=float), weights, q
             )
     for requirement in requirements:
-        met = _OPERATORS[requirement.operator](
-            missions[requirement.name].to_numpy(dtype=float), requirement.value
-        )
-        statement = f"{requirement.name} {requirement.operator} {requirement.value:g}"
-        summary[f"P({statement})"] = float(np.sum(weights * met) / np.sum(weights))
+        met = requirement.met(missions[requirement.name].to_numpy(dtype=float))
+        summary[f"P({requirement})"] = float(np.sum(weights * met) / np.sum(weights))
     return summary
 
 
@@ -298,10 +276,6 @@ def _simulate_many(
     if stress <= 0 or (launch_stress is not None and launch_stress <= 0):
         raise ValueError("stress must be positive")
     launch_stress = stress if launch_stress is None else launch_stress
-    if sampling == "random" and stress == 1 and launch_stress == 1:
-        return [
-            deployment.simulate(failures, policy, (seed, k)) for k in range(histories)
-        ]
     return [
         _Simulation(
             deployment,
@@ -392,8 +366,8 @@ def allocate_histories(
     Returns:
         dict[str, float]: the recommended `histories` (and `replicates`, with
             a standard error), the standard deviations `between` and
-            `within`, and the cost of a replicate (`replicate cost`, seconds)
-            and of the evaluations (`cost`, seconds, with a standard error)
+            `within`, and the time of a replicate (`replicate seconds`) and of
+            the evaluations (`seconds`, with a standard error)
     """
     if len(records) < 2:
         raise ValueError("a pilot needs at least two replicates")
@@ -421,7 +395,7 @@ def allocate_histories(
         "histories": float(count),
         "between": math.sqrt(between),
         "within": math.sqrt(within),
-        "replicate cost": cost,
+        "replicate seconds": cost,
     }
     if standard_error is not None:
         if standard_error <= 0:
@@ -433,8 +407,8 @@ def allocate_histories(
             needed = math.ceil(within / (2 * standard_error**2 - between))
             count = int(min(max(needed, 1), count))
             cost = replicate_seconds + count * history_seconds
-            result.update(histories=float(count), **{"replicate cost": cost})
-        result.update(replicates=float(replicates), cost=replicates * cost)
+            result.update(histories=float(count), **{"replicate seconds": cost})
+        result.update(replicates=float(replicates), seconds=replicates * cost)
     return result
 
 
@@ -451,14 +425,14 @@ def _launch_groups(
     the probability that none has succeeded (`none`), and whether the group
     has launched.
     """
-    offsets = np.cumsum([0] + [built for _, built, _ in deployment.planes])
+    offsets = np.cumsum([0] + [plane.satellites for plane in deployment.planes])
     launches: dict[tuple[int, int], list] = {}
     for launch in sorted(deployment.launches, key=lambda l: l.time):
         launches.setdefault((launch.plane, launch.first), []).append(launch)
     p = failures.launch
     groups = []
     for (plane, first), sequence in launches.items():
-        built = deployment.planes[plane][1]
+        built = deployment.planes[plane].satellites
         members = [
             int(offsets[plane]) + position
             for position in range(first, min(first + sequence[0].satellites, built))
@@ -512,12 +486,8 @@ def _set_weight(active: np.ndarray, groups: list) -> float:
 def expected_missions(
     deployment: Deployment,
     failures: FailureModel,
-    satellites: Sequence[Satellite],
-    observations: pd.DataFrame,
-    metric: Callable[..., Mapping[str, float]] | PhaseCache,
+    capability: Capability,
     *,
-    context: Any = None,
-    design: Any = None,
     tolerance: float = 1e-3,
     steps: int = 400,
     max_sets: int = 200_000,
@@ -552,16 +522,9 @@ def expected_missions(
     Args:
         deployment (Deployment): The deployment.
         failures (FailureModel): The failures.
-        satellites (Sequence[Satellite]): The satellites, in the order of the
-            planes (see `MissionHistory.phases`).
-        observations (pandas.DataFrame): The observations of every
-            satellite, with their names (`satellite`).
-        metric (Callable | PhaseCache): A function of the observations of a
-            set of satellites that gives its metrics, or a cache of one.
-        context (Any): A hashable identifier of the observations, for a
-            cache.
-        design (Design | None): The (realized) design of the mission, for a
-            metric with a parameter named `design` (see `PhaseCache`).
+        capability (Capability): The capability of the satellites (in the
+            order of the planes, see `MissionHistory.phases`): their
+            observations and metric (see `Capability.evaluate`).
         tolerance (float): The share of the mission's time that the sets
             evaluated may leave out.
         steps (int): The times at which the probabilities are integrated.
@@ -580,7 +543,7 @@ def expected_missions(
             "exact expectations need a deployment that is not staged: "
             + "simulate histories of a staged deployment instead"
         )
-    names = list(_position_names(deployment.planes, satellites).values())
+    names = list(_position_names(deployment.planes, capability.satellites).values())
     begin, end = deployment.begin, deployment.end
     times = begin + (np.arange(steps) + 0.5) * (end - begin) / steps
     count, groups = _launch_groups(deployment, failures, times)
@@ -613,13 +576,11 @@ def expected_missions(
         if covered >= 1 - tolerance:
             break
     weights.sort(key=lambda item: -item[0])
-    keys = _satellite_keys(satellites)
-    cache = _as_cache(metric)
     totals: dict[str, float] = {}
     evaluated, sets = 0.0, 0
     for weight, members in weights:
         phase = Phase(begin, end, tuple(names[k] for k in members))
-        values = cache.evaluate([phase], keys, observations, context, design).iloc[0]
+        values = capability.evaluate([phase]).iloc[0]
         for name, value in values.items():
             if name in PHASE_COLUMNS:
                 continue

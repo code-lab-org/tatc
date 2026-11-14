@@ -92,7 +92,6 @@ study = ObservationStudy(
     build,
     OBSERVATIONS,
     count_samples,
-    layout="layout",
     replicates=N_REPLICATES,
     n_jobs=-1,
     store=ResultStore(CACHE_DIRECTORY / "results.sqlite"),

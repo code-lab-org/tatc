@@ -42,7 +42,12 @@ from tatc.tradespace.histories import (
     expected_missions,
     summarize_missions,
 )
-from tatc.tradespace.mission import PhaseCache, evaluate_phases, summarize_phases
+from tatc.tradespace.mission import (
+    Capability,
+    PhaseCache,
+    evaluate_phases,
+    summarize_phases,
+)
 from tatc.tradespace.values import configure
 
 
@@ -71,7 +76,7 @@ class _Fixed(Lifetime):
     def hazard(self, age):
         return np.zeros_like(np.asarray(age, dtype=float))
 
-    def sample(self, rng):
+    def from_uniform(self, uniform):
         return self.years
 
 
@@ -562,14 +567,10 @@ class TestManyMissions(unittest.TestCase):
         model = CostModel(
             SatelliteCost(development=10, first_unit=5), launch=LaunchCost(per_launch=3)
         )
-        missions = evaluate_missions(
-            histories,
-            self.satellites,
-            self.observations,
-            PhaseCache(self._metric),
-            context="r0",
-            cost_model=model,
+        capability = Capability(
+            self.satellites, self.observations, PhaseCache(self._metric), "r0"
         )
+        missions = evaluate_missions(histories, capability, cost_model=model)
         self.assertEqual(len(missions), 30)
         for column in (
             "share mission",
@@ -598,7 +599,7 @@ class TestManyMissions(unittest.TestCase):
         )
         # without a cache, the same evaluations
         direct = evaluate_missions(
-            histories, self.satellites, self.observations, self._metric
+            histories, Capability(self.satellites, self.observations, self._metric)
         )
         np.testing.assert_allclose(direct["share mission"], missions["share mission"])
 
@@ -754,7 +755,7 @@ class TestAllocateHistories(unittest.TestCase):
         variance = result["between"] ** 2 + result["within"] ** 2 / result["histories"]
         self.assertEqual(result["replicates"], math.ceil(variance / 0.25))
         self.assertAlmostEqual(
-            result["cost"], result["replicates"] * result["replicate cost"]
+            result["seconds"], result["replicates"] * result["replicate seconds"]
         )
         # costlier histories call for fewer of them
         fewer = allocate_histories(records, "share", 20, 100, 10)
@@ -816,19 +817,14 @@ class TestExpectedMissions(unittest.TestCase):
 
     def _compare(self, schedule, failures):
         deployment = schedule.plan(self.layout)
-        exact = expected_missions(
-            deployment,
-            failures,
-            self.satellites,
-            self.observations,
-            PhaseCache(self._metric),
+        capability = Capability(
+            self.satellites, self.observations, PhaseCache(self._metric)
         )
+        exact = expected_missions(deployment, failures, capability)
         histories = deployment.simulate_many(
             failures, RestorationPolicy(restore=False), 3, 4000
         )
-        missions = evaluate_missions(
-            histories, self.satellites, self.observations, PhaseCache(self._metric)
-        )
+        missions = evaluate_missions(histories, capability)
         error = missions["score mission"].std() / np.sqrt(len(missions))
         self.assertAlmostEqual(
             exact["score mission"], missions["score mission"].mean(), delta=4 * error
@@ -861,9 +857,8 @@ class TestExpectedMissions(unittest.TestCase):
         deployment = DeploymentSchedule(
             years=4, development_years=1, production_rate=2
         ).plan(self.layout)
-        exact = expected_missions(
-            deployment, FailureModel(), self.satellites, self.observations, self._metric
-        )
+        capability = Capability(self.satellites, self.observations, self._metric)
+        exact = expected_missions(deployment, FailureModel(), capability)
         phases = deployment.phases(self.satellites)
         planned = summarize_phases(
             evaluate_phases(phases, self.observations, self._metric)
@@ -873,13 +868,7 @@ class TestExpectedMissions(unittest.TestCase):
         )
         self.assertEqual(exact["availability"], 1.0)
         # every launch fails: nothing operates
-        lost = expected_missions(
-            deployment,
-            FailureModel(launch=1.0),
-            self.satellites,
-            self.observations,
-            self._metric,
-        )
+        lost = expected_missions(deployment, FailureModel(launch=1.0), capability)
         self.assertEqual(lost["availability"], 0.0)
         self.assertEqual(lost["score mission"], 0.0)
 
@@ -891,18 +880,14 @@ class TestExpectedMissions(unittest.TestCase):
             expected_missions(
                 deployment,
                 failures,
-                self.satellites,
-                self.observations,
-                self._metric,
+                Capability(self.satellites, self.observations, self._metric),
                 max_sets=3,
             )
         with self.assertRaises(ValueError):
             expected_missions(
                 deployment,
                 failures,
-                self.satellites[:3],
-                self.observations,
-                self._metric,
+                Capability(self.satellites[:3], self.observations, self._metric),
             )
 
 

@@ -388,10 +388,17 @@ class TestDesignsOf(unittest.TestCase):
         keys = [self.designs[3].key, self.designs[1].key]
         some = self.space.designs_of(self.frame.set_index("design"), keys)
         self.assertEqual([d.key for d in some], keys)
-        # without keys, every row's design once
+        # a design for each row, aligned with the rows (as of results of
+        # several rows of a design), each design rebuilt once
+        twice = pd.concat([self.frame, self.frame], ignore_index=True)
+        aligned = self.space.designs_of(twice)
+        self.assertEqual(list(aligned.index), list(twice.index))
+        self.assertEqual(list(aligned.map(lambda d: d.key)), list(twice.design))
+        self.assertIs(aligned.iloc[0], aligned.iloc[len(self.frame)])
+        # without keys, every row's design
         bare = self.frame.drop(columns="design")
         rebuilt = self.space.designs_of(pd.concat([bare, bare]))
-        self.assertEqual(len(rebuilt), len(self.designs))
+        self.assertEqual(len(rebuilt), 2 * len(self.designs))
 
     def test_errors(self):
         """Rows without the values of decisions, or of other designs, raise."""
@@ -586,3 +593,55 @@ class TestUncertainConstructors(unittest.TestCase):
         self.assertEqual(space.enumerate()[0].x, 0.5)
         self.assertEqual(Uncertain.normal(0, 1, nominal=0.0).nominal, 0.0)
         self.assertIn("seed()", repr(Uncertain.seed()))
+
+
+class TestDecisionsAndViews(unittest.TestCase):
+    """
+    Unit tests for decisions given by value, and the views of values.
+    """
+
+    def test_levels(self):
+        """Decisions given by value are the levels of their domains."""
+        import numpy as np  # pylint: disable=import-outside-toplevel
+
+        space = DesignSpace(a=Integer(1, 4), b=Real(0.5, 1.5, step=0.5))
+        (enumerated,) = [d for d in space.enumerate() if d.a == 2 and d.b == 0.5]
+        for a in (2, 2.0, np.int64(2)):
+            design = space.design({"a": a, "b": 0.5})
+            self.assertEqual(design.key, enumerated.key)
+            self.assertIs(type(design.a), int)
+
+    def test_views(self):
+        """Designs and scopes tell whether they have values, and choices print
+        as the names of their branches."""
+        space = DesignSpace(
+            a=Integer(1, 2),
+            layout=Choice(walker=DesignSpace(planes=Integer(1, 2))),
+            constraints=[lambda d: d.get("a") >= 1 and "layout.walker.planes" in d],
+        )
+        design = space.enumerate()[0]
+        self.assertIn("a", design)
+        self.assertIn("layout.walker.planes", design)
+        self.assertNotIn("other", design)
+        self.assertEqual(str(design.layout), "walker")
+        with self.assertRaises(TypeError):
+            list(design)
+        with self.assertRaisesRegex(ValueError, "reserved"):
+            Choice(walker=DesignSpace(value=1))
+
+    def test_items(self):
+        """Items are given by index within the repetition only."""
+        space = DesignSpace(parts=Repeat(Integer(0, 1), count=3))
+        parts = space.enumerate()[0].parts
+        self.assertEqual(parts[-1], parts[2])
+        for index in (3, -4):
+            with self.assertRaises(IndexError):
+                parts[index]  # pylint: disable=pointless-statement
+
+    def test_counts_given(self):
+        """Items given for a count that is not decided must match it."""
+        space = DesignSpace(
+            n=Integer(1, 2), parts=Repeat(Integer(0, 1), count=Derived(lambda d: d.n))
+        )
+        with self.assertRaisesRegex(ValueError, "items are given"):
+            space.design({"n": 1, "parts": [0, 1]})

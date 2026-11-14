@@ -13,12 +13,24 @@ import json
 from typing import Any
 
 
+def _plain(value: Any) -> Any:
+    """
+    Gets a value that JSON holds of one it does not: a numpy scalar as
+    Python's, or another value as its string.
+    """
+    item = getattr(value, "item", None)
+    if callable(item) and type(value).__module__ == "numpy":
+        return item()
+    return str(value)
+
+
 def _canonical(value: Any) -> str:
     """
     Gets the canonical text of a plain value: its JSON, with the keys of
-    mappings sorted (and other values as their strings).
+    mappings sorted (numpy scalars as Python's, and other values as their
+    strings).
     """
-    return json.dumps(value, sort_keys=True, default=str)
+    return json.dumps(value, sort_keys=True, default=_plain)
 
 
 def _digest(data: str | bytes, length: int | None = None) -> str:

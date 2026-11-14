@@ -11,6 +11,7 @@ import tempfile
 import subprocess
 import sys
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 from datetime import datetime, timedelta, timezone
 from functools import partial
@@ -55,8 +56,8 @@ MODEL = None
 TABLE = pd.DataFrame({"a": [1.0]})
 
 
-class _Opaque:
-    """An object described by its type only."""
+class _Own:
+    """An object of a class of the study's own, described by its attributes."""
 
     def __init__(self, value):
         self.value = value
@@ -185,7 +186,13 @@ class TestFingerprint(unittest.TestCase):
         )
         self.assertNotEqual(get_fingerprint(points), get_fingerprint(moved))
         # other objects are described by their type only
-        self.assertEqual(get_fingerprint(_Opaque(1)), get_fingerprint(_Opaque(2)))
+        # objects of installed classes by their type, and of the study's own
+        # classes by their attributes (other than mutable containers)
+        self.assertEqual(
+            get_fingerprint(SimpleNamespace(value=1)),
+            get_fingerprint(SimpleNamespace(value=2)),
+        )
+        self.assertNotEqual(get_fingerprint(_Own(1)), get_fingerprint(_Own(2)))
 
     def test_attributes_are_not_globals(self):
         """Attributes named as globals do not refer to the globals."""
@@ -418,3 +425,38 @@ class TestDescriptions(unittest.TestCase):
             finally:
                 sys.path.remove(directory)
                 sys.modules.pop("tatc_own_helpers", None)
+
+
+class TestOwnClasses(unittest.TestCase):
+    """
+    Unit tests for the descriptions of the classes and objects of a study's
+    own code.
+    """
+
+    def test_objects(self):
+        """Callable objects of the study's own classes are described by their
+        attributes and the code of their classes' methods."""
+
+        def classes(body):
+            namespace = {"__name__": "__main__"}
+            exec(  # pylint: disable=exec-used
+                "class Score:\n"
+                "    def __init__(self, k):\n"
+                "        self.k = k\n"
+                "        self.calls = []\n"
+                "    def __call__(self, d):\n"
+                f"        return {body}\n",
+                namespace,
+            )
+            return namespace["Score"]
+
+        score = classes("{'v': d.a * self.k}")
+        self.assertNotEqual(get_fingerprint(f=score(1)), get_fingerprint(f=score(3)))
+        self.assertEqual(get_fingerprint(f=score(1)), get_fingerprint(f=score(1)))
+        # mutable attributes (such as records of calls) are state, not described
+        counted = score(1)
+        counted.calls.append(1)
+        self.assertEqual(get_fingerprint(f=counted), get_fingerprint(f=score(1)))
+        # the code of the methods of the class
+        edited = classes("{'v': d.a + self.k}")
+        self.assertNotEqual(get_fingerprint(f=score(1)), get_fingerprint(f=edited(1)))

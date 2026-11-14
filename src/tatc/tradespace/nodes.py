@@ -409,8 +409,8 @@ class Choice(Node):
     (typically a `DesignSpace`). The nodes of the other branches are
     inactive. The value of a choice gives the name of the chosen branch as
     `choice` (and equals it), and the values of the branch as its attributes
-    (see `ChoiceValues`), so that its branches may not be named `choice` or
-    `value`.
+    (see `ChoiceValues`), so that its branches, and the children of branches
+    that are groups, may not be named `choice` or `value`.
 
     Args:
         **branches (Node): The alternatives, by name.
@@ -423,6 +423,13 @@ class Choice(Node):
         if reserved:
             raise ValueError(f"reserved names of branches: {reserved}")
         self.branches = {name: _as_node(node) for name, node in branches.items()}
+        for name, node in self.branches.items():
+            children = getattr(node, "children", {})
+            reserved = sorted({"choice", "value"}.intersection(children))
+            if reserved:
+                raise ValueError(
+                    f"reserved names of the values of branch {name!r}: {reserved}"
+                )
 
     def __repr__(self) -> str:
         return f"Choice({', '.join(self.branches)})"

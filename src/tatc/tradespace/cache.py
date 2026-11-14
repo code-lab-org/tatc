@@ -103,9 +103,8 @@ class SatelliteCache:
     the same function with other code (of the function, of TAT-C, or of
     Python: the same values but for code, as a study warns of its store, see
     `Study`), which it does not reuse, with the differences from the latest
-    (see `compare_definitions`), and removes the results of other
-    definitions with `prune` (see `Observations.prune` for the caches of the
-    observations of a study). A result that cannot be read (such as one
+    (see `compare_definitions`), and removes them with `prune` (see
+    `Observations.prune` for the caches of the observations of a study). A result that cannot be read (such as one
     written with other versions of the libraries of its data) is computed
     again.
 
@@ -135,6 +134,7 @@ class SatelliteCache:
         self._memory: dict[str, Any] = {}
         self._unreadable: set[str] = set()
         self._folder: Path | None = None
+        self._definition: dict | None = None
         if self.directory is not None:
             definition = get_definition(function=function)
             self.fingerprint = _fingerprint_of(definition)
@@ -143,6 +143,7 @@ class SatelliteCache:
             self._folder.mkdir(parents=True, exist_ok=True)
             _write(self._folder.parent / "namespace.txt", namespace.encode())
             _write(self._folder / "definition.json", _canonical(definition).encode())
+            self._definition = definition
             self._warn_other_definitions(definition)
 
     @property
@@ -207,8 +208,10 @@ class SatelliteCache:
 
     def prune(self) -> int:
         """
-        Removes the results on disk of the namespace by other definitions of
-        the function (see `SatelliteCache`).
+        Removes the results on disk of the namespace by the function with
+        other code (the same values but for code, of which the cache warns,
+        see `SatelliteCache`), and not those of other functions (such as of
+        other targets) that share the namespace.
 
         Returns:
             int: the number of results removed
@@ -217,9 +220,13 @@ class SatelliteCache:
             return 0
         removed = 0
         for folder in self._folder.parent.iterdir():
-            if folder.is_dir() and folder != self._folder:
-                removed += sum(1 for _ in folder.glob("*.pkl"))
-                shutil.rmtree(folder, ignore_errors=True)
+            if not folder.is_dir() or folder == self._folder:
+                continue
+            other = _read_definition(folder)
+            if _with_other_code(self._definition, [other]) is None:
+                continue  # of another function
+            removed += sum(1 for _ in folder.glob("*.pkl"))
+            shutil.rmtree(folder, ignore_errors=True)
         return removed
 
     def _path(self, key: str) -> Path:

@@ -54,6 +54,64 @@ class _Booking:
     order: int = 0
 
 
+class _Draws:
+    """
+    The random numbers of the failures of a history: uniform numbers of each
+    draw (by its key), of a sampler of the histories of a replicate (such as
+    `_Sampler`) or from the seed of the history, from which the lives of
+    satellites and the failures of launches are drawn, stressed (with their
+    likelihood ratio) or not.
+    """
+
+    def __init__(
+        self,
+        seed: int | Sequence[int] | None,
+        uniforms: Callable[[tuple, int], np.ndarray] | None = None,
+        stress: float = 1.0,
+        launch_stress: float = 1.0,
+    ):
+        self.seed, self.stress, self.launch_stress = seed, stress, launch_stress
+        self.uniforms = self._from_seed if uniforms is None else uniforms
+        self.log_weight = 0.0
+
+    def _from_seed(self, key: tuple, dimensions: int) -> np.ndarray:
+        """The uniform numbers of a draw, from the seed and its key."""
+        seed = list(self.seed) if isinstance(self.seed, Sequence) else [self.seed]
+        return np.random.default_rng([*seed, *key]).random(dimensions)
+
+    @property
+    def weight(self) -> float:
+        """float: The likelihood ratio of the draws (1 without stress)."""
+        return math.exp(self.log_weight)
+
+    def life(self, life: Any, key: tuple, remaining: float) -> float:
+        """
+        Draws a life (years, infinite without a seed or a life), stressed
+        over the time remaining in the mission, if the draws are.
+        """
+        if self.seed is None or life is None:
+            return math.inf
+        uniform = self.uniforms(key, life.dimensions)
+        if self.stress == 1.0:
+            return life.from_uniform(uniform)
+        value, log_ratio = life.stressed(uniform, self.stress, remaining)
+        self.log_weight += log_ratio
+        return value
+
+    def launch_fails(self, probability: float, key: tuple) -> bool:
+        """Draws whether a launch fails (stressed, if the draws are)."""
+        if self.seed is None or probability == 0:
+            return False
+        uniform = self.uniforms(key, 1)[0]
+        if self.launch_stress == 1.0:
+            return bool(uniform < probability)
+        stressed = min(probability * self.launch_stress, 0.5)
+        failed = bool(uniform < stressed)
+        ratio = probability / stressed if failed else (1 - probability) / (1 - stressed)
+        self.log_weight += math.log(ratio)
+        return failed
+
+
 class _Simulation:
     """
     A discrete-event simulation of a mission (see `Deployment.simulate`).
@@ -72,9 +130,7 @@ class _Simulation:
         launch_stress: float = 1.0,
     ):
         self.deployment, self.failures, self.policy = deployment, failures, policy
-        self.seed, self.uniforms = seed, uniforms
-        self.stress, self.launch_stress = stress, launch_stress
-        self.log_weight = 0.0
+        self.draws = _Draws(seed, uniforms, stress, launch_stress)
         self.schedule = deployment.schedule
         self.end = deployment.end
         self.history = MissionHistory(
@@ -108,48 +164,15 @@ class _Simulation:
 
     # --- randomness
 
-    def _rng(self, *key: int) -> np.random.Generator:
-        seed = list(self.seed) if isinstance(self.seed, Sequence) else [self.seed]
-        return np.random.default_rng([*seed, *key])
-
     def _life(
         self, plane: int, position: int, generation: int, start: float = 0.0
     ) -> float:
-        if self.seed is None:
-            return math.inf
-        life = self.failures.life_of(self.deployment.planes[plane][0])
-        if life is None:
-            return math.inf
+        life = self.failures.life_of(self.deployment.planes[plane].kind)
         key = (0, plane, position, generation)
-        if self.stress != 1.0:
-            uniform = (
-                self.uniforms(key, life.dimensions)
-                if self.uniforms is not None
-                else self._rng(*key).random(life.dimensions)
-            )
-            value, log_ratio = life.stressed(uniform, self.stress, self.end - start)
-            self.log_weight += log_ratio
-            return value
-        if self.uniforms is not None:
-            return life.from_uniform(self.uniforms(key, life.dimensions))
-        return life.sample(self._rng(*key))
+        return self.draws.life(life, key, self.end - start)
 
     def _launch_fails(self, *key: int) -> bool:
-        if self.seed is None or self.failures.launch == 0:
-            return False
-        uniform = (
-            self.uniforms((1, *key), 1)[0]
-            if self.uniforms is not None
-            else self._rng(1, *key).random()
-        )
-        p = self.failures.launch
-        if self.launch_stress == 1.0:
-            return bool(uniform < p)
-        stressed = min(p * self.launch_stress, 0.5)
-        failed = bool(uniform < stressed)
-        ratio = p / stressed if failed else (1 - p) / (1 - stressed)
-        self.log_weight += math.log(ratio)
-        return failed
+        return self.draws.launch_fails(self.failures.launch, (1, *key))
 
     # --- events
 
@@ -162,12 +185,7 @@ class _Simulation:
         for kind in self.deployment.development:
             count = self.policy.ground_spares_of(kind)
             if count > 0:
-                begin = self.line[kind]
-                ready = begin + self.schedule.production_years(kind, count)
-                self.history.production.append(
-                    Production(kind, begin, ready, count, "spare")
-                )
-                self.line[kind] = ready
+                ready = self._produce(self.line[kind], kind, count, "spare")
                 self.ground.setdefault(kind, 0)
                 self._push(ready, "stock", kind, count)
         for launch in self.deployment.launches:
@@ -190,7 +208,7 @@ class _Simulation:
         for plane, since in self.spares_since.items():
             if self.spares[plane] > 0:
                 self.history.parked.append((since, self.end, self.spares[plane]))
-        self.history.weight = math.exp(self.log_weight)
+        self.history.weight = self.draws.weight
         self.history.stages = [
             self.decided.get(index) for index in range(len(self.deployment.stages))
         ]
@@ -205,7 +223,7 @@ class _Simulation:
     def _on_planned(self, time: float, launch: Launch) -> None:
         failed = self._launch_fails(0, launch.plane, launch.first, launch.generation)
         self.history.launches.append(replace(launch, failed=failed))
-        built = self.deployment.planes[launch.plane][1]
+        built = self.deployment.planes[launch.plane].satellites
         positions = range(launch.first, launch.first + launch.satellites)
         for position in positions:
             if position >= built:
@@ -223,7 +241,7 @@ class _Simulation:
                 self._up(time, launch.plane, position)
         spares = sum(position >= built for position in positions)
         if spares and not failed:
-            level = self.deployment.planes[launch.plane][2]
+            level = self.deployment.planes[launch.plane].spares
             if launch.purpose == "deployment":
                 self._park(time, launch.plane, spares)
             else:
@@ -279,23 +297,29 @@ class _Simulation:
         if slot.up is not None:  # restored by a planned replacement
             slot.pending = False
             return
-        kind = self.deployment.planes[plane][0]
+        kind = self.deployment.planes[plane].kind
         if self.spares[plane] > 0:
             self._park(time, plane, -1)
             self._push(
                 time + self.policy.drift_years, "activate", plane, position, "orbit"
             )
             if self.policy.replenish:
-                ready = self._produce(time, kind, 1, "spare")
+                ready = self._produce(
+                    time + self.policy.procurement_years, kind, 1, "spare"
+                )
                 self._book(plane, kind, ready, ("spare",))
         elif self.ground.get(kind, 0) > 0:
             self.ground[kind] -= 1
             self._book(plane, kind, time, ("slot", position, "ground"))
             if self.policy.replenish:
-                ready = self._produce(time, kind, 1, "spare")
+                ready = self._produce(
+                    time + self.policy.procurement_years, kind, 1, "spare"
+                )
                 self._push(ready, "stock", kind, 1)
         else:
-            ready = self._produce(time, kind, 1, "restoration")
+            ready = self._produce(
+                time + self.policy.procurement_years, kind, 1, "restoration"
+            )
             self._book(plane, kind, ready, ("slot", position, "production"))
 
     def _on_activate(self, time: float, plane: int, position: int, source: str) -> None:
@@ -391,10 +415,7 @@ class _Simulation:
             count = size + spares
             if count == 0:
                 continue
-            begin = max(self.line[kind], time + stage.lead_years)
-            ready = begin + self.schedule.production_years(kind, count)
-            self.line[kind] = ready
-            self.history.production.append(Production(kind, begin, ready, count))
+            ready = self._produce(time + stage.lead_years, kind, count)
             position = 0
             for carried in self.schedule.split(
                 count, self.deployment.masses.get(kind), self._plane(plane)
@@ -412,22 +433,22 @@ class _Simulation:
                         self._push(replacement.time, "planned", replacement)
                 position += carried
 
-    def _produce(self, time: float, kind: Any, count: int, purpose: str) -> float:
-        begin = max(self.line[kind], time + self.policy.procurement_years)
+    def _produce(
+        self, earliest: float, kind: Any, count: int, purpose: str = "deployment"
+    ) -> float:
+        """
+        Produces satellites on their type's line, from a time (after the work
+        before them), returning when they are ready.
+        """
+        begin = max(self.line[kind], earliest)
         ready = begin + self.schedule.production_years(kind, count)
         self.line[kind] = ready
         self.history.production.append(Production(kind, begin, ready, count, purpose))
         return ready
 
     def _slot(self, ready: float) -> float:
-        """The earliest launch at or after a time, at the launch cadence."""
-        interval = self.schedule.launch_interval
-        time = ready
-        if interval > 0:
-            for booked in self.booked:
-                if booked - interval < time < booked + interval:
-                    time = booked + interval
-        return time
+        """The earliest launch at or after a time (see `next_slot`)."""
+        return self.schedule.next_slot(self.booked, ready)
 
     def _plane(self, plane: int) -> tuple[int, Any]:
         """The index and values of a plane (see `DeploymentSchedule`)."""

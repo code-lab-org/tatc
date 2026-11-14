@@ -35,6 +35,7 @@ analyses of a study compare with deployments that are not staged.
 
 from __future__ import annotations
 
+import bisect
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -42,7 +43,14 @@ from typing import Any
 
 from ..schemas import Satellite
 from .constellations import layout_of
-from .events import Launch, PerType, Production, _per_type, _per_type_values
+from .events import (
+    Launch,
+    PerType,
+    PlannedPlane,
+    Production,
+    _per_type,
+    _per_type_values,
+)
 from .failures import FailureModel, RestorationPolicy
 from .histories import _expected_metrics, _simulate_many
 from .mission import Capability, Decision, MissionHistory, Phase
@@ -122,10 +130,10 @@ class Deployment:
 
     schedule: DeploymentSchedule
     """DeploymentSchedule: The schedule of the deployment."""
-    planes: list[tuple[Any, int, int]] = field(default_factory=list)
-    """list: The planes, in the order of the layouts' planes: the type of
-    their satellites, the number of satellites of the layout, and of
-    spares."""
+    planes: list[PlannedPlane] = field(default_factory=list)
+    """list[PlannedPlane]: The planes, in the order of the layouts' planes:
+    the type of their satellites, the number of satellites of the layout,
+    and of spares."""
     development: dict[Any, float] = field(default_factory=dict)
     """dict: The end of the development of each type of satellite (years)."""
     production: list[Production] = field(default_factory=list)
@@ -538,6 +546,28 @@ class DeploymentSchedule:
             raise ValueError("a launch capacity of each plane needs the plane")
         return float(capacity(*plane))
 
+    def next_slot(self, booked: Sequence[float], ready: float) -> float:
+        """
+        Gets the earliest time of a launch at or after a time that keeps the
+        launch interval from launches booked before (as the deployments of
+        plans and the launches of simulations book them).
+
+        Args:
+            booked (Sequence[float]): The times of the launches booked, in
+                order.
+            ready (float): The time when the launch is ready.
+
+        Returns:
+            float: the time of the launch
+        """
+        interval = self.launch_interval
+        time = ready
+        if interval > 0:
+            for other in booked:
+                if other - interval < time < other + interval:
+                    time = other + interval
+        return time
+
     def per_launch(
         self, mass: float | None = None, plane: tuple[int, Any] | None = None
     ) -> float:
@@ -672,7 +702,9 @@ class DeploymentSchedule:
             for plane in layout_of(item).planes():
                 size, values = plane.satellites, plane.values
                 index = len(deployment.planes)
-                deployment.planes.append((name, size, spares if size > 0 else 0))
+                deployment.planes.append(
+                    PlannedPlane(name, size, spares if size > 0 else 0)
+                )
                 deployment.plane_values.append(values)
                 if size > 0 and index not in staged:
                     listed.append((index, size + spares, values))
@@ -691,23 +723,18 @@ class DeploymentSchedule:
             )
         if not planes:
             raise ValueError("a deployment requires satellites (that are not staged)")
-        cadence = -math.inf
+        booked: list[float] = []
         for ready, index, name, size, mass in sorted(planes, key=lambda p: p[0]):
-            carried = self.split(size, mass, (index, deployment.plane_values[index]))
-            first = max(ready, cadence)
             position = 0
-            for j, satellites in enumerate(carried):
+            for satellites in self.split(
+                size, mass, (index, deployment.plane_values[index])
+            ):
+                time = self.next_slot(booked, ready)
+                bisect.insort(booked, time)
                 deployment.launches.append(
-                    Launch(
-                        first + j * self.launch_interval,
-                        index,
-                        name,
-                        position,
-                        satellites,
-                    )
+                    Launch(time, index, name, position, satellites)
                 )
                 position += satellites
-            cadence = first + len(carried) * self.launch_interval
         end = deployment.end
         for launch in list(deployment.launches):
             for production, replacement in self.replacements(launch, end):

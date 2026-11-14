@@ -7,6 +7,7 @@ Unit tests for trade studies.
 import importlib.util
 import tempfile
 import unittest
+from types import SimpleNamespace
 import warnings
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -248,10 +249,12 @@ class TestErrors(unittest.TestCase):
 
     def setUp(self):
         self.space = DesignSpace(a=Integer(1, 4))
-        self.fail = True
+        # the state of the evaluations, which their fingerprint does not see
+        # (an object of an installed class is described by its type)
+        self.state = SimpleNamespace(fail=True)
 
     def _evaluate(self, d):
-        if self.fail and d.a == 3:
+        if self.state.fail and d.a == 3:
             raise RuntimeError("diverged")
         return {"value": d.a}
 
@@ -276,7 +279,7 @@ class TestErrors(unittest.TestCase):
             self.assertFalse([c for c in results.columns if c.startswith("_")])
             self.assertEqual(len(store), 3)
             # a later run evaluates the failed evaluation again
-            self.fail = False
+            self.state.fail = False
             again = study.run()
             self.assertTrue(again.feasible.all())
             self.assertEqual(len(store), 4)

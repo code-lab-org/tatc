@@ -21,7 +21,10 @@ so if they are of their own module or of another module of the study's own,
 which is not installed (such as a module next to a notebook), so that a
 notebook's function that calls a function it imports from such a module is
 described as the module's copy of it is. Functions and classes of installed
-modules are described by their names, and other objects by their type only.
+modules are described by their names, and other objects by their type only,
+but for the classes of the study's own modules (by the code of their
+methods) and their objects (by their attributes and classes), such as a
+callable object that evaluates designs.
 Data that functions read (such as from files) and the code of installed
 modules they call (other than TAT-C's) are not described: identify them by
 a namespace (see `ResultStore` and `SatelliteCache`).
@@ -246,15 +249,85 @@ class _Describer:
         """
         Describes compiled code by its instructions, constants, and names (not
         its file or line numbers, which change as code moves, nor the
-        docstring `doc` of its function, which does not change results).
+        docstring `doc` of its function, which does not change results). The
+        constants include the small integers that some versions of Python
+        load by an instruction of their own (`LOAD_SMALL_INT`, from 3.14)
+        rather than from the constants of the code, so that the constants of
+        code are its literals in every version.
         """
         constants = list(code.co_consts)
         if doc is not None and constants and constants[0] == doc:
             constants = constants[1:]
+        constants.extend(
+            instruction.argval
+            for instruction in dis.get_instructions(code)
+            if instruction.opname == "LOAD_SMALL_INT"
+        )
         return {
             "code": code.co_code.hex(),
             "constants": [self.describe(c, depth + 1, seen) for c in constants],
             "names": list(code.co_names),
+        }
+
+    def klass(self, cls: type, depth: int, seen: set) -> dict:
+        """
+        Describes a class of the study's own (see `_is_own_module`): its name,
+        bases (other than `object`), and members: its functions (methods,
+        static and class methods, and the functions of properties) by their
+        code, and its constants.
+        """
+        if id(cls) in seen:
+            return {"class": cls.__qualname__, "recursive": True}
+        seen = seen | {id(cls)}
+        members: dict[str, Any] = {}
+        for name, member in sorted(vars(cls).items()):
+            if isinstance(member, (staticmethod, classmethod)):
+                member = member.__func__
+            if isinstance(member, property):
+                members[name] = {
+                    part: self.function(accessor, depth + 1, seen)
+                    for part, accessor in (("get", member.fget), ("set", member.fset))
+                    if isinstance(accessor, types.FunctionType)
+                }
+            elif isinstance(member, types.FunctionType):
+                members[name] = self.function(member, depth + 1, seen)
+            elif not name.startswith("__") and _is_constant(member):
+                members[name] = self.describe(member, depth + 1, seen)
+        return {
+            "class": cls.__qualname__,
+            "bases": [
+                self.describe(base, depth + 1, seen)
+                for base in cls.__bases__
+                if base is not object
+            ],
+            "members": members,
+        }
+
+    def instance(self, value: Any, depth: int, seen: set) -> dict:
+        """
+        Describes an object of a class of the study's own: its class (see
+        `klass`) and its attributes, but those that are mutable containers
+        (lists, dictionaries, and sets), which are often state (such as
+        records of calls), as globals of functions are.
+        """
+        if id(value) in seen:
+            return {**_type(value), "recursive": True}
+        seen = seen | {id(value)}
+        if hasattr(value, "__dict__"):
+            attributes = dict(vars(value))
+        else:
+            slots = getattr(type(value), "__slots__", ())
+            slots = [slots] if isinstance(slots, str) else list(slots)
+            attributes = {n: getattr(value, n) for n in slots if hasattr(value, n)}
+        attributes = {
+            name: attribute
+            for name, attribute in attributes.items()
+            if not isinstance(attribute, (list, dict, set, bytearray))
+        }
+        return {
+            **_type(value),
+            "class": self.klass(type(value), depth + 1, seen),
+            "attributes": self.describe(attributes, depth + 1, seen),
         }
 
     def function(self, function: types.FunctionType, depth: int, seen: set) -> dict:
@@ -330,7 +403,7 @@ class _Describer:
             return {"timedelta": value.total_seconds()}
         if _is_dataclass(value):
             self.note(type(value).__module__)
-            return {
+            described = {
                 **_type(value),
                 **{
                     item.name: self.describe(getattr(value, item.name), depth + 1, seen)
@@ -338,6 +411,9 @@ class _Describer:
                     if item.metadata.get("fingerprint", True)
                 },
             }
+            if _is_own_module(type(value).__module__):
+                described["class"] = self.klass(type(value), depth + 1, seen)
+            return described
         if isinstance(value, BaseModel):
             self.note(type(value).__module__)
             return {**_type(value), **value.model_dump(mode="json")}
@@ -396,6 +472,8 @@ class _Describer:
                 "arguments": self.describe(value.args, depth + 1, seen),
                 "keywords": self.describe(value.keywords, depth + 1, seen),
             }
+        if isinstance(value, type) and _is_own_module(value.__module__):
+            return self.klass(value, depth, seen)
         if isinstance(value, (types.BuiltinFunctionType, type)):
             self.note(getattr(value, "__module__", None))
             return {"name": _name(value)}
@@ -415,6 +493,8 @@ class _Describer:
                     for name, attribute in sorted(vars(value).items())
                 },
             }
+        if _is_own_module(type(value).__module__):
+            return self.instance(value, depth, seen)
         return _type(value)
 
 
@@ -714,17 +794,19 @@ def _differences(before: Any, after: Any, path: str) -> list[str]:
 def _without_code(description: Any) -> Any:
     """
     Gets a description of values without the code of their functions (the
-    instructions, constants, and names of compiled code, see
-    `_Describer.code`), which is the same for the same values with other
-    code (such as a function after it is edited, or compiled by another
-    version of Python).
+    instructions and names of compiled code, see `_Describer.code`), which is
+    the same for the same values with other code (such as a function after
+    its expressions are edited, or compiled by another version of Python).
+    The constants of the code (such as the numbers of a constraint) are
+    values: functions of other constants are of other studies, whose results
+    are not those of the same study with other code.
     """
     if isinstance(description, dict):
         code = {"code", "constants", "names"} <= set(description)
         return {
             key: _without_code(value)
             for key, value in description.items()
-            if not (code and key in ("code", "constants", "names"))
+            if not (code and key in ("code", "names"))
         }
     if isinstance(description, list):
         return [_without_code(value) for value in description]

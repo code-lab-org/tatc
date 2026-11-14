@@ -232,23 +232,19 @@ class Study:
         self,
         design: Design,
         replicate: int,
-        shift: Mapping[str, int] | None = None,
-        case: _Case | None = None,
+        shift: Mapping[str, int] | None,
+        case: _Case,
     ) -> list[dict]:
         """
         Evaluates a replicate of a design (with parameters drawn as in other
-        replicates, if shifted, and in a scenario, if any), returning its
-        records.
+        replicates, if shifted) in a case (a scenario, or none), returning
+        its records.
         """
         realized = design.realize(
-            replicate,
-            self.seed,
-            self.common_random_numbers,
-            shift,
-            None if case is None else case.values,
+            replicate, self.seed, self.common_random_numbers, shift, case.values
         )
         base: dict = {"design": design.key, "replicate": replicate}
-        if case is not None and case.name is not None:
+        if case.name is not None:
             base["scenario"] = case.name
         base.update(realized.flat())
         began = time.perf_counter()
@@ -297,18 +293,18 @@ class Study:
         design: Design,
         replicate: int,
         context: str,
-        shift: Mapping[str, int] | None = None,
-        case: _Case | None = None,
+        shift: Mapping[str, int] | None,
+        case: _Case,
     ) -> list[dict]:
         """
-        Evaluates a replicate of a design (shifted, if given, and in a
-        scenario, if any), adding its records to the store (if any, and if
-        they are stored, see `_UNSTORED`) in a context.
+        Evaluates a replicate of a design (shifted, if given) in a case,
+        adding its records to the store (if any, and if they are stored, see
+        `_UNSTORED`) in a context, as the variant of the case.
         """
         records = self._evaluate(design, replicate, shift, case)
         if self.store is not None and not _unstored(records):
-            variant = _variant_of(shift) if case is None else case.variant
-            if case is not None and case.name is not None:
+            variant = case.variant
+            if case.name is not None:
                 # the evaluations of a scenario are stored by its values, not
                 # its name (which the results give, see `_in_scenario`)
                 kept = [
@@ -321,19 +317,20 @@ class Study:
 
     def _run_chunk(
         self,
-        tasks: list[tuple[int, Design, int, int]],
+        tasks: list[_Task],
         context: str,
         shift: Mapping[str, int] | None,
         cases: Sequence[_Case],
     ) -> list[list[dict]]:
         """
-        Evaluates a chunk of tasks (index, design, replicate, and case) in
-        turn (shifted, if given), adding each to the store (if any) in a
-        context.
+        Evaluates a chunk of tasks in turn (shifted, if given), adding each
+        to the store (if any) in a context.
         """
         return [
-            self._evaluate_and_store(design, replicate, context, shift, cases[case])
-            for _, design, replicate, case in tasks
+            self._evaluate_and_store(
+                task.design, task.replicate, context, shift, cases[task.case]
+            )
+            for task in tasks
         ]
 
     def _cases(self, shift: Mapping[str, int]) -> list[_Case]:
@@ -560,7 +557,7 @@ class Study:
         # tasks in the order of replicates (and scenarios), whose designs share
         # uncertain values
         tasks = [
-            (i, design, replicate, case)
+            _Task(i, design, replicate, case)
             for replicate in (
                 range(self.replicates)
                 if replicate_indices is None
@@ -572,9 +569,9 @@ class Study:
         context, results, tasks = self._stored(tasks, cases)
         if tasks:
             first = tasks[0]
-            self._prepare(first[1], first[2], shift, cases[first[3]])
+            self._prepare(first.design, first.replicate, shift, cases[first.case])
         results.extend(self._execute(tasks, context, shift, cases, progress))
-        results.sort(key=lambda result: result[:3])
+        results.sort(key=lambda outcome: outcome[:3])
         frame = pd.DataFrame.from_records(
             [
                 _in_scenario(record, cases[case].name)
@@ -609,7 +606,7 @@ class Study:
             _warn_other_definitions(self.store, context, definition)
         self.store.define(context, definition)
         outcomes = [
-            (i, case, replicate, stored[design.key, replicate, case])
+            _Outcome(i, case, replicate, stored[design.key, replicate, case])
             for i, design, replicate, case in tasks
             if (design.key, replicate, case) in stored
         ]
@@ -636,7 +633,7 @@ class Study:
                 records = self._evaluate_and_store(
                     design, replicate, context, shift, cases[case]
                 )
-                outcomes.append((i, case, replicate, records))
+                outcomes.append(_Outcome(i, case, replicate, records))
                 if progress is not None:
                     progress(done, total)
             return outcomes
@@ -655,7 +652,7 @@ class Study:
             for future in as_completed(futures):
                 chunk = futures[future]
                 for (i, _, replicate, case), records in zip(chunk, future.result()):
-                    outcomes.append((i, case, replicate, records))
+                    outcomes.append(_Outcome(i, case, replicate, records))
                 done += len(chunk)
                 if progress is not None:
                     progress(done, total)
@@ -669,13 +666,30 @@ class Study:
         return outcomes
 
 
-_Task = tuple  # (index of the design, design, replicate, index of the case)
-"""A task of a run: the index of a design, the design, the replicate, and
-the index of the case (scenario) in which to evaluate it."""
+class _Task(NamedTuple):
+    """
+    A task of a run: the position of a design (in the designs of the run),
+    the design, the replicate, and the position of the case (scenario) in
+    which to evaluate it.
+    """
 
-_Outcome = tuple  # (index of the design, index of the case, replicate, records)
-"""The outcome of a task: the index of the design, the index of the case, the
-replicate, and the records of the evaluation."""
+    position: int
+    design: Design
+    replicate: int
+    case: int
+
+
+class _Outcome(NamedTuple):
+    """
+    The outcome of a task: the position of its design, the position of its
+    case, its replicate, and the records of its evaluation, in the order in
+    which the results of a run are sorted.
+    """
+
+    position: int
+    case: int
+    replicate: int
+    records: list[dict]
 
 
 def _in_scenario(record: dict, name: str | None) -> dict:

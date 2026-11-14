@@ -57,7 +57,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import numbers
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -727,7 +727,12 @@ class CostModel:
         history = (
             deployment.planned() if isinstance(deployment, Deployment) else deployment
         )
-        estimate = CostEstimate()
+        if self.launch.per_kg > 0 and any(
+            self.satellite_cost_of(kind).mass is None for kind in history.development
+        ):
+            raise ValueError("launches priced by mass require masses")
+        # the costs of a sustained constellation are those incurred by the end
+        until = history.end if history.schedule.sustained else math.inf
         flows: list[tuple[float, str, float]] = []
 
         def add(
@@ -736,85 +741,16 @@ class CostModel:
             factor = _get_factor(factors, element, kind)
             flows.extend((time, element, amount * factor) for time, amount in amounts)
 
-        if self.launch.per_kg > 0 and any(
-            self.satellite_cost_of(kind).mass is None for kind in history.development
-        ):
-            raise ValueError("launches priced by mass require masses")
-        # the costs of a sustained constellation are those incurred by the end
-        until = history.end if history.schedule.sustained else math.inf
-        developed_components: set[str] = set()
-        for kind, developed in sorted(
-            history.development.items(), key=lambda item: item[1]
-        ):
-            cost = self.satellite_cost_of(kind)
-            amount = cost.development + sum(
-                c.development * c.factor
-                for c in cost.components
-                if c.name not in developed_components
-            )
-            developed_components.update(c.name for c in cost.components)
-            add("development", _spread(amount, 0.0, developed, until), kind)
-        built: dict[Any, int] = {}
-        begun: dict[Any, int] = {}
-        for batch in history.production:
-            cost = self.satellite_cost_of(batch.kind)
-            before = built.get(batch.kind, 0)
-            amount = cost.production(before + batch.satellites) - cost.production(
-                before
-            )
-            built[batch.kind] = before + batch.satellites
-            if batch.begin < until:
-                begun[batch.kind] = begun.get(batch.kind, 0) + batch.satellites
-            add(
-                "production",
-                _spread(amount, batch.begin, batch.end, until),
-                batch.kind,
-            )
-            if cost.block_size is not None and cost.redevelopment > 0:
-                # the development of each later block, before its first unit
-                duration = history.development.get(batch.kind, 0.0)
-                size = int(cost.block_size)
-                for unit in range(before, before + batch.satellites):
-                    if unit > 0 and unit % size == 0:
-                        begins = (
-                            batch.begin
-                            + (unit - before)
-                            * (batch.end - batch.begin)
-                            / batch.satellites
-                        )
-                        add(
-                            "development",
-                            _spread(
-                                cost.redevelopment * cost.total_development,
-                                begins - duration,
-                                begins,
-                                until,
-                            ),
-                            batch.kind,
-                        )
+        estimate = CostEstimate()
+        self._add_development(history, until, add)
+        begun = self._add_production(history, until, add)
         estimate.units = dict(begun)
         estimate.blocks = {
             kind: self.satellite_cost_of(kind).blocks(units)
             for kind, units in begun.items()
         }
-        begin, end = history.begin, history.end
-        for launch in history.launches:
-            cost = self.satellite_cost_of(launch.kind)
-            estimate.launches += 1
-            price = self.launch.per_launch + launch.satellites * (
-                self.launch.per_satellite + self.launch.per_kg * (cost.mass or 0.0)
-            )
-            add("launch", [(launch.time, price)], launch.kind)
-        for start, stop, count in history.in_orbit():
-            add(
-                "operations",
-                _spread(
-                    self.operations.per_satellite_year * count * (stop - start),
-                    start,
-                    stop,
-                ),
-            )
-        add("operations", _spread(self.operations.per_year * (end - begin), begin, end))
+        estimate.launches = self._add_launches(history, add)
+        self._add_operations(history, add)
         flows = [flow for flow in flows if flow[2] != 0]
         estimate.flows = sorted(flows, key=lambda flow: (flow[0], flow[1]))
         for element in ELEMENTS:
@@ -834,6 +770,94 @@ class CostModel:
             for element in ELEMENTS
         }
         return estimate
+
+    def _add_development(
+        self, history: MissionHistory, until: float, add: Callable[..., None]
+    ) -> None:
+        """
+        Adds the development of each type of satellite, spread over its
+        development: its own, and that of the components that no type
+        developed before it (in the order their developments end).
+        """
+        developed: set[str] = set()
+        for kind, ends in sorted(history.development.items(), key=lambda item: item[1]):
+            cost = self.satellite_cost_of(kind)
+            amount = cost.development + sum(
+                c.development * c.factor
+                for c in cost.components
+                if c.name not in developed
+            )
+            developed.update(c.name for c in cost.components)
+            add("development", _spread(amount, 0.0, ends, until), kind)
+
+    def _add_production(
+        self, history: MissionHistory, until: float, add: Callable[..., None]
+    ) -> dict[Any, int]:
+        """
+        Adds the production of each batch of satellites, on its type's
+        learning curve, spread over its production, and the development of
+        each later block of production, before its first unit, returning the
+        units begun before `until` of each type.
+        """
+        built: dict[Any, int] = {}
+        begun: dict[Any, int] = {}
+        for batch in history.production:
+            cost = self.satellite_cost_of(batch.kind)
+            before = built.get(batch.kind, 0)
+            amount = cost.production(before + batch.satellites) - cost.production(
+                before
+            )
+            built[batch.kind] = before + batch.satellites
+            if batch.begin < until:
+                begun[batch.kind] = begun.get(batch.kind, 0) + batch.satellites
+            add(
+                "production",
+                _spread(amount, batch.begin, batch.end, until),
+                batch.kind,
+            )
+            if cost.block_size is None or cost.redevelopment <= 0:
+                continue
+            # the development of each later block, before its first unit
+            duration = history.development.get(batch.kind, 0.0)
+            size = int(cost.block_size)
+            pace = (batch.end - batch.begin) / batch.satellites
+            for unit in range(before, before + batch.satellites):
+                if unit > 0 and unit % size == 0:
+                    begins = batch.begin + (unit - before) * pace
+                    add(
+                        "development",
+                        _spread(
+                            cost.redevelopment * cost.total_development,
+                            begins - duration,
+                            begins,
+                            until,
+                        ),
+                        batch.kind,
+                    )
+        return begun
+
+    def _add_launches(self, history: MissionHistory, add: Callable[..., None]) -> int:
+        """Adds the price of each launch when it flies, returning the launches."""
+        for launch in history.launches:
+            cost = self.satellite_cost_of(launch.kind)
+            price = self.launch.per_launch + launch.satellites * (
+                self.launch.per_satellite + self.launch.per_kg * (cost.mass or 0.0)
+            )
+            add("launch", [(launch.time, price)], launch.kind)
+        return len(history.launches)
+
+    def _add_operations(
+        self, history: MissionHistory, add: Callable[..., None]
+    ) -> None:
+        """
+        Adds the operations of each satellite while it is in orbit, and the
+        fixed operations over the mission.
+        """
+        for start, stop, count in history.in_orbit():
+            amount = self.operations.per_satellite_year * count * (stop - start)
+            add("operations", _spread(amount, start, stop))
+        begin, end = history.begin, history.end
+        add("operations", _spread(self.operations.per_year * (end - begin), begin, end))
 
 
 def _get_growth(growth: Growth) -> dict[str, float | dict[Any, float]]:

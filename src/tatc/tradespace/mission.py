@@ -21,7 +21,7 @@ import pandas as pd
 
 from ..schemas import Satellite
 from .cache import get_satellite_key
-from .criteria import _OPERATORS, Requirement
+from .criteria import Requirement
 from .events import Launch, Production
 from .study import _takes_design
 
@@ -429,9 +429,7 @@ def summarize_phases(
         values = phases[name].to_numpy(dtype=float)
         summary[f"{name} mission"] = float(np.sum(values * weights) / np.sum(weights))
     for requirement in requirements:
-        met = _OPERATORS[requirement.operator](
-            phases[requirement.name].to_numpy(dtype=float), requirement.value
-        )
+        met = requirement.met(phases[requirement.name].to_numpy(dtype=float))
         starts = phases["start"].to_numpy(dtype=float)[met]
         summary[f"{requirement.name} time"] = (
             float(starts[0]) if len(starts) > 0 else math.inf
@@ -604,6 +602,10 @@ class Capability:
     phases: the satellites operating at a decision are those of a phase of
     the mission, which the evaluation evaluates anyway.
 
+    A capability also evaluates the phases of the mission's histories (see
+    `evaluate`, `evaluate_missions`, and `expected_missions`), with its
+    cache.
+
     Args:
         satellites (Sequence[Satellite | str]): The satellites (or their
             names), in the order of the planes (see `MissionHistory.phases`).
@@ -649,6 +651,24 @@ class Capability:
     def _cache(self) -> PhaseCache:
         """The cache of the metric (that given, or one of its own)."""
         return _as_cache(self.metric)
+
+    def evaluate(self, phases: Sequence[Phase]) -> pd.DataFrame:
+        """
+        Evaluates the phases of a mission of the satellites (see
+        `evaluate_phases`): the metrics of the satellites that operate in
+        each, each set evaluated once (by the cache, with the context and the
+        design, see `PhaseCache.evaluate`).
+
+        Args:
+            phases (Sequence[Phase]): The phases.
+
+        Returns:
+            pandas.DataFrame: a row per phase: its `start`, `end`,
+                `duration`, number of `satellites`, and metrics
+        """
+        return self._cache.evaluate(
+            phases, self._keys, self.observations, self.context, self.design
+        )
 
     def __call__(self, names: Iterable[str]) -> dict[str, float]:
         """

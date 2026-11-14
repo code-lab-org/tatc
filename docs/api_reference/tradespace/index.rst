@@ -65,13 +65,15 @@ take one or the other:
    * - Take results (a row per replicate)
      - Take summaries (a row per design)
    * - `aggregate`, `summarize`, `pareto_probability`,
-       `hypervolume_progress`, `robustness`, `refine`, `confirm`,
-       `attribute_variance`, `plot_means`
+       `hypervolume_progress`, `robustness`, `exceedance`, `refine`,
+       `confirm`, `plot_means`
      - `pareto_front`, `pareto_ranks`, `hypervolume`, `sensitivity`,
        `main_effects`, `plot_designs`
 
 The functions of summaries raise an error if a design has several rows, as
-in the results of a study: summarize them first.
+in the results of a study: summarize them first. The steps that evaluate
+designs (such as `confirm` and `attribute_variance`) take designs, their
+keys, or rows of either (see `DesignSpace.designs_of`).
 
 Columns
 -------
@@ -79,8 +81,9 @@ Columns
 Columns named after a metric or a statistic take a suffix after a space,
 and columns that TAT-C defines are named in snake case:
 
-* statistics over the replicates of a design: named by the criteria (such
-  as `"cost p70"` for `Quantile("cost", 0.7)`), the means of metrics by
+* statistics over the replicates of a design: named by the criteria, or by
+  convention if given without names (see `Statistic.name`, such as
+  `"cost p70"` for `Quantile("cost", 0.7)`), the means of metrics by
   their names, and `<metric> std` and `<metric> se` (by `summarize`, and the
   standard error of each objective by `pareto_probability`), and of
   confirmed designs, `<statistic> selected` (by the replicates that selected

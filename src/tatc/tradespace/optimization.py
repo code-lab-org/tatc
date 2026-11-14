@@ -244,6 +244,7 @@ def optimize_optuna(
     criteria: Criteria | Mapping[str, str],
     n_trials: int,
     *,
+    seed: int | None = 0,
     sampler: Any = None,
     optuna_study: Any = None,
     batch_size: int | None = None,
@@ -291,6 +292,8 @@ def optimize_optuna(
             (see `Criteria`), or the objectives (metrics whose means they
             are) and their directions (`"min"` or `"max"`).
         n_trials (int): The number of trials.
+        seed (int | None): The seed of the default sampler (`None` for one
+            drawn anew); a sampler given is seeded by its own arguments.
         sampler (optuna.samplers.BaseSampler | None): The sampler, or `None`
             for TPE (with a constant liar in batches); ignored with an
             `optuna_study`.
@@ -320,7 +323,9 @@ def optimize_optuna(
     batch_size = batch_size or study.workers
     if optuna_study is None:
         if sampler is None:
-            sampler = optuna.samplers.TPESampler(constant_liar=batch_size > 1)
+            sampler = optuna.samplers.TPESampler(
+                constant_liar=batch_size > 1, seed=seed
+            )
         optuna_study = optuna.create_study(directions=directions, sampler=sampler)
     constrained = constraints and hasattr(optuna.trial.Trial, "set_constraint")
     if requirements and not constrained:
@@ -557,7 +562,12 @@ def optimize_pymoo(
             eliminate duplicates as pymoo's genetic algorithms do.
     """
     # pylint: disable=import-outside-toplevel
-    from pymoo.optimize import minimize
+    try:
+        from pymoo.optimize import minimize
+    except ImportError as error:
+        raise ImportError(
+            "optimize_pymoo requires pymoo (pip install pymoo)"
+        ) from error
 
     if algorithm is None:
         from pymoo.algorithms.moo.nsga2 import NSGA2

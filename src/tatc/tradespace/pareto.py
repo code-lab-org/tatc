@@ -32,28 +32,26 @@ from .criteria import (
     _costs_of,
     _get_tolerances,
     _groups,
+    _judge,
     _resamples,
     _resolve,
     _signs,
     _summary_groups,
+    _violation_of,
     aggregate,
 )
 from .dominance import _dominated, _efficient
 
 
-def _get_costs(frame: pd.DataFrame, objectives: Mapping[str, str]) -> np.ndarray:
+def _get_costs(frame: pd.DataFrame, criteria: Criteria) -> np.ndarray:
     """
-    Gets the objectives of a data frame as costs (to minimize): maximized
-    objectives are negated (missing values are `NaN`).
+    Gets the objectives of criteria of a data frame (of their columns) as
+    costs (to minimize, see `_costs_of`).
     """
-    missing = [column for column in objectives if column not in frame.columns]
+    missing = [column for column in criteria.objectives if column not in frame]
     if missing:
         raise ValueError(f"no columns of the objectives {missing}")
-    columns = []
-    for column, direction in objectives.items():
-        values = frame[column].to_numpy(dtype=float)
-        columns.append(values if direction == "min" else -values)
-    return np.column_stack(columns) if len(frame) > 0 else np.empty((0, len(columns)))
+    return _costs_of(frame, criteria)
 
 
 def _get_violation(
@@ -64,16 +62,13 @@ def _get_violation(
     from the columns of their statistics (infinite where a statistic is
     missing).
     """
-    violation = np.zeros(len(frame))
-    for requirement in requirements:
-        if requirement.name not in frame.columns:
-            raise ValueError(
-                f"no column of the statistic {requirement.name!r} of a requirement: "
-                + "aggregate the results with the criteria (see aggregate)"
-            )
-        violation = violation + requirement.violation(
-            frame[requirement.name].to_numpy(dtype=float)
+    missing = [r.name for r in requirements if r.name not in frame.columns]
+    if missing:
+        raise ValueError(
+            f"no columns of the statistics {missing} of requirements: aggregate "
+            + "the results with the criteria (see aggregate)"
         )
+    violation = _violation_of(frame, requirements, len(frame))
     return np.where(np.isnan(violation), np.inf, violation)
 
 
@@ -121,7 +116,7 @@ def pareto_front(
     for _, positions in _groups(summary, criteria.by):
         group = summary.iloc[positions]
         meets = _get_violation(group, criteria.requirements) == 0
-        costs = _get_costs(group, criteria.objectives)
+        costs = _get_costs(group, criteria)
         efficient[positions] = _efficient(costs, meets, tolerances)
     return pd.Series(efficient, index=summary.index, name="pareto")
 
@@ -158,7 +153,7 @@ def pareto_ranks(
     for _, positions in _groups(summary, criteria.by):
         group = summary.iloc[positions]
         violation = _get_violation(group, criteria.requirements)
-        costs = _get_costs(group, criteria.objectives)
+        costs = _get_costs(group, criteria)
         known = ~np.isnan(costs).any(axis=1)
         meets = (violation == 0) & known
         remaining, costs = positions[meets], costs[meets]
@@ -255,7 +250,7 @@ def hypervolume(
     if len(summary) == 0:
         return 0.0
     summary = summary[_get_violation(summary, criteria.requirements) == 0]
-    costs = _get_costs(summary, objectives)
+    costs = _get_costs(summary, criteria)
     costs = costs[np.all(costs < bound, axis=1)]
     return _hypervolume(costs, bound)
 
@@ -403,11 +398,8 @@ def pareto_probability(
             frame[f"{name} se"] = _bootstrap_error(
                 sums[name], squares[name], n_resamples
             )
-        meets = violation == 0
         frame["replicates"] = table.counts
-        frame["violation"] = violation
-        frame["meets_requirements"] = meets
-        frame["pareto"] = _efficient(_costs_of(values, criteria), meets, tolerances)
+        _judge(frame, values, violation, criteria)
         frame["pareto_probability"] = counts / n_resamples
         frame["requirements_probability"] = met / n_resamples
         frames.append(frame)

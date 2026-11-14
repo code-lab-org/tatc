@@ -93,7 +93,9 @@ from .plotting import (
     plot_exceedance,
     plot_means,
     plot_progress,
+    plot_shares,
     style_axes,
+    use_style,
 )
 from .refinement import refine
 from .scenarios import robustness
@@ -191,5 +193,7 @@ __all__ = [
     "plot_exceedance",
     "plot_means",
     "plot_progress",
+    "plot_shares",
     "style_axes",
+    "use_style",
 ]

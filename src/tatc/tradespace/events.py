@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 PerType = float | Mapping[Any, float]
 """A value for every type of satellite, or for each (a mapping by kind)."""
@@ -32,6 +32,17 @@ def _per_type(value: Any, kind: Any, name: str) -> Any:
 def _per_type_values(value: Any) -> list:
     """Gets the values of every type of satellite (of a mapping), or the value."""
     return list(value.values()) if isinstance(value, Mapping) else [value]
+
+
+class PlannedPlane(NamedTuple):
+    """A plane of a deployment (see `Deployment.planes`)."""
+
+    kind: Any
+    """Any: The type of its satellites."""
+    satellites: int
+    """int: The number of satellites of the layout (its positions)."""
+    spares: int
+    """int: The number of spares in orbit."""
 
 
 @dataclass(frozen=True)

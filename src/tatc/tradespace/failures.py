@@ -35,7 +35,10 @@ from .values import Scope
 class Lifetime:
     """
     Base class of distributions of the life (years) of a satellite from its
-    launch.
+    launch. A subclass gives its hazard (`cumulative_hazard` and `hazard`)
+    and its life of uniform numbers (`from_uniform`, of `dimensions` numbers),
+    from which simulations draw every life (see `Deployment.simulate`), with
+    stratified or stressed uniform numbers (see `Deployment.simulate_many`).
     """
 
     def cumulative_hazard(self, age: np.ndarray) -> np.ndarray:
@@ -168,9 +171,6 @@ class Exponential(Lifetime):
     def hazard(self, age):
         return np.full_like(np.asarray(age, dtype=float), self.rate)
 
-    def sample(self, rng):
-        return math.inf if self.rate == 0 else float(rng.exponential(1 / self.rate))
-
     def from_uniform(self, uniform):
         if self.rate == 0:
             return math.inf
@@ -203,9 +203,6 @@ class Weibull(Lifetime):
         age = np.asarray(age, dtype=float)
         with np.errstate(divide="ignore"):
             return (self.shape / self.scale) * (age / self.scale) ** (self.shape - 1)
-
-    def sample(self, rng):
-        return float(self.scale * rng.weibull(self.shape))
 
     def from_uniform(self, uniform):
         hazard = -math.log1p(-float(uniform[0]))
@@ -241,9 +238,6 @@ class Bathtub(Lifetime):
     def hazard(self, age):
         age = np.asarray(age, dtype=float)
         return sum((c.hazard(age) for c in self.causes), np.zeros_like(age))
-
-    def sample(self, rng):
-        return min((c.sample(rng) for c in self.causes), default=math.inf)
 
     @property
     def dimensions(self) -> int:
@@ -309,10 +303,6 @@ class Piecewise(Lifetime):
         age = np.asarray(age, dtype=float)
         index = np.searchsorted(np.asarray(self.breaks), age, side="right") - 1
         return np.asarray(self.rates)[np.clip(index, 0, len(self.rates) - 1)]
-
-    def sample(self, rng):
-        # the age at which the cumulative hazard reaches a unit exponential draw
-        return self._age_at(float(rng.exponential(1.0)))
 
     def from_uniform(self, uniform):
         return self._age_at(-math.log1p(-float(uniform[0])))
@@ -461,11 +451,12 @@ def policy_space(
     variable) or a value.
 
     A design's policy is configured from the values of the fragment, and its
-    deployment planned with their spares in orbit::
+    deployment planned with their spares in orbit, as an `ObservationStudy`
+    does with a mission plan that names the fragment (`MissionPlan.policy`)::
 
         policy = configure(BASE_POLICY, d.policy)
         deployment = SCHEDULE.plan(d.layout, spares=d.policy.orbit_spares)
-        history = deployment.simulate(FAILURES, policy, d.failure_seed)
+        history = deployment.simulate(FAILURE_MODEL, policy, d.failure_seed)
 
     Spares without restoration would never be used, so a constraint excludes
     them (unless `require_restoration` is `False`).

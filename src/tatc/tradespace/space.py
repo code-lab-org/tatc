@@ -104,7 +104,9 @@ class _Context:
     `None` for nominal values), `fix(path, node)` gives a fixed value (or
     `None` for its value), and `check` enables constraints. If given,
     `record(path, domain, value)` is called with every decision, chosen or
-    prescribed. With an `odometer` (of an enumeration), the items of
+    prescribed, and `normalize(path, domain, value)` gives the value of the
+    domain that a prescribed decision is (such as its level, see
+    `_level_of`). With an `odometer` (of an enumeration), the items of
     unordered repetitions are only walked in the order of their levels.
     """
 
@@ -116,17 +118,22 @@ class _Context:
         record: Callable[[str, _Domain, Any], None] | None = None,
         odometer: _Odometer | None = None,
         fix: Callable[[str, Fixed], Any] | None = None,
+        normalize: Callable[[str, _Domain, Any], Any] | None = None,
     ):
+        # pylint: disable=too-many-arguments,too-many-positional-arguments
         self.choose, self.draw, self.check = choose, draw, check
-        self.fix = fix
+        self.fix, self.normalize = fix, normalize
         self.record, self.odometer = record, odometer
 
     def decide(self, path: str, domain: _Domain, prescribed: Any) -> Any:
         """
-        Decides a value of a domain: the prescribed value, or a chosen one.
+        Decides a value of a domain: the prescribed value (normalized, if
+        the walk normalizes them), or a chosen one.
         """
         if prescribed is _ABSENT:
             value = _plain(_choose(self, path, domain))
+        elif self.normalize is not None:
+            value = self.normalize(path, domain, prescribed)
         else:
             value = prescribed
         if self.record is not None:
@@ -172,7 +179,7 @@ def _walk(
     callables of later nodes within it.
     """
     if isinstance(node, Variable):
-        if prescribed is not _ABSENT and ctx.record is None:
+        if prescribed is not _ABSENT and ctx.record is None and ctx.normalize is None:
             return prescribed, prescribed
         value = ctx.decide(path, node.domain(scope), prescribed)
         return value, value
@@ -356,6 +363,10 @@ def _walk_repeat(
         count = int(node.count)
     if count < 0:
         raise Infeasible(f"the count of {path} is negative ({count})")
+    if prescribed is not _ABSENT and len(prescribed) != count:
+        raise ValueError(
+            f"{len(prescribed)} items are given for {path}, whose count is {count}"
+        )
     result, decisions = _walk_items(node, path, scope, ctx, count, prescribed, publish)
     if not node.ordered:
         canonical = sorted(decisions, key=_decision_key)
@@ -370,8 +381,9 @@ def _flatten(node: Node, value: Any, path: str, out: dict) -> None:
     """
     Flattens the values of a node into `out`, by path: the chosen branch of
     a choice at its path (and its values under the branch's name), the count
-    of a repetition at `<path>.count` (and its items at `<path>[k]`), and the
-    other values (except fixed values) at their paths.
+    of a repetition at `<path>.count` (also of a fixed count) and its items
+    at `<path>[k]`, and the other values (except fixed values) at their
+    paths.
     """
     if isinstance(node, Fixed):
         return
@@ -433,6 +445,11 @@ class Design:
 
     def __getitem__(self, name: str) -> Any:
         return self.values[name]
+
+    def __contains__(self, name: object) -> bool:
+        return name in self.values
+
+    __iter__ = None  # type: ignore[assignment]
 
     def __eq__(self, other: object) -> bool:
         return (
@@ -689,9 +706,7 @@ class DesignSpace(Node):
             merged[name] = (
                 decision.decisions if isinstance(decision, Design) else decision
             )
-        values, merged = _walk(
-            self, "", Scope(), _Context(record=_check_domain), merged
-        )
+        values, merged = _walk(self, "", Scope(), _Context(normalize=_level_of), merged)
         return Design(self, merged, values)
 
     def extend(
@@ -721,25 +736,29 @@ class DesignSpace(Node):
 
     def designs_of(
         self, frame: pd.DataFrame, keys: Iterable[str] | None = None
-    ) -> list[Design]:
+    ) -> pd.Series:
         """
         Rebuilds designs from the rows of a data frame of their values by path
         (see `Design.flat`): the results of a study (see `Study.run`), or a
-        summary that keeps the values of the designs (see `aggregate`). Each
-        design is rebuilt once, from its first row, in the order of its first
-        row (or of `keys`), and must have the key of its row (`design`, a
-        column or the name of the index), if the frame has one::
+        summary that keeps the values of the designs (see `aggregate`). The
+        designs are those of the rows, aligned with them (with the frame's
+        index), so that functions of designs map over the rows, or those of
+        `keys` (indexed by them). Each design is rebuilt once, from the first
+        row of its key (`design`, a column or the name of the index), whose
+        key it must have, if the frame has keys::
 
-            front = summary[pareto_front(summary, criteria)]
-            designs = space.designs_of(front)
+            summary["description"] = space.designs_of(summary).map(describe)
+            front = space.designs_of(summary[summary.pareto])
+            confirmation = confirm(study, criteria, results, front)
 
         Args:
             frame (pandas.DataFrame): The rows.
             keys (Iterable[str] | None): The keys of the designs to rebuild,
-                or `None` for every design of the frame.
+                or `None` for the design of each row of the frame.
 
         Returns:
-            list[Design]: the designs
+            pandas.Series: the designs, by row (with the frame's index) or by
+                key (of `keys`, each once)
 
         Raises:
             KeyError: if the frame has no rows of a key.
@@ -749,28 +768,36 @@ class DesignSpace(Node):
         rows = frame
         if "design" not in rows.columns and rows.index.name == "design":
             rows = rows.reset_index()
-        if "design" in rows.columns:
-            first = rows.drop_duplicates("design")
-            records = dict(zip(first["design"], first.to_dict("records")))
-            order = list(records) if keys is None else list(dict.fromkeys(keys))
-            missing = [key for key in order if key not in records]
-            if missing:
-                raise KeyError(f"no rows of designs {missing[:5]}")
-            pairs = [(key, records[key]) for key in order]
-        else:
+        if "design" not in rows.columns:
             if keys is not None:
                 raise ValueError("the frame has no keys of designs (`design`)")
-            pairs = [(None, record) for record in rows.to_dict("records")]
-        designs: dict[str, Design] = {}
-        for key, record in pairs:
-            design = self._design(_Context(choose=partial(_decided, record)))
-            if key is not None and design.key != key:
-                raise ValueError(
-                    f"the values of design {key} give another design ({design.key}): "
-                    + "are they of another design space?"
-                )
-            designs.setdefault(design.key, design)
-        return list(designs.values())
+            designs = [self._rebuilt(record) for record in rows.to_dict("records")]
+            return pd.Series(designs, index=frame.index, name="design", dtype=object)
+        first = rows.drop_duplicates("design")
+        records = dict(zip(first["design"], first.to_dict("records")))
+        wanted = list(rows["design"]) if keys is None else list(dict.fromkeys(keys))
+        missing = [key for key in dict.fromkeys(wanted) if key not in records]
+        if missing:
+            raise KeyError(f"no rows of designs {missing[:5]}")
+        rebuilt = {
+            key: self._rebuilt(records[key], key) for key in dict.fromkeys(wanted)
+        }
+        designs = [rebuilt[key] for key in wanted]
+        index = frame.index if keys is None else pd.Index(wanted, name="design")
+        return pd.Series(designs, index=index, name="design", dtype=object)
+
+    def _rebuilt(self, record: Mapping[str, Any], key: str | None = None) -> Design:
+        """
+        Rebuilds a design from its values by path (see `designs_of`), which
+        must give its key, if given.
+        """
+        design = self._design(_Context(choose=partial(_decided, record)))
+        if key is not None and design.key != key:
+            raise ValueError(
+                f"the values of design {key} give another design ({design.key}): "
+                + "are they of another design space?"
+            )
+        return design
 
     def enumerate(self) -> list[Design]:
         """
@@ -1018,26 +1045,44 @@ def _largest_count(count: Any, path: str) -> int:
     raise ValueError(f"the count of {path} needs a fixed upper bound to be encoded")
 
 
-def _check_domain(path: str, domain: _Domain, value: Any) -> None:
-    """
-    Checks that a decision is a value of its domain (see `DesignSpace.design`),
-    raising a `ValueError` if not.
-    """
-    if domain.levels is not None:
-        try:
-            if value in domain.levels:
-                return
-        except (TypeError, ValueError):
-            pass
-        raise ValueError(f"{value!r} is not a level of {path} ({domain.levels})")
-    try:
-        if domain.low <= float(value) <= domain.high:
-            return
-    except (TypeError, ValueError):
-        pass
-    raise ValueError(
-        f"{value!r} is not in the range of {path} ({domain.low}, {domain.high})"
+def _is_number(value: Any) -> bool:
+    """Whether a value is a number (not a boolean)."""
+    return isinstance(value, (int, float, np.number)) and not isinstance(
+        value, (bool, np.bool_)
     )
+
+
+def _level_of(path: str, domain: _Domain, value: Any) -> Any:
+    """
+    Gets the value of a domain that a decision is (see `DesignSpace.design`
+    and `DesignSpace.designs_of`): the level that equals it (whose type a
+    data frame may have changed, as integers in a column of floats, or that
+    is given as a numpy scalar), or the value (a float) in the range of a
+    continuous domain, raising a `ValueError` if there is none.
+    """
+    if domain.levels is None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            number = math.nan
+        if domain.low <= number <= domain.high:
+            return number
+        raise ValueError(
+            f"{value!r} is not in the range of {path} ({domain.low}, {domain.high})"
+        )
+    for level in domain.levels:
+        try:
+            if level == value:
+                return _plain(level)
+        except (TypeError, ValueError):
+            continue
+    if _is_number(value):
+        for level in domain.levels:
+            if _is_number(level) and math.isclose(
+                float(level), float(value), rel_tol=1e-9, abs_tol=1e-12
+            ):
+                return _plain(level)
+    raise ValueError(f"{value!r} is not a level of {path} ({domain.levels})")
 
 
 def _leaf_paths(node: Node, path: str, kind: type) -> list[str]:
@@ -1083,24 +1128,7 @@ def _decided(values: Mapping[str, Any], path: str, domain: _Domain) -> Any:
             f"no value of {path}: rebuild designs from the results of a study, or "
             + "from a summary that keeps the values of designs (see aggregate)"
         )
-    if domain.levels is None:
-        return float(value)
-    for level in domain.levels:
-        try:
-            if level == value:
-                return level
-        except (TypeError, ValueError):
-            continue
-    numeric = [
-        level
-        for level in domain.levels
-        if isinstance(level, (int, float, np.number)) and not isinstance(level, bool)
-    ]
-    if isinstance(value, (int, float, np.number)):
-        for level in numeric:
-            if math.isclose(float(level), float(value), rel_tol=1e-9, abs_tol=1e-12):
-                return level
-    raise ValueError(f"{value!r} is not a level of {path} ({domain.levels})")
+    return _level_of(path, domain, value)
 
 
 def _design_items(designs: Iterable[Design | str] | pd.DataFrame) -> list[Design | str]:
@@ -1206,7 +1234,7 @@ def _scenario_of(design: Design) -> str:
     Gets the description of the values of the scenario of a realized design
     (see `Design.realize`), `""` without one.
     """
-    return getattr(design, "_scenario", "")
+    return design._scenario  # pylint: disable=protected-access
 
 
 def _check_uncertain(space: DesignSpace, paths: Iterable[str]) -> None:

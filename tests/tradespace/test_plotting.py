@@ -16,6 +16,8 @@ from tatc.tradespace import (
     plot_exceedance,
     plot_means,
     plot_progress,
+    plot_shares,
+    use_style,
 )
 
 try:
@@ -170,3 +172,49 @@ class TestHighlights(unittest.TestCase):
         self.assertEqual(len(ax.collections[1].get_offsets()), 2)
         with self.assertRaises(ValueError):
             plot_designs(summary, "x", "y", highlight=[True])
+
+
+class TestShares(unittest.TestCase):
+    """
+    Unit tests for plots of shares, groups of values, and the style.
+    """
+
+    def tearDown(self):
+        plt.close("all")
+
+    def test_shares(self):
+        """Shares are grouped by factor or by metric, with their errors."""
+        table = pd.DataFrame(
+            {"a": [0.6, 0.2], "b": [0.1, 0.5], "a se": [0.05, 0.02], "active": [1, 1]},
+            index=pd.Index(["x", "y"], name="parameter"),
+        )
+        ax = plot_shares(table, labels={"a": "first"})
+        self.assertEqual(len(ax.patches), 4)  # two factors, two metrics
+        self.assertEqual(
+            [text.get_text() for text in ax.get_legend().get_texts()], ["first", "b"]
+        )
+        flipped = plot_shares(
+            table, groups="metrics", names={"x": "ex"}, horizontal=True
+        )
+        self.assertEqual(
+            [label.get_text() for label in flipped.get_yticklabels()], ["a", "b"]
+        )
+        with self.assertRaises(ValueError):
+            plot_shares(table, groups="other")
+
+    def test_groups_of_values(self):
+        """Designs are colored by values given for their rows."""
+        summary = pd.DataFrame({"x": [1.0, 2.0, 3.0], "y": [1.0, 2.0, 3.0]})
+        ax = plot_designs(summary, "x", "y", by=[1, 1, 2], names={1: "one", 2: "two"})
+        self.assertEqual(
+            [text.get_text() for text in ax.get_legend().get_texts()], ["one", "two"]
+        )
+
+    def test_style(self):
+        """The style of plots applies to the figures of the session."""
+        import matplotlib as mpl  # pylint: disable=import-outside-toplevel
+
+        with mpl.rc_context():
+            use_style()
+            self.assertFalse(mpl.rcParams["axes.spines.top"])
+            self.assertTrue(mpl.rcParams["figure.constrained_layout.use"])

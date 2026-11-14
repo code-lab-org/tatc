@@ -208,8 +208,18 @@ class TestRobustness(unittest.TestCase):
         """The share of scenarios in which designs are efficient, and their
         regret: the improvement in every objective to match the front."""
         r = self._robustness()
+        # each objective in each scenario (cost is the same in every one)
         self.assertEqual(
-            list(r.columns), ["pareto_trace", "max_regret", "s1 regret", "s2 regret"]
+            list(r.columns),
+            [
+                "s1 perf",
+                "s2 perf",
+                "cost",
+                "pareto_trace",
+                "max_regret",
+                "s1 regret",
+                "s2 regret",
+            ],
         )
         np.testing.assert_allclose(r["pareto_trace"], [0.5, 1.0, 0.0])
         # C in s1: 1 short of B in both objectives (3 short of A in perf)
@@ -405,14 +415,20 @@ class TestAcross(unittest.TestCase):
             Criteria(OBJECTIVES, by="scenario", across=Across())
         with self.assertRaises(ValueError):
             Criteria(OBJECTIVES, across=Across(rules={"other": "mean"}))
-        # a statistic without a direction has no worst, unless combined by its mean
-        with self.assertRaises(ValueError):
-            Criteria(OBJECTIVES, statistics={"extra": "perf"}, across=Across())
-        Criteria(
-            OBJECTIVES,
-            statistics={"extra": "perf"},
-            across=Across(rules={"extra": "mean"}),
+        # a statistic without a direction is combined by its mean, unless a
+        # rule asks for its worst, which it has none of
+        extra = Criteria(OBJECTIVES, statistics={"extra": "perf"}, across=Across())
+        summary = aggregate(RESULTS, extra).set_index("design")
+        means = aggregate(RESULTS, Criteria(OBJECTIVES, by="scenario"))
+        np.testing.assert_allclose(
+            summary.extra, means.groupby("design", sort=False).perf.mean()
         )
+        with self.assertRaises(ValueError):
+            Criteria(
+                OBJECTIVES,
+                statistics={"extra": "perf"},
+                across=Across(rules={"extra": "worst"}),
+            )
         # an objective and a requirement that disagree on its worst
         with self.assertRaises(ValueError):
             Criteria(

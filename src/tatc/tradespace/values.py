@@ -217,6 +217,11 @@ class ChoiceValues:
     def __hash__(self) -> int:
         return hash(self.choice)
 
+    __iter__ = None  # type: ignore[assignment]
+
+    def __str__(self) -> str:
+        return self.choice
+
     def __repr__(self) -> str:
         return f"ChoiceValues({self.choice!r}, {self.value!r})"
 
@@ -238,8 +243,10 @@ class RepeatValues:
     def __getitem__(self, index: int | slice) -> Any:
         if isinstance(index, slice):
             return [self[k] for k in range(len(self))[index]]
-        if index < 0:
-            index += len(self)
+        position = index + len(self) if index < 0 else index
+        if not 0 <= position < len(self):
+            raise IndexError(f"the repetition has {len(self)} items, not item {index}")
+        index = position
         item = self._value.items[index]
         return Values(item, index) if isinstance(item, dict) else _view(item)
 
@@ -287,6 +294,32 @@ class Scope:
             if name == "index" and index is not None:
                 return index
         raise AttributeError(f"{name!r} is not decided before it is used")
+
+    def get(self, name: str, default: Any = None) -> Any:
+        """
+        Gets a value by its name, or by a path within it (see `__getitem__`),
+        if it is decided.
+
+        Args:
+            name (str): The name or path.
+            default (Any): The value if it is not decided.
+
+        Returns:
+            Any: the value
+        """
+        try:
+            return self[name]
+        except KeyError:
+            return default
+
+    def __contains__(self, name: object) -> bool:
+        if not isinstance(name, str):
+            return False
+        try:
+            self[name]
+        except KeyError:
+            return False
+        return True
 
     def __getitem__(self, name: str) -> Any:
         """

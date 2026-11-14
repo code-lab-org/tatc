@@ -263,7 +263,9 @@ class TestStages(unittest.TestCase):
         deployment = SCHEDULE.plan(_layout(), stages=[Stage(2, 1.0)])
         with self.assertRaises(ValueError):
             expected_missions(
-                deployment, FailureModel(life=Exponential(0.2)), [], None, len
+                deployment,
+                FailureModel(life=Exponential(0.2)),
+                Capability([], None, len),
             )
 
     def test_invalid(self):

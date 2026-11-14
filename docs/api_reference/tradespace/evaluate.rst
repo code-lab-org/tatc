@@ -15,7 +15,7 @@ Observation Studies
    :no-members:
 
 .. autoclass:: tatc.tradespace.ObservationStudy
-   :members: satellites_of, targets_of, observations_of, deployment_of, phases_of, estimate_of
+   :members: satellites_of, targets_of, observations_of, deployment_of, phases_of, estimate_of, missions_of, prune
 
 .. autoclass:: tatc.tradespace.Observations
    :members: end, start_of, end_of, cache_of, context_of, prune, __call__

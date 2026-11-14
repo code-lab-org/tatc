@@ -612,6 +612,10 @@ class Layout:
         """
         raise NotImplementedError
 
+    def _unrealized(self) -> bool:
+        """Whether the layout has values that are not realized (`NaN`)."""
+        return _has_nan(getattr(self, "values", None))
+
     def describe(self) -> str:
         """
         Gets a short description of the layout (such as `"Walker 60 deg: 3 x
@@ -680,8 +684,7 @@ class Layout:
             ValueError: if the orbits or names of the satellites do not match
                 the planes, or the layout has values that are not realized.
         """
-        values = getattr(self, "values", None)
-        if values is not None and _unrealized(values):
+        if self._unrealized():
             raise ValueError(
                 "the layout has values that are not realized (NaN, such as of "
                 + "uncertain parameters): build the satellites of a realized "
@@ -707,16 +710,16 @@ def _get_altitude(values: Any, altitude: float | None) -> float:
     return altitude
 
 
-def _unrealized(value: Any) -> bool:
+def _has_nan(value: Any) -> bool:
     """Whether values (of a layout) have a missing number (`NaN`)."""
     if isinstance(value, float):
         return value != value  # pylint: disable=comparison-with-itself
     if isinstance(value, ChoiceValues):
-        return _unrealized(value.value)
+        return _has_nan(value.value)
     if isinstance(value, RepeatValues):
-        return any(_unrealized(item) for item in value)
+        return any(_has_nan(item) for item in value)
     if isinstance(value, Values):
-        return any(_unrealized(value[name]) for name in value)
+        return any(_has_nan(value[name]) for name in value)
     return False
 
 
@@ -1016,6 +1019,10 @@ class Layouts(Layout):
 
     def describe(self) -> str:
         return "; ".join(layout.describe() for layout in self.layouts)
+
+    def _unrealized(self) -> bool:
+        # pylint: disable-next=protected-access
+        return any(layout._unrealized() for layout in self.layouts)
 
 
 _KINDS = {

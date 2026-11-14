@@ -13,7 +13,7 @@ from collections.abc import Sequence
 import numpy as np
 import pandas as pd
 
-from .criteria import _check_summary
+from .criteria import _check_summary, _names
 
 
 def _levels(values: pd.Series, max_levels: int) -> pd.Series:
@@ -27,7 +27,7 @@ def _levels(values: pd.Series, max_levels: int) -> pd.Series:
 
 
 def main_effects(
-    summary: pd.DataFrame, variable: str, metric: str, max_levels: int = 10
+    summary: pd.DataFrame, variable: str, metric: str, *, max_levels: int = 10
 ) -> pd.DataFrame:
     """
     Computes the main effects of a design variable on a metric: the mean (and
@@ -56,8 +56,9 @@ def main_effects(
 
 def sensitivity(
     summary: pd.DataFrame,
-    variables: Sequence[str],
-    metrics: Sequence[str],
+    variables: str | Sequence[str],
+    metrics: str | Sequence[str],
+    *,
     max_levels: int = 10,
     adjusted: bool = True,
 ) -> pd.DataFrame:
@@ -90,8 +91,9 @@ def sensitivity(
         summary (pandas.DataFrame): The designs, a row each, with their
             values (see `Design.flat`) and metrics (such as a summary of a
             study, see `aggregate`, which keeps the values of the designs).
-        variables (Sequence[str]): The columns of the variables.
-        metrics (Sequence[str]): The columns of the metrics.
+        variables (str | Sequence[str]): The column (or columns) of the
+            variables.
+        metrics (str | Sequence[str]): The column (or columns) of the metrics.
         max_levels (int): The most levels of a numeric variable, beyond which
             its values are grouped in bins of equal counts.
         adjusted (bool): `True` for the adjusted shares, `False` for the
@@ -103,6 +105,7 @@ def sensitivity(
             `active`, sorted by the share of the first metric
     """
     _check_summary(summary)
+    variables, metrics = _names(variables), _names(metrics)
     rows = []
     for variable in variables:
         row: dict = {"variable": variable}

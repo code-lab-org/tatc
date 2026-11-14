@@ -16,7 +16,7 @@ from itertools import combinations
 import numpy as np
 import pandas as pd
 
-from .criteria import _resamples
+from .criteria import _names, _resamples
 from .space import Design, DesignSpace, _check_uncertain, _designs, _generic
 from .study import Study
 
@@ -477,12 +477,12 @@ def _shares(
 
 def attribute_variance(
     study: Study,
-    metrics: Sequence[str],
+    metrics: str | Sequence[str],
     designs: Sequence[Design] | pd.DataFrame,
     *,
     parameters: Sequence[str] | Mapping[str, Sequence[str]] | None = None,
     sample_size: int | None = None,
-    by: Sequence[str] = (),
+    by: str | Sequence[str] = (),
     n_resamples: int = 500,
     seed: int = 0,
 ) -> Attribution:
@@ -537,7 +537,8 @@ def attribute_variance(
 
     Args:
         study (Study): The study that evaluates designs.
-        metrics (Sequence[str]): The metrics (columns of the results).
+        metrics (str | Sequence[str]): The metric (or metrics), columns of the
+            results.
         designs (Sequence[Design] | pandas.DataFrame): The designs, or a data
             frame of their values (such as rows of a summary that keeps them,
             see `DesignSpace.designs_of`).
@@ -548,7 +549,7 @@ def attribute_variance(
             between replicates, but are not attributed variance.
         sample_size (int | None): The replicates of each of A and B (`n`),
             or `None` for the study's replicates.
-        by (Sequence[str]): The columns that separate the records of an
+        by (str | Sequence[str]): The columns that separate the records of an
             evaluation, if it has several (such as a sensor).
         n_resamples (int): The number of resamples of the bootstrap.
         seed (int): The seed of the bootstrap.
@@ -562,7 +563,7 @@ def attribute_variance(
         raise ValueError("sample_size must be at least 2")
     resamples = _resamples(n, n_resamples, seed)
     groups = _groups_of(study.space, parameters)
-    metrics, by = list(metrics), tuple(by)
+    metrics, by = _names(metrics), tuple(_names(by))
     unique = _designs(study.space, designs)
     plain = study.run(unique, replicate_indices=range(2 * n))
     missing = [column for column in (*metrics, *by) if column not in plain.columns]

@@ -46,12 +46,14 @@ Deployment
    :no-members:
 
 .. autoclass:: tatc.tradespace.DeploymentSchedule
-   :members: plan, production_years, replacements, per_launch, split, launches_of, mass_capacity_of, design_life_of
+   :members: plan, production_years, replacements, next_slot, per_launch, split, launches_of, mass_capacity_of, design_life_of
 
 .. autoclass:: tatc.tradespace.Stage
 
 .. autoclass:: tatc.tradespace.deployment.Deployment
    :members: simulate, simulate_many, expected_metrics, planned, phases, begin, end, deployed, units, stages, capability
+
+.. autoclass:: tatc.tradespace.events.PlannedPlane
 
 .. autoclass:: tatc.tradespace.deployment.Launch
 
@@ -110,7 +112,7 @@ Missions
    :members: evaluate, clear
 
 .. autoclass:: tatc.tradespace.mission.Capability
-   :members: at
+   :members: evaluate, at
    :special-members: __call__
 
 .. automodule:: tatc.tradespace.simulation

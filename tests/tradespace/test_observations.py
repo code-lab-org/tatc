@@ -268,8 +268,7 @@ class TestObservationStudy(unittest.TestCase):
             _build,
             _observations(),
             _metrics,
-            layout="layout",
-            plan=PLAN,
+            plan=dataclasses.replace(PLAN, policy="policy"),
             failures=Failures(FAILURES, histories=4, seed="failure_seed"),
         ).run(trade.enumerate()[:4])
         self.assertTrue(restored.feasible.all())
@@ -544,12 +543,18 @@ class TestObservationStudy(unittest.TestCase):
             study.replace(evaluate=_metrics)
 
     def test_invalid(self):
-        """Failures and phases need a plan, and a plan needs a layout."""
+        """Failures and phases need a plan, and a plan needs a layout (by
+        default, the value `layout` of the design space)."""
         observations = _observations()
         with self.assertRaises(ValueError):
             ObservationStudy(SPACE, _build, observations, _metrics, phases=True)
+        study = ObservationStudy(SPACE, _build, observations, _metrics, plan=PLAN)
+        self.assertEqual(study.layout, "layout")
+        shells = DesignSpace(
+            altitude=SPACE.children["altitude"], shell=SPACE.children["layout"]
+        )
         with self.assertRaises(ValueError):
-            ObservationStudy(SPACE, _build, observations, _metrics, plan=PLAN)
+            ObservationStudy(shells, _build, observations, _metrics, plan=PLAN)
         with self.assertRaises(ValueError):
             ObservationStudy(
                 SPACE,
@@ -637,24 +642,41 @@ class TestOneDesign(unittest.TestCase):
             slow.realize(self.design, 1, "fast")
 
     def test_prune(self):
-        """Observations remove their caches' results of other definitions."""
+        """Observations remove their caches' results of the analysis with other
+        code, and keep those of other observations."""
+
+        def analysis(source):
+            namespace = {"collect_observations": collect_observations}
+            exec(source, namespace)  # pylint: disable=exec-used
+            return namespace["analysis"]
+
+        plain = analysis(
+            "def analysis(targets, satellite, start, end):\n"
+            "    return collect_observations(targets, satellite, start, end)\n"
+        )
+        edited = analysis(
+            "def analysis(targets, satellite, start, end):\n"
+            "    found = collect_observations(targets, satellite, start, end)\n"
+            "    return found\n"
+        )
+        more = Targets(
+            generate_points_rotated_lattice, N_POINTS + 5, seed="points_seed"
+        )
         with tempfile.TemporaryDirectory() as directory:
-            first = _observations(directory)
-            other = Observations(
-                TARGETS,
-                START,
-                HOURS,
-                analysis=partial(collect_observations),
-                directory=directory,
-            )
+            first = Observations(TARGETS, START, HOURS, plain, directory=directory)
+            others = Observations(more, START, HOURS, plain, directory=directory)
+            latest = Observations(TARGETS, START, HOURS, edited, directory=directory)
             realized = self.design.realize(0)
             satellites = _build(realized)
             first(satellites, realized)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                other(satellites, realized)
-            self.assertEqual(other.prune(), len(satellites))
-            self.assertEqual(other.prune(), 0)
+            others(satellites, realized)
+            with self.assertWarnsRegex(UserWarning, "other code"):
+                latest(satellites, realized)
+            self.assertEqual(latest.prune(), len(satellites))
+            self.assertEqual(latest.prune(), 0)
+            # the results of the other targets (another definition) are kept
+            kept = others.cache_of(realized).folder
+            self.assertEqual(len(list(kept.glob("*.pkl"))), len(satellites))
             self.assertEqual(Observations(TARGETS, START, HOURS).prune(), 0)
 
     def test_failure_options(self):
@@ -685,3 +707,46 @@ class TestOneDesign(unittest.TestCase):
             study.replace(
                 failures=Failures(FAILURES, seed="failure_seed", controls=["other"])
             ).run([self.design])
+
+
+class TestFailureStudies(unittest.TestCase):
+    """
+    Unit tests for the summaries of failures of observation studies.
+    """
+
+    def test_costs_and_histories(self):
+        """The costs of a study of failures are the means of its histories."""
+        design = SPACE.enumerate()[3]
+        study = ObservationStudy(
+            SPACE,
+            _build,
+            _observations(),
+            _metrics,
+            plan=PLAN,
+            failures=Failures(FAILURES, histories=5, seed="failure_seed"),
+        )
+        result = study.run([design]).iloc[0]
+        missions = study.missions_of(design)
+        self.assertEqual(len(missions), 5)
+        self.assertAlmostEqual(result["cost"], missions["cost"].mean())
+        self.assertAlmostEqual(
+            result["observed mission"], missions["observed mission"].mean()
+        )
+        with self.assertRaisesRegex(ValueError, "failures"):
+            study.replace(failures=None).missions_of(design)
+
+    def test_exact_without_seed(self):
+        """Without a seed, the one history without failures is not replaced by
+        exact expectations over failures."""
+        design = SPACE.enumerate()[3]
+        study = ObservationStudy(
+            SPACE,
+            _build,
+            _observations(),
+            _metrics,
+            plan=PLAN,
+            failures=Failures(FAILURES, RestorationPolicy(restore=False)),
+        )
+        result = study.run([design]).iloc[0]
+        self.assertEqual(result["availability"], 1.0)
+        self.assertEqual(result["failures"], 0.0)

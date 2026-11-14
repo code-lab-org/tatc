@@ -10,6 +10,7 @@ import math
 import sqlite3
 import tempfile
 import unittest
+from types import SimpleNamespace
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
@@ -51,14 +52,16 @@ class TestResultStore(unittest.TestCase):
         self.path = Path(self.directory.name) / "results.sqlite"
         self.space = DesignSpace(a=Integer(1, 4), noise=Uncertain.uniform(0, 1))
         self.calls = []
-        self.fail_at = None
+        # the state of the study's evaluations, which their fingerprint does not
+        # see (an object of an installed class is described by its type)
+        self.state = SimpleNamespace(fail_at=None)
 
     def tearDown(self):
         self.directory.cleanup()
 
     def _study(self, store, **kwargs):
         def evaluate(d):
-            if self.fail_at is not None and len(self.calls) == self.fail_at:
+            if self.state.fail_at is not None and len(self.calls) == self.state.fail_at:
                 raise _Interrupt()
             self.calls.append((d.a, d.noise))
             return {"value": d.a + d.noise}
@@ -88,11 +91,11 @@ class TestResultStore(unittest.TestCase):
     def test_resume(self):
         """An interrupted study resumes, evaluating only what is not stored."""
         store = ResultStore(self.path, "study")
-        self.fail_at = 5
+        self.state.fail_at = 5
         with self.assertRaises(_Interrupt):
             self._study(store).run()
         self.assertEqual(len(store), 5)
-        self.fail_at = None
+        self.state.fail_at = None
         resumed = self._study(store).run()
         self.assertEqual(len(self.calls), 12)  # 5 before, 7 after
         complete = self._study(None).run()
@@ -176,20 +179,27 @@ class TestResultStore(unittest.TestCase):
         def study(evaluate):
             return Study(self.space, lambda d: d, evaluate, replicates=2, store=store)
 
-        study(lambda d: {"value": d.a}).run()
+        study(lambda d: {"value": d.a + d.a}).run()
         with self.assertWarnsRegex(UserWarning, "other code.*evaluate.code"):
-            edited = study(lambda d: {"value": d.a + 1}).run()
-        self.assertEqual(list(edited.value[:2]), [2, 2])
-        # another study (of other settings) shares the namespace
-        other = study(lambda d: {"value": d.a + 1}).replace(seed=1)
+            edited = study(lambda d: {"value": d.a * d.a}).run()
+        self.assertEqual(list(edited.value[:2]), [1, 1])
+        # other studies share the namespace: of other settings, and of other
+        # constants (such as the numbers of a constraint), without a warning
+        other = study(lambda d: {"value": d.a * d.a}).replace(seed=1)
         other.run()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            constant = study(lambda d: {"value": d.a * d.a + 10})
+            constant.run()
         # pruning removes the study's evaluations with other code, only
-        current = study(lambda d: {"value": d.a + 1})
+        current = study(lambda d: {"value": d.a * d.a})
         self.assertEqual(current.prune(), 8)
         self.assertEqual(
-            store.contexts(), {current.fingerprint: 8, other.fingerprint: 8}
+            store.contexts(),
+            {current.fingerprint: 8, other.fingerprint: 8, constant.fingerprint: 8},
         )
         self.assertEqual(current.prune(), 0)
+        self.assertEqual(constant.prune(), 0)
 
     def test_records_as_json(self):
         """Records are kept as JSON, and read as they were written."""

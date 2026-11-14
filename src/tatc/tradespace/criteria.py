@@ -32,6 +32,11 @@ _OPERATORS = {">=": op.ge, ">": op.gt, "<=": op.le, "<": op.lt}
 _DIRECTIONS = ("min", "max")
 
 
+def _names(value: str | Sequence[str]) -> list[str]:
+    """Gets names given as a name or a sequence of names."""
+    return [value] if isinstance(value, str) else list(value)
+
+
 def _as_statistic(name: str, value: Any) -> Statistic:
     """
     Gets a statistic given by name: a statistic, or the mean of a metric
@@ -43,6 +48,27 @@ def _as_statistic(name: str, value: Any) -> Statistic:
     if not isinstance(value, Statistic):
         raise TypeError(f"statistic {name!r} is not a Statistic")
     return value
+
+
+def _named_statistics(statistics: Any) -> dict[str, Statistic]:
+    """
+    Gets statistics by name: of a mapping of names to statistics (or metrics,
+    whose means they are), or of a sequence of statistics (or metrics), named
+    by their conventional names (see `Statistic.name`).
+    """
+    if statistics is None:
+        return {}
+    if isinstance(statistics, Mapping):
+        return {name: _as_statistic(name, value) for name, value in statistics.items()}
+    if isinstance(statistics, (str, Statistic)) or _is_derived(statistics):
+        statistics = [statistics]
+    named: dict[str, Statistic] = {}
+    for item in statistics:
+        statistic = _as_statistic(str(item), item)
+        if statistic.name in named and named[statistic.name] != statistic:
+            raise ValueError(f"statistics of the same name: {statistic.name!r}")
+        named[statistic.name] = statistic
+    return named
 
 
 def _is_derived(metric: Any) -> bool:
@@ -70,6 +96,21 @@ class Statistic:
 
     def __init__(self, column: Any):
         self.column = column
+
+    @property
+    def metric(self) -> str:
+        """str: The name of the statistic's metric: its column, or `"utility"`
+        of a metric computed from others."""
+        return "utility" if _is_derived(self.column) else str(self.column)
+
+    @property
+    def name(self) -> str:
+        """str: The conventional name of the statistic (the suffixes of which
+        are those of `summarize` and `summarize_missions`): such as `cost`
+        (a mean), `cost std`, `cost se`, `cost min`, `cost max`, `cost p70`
+        (a quantile), or `P(cost <= 150)`, by which criteria name the
+        statistics given without names."""
+        return self.metric
 
     @property
     def columns(self) -> tuple[str, ...]:
@@ -152,6 +193,10 @@ class StandardDeviation(Statistic):
     parameters (`NaN` with fewer than two replicates).
     """
 
+    @property
+    def name(self) -> str:
+        return f"{self.metric} std"
+
     def reduce(self, values: np.ndarray) -> np.ndarray:
         counts = np.sum(~np.isnan(values), axis=1)
         result = np.full(values.shape[0], np.nan)
@@ -169,6 +214,10 @@ class StandardError(Statistic):
     replicates).
     """
 
+    @property
+    def name(self) -> str:
+        return f"{self.metric} se"
+
     def reduce(self, values: np.ndarray) -> np.ndarray:
         counts = np.sum(~np.isnan(values), axis=1)
         deviation = StandardDeviation(self.column).reduce(values)
@@ -181,6 +230,10 @@ class Minimum(Statistic):
     metric to maximize).
     """
 
+    @property
+    def name(self) -> str:
+        return f"{self.metric} min"
+
     def reduce(self, values: np.ndarray) -> np.ndarray:
         return _nan_reduce(np.nanmin, values)
 
@@ -190,6 +243,10 @@ class Maximum(Statistic):
     The greatest value of a metric over the replicates (the worst case of a
     metric to minimize).
     """
+
+    @property
+    def name(self) -> str:
+        return f"{self.metric} max"
 
     def reduce(self, values: np.ndarray) -> np.ndarray:
         return _nan_reduce(np.nanmax, values)
@@ -202,7 +259,7 @@ class Quantile(Statistic):
     90% of the replicates (by linear interpolation between them).
 
     Args:
-        column (str): The metric.
+        column (str | Utility): The metric.
         q (float): The quantile, between 0 and 1.
     """
 
@@ -229,6 +286,10 @@ class Quantile(Statistic):
         result[counts == 0] = np.nan
         return result
 
+    @property
+    def name(self) -> str:
+        return f"{self.metric} p{100 * self.q:g}"
+
     def __repr__(self) -> str:
         return f"Quantile({self.column!r}, {self.q!r})"
 
@@ -239,7 +300,7 @@ class Probability(Statistic):
     the replicates in which it does, such as the reliability of a design.
 
     Args:
-        column (str): The metric.
+        column (str | Utility): The metric.
         operator (str): The comparison: `">="`, `">"`, `"<="`, or `"<"`.
         threshold (float): The threshold.
     """
@@ -258,6 +319,10 @@ class Probability(Statistic):
         result = np.full(values.shape[0], np.nan)
         result[counts > 0] = met.sum(axis=1)[counts > 0] / counts[counts > 0]
         return result
+
+    @property
+    def name(self) -> str:
+        return f"P({self.metric} {self.operator} {self.threshold:g})"
 
     def __repr__(self) -> str:
         return f"Probability({self.column!r}, {self.operator!r}, {self.threshold!r})"
@@ -297,6 +362,24 @@ class Requirement:
         if self.scale is not None and not self.scale > 0:
             raise ValueError("scale must be positive")
 
+    def met(self, statistic: np.ndarray) -> np.ndarray:
+        """
+        Gets whether values of the statistic meet the requirement (`False`
+        where they are `NaN`).
+
+        Args:
+            statistic (numpy.ndarray): The values.
+
+        Returns:
+            numpy.ndarray: whether each meets it
+        """
+        values = np.asarray(statistic, dtype=float)
+        with np.errstate(invalid="ignore"):
+            return _OPERATORS[self.operator](values, self.value)
+
+    def __str__(self) -> str:
+        return f"{self.name} {self.operator} {self.value:g}"
+
     def violation(self, statistic: np.ndarray) -> np.ndarray:
         """
         Computes the violations of the requirement: 0 where the statistic
@@ -316,9 +399,7 @@ class Requirement:
         else:
             gap = statistic - self.value
         scale = self.scale if self.scale is not None else (abs(self.value) or 1.0)
-        with np.errstate(invalid="ignore"):
-            met = _OPERATORS[self.operator](statistic, self.value)
-        violation = np.where(met, 0.0, np.maximum(gap / scale, 1e-9))
+        violation = np.where(self.met(statistic), 0.0, np.maximum(gap / scale, 1e-9))
         return np.where(np.isnan(statistic), np.nan, violation)
 
 
@@ -355,7 +436,9 @@ class Across:
         )
 
     The worst of a statistic needs its direction: that of the objective or
-    the requirements that name it, which must agree. Requirements and
+    the requirements that name it, which must agree; other statistics (such
+    as those that `summarize` adds) are combined by their means, unless a
+    rule asks for their worst. Requirements and
     tolerances apply to the combined statistics. A design is judged only if
     it has feasible results in every group of the results (in each group of
     the criteria's `by`).
@@ -459,12 +542,12 @@ class Criteria:
 
         criteria = Criteria(
             {"cost p70": "min", "coverage": "max"},
-            statistics={"cost p70": Quantile("cost", 0.7)},
+            statistics=[Quantile("cost", 0.7)],  # named cost p70
             requirements=[Requirement("cost p70", "<=", 150)],
             tolerance={"coverage": 1.0},
         )
         summary = aggregate(results, criteria)
-        front = summary[pareto_front(summary, criteria)]
+        front = summary[summary.pareto]
 
     Objectives and requirements name statistics: those of `statistics`, or
     otherwise the means of the metrics of their names. A design is
@@ -487,10 +570,13 @@ class Criteria:
     Args:
         objectives (Mapping[str, str]): The objectives: statistics (or
             metrics) and their directions (`"min"` or `"max"`).
-        statistics (Mapping[str, Statistic | str]): Statistics, by name, of
-            objectives and requirements that are not means of the metrics of
-            their names (a metric given as a string, or a `Utility`, is its
-            mean), and others to compute with them (see `aggregate`).
+        statistics (Mapping[str, Statistic | str] | Sequence): Statistics,
+            by name, of objectives and requirements that are not means of
+            the metrics of their names (a metric given as a string, or a
+            `Utility`, is its mean), and others to compute with them (see
+            `aggregate`), or a sequence of them, named by their conventional
+            names (see `Statistic.name`, such as `cost p70` of
+            `Quantile("cost", 0.7)`).
         requirements (Sequence[Requirement]): Requirements on statistics.
         tolerance (Mapping[str, float | str]): The tolerances of objectives
             (by name, zero if not given): values in their units, or
@@ -504,7 +590,9 @@ class Criteria:
     """
 
     objectives: Mapping[str, str]
-    statistics: Mapping[str, Statistic | str] = field(default_factory=dict)
+    statistics: Mapping[str, Statistic | str] | Sequence[Statistic | str] = field(
+        default_factory=dict
+    )
     requirements: Sequence[Requirement] = ()
     tolerance: Mapping[str, Tolerance] = field(default_factory=dict)
     by: Sequence[str] | str = ()
@@ -521,10 +609,7 @@ class Criteria:
                 raise ValueError(
                     f"direction of {name!r} must be 'min' or 'max', not {direction!r}"
                 )
-        statistics = {
-            name: _as_statistic(name, value)
-            for name, value in dict(self.statistics).items()
-        }
+        statistics = _named_statistics(self.statistics)
         requirements = tuple(self.requirements)
         for requirement in requirements:
             if not isinstance(requirement, Requirement):
@@ -619,10 +704,46 @@ def _bootstrap_error(sums: np.ndarray, squares: np.ndarray, n: int) -> np.ndarra
     return np.sqrt(np.maximum(squares - n * mean**2, 0.0) / max(n - 1, 1))
 
 
-def _costs_of(values: Mapping[str, np.ndarray], criteria: Criteria) -> np.ndarray:
+def _violation_of(
+    values: Mapping[str, Any], requirements: Sequence[Requirement], count: int
+) -> np.ndarray:
+    """
+    Gets the total violation of requirements by `count` designs, from the
+    values of their statistics (by name, such as the columns of a summary;
+    `NaN` where a statistic is missing).
+    """
+    violation = np.zeros(count)
+    for requirement in requirements:
+        statistic = np.asarray(values[requirement.name], dtype=float)
+        violation = violation + requirement.violation(statistic)
+    return violation
+
+
+def _judge(
+    frame: pd.DataFrame,
+    values: Mapping[str, np.ndarray],
+    violation: np.ndarray,
+    criteria: Criteria,
+) -> None:
+    """
+    Adds the judgment of designs by criteria to the rows of a summary of
+    them, from the values of their statistics and the violation of the
+    criteria's requirements: the `violation`, whether each design meets the
+    requirements (`meets_requirements`), and whether it is efficient among
+    those that do (`pareto`).
+    """
+    meets = violation == 0
+    tolerances = _get_tolerances(criteria.objectives, criteria.tolerance)
+    frame["violation"] = violation
+    frame["meets_requirements"] = meets
+    frame["pareto"] = _efficient(_costs_of(values, criteria), meets, tolerances)
+
+
+def _costs_of(values: Mapping[str, Any], criteria: Criteria) -> np.ndarray:
     """
     Gets the objectives of criteria as costs (to minimize), from the values of
-    their statistics: maximized objectives are negated.
+    their statistics (by name, such as the columns of a summary): maximized
+    objectives are negated (missing values are `NaN`).
     """
     columns = [
         np.asarray(values[name], dtype=float) * sign
@@ -747,10 +868,7 @@ def _evaluate(
             matrix if columns is None else matrix[:, columns]
         )
     n = len(next(iter(matrices.values()))) if matrices else 0
-    violation = np.zeros(n)
-    for requirement in requirements:
-        violation = violation + requirement.violation(values[requirement.name])
-    return values, violation
+    return values, _violation_of(values, requirements, n)
 
 
 def _combiners(criteria: Criteria) -> dict[str, str]:
@@ -768,7 +886,10 @@ def _combiners(criteria: Criteria) -> dict[str, str]:
         worst.setdefault(requirement.name, set()).add(sense)
     combiners = {}
     for name in criteria.names:
-        if across.rules.get(name, across.rule) == "mean":
+        rule = across.rules.get(name, across.rule)
+        if rule == "mean" or (name not in worst and name not in across.rules):
+            # statistics that are neither objectives nor required (such as
+            # others to compute with them) have no worst: their means
             combiners[name] = "mean"
         elif name not in worst:
             raise ValueError(
@@ -894,10 +1015,7 @@ class _Statistics:
                 values[name] = stacked.min(axis=0)
             else:
                 values[name] = self.weights @ stacked
-        violation = np.zeros(len(self.designs))
-        for requirement in self.requirements:
-            violation = violation + requirement.violation(values[requirement.name])
-        return values, violation
+        return values, _violation_of(values, self.requirements, len(self.designs))
 
 
 def _design_columns(results: pd.DataFrame, excluded: set[str]) -> list[str]:
@@ -988,14 +1106,7 @@ def _criteria_of(
     statistics to compute (by name), and the columns that group records.
     """
     by = (by,) if isinstance(by, str) else tuple(by)
-    if isinstance(statistics, str):
-        statistics = [statistics]
-    if statistics is not None and not isinstance(statistics, Mapping):
-        statistics = {name: name for name in statistics}  # their means
-    extra = {
-        name: _as_statistic(name, value)
-        for name, value in dict(statistics or {}).items()
-    }
+    extra = _named_statistics(statistics)
     if isinstance(criteria, Mapping) and not set(criteria.values()) <= {"min", "max"}:
         raise ValueError(
             "a mapping of criteria gives the directions of objectives ('min' or "
@@ -1035,7 +1146,7 @@ def aggregate(
     results: pd.DataFrame,
     criteria: Criteria | Mapping[str, str] | Sequence[str] | str = (),
     *,
-    statistics: Mapping[str, Statistic | str] | Sequence[str] | None = None,
+    statistics: Mapping[str, Statistic | str] | Sequence | None = None,
     by: Sequence[str] | str = (),
     design_columns: Sequence[str] | None = None,
 ) -> pd.DataFrame:
@@ -1051,11 +1162,12 @@ def aggregate(
     objectives to their directions, which are the means of the metrics of
     their names), or the means of metrics (a list of their names), and other
     `statistics`, by name (a statistic, or a metric given as a string, whose
-    mean it is), or the means of other metrics (a list of their names)::
+    mean it is), or a list of statistics (or metrics), named by their
+    conventional names (see `Statistic.name`)::
 
         aggregate(results, {"satellites": "min", "sufficient": "max"})
         aggregate(results, ["sufficient", "accurate"])
-        aggregate(results, statistics={"cost p70": Quantile("cost", 0.7)})
+        aggregate(results, statistics=[Quantile("cost", 0.7)])  # cost p70
         aggregate(results, COST, statistics=["cost development"])
 
     With criteria, the summary also gives the `violation` of their
@@ -1076,9 +1188,9 @@ def aggregate(
         criteria (Criteria | Mapping[str, str] | Sequence[str] | str): The
             criteria (or objectives and their directions), or the metrics
             whose means to compute.
-        statistics (Mapping[str, Statistic | str] | Sequence[str] | None):
-            Other statistics, by name, or the metrics whose means to compute
-            as well.
+        statistics (Mapping[str, Statistic | str] | Sequence | None): Other
+            statistics, by name, or a sequence of statistics (or metrics,
+            whose means they are), named by their conventional names.
         by (Sequence[str] | str): The columns that group records of an
             evaluation (those of the criteria, if they have any).
         design_columns (Sequence[str] | None): The columns of the values of
@@ -1089,11 +1201,10 @@ def aggregate(
         pandas.DataFrame: a row per design (and group)
     """
     judged, resolved, by = _criteria_of(criteria, statistics, by)
-    across, combiners, requirements, tolerances = None, None, (), None
+    across, combiners, requirements = None, None, ()
     if judged is not None:
         requirements, across = judged.requirements, judged.across
         combiners = None if across is None else _combiners(judged)
-        tolerances = _get_tolerances(judged.objectives, judged.tolerance)
     frames = []
     for frame, table in _summary_groups(
         results, resolved, by, requirements, across, combiners, design_columns
@@ -1103,10 +1214,7 @@ def aggregate(
             frame[name] = value
         frame["replicates"] = table.counts
         if judged is not None:
-            meets = violation == 0
-            frame["violation"] = violation
-            frame["meets_requirements"] = meets
-            frame["pareto"] = _efficient(_costs_of(values, judged), meets, tolerances)
+            _judge(frame, values, violation, judged)
         frames.append(frame)
     if not frames:
         status = ["violation", "meets_requirements", "pareto"] if judged else []
@@ -1116,31 +1224,35 @@ def aggregate(
 
 def summarize(
     results: pd.DataFrame,
-    metrics: Criteria | Mapping[str, str] | Sequence[str] | str,
+    criteria: Criteria | Mapping[str, str] | Sequence[str] | str = (),
     *,
+    statistics: Mapping[str, Statistic | str] | Sequence | None = None,
     by: Sequence[str] | str = (),
     design_columns: Sequence[str] | None = None,
 ) -> pd.DataFrame:
     """
-    Summarizes the metrics of the feasible results of a study over their
-    replicates (see `aggregate`): for each design (and each group of the
-    columns `by`, such as a sensor), the mean of each metric, its standard
-    deviation (`<metric> std`) and standard error (`<metric> se`) between
-    replicates, and the number of replicates (`replicates`), with the values
-    of the design. Given criteria (or a mapping of objectives to their
-    directions), the summary is theirs (see `aggregate`: their statistics,
-    the violation of their requirements, and whether each design is
-    efficient, `pareto`), with the standard deviation and standard error of
-    each statistic that is the mean of a metric::
+    Summarizes the feasible results of a study over their replicates (see
+    `aggregate`), with the spread of the means of metrics: for each design
+    (and each group of the columns `by`, such as a sensor), the statistics
+    of criteria (or the means of a list of metrics) and of other
+    `statistics`, the standard deviation (`<name> std`) and standard error
+    (`<name> se`) between replicates of each that is the mean of a metric,
+    the number of replicates (`replicates`), and the values of the design.
+    Of criteria (or a mapping of objectives to their directions), the
+    summary is theirs (see `aggregate`: the violation of their requirements,
+    and whether each design is efficient, `pareto`)::
 
         summary = summarize(results, {"satellites": "min", "sufficient": "max"})
         front = summary[summary.pareto]
+        summarize(results, ACCURACY, statistics=["sufficient"])  # and its mean
 
     Args:
         results (pandas.DataFrame): The results (see `Study.run`).
-        metrics (Criteria | Mapping[str, str] | Sequence[str] | str): The
-            columns of the metrics, or criteria (or objectives and their
-            directions).
+        criteria (Criteria | Mapping[str, str] | Sequence[str] | str): The
+            criteria (or objectives and their directions), or the metrics
+            whose means to summarize.
+        statistics (Mapping[str, Statistic | str] | Sequence | None): Other
+            statistics (see `aggregate`).
         by (Sequence[str] | str): Other columns that group records of an
             evaluation (those of criteria, if they have any).
         design_columns (Sequence[str] | None): The columns of the values of
@@ -1150,28 +1262,23 @@ def summarize(
     Returns:
         pandas.DataFrame: the summary, a row per design (and group)
     """
-    if isinstance(metrics, (Criteria, Mapping)):
-        judged = _as_criteria(metrics)
-        if by:
-            if isinstance(metrics, Criteria):
-                raise ValueError(
-                    "criteria group records by their own `by`: give it to the criteria"
-                )
-            judged = replace(judged, by=(by,) if isinstance(by, str) else tuple(by))
-        spread: dict[str, Statistic] = {}
-        for name in judged.names:
-            statistic = judged.statistic(name)
-            if type(statistic) is Mean and isinstance(statistic.column, str):
-                spread[f"{name} std"] = StandardDeviation(statistic.column)
-                spread[f"{name} se"] = StandardError(statistic.column)
+    judged, resolved, by = _criteria_of(criteria, statistics, by)
+    summarized: dict[str, Statistic] = {}
+    spread: dict[str, Statistic] = {}
+    for name, statistic in resolved.items():
+        summarized[name] = statistic
+        if type(statistic) is Mean and isinstance(statistic.column, str):
+            spread[f"{name} std"] = StandardDeviation(statistic.column)
+            spread[f"{name} se"] = StandardError(statistic.column)
+            summarized.update(
+                {
+                    f"{name} std": spread[f"{name} std"],
+                    f"{name} se": spread[f"{name} se"],
+                }
+            )
+    if judged is None:
+        # each mean of a metric followed by its spread
         return aggregate(
-            results, judged, statistics=spread, design_columns=design_columns
+            results, statistics=summarized, by=by, design_columns=design_columns
         )
-    statistics: dict[str, Statistic] = {}
-    for metric in [metrics] if isinstance(metrics, str) else metrics:
-        statistics[metric] = Mean(metric)
-        statistics[f"{metric} std"] = StandardDeviation(metric)
-        statistics[f"{metric} se"] = StandardError(metric)
-    return aggregate(
-        results, statistics=statistics, by=by, design_columns=design_columns
-    )
+    return aggregate(results, judged, statistics=spread, design_columns=design_columns)

@@ -416,3 +416,43 @@ class TestSummaries(unittest.TestCase):
         """Statistics given by names are the means of the metrics."""
         summary = aggregate(_results(), {"value": "max"}, statistics=["cost"])
         self.assertEqual(list(summary.cost), [2.0, 2.0, 1.0])
+
+
+class TestNames(unittest.TestCase):
+    """
+    Unit tests for the conventional names of statistics and requirements.
+    """
+
+    def test_names(self):
+        """Statistics are named by convention, and given without names."""
+        self.assertEqual(Mean("cost").name, "cost")
+        self.assertEqual(StandardDeviation("cost").name, "cost std")
+        self.assertEqual(StandardError("cost").name, "cost se")
+        self.assertEqual(Minimum("cost").name, "cost min")
+        self.assertEqual(Maximum("cost").name, "cost max")
+        self.assertEqual(Quantile("cost", 0.7).name, "cost p70")
+        self.assertEqual(Probability("cost", "<=", 150).name, "P(cost <= 150)")
+        criteria = Criteria(
+            {"value p25": "max"}, statistics=[Quantile("value", 0.25), "cost"]
+        )
+        self.assertEqual(criteria.names, ["value p25", "cost"])
+        self.assertEqual(
+            list(aggregate(_results(), statistics=[Quantile("value", 0.25)]).columns)[
+                -2:
+            ],
+            ["value p25", "replicates"],
+        )
+
+    def test_requirements(self):
+        """Requirements tell which values meet them, and state themselves."""
+        requirement = Requirement("cost", "<=", 1.5)
+        np.testing.assert_array_equal(
+            requirement.met([1.0, 2.0, np.nan]), [True, False, False]
+        )
+        self.assertEqual(str(requirement), "cost <= 1.5")
+
+    def test_summarize_statistics(self):
+        """Summaries take other statistics, with the spread of their means."""
+        summary = summarize(_results(), {"value": "max"}, statistics=["cost"])
+        for column in ("value", "value se", "cost", "cost std", "cost se", "pareto"):
+            self.assertIn(column, summary.columns)

@@ -56,6 +56,11 @@ class TestSensitivity(unittest.TestCase):
     def test_main_effects(self):
         """Main effects are the means of the metric at each level."""
         effects = main_effects(self.frame, "a", "metric")
+        # a name is a list of one
+        pd.testing.assert_frame_equal(
+            sensitivity(self.frame, "a", "metric"),
+            sensitivity(self.frame, ["a"], ["metric"]),
+        )
         np.testing.assert_allclose(effects["mean"], [10.5, 20.5, 30.5, 40.5], atol=0.1)
         self.assertEqual(list(effects["count"]), [50] * 4)
         binned = main_effects(self.frame, "c", "metric", max_levels=4)

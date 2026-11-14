@@ -30,10 +30,10 @@ Criteria, Statistics, and Requirements
 .. autoclass:: tatc.tradespace.Probability
 
 .. autoclass:: tatc.tradespace.criteria.Statistic
-   :members: reduce, columns, values_of
+   :members: name, metric, reduce, columns, values_of
 
 .. autoclass:: tatc.tradespace.Requirement
-   :members: violation
+   :members: met, violation
 
 .. autoclass:: tatc.tradespace.Across
    :members: weights_of
@@ -106,7 +106,14 @@ Plots
 
 .. autofunction:: tatc.tradespace.plot_progress
 
+.. autofunction:: tatc.tradespace.plot_shares
+
 .. autofunction:: tatc.tradespace.style_axes
+
+.. autofunction:: tatc.tradespace.use_style
+
+.. autodata:: tatc.tradespace.plotting.STYLE
+   :annotation:
 
 .. autodata:: tatc.tradespace.plotting.COLORS
    :annotation:

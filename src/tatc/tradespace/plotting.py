@@ -2,9 +2,14 @@
 Plots of the results of trade studies (with matplotlib, an optional
 dependency, imported when a plot is drawn): designs by two metrics, with the
 efficient designs ringed and labeled; the progress of searches; the means
-of metrics over replicates; and the probabilities that the metrics of
-designs exceed those of others. Each plot draws on given axes (or new ones)
-and returns them, for further labels and annotations.
+of metrics over replicates; the probabilities that the metrics of designs
+exceed those of others; and the shares of the variance of metrics that
+factors explain. Each plot draws on given axes (or new ones, with a
+constrained layout) and returns them, for further labels and annotations.
+`use_style` gives the figures of a session (such as of a notebook) the
+style of these plots: titles and legends of their sizes, frameless legends,
+light grids behind the data, no top or right spines, and constrained
+layouts.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -44,6 +49,39 @@ GRID = "#e6e6e3"
 NEUTRAL = "#f0efec"
 """The color of the midpoint of diverging scales (such as of even odds)."""
 
+STYLE = {
+    "axes.titlesize": 10,
+    "axes.labelcolor": INK,
+    "axes.axisbelow": True,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.grid": True,
+    "axes.grid.axis": "y",
+    "grid.color": GRID,
+    "grid.linewidth": 0.8,
+    "legend.fontsize": 8,
+    "legend.frameon": False,
+    "figure.constrained_layout.use": True,
+}
+"""The matplotlib settings of `use_style`."""
+
+
+def use_style() -> None:
+    """
+    Gives the figures of the session the style of the plots of trade studies
+    (see `STYLE`): titles of 10 points and legends of 8 without frames, light
+    grids (of the vertical axis) behind the data, no top or right spines, and
+    constrained layouts (which need no `tight_layout`).
+    """
+    try:
+        # pylint: disable-next=import-outside-toplevel
+        import matplotlib as mpl
+    except ImportError as error:
+        raise ImportError(
+            "plots require matplotlib (pip install matplotlib)"
+        ) from error
+    mpl.rcParams.update(STYLE)
+
 
 def _axes(ax: Any, size: tuple[float, float]) -> Any:
     """Gets the axes to draw on: those given, or those of a new figure."""
@@ -56,14 +94,14 @@ def _axes(ax: Any, size: tuple[float, float]) -> Any:
         raise ImportError(
             "plots require matplotlib (pip install matplotlib)"
         ) from error
-    _, ax = plt.subplots(figsize=size)
+    _, ax = plt.subplots(figsize=size, layout="constrained")
     return ax
 
 
 def style_axes(ax: Any, grid: str | None = "y") -> Any:
     """
-    Styles axes plainly: a light grid behind the data, and no top or right
-    spines.
+    Styles axes plainly: a light grid behind the data (of the given axes
+    only), and no top or right spines.
 
     Args:
         ax (matplotlib.axes.Axes): The axes.
@@ -73,8 +111,9 @@ def style_axes(ax: Any, grid: str | None = "y") -> Any:
     Returns:
         matplotlib.axes.Axes: the axes
     """
+    ax.grid(False)
     if grid is not None:
-        ax.grid(axis=grid, color=GRID, lw=0.8)
+        ax.grid(True, axis=grid, color=GRID, lw=0.8)
     ax.set_axisbelow(True)
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
@@ -107,13 +146,23 @@ def _name(names: Mapping[Any, str] | Callable[[Any], str] | None, value: Any) ->
     return names.get(value, str(value))
 
 
-def _groups(frame: pd.DataFrame, by: str) -> list:
-    """Gets the values of a column, sorted if they can be."""
-    values = list(pd.unique(frame[by].dropna()))
+def _groups(values: pd.Series) -> list:
+    """Gets the distinct values (of a column), sorted if they can be."""
+    distinct = list(pd.unique(values.dropna()))
     try:
-        return sorted(values)
+        return sorted(distinct)
     except TypeError:
-        return values
+        return distinct
+
+
+def _values_of(frame: pd.DataFrame, by: str | Sequence, name: str) -> pd.Series:
+    """Gets the values of a column of a frame, or values given for its rows."""
+    if isinstance(by, str):
+        return frame[by]
+    values = pd.Series(np.asarray(by), index=frame.index)
+    if len(values) != len(frame):
+        raise ValueError(f"{name} needs a value for each row ({len(frame)})")
+    return values
 
 
 def plot_designs(
@@ -121,7 +170,7 @@ def plot_designs(
     x: str,
     y: str,
     *,
-    by: str | None = None,
+    by: str | Sequence | None = None,
     front: str | Sequence[bool] | Criteria | Mapping[str, str] | None = None,
     labels: str | Callable[[pd.Series], str] | None = None,
     names: Mapping[Any, str] | Callable[[Any], str] | None = None,
@@ -152,7 +201,9 @@ def plot_designs(
         frame (pandas.DataFrame): A row per design.
         x (str): The column of the horizontal axis.
         y (str): The column of the vertical axis.
-        by (str | None): A column whose values color the designs, or `None`.
+        by (str | Sequence | None): A column whose values color the designs,
+            values for the rows (such as of a column grouped, as
+            `summary.planes.clip(upper=3)`), or `None`.
         front (str | Sequence[bool] | Criteria | Mapping | None): The
             efficient designs: a boolean column (such as `"pareto"` of a
             summary of criteria) or values (one per row), criteria (see
@@ -201,8 +252,9 @@ def plot_designs(
             label=label,
         )
     else:
-        for k, value in enumerate(_groups(frame, by)):
-            selected = (frame[by] == value).to_numpy() & shown
+        groups = _values_of(frame, by, "by")
+        for k, value in enumerate(_groups(groups)):
+            selected = (groups == value).to_numpy() & shown
             ax.scatter(
                 xs[selected],
                 ys[selected],
@@ -331,7 +383,7 @@ def plot_means(
     groups = (
         [(None, results)]
         if by is None
-        else [(value, results[results[by] == value]) for value in _groups(results, by)]
+        else [(value, results[results[by] == value]) for value in _groups(results[by])]
     )
     for k, (value, group) in enumerate(groups):
         stats = group.groupby(x)[y].agg(["mean", "std"]).sort_index()
@@ -428,4 +480,106 @@ def plot_exceedance(
         legend.set_ticks([0, 0.25, 0.5, 0.75, 1])
         legend.ax.tick_params(labelsize=8, length=0)
         legend.outline.set_visible(False)
+    return ax
+
+
+def plot_shares(
+    table: pd.DataFrame,
+    metrics: Sequence[str] | None = None,
+    *,
+    groups: str = "factors",
+    names: Mapping[Any, str] | Callable[[Any], str] | None = None,
+    labels: Mapping[Any, str] | Callable[[Any], str] | None = None,
+    horizontal: bool = False,
+    colors: Sequence[str] | Mapping[Any, str] = COLORS,
+    legend: str | None = "best",
+    ax: Any = None,
+) -> Any:
+    """
+    Plots the shares of the variance of metrics that factors explain (such
+    as those of `sensitivity`, by design variable, or of
+    `Attribution.summary`, by uncertain parameter) as grouped bars: a group
+    of bars for each factor (a row of the table), one bar for each metric
+    (a column), or a group for each metric (`groups="metrics"`), one bar for
+    each factor, with error bars of the standard errors of the shares
+    (`<metric> se`) where the table gives them.
+
+    Args:
+        table (pandas.DataFrame): A row per factor and a column per metric
+            (and optionally their standard errors, `<metric> se`).
+        metrics (Sequence[str] | None): The metrics, or `None` for every
+            numeric column but standard errors and `active`.
+        groups (str): `"factors"` for a group of bars for each factor, or
+            `"metrics"` for one for each metric.
+        names (Mapping | Callable | None): The names of the factors (by the
+            index of the table), by default their values.
+        labels (Mapping | Callable | None): The names of the metrics, by
+            default the metrics.
+        horizontal (bool): `True` for horizontal bars (the groups down the
+            vertical axis, the first at the top).
+        colors (Sequence[str] | Mapping): The colors of the bars of each
+            group, in order (or by metric or factor).
+        legend (str | None): The location of the legend, or `None` for none.
+        ax (matplotlib.axes.Axes | None): The axes, or `None` for a new figure.
+
+    Returns:
+        matplotlib.axes.Axes: the axes
+    """
+    # pylint: disable=too-many-locals
+    if groups not in ("factors", "metrics"):
+        raise ValueError(f"groups must be 'factors' or 'metrics', not {groups!r}")
+    if metrics is None:
+        metrics = [
+            column
+            for column in table.columns
+            if not str(column).endswith(" se")
+            and column != "active"
+            and pd.api.types.is_numeric_dtype(table[column])
+        ]
+    metrics = list(metrics)
+    factors = list(table.index)
+    values = table[metrics].to_numpy(dtype=float)
+    errors = np.column_stack(
+        [
+            (
+                table[f"{metric} se"].to_numpy(dtype=float)
+                if f"{metric} se" in table.columns
+                else np.full(len(table), np.nan)
+            )
+            for metric in metrics
+        ]
+    )
+    if groups == "metrics":
+        values, errors = values.T, errors.T
+        group_names = [_name(labels, metric) for metric in metrics]
+        bar_keys, bar_names = factors, [_name(names, factor) for factor in factors]
+    else:
+        group_names = [_name(names, factor) for factor in factors]
+        bar_keys, bar_names = metrics, [_name(labels, metric) for metric in metrics]
+    ax = _axes(ax, (7.5, 4) if horizontal else (8, 4))
+    positions = np.arange(len(group_names))
+    width = 0.8 / max(len(bar_keys), 1)
+    for k, (key, name) in enumerate(zip(bar_keys, bar_names)):
+        offset = positions + (k - (len(bar_keys) - 1) / 2) * width
+        error = None if np.all(np.isnan(errors[:, k])) else errors[:, k]
+        options = {
+            "color": _color(colors, key, k),
+            "edgecolor": "white",
+            "lw": 1,
+            "label": name,
+            "error_kw": {"ecolor": INK, "lw": 1},
+        }
+        if horizontal:
+            ax.barh(offset, values[:, k], height=width, xerr=error, **options)
+        else:
+            ax.bar(offset, values[:, k], width=width, yerr=error, **options)
+    if horizontal:
+        ax.set_yticks(positions, group_names)
+        ax.invert_yaxis()
+        style_axes(ax, grid="x")
+    else:
+        ax.set_xticks(positions, group_names)
+        style_axes(ax, grid="y")
+    if legend is not None and len(bar_keys) > 1:
+        ax.legend(loc=legend, fontsize=8, frameon=False)
     return ax

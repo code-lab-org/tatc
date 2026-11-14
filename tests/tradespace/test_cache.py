@@ -119,9 +119,10 @@ class TestSatelliteCache(unittest.TestCase):
         def make(rows):
             # the same function, edited to give other rows
             namespace = {"pd": pd}
+            names = ", ".join(["satellite.name"] * rows)
             exec(  # pylint: disable=exec-used
                 "def analysis(satellite):\n"
-                + f"    return pd.DataFrame({{'satellite': [satellite.name] * {rows}}})",
+                + f"    return pd.DataFrame({{'satellite': [{names}]}})",
                 namespace,
             )
             return SatelliteCache(namespace["analysis"], directory, namespace="x")
