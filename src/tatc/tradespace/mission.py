@@ -190,6 +190,16 @@ class MissionHistory:
         """float: The end of the mission."""
         return self.deployment.end
 
+    @property
+    def deployed(self) -> float:
+        """float: The time by which the satellites of the first generation
+        are launched (years), whether their launches succeed or not: of the
+        planes that are not staged, and of the stages that this history
+        deployed (see `stages`)."""
+        return max(
+            launch.time for launch in self.launches if launch.purpose == "deployment"
+        )
+
     def in_orbit(self) -> list[tuple[float, float, int]]:
         """
         Gets the intervals in which satellites are in orbit (operating, or
@@ -359,6 +369,7 @@ def evaluate_phases(
     phases: Sequence[Phase],
     observations: pd.DataFrame,
     metric: Callable[..., Mapping[str, float]],
+    *,
     design: Any = None,
 ) -> pd.DataFrame:
     """
@@ -400,6 +411,7 @@ def evaluate_phases(
 
 def summarize_phases(
     phases: pd.DataFrame,
+    *,
     metrics: Sequence[str] | None = None,
     requirements: Sequence[Requirement] = (),
 ) -> dict[str, float]:
@@ -526,6 +538,7 @@ class PhaseCache:
         phases: Sequence[Phase],
         satellites: Sequence[Satellite | str] | Mapping[str, str],
         observations: pd.DataFrame,
+        *,
         context: Any = None,
         design: Any = None,
     ) -> pd.DataFrame:
@@ -552,29 +565,54 @@ class PhaseCache:
                 `duration`, number of `satellites`, and metrics
         """
         keys = _satellite_keys(satellites)
-        metric = _given_design(self.metric, design)
 
         def cached(subset: Callable[[], pd.DataFrame], names: frozenset) -> dict:
-            return self._metrics(
-                (context, frozenset(keys[name] for name in names)), subset, metric
+            del subset  # the cache filters the observations, if needed
+            return self.metrics_of(
+                {name: keys[name] for name in names},
+                observations,
+                context=context,
+                design=design,
             )
 
         return _evaluate_phases(phases, observations, cached)
 
-    def _metrics(
+    def metrics_of(
         self,
-        key: tuple,
-        subset: Callable[[], pd.DataFrame],
-        metric: Callable[[pd.DataFrame], Mapping[str, float]],
-    ) -> dict:
-        """The metrics of a set of satellites (keyed by the context and the
-        keys of the satellites), from the memory if they are in it."""
+        keys: Mapping[str, str],
+        observations: pd.DataFrame,
+        *,
+        context: Any = None,
+        design: Any = None,
+    ) -> dict[str, float]:
+        """
+        Gets the metrics of satellites that operate together, from the cache
+        if they are in it (keyed by the context and the keys of the
+        satellites), or else of their observations (and kept).
+
+        Args:
+            keys (Mapping[str, str]): The keys of the satellites in the cache
+                (such as of their content, see `get_satellite_key`), by
+                their names in the observations.
+            observations (pandas.DataFrame): The observations of every
+                satellite, with their names (`satellite`), filtered to those
+                of the satellites only if they are not in the cache.
+            context (Any): A hashable identifier of the observations (such
+                as the seed of their targets and their period).
+            design (Design | None): The (realized) design of the mission,
+                for a metric with a parameter named `design`.
+
+        Returns:
+            dict[str, float]: the metrics
+        """
+        key = (context, frozenset(keys.values()))
         if key in self._memory:
             self.hits += 1
         else:
             self.misses += 1
-            self._memory[key] = dict(metric(subset()))
-        return self._memory[key]
+            metric = _given_design(self.metric, design)
+            self._memory[key] = dict(metric(_subset(observations, frozenset(keys))))
+        return dict(self._memory[key])
 
     def clear(self) -> None:
         """
@@ -603,7 +641,7 @@ class Capability:
     the mission, which the evaluation evaluates anyway.
 
     A capability also evaluates the phases of the mission's histories (see
-    `evaluate`, `evaluate_missions`, and `expected_missions`), with its
+    `evaluate`, `evaluate_histories`, and `exact_expectations`), with its
     cache.
 
     Args:
@@ -626,10 +664,10 @@ class Capability:
         satellites: Sequence[Satellite | str],
         observations: pd.DataFrame,
         metric: Callable[..., Mapping[str, float]] | PhaseCache,
+        *,
         context: Any = None,
         design: Any = None,
     ):
-        # pylint: disable=too-many-arguments,too-many-positional-arguments
         self.satellites = list(satellites)
         """list: The satellites (or their names), in the order of the planes."""
         self.observations = observations
@@ -667,7 +705,11 @@ class Capability:
                 `duration`, number of `satellites`, and metrics
         """
         return self._cache.evaluate(
-            phases, self._keys, self.observations, self.context, self.design
+            phases,
+            self._keys,
+            self.observations,
+            context=self.context,
+            design=self.design,
         )
 
     def __call__(self, names: Iterable[str]) -> dict[str, float]:
@@ -684,11 +726,12 @@ class Capability:
         unknown = names - set(self._names)
         if unknown:
             raise ValueError(f"satellites that are not given: {sorted(unknown)}")
-        subset = partial(_subset, self.observations, names)
-        metric = _given_design(self._cache.metric, self.design)
-        key = (self.context, frozenset(self._keys[name] for name in names))
-        # pylint: disable-next=protected-access
-        return dict(self._cache._metrics(key, subset, metric))
+        return self._cache.metrics_of(
+            {name: self._keys[name] for name in names},
+            self.observations,
+            context=self.context,
+            design=self.design,
+        )
 
     def at(
         self,

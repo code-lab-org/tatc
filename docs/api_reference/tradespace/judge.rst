@@ -11,9 +11,14 @@ Criteria, Statistics, and Requirements
 .. autoclass:: tatc.tradespace.Criteria
    :members: names, metrics, statistic
 
-.. autofunction:: tatc.tradespace.aggregate
+.. autoclass:: tatc.tradespace.Requirement
+   :members: met, violation
 
-.. autofunction:: tatc.tradespace.summarize
+.. autoclass:: tatc.tradespace.Across
+   :members: weights_of
+
+.. automodule:: tatc.tradespace.statistics
+   :no-members:
 
 .. autoclass:: tatc.tradespace.Mean
 
@@ -29,14 +34,20 @@ Criteria, Statistics, and Requirements
 
 .. autoclass:: tatc.tradespace.Probability
 
-.. autoclass:: tatc.tradespace.criteria.Statistic
+.. autoclass:: tatc.tradespace.statistics.Statistic
    :members: name, metric, reduce, columns, values_of
 
-.. autoclass:: tatc.tradespace.Requirement
-   :members: met, violation
+Summaries
+=========
 
-.. autoclass:: tatc.tradespace.Across
-   :members: weights_of
+.. automodule:: tatc.tradespace.summary
+   :no-members:
+
+.. autofunction:: tatc.tradespace.aggregate
+
+.. autofunction:: tatc.tradespace.summarize
+
+.. autofunction:: tatc.tradespace.pareto_probability
 
 Pareto Efficiency
 =================
@@ -47,8 +58,6 @@ Pareto Efficiency
 .. autofunction:: tatc.tradespace.pareto_front
 
 .. autofunction:: tatc.tradespace.pareto_ranks
-
-.. autofunction:: tatc.tradespace.pareto_probability
 
 .. autofunction:: tatc.tradespace.hypervolume
 

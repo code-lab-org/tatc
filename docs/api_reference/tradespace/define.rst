@@ -9,10 +9,10 @@ Design Spaces and Designs
 =========================
 
 .. autoclass:: tatc.tradespace.DesignSpace
-   :members: enumerate, size, sample, design, designs_of, extend, suggest, unit_paths, uncertain_paths, encode, decode
+   :members: enumerate, size, sample, design, designs_of, extend, suggest, unit_paths, uncertain_paths, check_uncertain, check_overrides, encode, decode
 
 .. autoclass:: tatc.tradespace.Design
-   :members: flat, realize, values
+   :members: flat, realize, values, decisions, scenario
 
 Variables and Values
 ====================

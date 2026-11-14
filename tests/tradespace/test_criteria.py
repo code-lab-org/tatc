@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from tatc.tradespace import (
+    Across,
     Criteria,
     DesignSpace,
     Integer,
@@ -203,12 +204,13 @@ class TestAggregate(unittest.TestCase):
         )
         frame = aggregate(_results(), criteria).set_index("design")
         self.assertEqual(
-            list(frame.columns[-7:]),
+            list(frame.columns[-8:]),
             [
                 "cost",
                 "value",
                 "value p25",
                 "replicates",
+                "feasible",
                 "violation",
                 "meets_requirements",
                 "pareto",
@@ -262,11 +264,11 @@ class TestCriteria(unittest.TestCase):
         with self.assertRaises(ValueError):
             Criteria({"a": "lowest"})
         with self.assertRaises(ValueError):
-            Criteria({"a": "min"}, tolerance={"b": 1})
+            Criteria({"a": "min"}, tolerances={"b": 1})
         with self.assertRaises(ValueError):
-            Criteria({"a": "min"}, tolerance={"a": "5"})
+            Criteria({"a": "min"}, tolerances={"a": "5"})
         with self.assertRaises(ValueError):
-            Criteria({"a": "min"}, tolerance={"a": -1})
+            Criteria({"a": "min"}, tolerances={"a": -1})
         with self.assertRaises(TypeError):
             Criteria({"a": "min"}, statistics={"b": 1})
         with self.assertRaises(TypeError):
@@ -438,9 +440,9 @@ class TestNames(unittest.TestCase):
         self.assertEqual(criteria.names, ["value p25", "cost"])
         self.assertEqual(
             list(aggregate(_results(), statistics=[Quantile("value", 0.25)]).columns)[
-                -2:
+                -3:
             ],
-            ["value p25", "replicates"],
+            ["value p25", "replicates", "feasible"],
         )
 
     def test_requirements(self):
@@ -456,3 +458,141 @@ class TestNames(unittest.TestCase):
         summary = summarize(_results(), {"value": "max"}, statistics=["cost"])
         for column in ("value", "value se", "cost", "cost std", "cost se", "pareto"):
             self.assertIn(column, summary.columns)
+
+
+def _partly_infeasible(scenario=None, shares=None):
+    """Results of three designs in four replicates: a is feasible in every
+    replicate, b in two, and c in none (whose records lack metrics)."""
+    values = {"a": [1, 2, 3, 4], "b": [10, None, 30, None], "c": [None] * 4}
+    values.update(shares or {})
+    return pd.DataFrame(
+        [
+            {
+                "design": key,
+                "replicate": r,
+                **({} if scenario is None else {"scenario": scenario}),
+                "feasible": v is not None,
+                "cost": (
+                    {"a": 2.0, "b": 1.0, "c": 1.0}[key] if v is not None else np.nan
+                ),
+                "value": np.nan if v is None else float(v),
+            }
+            for key, row in values.items()
+            for r, v in enumerate(row)
+        ]
+    )
+
+
+class TestFeasibility(unittest.TestCase):
+    """
+    Unit tests for the judgment of designs by their feasible replicates.
+    """
+
+    def test_feasible_share(self):
+        """Designs are judged by their feasible replicates, of which
+        `replicates` is the number and `feasible` the share; designs without a
+        feasible replicate are left out."""
+        summary = aggregate(_partly_infeasible(), {"cost": "min", "value": "max"})
+        summary = summary.set_index("design")
+        self.assertEqual(list(summary.index), ["a", "b"])
+        self.assertEqual(summary.loc["b", "value"], 20)
+        self.assertEqual(list(summary.replicates), [4, 2])
+        self.assertEqual(list(summary.feasible), [1.0, 0.5])
+        # b, cheaper and better in its feasible replicates, dominates a
+        self.assertEqual(list(summary.pareto), [False, True])
+        self.assertEqual(
+            list(summary.columns[-5:]),
+            ["replicates", "feasible", "violation", "meets_requirements", "pareto"],
+        )
+
+    def test_requirement(self):
+        """Requirements on `feasible` judge the share of feasible replicates
+        over every replicate of a design."""
+        every = Criteria(
+            {"cost": "min", "value": "max"},
+            requirements=[Requirement("feasible", ">=", 1)],
+        )
+        summary = aggregate(_partly_infeasible(), every).set_index("design")
+        self.assertEqual(list(summary.feasible), [1.0, 0.5])
+        self.assertEqual(list(summary.meets_requirements), [True, False])
+        self.assertAlmostEqual(summary.loc["b", "violation"], 0.5)
+        self.assertEqual(list(summary.pareto), [True, False])
+        half = Criteria(
+            {"cost": "min", "value": "max"},
+            requirements=[Requirement("feasible", ">=", 0.5)],
+        )
+        summary = aggregate(_partly_infeasible(), half)
+        self.assertTrue(summary.meets_requirements.all())
+        # its spread is not summarized
+        summary = summarize(_partly_infeasible(), every)
+        self.assertNotIn("feasible se", summary.columns)
+        self.assertEqual(list(summary.feasible), [1.0, 0.5])
+
+    def test_groups(self):
+        """Infeasible records without a value of a group (such as a sensor)
+        count in every group of the design."""
+        results = _partly_infeasible()
+        feasible = results[results.feasible]
+        records = pd.concat(
+            [
+                feasible.assign(sensor="x"),
+                feasible.assign(sensor="y", value=feasible.value + 1),
+                results[~results.feasible],
+            ],
+            ignore_index=True,
+        )
+        summary = aggregate(records, ["value"], by="sensor")
+        summary = summary.set_index(["sensor", "design"])
+        self.assertEqual(summary.loc[("y", "b"), "value"], 21)
+        self.assertEqual(summary.loc[("x", "b"), "feasible"], 0.5)
+        self.assertEqual(summary.loc[("y", "b"), "feasible"], 0.5)
+        self.assertEqual(summary.loc[("y", "a"), "feasible"], 1.0)
+
+    def test_across(self):
+        """Across groups, `feasible` is over the replicates of every group
+        together, and designs need feasible replicates in every group."""
+        results = pd.concat(
+            [
+                _partly_infeasible("s1", {"b": [10, 20, 30, 40]}),
+                _partly_infeasible("s2"),
+            ],
+            ignore_index=True,
+        )
+        for rule in ("worst", "mean"):
+            with self.subTest(rule=rule):
+                criteria = Criteria(
+                    {"cost": "min", "value": "max"},
+                    requirements=[Requirement("feasible", ">=", 0.7)],
+                    across=Across(rule=rule),
+                )
+                summary = aggregate(results, criteria).set_index("design")
+                self.assertEqual(list(summary.index), ["a", "b"])
+                self.assertEqual(summary.loc["b", "feasible"], 0.75)
+                self.assertEqual(summary.loc["b", "replicates"], 2)
+                self.assertTrue(summary.meets_requirements.all())
+
+    def test_no_feasible_design(self):
+        """Results without a feasible record have empty summaries."""
+        results = _partly_infeasible()
+        infeasible = results[results.design == "c"].drop(columns=["cost", "value"])
+        criteria = Criteria({"cost": "min", "value": "max"}, by="size")
+        for summary in (
+            aggregate(infeasible, {"cost": "min", "value": "max"}),
+            aggregate(infeasible.assign(size=1), criteria),
+            aggregate(infeasible.iloc[:0], {"cost": "min", "value": "max"}),
+        ):
+            self.assertTrue(summary.empty)
+            self.assertEqual(
+                list(summary.columns[-5:]),
+                ["replicates", "feasible", "violation", "meets_requirements", "pareto"],
+            )
+            # of the types of their columns, which select rows
+            self.assertEqual(summary.pareto.dtype, bool)
+            self.assertTrue(summary[summary.pareto].empty)
+        self.assertTrue(aggregate(infeasible, ["value"]).empty)
+        across = Criteria({"cost": "min", "value": "max"}, across=Across(rule="mean"))
+        scenarios = pd.concat(
+            [_partly_infeasible("s1"), _partly_infeasible("s2")], ignore_index=True
+        )
+        self.assertEqual(len(aggregate(scenarios, across)), 2)
+        self.assertTrue(aggregate(scenarios.iloc[:0], across).empty)

@@ -23,6 +23,7 @@ from tatc.tradespace import (
     Requirement,
     Study,
     Uncertain,
+    aggregate,
     hypervolume,
     optimize_optuna,
     optimize_pymoo,
@@ -75,6 +76,20 @@ def _build(design):
 
 def _study(**kwargs):
     return Study(_space(), _build, lambda metrics: metrics, replicates=2, **kwargs)
+
+
+def _partly_infeasible():
+    """A study of three designs, of which the first is feasible in every
+    replicate, the second in some, and the third in none, and its designs."""
+    space = DesignSpace(x=Integer(0, 2), noise=Uncertain.uniform(0, 1))
+
+    def build(d):
+        if d.x == 2 or (d.x == 1 and d.noise < 0.5):
+            raise Infeasible("unlucky")
+        return d
+
+    study = Study(space, build, lambda d: {"f": d.x}, replicates=8)
+    return study, space.enumerate()
 
 
 class TestEncoding(unittest.TestCase):
@@ -140,6 +155,42 @@ class TestEvaluations(unittest.TestCase):
         self.assertEqual(first[:5], first[5:])
         evaluations.evaluate(designs)
         self.assertEqual(len(evaluations.results), 5 * 2)
+
+    def test_feasible_replicates(self):
+        """A design infeasible in some replicates is judged by the others, as
+        summaries judge it, unless a requirement on its share of feasible
+        replicates rejects it; a design without a feasible replicate is
+        infeasible."""
+        study, designs = _partly_infeasible()
+        results = study.run(designs)
+        share = results[results.design == designs[1].key].feasible.mean()
+        self.assertGreater(share, 0)
+        self.assertLess(share, 1)
+        evaluations = Evaluations(study, {"f": "max"})
+        values = evaluations.evaluate(designs)
+        self.assertEqual(values[:2], [(0.0,), (1.0,)])
+        self.assertIsNone(values[2])
+        self.assertEqual(
+            [evaluations.infeasibility[d.key] for d in designs], [0.0, 0.0, 1.0]
+        )
+        # the summary of a search is that of its results (see aggregate)
+        search = evaluations.search(None)
+        pd.testing.assert_frame_equal(search.summary, aggregate(results, {"f": "max"}))
+        self.assertEqual([d.key for d in search.designs], [designs[1].key])
+        self.assertEqual(len(search.evaluated), 3)
+        # a requirement on the share of feasible replicates
+        reliable = Criteria(
+            {"f": "max"}, requirements=[Requirement("feasible", ">=", 1)]
+        )
+        evaluations = Evaluations(study, reliable)
+        evaluations.evaluate(designs)
+        self.assertEqual(evaluations.violations[designs[0].key], (0.0,))
+        self.assertAlmostEqual(evaluations.violations[designs[1].key][0], 1 - share)
+        # a search of designs without a feasible replicate finds none
+        none = Evaluations(study, reliable)
+        none.evaluate(designs[2:])
+        self.assertTrue(none.search(None).summary.empty)
+        self.assertEqual(none.search(None).designs, [])
 
     def test_one_record_per_evaluation(self):
         """Objectives need one record per evaluation."""
@@ -222,7 +273,13 @@ class TestPymoo(unittest.TestCase):
         search = optimize_pymoo(_study(), OBJECTIVES, termination=("n_gen", 15), seed=1)
         result, results = search.state, search.results
         self.assertEqual(result.F.shape[1], 2)
-        self.assertEqual({d.key for d in search.designs}, set(results.design))
+        self.assertEqual({d.key for d in search.evaluated}, set(results.design))
+        # the designs of a search are the efficient designs it found
+        self.assertEqual(
+            [d.key for d in search.designs],
+            list(search.summary.design[search.summary.pareto]),
+        )
+        self.assertEqual(search.criteria.objectives, OBJECTIVES)
         found = summarize(results, list(OBJECTIVES))
         self.assertGreater(hypervolume(found, OBJECTIVES, REFERENCE), 0.9 * exact)
         self.assertFalse(results.feasible.all())  # some designs were too heavy
@@ -276,9 +333,41 @@ class TestPymoo(unittest.TestCase):
         plain = optimize_pymoo(
             _study(), OBJECTIVES, termination=("n_gen", 5), seed=1, distinct=False
         )
-        self.assertGreater(len(distinct.designs), len(plain.designs))
+        self.assertGreater(len(distinct.evaluated), len(plain.evaluated))
         with self.assertRaises(ValueError):
             optimize_pymoo(_study(), OBJECTIVES, algorithm=object(), seed=1)
+
+    def test_max_designs(self):
+        """A search stops after the generation in which it has evaluated the
+        most designs, or by its termination."""
+        from pymoo.algorithms.moo.nsga2 import (  # pylint: disable=import-outside-toplevel
+            NSGA2,
+        )
+
+        search = optimize_pymoo(
+            _study(),
+            OBJECTIVES,
+            NSGA2(pop_size=10),
+            ("n_gen", 50),
+            seed=1,
+            max_designs=25,
+        )
+        evaluated = search.results.design.nunique()
+        self.assertGreaterEqual(evaluated, 25)
+        self.assertLess(evaluated, 25 + 10)
+        self.assertLess(search.state.algorithm.n_gen, 50)
+        # the termination, if first
+        short = optimize_pymoo(
+            _study(),
+            OBJECTIVES,
+            NSGA2(pop_size=10),
+            ("n_gen", 2),
+            seed=1,
+            max_designs=1000,
+        )
+        self.assertLessEqual(short.results.design.nunique(), 20)
+        with self.assertRaises(ValueError):
+            optimize_pymoo(_study(), OBJECTIVES, max_designs=0)
 
 
 @unittest.skipUnless(HAS_OPTUNA, "requires optuna")
@@ -458,37 +547,32 @@ class TestOptunaSearch(unittest.TestCase):
         )
         optuna_study, results = search.state, search.results
         self.assertEqual(results.design.nunique(), 2)
-        # the designs of the search, in the order of their evaluation
+        # the designs evaluated by the search, in the order of their evaluation
         self.assertEqual(
-            [design.key for design in search.designs],
+            [design.key for design in search.evaluated],
             results.design.drop_duplicates().tolist(),
         )
         self.assertLessEqual(len(optuna_study.trials), 50)
+        with self.assertRaises(ValueError):
+            optimize_optuna(study, {"f": "min"}, n_trials=5, max_designs=0)
 
     def test_partially_infeasible(self):
-        """A design infeasible in some replicates violates by their share."""
-        space = DesignSpace(x=Integer(0, 1), noise=Uncertain.uniform(0, 1))
-
-        def build(d):
-            if d.x == 1 and d.noise < 0.5:
-                raise Infeasible("unlucky")
-            return d
-
-        study = Study(space, build, lambda d: {"f": d.x}, replicates=8)
-        evaluations = Evaluations(study, {"f": "max"})
-        values = evaluations.evaluate(space.enumerate())
-        self.assertIsNotNone(values[0])
-        self.assertIsNone(values[1])
-        share = evaluations.infeasibility[space.enumerate()[1].key]
-        self.assertGreater(share, 0)
-        self.assertLess(share, 1)
-        # the summary of a search is of the designs it found feasible
-        summary = evaluations.search(None).summary
-        self.assertEqual(list(summary.design), [space.enumerate()[0].key])
-        optuna_study = optimize_optuna(study, {"f": "max"}, n_trials=6).state
+        """A design without a feasible replicate violates the constraint of
+        feasibility; one infeasible in some replicates does not, but violates
+        a requirement on its share of feasible replicates."""
+        study, designs = _partly_infeasible()
+        results = study.run(designs)
+        share = results[results.design == designs[1].key].feasible.mean()
+        reliable = Criteria(
+            {"f": "max"}, requirements=[Requirement("feasible", ">=", 1)]
+        )
+        optuna_study = optimize_optuna(study, reliable, n_trials=12).state
         for trial in optuna_study.trials:
-            if trial.params.get("x") == 1:
-                self.assertAlmostEqual(trial.constraints["feasibility"], share)
+            x = trial.params.get("x")
+            feasibility = trial.constraints["feasibility"]
+            self.assertEqual(feasibility, 1.0 if x == 2 else 0.0)
+            if x == 1:
+                self.assertAlmostEqual(trial.constraints["feasible >= 1"], 1 - share)
 
     def test_records_checked_first(self):
         """A study of several records per evaluation fails after one design."""

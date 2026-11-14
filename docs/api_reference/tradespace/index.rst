@@ -53,8 +53,9 @@ A study gives **results**: a row per evaluation (a design in a replicate,
 and a scenario), with the key of the design (`design`), the `replicate`, the
 values of the design by path (see `Design.flat`), whether it is `feasible`,
 and its metrics. A **summary** has a row per design (and per group of the
-criteria's `by`): statistics over its replicates, the number of
-`replicates`, and the values of the design, and, of criteria, the
+criteria's `by`): statistics over its feasible replicates, the number of
+them (`replicates`), the share of its replicates that are `feasible` (which
+requirements may name), and the values of the design, and, of criteria, the
 `violation` of their requirements, whether the design meets them
 (`meets_requirements`), and whether it is efficient (`pareto`). Functions
 take one or the other:
@@ -106,7 +107,8 @@ objects, their keys, or rows of a summary or of results. A design gives its
 values by attribute (`d.layout.planes`) or by the path of a column of the
 results (`d["layout.walker.planes"]`, see `Values`), and a study realizes
 it as it evaluates it (`Study.realize`, and, of an `ObservationStudy`,
-`satellites_of`, `observations_of`, `deployment_of`, and `phases_of`)::
+`satellites_of`, `observations_of`, and `mission_of`, whose `Mission` gives
+its deployment, phases, cost estimate, and histories)::
 
     confirmation = confirm(study, criteria, results, summary[summary.pareto])
 
@@ -121,7 +123,7 @@ arguments (`Study.replace`)::
 
 The parts of an `ObservationStudy` (such as its targets and mission plan)
 refer to values of designs by a `Reference` (see
-:py:data:`tatc.tradespace.observations.Reference`): a name or path of a
+:py:data:`tatc.tradespace.references.Reference`): a name or path of a
 value, or a function of the realized design.
 
 Stores of Results

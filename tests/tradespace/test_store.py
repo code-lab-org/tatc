@@ -201,6 +201,42 @@ class TestResultStore(unittest.TestCase):
         self.assertEqual(current.prune(), 0)
         self.assertEqual(constant.prune(), 0)
 
+    def test_warning_location(self):
+        """The warning of evaluations with other code points at the run."""
+        store = ResultStore(self.path, "where")
+
+        def study(evaluate):
+            return Study(self.space, lambda d: d, evaluate, store=store)
+
+        study(lambda d: {"value": d.a + 1}).run()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            study(lambda d: {"value": d.a * 1}).run()
+        (warning,) = [w for w in caught if "other code" in str(w.message)]
+        self.assertEqual(Path(warning.filename).resolve(), Path(__file__).resolve())
+
+    def test_prune_definitions(self):
+        """Definitions kept without evaluations (of a study whose evaluations
+        all failed) are of the study's contexts, which pruning removes."""
+        store = ResultStore(self.path, "failed")
+
+        def study(evaluate, **kwargs):
+            return Study(self.space, lambda d: d, evaluate, store=store, **kwargs)
+
+        broken = study(lambda d: {"value": d.a / 0}, errors="record")
+        with self.assertWarnsRegex(UserWarning, "none of the 4 designs"):
+            broken.run()
+        self.assertEqual(store.contexts(), {broken.fingerprint: 0})
+        self.assertEqual(len(store), 0)
+        # the same study with other code (of the same constants)
+        fixed = study(lambda d: {"value": d.a * 0})
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # no evaluations to warn of
+            fixed.run()
+        self.assertEqual(fixed.prune(), 0)
+        self.assertEqual(store.contexts(), {fixed.fingerprint: 4})
+        self.assertIsNone(store.definition(broken.fingerprint))
+
     def test_records_as_json(self):
         """Records are kept as JSON, and read as they were written."""
         record = {

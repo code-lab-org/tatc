@@ -1,15 +1,17 @@
 """
 Studies of the observations of constellations: the targets of each replicate,
 the observations of each satellite (cached), and the metrics of a design's
-observations, its deployment and costs, the histories of its failures, and
-the phases of its mission.
+observations and, with a mission plan (see the module `plans`), its
+deployment and costs, the histories of its failures, and the phases of its
+mission.
 
-The parts refer to the values of designs by a `Reference`: a name (such as
-`"points_seed"` for `d.points_seed`, or a path of `Design.flat`, such as
-`"layout.walker.planes"`), or a function of the (realized) design (such as
-`lambda d: d.layout`). A string given where a reference is expected is
-always a reference, never a value itself: give a function that returns a
-string (or a number, where numbers are references) to give a value::
+The parts refer to the values of designs by a `Reference` (see `value_of`):
+a name (such as `"points_seed"` for `d.points_seed`, or a path of
+`Design.flat`, such as `"layout.walker.planes"`), or a function of the
+(realized) design (such as `lambda d: d.layout`). A string given where a
+reference is expected is always a reference, never a value itself: give a
+function that returns a string (or a number, where numbers are references)
+to give a value::
 
     MissionPlan(SCHEDULE, COST_MODEL, kind="field_of_regard")  # d.field_of_regard
     MissionPlan(SCHEDULE, COST_MODEL, kind=lambda d: "imager")  # always "imager"
@@ -21,7 +23,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import numbers
 import os
 import warnings
 from collections.abc import Callable, Mapping, Sequence
@@ -30,58 +31,23 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from ..analysis import collect_observations
 from ..schemas import Satellite
 from .cache import SatelliteCache, _write
 from .constellations import count_planes
-from .cost import CostEstimate, CostModel
 from .criteria import Requirement
-from .deployment import Deployment, DeploymentSchedule, Stage
-from .failures import FailureModel, RestorationPolicy
-from .histories import evaluate_missions, expected_missions, summarize_missions
-from .mission import Capability, PhaseCache, _given_design, summarize_phases
-from .space import Design, DesignSpace, _scenario_of
+from .mission import Capability, PhaseCache, _given_design
+from .plans import Failures, Mission, MissionPlan
+from .references import Reference, value_of
+from .space import Design, DesignSpace
 from .store import _decode, _encode
 from .study import Study, _Case, _takes_design
-from .values import configure
+from .walks import _generic
 
 _MAX_TARGETS = 32
 """The most sets of targets (of seeds) kept in memory."""
-
-Reference = str | Callable[[Design], Any]
-"""A reference to a value of a design: its name or path (see `Design.flat`),
-or a function of the (realized) design that gives it (see `value_of`)."""
-
-
-def value_of(design: Design, reference: Reference | None) -> Any:
-    """
-    Gets a value of a design that a reference names: a string names a value
-    by its name or path (`design[reference]`, see `Values`: such as
-    `"layout.walker.planes"`, the path of a column of results, see
-    `Design.flat`, or of a group of values, such as `"cost_risk"`), a
-    function computes it from the design, and `None` is `None`.
-
-    Args:
-        design (Design): The (realized) design.
-        reference (Reference | None): The reference: a string, a function,
-            or `None`.
-
-    Returns:
-        Any: the value
-
-    Raises:
-        KeyError: if the design has no value of a name or path.
-    """
-    if reference is None:
-        return None
-    if callable(reference):
-        return reference(design)
-    if not isinstance(reference, str):
-        raise TypeError(f"a reference to a value of a design, not {reference!r}")
-    return design[reference]
 
 
 @dataclasses.dataclass(frozen=True, eq=False, init=False)
@@ -237,6 +203,7 @@ class Observations:
     start: datetime | Reference
     duration: timedelta
     analysis: Callable = collect_observations
+    _: dataclasses.KW_ONLY
     directory: str | os.PathLike | None = dataclasses.field(
         default=None, metadata={"fingerprint": False}
     )
@@ -397,303 +364,26 @@ class Observations:
         return self.cache_of(design)(satellites)
 
 
-@dataclasses.dataclass(frozen=True)
-class MissionPlan:
+def _hashable(value: Any) -> Any:
+    """A value, or its representation if it is not hashable."""
+    try:
+        hash(value)
+    except TypeError:
+        return repr(value)
+    return value
+
+
+def _uncertain_values(design: Design) -> tuple:
     """
-    The deployment of the satellites of each design (see
-    `DeploymentSchedule.plan`) and its costs (see `CostModel`), from the
-    values of the design (see `value_of`).
-
-    The schedule and the cost model may be functions of the (realized)
-    design, which size them by its values with relationships of the study's
-    own (TAT-C includes none, see the module `tatc.tradespace.cost`): for
-    example, the costs of a type of satellite from the mass of its payload,
-    or the capacity of launches to the design's altitude::
-
-        def schedule(d):
-            return dataclasses.replace(SCHEDULE, launch_mass_capacity=capacity(d.altitude))
-
-        PLAN = MissionPlan(schedule, COST_MODEL, kind="payload")
-
-    Launches limited in mass take the masses of the satellites from the cost
-    model (`SatelliteCost.mass`, of each type), unless `masses` are given.
-
-    The growth of the costs of the components of the cost model (see
-    `Component`) is drawn from scores that are values of the design (such as
-    a group of `risk_space`), shared by designs that share components::
-
-        space = space.extend(cost_risk=risk_space(COST_MODEL))
-        PLAN = MissionPlan(SCHEDULE, COST_MODEL, kind="payload", scores="cost_risk")
-
-    Args:
-        schedule (DeploymentSchedule | Callable): The schedule of the
-            deployment, or a function of the design that gives it.
-        cost_model (CostModel | Callable | None): The costs, a function of the
-            design that gives them, or `None`.
-        kind (Reference | None): The kind of the satellites (for schedules
-            and costs of several kinds), as a value of the design.
-        spares (int | Reference): The spares in orbit in each plane, or a
-            value of the design (replaced by the `orbit_spares` of a design's
-            policy, see `policy`).
-        growth (float | Reference | Mapping): The growth of the costs (see
-            `CostModel.estimate`): a factor, a value of the design, or a
-            mapping of each element (such as `"development"`) to a factor or
-            a value of the design, or to a mapping of each kind of satellite
-            to one.
-        stages (Sequence[Stage] | Callable): The stages of the deployment
-            (see `Stage`), or a function of the (realized) design that gives
-            them, such as of a decision whether to stage it and of the values
-            its rules read. Their rules may also read the capability of the
-            satellites operating at a decision, by the study's metrics (see
-            `Decision.capability`).
-        masses (float | Mapping | Reference | None): The mass (kg) of the
-            satellites (or of each type, a mapping), or a value of the
-            design, for launches limited in mass, or `None` for the masses of
-            the cost model.
-        scores (Reference | None): The scores from which the growth of the
-            components of the cost model is drawn (see `CostModel.draw`), as
-            a value of the design (such as a group of `risk_space`), or
-            `None` for the expected costs of the components.
-        policy (Reference | None): The value of the design that configures
-            the policy that restores its failures (see `Failures`) and its
-            spares in orbit (such as a group of `policy_space`, see
-            `configure`), or `None` for the policy of the failures and the
-            plan's `spares`.
+    Gets the values of the uncertain parameters of a realized design, by
+    path (see `DesignSpace.uncertain_paths`), as a key.
     """
-
-    schedule: DeploymentSchedule | Callable[[Design], DeploymentSchedule]
-    cost_model: CostModel | Callable[[Design], CostModel] | None = None
-    kind: Reference | None = None
-    spares: int | Reference = 0
-    growth: float | Reference | Mapping[str, float | Reference | Mapping[Any, Any]] = (
-        1.0
+    paths = set(design.space.uncertain_paths())
+    return tuple(
+        (path, _hashable(value))
+        for path, value in design.flat().items()
+        if _generic(path) in paths
     )
-    stages: Sequence[Stage] | Callable[[Design], Sequence[Stage]] = ()
-    masses: float | Mapping[Any, float] | Reference | None = None
-    scores: Reference | None = None
-    policy: Reference | None = None
-
-    def schedule_of(self, design: Design) -> DeploymentSchedule:
-        """
-        Gets the schedule of the deployment of a design.
-
-        Args:
-            design (Design): The (realized) design.
-
-        Returns:
-            DeploymentSchedule: the schedule
-        """
-        if isinstance(self.schedule, DeploymentSchedule):
-            return self.schedule
-        return self.schedule(design)
-
-    def cost_model_of(self, design: Design) -> CostModel | None:
-        """
-        Gets the cost model of a design, with the growth of its components
-        drawn from the design's scores (if any, see `CostModel.draw`).
-
-        Args:
-            design (Design): The (realized) design.
-
-        Returns:
-            CostModel | None: the cost model, if any
-        """
-        model = self.cost_model
-        if model is not None and not isinstance(model, CostModel):
-            model = model(design)
-        if model is None or self.scores is None:
-            return model
-        return model.draw(value_of(design, self.scores))
-
-    def masses_of(self, design: Design, cost_model: CostModel | None = None) -> Any:
-        """
-        Gets the masses of the satellites of a design, for launches limited in
-        mass: the given masses (or the value of the design they name), or
-        those of the types of satellites of its cost model, if any.
-
-        Args:
-            design (Design): The (realized) design.
-            cost_model (CostModel | None): The design's cost model.
-
-        Returns:
-            Any: a mass, a mapping of types to masses, or `None`
-        """
-        if self.masses is not None:
-            if isinstance(self.masses, (int, float, Mapping)):
-                return self.masses
-            return value_of(design, self.masses)
-        if cost_model is None:
-            return None
-        satellites = cost_model.satellites
-        if isinstance(satellites, Mapping):
-            masses = {kind: cost.mass for kind, cost in satellites.items()}
-            return None if all(m is None for m in masses.values()) else masses
-        return satellites.mass
-
-    def stages_of(self, design: Design) -> tuple:
-        """
-        Gets the stages of the deployment of a design.
-
-        Args:
-            design (Design): The (realized) design.
-
-        Returns:
-            tuple[Stage, ...]: the stages
-        """
-        stages = self.stages(design) if callable(self.stages) else self.stages
-        return tuple(stages or ())
-
-    def growth_of(self, design: Design) -> Any:
-        """
-        Gets the growth of the costs of a design.
-
-        Args:
-            design (Design): The (realized) design.
-
-        Returns:
-            Any: a factor, or a mapping of each element to its factor (or to
-                a mapping of each kind of satellite to its factor)
-        """
-        if not isinstance(self.growth, Mapping):
-            return _number(design, self.growth)
-        growth: dict[str, Any] = {}
-        for element, value in self.growth.items():
-            if isinstance(value, Mapping):
-                growth[element] = {k: _number(design, g) for k, g in value.items()}
-            else:
-                growth[element] = _number(design, value)
-        return growth
-
-
-def _number(design: Design, value: Any) -> Any:
-    """A number, or a value of a design that a reference names."""
-    if isinstance(value, numbers.Real):
-        return value
-    return value_of(design, value)
-
-
-@dataclasses.dataclass(frozen=True)
-class Failures:
-    """
-    The failures of the satellites of each design: histories of its mission
-    (see `Deployment.simulate_many`), restored by a policy (by default by
-    producing new satellites; `RestorationPolicy(restore=False)` not to
-    restore them; or configured by the values of each design, see
-    `MissionPlan.policy`), summarized over the histories (see
-    `summarize_missions`): the mean of each metric over the phases of the
-    mission and the histories, `quantiles` and `requirements` of them, and
-    their costs. Without restoration, the means of the metrics and the
-    availability are the exact expectations over the failures (see
-    `expected_missions`) if `exact` (and the histories have failures, with a
-    `seed`).
-
-    With a `stress`, the failures are drawn from stressed distributions for
-    importance sampling (see `Deployment.simulate_many`), each history
-    weighted by its likelihood ratio. With `controls`, the means over the
-    histories are estimated with control variates (see
-    `summarize_missions`): measures of the missions (see
-    `MissionHistory.metrics`, such as `availability`) whose expected values
-    are estimated from `control_histories` other histories of the replicate,
-    simulated without evaluating their phases (see
-    `Deployment.expected_metrics`). With `spread`, the summaries add the
-    standard deviation of each column over the histories (`<column>
-    histories std`), as `allocate_histories` needs of a pilot study.
-
-    Args:
-        model (FailureModel): The failures.
-        policy (RestorationPolicy): The policy.
-        histories (int): The histories of each replicate.
-        seed (Reference | None): The value of the design that seeds the
-            failures (see `value_of`, such as of `Uncertain.seed`), or
-            `None` for the one history without failures.
-        sampling (str): The sampling of the histories (see
-            `Deployment.simulate_many`).
-        quantiles (Mapping | None): Quantiles of the metrics of the
-            histories (see `summarize_missions`).
-        requirements (Sequence[Requirement]): Requirements on the metrics of
-            the histories (see `summarize_missions`).
-        exact (bool): `True` for exact expectations without restoration.
-        stress (float): The factor of the hazards of stressed failures (1
-            for none).
-        launch_stress (float | None): The factor of the probability that a
-            launch fails, or `None` for the stress.
-        controls (Sequence[str]): The measures of the missions that are
-            control variates, if any.
-        control_histories (int): The histories that estimate the expected
-            values of the controls.
-        spread (bool): `True` to add the standard deviations of the columns
-            over the histories.
-    """
-
-    model: FailureModel
-    policy: RestorationPolicy = RestorationPolicy()
-    histories: int = 1
-    seed: Reference | None = None
-    sampling: str = "stratified"
-    quantiles: Mapping[str, float | Sequence[float]] | None = None
-    requirements: Sequence[Requirement] = ()
-    exact: bool = True
-    stress: float = 1.0
-    launch_stress: float | None = None
-    controls: Sequence[str] = ()
-    control_histories: int = 1000
-    spread: bool = False
-
-    def __post_init__(self):
-        if self.policy is None:  # as `Deployment.simulate` takes it
-            object.__setattr__(self, "policy", RestorationPolicy())
-        if isinstance(self.controls, str):
-            raise TypeError("controls are a sequence of names of measures")
-        object.__setattr__(self, "controls", tuple(self.controls))
-        if self.histories < 1 or self.control_histories < 1:
-            raise ValueError("histories and control_histories must be at least 1")
-
-
-@dataclasses.dataclass(frozen=True)
-class _Mission:
-    """
-    The mission of a realized design (see `_Evaluation`): its planned
-    deployment, the policy that restores its failures, its cost model and
-    growth, and the capability of its satellites (their observations and
-    the cache of the metrics of their phases), from which its phases, costs,
-    and histories follow.
-    """
-
-    deployment: Deployment
-    policy: RestorationPolicy
-    cost_model: CostModel | None
-    growth: Any
-    capability: Capability
-
-    def phases(self) -> pd.DataFrame:
-        """The metrics of the phases of the planned deployment."""
-        satellites = self.capability.satellites
-        return self.capability.evaluate(self.deployment.phases(satellites))
-
-    def estimate(self) -> CostEstimate:
-        """The cost estimate of the planned deployment."""
-        if self.cost_model is None:
-            raise ValueError("the mission plan has no cost model")
-        return self.cost_model.estimate(self.deployment, self.growth)
-
-    def missions(self, failures: Failures) -> pd.DataFrame:
-        """The histories of the failures of the mission (see `evaluate_missions`)."""
-        histories = self.deployment.simulate_many(
-            failures.model,
-            self.policy,
-            self.seed_of(failures),
-            failures.histories,
-            sampling=failures.sampling,
-            stress=failures.stress,
-            launch_stress=failures.launch_stress,
-        )
-        return evaluate_missions(
-            histories, self.capability, cost_model=self.cost_model, growth=self.growth
-        )
-
-    def seed_of(self, failures: Failures) -> Any:
-        """The seed of the failures of the mission's replicate."""
-        return value_of(self.capability.design, failures.seed)
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
@@ -701,8 +391,8 @@ class _Evaluation:
     """
     The evaluation of the satellites of a design (see `ObservationStudy`):
     the metrics of the observations of every satellite and, with a plan, of
-    the mission: its deployment and costs, and either the phases of its
-    deployment or the histories of its failures.
+    the mission (see `Mission`): its deployment and costs, and either the
+    phases of its deployment or the histories of its failures.
     """
 
     observations: Observations
@@ -727,109 +417,47 @@ class _Evaluation:
         mission = None
         if self.plan is not None:
             mission = self.mission_of(satellites, observations, design)
-            record["deployed"] = mission.deployment.deployed
-            if mission.cost_model is not None and self.failures is None:
-                # (of failures, the costs are the means over the histories)
-                record.update(mission.estimate().metrics())
+            record.update(mission.metrics())
         record.update(_given_design(self.metrics, design)(observations))
-        if mission is not None and self.failures is not None:
-            record.update(self._histories(mission))
-        elif mission is not None and self.phases is not None:
-            record.update(summarize_phases(mission.phases(), requirements=self.phases))
+        if mission is not None:
+            record.update(mission.summarize(self.phases))
         return record
 
-    def _policy(self, design: Design) -> tuple[RestorationPolicy, Any]:
-        """The policy of a design, and its spares in orbit in each plane."""
-        base = RestorationPolicy() if self.failures is None else self.failures.policy
-        if self.plan.policy is None:
-            return base, _number(design, self.plan.spares)
-        decided = value_of(design, self.plan.policy)
-        return configure(base, decided), decided.orbit_spares
+    def context_of(self, design: Design) -> tuple:
+        """
+        Gets the context of the metrics of the phases of a design in the
+        cache (see `PhaseCache`): its observations (see
+        `Observations.context_of`) and, if the metrics are given the design,
+        its scenario and the values of its uncertain parameters, which such
+        metrics may read (designs of a replicate share them, with common
+        random numbers).
+        """
+        context = self.observations.context_of(design)
+        if _takes_design(self.metrics):
+            context = (context, design.scenario, _uncertain_values(design))
+        return context
 
     def mission_of(
         self,
         satellites: Sequence[Satellite],
         observations: pd.DataFrame,
         design: Design,
-    ) -> _Mission:
+    ) -> Mission:
         """
-        Plans the mission of a realized design: its deployment (whose stages
-        read the capability of the satellites operating at their decisions),
-        policy, and costs.
+        Plans the mission of a realized design (see `MissionPlan.mission_of`),
+        with the capability of its satellites (and the cache of the metrics
+        of their phases).
         """
-        # the metrics of phases are cached by the observations and, if they
-        # are given the design, by its scenario
-        context = self.observations.context_of(design)
-        if _takes_design(self.metrics):
-            context = (context, _scenario_of(design))
-        policy, spares = self._policy(design)
-        cost_model = self.plan.cost_model_of(design)
-        deployment = self.plan.schedule_of(design).plan(
-            value_of(design, self.layout),
-            kind=value_of(design, self.plan.kind),
-            spares=spares,
-            masses=self.plan.masses_of(design, cost_model),
-            stages=self.plan.stages_of(design),
-        )
         capability = Capability(
-            satellites, observations, self._phase_cache, context, design
+            satellites,
+            observations,
+            self._phase_cache,
+            context=self.context_of(design),
+            design=design,
         )
-        deployment.capability = capability
-        return _Mission(
-            deployment, policy, cost_model, self.plan.growth_of(design), capability
+        return self.plan.mission_of(
+            design, value_of(design, self.layout), capability, self.failures
         )
-
-    def _histories(self, mission: _Mission) -> dict[str, float]:
-        """
-        Summarizes histories of the failures of a mission (with exact
-        expectations of the means of missions that are not restored or
-        staged, if the failures are exact and have a seed).
-        """
-        failures = self.failures
-        seed = mission.seed_of(failures)
-        missions = mission.missions(failures)
-        controls = None
-        if failures.controls and seed is not None:
-            # other histories of the replicate (by a seed of its seed)
-            other = int(np.random.default_rng([int(seed), 7]).integers(2**31))
-            expected = mission.deployment.expected_metrics(
-                failures.model,
-                mission.policy,
-                other,
-                failures.control_histories,
-                sampling=failures.sampling,
-            )
-            unknown = sorted(set(failures.controls) - set(expected))
-            if unknown:
-                raise ValueError(
-                    f"controls that are not measures of missions: {unknown} "
-                    + f"(they are {sorted(expected)})"
-                )
-            controls = {name: expected[name] for name in failures.controls}
-        record = summarize_missions(
-            missions,
-            quantiles=failures.quantiles,
-            requirements=failures.requirements,
-            controls=controls,
-            spread=failures.spread,
-        )
-        if (
-            failures.exact
-            and seed is not None
-            and not mission.policy.restore
-            and not mission.deployment.stages
-        ):
-            exact = expected_missions(
-                mission.deployment, failures.model, mission.capability
-            )
-            record.update(
-                {
-                    key: value
-                    for key, value in exact.items()
-                    if key.endswith(" mission") or key == "availability"
-                }
-            )
-        return record
 
 
 class ObservationStudy(Study):
@@ -837,10 +465,10 @@ class ObservationStudy(Study):
     A trade study of the observations of constellations: each replicate of a
     design builds its satellites, observes the targets of the replicate (see
     `Observations`), and records the metrics of the observations and, with a
-    mission `plan`, of the mission: its deployment and costs, and either the
-    `phases` of its deployment (see `evaluate_phases` and `summarize_phases`,
-    with requirements, if any) or the histories of its `failures` (see
-    `Failures`)::
+    mission `plan`, of the mission (see `Mission`): its deployment and costs,
+    and either the `phases` of its deployment (see `evaluate_phases` and
+    `summarize_phases`, with requirements, if any) or the histories of its
+    `failures` (see `Failures`)::
 
         study = ObservationStudy(
             space,
@@ -857,22 +485,28 @@ class ObservationStudy(Study):
       `layout` of a design space that has one): their numbers.
     * the metrics of the observations of every satellite (by their names).
     * with a plan: `deployed`, the years from the start of development to the
-      last launch of the planned deployment (without stages that rules decide
-      to deploy, see `Stage`), and, with a cost model, the costs of the
-      deployment (`cost`, `cost development`, and so on, see
+      last launch of the first generation of the satellites in the history
+      of the mission without failures (see `Mission.planned`), including the
+      stages that their rules deploy then (see `Stage`); with stages, `stages
+      deployed`, the number of stages that their rules deploy then (with
+      failures, the mean over the histories); and, with a cost model, the
+      costs of the deployment (`cost`, `cost development`, and so on, see
       `CostEstimate.metrics`; with failures, the means of the costs of the
       histories).
     * with phases: `<metric> mission`, the mean of each metric over the
-      phases of the mission as its satellites are deployed, and
-      `<metric> time`, the years until a phase first meets each requirement
-      on a metric (see `summarize_phases`).
+      phases of the mission as its satellites are deployed (from the first
+      launch), and `<metric> time`, the time at which a phase first meets
+      each requirement on a metric (see `summarize_phases`), in years from
+      the start of development, as `deployed` (infinite if none does).
     * with failures: the means over the histories of the failures of each
       replicate of `<metric> mission` (the mean over the phases of each
       history), of the measures of the missions (`availability`, `failures`,
-      `restorations`, and so on, see `MissionHistory.metrics`), and of their
-      costs; and the `quantiles` of columns over the histories
-      (`<column> histories p<percent>`) and the shares of the histories that
-      meet `requirements` (`P(<requirement>)`), see `summarize_missions`.
+      `restorations`, and so on, see `MissionHistory.metrics`), of their
+      costs, and of the times of each history that meets the requirements of
+      the `phases` of the failures (`<metric> time`); and the `quantiles` of
+      columns over the histories (`<column> histories p<percent>`) and the
+      shares of the histories that meet `requirements` (`P(<requirement>)`),
+      see `summarize_histories`.
 
     Statistics over the replicates of these columns (see `Criteria`) judge
     designs: such as the mean over the replicates of `accurate mission`, or a
@@ -886,11 +520,13 @@ class ObservationStudy(Study):
     with a parameter named `design` is also given the realized design, such
     as for the window of an epoch drawn for each replicate or for values that
     scenarios set (see `Study`): the metrics of phases are cached by the
-    satellites that operate, the targets and window of the observations, and
-    the scenario, so such a function must depend on the design only through
-    these. As a `Study`, it runs as any other (see `Study.run`), such as in
-    parallel, with a store of its records, and in searches (such as
-    `refine`, `confirm`, `screen`, and the optimizers). Its fingerprint (see
+    satellites that operate, the targets and window of the observations, the
+    scenario, and the values of the uncertain parameters of the replicate
+    (which the designs of a replicate share, with common random numbers), so
+    such a function must depend on the design only through these. As a
+    `Study`, it runs as any other (see `Study.run`), such as in parallel,
+    with a store of its records, and in searches (such as `refine`,
+    `confirm`, `screen`, and the optimizers). Its fingerprint (see
     `Study.fingerprint`) describes its parts, including targets by their
     content (or the recipe of generated targets), so that its store needs no
     namespace but for what the fingerprint cannot see.
@@ -898,9 +534,8 @@ class ObservationStudy(Study):
     The parts of the evaluation of a design are also given apart, for
     analyses other than its metrics: its satellites, targets, and
     observations (`satellites_of`, `targets_of`, and `observations_of`), and
-    its planned deployment, the metrics of its phases, its cost estimate,
-    and the histories of its failures (`deployment_of`, `phases_of`,
-    `estimate_of`, and `missions_of`).
+    its mission (`mission_of`): its planned deployment, the metrics of its
+    phases, its cost estimate, and the histories of its failures.
 
     Args:
         space (DesignSpace): The design space.
@@ -914,14 +549,20 @@ class ObservationStudy(Study):
             layout (see `value_of` and `layout_of`), which a `plan`
             requires, or `None` for the value `layout` of a design space
             that has one (and none otherwise).
-        plan (MissionPlan | None): The deployment and costs, if any.
+        plan (MissionPlan | None): The deployment, policy, and costs, if any.
         failures (Failures | None): The failures, if any, which require a
             plan.
         phases (Sequence[Requirement] | bool | None): `True` (or requirements
             on the metrics) to summarize the phases of the deployment, which
-            require a plan.
+            require a plan (with failures, the requirements on the phases of
+            the histories are those of `Failures`).
         **options (Any): The settings of the study (see `Study`), such as
             `replicates`, `seed`, `n_jobs`, and `store`.
+
+    Raises:
+        ValueError: if failures or phases are given without a plan, a plan
+            without a layout, failures with phases, or the quantiles or
+            requirements of failures are of costs without a cost model.
     """
 
     def __init__(
@@ -930,6 +571,7 @@ class ObservationStudy(Study):
         build: Callable[[Design], Sequence[Satellite]],
         observations: Observations,
         metrics: Callable[[pd.DataFrame], Mapping[str, Any]],
+        *,
         layout: Reference | None = None,
         plan: MissionPlan | None = None,
         failures: Failures | None = None,
@@ -947,8 +589,21 @@ class ObservationStudy(Study):
             raise ValueError("a mission plan requires a layout")
         if failures is not None and phases is not None:
             raise ValueError(
-                "failures summarize the phases of their histories: give one or the other"
+                "failures summarize the phases of their histories: give the "
+                + "requirements on them to Failures (phases), not to the study"
             )
+        if failures is not None and plan.cost_model is None:
+            named = [
+                *(failures.quantiles or {}),
+                *(r.name for r in failures.requirements),
+            ]
+            costs = [
+                name for name in named if name == "cost" or name.startswith("cost ")
+            ]
+            if costs:
+                raise ValueError(
+                    f"quantiles or requirements of costs without a cost model: {costs}"
+                )
         self.observations, self.metrics, self.layout = observations, metrics, layout
         self.plan, self.failures, self.phases = plan, failures, phases
         evaluation = _Evaluation(observations, metrics, layout, plan, failures, phases)
@@ -977,9 +632,7 @@ class ObservationStudy(Study):
         # the cache of the observations of the first evaluation, in this
         # process, so that it warns of results of other code here (once, see
         # `SatelliteCache`), rather than in a worker process
-        realized = design.realize(
-            replicate, self.seed, self.common_random_numbers, shift, case.values
-        )
+        realized = self._realized(design, replicate, shift, case)
         self.observations.cache_of(realized)
 
     def satellites_of(
@@ -1032,14 +685,21 @@ class ObservationStudy(Study):
         realized = self.realize(design, replicate, scenario)
         return self.observations(self.build(realized), realized)
 
-    def deployment_of(
+    def mission_of(
         self, design: Design, replicate: int = 0, scenario: str | None = None
-    ) -> Deployment:
+    ) -> Mission:
         """
-        Gets the planned deployment of a replicate of a design, as its
-        evaluation plans it (see `MissionPlan`): with the plan's schedule,
-        kind, spares, masses, and stages, and the capability of its
-        satellites, which the rules of stages read (see `Deployment.capability`).
+        Gets the mission of a replicate of a design, as its evaluation plans
+        it (see `MissionPlan.mission_of`), for analyses other than its
+        metrics: its planned deployment (`Mission.deployment`, with the
+        plan's schedule, type, policy and spares, masses, and stages, and the
+        capability of its satellites, which the rules of stages read), the
+        metrics of its phases (`Mission.phases`, which a study with `phases`
+        summarizes), its cost estimate (`Mission.estimate`, the costs of a
+        study without failures), and the histories of its failures
+        (`Mission.histories`, a row per history, which a study with failures
+        summarizes). The design is realized, built, and observed once for
+        all of them.
 
         Args:
             design (Design): The design.
@@ -1047,101 +707,10 @@ class ObservationStudy(Study):
             scenario (str | None): A scenario of the study (by name), if any.
 
         Returns:
-            Deployment: the deployment
+            Mission: the mission
 
         Raises:
             ValueError: if the study has no mission plan.
-        """
-        return self._mission_of(design, replicate, scenario).deployment
-
-    def phases_of(
-        self, design: Design, replicate: int = 0, scenario: str | None = None
-    ) -> pd.DataFrame:
-        """
-        Gets the metrics of the phases of the planned deployment of a
-        replicate of a design (see `deployment_of` and `evaluate_phases`),
-        which the evaluation of a study with `phases` summarizes (see
-        `summarize_phases`); those of the histories of failures are of
-        `missions_of`.
-
-        Args:
-            design (Design): The design.
-            replicate (int): The replicate.
-            scenario (str | None): A scenario of the study (by name), if any.
-
-        Returns:
-            pandas.DataFrame: a row per phase: its `start`, `end`,
-                `duration`, number of `satellites`, and metrics
-
-        Raises:
-            ValueError: if the study has no mission plan.
-        """
-        return self._mission_of(design, replicate, scenario).phases()
-
-    def estimate_of(
-        self, design: Design, replicate: int = 0, scenario: str | None = None
-    ) -> CostEstimate:
-        """
-        Gets the cost estimate of the planned deployment of a replicate of a
-        design (see `deployment_of` and `CostModel.estimate`), with its
-        growth, which is the cost of the evaluation of a study without
-        failures (the costs of a study with failures are the means of those
-        of the histories, see `missions_of`).
-
-        Args:
-            design (Design): The design.
-            replicate (int): The replicate.
-            scenario (str | None): A scenario of the study (by name), if any.
-
-        Returns:
-            CostEstimate: the estimate
-
-        Raises:
-            ValueError: if the study's plan has no cost model.
-        """
-        return self._mission_of(design, replicate, scenario).estimate()
-
-    def missions_of(
-        self, design: Design, replicate: int = 0, scenario: str | None = None
-    ) -> pd.DataFrame:
-        """
-        Gets the histories of the failures of a replicate of a design, which
-        its evaluation summarizes (see `Failures` and `evaluate_missions`):
-        a row per history, with the mean of each metric over its phases,
-        the measures of its mission, and its costs.
-
-        Args:
-            design (Design): The design.
-            replicate (int): The replicate.
-            scenario (str | None): A scenario of the study (by name), if any.
-
-        Returns:
-            pandas.DataFrame: a row per history
-
-        Raises:
-            ValueError: if the study has no failures.
-        """
-        if self.failures is None:
-            raise ValueError("the study has no failures")
-        return self._mission_of(design, replicate, scenario).missions(self.failures)
-
-    def prune(self) -> int:
-        """
-        Removes the evaluations of the study's store by this study with other
-        code (see `Study.prune`), and the results of its observations' caches
-        with other code (see `Observations.prune`).
-
-        Returns:
-            int: the number of evaluations and results removed
-        """
-        return super().prune() + self.observations.prune()
-
-    def _mission_of(
-        self, design: Design, replicate: int, scenario: str | None
-    ) -> _Mission:
-        """
-        Plans the mission of a replicate of a design, as its evaluation does
-        (see `_Evaluation.mission_of`).
         """
         if self.plan is None:
             raise ValueError("the study has no mission plan")
@@ -1149,3 +718,18 @@ class ObservationStudy(Study):
         satellites = list(self.build(realized))
         observations = self.observations(satellites, realized)
         return self.evaluate.mission_of(satellites, observations, realized)
+
+    def prune(self) -> int:
+        """
+        Removes the evaluations of the study's store by this study with other
+        code (see `Study.prune`), and the results of its observations' caches
+        with other code (see `Observations.prune`, which returns their number
+        when called alone).
+
+        Returns:
+            int: the number of evaluations removed (as `Study.prune`, not
+                counting the results of the observations' caches)
+        """
+        evaluations = super().prune()
+        self.observations.prune()
+        return evaluations

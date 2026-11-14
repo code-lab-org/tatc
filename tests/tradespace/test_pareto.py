@@ -97,11 +97,11 @@ class TestPareto(unittest.TestCase):
         )
         # c is worse than a and b by 0.01 and 0.03 in value, within the
         # tolerance; d is not
-        loose = Criteria(objectives, tolerance={"value": 0.05})
+        loose = Criteria(objectives, tolerances={"value": 0.05})
         self.assertEqual(list(pareto_front(frame, loose)), [True, True, True, False])
         self.assertEqual(list(pareto_ranks(frame, loose)), [0, 0, 0, 1])
         # a larger tolerance keeps d (worse than a by 0.5 in value)
-        looser = Criteria(objectives, tolerance={"value": 0.6})
+        looser = Criteria(objectives, tolerances={"value": 0.6})
         self.assertTrue(pareto_front(frame, looser).all())
 
     def test_requirements_and_groups(self):
@@ -144,10 +144,10 @@ class TestRelativeTolerance(unittest.TestCase):
         objectives = {"cost": "min", "value": "max"}
         # 5% of 96 (4.8) tolerates 96 against 100; 5% of 3 (0.15) does not
         # tolerate 3 against 4
-        front = pareto_front(frame, Criteria(objectives, tolerance={"value": "5%"}))
+        front = pareto_front(frame, Criteria(objectives, tolerances={"value": "5%"}))
         self.assertEqual(list(front), [True, True, False, False])
         # an absolute tolerance of 1 does not tolerate 96 against 100
-        absolute = pareto_front(frame, Criteria(objectives, tolerance={"value": 1.0}))
+        absolute = pareto_front(frame, Criteria(objectives, tolerances={"value": 1.0}))
         self.assertEqual(list(absolute), [True, False, False, False])
 
 
@@ -320,7 +320,8 @@ class TestManyPoints(unittest.TestCase):
         front = pareto_front(frame, {"a": "min", "b": "min", "c": "max"})
         self.assertGreater(front.sum(), 0)
         tolerant = pareto_front(
-            frame, Criteria({"a": "min", "b": "min", "c": "max"}, tolerance={"c": "5%"})
+            frame,
+            Criteria({"a": "min", "b": "min", "c": "max"}, tolerances={"c": "5%"}),
         )
         self.assertTrue((tolerant >= front).all())
 
@@ -399,3 +400,69 @@ class TestMissingObjectives(unittest.TestCase):
         self.assertEqual(list(pareto_front(summary, objectives)), [True, False, True])
         self.assertEqual(list(pareto_ranks(summary, objectives)), [0, 1, 0])
         self.assertAlmostEqual(hypervolume(summary, objectives, {"x": 3, "y": 2}), 3.0)
+
+
+class TestFeasibleProbability(unittest.TestCase):
+    """
+    Unit tests for the probability of efficiency of designs infeasible in
+    some replicates.
+    """
+
+    @staticmethod
+    def _results(feasible):
+        """Two designs in eight replicates: d1, better, is feasible only where
+        given."""
+        return pd.DataFrame(
+            [
+                {
+                    "design": design,
+                    "replicate": r,
+                    "feasible": True if design == "d0" else feasible[r],
+                    "cost": 1.0,
+                    "value": 1.0 if design == "d0" else 2.0,
+                }
+                for design in ("d0", "d1")
+                for r in range(len(feasible))
+            ]
+        )
+
+    def test_feasible_requirement(self):
+        """A requirement on the share of feasible replicates is uncertain in
+        the bootstrap."""
+        results = self._results([True, False] * 4)
+        criteria = Criteria(
+            {"cost": "min", "value": "max"},
+            requirements=[Requirement("feasible", ">=", 0.5)],
+        )
+        probability = pareto_probability(results, criteria, n_resamples=200)
+        probability = probability.set_index("design")
+        self.assertEqual(probability.loc["d1", "feasible"], 0.5)
+        self.assertEqual(probability.loc["d1", "replicates"], 4)
+        met = probability.loc["d1", "requirements_probability"]
+        self.assertGreater(met, 0.2)
+        self.assertLess(met, 0.9)
+        self.assertEqual(probability.loc["d0", "requirements_probability"], 1.0)
+        # without the requirement, d1 is judged by its feasible replicates
+        plain = pareto_probability(results, {"cost": "min", "value": "max"})
+        plain = plain.set_index("design")
+        self.assertEqual(plain.loc["d1", "pareto_probability"], 1.0)
+        self.assertEqual(plain.loc["d0", "pareto_probability"], 0.0)
+
+    def test_no_feasible_design(self):
+        """Results without a feasible record have an empty summary."""
+        results = self._results([False] * 4)
+        results = results[results.design == "d1"].drop(columns=["cost", "value"])
+        probability = pareto_probability(results, {"cost": "min", "value": "max"})
+        self.assertTrue(probability.empty)
+        self.assertEqual(
+            list(probability.columns[-6:]),
+            [
+                "feasible",
+                "violation",
+                "meets_requirements",
+                "pareto",
+                "pareto_probability",
+                "requirements_probability",
+            ],
+        )
+        self.assertIn("value se", probability.columns)

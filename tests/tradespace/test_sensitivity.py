@@ -73,8 +73,10 @@ class TestSensitivity(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "aggregate"):
             sensitivity(results, ["a"], ["metric"])
-        with self.assertRaisesRegex(ValueError, "aggregate"):
+        with self.assertRaisesRegex(ValueError, "aggregate") as context:
             main_effects(results, "a", "metric")
+        # summaries of designs in groups give a row of each design per group
+        self.assertNotIn("Criteria", str(context.exception))
 
     def test_irrelevant_variable(self):
         """The adjusted share of a variable that does not matter is near 0."""

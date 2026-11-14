@@ -5,6 +5,7 @@ Unit tests for screening with analyses of increasing fidelity.
 """
 
 import unittest
+import warnings
 
 import numpy as np
 
@@ -14,7 +15,9 @@ from tatc.tradespace import (
     Integer,
     Study,
     Uncertain,
+    confirm,
     pareto_front,
+    refine,
     screen,
     summarize,
 )
@@ -69,14 +72,19 @@ class TestScreen(unittest.TestCase):
         self.assertTrue((first[first.pareto_rank <= last_rank].kept).all())
         self.assertFalse((first[first.pareto_rank > last_rank].kept).any())
         self.assertEqual(len(screening.designs), first.kept.sum())
-        self.assertEqual(set(screening.results.stage), {0, 1})
+        self.assertEqual(set(screening.history.stage), {0, 1})
         self.assertEqual(len(screening.summary), len(screening.designs))
+        # the results of the last stage, which other steps continue
+        last = screening.history[screening.history.stage == 1]
+        self.assertEqual(len(screening.results), len(last))
+        self.assertNotIn("stage", screening.results.columns)
+        self.assertEqual(screening.criteria.objectives, OBJECTIVES)
 
     def test_finds_front(self):
         """A tolerance of the noise of the first stage keeps the efficient designs."""
         stages = [_study(0.3, 1), _study(0, 1)]
         # about two standard deviations of the noise of the first stage
-        cheap = Criteria(OBJECTIVES, tolerance={"value": 0.6})
+        cheap = Criteria(OBJECTIVES, tolerances={"value": 0.6})
         screening = screen(stages, [cheap, OBJECTIVES], self.designs, keep=0.1)
         final = screening.summary
         found = set(final.design[pareto_front(final, OBJECTIVES)])
@@ -92,7 +100,7 @@ class TestScreen(unittest.TestCase):
         """Values of keep and criteria can be given for each stage."""
         screening = screen(
             [_study(0.5, 1), _study(0.1, 2), _study(0, 1)],
-            [Criteria(OBJECTIVES, tolerance={"value": 1.0}), OBJECTIVES, OBJECTIVES],
+            [Criteria(OBJECTIVES, tolerances={"value": 1.0}), OBJECTIVES, OBJECTIVES],
             self.designs,
             keep=[0.5, 10],
         )
@@ -107,10 +115,49 @@ class TestScreen(unittest.TestCase):
         with self.assertRaises(ValueError):
             screen([_study(0, 1)], Criteria(OBJECTIVES, by="sensor"), self.designs)
 
+    def test_next_steps(self):
+        """The results and designs of a screening continue in other steps."""
+        full = _study(0, 2)
+        screening = screen([_study(0.3, 1), full], OBJECTIVES, self.designs, keep=10)
+        confirmation = confirm(full, OBJECTIVES, screening.results, screening.designs)
+        self.assertEqual(
+            {d.key for d in confirmation.designs}, {d.key for d in screening.designs}
+        )
+        confirm(full, OBJECTIVES, screening.results)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)  # designs still uncertain
+            refinement = refine(
+                full,
+                OBJECTIVES,
+                screening.results,
+                screening.designs,
+                max_rounds=1,
+                n_resamples=20,
+            )
+        self.assertEqual(len(refinement.candidates), len(screening.designs))
+
+    def test_keep(self):
+        """Designs are kept by a number of at least 1, or a share of at most 1."""
+        stages = [_study(0, 1), _study(0, 1)]
+        designs = self.designs[:20]
+        everything = screen(stages, OBJECTIVES, designs, keep=1.0)
+        self.assertEqual(len(everything.designs), len(designs))
+        for keep in (0, -1, 0.0, 1.5, -0.5, [0.5, 0]):
+            with self.subTest(keep=keep):
+                stages_of = (
+                    stages if not isinstance(keep, list) else stages + stages[:1]
+                )
+                with self.assertRaises(ValueError):
+                    screen(stages_of, OBJECTIVES, designs, keep=keep)
+        for keep in (True, "10", None):
+            with self.subTest(keep=keep):
+                with self.assertRaises(TypeError):
+                    screen(stages, OBJECTIVES, designs, keep=keep)
+
     def test_criteria_tolerance(self):
         """Every stage uses the tolerance of the criteria unless given its own."""
         stages = [_study(0.3, 1), _study(0, 1)]
-        criteria = Criteria(OBJECTIVES, tolerance={"value": 0.6})
+        criteria = Criteria(OBJECTIVES, tolerances={"value": 0.6})
         tolerant = screen(stages, criteria, self.designs, keep=0.1)
         overridden = screen(stages, [OBJECTIVES, criteria], self.designs, keep=0.1)
         self.assertGreater(len(tolerant.designs), len(overridden.designs))

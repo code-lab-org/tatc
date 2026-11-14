@@ -16,9 +16,11 @@ from itertools import combinations
 import numpy as np
 import pandas as pd
 
-from .criteria import _names, _resamples
-from .space import Design, DesignSpace, _check_uncertain, _designs, _generic
+from .space import Design, DesignSpace, _designs
+from .statistics import _names
 from .study import Study
+from .summary import _resamples
+from .walks import _generic
 
 _SHARES = ("first", "total")
 """The shares of variance of a parameter (see `attribute_variance`)."""
@@ -28,7 +30,10 @@ _SHARES = ("first", "total")
 class Attribution:
     """
     The attribution of the variance of the metrics of designs between their
-    replicates to their uncertain parameters (see `attribute_variance`).
+    replicates to their uncertain parameters (see `attribute_variance`): as
+    the outcomes of other steps of a trade study (see `Refinement`), its
+    `results`, its `summary` (of the shares of the parameters over every
+    design), and the `designs` attributed.
     """
 
     results: pd.DataFrame
@@ -263,7 +268,7 @@ def _groups_of(
     if not groups:
         raise ValueError("no parameters to attribute variance to")
     paths = [path for group in groups.values() for path in group]
-    _check_uncertain(space, paths)
+    space.check_uncertain(paths)
     repeated = sorted({path for path in paths if paths.count(path) > 1})
     if repeated:
         raise ValueError(f"parameters in more than one group: {repeated}")

@@ -120,6 +120,10 @@ def style_axes(ax: Any, grid: str | None = "y") -> Any:
     return ax
 
 
+_OTHERS = object()
+"""The group of the rows without a value of the column that groups them."""
+
+
 def _color(colors: Sequence[str] | Mapping[Any, str], value: Any, k: int) -> str:
     if isinstance(colors, Mapping):
         if value is None and None not in colors:
@@ -187,9 +191,12 @@ def plot_designs(
     """
     Plots designs (such as a summary of a study, see `aggregate`) by two
     metrics: a point per row, colored by the value of a column `by` (if
-    any), with the efficient designs (`front`) ringed and labeled. With
-    `highlight`, only some designs are colored, over the others in gray
-    (such as the designs a search evaluated, over every design)::
+    any), with the efficient designs (`front`) ringed and labeled. Rows
+    without a value of `by` (`NaN`, such as of a variable of a branch that a
+    design does not choose) are drawn in gray, named `others` (or "other")
+    in the legend. With `highlight`, only some designs are colored, over the
+    others in gray (such as the designs a search evaluated, over every
+    design)::
 
         plot_designs(summary, "satellites", "sufficient", front="pareto")
         plot_designs(
@@ -217,7 +224,9 @@ def plot_designs(
             to color every design.
         label (str | None): The name of the colored designs in the legend,
             without `by`.
-        others (str | None): The name of the designs in gray in the legend.
+        others (str | None): The name of the designs in gray in the legend:
+            those not highlighted, or without a value of `by` ("other" if
+            not given).
         front_label (str): The name of the efficient designs in the legend.
         jitter (float): The most that `x` is shifted at random (in its units),
             to separate designs of the same `x` (such as numbers of
@@ -263,6 +272,19 @@ def plot_designs(
                 alpha=0.55,
                 lw=0,
                 label=_name(names, value),
+            )
+        missing = groups.isna().to_numpy() & shown
+        if missing.any():
+            # the designs not highlighted, if any, are named so already
+            named = highlight is not None and others is not None
+            ax.scatter(
+                xs[missing],
+                ys[missing],
+                s=14,
+                color=GRAY,
+                alpha=0.55,
+                lw=0,
+                label=None if named else (others or "other"),
             )
     if front is not None:
         if isinstance(front, (Criteria, Mapping)):
@@ -351,6 +373,7 @@ def plot_means(
     *,
     by: str | None = None,
     names: Mapping[Any, str] | Callable[[Any], str] | None = None,
+    others: str | None = None,
     colors: Sequence[str] | Mapping[Any, str] = COLORS,
     legend: str | None = "best",
     ax: Any = None,
@@ -359,7 +382,8 @@ def plot_means(
     Plots the mean of a metric over the feasible records of each value of a
     column (such as over the replicates of the designs of each number of
     satellites), with a band of one standard deviation about it, a line for
-    each value of a column `by` (if any).
+    each value of a column `by` (if any), and a line in gray of the records
+    without a value of `by` (`NaN`), named `others` (or "other").
 
     Args:
         results (pandas.DataFrame): The results of a study (see `Study.run`).
@@ -369,6 +393,8 @@ def plot_means(
             `None`.
         names (Mapping | Callable | None): The names of the values of `by` in
             the legend (by default, the values).
+        others (str | None): The name of the records without a value of `by`
+            in the legend ("other" if not given).
         colors (Sequence[str] | Mapping): The colors of the values of `by`,
             in order (or by value).
         legend (str | None): The location of the legend, or `None` for none.
@@ -385,10 +411,13 @@ def plot_means(
         if by is None
         else [(value, results[results[by] == value]) for value in _groups(results[by])]
     )
+    missing = None if by is None else results[results[by].isna()]
+    if missing is not None and len(missing) > 0:
+        groups.append((_OTHERS, missing))
     for k, (value, group) in enumerate(groups):
         stats = group.groupby(x)[y].agg(["mean", "std"]).sort_index()
         spread = stats["std"].fillna(0.0)
-        color = _color(colors, value, k)
+        color = GRAY if value is _OTHERS else _color(colors, value, k)
         ax.fill_between(
             stats.index,
             stats["mean"] - spread,
@@ -406,7 +435,11 @@ def plot_means(
             color=color,
             mec="white",
             mew=1.2,
-            label=None if value is None else _name(names, value),
+            label=(
+                None
+                if value is None
+                else (others or "other") if value is _OTHERS else _name(names, value)
+            ),
         )
     ax.set(xlabel=x, ylabel=y)
     style_axes(ax)

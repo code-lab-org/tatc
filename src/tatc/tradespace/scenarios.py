@@ -9,19 +9,13 @@ must sample, and the robustness of designs across them.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 
-from .criteria import (
-    Criteria,
-    _as_criteria,
-    _get_tolerances,
-    _signs,
-    _with_values,
-    aggregate,
-)
+from .criteria import Criteria, _as_criteria, _get_tolerances, _resolve, _signs
+from .summary import _feasible_records, _value_columns, _with_values, aggregate
 
 
 def _scales(criteria: Criteria, scale: Mapping[str, float] | None) -> np.ndarray:
@@ -34,7 +28,7 @@ def _scales(criteria: Criteria, scale: Mapping[str, float] | None) -> np.ndarray
     unknown = sorted(set(scale) - set(objectives))
     if unknown:
         raise ValueError(f"scales of names that are not objectives: {unknown}")
-    absolute = _get_tolerances(criteria.objectives, criteria.tolerance)[0]
+    absolute = _get_tolerances(criteria.objectives, criteria.tolerances)[0]
     values = np.array(
         [
             float(scale[name]) if name in scale else (absolute[i] or 1.0)
@@ -46,28 +40,20 @@ def _scales(criteria: Criteria, scale: Mapping[str, float] | None) -> np.ndarray
     return values
 
 
-def _same_in_every(table: pd.DataFrame) -> bool:
-    """Whether every row of a table has the same value in each of its columns
-    that has one."""
-    values = table.to_numpy(dtype=float)
-    reference = pd.DataFrame(values).bfill(axis=1).to_numpy()[:, :1]
-    with np.errstate(invalid="ignore"):
-        same = np.isclose(values, reference, rtol=1e-12, atol=0.0) | np.isnan(values)
-    return bool(same.all())
-
-
 def robustness(
     results: pd.DataFrame,
     criteria: Criteria | Mapping[str, str],
     *,
-    scenario: str = "scenario",
     scale: Mapping[str, float] | None = None,
+    design_columns: Sequence[str] | None = None,
 ) -> pd.DataFrame:
     """
     Measures the robustness of designs across scenarios (see `Study`): how
     often each design is efficient, and how far it falls from the front of
     each scenario, from the results of a study in each scenario (judged by
-    the criteria in each scenario, see `aggregate` and `pareto_front`).
+    the criteria in each scenario, see `aggregate` and `pareto_front`). The
+    scenarios are the groups of the column of the criteria's `by` (by
+    default, `"scenario"`, as of a study with scenarios).
 
     * `pareto_trace`: the share of the scenarios in which the design is
       efficient (with the tolerances of the criteria, within which designs
@@ -78,8 +64,9 @@ def robustness(
       objective (in units of its `scale`) that the design would need to match
       a design of the scenario's front (the additive epsilon indicator, as
       the fuzzy Pareto number of epoch-era analysis): 0 if it is efficient,
-      and infinite if it misses the requirements of the criteria (or is
-      infeasible in every replicate). With one objective, it is the
+      and infinite if it misses the requirements of the criteria, is
+      infeasible in every replicate, or has a missing objective (`NaN`, which
+      is not efficient, see `pareto_front`). With one objective, it is the
       difference from the best design.
     * `max_regret`: the largest regret of the design over the scenarios, which
       the most robust designs minimize (minimax regret).
@@ -98,25 +85,29 @@ def robustness(
         results (pandas.DataFrame): The results of a study with scenarios
             (see `Study.run`).
         criteria (Criteria | Mapping[str, str]): The criteria, by which
-            designs are judged in each scenario (`by` none, or the scenario),
-            or the objectives (metrics whose means they are) and their
-            directions (`"min"` or `"max"`).
-        scenario (str): The column of the scenarios.
+            designs are judged in each scenario (`by` none, for the column
+            `"scenario"`, or the column of the scenarios), or the objectives
+            (metrics whose means they are) and their directions (`"min"` or
+            `"max"`).
         scale (Mapping[str, float] | None): The units of regret of
             objectives (by name): by default, the absolute tolerance of an
             objective (if it has one), or else 1 (its units).
+        design_columns (Sequence[str] | None): The columns of the values of
+            designs, or `None` for those that are the same in every feasible
+            record of a design (see `aggregate`).
 
     Returns:
         pandas.DataFrame: a row per design (`design`): the values of the
             design (as a summary keeps them, see `aggregate`), each objective
-            in each scenario (`<scenario> <objective>`, or `<objective>` if
-            it is the same in every scenario, such as a number of
-            satellites), its `pareto_trace`, `max_regret`, and regret in each
-            scenario (`<scenario> regret`)
+            in each scenario (`<scenario> <objective>`), or once
+            (`<objective>`) if it is a value of the designs (a column of
+            `design_columns`, such as a number of satellites), its
+            `pareto_trace`, `max_regret`, and regret in each scenario
+            (`<scenario> regret`)
 
     Raises:
         ValueError: if the results have no scenarios, or the criteria group
-            records by other columns or combine them across scenarios (see
+            records by several columns or combine them across scenarios (see
             `Across`, by which searches find robust designs).
     """
     criteria = _as_criteria(criteria)
@@ -125,20 +116,22 @@ def robustness(
             "robustness judges designs in each scenario: give criteria without "
             + "`across`"
         )
-    if criteria.by not in ((), (scenario,)):
+    if len(criteria.by) > 1:
         raise ValueError(
-            f"criteria judge designs by the scenario ({scenario!r}) alone: "
-            + f"give criteria without other columns `by`, not {list(criteria.by)}"
+            "robustness judges designs in each scenario: give criteria `by` the "
+            + f"column of the scenarios alone, not {list(criteria.by)}"
         )
+    scenario = criteria.by[0] if criteria.by else "scenario"
     if scenario not in results.columns:
         raise ValueError(
-            f"the results have no column {scenario!r} of scenarios (see Study)"
+            f"the results have no column {scenario!r} of scenarios (see Study, "
+            + "or give the column as the criteria's `by`)"
         )
     judged = dataclasses.replace(criteria, by=(scenario,))
     objectives = list(criteria.objectives)
     # each objective in units of its scale, larger being better
     units = -_signs(criteria) / _scales(criteria, scale)
-    summary = aggregate(results, judged)
+    summary = aggregate(results, judged, design_columns=[])
     efficient = summary["pareto"].to_numpy(dtype=bool)
     scenarios = list(pd.unique(results[scenario]))
     designs = list(pd.unique(results["design"]))
@@ -156,32 +149,36 @@ def robustness(
             # largest shortfall over the objectives
             shortfall = values[front][None, :, :] - values[:, None, :]
             needed = np.maximum(shortfall.max(axis=2).min(axis=1), 0.0)
+        # a design with a missing objective is not efficient: infinite regret
+        needed = np.where(np.isnan(values).any(axis=1), np.inf, needed)
         meets = group["meets_requirements"].to_numpy(dtype=bool)
         regret.loc[keys, name] = np.where(front, 0.0, np.where(meets, needed, np.inf))
         trace[keys[front]] += 1
-    # the values of each design (of its first record, as of a summary)
-    judged_columns = {
-        "design",
-        scenario,
-        *judged.names,
-        "replicates",
-        "violation",
-        "meets_requirements",
-        "pareto",
+    # the values of the designs (of their first records, as of a summary), and
+    # the objectives that are values of the designs, which are the same in
+    # every scenario
+    statistics = _resolve(judged)
+    feasible, _ = _feasible_records(results)
+    every = _value_columns(feasible, {}, (scenario,), None, design_columns)
+    metrics = {column for s in statistics.values() for column in s.columns}
+    columns = [c for c in every if c not in metrics and c not in statistics]
+    collapsed = {
+        name
+        for name in objectives
+        if name in every and set(statistics[name].columns) <= set(every)
     }
-    values = [column for column in summary.columns if column not in judged_columns]
     frame = pd.DataFrame({"design": designs})
-    _with_values(frame, results, designs, values)
+    _with_values(frame, results, designs, columns)
     for name in objectives:
         table = summary.pivot(index="design", columns=scenario, values=name)
         table = table.reindex(index=designs, columns=scenarios)
-        if _same_in_every(table):
+        if name in collapsed:
             frame[name] = table.bfill(axis=1).iloc[:, 0].to_numpy()
         else:
             for group in scenarios:
                 frame[f"{group} {name}"] = table[group].to_numpy()
     frame["pareto_trace"] = (trace / max(len(scenarios), 1)).to_numpy()
-    frame["max_regret"] = regret.max(axis=1).to_numpy()
+    frame["max_regret"] = regret.max(axis=1, skipna=False).to_numpy()
     for name in scenarios:
         frame[f"{name} regret"] = regret[name].to_numpy()
     return frame

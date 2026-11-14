@@ -32,10 +32,10 @@ from tatc.tradespace import (
     Uncertain,
     build_constellation,
     count_satellites,
+    layout_of,
     sso_planes_space,
     walker_space,
 )
-from tatc.tradespace.constellations import layout_of
 
 # EvaluateTradeSpace: the design space, and the study of sufficient sampling
 

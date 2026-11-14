@@ -73,15 +73,15 @@ from .space import DesignSpace
 from .values import ChoiceValues, RepeatValues, Scope, Values
 
 WALKER = "walker"
-"""The kind of the layouts of `walker_space`."""
+"""The pattern of the layouts of `walker_space`."""
 SSO_PLANES = "sso planes"
-"""The kind of the layouts of `sso_planes_space`."""
+"""The pattern of the layouts of `sso_planes_space`."""
 PLANES = "planes"
-"""The kind of the layouts of `planes_space`."""
+"""The pattern of the layouts of `planes_space`."""
 SOC = "soc"
-"""The kind of the layouts of `soc_space`."""
+"""The pattern of the layouts of `soc_space`."""
 MOG = "mog"
-"""The kind of the layouts of `mog_space`."""
+"""The pattern of the layouts of `mog_space`."""
 
 
 def _node(value: Any, default: Any) -> Any:
@@ -147,7 +147,7 @@ def walker_space(
         DesignSpace: the fragment
     """
     children = {
-        "kind": Fixed(WALKER),
+        "pattern": Fixed(WALKER),
         "configuration": configuration,
         "inclination": _node(inclination, Real(30, 90, step=15)),
         "planes": _node(planes, Integer(1, 6)),
@@ -275,7 +275,7 @@ def sso_planes_space(
         true_anomaly=Derived(_plane_true_anomaly),
     )
     children = {
-        "kind": Fixed(SSO_PLANES),
+        "pattern": Fixed(SSO_PLANES),
         "ascending": ascending,
         "repeat_ground_track": repeat_ground_track,
         "planes": Repeat(plane, count=_node(planes, Integer(1, 3)), ordered=ordered),
@@ -349,7 +349,7 @@ def planes_space(
         true_anomaly=Derived(_plane_true_anomaly),
     )
     children = {
-        "kind": Fixed(PLANES),
+        "pattern": Fixed(PLANES),
         "repeat_ground_track": repeat_ground_track,
         "planes": Repeat(plane, count=_node(planes, Integer(1, 3)), ordered=ordered),
     }
@@ -460,7 +460,7 @@ def soc_space(
         DesignSpace: the fragment
     """
     children = {
-        "kind": Fixed(SOC),
+        "pattern": Fixed(SOC),
         "inclination": _node(inclination, Real(30, 90, step=15)),
         "swath_width": swath_width,
         "packing_distance": packing_distance,
@@ -528,7 +528,7 @@ def mog_space(
         DesignSpace: the fragment
     """
     children = {
-        "kind": Fixed(MOG),
+        "pattern": Fixed(MOG),
         "inclination": _node(inclination, Real(30, 90, step=15)),
         "node": node,
         "satellites": _node(satellites, Integer(2, 6)),
@@ -555,7 +555,8 @@ class Plane:
     values: Any = None
     """Any: The values of the plane in a design (such as those of each plane
     of `sso_planes_space`), or `None` (as for the planes of a Walker
-    constellation), as given to the `order` of a `DeploymentSchedule`."""
+    constellation), as given to the `order` and `launch_mass_capacity` of a
+    `DeploymentSchedule` (functions of the index and values of a plane)."""
 
 
 class Layout:
@@ -1025,14 +1026,15 @@ class Layouts(Layout):
         return any(layout._unrealized() for layout in self.layouts)
 
 
-_KINDS = {
+_PATTERNS = {
     WALKER: WalkerLayout,
     SSO_PLANES: SSOPlanesLayout,
     PLANES: PlanesLayout,
     SOC: SOCLayout,
     MOG: MOGLayout,
 }
-"""The layouts of the kinds of the fragments of design spaces."""
+"""The layouts of the patterns of the fragments of design spaces (their
+values `pattern`)."""
 
 
 def layout_of(layout: Any) -> Layout:
@@ -1057,13 +1059,13 @@ def layout_of(layout: Any) -> Layout:
         return Layouts(list(layout))
     if isinstance(layout, ChoiceValues):
         layout = layout.value
-    kind = getattr(layout, "kind", None)
-    if not isinstance(kind, str) or kind not in _KINDS:
+    pattern = getattr(layout, "pattern", None)
+    if not isinstance(pattern, str) or pattern not in _PATTERNS:
         raise ValueError(
             "a layout must be the values of walker_space, sso_planes_space, "
             + "planes_space, soc_space, or mog_space, or a Layout"
         )
-    return _KINDS[kind](layout)
+    return _PATTERNS[pattern](layout)
 
 
 def count_satellites(layout: Any) -> int:
@@ -1263,6 +1265,13 @@ def remove_failures(
     only on the seed and its position in the list, so that with common
     random numbers, the satellite at the same position fails in the same
     replicate of every design.
+
+    It is a snapshot, for the build function of any study: the constellation
+    with some of its satellites missing, without a deployment or the time of
+    a mission. The failures of an `ObservationStudy` with a `MissionPlan`
+    (see `Failures`) are those over a mission instead: the lives of
+    satellites, the failures of launches, and their restoration, averaged
+    over the phases of the mission.
 
     Args:
         satellites (Sequence[Satellite]): The satellites, in the order they

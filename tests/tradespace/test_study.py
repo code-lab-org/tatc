@@ -24,6 +24,7 @@ from tatc.schemas import (
 )
 from tatc.tradespace import (
     DesignSpace,
+    Fixed,
     Infeasible,
     Integer,
     Real,
@@ -436,3 +437,151 @@ class TestMetricNames(unittest.TestCase):
         results = Study(space, lambda d: d, lambda d: renamed).run()
         self.assertEqual(list(results.a), [1, 2])
         self.assertEqual(list(results.sensor), [0, 0])
+
+
+class TestDesignsOfOtherSpaces(unittest.TestCase):
+    """
+    Unit tests for designs of other design spaces given to a study.
+    """
+
+    def test_evaluated_in_study_space(self):
+        """Designs of another design space are evaluated as the designs of the
+        study's design space, also with a store and new uncertain parameters."""
+        space = DesignSpace(n=Integer(1, 2), altitude=Fixed(500))
+        designs = space.enumerate()
+        higher = space.extend(altitude=Fixed(700))
+        with tempfile.TemporaryDirectory() as directory:
+            store = ResultStore(Path(directory) / "results.sqlite")
+            study = Study(
+                higher, lambda d: d.altitude * d.n, lambda x: {"score": x}, store=store
+            )
+            self.assertEqual(list(study.run(designs).score), [700, 1400])
+            self.assertEqual(list(study.run().score), [700, 1400])
+        self.assertEqual(study.realize(designs[0], 0).altitude, 700)
+        risky = space.extend(growth=Uncertain.uniform(1, 2))
+        results = Study(risky, lambda d: d.n * d.growth, lambda x: {"s": x}).run(
+            designs
+        )
+        self.assertTrue(results.growth.between(1, 2).all())
+
+
+class TestStudyScenarios(unittest.TestCase):
+    """
+    Unit tests for the constraints of design spaces in the scenarios of a
+    study, and the names of scenarios of realized designs.
+    """
+
+    def test_infeasible_in_scenario(self):
+        """A design that violates a constraint in a scenario is infeasible in it."""
+        space = DesignSpace(
+            n=Integer(1, 4), limit=Fixed(4), constraints=[lambda d: d.n - d.limit]
+        )
+        study = Study(
+            space,
+            lambda d: d.n,
+            lambda x: {"score": x},
+            scenarios={"strict": {"limit": 2}, "loose": {}},
+        )
+        results = study.run()
+        feasible = results.pivot(index="n", columns="scenario", values="feasible")
+        self.assertEqual(list(feasible.loose), [True] * 4)
+        self.assertEqual(list(feasible.strict), [True, True, False, False])
+        errors = results[~results.feasible].error
+        self.assertTrue(errors.str.contains("constraint 0").all())
+        # with the values of the design, from which designs are rebuilt
+        rebuilt = space.designs_of(results)
+        self.assertEqual(list(rebuilt.map(lambda d: d.n)), list(results.n))
+        with self.assertRaises(Infeasible):
+            study.realize(space.design({"n": 4}), 0, "strict")
+
+    def test_scenario_of_design(self):
+        """An evaluation is given the design realized in its scenario."""
+        space = DesignSpace(n=Integer(1, 2), level=Fixed(1.0))
+        study = Study(
+            space,
+            lambda d: d,
+            lambda d, design: {"named": design.scenario, "level": design.level},
+            scenarios={"high": {"level": 3.0}, "low": {}},
+        )
+        results = study.run()
+        self.assertEqual(list(results.named), list(results.scenario))
+        self.assertEqual(set(results[results.scenario == "high"].level), {3.0})
+        self.assertEqual(
+            study.realize(space.enumerate()[0], 0, "high").scenario, "high"
+        )
+        self.assertIsNone(
+            Study(space, lambda d: d, dict).realize(space.enumerate()[0]).scenario
+        )
+
+
+class TestArguments(unittest.TestCase):
+    """
+    Unit tests for the arguments of studies.
+    """
+
+    def test_seed(self):
+        """A seed is a non-negative integer, checked by the study."""
+        space = DesignSpace(n=Integer(1, 2), u=Uncertain.uniform(0, 1))
+        with self.assertRaisesRegex(ValueError, "seed"):
+            Study(space, lambda d: d.u, lambda x: {"s": x}, seed=-1)
+
+    def test_keywords(self):
+        """The settings of a study are keywords."""
+        space = DesignSpace(n=Integer(1, 2))
+        with self.assertRaises(TypeError):
+            Study(space, lambda d: d, dict, 3)  # pylint: disable=too-many-function-args
+
+
+class TestEmptyResults(unittest.TestCase):
+    """
+    Unit tests for evaluations without records and runs without evaluations.
+    """
+
+    def setUp(self):
+        self.space = DesignSpace(n=Integer(0, 2))
+
+    @staticmethod
+    def _evaluate(n):
+        # a record per sensor, of which a design may have none
+        frame = pd.DataFrame({"sensor": list(range(n)), "score": [1.0] * n})
+        return frame.set_index("sensor")
+
+    def test_empty_frame(self):
+        """An evaluation that gives an empty data frame raises an error."""
+        for errors in ("raise", "record"):
+            with self.subTest(errors=errors):
+                study = Study(self.space, lambda d: d.n, self._evaluate, errors=errors)
+                with self.assertRaisesRegex(ValueError, "empty data frame"):
+                    study.run()
+
+    def test_no_designs(self):
+        """A run of no designs gives the status columns of results."""
+        results = Study(self.space, lambda d: d.n, self._evaluate).run([])
+        self.assertEqual(
+            list(results.columns),
+            ["design", "replicate", "feasible", "error", "seconds"],
+        )
+        self.assertEqual(len(results), 0)
+        scenarios = Study(
+            self.space, lambda d: d.n, self._evaluate, scenarios={"a": {}}
+        ).run([])
+        self.assertEqual(
+            list(scenarios.columns)[:3], ["design", "replicate", "scenario"]
+        )
+
+
+class TestWarningLocation(unittest.TestCase):
+    """
+    Unit tests for the location of the warnings of studies.
+    """
+
+    def test_no_feasible_designs(self):
+        """The warning of no feasible designs points at the run."""
+
+        def build(d):
+            raise Infeasible("never")
+
+        study = Study(DesignSpace(a=Integer(1, 2)), build, dict)
+        with self.assertWarnsRegex(UserWarning, "none of the 2 designs") as context:
+            study.run()
+        self.assertEqual(Path(context.filename).resolve(), Path(__file__).resolve())

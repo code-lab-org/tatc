@@ -15,6 +15,7 @@ import tatc.tradespace
 PACKAGE = Path(tatc.tradespace.__file__).parent
 
 GENERAL = {
+    "alerts",
     "attribution",
     "comparison",
     "confirmation",
@@ -31,10 +32,13 @@ GENERAL = {
     "screening",
     "sensitivity",
     "space",
+    "statistics",
     "store",
     "study",
+    "summary",
     "utility",
     "values",
+    "walks",
 }
 """The modules of trade studies of any designs."""
 

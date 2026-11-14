@@ -133,8 +133,10 @@ class TestSatelliteCache(unittest.TestCase):
             # a namespace with results only of the function with other code warns
             with self.assertWarnsRegex(
                 UserWarning, r"1 results.*with other code.*function.(code|constants)"
-            ):
+            ) as context:
                 cache = make(2)
+            # at the call that makes the cache
+            self.assertEqual(Path(context.filename).resolve(), Path(__file__).resolve())
             # once, of the caches of the definition (such as of parallel workers)
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
@@ -147,7 +149,11 @@ class TestSatelliteCache(unittest.TestCase):
             folders = [p for p in namespaces[0].iterdir() if p.is_dir()]
             self.assertEqual(len(folders), 2)
             self.assertTrue(all((p / "definition.json").exists() for p in folders))
-            # results of other definitions are removed
+            # results of other definitions are removed, and their definitions
+            # (also those without results)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                make(3)
             self.assertEqual(cache.prune(), 1)
             self.assertEqual(len([p for p in namespaces[0].iterdir() if p.is_dir()]), 1)
             self.assertEqual(SatelliteCache(_name).prune(), 0)  # in memory

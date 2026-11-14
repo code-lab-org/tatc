@@ -35,11 +35,13 @@ analyses of a study compare with deployments that are not staged.
 
 from __future__ import annotations
 
-import bisect
 import math
+import numbers
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+
+import numpy as np
 
 from ..schemas import Satellite
 from .constellations import layout_of
@@ -48,6 +50,7 @@ from .events import (
     PerType,
     PlannedPlane,
     Production,
+    _Manifest,
     _per_type,
     _per_type_values,
 )
@@ -71,7 +74,10 @@ class Stage:
     `DeploymentSchedule`); they are then replaced at the end of their design
     life and restored if they fail, as the satellites of other planes. A
     stage that is not deployed is neither produced nor launched, and its
-    satellites never operate.
+    satellites never operate; but a type of satellite whose planes are all
+    staged is still developed, and costs its development (see
+    `CostModel.estimate`), whether or not its stages are deployed: the cost
+    of the option to deploy them.
 
     A rule that depends on the values of a design (such as an uncertain
     parameter or a value of a scenario, known by the time of the decision)
@@ -86,10 +92,11 @@ class Stage:
 
     Args:
         planes (Sequence[int] | int): The planes of the stage (their indices,
-            in the order of the layouts' planes), produced and launched in
-            this order.
+            in the order of the layouts' planes, such as integers of numpy),
+            produced and launched in this order.
         times (float | Sequence[float]): The times of the decisions, in years
-            after the first launch.
+            after the first launch (a number, or a sequence or array of
+            them).
         rule (Callable | None): A function of a `Decision` that returns
             whether to deploy the stage, or `None` to deploy it at the first
             time (a planned delay).
@@ -104,13 +111,17 @@ class Stage:
     lead_years: float = 0.0
 
     def __post_init__(self):
-        planes = (self.planes,) if isinstance(self.planes, int) else self.planes
+        planes = self.planes
+        if isinstance(planes, numbers.Integral) or np.ndim(planes) == 0:
+            planes = (planes,)
         planes = tuple(int(plane) for plane in planes)
         if not planes:
             raise ValueError("a stage needs planes")
         if len(set(planes)) != len(planes) or min(planes) < 0:
             raise ValueError("the planes of a stage must be distinct indices")
-        times = self.times if isinstance(self.times, Sequence) else (self.times,)
+        times = self.times
+        if isinstance(times, numbers.Real) or np.ndim(times) == 0:
+            times = (times,)
         times = tuple(sorted(float(time) for time in times))
         if not times or times[0] < 0:
             raise ValueError("a stage needs times of decisions, not negative")
@@ -133,7 +144,7 @@ class Deployment:
     planes: list[PlannedPlane] = field(default_factory=list)
     """list[PlannedPlane]: The planes, in the order of the layouts' planes:
     the type of their satellites, the number of satellites of the layout,
-    and of spares."""
+    and of spares in orbit."""
     development: dict[Any, float] = field(default_factory=dict)
     """dict: The end of the development of each type of satellite (years)."""
     production: list[Production] = field(default_factory=list)
@@ -171,7 +182,11 @@ class Deployment:
     @property
     def deployed(self) -> float:
         """float: The time by which every satellite of the first generation
-        is launched (years)."""
+        is launched (years): of the planes that are not staged, and of the
+        stages that their rules deploy in the history of the mission without
+        failures (see `planned` and `MissionHistory.deployed`)."""
+        if self.stages:
+            return self.planned().deployed
         return max(
             launch.time for launch in self.launches if launch.purpose == "deployment"
         )
@@ -189,7 +204,7 @@ class Deployment:
 
     def simulate(
         self,
-        failures: FailureModel | None = None,
+        model: FailureModel | None = None,
         policy: RestorationPolicy | None = None,
         seed: int | Sequence[int] | None = None,
     ) -> MissionHistory:
@@ -198,15 +213,20 @@ class Deployment:
         satellites and launches (drawn from a seed of a replicate, such as an
         uncertain parameter, see `Uncertain.seed`) and the restoration of
         failed satellites by a policy. Without a seed, nothing fails (but a
-        policy's spares on the ground are still produced).
+        policy's spares on the ground are still produced). The spares in
+        orbit are those of the plan (see `DeploymentSchedule.plan`).
 
         A satellite's life is drawn when it is launched (or takes the place
-        of a failed one), from a random number generator seeded by the seed
-        and its plane, position, and generation, and the success of a launch
-        from one seeded by its plane and order: with common random numbers,
-        the satellite at the same position of the same plane fails at the
-        same age in the same replicate of every design. Spares in orbit do
-        not age or fail until they take a failed satellite's place.
+        of a failed one), from uniform numbers of a random number generator
+        seeded by the seed and its plane, position, and generation; the
+        success of a planned launch (of the deployment, or a replacement)
+        from one seeded by its plane, the position of its first satellite,
+        and its generation; and that of a launch of restorations or spares
+        from one seeded by its plane and its order among them: with common
+        random numbers, the satellite at the same position of the same plane
+        fails at the same age in the same replicate of every design. Spares
+        in orbit do not age or fail until they take a failed satellite's
+        place, which they then hold (and which planned replacements replace).
 
         A planned replacement (at the end of a design life) whose launch
         fails is not flown again: the satellite it would replace operates
@@ -214,7 +234,7 @@ class Deployment:
         failures).
 
         Args:
-            failures (FailureModel | None): The failures, or `None` for none.
+            model (FailureModel | None): The failures, or `None` for none.
             policy (RestorationPolicy | None): The policy for failed
                 satellites, or `None` to restore them by producing new ones.
             seed (int | Sequence[int] | None): The seed of the replicate (or
@@ -225,7 +245,7 @@ class Deployment:
             MissionHistory: the history of the mission
         """
         return _Simulation(
-            self, failures or FailureModel(), policy or RestorationPolicy(), seed
+            self, model or FailureModel(), policy or RestorationPolicy(), seed
         ).run()
 
     def planned(self) -> MissionHistory:
@@ -242,11 +262,11 @@ class Deployment:
 
     def simulate_many(
         self,
-        failures: FailureModel,
+        model: FailureModel | None = None,
         policy: RestorationPolicy | None = None,
         seed: int | None = None,
-        histories: int = 1,
         *,
+        histories: int = 1,
         sampling: str = "stratified",
         stress: float = 1.0,
         launch_stress: float | None = None,
@@ -274,7 +294,7 @@ class Deployment:
         probability that a launch fails times the `launch_stress` (by
         default the stress, at most 0.5). Each history is weighted by its
         likelihood ratio (`MissionHistory.weight`, see `Lifetime.stressed`),
-        which `summarize_missions` applies to every statistic. A stress
+        which `summarize_histories` applies to every statistic. A stress
         that samples the outcomes of interest about as often as the others
         estimates their probabilities (and the quantiles of their tails)
         with far fewer histories; too large a stress makes a few weights
@@ -282,11 +302,11 @@ class Deployment:
 
         Many histories of the failures of a replicate, whose sample of
         targets (the expensive part of an evaluation) they share, measure the
-        risk of a mission at little cost (see `evaluate_missions` and
+        risk of a mission at little cost (see `evaluate_histories` and
         `PhaseCache`).
 
         Args:
-            failures (FailureModel): The failures.
+            model (FailureModel | None): The failures, or `None` for none.
             policy (RestorationPolicy | None): The policy for failed
                 satellites, or `None` to restore them by producing new ones
                 (as `simulate`).
@@ -304,18 +324,25 @@ class Deployment:
         if histories < 1:
             raise ValueError("histories must be at least 1")
         if seed is None:
-            return [self.simulate(failures, policy, None)]
+            return [self.simulate(model, policy, None)]
         return _simulate_many(
-            self, failures, policy, seed, histories, sampling, stress, launch_stress
+            self,
+            model or FailureModel(),
+            policy,
+            seed,
+            histories,
+            sampling,
+            stress,
+            launch_stress,
         )
 
     def expected_metrics(
         self,
-        failures: FailureModel,
+        model: FailureModel | None = None,
         policy: RestorationPolicy | None = None,
         seed: int = 0,
-        histories: int = 1000,
         *,
+        histories: int = 1000,
         sampling: str = "stratified",
     ) -> dict[str, float]:
         """
@@ -323,11 +350,11 @@ class Deployment:
         `MissionHistory.metrics`, such as its `availability`) from many
         simulated histories (see `simulate_many`), without evaluating their
         phases: precise and cheap, as the expected values of control
-        variates (see `summarize_missions`, and the `controls` of
+        variates (see `summarize_histories`, and the `controls` of
         `Failures`).
 
         Args:
-            failures (FailureModel): The failures.
+            model (FailureModel | None): The failures, or `None` for none.
             policy (RestorationPolicy | None): The policy for failed
                 satellites (see `simulate_many`).
             seed (int): The seed of the histories.
@@ -337,7 +364,9 @@ class Deployment:
         Returns:
             dict[str, float]: the mean of each measure
         """
-        return _expected_metrics(self, failures, policy, seed, histories, sampling)
+        return _expected_metrics(
+            self, model or FailureModel(), policy, seed, histories, sampling
+        )
 
     def phases(self, satellites: Sequence[Satellite | str]) -> list[Phase]:
         """
@@ -367,20 +396,26 @@ class DeploymentSchedule:
       every type, or one for each).
     * Its satellites are then produced on one line at `production_rate`
       satellites a year (or at once, if `None`), plane by plane, in the
-      order of the layouts' planes (or of `order`).
+      order of the layouts' planes (or of `order`). The line also produces,
+      after the work before them, the planes of stages that are deployed,
+      the satellites that restore failed ones, and the spares of a policy
+      (see `Stage` and `RestorationPolicy`).
     * Each plane is launched when its satellites are ready, in as many
       launches as its satellites need (given a `launch_capacity` in number
       or mass, or one per plane), at most one every `launch_interval` years,
       in the order the planes are ready.
     * The mission lasts `years` from the first launch. Satellites are
       replaced at the end of their `design_life` (one for every type, or one
-      for each; if before the end of the mission), each replacement produced
-      at the production rate just before it is needed and launched then
-      (see `replacements`). A
-      design life does not retire a satellite: one that is not replaced (as
-      near the end of the mission, or if its replacement's launch fails)
-      operates until it fails (by the wear-out of its life, see
-      `FailureModel`).
+      for each; if before the end of the mission): those at the positions of
+      the layout that each launch carries, not its spares in orbit, which do
+      not age (see `Deployment.simulate`). Each replacement is produced at
+      the production rate just before it is needed (planned apart from the
+      line, so that replacements do not wait for each other) and launched
+      at the next launch slot then (keeping the launch interval), and is
+      replaced in turn a design life after its launch. A design life does
+      not retire a satellite: one that is not replaced (as near the end of
+      the mission, or if its replacement's launch fails) operates until it
+      fails (by the wear-out of its life, see `FailureModel`).
     * A `sustained` constellation (such as of an operational program, whose
       mission is the period of a study) is replaced after the end of the
       mission as before it: the replacements needed after the end are
@@ -410,8 +445,9 @@ class DeploymentSchedule:
         launch_mass_capacity (float | Callable | None): The most mass (kg) of
             a launch, if limited (which requires the masses of the
             satellites): a value, or a function of the index and values of a
-            plane (as for `order`), such as for planes at different
-            inclinations, to which a launcher lifts different masses.
+            plane (see `Plane`, as for `order`), such as for planes at
+            different inclinations, to which a launcher lifts different
+            masses.
         order (Callable | None): A function of the index and values of a
             plane (`None` for the planes of a Walker layout) that gives the
             key by which its type's planes are produced and launched, if
@@ -456,7 +492,7 @@ class DeploymentSchedule:
         Gets the design life of a type of satellite.
 
         Args:
-            kind (Any): The type of the satellites.
+            kind (Any): The type of the satellites (see `plan`).
 
         Returns:
             float | None: the design life (years), or `None` if they last
@@ -477,56 +513,6 @@ class DeploymentSchedule:
         """
         rate = _per_type(self.production_rate, kind, "production rate")
         return 0.0 if rate is None else satellites / rate
-
-    def replacements(
-        self, launch: Launch, end: float
-    ) -> list[tuple[Production, Launch | None]]:
-        """
-        Gets the planned replacements of the satellites of a launch, at the
-        end of their design life: the production of each (just before it is
-        needed) and its launch. Replacements are launched before the end of
-        the mission, or, for a sustained constellation, produced after it
-        (without a launch, `None`) from those whose production begins within
-        the development years of their type after the end (whose later
-        blocks of production may be developed before it).
-
-        Args:
-            launch (Launch): The launch.
-            end (float): The end of the mission.
-
-        Returns:
-            list[tuple[Production, Launch | None]]: the production and the
-                launch of each replacement, in order
-        """
-        life = self.design_life_of(launch.kind)
-        if life is None:
-            return []
-        producing = self.production_years(launch.kind, launch.satellites)
-        horizon = end
-        if self.sustained:
-            horizon += float(
-                _per_type(self.development_years, launch.kind, "development")
-            )
-        replacements: list[tuple[Production, Launch | None]] = []
-        need, generation = launch.time + life, 1
-        while (need - producing if self.sustained else need) < horizon - 1e-9:
-            production = Production(
-                launch.kind, need - producing, need, launch.satellites, "replacement"
-            )
-            replacement = None
-            if need < end - 1e-9:  # not those of a sustained constellation after it
-                replacement = Launch(
-                    need,
-                    launch.plane,
-                    launch.kind,
-                    launch.first,
-                    launch.satellites,
-                    generation,
-                    "replacement",
-                )
-            replacements.append((production, replacement))
-            need, generation = need + life, generation + 1
-        return replacements
 
     def mass_capacity_of(self, plane: tuple[int, Any] | None = None) -> float | None:
         """
@@ -549,8 +535,9 @@ class DeploymentSchedule:
     def next_slot(self, booked: Sequence[float], ready: float) -> float:
         """
         Gets the earliest time of a launch at or after a time that keeps the
-        launch interval from launches booked before (as the deployments of
-        plans and the launches of simulations book them).
+        launch interval from launches booked before (as plans and
+        simulations book every launch: of deployments, replacements,
+        restorations, and spares).
 
         Args:
             booked (Sequence[float]): The times of the launches booked, in
@@ -647,8 +634,9 @@ class DeploymentSchedule:
     def plan(
         self,
         layout: Any,
+        *,
         kind: Any = None,
-        spares: int = 0,
+        orbit_spares: int | Mapping[Any, int] = 0,
         masses: PerType | None = None,
         stages: Sequence[Stage] = (),
     ) -> Deployment:
@@ -664,11 +652,14 @@ class DeploymentSchedule:
             layout (Any): The layout (or layouts) of the satellites, or a
                 mapping of types of satellites to layouts.
             kind (Any): The type of the satellites of a layout.
-            spares (int): The spares in orbit in each plane, produced and
-                launched with it, which wait in orbit to take the place of
-                failed satellites (see `RestorationPolicy`).
+            orbit_spares (int | Mapping[Any, int]): The spares in orbit in
+                each plane (of every type, or of each), produced and launched
+                with it, which wait in orbit to take the place of failed
+                satellites (see `RestorationPolicy`, whose `orbit_spares` a
+                `MissionPlan` plans).
             masses (float | Mapping | None): The mass (kg) of the satellites
-                (of each type), for a launch capacity in mass.
+                (of each type), for a launch capacity in mass (and the price
+                of launches by mass, see `CostModel.estimate`).
             stages (Sequence[Stage]): The stages deployed later, if their
                 rules decide to.
 
@@ -677,11 +668,12 @@ class DeploymentSchedule:
 
         Raises:
             ValueError: if a plane is in several stages or is not a plane of
-                the layouts, or if no satellites are planned.
+                the layouts, if no satellites are planned, or if spares are
+                negative.
         """
         # pylint: disable=too-many-locals
-        if spares < 0:
-            raise ValueError("spares must not be negative")
+        if any(spares < 0 for spares in _per_type_values(orbit_spares)):
+            raise ValueError("orbit_spares must not be negative")
         stages = tuple(stages)
         staged = [plane for stage in stages for plane in stage.planes]
         if len(set(staged)) != len(staged):
@@ -692,55 +684,52 @@ class DeploymentSchedule:
         else:
             fleets = {kind: layout}
         deployment = Deployment(schedule=self, stages=stages)
-        planes = []  # (ready, index, kind, satellites, mass)
+        manifest = _Manifest(
+            self,
+            deployment.planes,
+            deployment.masses,
+            deployment.plane_values,
+            {},
+            [],
+            deployment.production,
+        )
+        ready = []  # (ready, index) of the planes that are not staged
         for name, item in fleets.items():
             developed = float(_per_type(self.development_years, name, "development"))
-            mass = None if masses is None else _per_type(masses, name, "mass")
+            spares = int(_per_type(orbit_spares, name, "orbit spares"))
             deployment.development[name] = developed
-            deployment.masses[name] = mass
+            deployment.masses[name] = (
+                None if masses is None else _per_type(masses, name, "mass")
+            )
+            manifest.lines[name] = developed
             listed = []
             for plane in layout_of(item).planes():
-                size, values = plane.satellites, plane.values
                 index = len(deployment.planes)
                 deployment.planes.append(
-                    PlannedPlane(name, size, spares if size > 0 else 0)
+                    PlannedPlane(
+                        name, plane.satellites, spares if plane.satellites > 0 else 0
+                    )
                 )
-                deployment.plane_values.append(values)
-                if size > 0 and index not in staged:
-                    listed.append((index, size + spares, values))
+                deployment.plane_values.append(plane.values)
+                if plane.satellites > 0 and index not in staged:
+                    listed.append((index, plane))
             if self.order is not None:
-                listed.sort(key=lambda plane: self.order(plane[0], plane[2]))
-            line = developed
-            for index, size, _ in listed:
-                ready = line + self.production_years(name, size)
-                deployment.production.append(Production(name, line, ready, size))
-                planes.append((ready, index, name, size, mass))
-                line = ready
+                listed.sort(key=lambda item: self.order(item[0], item[1].values))
+            for index, plane in listed:
+                count = plane.satellites + spares
+                ready.append((manifest.produce(developed, name, count), index))
         unknown = sorted(set(staged) - set(range(len(deployment.planes))))
         if unknown:
             raise ValueError(
                 f"stages of planes that the layouts do not have: {unknown}"
             )
-        if not planes:
+        if not ready:
             raise ValueError("a deployment requires satellites (that are not staged)")
-        booked: list[float] = []
-        for ready, index, name, size, mass in sorted(planes, key=lambda p: p[0]):
-            position = 0
-            for satellites in self.split(
-                size, mass, (index, deployment.plane_values[index])
-            ):
-                time = self.next_slot(booked, ready)
-                bisect.insort(booked, time)
-                deployment.launches.append(
-                    Launch(time, index, name, position, satellites)
-                )
-                position += satellites
-        end = deployment.end
-        for launch in list(deployment.launches):
-            for production, replacement in self.replacements(launch, end):
-                deployment.production.append(production)
-                if replacement is not None:
-                    deployment.launches.append(replacement)
+        for time, index in sorted(ready, key=lambda item: item[0]):
+            deployment.launches.extend(manifest.launch(index, time))
+        deployment.launches.extend(
+            manifest.replace(list(deployment.launches), deployment.end)
+        )
         deployment.production.sort(key=lambda batch: batch.begin)
         deployment.launches.sort(key=lambda launch: (launch.time, launch.plane))
         return deployment

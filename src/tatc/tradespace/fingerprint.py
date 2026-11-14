@@ -3,31 +3,54 @@ Fingerprints of the definitions of trade studies (design spaces, functions,
 and settings), which key persistent results so that results computed with
 other definitions are not reused.
 
-A definition (see `get_definition`) describes values by their content where
-it can: plain values (numbers, strings, dates and times, and their
-containers), pydantic models (such as satellites and instruments), arrays
-and data frames (by a hash of their data, with geometries by their
-well-known binary), the nodes of design spaces, dataclasses (such as cost
-models) by their fields (but those whose metadata has `"fingerprint":
-False`, such as directories of caches, which do not change results), and
-geometries (by their well-known binary), and functions, by their compiled
-code (which ties a definition to the version of Python, which it records,
-but not their docstrings, which do not change results), the values they
-close over and their defaults, and the constants (numbers, strings, dates
-and times, and tuples of them), geometries, data (arrays and data frames),
-dataclasses, and functions that they refer to as globals (not mutable
-containers, which are often state, such as caches). Functions are described
-so if they are of their own module or of another module of the study's own,
-which is not installed (such as a module next to a notebook), so that a
-notebook's function that calls a function it imports from such a module is
-described as the module's copy of it is. Functions and classes of installed
-modules are described by their names, and other objects by their type only,
-but for the classes of the study's own modules (by the code of their
-methods) and their objects (by their attributes and classes), such as a
-callable object that evaluates designs.
-Data that functions read (such as from files) and the code of installed
-modules they call (other than TAT-C's) are not described: identify them by
-a namespace (see `ResultStore` and `SatelliteCache`).
+A definition (see `get_definition`) describes values as follows (the rules
+of `_Describer.describe`), whether they are given (such as the design space
+and functions of a study), or are referred to by functions (as globals, the
+values they close over, and their defaults), or are within other values:
+
+- By content:
+
+  - plain values (`None`, booleans, numbers, strings, bytes, dates, times,
+    and durations) and their containers (lists, tuples, sets, and
+    dictionaries, also as globals, such as a dictionary of instruments);
+  - pydantic models (such as satellites and instruments);
+  - arrays and data frames (by a hash of their data, with geometries by
+    their well-known binary), and geometries;
+  - dataclasses (such as cost models), by their fields, but those whose
+    metadata has `"fingerprint": False` (such as directories of caches,
+    which do not change results);
+  - the nodes of design spaces, by their attributes;
+  - partial functions (by their function and arguments), bound methods (by
+    their function and object), and functions that decorators wrap (such
+    as by `functools.lru_cache`, by the wrapped function).
+
+- By code:
+
+  - functions, by their compiled code (which ties a definition to the
+    version of Python, which it records, but not their docstrings or line
+    numbers, which do not change results), the values they close over,
+    their defaults, and the globals they refer to: those of functions of
+    their own module or of a module of the study's own (one that is not
+    installed, such as `__main__` or a module next to a notebook) are
+    described by code, also as attributes of a module of the study's own
+    (`helpers.score`), so that a notebook's function that calls a function
+    of such a module is described as the module's copy of it is;
+  - the classes of the study's own modules, by the code of their methods
+    (and their constants), and their objects, by their classes and their
+    attributes, but those that are mutable containers (lists, dictionaries,
+    and sets), which are often state (such as counters and records of
+    calls) rather than definitions.
+
+- By name: the functions of installed modules (as globals of functions),
+  classes and built-in functions (but the study's own classes), and modules
+  (but the attributes of the study's own modules that functions refer to).
+
+- By type: other objects, such as those of installed classes (a cache, or a
+  connection), whose state does not change results.
+
+- Not at all: data that functions read (such as from files) and the code of
+  installed modules other than TAT-C's. Identify them by a namespace (see
+  `ResultStore` and `SatelliteCache`).
 
 TAT-C is described by the source of the modules that the values depend on:
 the modules that define the functions, classes, and objects of TAT-C they
@@ -55,7 +78,7 @@ import json
 import sys
 import sysconfig
 import types
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
@@ -65,7 +88,9 @@ import pandas as pd
 import shapely
 from pydantic import BaseModel
 
+from .alerts import _warn
 from .hashing import _canonical, _digest
+from .nodes import Node
 
 _MAX_DEPTH = 24
 """The deepest nesting described, beyond which values are described by type."""
@@ -92,10 +117,6 @@ def _name(value: Any) -> str:
     return f"{getattr(value, '__module__', None)}.{value.__qualname__}"
 
 
-def _sort_key(value: Any) -> str:
-    return _canonical(value)
-
-
 def _is_package_module(module: Any) -> bool:
     """Whether a module name is of the package (TAT-C)."""
     return isinstance(module, str) and (
@@ -106,11 +127,6 @@ def _is_package_module(module: Any) -> bool:
 def _is_dataclass(value: Any) -> bool:
     """Whether a value is an instance of a dataclass (such as a cost model)."""
     return dataclasses.is_dataclass(value) and not isinstance(value, type)
-
-
-def _is_data(value: Any) -> bool:
-    """Whether a value is data (an array or a data frame or series)."""
-    return isinstance(value, (np.ndarray, pd.DataFrame, pd.Series))
 
 
 @functools.lru_cache(maxsize=1)
@@ -138,6 +154,27 @@ def _is_own_module(module: Any) -> bool:
         return False  # built in, or not loaded
     path = Path(file).resolve()
     return not any(path.is_relative_to(d) for d in _installed_directories())
+
+
+def _is_own_class(value: Any) -> bool:
+    """Whether a value is a class of the study's own (see `_is_own_module`)."""
+    return isinstance(value, type) and _is_own_module(value.__module__)
+
+
+def _is_own_object(value: Any) -> bool:
+    """Whether a value is an object of a class of the study's own."""
+    return _is_own_module(type(value).__module__)
+
+
+def _wrapped(value: Any) -> types.FunctionType | None:
+    """
+    Gets the function that a decorator wraps (such as `functools.lru_cache`,
+    or another of `functools.wraps`), if a value is such a wrapper.
+    """
+    if isinstance(value, (types.FunctionType, type)) or not callable(value):
+        return None
+    function = getattr(value, "__wrapped__", None)
+    return function if isinstance(function, types.FunctionType) else None
 
 
 def _hash_column(column: pd.Series) -> bytes:
@@ -188,22 +225,53 @@ _GLOBAL_LOADS = ("LOAD_GLOBAL", "LOAD_NAME")
 """The instructions that load a global (rather than an attribute, whose names
 code also lists)."""
 
+_ATTRIBUTE_LOADS = ("LOAD_ATTR", "LOAD_METHOD")
+"""The instructions that load an attribute of the value loaded before."""
 
-def _global_names(code: types.CodeType) -> list[str]:
+
+def _global_names(code: types.CodeType) -> dict[str, set[tuple[str, ...]]]:
     """
     Gets the global names a code (and its nested code) loads (not the names of
     attributes, such as `values` of `design.values`, which may be the names
-    of unrelated globals).
+    of unrelated globals), each with the chains of attributes that it loads
+    of the global (such as `("score",)` of `helpers.score`).
     """
-    names = [
-        instruction.argval
-        for instruction in dis.get_instructions(code)
-        if instruction.opname in _GLOBAL_LOADS
-    ]
+    found: dict[str, set[tuple[str, ...]]] = {}
+    instructions = list(dis.get_instructions(code))
+    for i, instruction in enumerate(instructions):
+        if instruction.opname not in _GLOBAL_LOADS:
+            continue
+        chain = []
+        for following in instructions[i + 1 :]:
+            if following.opname not in _ATTRIBUTE_LOADS:
+                break
+            chain.append(following.argval)
+        chains = found.setdefault(instruction.argval, set())
+        if chain:
+            chains.add(tuple(chain))
     for constant in code.co_consts:
         if isinstance(constant, types.CodeType):
-            names.extend(_global_names(constant))
-    return list(dict.fromkeys(names))
+            for name, chains in _global_names(constant).items():
+                found.setdefault(name, set()).update(chains)
+    return found
+
+
+def _attribute(module: types.ModuleType, chain: tuple[str, ...]) -> tuple[str, Any]:
+    """
+    Gets the value that a chain of attributes of a module reaches, through
+    its submodules (stopping at the first value that is not a module), and
+    the path to it, or `("", None)` if there is none.
+    """
+    value: Any = module
+    path = []
+    for name in chain:
+        if not isinstance(value, types.ModuleType):
+            break
+        if not hasattr(value, name):
+            return "", None
+        value = getattr(value, name)
+        path.append(name)
+    return ".".join(path), value
 
 
 _PLAIN = (type(None), bool, int, float, str, bytes, date, time, timedelta, np.generic)
@@ -213,9 +281,8 @@ def _is_constant(value: Any, depth: int = 0) -> bool:
     """
     Whether a value is a constant: a number, string, date or time, or a
     (small) tuple or frozen set of them. Mutable containers (lists,
-    dictionaries, and sets) are not constants: as globals, they are often
-    state (such as caches) rather than definitions, whose contents change
-    as a study runs.
+    dictionaries, and sets) are not constants: as attributes of classes,
+    they are often state (such as registries) rather than definitions.
     """
     if isinstance(value, _PLAIN):
         return True
@@ -230,9 +297,11 @@ def _is_constant(value: Any, depth: int = 0) -> bool:
 
 class _Describer:
     """
-    Describes values as plain data (see the module), noting the modules of
-    the package that they depend on.
+    Describes values as plain data (see the module, and `_RULES`), noting
+    the modules of the package that they depend on.
     """
+
+    # pylint: disable=too-many-public-methods
 
     def __init__(self):
         self.modules: set[str] = set()
@@ -242,6 +311,138 @@ class _Describer:
         """Notes a module that a value refers to (if it is of the package)."""
         if _is_package_module(module):
             self.modules.add(module)
+
+    def describe(self, value: Any, depth: int = 0, seen: set | None = None) -> Any:
+        """
+        Describes a value as plain data, by the first rule that it matches
+        (see `_RULES`), or by its type if none does.
+        """
+        seen = set() if seen is None else seen
+        if depth <= _MAX_DEPTH:
+            for test, rule in _RULES:
+                if isinstance(value, test) if isinstance(test, tuple) else test(value):
+                    return rule(self, value, depth, seen)
+        self.note(type(value).__module__)
+        return _type(value)
+
+    # the rules of descriptions (see `_RULES`)
+
+    def plain(self, value: Any, depth: int, seen: set) -> Any:
+        """Describes `None`, a boolean, an integer, or a string as itself."""
+        del depth, seen
+        return value
+
+    def number(self, value: float, depth: int, seen: set) -> str:
+        """Describes a float by its representation (exactly)."""
+        del depth, seen
+        return repr(value)
+
+    def scalar(self, value: np.generic, depth: int, seen: set) -> Any:
+        """Describes a numpy scalar as Python's."""
+        return self.describe(value.item(), depth, seen)
+
+    def binary(self, value: bytes, depth: int, seen: set) -> str:
+        """Describes bytes by their hash."""
+        del depth, seen
+        return hashlib.sha1(value).hexdigest()
+
+    def moment(self, value: date | time, depth: int, seen: set) -> str:
+        """Describes a date or time by its ISO format."""
+        del depth, seen
+        return value.isoformat()
+
+    def duration(self, value: timedelta, depth: int, seen: set) -> dict:
+        """Describes a duration by its seconds."""
+        del depth, seen
+        return {"timedelta": value.total_seconds()}
+
+    def dataclass(self, value: Any, depth: int, seen: set) -> dict:
+        """
+        Describes a dataclass by its fields (but those whose metadata has
+        `"fingerprint": False`), and its class, if of the study's own.
+        """
+        self.note(type(value).__module__)
+        described = {
+            **_type(value),
+            **{
+                item.name: self.describe(getattr(value, item.name), depth + 1, seen)
+                for item in dataclasses.fields(value)
+                if item.metadata.get("fingerprint", True)
+            },
+        }
+        if _is_own_module(type(value).__module__):
+            described["class"] = self.klass(type(value), depth + 1, seen)
+        return described
+
+    def model(self, value: BaseModel, depth: int, seen: set) -> dict:
+        """Describes a pydantic model by its data."""
+        del depth, seen
+        self.note(type(value).__module__)
+        return {**_type(value), **value.model_dump(mode="json")}
+
+    def array(self, value: np.ndarray, depth: int, seen: set) -> dict:
+        """Describes an array by its type, shape, and a hash of its data."""
+        del depth, seen
+        if value.dtype == object:
+            return {**_type(value), "shape": list(value.shape)}
+        return {
+            "array": str(value.dtype),
+            "shape": list(value.shape),
+            "data": hashlib.sha1(np.ascontiguousarray(value).tobytes()).hexdigest(),
+        }
+
+    def frame(self, value: pd.DataFrame | pd.Series, depth: int, seen: set) -> dict:
+        """Describes a data frame or series (see `_frame`)."""
+        del depth, seen
+        return _frame(value)
+
+    def geometry(self, value: shapely.Geometry, depth: int, seen: set) -> dict:
+        """Describes a geometry by a hash of its well-known binary."""
+        del depth, seen
+        return {**_type(value), "data": hashlib.sha1(value.wkb).hexdigest()}
+
+    def sequence(self, value: list | tuple, depth: int, seen: set) -> Any:
+        """Describes a list or tuple by its items (or its length, if long)."""
+        if len(value) > _MAX_ITEMS:
+            return {**_type(value), "length": len(value)}
+        return [self.describe(v, depth + 1, seen) for v in value]
+
+    def collection(self, value: set | frozenset, depth: int, seen: set) -> Any:
+        """Describes a set by its sorted items (or its length, if long)."""
+        if len(value) > _MAX_ITEMS:
+            return {**_type(value), "length": len(value)}
+        return sorted(
+            (self.describe(v, depth + 1, seen) for v in value), key=_canonical
+        )
+
+    def mapping(self, value: dict, depth: int, seen: set) -> Any:
+        """
+        Describes a dictionary by its items (sorted pairs, if its keys are
+        not strings), or its length, if long.
+        """
+        if len(value) > _MAX_ITEMS:
+            return {**_type(value), "length": len(value)}
+        if all(isinstance(key, str) for key in value):
+            return {key: self.describe(v, depth + 1, seen) for key, v in value.items()}
+        pairs = (
+            [self.describe(k, depth + 1, seen), self.describe(v, depth + 1, seen)]
+            for k, v in value.items()
+        )
+        return sorted(pairs, key=_canonical)
+
+    def node(self, value: Node, depth: int, seen: set) -> dict:
+        """Describes a node of a design space by its attributes."""
+        self.note(type(value).__module__)
+        if id(value) in seen:
+            return {**_type(value), "recursive": True}
+        seen = seen | {id(value)}
+        return {
+            **_type(value),
+            **{
+                name: self.describe(attribute, depth + 1, seen)
+                for name, attribute in sorted(vars(value).items())
+            },
+        }
 
     def code(
         self, code: types.CodeType, depth: int, seen: set, doc: str | None = None
@@ -267,6 +468,96 @@ class _Describer:
             "code": code.co_code.hex(),
             "constants": [self.describe(c, depth + 1, seen) for c in constants],
             "names": list(code.co_names),
+        }
+
+    def function(self, function: types.FunctionType, depth: int, seen: set) -> dict:
+        """
+        Describes a function: its code, the values it closes over, its
+        defaults, and the globals it refers to (see `reference`).
+        """
+        self.note(function.__module__)
+        if id(function) in seen:
+            return {"function": function.__qualname__, "recursive": True}
+        seen = seen | {id(function)}
+        closure = {
+            name: self.describe(cell.cell_contents, depth + 1, seen)
+            for name, cell in zip(
+                function.__code__.co_freevars, function.__closure__ or ()
+            )
+            if _has_contents(cell)
+        }
+        referenced = {
+            name: self.reference(
+                function.__globals__[name], function.__module__, chains, depth, seen
+            )
+            for name, chains in _global_names(function.__code__).items()
+            if name in function.__globals__
+        }
+        return {
+            "function": function.__qualname__,
+            **self.code(function.__code__, depth, seen, function.__doc__),
+            "closure": closure,
+            "defaults": self.describe(function.__defaults__, depth + 1, seen),
+            "keyword defaults": self.describe(function.__kwdefaults__, depth + 1, seen),
+            "globals": referenced,
+        }
+
+    def reference(
+        self,
+        value: Any,
+        module: str,
+        chains: Iterable[tuple[str, ...]],
+        depth: int,
+        seen: set,
+    ) -> Any:
+        """
+        Describes a global that a function of a module refers to: a function
+        of another module (or one that a decorator wraps) by its name, unless
+        it is of a module of the study's own, a module of the study's own by
+        the attributes of it that the function refers to (by their `chains`,
+        see `_global_names`), and other values as any other (see `describe`).
+        """
+        # pylint: disable=too-many-arguments,too-many-positional-arguments
+        function = _wrapped(value) or value
+        if (
+            isinstance(function, types.FunctionType)
+            and function.__module__ != module
+            and not _is_own_module(function.__module__)
+        ):
+            self.note(function.__module__)
+            return {"name": _name(function)}
+        if isinstance(value, types.ModuleType) and _is_own_module(value.__name__):
+            attributes = {}
+            for chain in sorted(chains):
+                path, reached = _attribute(value, chain)
+                if path:
+                    attributes[path] = self.reference(
+                        reached, value.__name__, (), depth + 1, seen
+                    )
+            return {"module": value.__name__, "attributes": attributes}
+        return self.describe(value, depth + 1, seen)
+
+    def method(self, value: types.MethodType, depth: int, seen: set) -> dict:
+        """Describes a bound method by its function and its object."""
+        return {
+            "method": self.describe(value.__func__, depth + 1, seen),
+            "self": self.describe(value.__self__, depth + 1, seen),
+        }
+
+    def partial(self, value: functools.partial, depth: int, seen: set) -> dict:
+        """Describes a partial function by its function and arguments."""
+        return {
+            "partial": self.describe(value.func, depth + 1, seen),
+            "arguments": self.describe(value.args, depth + 1, seen),
+            "keywords": self.describe(value.keywords, depth + 1, seen),
+        }
+
+    def wrapper(self, value: Any, depth: int, seen: set) -> dict:
+        """Describes a decorator's wrapper by its type and wrapped function."""
+        self.note(type(value).__module__)
+        return {
+            **_type(value),
+            "wrapped": self.describe(_wrapped(value), depth + 1, seen),
         }
 
     def klass(self, cls: type, depth: int, seen: set) -> dict:
@@ -303,12 +594,24 @@ class _Describer:
             "members": members,
         }
 
+    def named(self, value: Any, depth: int, seen: set) -> dict:
+        """Describes a class or built-in function by its name."""
+        del depth, seen
+        self.note(getattr(value, "__module__", None))
+        return {"name": _name(value)}
+
+    def module(self, value: types.ModuleType, depth: int, seen: set) -> dict:
+        """Describes a module by its name."""
+        del depth, seen
+        self.note(value.__name__)
+        return {"module": value.__name__}
+
     def instance(self, value: Any, depth: int, seen: set) -> dict:
         """
         Describes an object of a class of the study's own: its class (see
         `klass`) and its attributes, but those that are mutable containers
         (lists, dictionaries, and sets), which are often state (such as
-        records of calls), as globals of functions are.
+        counters and records of calls).
         """
         if id(value) in seen:
             return {**_type(value), "recursive": True}
@@ -330,172 +633,39 @@ class _Describer:
             "attributes": self.describe(attributes, depth + 1, seen),
         }
 
-    def function(self, function: types.FunctionType, depth: int, seen: set) -> dict:
-        """
-        Describes a function: its code, the values it closes over, its
-        defaults, the constants, dataclasses, and functions of its module it
-        refers to as globals, and the names of the functions, classes, and
-        modules of other modules it refers to as globals.
-        """
-        self.note(function.__module__)
-        if id(function) in seen:
-            return {"function": function.__qualname__, "recursive": True}
-        seen = seen | {id(function)}
-        closure = {
-            name: self.describe(cell.cell_contents, depth + 1, seen)
-            for name, cell in zip(
-                function.__code__.co_freevars, function.__closure__ or ()
-            )
-            if _has_contents(cell)
-        }
-        referenced: dict[str, Any] = {}
-        module = function.__module__
-        for name in _global_names(function.__code__):
-            if name not in function.__globals__:
-                continue
-            value = function.__globals__[name]
-            if isinstance(value, types.FunctionType):
-                if value.__module__ == module or _is_own_module(value.__module__):
-                    referenced[name] = self.function(value, depth + 1, seen)
-                else:
-                    self.note(value.__module__)
-                    referenced[name] = {"name": _name(value)}
-            elif (
-                isinstance(value, (type, types.BuiltinFunctionType, types.ModuleType))
-                or _is_constant(value)
-                or _is_data(value)
-                or _is_dataclass(value)
-                or isinstance(value, shapely.Geometry)
-            ):
-                referenced[name] = self.describe(value, depth + 1, seen)
-            else:
-                # state (such as a cache), whose code may be of the package
-                self.note(type(value).__module__)
-        return {
-            "function": function.__qualname__,
-            **self.code(function.__code__, depth, seen, function.__doc__),
-            "closure": closure,
-            "defaults": self.describe(function.__defaults__, depth + 1, seen),
-            "keyword defaults": self.describe(function.__kwdefaults__, depth + 1, seen),
-            "globals": referenced,
-        }
 
-    def describe(self, value: Any, depth: int = 0, seen: set | None = None) -> Any:
-        """
-        Describes a value as plain data (see the module).
-        """
-        # pylint: disable=too-many-return-statements,too-many-branches,import-outside-toplevel
-        seen = set() if seen is None else seen
-        if depth > _MAX_DEPTH:
-            self.note(type(value).__module__)
-            return _type(value)
-        if value is None or isinstance(value, (bool, int, str)):
-            return value
-        if isinstance(value, float):
-            return repr(value)
-        if isinstance(value, np.generic):
-            return self.describe(value.item(), depth, seen)
-        if isinstance(value, bytes):
-            return hashlib.sha1(value).hexdigest()
-        if isinstance(value, (datetime, date, time)):
-            return value.isoformat()
-        if isinstance(value, timedelta):
-            return {"timedelta": value.total_seconds()}
-        if _is_dataclass(value):
-            self.note(type(value).__module__)
-            described = {
-                **_type(value),
-                **{
-                    item.name: self.describe(getattr(value, item.name), depth + 1, seen)
-                    for item in dataclasses.fields(value)
-                    if item.metadata.get("fingerprint", True)
-                },
-            }
-            if _is_own_module(type(value).__module__):
-                described["class"] = self.klass(type(value), depth + 1, seen)
-            return described
-        if isinstance(value, BaseModel):
-            self.note(type(value).__module__)
-            return {**_type(value), **value.model_dump(mode="json")}
-        if isinstance(value, np.ndarray):
-            if value.dtype == object:
-                return {**_type(value), "shape": list(value.shape)}
-            return {
-                "array": str(value.dtype),
-                "shape": list(value.shape),
-                "data": hashlib.sha1(np.ascontiguousarray(value).tobytes()).hexdigest(),
-            }
-        if isinstance(value, (pd.DataFrame, pd.Series)):
-            return _frame(value)
-        if isinstance(value, shapely.Geometry):
-            return {**_type(value), "data": hashlib.sha1(value.wkb).hexdigest()}
-        if isinstance(value, (list, tuple)):
-            if len(value) > _MAX_ITEMS:
-                return {**_type(value), "length": len(value)}
-            return [self.describe(v, depth + 1, seen) for v in value]
-        if isinstance(value, (set, frozenset)):
-            if len(value) > _MAX_ITEMS:
-                return {**_type(value), "length": len(value)}
-            return sorted(
-                (self.describe(v, depth + 1, seen) for v in value), key=_sort_key
-            )
-        if isinstance(value, dict):
-            if len(value) > _MAX_ITEMS:
-                return {**_type(value), "length": len(value)}
-            if all(isinstance(key, str) for key in value):
-                return {
-                    key: self.describe(item, depth + 1, seen)
-                    for key, item in value.items()
-                }
-            return sorted(
-                (
-                    [
-                        self.describe(k, depth + 1, seen),
-                        self.describe(v, depth + 1, seen),
-                    ]
-                    for k, v in value.items()
-                ),
-                key=_sort_key,
-            )
-        if isinstance(value, types.CodeType):
-            return self.code(value, depth, seen)
-        if isinstance(value, types.FunctionType):
-            return self.function(value, depth, seen)
-        if isinstance(value, types.MethodType):
-            return {
-                "method": self.describe(value.__func__, depth + 1, seen),
-                "self": self.describe(value.__self__, depth + 1, seen),
-            }
-        if isinstance(value, functools.partial):
-            return {
-                "partial": self.describe(value.func, depth + 1, seen),
-                "arguments": self.describe(value.args, depth + 1, seen),
-                "keywords": self.describe(value.keywords, depth + 1, seen),
-            }
-        if isinstance(value, type) and _is_own_module(value.__module__):
-            return self.klass(value, depth, seen)
-        if isinstance(value, (types.BuiltinFunctionType, type)):
-            self.note(getattr(value, "__module__", None))
-            return {"name": _name(value)}
-        if isinstance(value, types.ModuleType):
-            self.note(value.__name__)
-            return {"module": value.__name__}
-        self.note(type(value).__module__)
-        from .nodes import Node
-
-        if isinstance(value, Node):
-            if id(value) in seen:
-                return {**_type(value), "recursive": True}
-            return {
-                **_type(value),
-                **{
-                    name: self.describe(attribute, depth + 1, seen | {id(value)})
-                    for name, attribute in sorted(vars(value).items())
-                },
-            }
-        if _is_own_module(type(value).__module__):
-            return self.instance(value, depth, seen)
-        return _type(value)
+_RULES: tuple[tuple[tuple[type, ...] | Callable[[Any], bool], Callable], ...] = (
+    # by content
+    ((type(None), bool, int, str), _Describer.plain),
+    ((float,), _Describer.number),
+    ((np.generic,), _Describer.scalar),
+    ((bytes,), _Describer.binary),
+    ((datetime, date, time), _Describer.moment),
+    ((timedelta,), _Describer.duration),
+    (_is_dataclass, _Describer.dataclass),
+    ((BaseModel,), _Describer.model),
+    ((np.ndarray,), _Describer.array),
+    ((pd.DataFrame, pd.Series), _Describer.frame),
+    ((shapely.Geometry,), _Describer.geometry),
+    ((list, tuple), _Describer.sequence),
+    ((set, frozenset), _Describer.collection),
+    ((dict,), _Describer.mapping),
+    ((Node,), _Describer.node),
+    ((functools.partial,), _Describer.partial),
+    ((types.MethodType,), _Describer.method),
+    (lambda value: _wrapped(value) is not None, _Describer.wrapper),
+    # by code
+    ((types.CodeType,), _Describer.code),
+    ((types.FunctionType,), _Describer.function),
+    (_is_own_class, _Describer.klass),
+    (_is_own_object, _Describer.instance),
+    # by name
+    ((types.BuiltinFunctionType, type), _Describer.named),
+    ((types.ModuleType,), _Describer.module),
+)
+"""What values are described by (see the module): the first rule whose test
+(types, or a predicate) a value matches describes it, and a value that
+matches none is described by its type (as is one nested too deep)."""
 
 
 @functools.lru_cache(maxsize=1)
@@ -791,6 +961,45 @@ def _differences(before: Any, after: Any, path: str) -> list[str]:
     return [path]
 
 
+def _is_code(description: Any) -> bool:
+    """Whether a description is of compiled code (see `_Describer.code`)."""
+    return isinstance(description, dict) and {"code", "constants", "names"} <= set(
+        description
+    )
+
+
+_LOCALS = ".<locals>."
+"""The part of the qualified names of nested code, which some versions of
+Python (3.10) keep as constants of the code that makes their functions."""
+
+
+def _literals(constants: list) -> list:
+    """
+    Gets the literals of the described constants of code, as the same code
+    gives them in every version of Python: the items of tuples and frozen
+    sets, and the constants of nested code (whose code is inlined by some
+    versions), each once, sorted, without `None` (which some versions keep
+    as a placeholder of a docstring) and the qualified names of nested code.
+    """
+    found: dict[str, Any] = {}
+
+    def visit(constant: Any) -> None:
+        if constant is None or (isinstance(constant, str) and _LOCALS in constant):
+            return
+        if isinstance(constant, list):
+            for item in constant:
+                visit(item)
+        elif _is_code(constant):
+            for item in constant["constants"]:
+                visit(item)
+        else:
+            found.setdefault(_canonical(constant), constant)
+
+    for constant in constants:
+        visit(constant)
+    return [found[key] for key in sorted(found)]
+
+
 def _without_code(description: Any) -> Any:
     """
     Gets a description of values without the code of their functions (the
@@ -798,37 +1007,54 @@ def _without_code(description: Any) -> Any:
     the same for the same values with other code (such as a function after
     its expressions are edited, or compiled by another version of Python).
     The constants of the code (such as the numbers of a constraint) are
-    values: functions of other constants are of other studies, whose results
-    are not those of the same study with other code.
+    values, as its literals (see `_literals`, which every version of Python
+    gives alike): functions of other literals are of other studies, whose
+    results are not those of the same study with other code.
     """
-    if isinstance(description, dict):
-        code = {"code", "constants", "names"} <= set(description)
+    if _is_code(description):
         return {
-            key: _without_code(value)
+            key: (_literals(value) if key == "constants" else _without_code(value))
             for key, value in description.items()
-            if not (code and key in ("code", "names"))
+            if key not in ("code", "names")
         }
+    if isinstance(description, dict):
+        return {key: _without_code(value) for key, value in description.items()}
     if isinstance(description, list):
         return [_without_code(value) for value in description]
     return description
 
 
-def _with_other_code(
-    definition: dict, others: Iterable[dict | None]
-) -> list[str] | None:
+def _with_other_code(definition: dict, others: Mapping[Any, dict | None]) -> list:
     """
-    Gets the differences (see `compare_definitions`) from the first of other
-    definitions that has the same values as a definition but other code (of
-    its functions, of TAT-C, or of Python, see `_without_code`), or `None` if
-    none does: results of the same study with other code, which are not
-    reused, as opposed to those of other studies (such as variants of other
-    settings), which share stores and caches freely.
+    Gets the keys of other definitions (such as of the contexts of a store
+    or the folders of a cache) that have the same values as a definition but
+    other code (of its functions, of TAT-C, or of Python, see
+    `_without_code`), in their order: results of the same study with other
+    code, which are not reused, as opposed to those of other studies (such
+    as variants of other settings), which share stores and caches freely.
+    Definitions that are `None` (unknown) are of no study.
     """
     values = _without_code(definition.get("values", {}))
-    for other in others:
-        if other is not None and _without_code(other.get("values", {})) == values:
-            return compare_definitions(other, definition)
-    return None
+    return [
+        key
+        for key, other in others.items()
+        if other is not None and _without_code(other.get("values", {})) == values
+    ]
+
+
+def _warn_other_code(subject: str, remedy: str, latest: dict, definition: dict) -> None:
+    """
+    Warns (at the user's call) that results of the same study (or function)
+    with other code are not reused: `subject` says which (such as `"the
+    store has 12 evaluations of namespace 'a' by this study"`), and `remedy`
+    how to remove them, with the differences of the latest of their
+    definitions from the definition (see `compare_definitions`).
+    """
+    _warn(
+        f"{subject} with other code, which are not reused ({remedy}); the "
+        + "latest differs in: "
+        + "; ".join(compare_definitions(latest, definition))
+    )
 
 
 def compare_definitions(before: dict, after: dict, limit: int = 5) -> list[str]:

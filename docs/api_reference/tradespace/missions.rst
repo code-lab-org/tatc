@@ -19,7 +19,7 @@ Constellations
 
 .. autoclass:: tatc.tradespace.constellations.Plane
 
-.. autofunction:: tatc.tradespace.constellations.layout_of
+.. autofunction:: tatc.tradespace.layout_of
 
 .. autoclass:: tatc.tradespace.constellations.WalkerLayout
 
@@ -46,7 +46,7 @@ Deployment
    :no-members:
 
 .. autoclass:: tatc.tradespace.DeploymentSchedule
-   :members: plan, production_years, replacements, next_slot, per_launch, split, launches_of, mass_capacity_of, design_life_of
+   :members: plan, production_years, next_slot, per_launch, split, launches_of, mass_capacity_of, design_life_of
 
 .. autoclass:: tatc.tradespace.Stage
 
@@ -83,7 +83,7 @@ Failures
 .. autoclass:: tatc.tradespace.Piecewise
 
 .. autoclass:: tatc.tradespace.RestorationPolicy
-   :members: ground_spares_of
+   :members: orbit_spares_of, ground_spares_of
 
 Missions
 ========
@@ -92,7 +92,7 @@ Missions
    :no-members:
 
 .. autoclass:: tatc.tradespace.mission.MissionHistory
-   :members: phases, metrics, in_orbit
+   :members: phases, metrics, in_orbit, deployed
 
 .. autoclass:: tatc.tradespace.mission.Phase
    :members: duration
@@ -109,7 +109,7 @@ Missions
 .. autofunction:: tatc.tradespace.mission.summarize_phases
 
 .. autoclass:: tatc.tradespace.mission.PhaseCache
-   :members: evaluate, clear
+   :members: evaluate, metrics_of, clear
 
 .. autoclass:: tatc.tradespace.mission.Capability
    :members: evaluate, at
@@ -121,13 +121,16 @@ Missions
 .. automodule:: tatc.tradespace.histories
    :no-members:
 
-.. autofunction:: tatc.tradespace.histories.evaluate_missions
+.. autofunction:: tatc.tradespace.histories.evaluate_histories
 
-.. autofunction:: tatc.tradespace.histories.summarize_missions
+.. autofunction:: tatc.tradespace.histories.summarize_histories
 
 .. autofunction:: tatc.tradespace.histories.allocate_histories
 
-.. autofunction:: tatc.tradespace.histories.expected_missions
+.. autofunction:: tatc.tradespace.histories.exact_expectations
+
+.. autodata:: tatc.tradespace.histories.MAX_SETS
+   :annotation:
 
 Costs
 =====

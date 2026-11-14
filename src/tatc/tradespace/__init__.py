@@ -26,6 +26,7 @@ from .constellations import (
     build_constellation,
     count_planes,
     count_satellites,
+    layout_of,
     mog_space,
     planes_space,
     soc_space,
@@ -41,20 +42,7 @@ from .cost import (
     Triangular,
     risk_space,
 )
-from .criteria import (
-    Across,
-    Criteria,
-    Maximum,
-    Mean,
-    Minimum,
-    Probability,
-    Quantile,
-    Requirement,
-    StandardDeviation,
-    StandardError,
-    aggregate,
-    summarize,
-)
+from .criteria import Across, Criteria, Requirement
 from .deployment import DeploymentSchedule, Stage
 from .failures import (
     Bathtub,
@@ -76,15 +64,10 @@ from .nodes import (
     Repeat,
     Uncertain,
 )
-from .observations import Failures, MissionPlan, ObservationStudy, Observations, Targets
+from .observations import ObservationStudy, Observations, Targets
 from .optimization import optimize_optuna, optimize_pymoo
-from .pareto import (
-    hypervolume,
-    hypervolume_progress,
-    pareto_front,
-    pareto_probability,
-    pareto_ranks,
-)
+from .pareto import hypervolume, hypervolume_progress, pareto_front, pareto_ranks
+from .plans import Failures, MissionPlan
 from .plotting import (
     COLORS,
     GRAY,
@@ -102,8 +85,18 @@ from .scenarios import robustness
 from .screening import screen
 from .sensitivity import main_effects, sensitivity
 from .space import Design, DesignSpace
+from .statistics import (
+    Maximum,
+    Mean,
+    Minimum,
+    Probability,
+    Quantile,
+    StandardDeviation,
+    StandardError,
+)
 from .store import ResultStore
 from .study import Study
+from .summary import aggregate, pareto_probability, summarize
 from .utility import ExponentialUtility, LinearUtility, PiecewiseUtility, Utility
 
 __all__ = [
@@ -122,6 +115,7 @@ __all__ = [
     "build_constellation",
     "count_planes",
     "count_satellites",
+    "layout_of",
     "mog_space",
     "planes_space",
     "policy_space",

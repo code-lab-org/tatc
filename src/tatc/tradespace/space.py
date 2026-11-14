@@ -22,8 +22,7 @@ position of the innermost enclosing repeated item.
 
 from __future__ import annotations
 
-import math
-import re
+import numbers
 import zlib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from functools import partial
@@ -32,30 +31,29 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .fingerprint import _Describer
 from .hashing import _canonical, _digest
 from .nodes import (
     Choice,
-    Derived,
     Fixed,
+    Group,
     Infeasible,
-    Integer,
-    Node,
-    Repeat,
     Uncertain,
-    Variable,
     _as_node,
     _Domain,
 )
-from .values import (
-    Scope,
-    Values,
-    _ChoiceValue,
-    _RepeatValue,
+from .values import Scope, Values
+from .walks import (
+    _Context,
+    _decided,
+    _flatten,
+    _generic,
+    _leaf_paths,
+    _level_of,
+    _node_at,
+    _Odometer,
+    _unit_paths,
+    _walk,
 )
-
-_ABSENT = object()
-"""Marker of a node that records no decision (fixed, derived, or uncertain)."""
 
 _RESERVED_NAMES = {
     # names that the views of values give otherwise (see `Values`)
@@ -72,335 +70,17 @@ _RESERVED_NAMES = {
     "key",
     "realize",
     "replicate",
+    "scenario",
     "space",
+    # columns of the results of a study (see `Study.run`)
+    "design",
+    "error",
+    "feasible",
+    "seconds",
 }
 """Names that cannot be given to the children of a design space, as the views
-of the values of designs (and designs) give them otherwise."""
-
-
-# ---------------------------------------------------------------------------
-# deciding designs
-# ---------------------------------------------------------------------------
-
-
-def _decision_key(decision: Any) -> str:
-    """
-    Gets a canonical string of a decision.
-    """
-    return _canonical(decision)
-
-
-def _plain(value: Any) -> Any:
-    """
-    Converts a numpy scalar to a plain Python value, for decisions.
-    """
-    return value.item() if isinstance(value, np.generic) else value
-
-
-class _Context:
-    """
-    How a walk of a design space decides its nodes: `choose(path, domain)`
-    decides a variable, `draw(path, node)` draws an uncertain parameter (or
-    `None` for nominal values), `fix(path, node)` gives a fixed value (or
-    `None` for its value), and `check` enables constraints. If given,
-    `record(path, domain, value)` is called with every decision, chosen or
-    prescribed, and `normalize(path, domain, value)` gives the value of the
-    domain that a prescribed decision is (such as its level, see
-    `_level_of`). With an `odometer` (of an enumeration), the items of
-    unordered repetitions are only walked in the order of their levels.
-    """
-
-    def __init__(
-        self,
-        choose: Callable[[str, _Domain], Any] | None = None,
-        draw: Callable[[str, Uncertain], Any] | None = None,
-        check: bool = True,
-        record: Callable[[str, _Domain, Any], None] | None = None,
-        odometer: _Odometer | None = None,
-        fix: Callable[[str, Fixed], Any] | None = None,
-        normalize: Callable[[str, _Domain, Any], Any] | None = None,
-    ):
-        # pylint: disable=too-many-arguments,too-many-positional-arguments
-        self.choose, self.draw, self.check = choose, draw, check
-        self.fix, self.normalize = fix, normalize
-        self.record, self.odometer = record, odometer
-
-    def decide(self, path: str, domain: _Domain, prescribed: Any) -> Any:
-        """
-        Decides a value of a domain: the prescribed value (normalized, if
-        the walk normalizes them), or a chosen one.
-        """
-        if prescribed is _ABSENT:
-            value = _plain(_choose(self, path, domain))
-        elif self.normalize is not None:
-            value = self.normalize(path, domain, prescribed)
-        else:
-            value = prescribed
-        if self.record is not None:
-            self.record(path, domain, value)
-        return value
-
-
-class _Unsorted(Infeasible):
-    """
-    Raised while enumerating a walk whose unordered items are not in the
-    order of their levels: another walk gives the same design.
-    """
-
-
-def _join(path: str, name: str) -> str:
-    return f"{path}.{name}" if path else name
-
-
-_ITEM_INDEX = re.compile(r"\[\d+\]")
-
-
-def _generic(path: str) -> str:
-    """
-    Gets the path of a node with `[*]` for the index of any item of a
-    repetition (as of `DesignSpace.uncertain_paths`).
-    """
-    return _ITEM_INDEX.sub("[*]", path)
-
-
-def _walk(
-    node: Node,
-    path: str,
-    scope: Scope,
-    ctx: _Context,
-    prescribed: Any = _ABSENT,
-    publish: Callable[[Any], None] | None = None,
-) -> tuple[Any, Any]:
-    """
-    Decides a node: returns its value and its decision (the values of its
-    design variables, or `_ABSENT` if it has none). A prescribed decision is
-    followed instead of choosing. A container publishes its (partial) value
-    as soon as it is created, so that its contents are visible to the
-    callables of later nodes within it.
-    """
-    if isinstance(node, Variable):
-        if prescribed is not _ABSENT and ctx.record is None and ctx.normalize is None:
-            return prescribed, prescribed
-        value = ctx.decide(path, node.domain(scope), prescribed)
-        return value, value
-    if isinstance(node, Fixed):
-        return (node.value if ctx.fix is None else ctx.fix(path, node)), _ABSENT
-    if isinstance(node, Derived):
-        return node.function(scope), _ABSENT
-    if isinstance(node, Uncertain):
-        return (node.nominal if ctx.draw is None else ctx.draw(path, node)), _ABSENT
-    if isinstance(node, DesignSpace):
-        return _walk_group(node, path, scope, ctx, prescribed, publish)
-    if isinstance(node, Choice):
-        return _walk_choice(node, path, scope, ctx, prescribed, publish)
-    if isinstance(node, Repeat):
-        return _walk_repeat(node, path, scope, ctx, prescribed, publish)
-    raise TypeError(f"unknown node {node!r} at {path or 'the root'}")
-
-
-def _choose(ctx: _Context, path: str, domain: _Domain) -> Any:
-    """
-    Chooses a value of a domain, if the walk can choose.
-    """
-    if ctx.choose is None:
-        raise ValueError(f"no decision for {path}")
-    return ctx.choose(path, domain)
-
-
-def _walk_group(
-    node: DesignSpace,
-    path: str,
-    scope: Scope,
-    ctx: _Context,
-    prescribed: Any,
-    publish: Callable[[Any], None] | None,
-) -> tuple[dict, dict]:
-    """
-    Decides the children of a design space in order, then checks its
-    constraints (see `_walk`).
-    """
-    values: dict = {}
-    if publish is not None:
-        publish(values)
-    inner = scope.push(values)
-    decisions = {}
-    for name, child in node.children.items():
-        value, decision = _walk(
-            child,
-            _join(path, name),
-            inner,
-            ctx,
-            _ABSENT if prescribed is _ABSENT else prescribed.get(name, _ABSENT),
-            partial(values.__setitem__, name),
-        )
-        values[name] = value
-        if decision is not _ABSENT:
-            decisions[name] = decision
-    if ctx.check:
-        for i, constraint in enumerate(node.constraints):
-            violation = _get_violation(constraint(inner))
-            if violation > 0:
-                label = getattr(constraint, "__name__", "<lambda>")
-                raise Infeasible(
-                    f"constraint {i} ({label}) of {path or 'the design space'} "
-                    + "is not satisfied",
-                    violation,
-                )
-    return values, decisions
-
-
-def _get_violation(result: Any) -> float:
-    """
-    Gets the violation of a constraint from its result: a boolean (`True` if
-    satisfied, a violation of 1 otherwise) or a number (satisfied if it is
-    not positive, its value is the violation otherwise).
-    """
-    if isinstance(result, (bool, np.bool_)):
-        return 0.0 if result else 1.0
-    return float(result)
-
-
-def _walk_choice(
-    node: Choice,
-    path: str,
-    scope: Scope,
-    ctx: _Context,
-    prescribed: Any,
-    publish: Callable[[Any], None] | None,
-) -> tuple[_ChoiceValue, list]:
-    """
-    Decides the branch of a choice, then the branch (see `_walk`).
-    """
-    choice = _ABSENT if prescribed is _ABSENT else prescribed[0]
-    name = ctx.decide(path, _Domain(levels=list(node.branches)), choice)
-    sub = None if prescribed is _ABSENT else prescribed[1]
-    result = _ChoiceValue(name)
-    if publish is not None:
-        publish(result)
-    result.value, decision = _walk(
-        node.branches[name],
-        _join(path, name),
-        scope,
-        ctx,
-        _ABSENT if sub is None else sub,
-        partial(setattr, result, "value"),
-    )
-    return result, [name, None if decision is _ABSENT else decision]
-
-
-def _walk_items(
-    node: Repeat,
-    path: str,
-    scope: Scope,
-    ctx: _Context,
-    count: int,
-    prescribed: Any,
-    publish: Callable[[Any], None] | None,
-) -> tuple[_RepeatValue, list]:
-    """
-    Decides the items of a repetition (see `_walk_repeat`).
-    """
-    result = _RepeatValue(count)
-    if publish is not None:
-        publish(result)
-    decisions = []
-    # with an odometer, permutations of unordered items give the same design:
-    # enumerate only the first, whose items are in the order of their levels
-    odometer = ctx.odometer if prescribed is _ABSENT and not node.ordered else None
-    previous: list[int] | None = None
-    for k in range(count):
-        sub = _ABSENT if prescribed is _ABSENT else prescribed[k]
-        start = 0 if odometer is None else odometer.position
-        if odometer is not None and previous is not None:
-            odometer.floors.append((start, previous))
-        try:
-            value, decision = _walk(
-                node.item,
-                f"{path}[{k}]",
-                scope.push({}, k),
-                ctx,
-                _ABSENT if sub is None else sub,
-                result.items.append,
-            )
-        finally:
-            if odometer is not None and previous is not None:
-                odometer.floors.pop()
-        if len(result.items) == k:
-            # a value that is not a container is not published
-            result.items.append(value)
-        decisions.append(None if decision is _ABSENT else decision)
-        if odometer is not None:
-            previous = odometer.indices[start : odometer.position]
-    return result, decisions
-
-
-def _walk_repeat(
-    node: Repeat,
-    path: str,
-    scope: Scope,
-    ctx: _Context,
-    prescribed: Any,
-    publish: Callable[[Any], None] | None,
-) -> tuple[_RepeatValue, list]:
-    """
-    Decides the count of a repetition, then its items, which are sorted by
-    their decisions and decided again in that order if they are unordered
-    (see `_walk`).
-    """
-    if isinstance(node.count, Variable):
-        count = int(
-            ctx.decide(
-                _join(path, "count"),
-                node.count.domain(scope),
-                _ABSENT if prescribed is _ABSENT else len(prescribed),
-            )
-        )
-    elif isinstance(node.count, Fixed):
-        count = int(node.count.value)
-    elif isinstance(node.count, Derived):
-        count = int(node.count.function(scope))
-    else:
-        count = int(node.count)
-    if count < 0:
-        raise Infeasible(f"the count of {path} is negative ({count})")
-    if prescribed is not _ABSENT and len(prescribed) != count:
-        raise ValueError(
-            f"{len(prescribed)} items are given for {path}, whose count is {count}"
-        )
-    result, decisions = _walk_items(node, path, scope, ctx, count, prescribed, publish)
-    if not node.ordered:
-        canonical = sorted(decisions, key=_decision_key)
-        if canonical != decisions:
-            result, decisions = _walk_items(
-                node, path, scope, ctx, count, canonical, publish
-            )
-    return result, decisions
-
-
-def _flatten(node: Node, value: Any, path: str, out: dict) -> None:
-    """
-    Flattens the values of a node into `out`, by path: the chosen branch of
-    a choice at its path (and its values under the branch's name), the count
-    of a repetition at `<path>.count` (also of a fixed count) and its items
-    at `<path>[k]`, and the other values (except fixed values) at their
-    paths.
-    """
-    if isinstance(node, Fixed):
-        return
-    if isinstance(node, DesignSpace):
-        for name, child in node.children.items():
-            _flatten(child, value[name], _join(path, name), out)
-    elif isinstance(node, Choice):
-        out[path] = value.choice
-        _flatten(
-            node.branches[value.choice], value.value, _join(path, value.choice), out
-        )
-    elif isinstance(node, Repeat):
-        out[_join(path, "count")] = value.count
-        for k, item in enumerate(value.items):
-            _flatten(node.item, item, f"{path}[{k}]", out)
-    else:
-        out[path] = value
+of the values of designs (and designs) give them otherwise, or as the columns
+of the results of a study that are not values of designs."""
 
 
 # ---------------------------------------------------------------------------
@@ -422,16 +102,32 @@ class Design:
         decisions: dict,
         values: dict,
         replicate: int | None = None,
-        scenario: str = "",
+        scenario: str | None = None,
     ):
-        self.space, self.decisions, self.replicate = space, decisions, replicate
+        # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self.space, self.replicate = space, replicate
+        self.decisions = decisions
+        """dict: The decisions of the design, as the design space declares
+        them: those of a group are a mapping of the decisions of its
+        children, by name (omitting those without decisions: fixed,
+        derived, and uncertain values); that of a design variable is its
+        value; that of a choice is a list of the name of its branch and the
+        decisions of the branch (`None` if it has none), such as
+        `["walker", {"planes": 3}]`; and that of a repetition is a list of
+        the decisions of its items (`None` for an item without decisions),
+        as many as its count, whose unordered items are in the order of the
+        levels of their decisions (see `Repeat`)."""
         self._values = values
         self._scenario = scenario
-        """str: A description of the values of the scenario of a realized
-        design (see `realize`), `""` without one."""
-        self.key = _digest(_decision_key(decisions), 12)
+        self.key = _digest(_canonical(decisions), 12)
         """str: An identifier of the design, from its decisions only (not
         from its derived values or uncertain parameters)."""
+
+    @property
+    def scenario(self) -> str | None:
+        """str | None: The name of the scenario in which the design is
+        realized (see `realize`), or `None` if it is not realized in one."""
+        return self._scenario
 
     @property
     def values(self) -> Values:
@@ -479,17 +175,19 @@ class Design:
     def realize(
         self,
         replicate: int,
+        *,
         seed: int = 0,
-        common: bool = True,
+        common_random_numbers: bool = True,
         shift: Mapping[str, int] | None = None,
-        scenario: Mapping[str, Any] | None = None,
+        overrides: Mapping[str, Any] | None = None,
+        scenario: str | None = None,
     ) -> Design:
         """
         Realizes a replicate of the design: draws its uncertain parameters
         (and computes the values derived from them).
 
         Each uncertain parameter is drawn from a random number generator
-        seeded by `seed`, `replicate`, and its path, so that with `common`
+        seeded by `seed`, `replicate`, and its path, so that with common
         random numbers, a parameter at the same path (such as the phase of
         the first orbit plane) takes the same value in the same replicate
         of every design. Comparisons between designs then measure the
@@ -506,42 +204,51 @@ class Design:
         named parameters only, which measures their effects on the outcomes
         of a design (see `attribute_variance`).
 
-        A `scenario` gives fixed values and uncertain parameters other values
-        (by their paths, with `[*]` for the index of any item of a
-        repetition, as of `DesignSpace.uncertain_paths`): a condition under
-        which designs are compared, such as a requirement, rather than
-        averaged over (see `Study`). Values derived from them are derived
-        from the scenario's, and an uncertain parameter that it gives is not
-        drawn.
+        The `overrides` of a scenario give fixed values and uncertain
+        parameters other values (by their paths, with `[*]` for the index of
+        any item of a repetition, as of `DesignSpace.uncertain_paths`): a
+        condition under which designs are compared, such as a requirement,
+        rather than averaged over (see `Study`). Values derived from them are
+        derived from the overrides, an uncertain parameter that they give is
+        not drawn, and the constraints of the design space are checked
+        again, as the overrides may change what they depend on. The realized
+        design is of the scenario named `scenario` (see `Design.scenario`).
 
         Args:
             replicate (int): The replicate.
-            seed (int): The seed of the trade study.
-            common (bool): `True` to use common random numbers between
-                designs.
+            seed (int): The seed of the trade study (a non-negative integer).
+            common_random_numbers (bool): `True` to use common random numbers
+                between designs.
             shift (Mapping[str, int] | None): The offsets of the replicates
                 as in which the named uncertain parameters are drawn, if any.
-            scenario (Mapping[str, Any] | None): The values of fixed values
-                and uncertain parameters of a scenario (by path), if any.
+            overrides (Mapping[str, Any] | None): The values of fixed values
+                and uncertain parameters in a scenario (by path), if any.
+            scenario (str | None): The name of the scenario of the overrides,
+                if any.
 
         Returns:
             Design: the realized design
 
         Raises:
-            ValueError: if `shift` names a path that is not of an uncertain
-                parameter of the design space, or `scenario` one that is not
-                of a fixed value or an uncertain parameter.
+            Infeasible: if the design violates a constraint with the
+                overrides.
+            ValueError: if `seed` is negative, `shift` names a path that is
+                not of an uncertain parameter of the design space, or
+                `overrides` one that is not of a fixed value or an uncertain
+                parameter.
         """
+        # pylint: disable=too-many-arguments
+        _check_seed(seed)
         shift = dict(shift or {})
-        _check_uncertain(self.space, shift)
-        scenario = dict(scenario or {})
-        _check_scenario(self.space, scenario)
-        tail = [] if common else [int(self.key, 16)]
+        self.space.check_uncertain(shift)
+        overrides = dict(overrides or {})
+        self.space.check_overrides(overrides)
+        tail = [] if common_random_numbers else [int(self.key, 16)]
 
         def draw(path: str, node: Uncertain) -> Any:
             name = _generic(path)
-            if name in scenario:
-                return scenario[name]
+            if name in overrides:
+                return overrides[name]
             drawn_in = replicate + int(shift.get(name, 0))
             rng = np.random.default_rng(
                 [seed, drawn_in, *tail, zlib.crc32(path.encode())]
@@ -549,78 +256,34 @@ class Design:
             return node.sampler(rng)
 
         def fix(path: str, node: Fixed) -> Any:
-            return scenario.get(_generic(path), node.value)
+            return overrides.get(_generic(path), node.value)
 
-        ctx = _Context(draw=draw, check=False, fix=fix if scenario else None)
-        values, _ = _walk(self.space, "", Scope(), ctx, self.decisions)
-        return Design(
-            self.space,
-            self.decisions,
-            values,
-            replicate,
-            _describe_scenario(scenario),
+        ctx = _Context(
+            draw=draw,
+            check=bool(overrides),
+            fix=fix if overrides else None,
+            canonical=True,
         )
+        values, _ = _walk(self.space, "", Scope(), ctx, self.decisions)
+        return Design(self.space, self.decisions, values, replicate, scenario)
 
     def __repr__(self) -> str:
         replicate = "" if self.replicate is None else f", replicate={self.replicate}"
-        return f"Design({self.key}{replicate}: {self.flat()})"
+        scenario = "" if self._scenario is None else f", scenario={self._scenario!r}"
+        return f"Design({self.key}{replicate}{scenario}: {self.flat()})"
 
 
-class _Odometer:
+def _check_seed(seed: Any) -> None:
     """
-    Chooses the levels of the variables of successive walks in the order of
-    an odometer whose digits are the decisions of a walk, so that walks
-    enumerate every combination of levels, including those of variables
-    whose existence or domain depends on earlier decisions.
+    Checks that a seed of uncertain parameters is a non-negative integer (as
+    numpy's generators require), raising a `ValueError` if not.
     """
-
-    def __init__(self):
-        self.indices: list[int] = []
-        self.sizes: list[int] = []
-        self.position = 0
-        self.floors: list[tuple[int, list[int]]] = []
-        """The levels of the previous unordered items (and where the
-        current items' levels start), which the current items must not
-        precede."""
-
-    def choose(self, path: str, domain: _Domain) -> Any:
-        """
-        Chooses the level of the current digit of the odometer (adding a
-        digit, at the first level, if the walk is longer than before), and
-        stops a walk whose unordered items precede the previous ones.
-        """
-        if domain.levels is None:
-            raise ValueError(
-                f"{path} is continuous: give it a step to enumerate the design space"
-            )
-        if len(domain.levels) == 0:
-            raise Infeasible(f"{path} has no levels")
-        if self.position == len(self.indices):
-            self.indices.append(0)
-            self.sizes.append(len(domain.levels))
-        level = domain.levels[self.indices[self.position]]
-        self.position += 1
-        for start, previous in self.floors:
-            current = self.indices[start : self.position]
-            if current < previous[: len(current)]:
-                raise _Unsorted()
-        return level
-
-    def advance(self) -> bool:
-        """
-        Advances to the next combination after a walk, returning `False`
-        after the last.
-        """
-        del self.indices[self.position :], self.sizes[self.position :]
-        self.position = 0
-        self.floors.clear()
-        while self.indices:
-            if self.indices[-1] + 1 < self.sizes[-1]:
-                self.indices[-1] += 1
-                return True
-            self.indices.pop()
-            self.sizes.pop()
-        return False
+    if (
+        isinstance(seed, (bool, np.bool_))
+        or not isinstance(seed, numbers.Integral)
+        or seed < 0
+    ):
+        raise ValueError(f"the seed must be a non-negative integer, not {seed!r}")
 
 
 def _lhs_column(n: int, rng: np.random.Generator) -> np.ndarray:
@@ -631,11 +294,15 @@ def _lhs_column(n: int, rng: np.random.Generator) -> np.ndarray:
     return (rng.permutation(n) + rng.random(n)) / n
 
 
-class DesignSpace(Node):
+class DesignSpace(Group):
     """
     A group of nodes: the root of a design space, or a group within it (such
     as the design of each orbit plane). Children are given by name, in the
-    order they are decided; plain values are fixed values.
+    order they are decided; plain values are fixed values. Children may not
+    be named as the attributes of designs and of the views of their values
+    (such as `key`, `values`, or `index`), nor as the columns of the results
+    of a study that are not values of designs (`design`, `replicate`,
+    `scenario`, `feasible`, `error`, and `seconds`).
 
     Constraints are callables of the group's values (and those of enclosing
     groups), checked once the group's values are decided, that return
@@ -674,14 +341,20 @@ class DesignSpace(Node):
         self, decisions: Mapping | Design | None = None, /, **overrides: Any
     ) -> Design:
         """
-        Gets the design of given decisions (see `Design.decisions`), or of the
-        decisions of another design (such as of a design space this one
-        extends, see `extend`), with the decisions of some children replaced
-        (by name: a value, the decisions of a group or a choice, or a design
-        of their own space), checking its constraints::
+        Gets the design of given decisions (see `Design.decisions` for their
+        shapes), or of the decisions of another design (such as of a design
+        space this one extends, see `extend`), with the decisions of some
+        children replaced (by name: a value, the decisions of a group or a
+        choice, or a design of their own space), checking its constraints::
 
             space = base.extend(policy=policy_space(orbit_spares=Integer(0, 1)))
             design = space.design(base_design, policy=policy_design)
+            sso = space.design(base_design, layout="sso")
+
+        A choice may also be given the name of its branch alone, here and in
+        the decisions: the branch's decisions are then those given (of a
+        replaced child that chose the same branch) or, otherwise, the first
+        levels of its variables (and the lower bounds of continuous ones).
 
         Args:
             decisions (Mapping | Design | None): The decisions, or a design
@@ -703,9 +376,18 @@ class DesignSpace(Node):
         if unknown:
             raise ValueError(f"no children {unknown} of the design space")
         for name, decision in overrides.items():
-            merged[name] = (
-                decision.decisions if isinstance(decision, Design) else decision
-            )
+            if isinstance(decision, Design):
+                decision = decision.decisions
+            given = merged.get(name)
+            if (
+                isinstance(self.children[name], Choice)
+                and isinstance(decision, str)
+                and isinstance(given, (list, tuple))
+                and len(given) == 2
+                and given[0] == decision
+            ):
+                continue  # the branch, with the decisions given of it
+            merged[name] = decision
         values, merged = _walk(self, "", Scope(), _Context(normalize=_level_of), merged)
         return Design(self, merged, values)
 
@@ -845,6 +527,7 @@ class DesignSpace(Node):
     def sample(
         self,
         n: int,
+        *,
         method: str = "lhs",
         seed: int = 0,
         max_tries: int = 1000,
@@ -930,6 +613,51 @@ class DesignSpace(Node):
         """
         return _leaf_paths(self, "", Uncertain)
 
+    def check_uncertain(self, paths: Iterable[str]) -> None:
+        """
+        Checks that paths are of uncertain parameters of the design space (as
+        of `uncertain_paths`, with `[*]` for the index of any item of a
+        repetition), such as those of a shift (see `Design.realize`).
+
+        Args:
+            paths (Iterable[str]): The paths.
+
+        Raises:
+            ValueError: if a path is not of an uncertain parameter.
+        """
+        unknown = [p for p in paths if not isinstance(_node_at(self, p), Uncertain)]
+        if unknown:
+            raise ValueError(
+                "not uncertain parameters of the design space: "
+                + f"{sorted(unknown, key=str)} (it has {self.uncertain_paths()})"
+            )
+
+    def check_overrides(self, overrides: Iterable[str]) -> None:
+        """
+        Checks that the paths of the overrides of a scenario (see
+        `Design.realize`) are of fixed values or uncertain parameters of the
+        design space (with `[*]` for the index of any item of a repetition).
+
+        Args:
+            overrides (Iterable[str]): The overrides (a mapping by path), or
+                their paths.
+
+        Raises:
+            ValueError: if a path is not of a fixed value or an uncertain
+                parameter.
+        """
+        unknown = [
+            p
+            for p in overrides
+            if not isinstance(_node_at(self, p), (Fixed, Uncertain))
+        ]
+        if unknown:
+            known = [*_leaf_paths(self, "", Fixed), *self.uncertain_paths()]
+            raise ValueError(
+                "not fixed values or uncertain parameters of the design space: "
+                + f"{sorted(unknown, key=str)} (it has {known})"
+            )
+
     def decode(self, unit: Sequence[float]) -> Design:
         """
         Decodes a design from a point of the unit hypercube (a value in
@@ -974,7 +702,8 @@ class DesignSpace(Node):
         def record(path: str, domain: _Domain, value: Any) -> None:
             unit[index[path]] = domain.to_unit(value)
 
-        _walk(self, "", Scope(), _Context(record=record), design.decisions)
+        ctx = _Context(record=record, canonical=True)
+        _walk(self, "", Scope(), ctx, design.decisions)
         return unit
 
     def suggest(self, trial: Any) -> Design:
@@ -997,138 +726,6 @@ class DesignSpace(Node):
         return self._design(
             _Context(choose=lambda path, domain: domain.suggest(trial, path))
         )
-
-
-def _unit_paths(node: Node, path: str) -> list[str]:
-    """
-    Gets the paths of the decisions of a node (see `DesignSpace.unit_paths`).
-    """
-    if isinstance(node, Variable):
-        return [path]
-    if isinstance(node, DesignSpace):
-        return [
-            p
-            for name, child in node.children.items()
-            for p in _unit_paths(child, _join(path, name))
-        ]
-    if isinstance(node, Choice):
-        return [path] + [
-            p
-            for name, branch in node.branches.items()
-            for p in _unit_paths(branch, _join(path, name))
-        ]
-    if isinstance(node, Repeat):
-        paths, largest = [], _largest_count(node.count, path)
-        if isinstance(node.count, Variable):
-            paths = [_join(path, "count")]
-        return paths + [
-            p for k in range(largest) for p in _unit_paths(node.item, f"{path}[{k}]")
-        ]
-    return []
-
-
-def _largest_count(count: Any, path: str) -> int:
-    """
-    Gets the largest count of a repetition (see `_unit_paths`), which must
-    not depend on other values.
-    """
-    if isinstance(count, Integer) and not callable(count.high):
-        return int(count.high)
-    if isinstance(count, Variable) and not isinstance(count, Integer):
-        options = getattr(count, "options", None)
-        if options is not None and not callable(options):
-            return int(max(options))
-    elif isinstance(count, Fixed):
-        return int(count.value)
-    elif isinstance(count, int):
-        return count
-    raise ValueError(f"the count of {path} needs a fixed upper bound to be encoded")
-
-
-def _is_number(value: Any) -> bool:
-    """Whether a value is a number (not a boolean)."""
-    return isinstance(value, (int, float, np.number)) and not isinstance(
-        value, (bool, np.bool_)
-    )
-
-
-def _level_of(path: str, domain: _Domain, value: Any) -> Any:
-    """
-    Gets the value of a domain that a decision is (see `DesignSpace.design`
-    and `DesignSpace.designs_of`): the level that equals it (whose type a
-    data frame may have changed, as integers in a column of floats, or that
-    is given as a numpy scalar), or the value (a float) in the range of a
-    continuous domain, raising a `ValueError` if there is none.
-    """
-    if domain.levels is None:
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            number = math.nan
-        if domain.low <= number <= domain.high:
-            return number
-        raise ValueError(
-            f"{value!r} is not in the range of {path} ({domain.low}, {domain.high})"
-        )
-    for level in domain.levels:
-        try:
-            if level == value:
-                return _plain(level)
-        except (TypeError, ValueError):
-            continue
-    if _is_number(value):
-        for level in domain.levels:
-            if _is_number(level) and math.isclose(
-                float(level), float(value), rel_tol=1e-9, abs_tol=1e-12
-            ):
-                return _plain(level)
-    raise ValueError(f"{value!r} is not a level of {path} ({domain.levels})")
-
-
-def _leaf_paths(node: Node, path: str, kind: type) -> list[str]:
-    """
-    Gets the paths of the leaves of a kind of a node (such as its fixed
-    values), with `[*]` for the index of any item of a repetition, and with
-    the branches of choices, whether a design chooses them or not.
-    """
-    if isinstance(node, kind):
-        return [path]
-    if isinstance(node, DesignSpace):
-        return [
-            p
-            for name, child in node.children.items()
-            for p in _leaf_paths(child, _join(path, name), kind)
-        ]
-    if isinstance(node, Choice):
-        return [
-            p
-            for name, branch in node.branches.items()
-            for p in _leaf_paths(branch, _join(path, name), kind)
-        ]
-    if isinstance(node, Repeat):
-        return _leaf_paths(node.item, f"{path}[*]", kind)
-    return []
-
-
-def _missing(value: Any) -> bool:
-    """Whether a value of a data frame is missing (`None` or `NaN`)."""
-    return value is None or (isinstance(value, float) and math.isnan(value))
-
-
-def _decided(values: Mapping[str, Any], path: str, domain: _Domain) -> Any:
-    """
-    Gets the decision of a path from values by path (such as a row of the
-    results of a study, see `DesignSpace.designs_of`): the level of the domain
-    that equals the value (whose type a data frame may have changed, as
-    integers in a column of floats), or the value of a continuous domain.
-    """
-    value = values.get(path)
-    if _missing(value):
-        raise ValueError(
-            f"no value of {path}: rebuild designs from the results of a study, or "
-            + "from a summary that keeps the values of designs (see aggregate)"
-        )
-    return _level_of(path, domain, value)
 
 
 def _design_items(designs: Iterable[Design | str] | pd.DataFrame) -> list[Design | str]:
@@ -1166,19 +763,24 @@ def _designs(
     *frames: pd.DataFrame,
 ) -> list[Design]:
     """
-    Gets designs given as designs, keys, or a data frame of designs (with
-    their keys, `design`), each once, in order: designs given by their keys
-    are rebuilt from the values of the frame (if it has them) or of other
-    frames (such as the results of a study, see `DesignSpace.designs_of`).
+    Gets designs of a design space given as designs, keys, or a data frame
+    of designs (with their keys, `design`), each once, in order: designs of
+    other design spaces (such as of a design space that this one extends)
+    are the designs of this one of their decisions (see
+    `DesignSpace.design`), and designs given by their keys are rebuilt from
+    the values of the frame (if it has them) or of other frames (such as the
+    results of a study, see `DesignSpace.designs_of`).
     """
     if isinstance(designs, pd.DataFrame):
         frames = (designs, *frames)
     found: dict[str, Design | None] = {}
     for item in _design_items(designs):
         if isinstance(item, Design):
-            found[item.key] = item
+            design = item if item.space is space else space.design(item)
+            found[design.key] = design
         else:
             found.setdefault(item, None)
+    error: ValueError | None = None
     for frame in frames:
         missing = [key for key, design in found.items() if design is None]
         if not missing:
@@ -1186,65 +788,18 @@ def _designs(
         rows = frame.reset_index() if "design" not in frame else frame
         if "design" not in rows:
             continue
-        present = [key for key in missing if key in set(rows["design"])]
+        keys = set(rows["design"])
+        present = [key for key in missing if key in keys]
         try:
             for design in space.designs_of(rows, present):
                 found[design.key] = design
-        except ValueError:
-            continue  # the frame lacks values of the designs: try the next
+        except ValueError as failure:
+            error = failure  # the frame lacks values of the designs: try the next
     missing = [key for key, design in found.items() if design is None]
     if missing:
         raise ValueError(
             f"the values of designs {missing[:5]} are not given: give the designs, "
             + "or their keys with the results of a study (or a summary that keeps "
             + "the values of designs, see aggregate)"
-        )
+        ) from error
     return [design for design in found.values() if design is not None]
-
-
-def _check_scenario(space: DesignSpace, values: Mapping[str, Any]) -> None:
-    """
-    Checks that the values of a scenario are of fixed values or uncertain
-    parameters of a design space (by path), raising a `ValueError` if not.
-    """
-    if not values:
-        return
-    known = [*_leaf_paths(space, "", Fixed), *space.uncertain_paths()]
-    unknown = sorted(set(values) - set(known))
-    if unknown:
-        raise ValueError(
-            "not fixed values or uncertain parameters of the design space: "
-            + f"{unknown} (it has {known})"
-        )
-
-
-def _describe_scenario(values: Mapping[str, Any]) -> str:
-    """
-    Gets a description of the values of a scenario (`""` without values),
-    which identifies them (by their content, see `get_definition`).
-    """
-    if not values:
-        return ""
-    described = _Describer().describe(dict(values))
-    return _canonical(described)
-
-
-def _scenario_of(design: Design) -> str:
-    """
-    Gets the description of the values of the scenario of a realized design
-    (see `Design.realize`), `""` without one.
-    """
-    return design._scenario  # pylint: disable=protected-access
-
-
-def _check_uncertain(space: DesignSpace, paths: Iterable[str]) -> None:
-    """
-    Checks that paths are of uncertain parameters of a design space (see
-    `DesignSpace.uncertain_paths`), raising a `ValueError` if not.
-    """
-    known = space.uncertain_paths()
-    unknown = sorted(set(paths) - set(known))
-    if unknown:
-        raise ValueError(
-            f"not uncertain parameters of the design space: {unknown} (it has {known})"
-        )

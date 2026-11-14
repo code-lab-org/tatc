@@ -210,6 +210,57 @@ class TestShares(unittest.TestCase):
             [text.get_text() for text in ax.get_legend().get_texts()], ["one", "two"]
         )
 
+    def test_missing_groups(self):
+        """Designs without a value of `by` are drawn in gray, named others."""
+        from tatc.tradespace import GRAY  # pylint: disable=import-outside-toplevel
+        from matplotlib.colors import (  # pylint: disable=import-outside-toplevel
+            to_rgba,
+        )
+
+        frame = pd.DataFrame(
+            {
+                "x": [1.0, 2.0, 3.0, 4.0],
+                "y": [1.0, 2.0, 3.0, 4.0],
+                "inclination": [50.0, 60.0, np.nan, np.nan],
+                "pareto": [False, False, True, True],
+            }
+        )
+        ax = plot_designs(frame, "x", "y", by="inclination", front="pareto")
+        drawn = sum(len(c.get_offsets()) for c in ax.collections[:-1])
+        self.assertEqual(drawn, len(frame))
+        gray = ax.collections[-2]
+        self.assertEqual(len(gray.get_offsets()), 2)
+        np.testing.assert_allclose(gray.get_facecolor()[0][:3], to_rgba(GRAY)[:3])
+        labels = [text.get_text() for text in ax.get_legend().get_texts()]
+        self.assertEqual(labels, ["50.0", "60.0", "other", "Pareto-efficient"])
+        named = plot_designs(frame, "x", "y", by="inclination", others="sso")
+        labels = [text.get_text() for text in named.get_legend().get_texts()]
+        self.assertEqual(labels[-1], "sso")
+        # with highlights, the designs in gray share their name
+        both = plot_designs(
+            frame,
+            "x",
+            "y",
+            by="inclination",
+            highlight=[True, False, True, False],
+            others="the rest",
+        )
+        labels = [text.get_text() for text in both.get_legend().get_texts()]
+        self.assertEqual(labels, ["the rest", "50.0", "60.0"])
+        # means of records without a value of `by`, in gray
+        results = pd.DataFrame(
+            {
+                "satellites": [1, 2, 1, 2],
+                "sensor": ["a", "a", None, None],
+                "resolved": [1.0, 2.0, 3.0, 4.0],
+            }
+        )
+        ax = plot_means(results, "satellites", "resolved", by="sensor")
+        self.assertEqual(len(ax.lines), 2)
+        self.assertEqual(to_rgba(ax.lines[1].get_color()), to_rgba(GRAY))
+        labels = [text.get_text() for text in ax.get_legend().get_texts()]
+        self.assertEqual(labels, ["a", "other"])
+
     def test_style(self):
         """The style of plots applies to the figures of the session."""
         import matplotlib as mpl  # pylint: disable=import-outside-toplevel

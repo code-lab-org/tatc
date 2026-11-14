@@ -10,7 +10,6 @@ decisions of the rules of its stages, into the history of the mission (see
 
 from __future__ import annotations
 
-import bisect
 import heapq
 import itertools
 import math
@@ -21,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .events import Launch, Production
+from .events import Launch, _Manifest
 from .failures import FailureModel, RestorationPolicy
 from .mission import Decision, Failure, MissionHistory, Restoration
 
@@ -122,16 +121,15 @@ class _Simulation:
     def __init__(
         self,
         deployment: Deployment,
-        failures: FailureModel,
+        model: FailureModel,
         policy: RestorationPolicy,
         seed: int | Sequence[int] | None,
         uniforms: Callable[[tuple, int], np.ndarray] | None = None,
         stress: float = 1.0,
         launch_stress: float = 1.0,
     ):
-        self.deployment, self.failures, self.policy = deployment, failures, policy
+        self.deployment, self.model, self.policy = deployment, model, policy
         self.draws = _Draws(seed, uniforms, stress, launch_stress)
-        self.schedule = deployment.schedule
         self.end = deployment.end
         self.history = MissionHistory(
             deployment, production=list(deployment.production)
@@ -146,7 +144,9 @@ class _Simulation:
         self.spares = dict.fromkeys(range(len(deployment.planes)), 0)
         self.spares_since: dict[int, float] = {}
         self.ground: dict[Any, int] = {}
-        self.line = {
+        # the production lines (free after the deployment's production) and
+        # the launches booked, shared with the plan's routine
+        lines = {
             kind: max(
                 (
                     b.end
@@ -157,7 +157,15 @@ class _Simulation:
             )
             for kind, developed in deployment.development.items()
         }
-        self.booked = sorted(launch.time for launch in deployment.launches)
+        self.manifest = _Manifest(
+            deployment.schedule,
+            deployment.planes,
+            deployment.masses,
+            deployment.plane_values,
+            lines,
+            sorted(launch.time for launch in deployment.launches),
+            self.history.production,
+        )
         self.open: dict[int, list[_Booking]] = {}
         self.launches_of_plane: dict[int, int] = {}
         self.decided: dict[int, float] = {}
@@ -167,17 +175,17 @@ class _Simulation:
     def _life(
         self, plane: int, position: int, generation: int, start: float = 0.0
     ) -> float:
-        life = self.failures.life_of(self.deployment.planes[plane].kind)
+        life = self.model.life_of(self.deployment.planes[plane].kind)
         key = (0, plane, position, generation)
         return self.draws.life(life, key, self.end - start)
 
     def _launch_fails(self, *key: int) -> bool:
-        return self.draws.launch_fails(self.failures.launch, (1, *key))
+        return self.draws.launch_fails(self.model.launch, (1, *key))
 
     # --- events
 
-    def _push(self, time: float, kind: str, *payload: Any) -> None:
-        heapq.heappush(self.events, (time, next(self.counter), kind, payload))
+    def _push(self, time: float, event: str, *payload: Any) -> None:
+        heapq.heappush(self.events, (time, next(self.counter), event, payload))
 
     def run(self) -> MissionHistory:
         """Runs the simulation, returning the history of the mission."""
@@ -185,7 +193,7 @@ class _Simulation:
         for kind in self.deployment.development:
             count = self.policy.ground_spares_of(kind)
             if count > 0:
-                ready = self._produce(self.line[kind], kind, count, "spare")
+                ready = self._produce(0.0, kind, count, "spare")
                 self.ground.setdefault(kind, 0)
                 self._push(ready, "stock", kind, count)
         for launch in self.deployment.launches:
@@ -195,13 +203,13 @@ class _Simulation:
                 self._push(self.deployment.begin + time, "decide", index)
         steps = 0
         while self.events:
-            time, _, kind, payload = heapq.heappop(self.events)
+            time, _, event, payload = heapq.heappop(self.events)
             if time >= self.end:
                 break
             steps += 1
             if steps > 1_000_000:
                 raise RuntimeError("the simulation does not progress")
-            getattr(self, f"_on_{kind}")(time, *payload)
+            getattr(self, f"_on_{event}")(time, *payload)
         for (plane, position), slot in self.slots.items():
             if slot.up is not None:
                 self._close(plane, position, self.end)
@@ -239,17 +247,11 @@ class _Simulation:
                 if slot.up is not None:
                     self._close(launch.plane, position, time)
                 self._up(time, launch.plane, position)
+        # the spares in orbit of a deployment (planned replacements carry
+        # none: spares in orbit do not age)
         spares = sum(position >= built for position in positions)
         if spares and not failed:
-            level = self.deployment.planes[launch.plane].spares
-            if launch.purpose == "deployment":
-                self._park(time, launch.plane, spares)
-            else:
-                self._park(
-                    time,
-                    launch.plane,
-                    max(0, min(spares, level - self.spares[launch.plane])),
-                )
+            self._park(time, launch.plane, spares)
 
     def _on_decide(self, time: float, index: int) -> None:
         if index in self.decided:
@@ -406,32 +408,20 @@ class _Simulation:
 
     def _deploy(self, time: float, stage: Any) -> None:
         """
-        Deploys the planes of a stage: produced after its lead time (on their
+        Deploys the planes of a stage, as a plan deploys the others (see
+        `DeploymentSchedule.plan`): produced after its lead time (on their
         type's line), launched at the next launch slots, and replaced at the
         end of their design life.
         """
+        launches = []
         for plane in stage.planes:
             kind, size, spares = self.deployment.planes[plane]
-            count = size + spares
-            if count == 0:
+            if size + spares == 0:
                 continue
-            ready = self._produce(time + stage.lead_years, kind, count)
-            position = 0
-            for carried in self.schedule.split(
-                count, self.deployment.masses.get(kind), self._plane(plane)
-            ):
-                at = self._slot(ready)
-                bisect.insort(self.booked, at)
-                launch = Launch(at, plane, kind, position, carried)
-                self._push(at, "planned", launch)
-                for production, replacement in self.schedule.replacements(
-                    launch, self.end
-                ):
-                    self.history.production.append(production)
-                    if replacement is not None:
-                        bisect.insort(self.booked, replacement.time)
-                        self._push(replacement.time, "planned", replacement)
-                position += carried
+            ready = self._produce(time + stage.lead_years, kind, size + spares)
+            launches.extend(self.manifest.launch(plane, ready))
+        for launch in launches + self.manifest.replace(launches, self.end):
+            self._push(launch.time, "planned", launch)
 
     def _produce(
         self, earliest: float, kind: Any, count: int, purpose: str = "deployment"
@@ -440,24 +430,11 @@ class _Simulation:
         Produces satellites on their type's line, from a time (after the work
         before them), returning when they are ready.
         """
-        begin = max(self.line[kind], earliest)
-        ready = begin + self.schedule.production_years(kind, count)
-        self.line[kind] = ready
-        self.history.production.append(Production(kind, begin, ready, count, purpose))
-        return ready
-
-    def _slot(self, ready: float) -> float:
-        """The earliest launch at or after a time (see `next_slot`)."""
-        return self.schedule.next_slot(self.booked, ready)
-
-    def _plane(self, plane: int) -> tuple[int, Any]:
-        """The index and values of a plane (see `DeploymentSchedule`)."""
-        values = self.deployment.plane_values
-        return plane, values[plane] if plane < len(values) else None
+        return self.manifest.produce(earliest, kind, count, purpose)
 
     def _capacity(self, plane: int, kind: Any) -> float:
-        return self.schedule.per_launch(
-            self.deployment.masses.get(kind), self._plane(plane)
+        return self.deployment.schedule.per_launch(
+            self.deployment.masses.get(kind), self.manifest.plane(plane)
         )
 
     def _book(self, plane: int, kind: Any, ready: float, item: tuple) -> None:
@@ -468,10 +445,9 @@ class _Simulation:
             ):
                 booking.items.append(item)
                 return
-        time = self._slot(ready + self.policy.batch_years)
+        time = self.manifest.slot(ready + self.policy.batch_years)
         order = self.launches_of_plane.get(plane, 0)
         self.launches_of_plane[plane] = order + 1
         booking = _Booking(time, plane, kind, [item], order)
         self.open.setdefault(plane, []).append(booking)
-        bisect.insort(self.booked, time)
         self._push(time, "booking", booking)

@@ -15,9 +15,9 @@ import numpy as np
 import pandas as pd
 
 from .criteria import Criteria, _as_criteria, _get_tolerances
-from .pareto import pareto_probability
 from .space import Design, _designs
 from .study import Study
+from .summary import pareto_probability
 
 
 @dataclass
@@ -25,11 +25,17 @@ class Refinement:
     """
     The outcome of an adaptive replication (see `refine`): as the outcomes of
     other steps of a trade study (see `Confirmation`, `Screening`, and
-    `Search`), its `results`, the `summary` of its designs, and the `designs`
-    themselves, for the next step::
+    `Search`), its `results`, the `summary` of its designs, the `designs` it
+    selects for the next step, and its `criteria`::
 
         refinement = refine(study, criteria, results)
-        confirmation = confirm(study, criteria, refinement.results)
+        confirmation = confirm(study, criteria, refinement.results, refinement.designs)
+
+    The designs a refinement selects are those efficient by the criteria over
+    every replicate after its last round (`pareto` of its `summary`), which a
+    confirmation checks with new replicates (see `confirm`, which selects
+    them by default): designs whose efficiency is still uncertain may be
+    efficient by more replicates too (see `uncertain`).
     """
 
     results: pd.DataFrame
@@ -42,13 +48,27 @@ class Refinement:
     efficiency is `uncertain` (by the bounds of `refine`, or with fewer than
     its least replicates) and, if so, whether it is `indifferent` (its
     objectives are known to within the precision of their tolerances)."""
+    criteria: Criteria
+    """Criteria: The criteria of the refinement."""
     history: pd.DataFrame = field(default_factory=pd.DataFrame)
     """pandas.DataFrame: For each round (`round`, from 0), the number of
     designs whose efficiency is uncertain (`uncertain`), of these, those that
     are indifferent (`indifferent`), the number to which replicates were
     added (`refined`), and the evaluations added (`evaluations`)."""
     designs: list[Design] = field(default_factory=list)
-    """list[Design]: The designs that could be refined."""
+    """list[Design]: The designs efficient after the last round (`pareto` of
+    `summary`, in any group of the criteria's `by`), for the next step."""
+    candidates: list[Design] = field(default_factory=list)
+    """list[Design]: The designs that could be refined (those given to
+    `refine`)."""
+
+    @property
+    def evaluations(self) -> int:
+        """int: The number of evaluations added (a design in a replicate, in
+        each scenario of a study with scenarios), over every round."""
+        if "evaluations" not in self.history:
+            return 0
+        return int(self.history["evaluations"].sum())
 
     @property
     def uncertain(self) -> pd.DataFrame:
@@ -78,9 +98,9 @@ def _precise(
     not precise.
     """
     precise = np.zeros(len(probability), dtype=bool)
-    if precision is None or not criteria.tolerance:
+    if precision is None or not criteria.tolerances:
         return precise
-    tolerances = _get_tolerances(criteria.objectives, criteria.tolerance)
+    tolerances = _get_tolerances(criteria.objectives, criteria.tolerances)
     precise[:] = True
     for i, name in enumerate(criteria.objectives):
         error = probability[f"{name} se"].to_numpy(dtype=float)
@@ -147,6 +167,17 @@ def refine(
     lack a tolerance is never indifferent. A warning is given if designs
     remain uncertain (but not indifferent) without a tolerance.
 
+    Designs are judged by their feasible replicates (see `aggregate`): a
+    design has fewer than `min_replicates` if fewer of its replicates are
+    feasible, and `max_replicates` limits all of its replicates. Designs
+    without a feasible replicate are not refined (and a refinement of results
+    without a feasible record adds none).
+
+    The refinement selects the designs efficient after its last round for
+    the next step (`Refinement.designs`, such as of `confirm`), and keeps
+    those that could be refined (`Refinement.candidates`) and the number of
+    evaluations it added (`Refinement.evaluations`).
+
     Args:
         study (Study): The study that evaluates designs.
         criteria (Criteria | Mapping[str, str]): The criteria, or the
@@ -157,17 +188,17 @@ def refine(
             `Study.run`), such as those of an enumeration or a search.
         designs (Sequence[Design | str] | pandas.DataFrame | None): The
             designs that may be refined (designs, their keys, or a data
-            frame of them, such as rows of a summary), or `None` for every
-            design of the results (rebuilt from them, see
-            `DesignSpace.designs_of`).
+            frame of them, such as rows of a summary, or the `designs` of
+            another step), or `None` for every design of the results
+            (rebuilt from them, see `DesignSpace.designs_of`).
         bounds (tuple[float, float]): The probabilities between which a
             design is uncertain.
         step (int | None): The replicates added to an uncertain design in a
             round, or `None` for the study's number of replicates.
         max_replicates (int | None): The most replicates of a design, if
             limited.
-        min_replicates (int): The fewest replicates with which a design's
-            efficiency can be settled.
+        min_replicates (int): The fewest feasible replicates with which a
+            design's efficiency can be settled.
         max_rounds (int): The most rounds.
         precision (float | None): The standard error of an objective, as a
             share of its tolerance, below which an uncertain design is
@@ -180,8 +211,8 @@ def refine(
         seed (int): The seed of the bootstraps.
 
     Returns:
-        Refinement: the results, the final probabilities, the history, and
-            the designs
+        Refinement: the results, the final probabilities, the history, the
+            efficient designs, and the candidates
     """
     criteria = _as_criteria(criteria)
     low, high = bounds
@@ -250,18 +281,22 @@ def refine(
     remaining = probability.loc[
         probability["uncertain"] & ~probability["indifferent"], "design"
     ].nunique()
-    if remaining > 0 and not criteria.tolerance:
+    if remaining > 0 and not criteria.tolerances:
         warnings.warn(
             f"{remaining} designs remain uncertain: designs that differ by less "
             + "than replicates separate stay uncertain without a tolerance of "
             + "the objectives (see Criteria)",
             stacklevel=2,
         )
+    efficient = probability.loc[probability["pareto"].astype(bool), "design"]
+    selected = [by_key.get(key, key) for key in pd.unique(efficient)]
     return Refinement(
         results=combined,
         summary=probability,
+        criteria=criteria,
         history=pd.DataFrame(history),
-        designs=refined,
+        designs=_designs(study.space, selected, combined),
+        candidates=refined,
     )
 
 

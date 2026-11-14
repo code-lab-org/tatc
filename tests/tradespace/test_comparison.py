@@ -75,8 +75,11 @@ class TestExceedance(unittest.TestCase):
         hot = _results({"a": [1.0, 2.0], "b": [3.0, 4.0]}, scenario="hot")
         cold = _results({"a": [5.0, 6.0], "b": [3.0, 4.0]}, scenario="cold")
         results = pd.concat([hot, cold], ignore_index=True)
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "as `by`") as context:
             exceedance(results, "cost")
+        # exceedance has its own `by`, and no criteria to combine groups across
+        self.assertNotIn("across", str(context.exception))
+        self.assertNotIn("criteria", str(context.exception))
         compared = exceedance(results, "cost", by="scenario").set_index(
             ["scenario", "design", "other"]
         )

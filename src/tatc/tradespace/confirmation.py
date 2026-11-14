@@ -13,19 +13,22 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria, _as_criteria, aggregate
+from .criteria import Criteria, _as_criteria
 from .space import Design, _designs
 from .study import Study
+from .summary import _FEASIBLE, _JUDGMENT, aggregate
 
 
 @dataclass
 class Confirmation:
     """
-    The outcome of a confirmation (see `confirm`): its `results`, the
-    `summary` of its designs, and the `designs` themselves, as the outcomes of
-    other steps of a trade study (see `Refinement`). Its results are only
-    those of the new replicates, which judge the designs without the
-    optimism of their selection.
+    The outcome of a confirmation (see `confirm`): as the outcomes of other
+    steps of a trade study (see `Refinement`), its `results`, the `summary`
+    of its designs, the `designs` it selects for a next step (those it
+    confirmed), and its `criteria`. Its results are only those of the new
+    replicates, which judge the designs without the optimism of their
+    selection: the designs still efficient by them are those of
+    `summary.pareto`.
     """
 
     results: pd.DataFrame
@@ -38,13 +41,15 @@ class Confirmation:
     optimism of the selection in each objective (`<objective> optimism`: by
     how much the selecting replicates made the design look better than the
     new replicates do, in its units, positive if they did), the number of
-    new `replicates`, the `violation` of the requirements, and whether the
-    design meets them (`meets_requirements`) and is efficient among the
-    confirmed designs that do (`pareto`), by the new replicates."""
+    new feasible `replicates`, the share of the new replicates that are
+    `feasible`, the `violation` of the requirements, and whether the design
+    meets them (`meets_requirements`) and is efficient among the confirmed
+    designs that do (`pareto`), by the new replicates."""
     criteria: Criteria
     """Criteria: The criteria of the confirmation."""
     designs: list[Design] = field(default_factory=list)
-    """list[Design]: The confirmed designs."""
+    """list[Design]: The confirmed designs (every design evaluated with new
+    replicates)."""
 
     @property
     def optimism(self) -> pd.Series:
@@ -71,7 +76,9 @@ def confirm(
 ) -> Confirmation:
     """
     Confirms selected designs (by default, the Pareto front of the results,
-    or the best designs of an optimizer) with new replicates.
+    or the designs that another step selects, such as the efficient designs
+    of a refinement or a search, see `Refinement.designs`) with new
+    replicates.
 
     Designs selected for their outcomes in some replicates are selected in
     part for the luck of those replicates: among many designs, the best
@@ -94,7 +101,8 @@ def confirm(
             or search.
         designs (Sequence[Design | str] | pandas.DataFrame | None): The
             selected designs (designs, their keys, or a data frame of them,
-            such as rows of a summary), or `None` for those efficient by
+            such as rows of a summary, or the `designs` of another step),
+            or `None` for those efficient by
             the criteria over every replicate of the results (see
             `aggregate` and `pareto_front`).
         replicates (int | None): The number of new replicates, or `None` for
@@ -115,7 +123,7 @@ def confirm(
     keys = {design.key for design in designs}
     start = int(results["replicate"].max()) + 1 if len(results) > 0 else 0
     fresh = study.run(designs, replicate_indices=range(start, start + count))
-    names = criteria.names
+    names = [name for name in criteria.names if name != _FEASIBLE]
     columns = ["design", *criteria.by]
     confirmed = aggregate(fresh, criteria)
     selected = aggregate(
@@ -131,7 +139,7 @@ def confirm(
         summary[f"{name} optimism"] = sign * (
             summary[f"{name} selected"] - summary[name]
         )
-    status = ["replicates", "violation", "meets_requirements", "pareto"]
+    status = ["replicates", _FEASIBLE, *_JUDGMENT]
     values = [c for c in confirmed.columns if c not in {*columns, *names, *status}]
     summary = summary[
         [

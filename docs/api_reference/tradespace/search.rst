@@ -12,7 +12,7 @@ Adaptive Replication
 .. autofunction:: tatc.tradespace.refine
 
 .. autoclass:: tatc.tradespace.refinement.Refinement
-   :members: results, summary, history, designs, uncertain, indifferent
+   :members: results, summary, history, designs, candidates, criteria, evaluations, uncertain, indifferent
 
 Confirmation
 ============
@@ -28,7 +28,7 @@ Screening
 .. autofunction:: tatc.tradespace.screen
 
 .. autoclass:: tatc.tradespace.screening.Screening
-   :members: results, summary, summaries, designs
+   :members: results, summary, summaries, history, designs, criteria
 
 Attribution of Variance
 =======================
@@ -52,7 +52,7 @@ Optimizers
 .. autofunction:: tatc.tradespace.optimize_pymoo
 
 .. autoclass:: tatc.tradespace.optimization.Search
-   :members: results, summary, designs, state
+   :members: results, summary, designs, evaluated, criteria, state
 
 .. autofunction:: tatc.tradespace.optimization.make_pymoo_problem
 

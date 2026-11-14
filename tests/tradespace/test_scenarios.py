@@ -160,9 +160,8 @@ class TestStudyScenarios(unittest.TestCase):
             with self.subTest(scenarios=scenarios):
                 with self.assertRaises(TypeError):
                     self._study(scenarios)
-        named = DesignSpace(x=Integer(1, 2), scenario=Fixed("a"))
-        with self.assertRaises(ValueError):
-            Study(named, lambda d: d, _evaluate, scenarios={"a": {}})
+        with self.assertRaisesRegex(ValueError, "reserved"):
+            DesignSpace(x=Integer(1, 2), scenario=Fixed("a"))
 
 
 def _results(rows):
@@ -241,7 +240,7 @@ class TestRobustness(unittest.TestCase):
     def test_tolerance(self):
         """With tolerances, designs near the front are efficient, and regret
         is in tolerances by default."""
-        criteria = Criteria(OBJECTIVES, tolerance={"cost": 2})
+        criteria = Criteria(OBJECTIVES, tolerances={"cost": 2})
         r = self._robustness(criteria=criteria)
         np.testing.assert_allclose(r["pareto_trace"], [0.5, 1.0, 1.0])
         # A in s2: 3 short of B and C in perf
@@ -273,6 +272,55 @@ class TestRobustness(unittest.TestCase):
         self.assertEqual(len(r), 3)
         with self.assertRaises(ValueError):
             robustness(RESULTS, Criteria(OBJECTIVES, across=Across()))
+
+    def test_missing_objective(self):
+        """A design whose objective is missing in a scenario is not efficient
+        there, and its regret is infinite."""
+        missing = RESULTS.copy()
+        missing.loc[(missing.design == "C") & (missing.scenario == "s2"), "perf"] = (
+            math.nan
+        )
+        r = self._robustness(results=missing)
+        self.assertEqual(r.loc["C", "s2 regret"], math.inf)
+        self.assertEqual(r.loc["C", "max_regret"], math.inf)
+        self.assertEqual(r.loc["C", "pareto_trace"], 0.0)
+        self.assertFalse(r[["max_regret", "s1 regret", "s2 regret"]].isna().any().any())
+
+    def test_design_values(self):
+        """Only objectives that are values of designs are given once; others
+        are given in each scenario, even if equal in every scenario."""
+        rows = []
+        for replicate, noise in enumerate((-1.0, 1.0)):
+            for design, (perf, cost) in {"A": (10, 5), "B": (8, 3)}.items():
+                for scenario in ("s1", "s2"):
+                    rows.append(
+                        {
+                            "design": design,
+                            "replicate": replicate,
+                            "scenario": scenario,
+                            "feasible": True,
+                            "perf": perf + noise,
+                            "cost": cost,
+                        }
+                    )
+        r = self._robustness(results=pd.DataFrame(rows))
+        self.assertEqual(list(r.columns[:3]), ["s1 perf", "s2 perf", "cost"])
+        np.testing.assert_allclose(r["s1 perf"], r["s2 perf"])
+        # columns given as the values of designs
+        r = self._robustness(results=pd.DataFrame(rows), design_columns=[])
+        self.assertEqual(
+            list(r.columns[:4]), ["s1 perf", "s2 perf", "s1 cost", "s2 cost"]
+        )
+
+    def test_scenario_column(self):
+        """The scenarios are the column of the criteria's `by`."""
+        renamed = RESULTS.rename(columns={"scenario": "field"})
+        r = robustness(renamed, Criteria(OBJECTIVES, by="field")).set_index("design")
+        pd.testing.assert_frame_equal(r, self._robustness())
+        with self.assertRaises(ValueError):
+            robustness(renamed, OBJECTIVES)
+        with self.assertRaises(ValueError):
+            robustness(RESULTS, Criteria(OBJECTIVES, by=["scenario", "design"]))
 
     def test_study(self):
         """The robustness of the designs of a study in scenarios."""

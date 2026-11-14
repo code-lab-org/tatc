@@ -13,7 +13,7 @@ import json
 from typing import Any
 
 
-def _plain(value: Any) -> Any:
+def _json_default(value: Any) -> Any:
     """
     Gets a value that JSON holds of one it does not: a numpy scalar as
     Python's, or another value as its string.
@@ -30,7 +30,7 @@ def _canonical(value: Any) -> str:
     mappings sorted (numpy scalars as Python's, and other values as their
     strings).
     """
-    return json.dumps(value, sort_keys=True, default=_plain)
+    return json.dumps(value, sort_keys=True, default=_json_default)
 
 
 def _digest(data: str | bytes, length: int | None = None) -> str:

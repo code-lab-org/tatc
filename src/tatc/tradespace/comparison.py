@@ -23,8 +23,8 @@ from collections.abc import Iterable, Sequence
 import numpy as np
 import pandas as pd
 
-from .criteria import _get_matrices, _groups
 from .space import Design, _keys_of
+from .summary import _get_matrices, _groups
 
 
 def exceedance(
@@ -98,7 +98,9 @@ def exceedance(
             continue
         if "feasible" in group:
             group = group[group["feasible"].astype(bool)]
-        _, _, matrices = _get_matrices(group, [metric], index)
+        _, _, matrices = _get_matrices(
+            group, [metric], index, hint="give the columns that separate them as `by`"
+        )
         values = matrices[metric]
         valid = ~np.isnan(values)
         if keys is None:

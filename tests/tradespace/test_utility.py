@@ -19,9 +19,12 @@ from tatc.tradespace import (
     Probability,
     Quantile,
     Requirement,
+    StandardDeviation,
+    StandardError,
     Utility,
     aggregate,
     pareto_front,
+    summarize,
 )
 
 
@@ -186,6 +189,25 @@ class TestStatistics(unittest.TestCase):
         self.assertEqual(summary.loc["y", "reliable"], 1.0)
         self.assertEqual(Mean(self.utility), Mean(self.utility))
         self.assertEqual(len({Mean(self.utility), Mean(self.utility)}), 1)
+
+    def test_summarize(self):
+        """Summaries give the spread of the mean of a utility, as of a column."""
+        criteria = Criteria(
+            {"utility": "max", "cost": "min"}, statistics=[Mean(self.utility)]
+        )
+        summary = summarize(_results(), criteria).set_index("design")
+        for column in ("utility std", "utility se", "cost std", "cost se"):
+            self.assertIn(column, summary.columns)
+        spread = aggregate(
+            _results(),
+            criteria,
+            statistics={
+                "utility std": StandardDeviation(self.utility),
+                "utility se": StandardError(self.utility),
+            },
+        ).set_index("design")
+        pd.testing.assert_series_equal(summary["utility se"], spread["utility se"])
+        self.assertEqual(summary.loc["y", "utility std"], 0.0)
 
     def test_utility_against_cost(self):
         """Designs trade the utility of their metrics against cost."""

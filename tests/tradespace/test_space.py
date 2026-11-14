@@ -215,7 +215,8 @@ class TestRealize(unittest.TestCase):
         other = designs[0].realize(3, seed=7).planes[0].phase
         self.assertNotIn(other, phases)
         independent = {
-            d.realize(2, seed=7, common=False).planes[0].phase for d in designs
+            d.realize(2, seed=7, common_random_numbers=False).planes[0].phase
+            for d in designs
         }
         self.assertEqual(len(independent), len(designs))
 
@@ -248,17 +249,17 @@ class TestRealize(unittest.TestCase):
         design = space.enumerate()[0]
         plain = design.realize(3, seed=5)
         scenario = {"level": 3.0, "u": 0.25, "parts[*].k": 7}
-        changed = design.realize(3, seed=5, scenario=scenario)
+        changed = design.realize(3, seed=5, overrides=scenario)
         self.assertEqual((changed.level, changed.double, changed.u), (3.0, 6.0, 0.25))
         self.assertEqual([part.k for part in changed.parts], [7, 7])
         # other parameters are drawn as without the scenario
         self.assertEqual(changed.v, plain.v)
         self.assertEqual((plain.level, plain.double), (1.0, 2.0))
-        self.assertEqual(design.realize(3, seed=5, scenario={}).flat(), plain.flat())
+        self.assertEqual(design.realize(3, seed=5, overrides={}).flat(), plain.flat())
         for values in ({"a": 2}, {"double": 1.0}, {"w": 1}):
             with self.subTest(values=values):
                 with self.assertRaises(ValueError):
-                    design.realize(3, scenario=values)
+                    design.realize(3, overrides=values)
 
     def test_uncertain_paths(self):
         """Uncertain parameters are listed by path, with [*] for items."""
@@ -294,8 +295,10 @@ class TestRealize(unittest.TestCase):
         self.assertEqual(
             design.realize(3, shift={"u": 0}).flat(), design.realize(3).flat()
         )
-        independent = design.realize(3, common=False, shift={"u": 10})
-        self.assertEqual(independent.u, design.realize(13, common=False).u)
+        independent = design.realize(3, common_random_numbers=False, shift={"u": 10})
+        self.assertEqual(
+            independent.u, design.realize(13, common_random_numbers=False).u
+        )
         with self.assertRaises(ValueError):
             design.realize(3, shift={"w": 1})
         with self.assertRaises(ValueError):
@@ -312,7 +315,7 @@ class TestEnumeration(unittest.TestCase):
     def _every_walk(space):
         """Enumerates by walking every order of the items."""
         # pylint: disable=import-outside-toplevel,protected-access
-        from tatc.tradespace.space import _Context, _Odometer
+        from tatc.tradespace.walks import _Context, _Odometer
 
         odometer = _Odometer()
         ctx = _Context(choose=odometer.choose)
@@ -511,10 +514,14 @@ class TestReservedNames(unittest.TestCase):
     """
 
     def test_reserved(self):
-        """Children and branches may not be named as attributes of views."""
+        """Children and branches may not be named as attributes of views, or
+        as the status columns of the results of studies."""
         for name in ("values", "items", "keys", "get", "key", "flat", "space"):
             with self.assertRaisesRegex(ValueError, "reserved"):
                 DesignSpace(**{name: 1})
+        for name in ("design", "feasible", "error", "seconds", "scenario"):
+            with self.assertRaisesRegex(ValueError, "reserved"):
+                DesignSpace(**{name: Integer(1, 2)})
         for name in ("choice", "value"):
             with self.assertRaisesRegex(ValueError, "reserved"):
                 Choice(**{name: DesignSpace()})
@@ -645,3 +652,222 @@ class TestDecisionsAndViews(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "items are given"):
             space.design({"n": 1, "parts": [0, 1]})
+
+
+class TestBranchNames(unittest.TestCase):
+    """
+    Unit tests for choices given the names of their branches.
+    """
+
+    def test_override(self):
+        """A choice given its branch's name keeps the decisions given of it, or
+        decides it at its first levels."""
+        space = _layouts_space()
+        walker = space.design({"altitude": 600e3, "layout": ["walker", {"planes": 2}]})
+        sso = space.design(walker, layout="sso")
+        self.assertEqual(sso.layout, "sso")
+        self.assertEqual(sso.altitude, 600e3)
+        self.assertEqual(
+            sso.decisions["layout"], ["sso", {"planes": [{"crossing": 6.0}]}]
+        )
+        again = space.design(walker, layout="walker")
+        self.assertEqual(again.key, walker.key)
+        # in the decisions too
+        first = space.design({"altitude": 500e3, "layout": "walker"})
+        self.assertEqual(first.layout.planes, 1)
+        with self.assertRaisesRegex(ValueError, "not a level of layout"):
+            space.design(walker, layout="other")
+
+
+class TestUnorderedLevels(unittest.TestCase):
+    """
+    Unit tests for the order of the items of unordered repetitions.
+    """
+
+    def test_level_order(self):
+        """Unordered items are in the order of the levels of their decisions
+        (not of their text, as 10.5 precedes 9.0)."""
+        space = DesignSpace(
+            parts=Repeat(
+                DesignSpace(size=Real(9.0, 10.5, step=1.5), kind=Categorical("ba")),
+                count=2,
+                ordered=False,
+            )
+        )
+        design = space.design(
+            {"parts": [{"size": 10.5, "kind": "b"}, {"size": 9.0, "kind": "a"}]}
+        )
+        self.assertEqual(
+            design.decisions["parts"],
+            [{"size": 9.0, "kind": "a"}, {"size": 10.5, "kind": "b"}],
+        )
+        # by the first decision that differs, in the order of declaration
+        tied = space.design(
+            {"parts": [{"size": 9.0, "kind": "a"}, {"size": 9.0, "kind": "b"}]}
+        )
+        self.assertEqual([p.kind for p in tied.parts], ["b", "a"])
+        # enumerations and samples give the same order
+        keys = {d.key for d in space.enumerate()}
+        self.assertIn(design.key, keys)
+        self.assertLessEqual({d.key for d in space.sample(20, seed=1)}, keys)
+
+
+class TestScenarioOverrides(unittest.TestCase):
+    """
+    Unit tests for the overrides of scenarios, which are checked against the
+    constraints of design spaces.
+    """
+
+    def setUp(self):
+        self.space = DesignSpace(
+            n=Integer(1, 4),
+            limit=Fixed(4),
+            u=Uncertain.uniform(0, 1),
+            constraints=[lambda d: d.n - d.limit],
+        )
+
+    def test_constraints(self):
+        """A design that violates a constraint with the overrides is infeasible."""
+        design = self.space.design({"n": 3})
+        self.assertEqual(design.realize(0, overrides={"limit": 3}).limit, 3)
+        with self.assertRaisesRegex(Infeasible, "constraint 0"):
+            design.realize(0, overrides={"limit": 2})
+
+    def test_nan(self):
+        """A constraint that is NaN is not satisfied."""
+        space = DesignSpace(
+            n=Integer(1, 4),
+            u=Uncertain.uniform(0, 1),
+            constraints=[lambda d: d.n - 10 * d.u],
+        )
+        self.assertEqual(space.size(), 0)
+        with self.assertRaisesRegex(Infeasible, "NaN") as context:
+            space.design({"n": 1})
+        self.assertEqual(context.exception.violation, 1)
+
+    def test_scenario_name(self):
+        """A realized design gives the name of its scenario."""
+        design = self.space.design({"n": 1})
+        self.assertIsNone(design.scenario)
+        self.assertIsNone(design.realize(0).scenario)
+        named = design.realize(0, overrides={"u": 0.5}, scenario="half")
+        self.assertEqual((named.scenario, named.u), ("half", 0.5))
+        self.assertIn("scenario='half'", repr(named))
+
+    def test_checks(self):
+        """Paths of shifts and overrides are checked by the design space."""
+        space = _planes_space()
+        space.check_uncertain(["planes[*].phase"])
+        space.check_overrides({"planes[*].phase": 1.0})
+        self.space.check_overrides({"limit": 1, "u": 0.5})
+        for paths in (["planes[0].phase"], ["per_plane"], ["planes[*]"], [1]):
+            with self.subTest(paths=paths):
+                with self.assertRaisesRegex(ValueError, "not uncertain"):
+                    space.check_uncertain(paths)
+        with self.assertRaisesRegex(ValueError, "not fixed values"):
+            self.space.check_overrides({"n": 2})
+
+    def test_seed(self):
+        """Seeds are non-negative integers."""
+        design = self.space.design({"n": 1})
+        for seed in (-1, 1.5, True):
+            with self.subTest(seed=seed):
+                with self.assertRaisesRegex(ValueError, "seed"):
+                    design.realize(0, seed=seed)
+
+
+class TestKeywords(unittest.TestCase):
+    """
+    Unit tests for options given by keyword only.
+    """
+
+    def test_keywords(self):
+        """The options of samples and realizations are keywords."""
+        space = _planes_space()
+        with self.assertRaises(TypeError):
+            space.sample(5, "random")  # pylint: disable=too-many-function-args
+        with self.assertRaises(TypeError):
+            space.enumerate()[0].realize(0, 1)  # pylint: disable=too-many-function-args
+
+
+class TestDesignsOfSpaces(unittest.TestCase):
+    """
+    Unit tests for designs given to the functions of trade studies.
+    """
+
+    def test_other_spaces(self):
+        """Designs of other design spaces are the designs of their decisions."""
+        # pylint: disable=import-outside-toplevel,protected-access
+        from tatc.tradespace.space import _designs
+
+        space = DesignSpace(n=Integer(1, 2), altitude=Fixed(500))
+        higher = space.extend(altitude=Fixed(700))
+        designs = _designs(higher, space.enumerate())
+        self.assertTrue(all(d.space is higher for d in designs))
+        self.assertEqual([d.altitude for d in designs], [700, 700])
+        same = higher.enumerate()
+        self.assertTrue(all(a is b for a, b in zip(_designs(higher, same), same)))
+
+    def test_frames(self):
+        """Designs rebuilt from frames read the frame's keys once, and a frame
+        that lacks their values gives the reason."""
+        # pylint: disable=import-outside-toplevel,protected-access
+        from tatc.tradespace.space import _designs
+
+        class Counted(pd.DataFrame):
+            """A data frame that counts the reads of its keys of designs."""
+
+            reads = 0
+
+            @property
+            def _constructor(self):
+                return Counted
+
+            def __getitem__(self, key):
+                if isinstance(key, str) and key == "design":
+                    Counted.reads += 1
+                return super().__getitem__(key)
+
+        space = DesignSpace(a=Integer(0, 99), b=Integer(0, 4))
+        designs = space.enumerate()
+        rows = pd.DataFrame(
+            [
+                {"design": d.key, "replicate": r, **d.flat()}
+                for d in designs
+                for r in (0, 1)
+            ]
+        )
+        keys = [d.key for d in designs]
+        rebuilt = _designs(space, keys, Counted(rows))
+        self.assertEqual([d.key for d in rebuilt], keys)
+        self.assertLess(Counted.reads, 10)
+        with self.assertRaisesRegex(ValueError, "not given") as context:
+            _designs(space, keys[:2], rows.drop(columns="b"))
+        self.assertIn("no value of b", str(context.exception.__cause__))
+
+
+class TestConfigure(unittest.TestCase):
+    """
+    Unit tests for dataclasses configured from the values of designs.
+    """
+
+    def test_design(self):
+        """A dataclass is configured from a design, or a view of its values."""
+        # pylint: disable=import-outside-toplevel
+        import dataclasses
+
+        from tatc.tradespace.values import configure
+
+        @dataclasses.dataclass(frozen=True)
+        class Policy:
+            """A policy of two fields."""
+
+            spares: int = 0
+            years: float = 1.0
+
+        design = DesignSpace(spares=Integer(1, 2), other=Integer(0, 1)).enumerate()[-1]
+        self.assertEqual(configure(Policy(), design), Policy(spares=2))
+        self.assertEqual(configure(Policy(), design.values), Policy(spares=2))
+        self.assertEqual(configure(Policy(), design, years=2.0).years, 2.0)
+        with self.assertRaisesRegex(TypeError, "values of a design"):
+            configure(Policy(), 3)

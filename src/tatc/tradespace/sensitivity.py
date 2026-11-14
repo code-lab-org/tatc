@@ -13,7 +13,15 @@ from collections.abc import Sequence
 import numpy as np
 import pandas as pd
 
-from .criteria import _check_summary, _names
+from .statistics import _names
+from .summary import _check_summary
+
+_ONE_ROW = (
+    "summarize the results of a study (a row per replicate) first, with a row "
+    + "per design (see aggregate), or select the rows of one group (such as those "
+    + "of a scenario)"
+)
+"""How to give designs a row each."""
 
 
 def _levels(values: pd.Series, max_levels: int) -> pd.Series:
@@ -48,7 +56,7 @@ def main_effects(
         pandas.DataFrame: a row per level: the `mean`, `std`, and `count` of
             the metric
     """
-    _check_summary(summary)
+    _check_summary(summary, hint=_ONE_ROW)
     active = summary.dropna(subset=[variable, metric])
     levels = _levels(active[variable], max_levels)
     return active.groupby(levels, sort=True)[metric].agg(["mean", "std", "count"])
@@ -104,7 +112,7 @@ def sensitivity(
             variance it explains, and the share of designs in which it is
             `active`, sorted by the share of the first metric
     """
-    _check_summary(summary)
+    _check_summary(summary, hint=_ONE_ROW)
     variables, metrics = _names(variables), _names(metrics)
     rows = []
     for variable in variables:

@@ -5,6 +5,7 @@ phases.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import dataclasses
 import math
 import unittest
 
@@ -90,9 +91,10 @@ class TestPlan(unittest.TestCase):
         self.assertGreater(larger.deployed, deployment.deployed)
 
     def test_launch_cadence(self):
-        """Launches are at least an interval apart, a plane taking several."""
+        """Launches are at least an interval apart, a plane taking several,
+        planned replacements too."""
         schedule = DeploymentSchedule(
-            years=6,
+            years=8,
             design_life=3,
             development_years=2,
             launch_interval=1,
@@ -105,11 +107,74 @@ class TestPlan(unittest.TestCase):
             [(l.plane, l.first, l.satellites) for l in first[:2]],
             [(0, 0, 2), (0, 2, 2)],
         )
-        # replacements 3 years later, before the end of the mission at year 8
-        replacements = [l.time for l in deployment.launches if l.generation > 0]
-        self.assertEqual(replacements, [5, 6, 7])
-        self.assertEqual(deployment.end, 8)
-        self.assertEqual(deployment.units, {None: 12 + 6})
+        # replacements needed 3 years later, from year 5, wait for the slots
+        # after the first generation: two before the end of the mission at 10
+        replacements = [
+            (l.time, l.plane, l.first) for l in deployment.launches if l.generation > 0
+        ]
+        self.assertEqual(replacements, [(8, 0, 0), (9, 0, 2)])
+        self.assertEqual(deployment.end, 10)
+        self.assertEqual(deployment.units, {None: 12 + 4})
+
+    def test_replacements_keep_the_interval(self):
+        """Planned replacements of several types keep the launch interval, from
+        the launches of the deployment and from each other, and are replaced a
+        design life after their launch."""
+        schedule = DeploymentSchedule(
+            years=8, launch_interval=0.5, design_life={"a": 3.0, "b": 2.5}
+        )
+        deployment = schedule.plan({"a": _walker(1, 2), "b": _walker(1, 2)})
+        launches = [(l.time, l.kind, l.purpose) for l in deployment.launches]
+        self.assertEqual(
+            launches,
+            [
+                (0.0, "a", "deployment"),
+                (0.5, "b", "deployment"),
+                (3.0, "a", "replacement"),
+                (3.5, "b", "replacement"),  # needed at 3.0, with a's
+                (6.0, "a", "replacement"),
+                (6.5, "b", "replacement"),  # needed at 3.5 + 2.5, with a's
+            ],
+        )
+        times = [time for time, _, _ in launches]
+        self.assertGreaterEqual(min(np.diff(times)), 0.5)
+        # produced just before they are needed
+        produced = [
+            (b.kind, b.end) for b in deployment.production if b.purpose == "replacement"
+        ]
+        self.assertEqual(
+            sorted(produced), [("a", 3.0), ("a", 6.0), ("b", 3.0), ("b", 6.0)]
+        )
+
+    def test_spares_are_not_replaced(self):
+        """Planned replacements replace the satellites of the layout, not the
+        spares in orbit, which do not age: a spare is launched once."""
+        schedule = DeploymentSchedule(years=6, design_life=2)
+        deployment = schedule.plan(_walker(1, 2), orbit_spares=1)
+        self.assertEqual(
+            [(l.time, l.satellites, l.purpose) for l in deployment.launches],
+            [(0, 3, "deployment"), (2, 2, "replacement"), (4, 2, "replacement")],
+        )
+        self.assertEqual(deployment.units, {None: 3 + 2 + 2})
+        self.assertEqual(schedule.plan(_walker(1, 2)).units, {None: 6})
+        # the spare waits in orbit for the whole mission
+        self.assertEqual(deployment.simulate().parked, [(0, 6, 1)])
+        # a launch of the spare alone is not replaced
+        single = dataclasses.replace(schedule, launch_capacity=1)
+        launches = single.plan(_walker(1, 2), orbit_spares=1).launches
+        self.assertEqual(
+            sorted((l.purpose, l.first) for l in launches),
+            [("deployment", 0), ("deployment", 1), ("deployment", 2)]
+            + [("replacement", 0)] * 2
+            + [("replacement", 1)] * 2,
+        )
+        with self.assertRaises(ValueError):
+            schedule.plan(_walker(1, 2), orbit_spares=-1)
+        # spares of each type
+        mixed = schedule.plan(
+            {"a": _walker(1, 2), "b": _walker(1, 2)}, orbit_spares={"a": 1, "b": 0}
+        )
+        self.assertEqual([p.orbit_spares for p in mixed.planes], [1, 0])
 
     def test_types_and_order(self):
         """Types are developed over their own durations, planes in an order."""

@@ -11,7 +11,6 @@ import inspect
 import math
 import os
 import time
-import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import Executor, as_completed
 from typing import Any, NamedTuple
@@ -19,17 +18,17 @@ from typing import Any, NamedTuple
 import pandas as pd
 from pydantic import ValidationError
 
-from .fingerprint import _fingerprint_of, _with_other_code, get_definition
+from .alerts import _warn
+from .fingerprint import (
+    _Describer,
+    _fingerprint_of,
+    _warn_other_code,
+    _with_other_code,
+    get_definition,
+)
 from .hashing import _canonical, _digest
 from .nodes import Infeasible
-from .space import (
-    Design,
-    DesignSpace,
-    _check_scenario,
-    _check_uncertain,
-    _describe_scenario,
-    _designs,
-)
+from .space import Design, DesignSpace, _check_seed, _designs
 from .store import ResultStore
 
 _STATUS_COLUMNS = ["design", "replicate", "feasible", "error", "seconds"]
@@ -91,7 +90,12 @@ class Study:
     `build`, and evaluates the result with `evaluate`, which returns its
     outcomes: a mapping (or `pandas.Series`) of metrics, or a
     `pandas.DataFrame` of several records of metrics (such as one per
-    sensor), whose named index is kept as columns. An `evaluate` function
+    sensor), whose named index is kept as columns, and which must have at
+    least one record (an empty data frame raises a `ValueError`, whatever
+    `errors` is: give a record of no sensors, for example, with missing
+    metrics). Designs given of another design space (such as of a design
+    space that the study's extends) are evaluated as the designs of the
+    study's design space of their decisions. An `evaluate` function
     with a parameter named `design` is also given the realized design (with
     the uncertain parameters of the replicate), as for an evaluation that
     depends on values of the design other than those it builds::
@@ -127,14 +131,17 @@ class Study:
     A study may evaluate designs in `scenarios`: conditions under which
     designs are compared rather than averaged over (as uncertain parameters
     are), such as the requirements of a mission or the field it must sample.
-    A scenario gives fixed values or uncertain parameters of the design space
-    other values (by path, see `Design.realize`), which the functions read
-    from the design as any other value (so that they need not change), and
-    each design is evaluated in each scenario in each replicate (with the
-    same uncertain parameters in every scenario), recorded with the name of
-    its scenario (`scenario`, so that the design space may not have a value
-    of that name). Judge designs in each scenario with criteria `by` the
-    scenario (see `Criteria`), and across them with `robustness`. Scenarios
+    A scenario overrides fixed values or uncertain parameters of the design
+    space with other values (by path, see `Design.realize`), which the
+    functions read from the design as any other value (so that they need
+    not change), and each design is evaluated in each scenario in each
+    replicate (with the same uncertain parameters in every scenario),
+    recorded with the name of its scenario (`scenario`, which the realized
+    design also gives, see `Design.scenario`). A design that violates a
+    constraint of the design space with the values of a scenario is
+    recorded as infeasible in that scenario. Judge designs in each scenario
+    with criteria `by` the scenario (see `Criteria`), and across them with
+    `robustness`. Scenarios
     are not part of the study's fingerprint: the evaluations of each are
     stored by its values (as a variant of the replicates, see
     `ResultStore`), so that a scenario added later is evaluated alone, and
@@ -162,7 +169,8 @@ class Study:
             (and of the realized design, if it has a parameter named
             `design`).
         replicates (int): The number of replicates of each design.
-        seed (int): The seed of the uncertain parameters.
+        seed (int): The seed of the uncertain parameters (a non-negative
+            integer).
         common_random_numbers (bool): `True` to draw the same uncertain
             parameters in the same replicate of every design (see
             `Design.realize`).
@@ -186,8 +194,8 @@ class Study:
             evaluations of the same study with other code (of its functions,
             of TAT-C, or of Python), which are not reused.
         scenarios (Mapping[str, Mapping[str, Any]] | None): The scenarios
-            in which to evaluate designs, if any: the values of fixed values
-            and uncertain parameters of each (by path), by name.
+            in which to evaluate designs, if any: the overrides of fixed
+            values and uncertain parameters of each (by path), by name.
     """
 
     def __init__(
@@ -195,6 +203,7 @@ class Study:
         space: DesignSpace,
         build: Callable[[Design], Any],
         evaluate: Callable[[Any], Any],
+        *,
         replicates: int = 1,
         seed: int = 0,
         common_random_numbers: bool = True,
@@ -213,6 +222,7 @@ class Study:
             raise ValueError("n_jobs must be positive or -1")
         if chunks_per_job < 1:
             raise ValueError("chunks_per_job must be at least 1")
+        _check_seed(seed)
         self.space, self.build, self.evaluate = space, build, evaluate
         self.replicates, self.seed = replicates, seed
         self.common_random_numbers = common_random_numbers
@@ -240,12 +250,15 @@ class Study:
         replicates, if shifted) in a case (a scenario, or none), returning
         its records.
         """
-        realized = design.realize(
-            replicate, self.seed, self.common_random_numbers, shift, case.values
-        )
+        # pylint: disable=too-many-return-statements,too-many-branches
         base: dict = {"design": design.key, "replicate": replicate}
         if case.name is not None:
             base["scenario"] = case.name
+        try:
+            realized = self._realized(design, replicate, shift, case)
+        except Infeasible as error:
+            # the scenario's values violate a constraint of the design
+            return [{**base, **design.flat(), "feasible": False, "error": str(error)}]
         base.update(realized.flat())
         began = time.perf_counter()
         try:
@@ -271,6 +284,12 @@ class Study:
             return [self._failure(base, error)]
         base.update(feasible=True, seconds=time.perf_counter() - began)
         if isinstance(outcome, pd.DataFrame):
+            if len(outcome) == 0:
+                raise ValueError(
+                    f"the evaluation of design {design.key} (replicate {replicate}) "
+                    + "gives an empty data frame: give at least one record (such as "
+                    + "of no sensors, with missing metrics)"
+                )
             named = any(name is not None for name in outcome.index.names)
             frame = outcome.reset_index() if named else outcome
             records = frame.to_dict("records")
@@ -336,12 +355,12 @@ class Study:
     def _cases(self, shift: Mapping[str, int]) -> list[_Case]:
         """
         Gets the cases of a run: its scenarios (or none), and the variants of
-        their evaluations in a store.
+        their evaluations in a store, with a (normalized) shift.
         """
         if not self.scenarios:
             return [_Case(None, {}, _variant_of(shift))]
         return [
-            _Case(name, values, _variant_of(shift, _describe_scenario(values)))
+            _Case(name, values, _variant_of(shift, _describe_overrides(values)))
             for name, values in self.scenarios.items()
         ]
 
@@ -405,9 +424,10 @@ class Study:
     ) -> Design:
         """
         Realizes a replicate of a design as the study evaluates it (see
-        `Design.realize`): with the study's seed and common random numbers,
-        and in one of its scenarios (by name), if given, such as for analyses
-        of a design other than its metrics.
+        `Design.realize`): as a design of the study's design space (if it is
+        of another), with the study's seed and common random numbers, and in
+        one of its scenarios (by name), if given, such as for analyses of a
+        design other than its metrics.
 
         Args:
             design (Design): The design.
@@ -420,6 +440,7 @@ class Study:
 
         Raises:
             KeyError: if the study has no scenario of the name.
+            Infeasible: if the design violates a constraint in the scenario.
         """
         values = None
         if scenario is not None:
@@ -429,8 +450,31 @@ class Study:
                     + f"(it has {list(self.scenarios or {})})"
                 )
             values = self.scenarios[scenario]
+        (design,) = _designs(self.space, [design])
+        return self._realized(design, replicate, None, _Case(scenario, values, ""))
+
+    def _realized(
+        self,
+        design: Design,
+        replicate: int,
+        shift: Mapping[str, int] | None,
+        case: _Case,
+    ) -> Design:
+        """
+        Realizes a replicate of a design (of the study's design space) as the
+        study evaluates it in a case (a scenario, or none), with parameters
+        drawn as in other replicates, if shifted.
+
+        Raises:
+            Infeasible: if the design violates a constraint in the scenario.
+        """
         return design.realize(
-            replicate, self.seed, self.common_random_numbers, None, values
+            replicate,
+            seed=self.seed,
+            common_random_numbers=self.common_random_numbers,
+            shift=shift,
+            overrides=case.values,
+            scenario=case.name,
         )
 
     def _prepare(
@@ -452,8 +496,8 @@ class Study:
         its fingerprint hashes: its seed, its use of common random numbers,
         its design space (including fixed values and the distributions of
         uncertain parameters), its build and evaluation functions (their
-        code, the values they close over, and the plain values and functions
-        of their module they refer to), and the source of the modules of
+        code, the values they close over, and the globals they refer to, see
+        `tatc.tradespace.fingerprint`), and the source of the modules of
         TAT-C that these, and studies, depend on."""
         return get_definition(
             study=Study,
@@ -467,11 +511,21 @@ class Study:
     @property
     def fingerprint(self) -> str:
         """str: A key of the definition of the study (see `definition`), which
-        changes if it does. It keys the records of a store (see
-        `ResultStore`); what it cannot describe (data that the functions read,
-        such as from files, and the code of installed modules other than
-        TAT-C's, see `get_definition`) must be identified by the store's
-        namespace."""
+        changes if it does: if its seed or use of common random numbers
+        changes, or its design space, or the code of its functions, the
+        values they close over or take as defaults, or the globals they
+        refer to (plain values and their containers, models, data, and the
+        functions, classes, and objects of the study's own modules, which
+        are described by content or code, see `tatc.tradespace.fingerprint`),
+        or the source of the modules of TAT-C they depend on, or the version
+        of Python. It does not change with the study's scenarios (whose
+        evaluations a store keeps apart, see `ResultStore`), nor its other
+        settings (such as its number of replicates or workers). It keys the
+        records of a store (see `ResultStore`); what it cannot describe
+        (data that the functions read, such as from files, the code of
+        installed modules other than TAT-C's, and objects of installed
+        classes, which are described by type) must be identified by the
+        store's namespace."""
         return _fingerprint_of(self.definition)
 
     def prune(self) -> int:
@@ -489,7 +543,7 @@ class Study:
             return 0
         definition = self.definition
         context = _fingerprint_of(definition)
-        return self.store.remove(_other_code(self.store, context, definition))
+        return self.store.remove(_stale_contexts(self.store, context, definition))
 
     @property
     def workers(self) -> int:
@@ -546,10 +600,11 @@ class Study:
                 the `replicate` (and the `scenario`, with scenarios), the
                 values of the design by path (see `Design.flat`), whether it
                 is `feasible` (and the `error` if not), the time to build and
-                evaluate it (`seconds`), and the metrics.
+                evaluate it (`seconds`), and the metrics (the status columns
+                alone, without evaluations).
         """
         shift = {name: int(offset) for name, offset in (shift or {}).items() if offset}
-        _check_uncertain(self.space, shift)
+        self.space.check_uncertain(shift)
         cases = self._cases(shift)
         unique = (
             self.space.enumerate() if designs is None else _designs(self.space, designs)
@@ -569,16 +624,23 @@ class Study:
         context, results, tasks = self._stored(tasks, cases)
         if tasks:
             first = tasks[0]
-            self._prepare(first.design, first.replicate, shift, cases[first.case])
+            try:
+                self._prepare(first.design, first.replicate, shift, cases[first.case])
+            except Infeasible:
+                pass  # infeasible in its scenario, which its evaluation records
         results.extend(self._execute(tasks, context, shift, cases, progress))
         results.sort(key=lambda outcome: outcome[:3])
-        frame = pd.DataFrame.from_records(
-            [
-                _in_scenario(record, cases[case].name)
-                for _, case, _, records in results
-                for record in records
-            ]
-        )
+        records = [
+            _in_scenario(record, cases[case].name)
+            for _, case, _, records in results
+            for record in records
+        ]
+        if not records:
+            scenario = [] if self.scenarios is None else ["scenario"]
+            return pd.DataFrame(
+                columns=[*_STATUS_COLUMNS[:2], *scenario, *_STATUS_COLUMNS[2:]]
+            )
+        frame = pd.DataFrame.from_records(records)
         _check_feasible(frame)
         return frame
 
@@ -728,29 +790,34 @@ def _check_scenarios(
         return None
     if not isinstance(scenarios, Mapping):
         raise TypeError("scenarios must be a mapping of names to values")
-    if "scenario" in space.children:
-        raise ValueError(
-            "a design space with a value named 'scenario' cannot have scenarios, "
-            + "whose names the results give as `scenario`"
-        )
     checked = {}
     for name, values in scenarios.items():
         if not isinstance(name, str):
             raise TypeError(f"the name of a scenario must be a string, not {name!r}")
         if not isinstance(values, Mapping):
             raise TypeError(f"the values of scenario {name!r} must be a mapping")
-        _check_scenario(space, values)
+        space.check_overrides(values)
         checked[name] = dict(values)
     return checked
 
 
-def _variant_of(shift: Mapping[str, int] | None, scenario: str = "") -> str:
+def _describe_overrides(values: Mapping[str, Any]) -> str:
+    """
+    Gets a description of the overrides of a scenario (`""` without values),
+    which identifies them (by their content, see `get_definition`).
+    """
+    if not values:
+        return ""
+    return _canonical(_Describer().describe(dict(values)))
+
+
+def _variant_of(shift: Mapping[str, int], scenario: str = "") -> str:
     """
     Gets the variant of replicates in a store (see `ResultStore`): `""` for
-    plain replicates, or (as JSON) a hash of the description of the values of
-    a scenario (see `_describe_scenario`) and the shift of each parameter.
+    plain replicates, or (as JSON) a hash of the description of the overrides
+    of a scenario (see `_describe_overrides`) and the shift of each parameter
+    (normalized: offsets that are not zero, as integers, see `Study.run`).
     """
-    shift = {name: int(offset) for name, offset in (shift or {}).items() if offset}
     parts: dict[str, Any] = {}
     if scenario:
         parts["scenario"] = _digest(scenario, 16)
@@ -774,41 +841,43 @@ def _takes_design(function: Callable) -> bool:
     )
 
 
-def _other_code(store: ResultStore, context: str, definition: dict) -> list[str]:
+def _stale_contexts(
+    store: ResultStore, context: str, definition: dict
+) -> dict[str, int]:
     """
-    Gets the contexts of a store's namespace whose evaluations are of the same
-    study with other code (its functions', TAT-C's, or Python's: the same
-    values but for the code of functions, see `_with_other_code`), the latest
-    first.
+    Gets the contexts of a store's namespace (and their numbers of
+    evaluations) of the same study with other code (its functions', TAT-C's,
+    or Python's: the same values but for the code of functions, see
+    `_with_other_code`), the latest first, including those whose definitions
+    are kept without evaluations.
     """
-    others = [other for other in store.contexts() if other != context]
-    return [
-        other
-        for other in reversed(others)
-        if _with_other_code(definition, [store.definition(other)]) is not None
-    ]
+    contexts = store.contexts()
+    others = {other: store.definition(other) for other in reversed(contexts)}
+    others.pop(context, None)
+    return {other: contexts[other] for other in _with_other_code(definition, others)}
 
 
 def _warn_other_definitions(store: ResultStore, context: str, definition: dict) -> None:
     """
     Warns if a store has evaluations of its namespace by the same study with
-    other code (see `_other_code`), which a study does not reuse, with the
-    differences from the latest (see `compare_definitions`). Studies of other
-    values (such as other settings) share a namespace without a warning, as
-    their fingerprints keep their evaluations apart.
+    other code (see `_stale_contexts`), which a study does not reuse, with
+    the differences from the latest (see `compare_definitions`). Studies of
+    other values (such as other settings) share a namespace without a
+    warning, as their fingerprints keep their evaluations apart.
     """
-    stale = _other_code(store, context, definition)
+    stale = {
+        other: count
+        for other, count in _stale_contexts(store, context, definition).items()
+        if count
+    }
     if not stale:
         return
-    contexts = store.contexts()
-    count = sum(contexts.get(other, 0) for other in stale)
-    differences = _with_other_code(definition, [store.definition(stale[0])])
-    warnings.warn(
-        f"the store has {count} evaluations of namespace {store.namespace!r} by "
-        + "this study with other code, which are not reused (see "
-        + "Study.fingerprint; Study.prune removes them); the latest differs in: "
-        + "; ".join(differences or []),
-        stacklevel=3,
+    _warn_other_code(
+        f"the store has {sum(stale.values())} evaluations of namespace "
+        + f"{store.namespace!r} by this study",
+        "see Study.fingerprint; Study.prune removes them",
+        store.definition(next(iter(stale))),
+        definition,
     )
 
 
@@ -863,8 +932,7 @@ def _check_feasible(results: pd.DataFrame) -> None:
     if designs < 2:
         return
     errors = results["error"].value_counts()
-    warnings.warn(
+    _warn(
         f"none of the {designs} designs is feasible; the most common error "
-        + f"({errors.iloc[0]} of {len(results)} evaluations): {errors.index[0]}",
-        stacklevel=3,
+        + f"({errors.iloc[0]} of {len(results)} evaluations): {errors.index[0]}"
     )

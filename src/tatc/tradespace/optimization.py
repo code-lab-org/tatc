@@ -22,10 +22,17 @@ Each design is evaluated once, however often an optimizer proposes it, and
 designs proposed together are evaluated together, in parallel if the study
 is (see `Study`).
 
+Designs are judged by their feasible replicates, as summaries judge them
+(see `aggregate`): a design infeasible in some replicates is judged by the
+others (a requirement on `feasible`, the share of its replicates that are
+feasible, such as `Requirement("feasible", ">=", 1)`, rejects it), and a
+design without a feasible replicate is infeasible, which the optimizers'
+constraint of feasibility rejects.
+
 A search chooses its front from one evaluation of each design (with the
 study's replicates), which favors the designs whose replicates were lucky:
 refine the designs it evaluated (see `refine`) and confirm its front (see
-`confirm`) with the designs of the search (see `Search`), as for any study.
+`confirm`, of the designs of the search, see `Search`), as for any study.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -39,28 +46,20 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .criteria import (
-    Criteria,
-    _across_groups,
-    _as_criteria,
-    _combiners,
-    _resolve,
-    _signs,
-    _Statistics,
-    aggregate,
-)
+from .criteria import Criteria, _as_criteria, _signs
 from .space import Design, Infeasible
 from .study import Study
+from .summary import aggregate
 
 
 @dataclass
 class Search:
     """
     The outcome of a search with an optimizer (see `optimize_optuna` and
-    `optimize_pymoo`): its `results`, the `summary` of its designs, and the
-    `designs` themselves, as the outcomes of other steps of a trade study
-    (see `Refinement`), which refine and confirm its front as for any
-    study::
+    `optimize_pymoo`): as the outcomes of other steps of a trade study (see
+    `Refinement`), its `results`, the `summary` of its designs, the `designs`
+    it selects for the next step (the efficient designs it found), and its
+    `criteria`, which refine and confirm its front as for any study::
 
         search = optimize_optuna(study, criteria, n_trials=200)
         refinement = refine(study, criteria, search.results)
@@ -69,13 +68,18 @@ class Search:
 
     results: pd.DataFrame
     """pandas.DataFrame: The results of every evaluation (see `Study.run`)."""
+    criteria: Criteria
+    """Criteria: The criteria of the search."""
     summary: pd.DataFrame = field(default_factory=pd.DataFrame)
-    """pandas.DataFrame: A row per design that the search found feasible
-    (feasible in every replicate, as the optimizers judge designs): the
-    summary of the criteria over its replicates (see `aggregate`), with
-    whether it is efficient among these designs (`pareto`, with the
-    tolerances of the criteria)."""
+    """pandas.DataFrame: A row per design that the search found feasible (in
+    any replicate, judged by its feasible replicates, see `aggregate`): the
+    summary of the criteria over its replicates, with whether it is
+    efficient among these designs (`pareto`, with the tolerances of the
+    criteria)."""
     designs: list[Design] = field(default_factory=list)
+    """list[Design]: The efficient designs that the search found (`pareto` of
+    `summary`), for the next step."""
+    evaluated: list[Design] = field(default_factory=list)
     """list[Design]: The designs evaluated, in the order of their evaluation."""
     state: Any = None
     """Any: The optimizer's own outcome: the Optuna study (`optuna.Study`) or
@@ -86,7 +90,8 @@ class Evaluations:
     """
     The evaluations of designs for a search: the objectives of each design
     (by its key), the violations of its requirements, and the records of the
-    study's evaluations.
+    study's evaluations. Designs are judged by their feasible replicates (see
+    `aggregate`), and a design without a feasible replicate is infeasible.
 
     Args:
         study (Study): The study that evaluates designs.
@@ -101,9 +106,6 @@ class Evaluations:
             raise ValueError(
                 "searches need one record per evaluation: give criteria without `by`"
             )
-        self._statistics = _resolve(self.criteria)
-        across = self.criteria.across
-        self._combiners = None if across is None else _combiners(self.criteria)
         self.values: dict[str, tuple[float, ...] | None] = {}
         """dict: The objectives of each evaluated design (by key), or `None`
         if it is infeasible."""
@@ -111,9 +113,12 @@ class Evaluations:
         """dict: The violation of each requirement by each evaluated design
         (by key), or `None` if it is infeasible."""
         self.infeasibility: dict[str, float] = {}
-        """dict: The share of the replicates of each evaluated design (by
-        key) that are infeasible (0 for a feasible design), the violation of
-        its feasibility for constraint-aware optimizers."""
+        """dict: The violation of the feasibility of each evaluated design (by
+        key), for constraint-aware optimizers: 0 for a design that has
+        feasible replicates (by which it is judged), and otherwise the share
+        of its evaluations that are infeasible (1 for a design infeasible in
+        every replicate, and less, with criteria `across` scenarios, for one
+        without a feasible replicate in some of them)."""
         self.designs: dict[str, Design] = {}
         """dict: The evaluated designs (by key), in the order of their
         evaluation."""
@@ -131,10 +136,10 @@ class Evaluations:
     def evaluate(self, designs: list[Design]) -> list[tuple[float, ...] | None]:
         """
         Gets the objectives of designs, evaluating those not yet evaluated
-        together (see also `violations`). A design is infeasible if any of
-        its replicates is (see `infeasibility`). The first design evaluated
-        is evaluated alone, to check that the study's evaluations give one
-        record each before evaluating others.
+        together (see also `violations`). A design is infeasible if none of
+        its replicates is feasible (see `infeasibility`). The first design
+        evaluated is evaluated alone, to check that the study's evaluations
+        give one record each before evaluating others.
 
         Args:
             designs (list[Design]): The designs.
@@ -153,13 +158,13 @@ class Evaluations:
 
     def _run(self, designs: list[Design]) -> None:
         """
-        Evaluates designs, recording their objectives and violations.
+        Evaluates designs, recording their objectives and violations (of
+        their summary, see `aggregate`).
         """
         self.designs.update((design.key, design) for design in designs)
         records = self.study.run(designs)
         self._records.append(records)
         across = self.criteria.across
-        groups = _across_groups(records, across)
         keys = ["design", "replicate", *([] if across is None else [across.column])]
         if records.groupby(keys).size().max() > 1:
             if across is None and "scenario" in records.columns:
@@ -173,25 +178,24 @@ class Evaluations:
                 + "study's evaluate function return a mapping of metrics"
             )
         self._checked = self._checked or bool(records["feasible"].any())
-        shares = 1.0 - records.groupby("design")["feasible"].mean()
-        self.infeasibility.update(shares.astype(float).to_dict())
-        infeasible = set(shares.index[shares > 0])
-        for key in infeasible:
-            self.values[key] = self.violations[key] = None
-        feasible = records[~records["design"].isin(infeasible)]
-        if len(feasible) > 0:
-            table = _Statistics(
-                feasible, self._statistics, (), across, self._combiners, groups
+        summary = aggregate(records, self.criteria, design_columns=[])
+        summary = summary.set_index("design")
+        shares = records.groupby("design")["feasible"].mean()
+        for design in designs:
+            key = design.key
+            if key not in summary.index:
+                self.values[key] = self.violations[key] = None
+                self.infeasibility[key] = 1.0 - float(shares[key])
+                continue
+            row = summary.loc[key]
+            self.values[key] = tuple(
+                float(row[name]) for name in self.criteria.objectives
             )
-            values, _ = table.evaluate()
-            for i, key in enumerate(table.designs):
-                self.values[key] = tuple(
-                    float(values[name][i]) for name in self.criteria.objectives
-                )
-                self.violations[key] = tuple(
-                    float(requirement.violation(values[requirement.name][i]))
-                    for requirement in self.criteria.requirements
-                )
+            self.violations[key] = tuple(
+                float(requirement.violation(row[requirement.name]))
+                for requirement in self.criteria.requirements
+            )
+            self.infeasibility[key] = 0.0
 
     def search(self, state: Any) -> Search:
         """
@@ -204,16 +208,14 @@ class Evaluations:
             Search: the search
         """
         results = self.results
-        summary = pd.DataFrame()
-        feasible = [key for key, value in self.values.items() if value is not None]
-        if feasible:
-            summary = aggregate(
-                results[results["design"].isin(feasible)], self.criteria
-            )
+        summary = aggregate(results, self.criteria)
+        efficient = pd.unique(summary.loc[summary["pareto"].astype(bool), "design"])
         return Search(
             results=results,
+            criteria=self.criteria,
             summary=summary,
-            designs=list(self.designs.values()),
+            designs=[self.designs[key] for key in efficient],
+            evaluated=list(self.designs.values()),
             state=state,
         )
 
@@ -258,19 +260,24 @@ def optimize_optuna(
 
     With `constraints`, each trial records the violation of the constraints
     of its design (`trial.set_constraint`, under the name `"feasibility"`):
-    0 for a feasible design, the amount by which it violates a constraint of
-    the design space (see `DesignSpace`), or the share of its replicates
-    that the study finds infeasible. Optuna's constraint-aware samplers (such as TPE and NSGA-II)
-    then prefer feasible designs, and infeasible designs that violate their
-    constraints less. An infeasible trial is told the worst objectives of the
-    feasible designs evaluated before it, which these samplers do not use to
-    rank it. Without `constraints` (or with a version of Optuna before 5,
-    which lacks `set_constraint`), an infeasible design prunes its trial.
+    0 for a design with feasible replicates (by which it is judged, see
+    `aggregate`), the amount by which it violates a constraint of the design
+    space (see `DesignSpace`), or, for a design without a feasible replicate,
+    the share of its evaluations that the study finds infeasible (see
+    `Evaluations.infeasibility`). Optuna's constraint-aware samplers (such
+    as TPE and NSGA-II) then prefer feasible designs, and infeasible designs
+    that violate their constraints less. An infeasible trial is told the
+    worst objectives of the feasible designs evaluated before it, which
+    these samplers do not use to rank it. Without `constraints` (or with a
+    version of Optuna before 5, which lacks `set_constraint`), an infeasible
+    design prunes its trial.
 
     Each requirement of the criteria is a constraint of the trials (named by
-    its statement, such as `"sufficient p10 >= 80"`), whose value is its
-    violation (see `Requirement.violation`), and which requires
-    `constraints`.
+    its statement, `str(requirement)`, such as `"sufficient p10 >= 80"`),
+    whose value is its violation (see `Requirement.violation`), and which
+    requires `constraints`. A requirement on `feasible` (the share of a
+    design's replicates that are feasible) constrains the designs that are
+    infeasible in some of their replicates.
 
     Trials are asked in batches, whose designs are evaluated together (in
     parallel, if the study is) before they are told. A batch defaults to one
@@ -306,6 +313,11 @@ def optimize_optuna(
 
     Returns:
         Search: the results and designs of the search, and the Optuna study
+
+    Raises:
+        ValueError: if the criteria have requirements without `constraints`
+            (or with a version of Optuna before 5), or if `max_designs` is
+            less than 1.
     """
     # pylint: disable=import-outside-toplevel
     try:
@@ -314,6 +326,8 @@ def optimize_optuna(
         raise ImportError(
             "optimize_optuna requires optuna (pip install optuna)"
         ) from error
+    if max_designs is not None and max_designs < 1:
+        raise ValueError("max_designs must be at least 1")
     evaluations = Evaluations(study, criteria)
     requirements = evaluations.criteria.requirements
     directions = [
@@ -330,7 +344,7 @@ def optimize_optuna(
     constrained = constraints and hasattr(optuna.trial.Trial, "set_constraint")
     if requirements and not constrained:
         raise ValueError("requirements need constraints (and Optuna 5 or later)")
-    names = [f"{r.name} {r.operator} {r.value}" for r in requirements]
+    names = [str(requirement) for requirement in requirements]
 
     def set_constraints(trial: Any, feasibility: float, violations) -> None:
         trial.set_constraint("feasibility", feasibility)
@@ -386,8 +400,9 @@ def make_pymoo_problem(study: Study, criteria: Criteria | Mapping[str, str]) -> 
     and `DesignSpace.unit_paths`), its objectives are minimized (maximized
     objectives are negated), and its constraint (`G <= 0`) is violated by
     designs that violate a constraint of the design space (by the amount of
-    the violation, see `DesignSpace`) or that the study finds infeasible (by
-    the share of their infeasible replicates). Each requirement of the
+    the violation, see `DesignSpace`) or that have no feasible replicate (by
+    the share of their infeasible evaluations, see
+    `Evaluations.infeasibility`). Each requirement of the
     criteria is a further constraint, whose value is its violation (see
     `Requirement.violation`).
     The designs of a population are evaluated together.
@@ -521,6 +536,38 @@ def _eliminate_duplicates(algorithm: Any, duplicates: Any) -> None:
         part.eliminate_duplicates = duplicates
 
 
+def _designs_termination(
+    evaluations: Evaluations, max_designs: int, termination: Any
+) -> Any:
+    """
+    Gets a pymoo termination of a search once it has evaluated `max_designs`
+    designs, or by another termination (if any), whichever is first.
+    """
+    # pylint: disable=import-outside-toplevel
+    from pymoo.core.termination import Termination
+    from pymoo.util.misc import termination_from_tuple
+
+    class DesignsTermination(Termination):
+        """
+        A termination by the number of designs evaluated (see
+        `optimize_pymoo`), or by another termination.
+        """
+
+        def __init__(self, other: Any):
+            super().__init__()
+            self.other = other
+
+        def _update(self, algorithm: Any) -> float:
+            progress = len(evaluations.values) / max_designs
+            if self.other is not None:
+                progress = max(progress, self.other.update(algorithm))
+            return progress
+
+    return DesignsTermination(
+        None if termination is None else termination_from_tuple(termination)
+    )
+
+
 def optimize_pymoo(
     study: Study,
     criteria: Criteria | Mapping[str, str],
@@ -529,6 +576,7 @@ def optimize_pymoo(
     *,
     seed: int | None = 0,
     distinct: bool = True,
+    max_designs: int | None = None,
     **kwargs: Any,
 ) -> Search:
     """
@@ -538,6 +586,14 @@ def optimize_pymoo(
     `make_pymoo_problem`'s `duplicates`), unless `distinct` is `False`, so
     that each generation proposes as many new designs as it can: as many
     generations then evaluate more designs, and find more of the front.
+
+    The generations of a search (of the `termination`) are a poor measure of
+    its cost if they propose designs evaluated before (without `distinct`),
+    whose objectives are known without evaluating them again: `max_designs`
+    limits the designs evaluated instead, as of `optimize_optuna` (the search
+    stops after the generation in which it has evaluated as many, or by the
+    `termination`, whichever is first). As a generation evaluates its new
+    designs together, the last may evaluate more designs than are left.
 
     Args:
         study (Study): The study that evaluates designs.
@@ -552,6 +608,8 @@ def optimize_pymoo(
         distinct (bool): `True` to eliminate the proposals of designs proposed
             or evaluated before, `False` for the algorithm's own elimination
             of duplicates (of equal points).
+        max_designs (int | None): The most designs to evaluate (but those of
+            the last generation), if limited.
         **kwargs (Any): Other arguments of `pymoo.optimize.minimize`.
 
     Returns:
@@ -559,7 +617,8 @@ def optimize_pymoo(
 
     Raises:
         ValueError: if the search is distinct but the algorithm does not
-            eliminate duplicates as pymoo's genetic algorithms do.
+            eliminate duplicates as pymoo's genetic algorithms do, or if
+            `max_designs` is less than 1.
     """
     # pylint: disable=import-outside-toplevel
     try:
@@ -569,6 +628,8 @@ def optimize_pymoo(
             "optimize_pymoo requires pymoo (pip install pymoo)"
         ) from error
 
+    if max_designs is not None and max_designs < 1:
+        raise ValueError("max_designs must be at least 1")
     if algorithm is None:
         from pymoo.algorithms.moo.nsga2 import NSGA2
 
@@ -576,6 +637,10 @@ def optimize_pymoo(
     problem = make_pymoo_problem(study, criteria)
     if distinct:
         _eliminate_duplicates(algorithm, problem.duplicates)
+    if max_designs is not None:
+        termination = _designs_termination(
+            problem.evaluations, max_designs, termination
+        )
     result = minimize(problem, algorithm, termination, seed=seed, **kwargs)
     evaluations = problem.evaluations
     return evaluations.search(result)

@@ -3,7 +3,8 @@ Many histories of missions in a replicate (see `Deployment.simulate_many`):
 their simulation (independent or stratified), evaluation with a cache of
 the metrics of their phases (see `PhaseCache`), and summaries as the
 records of evaluations, with control variates and the allocation of
-evaluations between replicates and histories.
+evaluations between replicates and histories; and the exact expectations
+of missions without restoration (`exact_expectations`).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -35,22 +36,25 @@ if TYPE_CHECKING:
     from .deployment import Deployment
 
 
-def evaluate_missions(
+def evaluate_histories(
     histories: Sequence[MissionHistory],
     capability: Capability,
     *,
     cost_model: Any = None,
     growth: Any = 1.0,
+    requirements: Sequence[Requirement] = (),
 ) -> pd.DataFrame:
     """
     Evaluates histories of a mission (such as those of a replicate, see
     `Deployment.simulate_many`): for each, the mean of each metric over the
-    phases of the mission (`<metric> mission`, see `summarize_phases`), its
-    measures (see `MissionHistory.metrics`), and its cost (see
-    `CostEstimate.metrics`, with a cost model). The histories share the
-    observations of the replicate, so that each set of operating satellites
-    is evaluated once, by the capability of the satellites (see
-    `Capability.evaluate`, with the cache of its metric).
+    phases of the mission (`<metric> mission`, see `summarize_phases`), the
+    time at which a phase first meets each requirement on a metric
+    (`<metric> time`, infinite if none does), its measures (see
+    `MissionHistory.metrics`), and its cost (see `CostEstimate.metrics`,
+    with a cost model). The histories share the observations of the
+    replicate, so that each set of operating satellites is evaluated once,
+    by the capability of the satellites (see `Capability.evaluate`, with the
+    cache of its metric).
 
     Args:
         histories (Sequence[MissionHistory]): The histories.
@@ -58,6 +62,8 @@ def evaluate_missions(
             observations (of the replicate) and metric.
         cost_model (CostModel | None): A model of the cost of each history.
         growth (float | Mapping[str, float]): The growth of the cost.
+        requirements (Sequence[Requirement]): Requirements on the metrics of
+            the phases, if any.
 
     Returns:
         pandas.DataFrame: a row per history (with its likelihood ratio,
@@ -67,7 +73,10 @@ def evaluate_missions(
     weighted = any(history.weight != 1.0 for history in histories)
     for history in histories:
         phases = capability.evaluate(history.phases(capability.satellites))
-        row = {**summarize_phases(phases), **history.metrics()}
+        row = {
+            **summarize_phases(phases, requirements=requirements),
+            **history.metrics(),
+        }
         if weighted:
             row["weight"] = history.weight
         if cost_model is not None:
@@ -76,15 +85,16 @@ def evaluate_missions(
     return pd.DataFrame(rows)
 
 
-def summarize_missions(
-    missions: pd.DataFrame,
+def summarize_histories(
+    histories: pd.DataFrame,
+    *,
     quantiles: Mapping[str, float | Sequence[float]] | None = None,
     requirements: Sequence[Requirement] = (),
     controls: Mapping[str, float] | None = None,
     spread: bool = False,
 ) -> dict[str, float]:
     """
-    Summarizes histories of a mission (see `evaluate_missions`) as the
+    Summarizes histories of a mission (see `evaluate_histories`) as the
     metrics of an evaluation: the mean of each column over the histories
     (by the same name), quantiles of columns over the histories (`<column>
     histories p<percent>`, such as `"accurate mission histories p10"` for the
@@ -93,6 +103,14 @@ def summarize_missions(
     <value>)`). The quantiles (and standard deviations) over the histories
     of a replicate are named apart from statistics over the replicates
     (such as a `Quantile`, see `Criteria`), which are taken of these.
+
+    Missing values (`NaN`, such as the `restoration years` of a history
+    without restorations) are left out of the statistics of their column,
+    but infinite ones are not: the mean of the time until a history meets a
+    requirement (`<metric> time`, see `evaluate_histories`) is infinite if a
+    history never meets it, and its quantiles, or the share of the
+    histories that meet it by a time (a requirement on it, such as
+    `Requirement("accurate time", "<=", 4)`), summarize it.
 
     With `controls`, the means are estimated with control variates: columns
     whose expected values are known (such as the `availability` of a
@@ -117,7 +135,7 @@ def summarize_missions(
     replicates' other parameters (such as their targets).
 
     Args:
-        missions (pandas.DataFrame): A row per history.
+        histories (pandas.DataFrame): A row per history.
         quantiles (Mapping | None): The quantiles of columns, by column.
         requirements (Sequence[Requirement]): Requirements on columns.
         controls (Mapping[str, float] | None): The expected values of
@@ -128,8 +146,19 @@ def summarize_missions(
 
     Returns:
         dict[str, float]: the summary
+
+    Raises:
+        ValueError: if a quantile or requirement is of a column that the
+            histories do not have.
     """
-    numeric = missions.select_dtypes("number")
+    numeric = histories.select_dtypes("number")
+    named = [*(quantiles or {}), *(requirement.name for requirement in requirements)]
+    unknown = sorted(set(named) - set(numeric.columns))
+    if unknown:
+        raise ValueError(
+            "quantiles or requirements of columns that the histories do not have: "
+            + f"{unknown} (they have {sorted(numeric.columns)})"
+        )
     weights = np.ones(len(numeric))
     if "weight" in numeric.columns:
         weights = numeric.pop("weight").to_numpy(dtype=float)
@@ -137,7 +166,7 @@ def summarize_missions(
         column: _weighted_mean(numeric[column].to_numpy(dtype=float), weights)
         for column in numeric.columns
     }
-    if "weight" in missions.columns:
+    if "weight" in histories.columns:
         summary["effective histories"] = float(weights.sum() ** 2 / np.sum(weights**2))
     if controls:
         summary.update(_controlled_means(numeric, controls, weights))
@@ -159,14 +188,17 @@ def summarize_missions(
                 numeric[column].to_numpy(dtype=float), weights, q
             )
     for requirement in requirements:
-        met = requirement.met(missions[requirement.name].to_numpy(dtype=float))
+        met = requirement.met(histories[requirement.name].to_numpy(dtype=float))
         summary[f"P({requirement})"] = float(np.sum(weights * met) / np.sum(weights))
     return summary
 
 
 def _weighted_mean(values: np.ndarray, weights: np.ndarray) -> float:
-    """The weighted mean of the known values (`NaN` without any)."""
-    known = np.isfinite(values)
+    """
+    The weighted mean of the known values (not `NaN`, but infinite ones),
+    `NaN` without any.
+    """
+    known = ~np.isnan(values)
     if not known.any() or weights[known].sum() <= 0:
         return math.nan
     return float(np.sum(weights[known] * values[known]) / np.sum(weights[known]))
@@ -174,15 +206,16 @@ def _weighted_mean(values: np.ndarray, weights: np.ndarray) -> float:
 
 def _weighted_quantile(values: np.ndarray, weights: np.ndarray, q: float) -> float:
     """
-    The quantile of the known values, by their weights: the least value
-    whose cumulative weight reaches the share `q` of the total (as numpy's
-    `inverted_cdf`), or numpy's linear quantile without weights.
+    The quantile of the known values (not `NaN`, but infinite ones), by
+    their weights: the least value whose cumulative weight reaches the share
+    `q` of the total (as numpy's `inverted_cdf`), or numpy's linear quantile
+    of finite values without weights.
     """
-    known = np.isfinite(values)
+    known = ~np.isnan(values)
     values, weights = values[known], weights[known]
     if len(values) == 0:
         return math.nan
-    if np.all(weights == weights[0]):
+    if np.all(weights == weights[0]) and np.all(np.isfinite(values)):
         return float(np.quantile(values, q))
     order = np.argsort(values)
     cumulative = np.cumsum(weights[order]) / weights.sum()
@@ -195,7 +228,7 @@ def _controlled_means(
 ) -> dict:
     """
     Estimates the means of columns with control variates (see
-    `summarize_missions`): each column's mean less the regression of the
+    `summarize_histories`): each column's mean less the regression of the
     column on the controls applied to the deviations of the controls' means
     from their expected values, over the histories in which the column and
     the controls are known.
@@ -260,7 +293,7 @@ SAMPLINGS = ("random", "stratified")
 
 def _simulate_many(
     deployment: Deployment,
-    failures: FailureModel,
+    model: FailureModel,
     policy: RestorationPolicy | None,
     seed: int,
     histories: int,
@@ -279,7 +312,7 @@ def _simulate_many(
     return [
         _Simulation(
             deployment,
-            failures,
+            model,
             policy or RestorationPolicy(),
             (seed, k),
             _Sampler(seed, k, histories) if sampling == "stratified" else None,
@@ -292,7 +325,7 @@ def _simulate_many(
 
 def _expected_metrics(
     deployment: Deployment,
-    failures: FailureModel,
+    model: FailureModel,
     policy: RestorationPolicy | None,
     seed: int,
     histories: int,
@@ -306,7 +339,7 @@ def _expected_metrics(
         [
             history.metrics()
             for history in _simulate_many(
-                deployment, failures, policy, seed, histories, sampling
+                deployment, model, policy, seed, histories, sampling
             )
         ]
     )
@@ -316,6 +349,7 @@ def _expected_metrics(
 def allocate_histories(
     records: pd.DataFrame,
     metric: str,
+    *,
     histories: int,
     replicate_seconds: float,
     history_seconds: float,
@@ -328,7 +362,7 @@ def allocate_histories(
     its targets, whose observations are expensive to compute) and histories
     of the failures of its mission in each replicate (cheap, with a
     `PhaseCache`), from a pilot study: the records of its replicates (see
-    `summarize_missions`, with `spread`), each the mean (`<metric>`) and
+    `summarize_histories`, with `spread`), each the mean (`<metric>`) and
     standard deviation (`<metric> histories std`) of a metric over `histories`
     histories.
 
@@ -413,7 +447,7 @@ def allocate_histories(
 
 
 def _launch_groups(
-    deployment: Deployment, failures: FailureModel, times: np.ndarray
+    deployment: Deployment, model: FailureModel, times: np.ndarray
 ) -> tuple[int, list[tuple]]:
     """
     Gets the launch groups of a deployment without restoration: the
@@ -429,7 +463,7 @@ def _launch_groups(
     launches: dict[tuple[int, int], list] = {}
     for launch in sorted(deployment.launches, key=lambda l: l.time):
         launches.setdefault((launch.plane, launch.first), []).append(launch)
-    p = failures.launch
+    p = model.launch
     groups = []
     for (plane, first), sequence in launches.items():
         built = deployment.planes[plane].satellites
@@ -439,7 +473,7 @@ def _launch_groups(
         ]
         if not members:
             continue
-        life = failures.life_of(sequence[0].kind)
+        life = model.life_of(sequence[0].kind)
         flown = np.array([[t >= launch.time for t in times] for launch in sequence])
         # launches after each one, up to each time
         later = np.flip(np.cumsum(np.flip(flown, axis=0), axis=0), axis=0) - flown
@@ -459,6 +493,18 @@ def _launch_groups(
     return int(offsets[-1]), groups
 
 
+def _group_operating(group: tuple, count: int) -> np.ndarray:
+    """
+    Gets the probability at each time that exactly a given set of `count`
+    satellites of a launch group operates (see `_set_weight`).
+    """
+    members, weights, survival, none, _ = group
+    probability = np.sum(
+        weights * survival**count * (1 - survival) ** (len(members) - count), axis=0
+    )
+    return probability + none if count == 0 else probability
+
+
 def _set_weight(active: np.ndarray, groups: list) -> float:
     """
     Gets the share of the mission's time in which exactly the active
@@ -471,26 +517,75 @@ def _set_weight(active: np.ndarray, groups: list) -> float:
     its satellites, and the probability that none has succeeded if `a` is 0.
     """
     probability = 1.0
-    for members, weights, survival, none, _ in groups:
-        count = int(active[members].sum())
-        size = len(members)
-        group = np.sum(
-            weights * survival**count * (1 - survival) ** (size - count), axis=0
-        )
-        if count == 0:
-            group = group + none
-        probability = probability * group
+    for group in groups:
+        probability = probability * _group_operating(group, int(active[group[0]].sum()))
     return float(np.mean(probability))
 
 
-def expected_missions(
+def _missing_levels(groups: list, count: int, tolerance: float) -> int:
+    """
+    Gets the most positions missing of the sets that exact expectations
+    enumerate (see `exact_expectations`): the least number such that the
+    sets of that many missing positions or fewer operate all but `tolerance`
+    of the mission's time, in expectation. The distribution of the number
+    missing at each time is the convolution over the launch groups of the
+    distributions of theirs (each the probability of a set times the number
+    of sets of its size), cheap to compute without enumerating the sets.
+    """
+    if not groups:
+        return count
+    distribution = np.zeros((count + 1, len(groups[0][3])))
+    distribution[0] = 1.0
+    for group in groups:
+        size = len(group[0])
+        combined = np.zeros_like(distribution)
+        for gone in range(size + 1):
+            share = math.comb(size, gone) * _group_operating(group, size - gone)
+            combined[gone:] += share * distribution[: count + 1 - gone]
+        distribution = combined
+    covered = np.cumsum(distribution.mean(axis=1))
+    reached = np.flatnonzero(covered >= 1 - tolerance - 1e-12)
+    return int(reached[0]) if len(reached) > 0 else count
+
+
+def _exact_sets(
     deployment: Deployment,
-    failures: FailureModel,
+    model: FailureModel,
+    tolerance: float = 1e-3,
+    steps: int = 400,
+) -> int:
+    """
+    Gets the number of sets of satellites that exact expectations of a
+    deployment enumerate (see `exact_expectations`), without enumerating
+    them: the sets of at most the number of positions missing that cover
+    all but `tolerance` of the mission's time.
+    """
+    times = _times(deployment, steps)
+    count, groups = _launch_groups(deployment, model, times)
+    levels = _missing_levels(groups, count, tolerance)
+    return sum(math.comb(count, missing) for missing in range(levels + 1))
+
+
+def _times(deployment: Deployment, steps: int) -> np.ndarray:
+    """The times at which exact expectations integrate probabilities."""
+    begin, end = deployment.begin, deployment.end
+    return begin + (np.arange(steps) + 0.5) * (end - begin) / steps
+
+
+MAX_SETS = 200_000
+"""The most sets of satellites that exact expectations enumerate by default
+(see `exact_expectations`), as those of the failures of a study do (see
+`Failures`)."""
+
+
+def exact_expectations(
+    deployment: Deployment,
+    model: FailureModel,
     capability: Capability,
     *,
     tolerance: float = 1e-3,
     steps: int = 400,
-    max_sets: int = 200_000,
+    max_sets: int = MAX_SETS,
 ) -> dict[str, float]:
     """
     Computes the expected capability of a mission without restoration
@@ -498,7 +593,8 @@ def expected_missions(
     the end of their design life) over its failures: the expectation of the
     mean of each metric over the phases of the mission (`<metric> mission`, as
     `summarize_phases` gives for one history) and of its availability
-    (`availability`), exactly rather than from samples of histories.
+    (`availability`), exactly rather than from samples of histories (as
+    `Deployment.expected_metrics` estimates the measures of missions).
 
     Without restoration, the satellites fail independently (but for the
     satellites of a launch, which a failed launch loses together), so that
@@ -509,19 +605,22 @@ def expected_missions(
     share of the mission's time in which exactly that set operates, in
     expectation (integrated over `steps` times). The sets are enumerated by
     the number of satellites missing until their shares cover all but
-    `tolerance` of the mission's time, and evaluated in order of their
-    shares until they do (`coverage`, the share covered, and `sets`, the
-    sets evaluated); the expectation is over the sets evaluated.
+    `tolerance` of the mission's time (a number known before they are
+    enumerated, from the distribution of the number missing), and evaluated
+    in order of their shares until they do (`coverage`, the share covered,
+    and `sets`, the sets evaluated); the expectation is over the sets
+    evaluated.
 
     Without sampling error, an expectation estimates the mean of many
     histories with none of their variance (see `Deployment.simulate_many`),
-    for missions of a few to a dozen or two satellites; for larger ones, or
-    with restoration (whose shared production and launches make failures
-    dependent), simulate histories.
+    for missions of a few to a dozen or two satellites; for larger ones
+    (whose sets number more than `max_sets`, which is known before any is
+    enumerated), or with restoration (whose shared production and launches
+    make failures dependent), simulate histories.
 
     Args:
         deployment (Deployment): The deployment.
-        failures (FailureModel): The failures.
+        model (FailureModel): The failures.
         capability (Capability): The capability of the satellites (in the
             order of the planes, see `MissionHistory.phases`): their
             observations and metric (see `Capability.evaluate`).
@@ -535,7 +634,8 @@ def expected_missions(
 
     Raises:
         ValueError: if the deployment is staged (see `Stage`), whose launches
-            depend on its rules.
+            depend on its rules, or has more sets to enumerate than
+            `max_sets` (raised before any is enumerated).
     """
     # pylint: disable=too-many-locals
     if deployment.stages:
@@ -545,8 +645,10 @@ def expected_missions(
         )
     names = list(_position_names(deployment.planes, capability.satellites).values())
     begin, end = deployment.begin, deployment.end
-    times = begin + (np.arange(steps) + 0.5) * (end - begin) / steps
-    count, groups = _launch_groups(deployment, failures, times)
+    count, groups = _launch_groups(deployment, model, _times(deployment, steps))
+    levels = _missing_levels(groups, count, tolerance)
+    if sum(math.comb(count, missing) for missing in range(levels + 1)) > max_sets:
+        raise ValueError("too many sets of satellites to enumerate: simulate histories")
     # availability: the expected years of operation of the positions, as a
     # share of those of the planned deployment
     operating = sum(
@@ -559,22 +661,13 @@ def expected_missions(
     availability = operating / planned if planned > 0 else math.nan
     # enumerate the sets by the number of positions missing
     weights: list[tuple[float, tuple[int, ...]]] = []
-    covered, enumerated = 0.0, 0
-    for missing in range(count + 1):
+    for missing in range(levels + 1):
         for gone in itertools.combinations(range(count), missing):
-            enumerated += 1
-            if enumerated > max_sets:
-                raise ValueError(
-                    "too many sets of satellites to enumerate: simulate histories"
-                )
             active = np.ones(count, dtype=bool)
             active[list(gone)] = False
             weight = _set_weight(active, groups)
             if weight > 0:
                 weights.append((weight, tuple(np.flatnonzero(active))))
-                covered += weight
-        if covered >= 1 - tolerance:
-            break
     weights.sort(key=lambda item: -item[0])
     totals: dict[str, float] = {}
     evaluated, sets = 0.0, 0

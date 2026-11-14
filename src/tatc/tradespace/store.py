@@ -99,8 +99,13 @@ class ResultStore:
     """
     A store of the records of the evaluations of a study (see `Study.run`),
     by the key of each design, its replicate, and the variant of the
-    replicate (`""`, or the parameters drawn as in other replicates, see
-    `Study.run`), in a SQLite database file.
+    replicate, in a SQLite database file. The variant of a plain replicate
+    is `""`; that of a replicate whose parameters are drawn as in other
+    replicates (see `Study.run`), or that is evaluated in a scenario (see
+    `Study`), names the shift and a hash of the overrides of the scenario
+    (by their content, not the scenario's name), so that the evaluations of
+    a scenario are those of any scenario of the same overrides, and a
+    scenario without overrides shares the evaluations of plain replicates.
 
     Records are also keyed by a `context`: a study gives its fingerprint
     (see `Study.fingerprint`), which changes with its seed, its use of
@@ -278,19 +283,26 @@ class ResultStore:
 
     def contexts(self) -> dict[str, int]:
         """
-        Gets the contexts of the namespace's stored evaluations, in the order
-        they were defined (see `define`; those not defined first).
+        Gets the contexts of the namespace: those of its stored evaluations
+        and of its kept definitions (see `define`, such as of a study whose
+        evaluations all failed), in the order they were defined (those not
+        defined first).
 
         Returns:
-            dict[str, int]: the number of evaluations of each context
+            dict[str, int]: the number of evaluations of each context (0 for
+                a definition without evaluations)
         """
         with closing(self._connect()) as connection:
             rows = connection.execute(
-                "SELECT r.context, COUNT(*) FROM results AS r LEFT JOIN definitions "
-                + "AS d ON d.namespace = r.namespace AND d.context = r.context "
-                + "WHERE r.namespace = ? GROUP BY r.context "
-                + "ORDER BY MIN(d.defined), MIN(d.rowid), r.context",
-                [self.namespace],
+                "SELECT c.context, COALESCE(r.evaluations, 0) FROM "
+                + "(SELECT context FROM results WHERE namespace = ? UNION "
+                + "SELECT context FROM definitions WHERE namespace = ?) AS c "
+                + "LEFT JOIN (SELECT context, COUNT(*) AS evaluations FROM results "
+                + "WHERE namespace = ? GROUP BY context) AS r ON r.context = c.context "
+                + "LEFT JOIN definitions AS d ON d.namespace = ? "
+                + "AND d.context = c.context "
+                + "ORDER BY d.defined, d.rowid, c.context",
+                [self.namespace] * 4,
             ).fetchall()
         return dict(rows)
 
@@ -301,8 +313,9 @@ class ResultStore:
         """
         Removes the stored records (and definitions) of contexts of the
         namespace, such as those of earlier definitions of a study (see
-        `Study.prune`, which removes those of the study with other code, and
-        not those of other studies that share the namespace).
+        `Study.prune`, which removes those of the study with other code,
+        also of definitions without records, and not those of other studies
+        that share the namespace).
 
         Args:
             contexts (str | Iterable[str]): The contexts.

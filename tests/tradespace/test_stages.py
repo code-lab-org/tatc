@@ -7,6 +7,7 @@ Unit tests for staged deployments.
 import dataclasses
 import unittest
 
+import numpy as np
 import pandas as pd
 
 from tatc.tradespace import (
@@ -20,7 +21,7 @@ from tatc.tradespace import (
     Stage,
     walker_space,
 )
-from tatc.tradespace.histories import expected_missions
+from tatc.tradespace.histories import exact_expectations
 from tatc.tradespace.mission import Capability, PhaseCache
 
 # three planes of two satellites
@@ -76,6 +77,10 @@ class TestStages(unittest.TestCase):
         self.assertEqual(launched[1], (decided + 2 / 4 + 3, "replacement"))
         self.assertEqual(history.operating[2, 0][0][0], decided + 2 / 4)
         self.assertEqual(history.metrics()["stages deployed"], 1.0)
+        # the first generation is deployed with the stage
+        self.assertEqual(history.deployed, decided + 2 / 4)
+        self.assertEqual(deployment.deployed, decided + 2 / 4)
+        self.assertLess(SCHEDULE.plan(_layout()).deployed, deployment.deployed)
 
     def test_sustained(self):
         """A deployed stage of a sustained constellation is replaced after the
@@ -103,6 +108,29 @@ class TestStages(unittest.TestCase):
         plain = SCHEDULE.plan(_layout())
         self.assertLess(COSTS.estimate(never).total, COSTS.estimate(plain).total)
         self.assertNotIn("stages deployed", plain.simulate().metrics())
+        self.assertEqual(never.deployed, history.deployed)
+
+    def test_cost_of_the_option(self):
+        """A type of satellite whose planes are all staged costs its
+        development, whether or not they are deployed: the cost of the option."""
+        plane = (
+            DesignSpace(layout=walker_space(inclination=60, planes=1, per_plane=2))
+            .enumerate()[0]
+            .layout
+        )
+        model = CostModel(
+            {
+                "a": SatelliteCost(development=10, first_unit=1),
+                "b": SatelliteCost(development=50, first_unit=1),
+            }
+        )
+        never = DeploymentSchedule(years=5, development_years=1).plan(
+            {"a": plane, "b": plane}, stages=[Stage(1, 0.0, lambda decision: False)]
+        )
+        estimate = model.estimate(never)
+        self.assertEqual(never.simulate().stages, [None])
+        self.assertEqual(estimate.units, {"a": 2})
+        self.assertEqual(estimate.development, 10 + 50)
 
     def test_decisions(self):
         """Rules decide at their times, until they deploy, from what is known."""
@@ -238,6 +266,12 @@ class TestStages(unittest.TestCase):
         cached(["s0", "s1"])
         cached(["s1", "s0"])
         self.assertEqual((cache.hits, cache.misses), (1, 1))
+        # which the cache gives by their keys (and the context)
+        keys = {"s0": "s0", "s1": "s1"}
+        self.assertEqual(cache.metrics_of(keys, OBSERVATIONS), {"observing": 2.0})
+        self.assertEqual((cache.hits, cache.misses), (2, 1))
+        cache.metrics_of(keys, OBSERVATIONS, context="other")
+        self.assertEqual((cache.hits, cache.misses), (2, 2))
 
     def test_lead_and_launches(self):
         """A lead time delays production, and launch capacity splits launches."""
@@ -245,7 +279,7 @@ class TestStages(unittest.TestCase):
             years=5, development_years=1, production_rate=4, launch_capacity=1
         )
         deployment = schedule.plan(
-            _layout(), spares=1, stages=[Stage(2, 1.0, lead_years=0.5)]
+            _layout(), orbit_spares=1, stages=[Stage(2, 1.0, lead_years=0.5)]
         )
         history = deployment.simulate()
         # the line is free by the end of the lead time
@@ -262,7 +296,7 @@ class TestStages(unittest.TestCase):
         """Exact expectations need a deployment that is not staged."""
         deployment = SCHEDULE.plan(_layout(), stages=[Stage(2, 1.0)])
         with self.assertRaises(ValueError):
-            expected_missions(
+            exact_expectations(
                 deployment,
                 FailureModel(life=Exponential(0.2)),
                 Capability([], None, len),
@@ -284,6 +318,16 @@ class TestStages(unittest.TestCase):
                     Stage(*arguments)
         with self.assertRaises(ValueError):
             Stage(1, lead_years=-1)
+
+    def test_numpy_values(self):
+        """Stages take integers and arrays of numpy as planes and times."""
+        stage = Stage(np.int64(1), np.float64(0.5))
+        self.assertEqual((stage.planes, stage.times), ((1,), (0.5,)))
+        stage = Stage(np.array([2, 1]), np.array([1.0, 0.0]))
+        self.assertEqual((stage.planes, stage.times), ((2, 1), (0.0, 1.0)))
+        self.assertEqual(Stage([1], range(3)).times, (0.0, 1.0, 2.0))
+        deployment = SCHEDULE.plan(_layout(), stages=[Stage(np.int64(2), 1.0)])
+        self.assertEqual(deployment.simulate().stages, [deployment.begin + 1.0])
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ import pandas as pd
 from tatc.tradespace import (
     Criteria,
     DesignSpace,
+    Infeasible,
     Integer,
     Quantile,
     Study,
@@ -64,8 +65,17 @@ class TestRefine(unittest.TestCase):
             rebuilt.results.drop(columns="seconds"),
         )
         self.assertEqual(
-            [d.key for d in rebuilt.designs], [d.key for d in self.designs]
+            [d.key for d in rebuilt.candidates], [d.key for d in self.designs]
         )
+        # the designs selected for the next step: the efficient designs
+        summary = rebuilt.summary
+        self.assertEqual(
+            [d.key for d in rebuilt.designs], list(summary.design[summary.pareto])
+        )
+        self.assertEqual(rebuilt.criteria, given.criteria)
+        # the evaluations added, over every round
+        self.assertEqual(rebuilt.evaluations, len(rebuilt.results) - len(self.results))
+        self.assertGreater(rebuilt.evaluations, 0)
         keys = [d.key for d in self.designs[:4]]
         some = refine(self.study, OBJECTIVES, self.results, keys)
         added = some.results.iloc[len(self.results) :]
@@ -146,7 +156,7 @@ class TestRefine(unittest.TestCase):
     def test_tolerance(self):
         """A tolerance settles designs that are within it of the front."""
         strict = pareto_probability(self.results, OBJECTIVES, n_resamples=300)
-        criteria = Criteria(OBJECTIVES, tolerance={"value": 2.0})
+        criteria = Criteria(OBJECTIVES, tolerances={"value": 2.0})
         tolerant = pareto_probability(self.results, criteria, n_resamples=300)
         # designs efficient for sure, of the better variant (within 2 of each other)
         self.assertGreater(
@@ -225,7 +235,7 @@ class TestRefine(unittest.TestCase):
         )
         designs = space.enumerate()
         results = study.run(designs)
-        criteria = Criteria(OBJECTIVES, tolerance={"value": 2.0})
+        criteria = Criteria(OBJECTIVES, tolerances={"value": 2.0})
 
         def refined(precision):
             refinement = refine(
@@ -284,7 +294,7 @@ class TestRefine(unittest.TestCase):
             }
         )
         # a tolerance of 10% of 100: precise below a standard error of 5
-        criteria = Criteria(OBJECTIVES, tolerance={"value": "10%"})
+        criteria = Criteria(OBJECTIVES, tolerances={"value": "10%"})
         np.testing.assert_array_equal(
             _precise(probability, criteria, 0.5), [True, False, False]
         )
@@ -294,3 +304,25 @@ class TestRefine(unittest.TestCase):
         np.testing.assert_array_equal(
             _precise(probability, Criteria(OBJECTIVES), 0.5), [False, False, False]
         )
+
+
+class TestRefineInfeasible(unittest.TestCase):
+    """
+    Unit tests for the refinement of results without a feasible design.
+    """
+
+    def test_no_feasible_design(self):
+        """Nothing is refined, and nothing is selected."""
+
+        def reject(design):
+            raise Infeasible("never")
+
+        study = Study(_study().space, reject, lambda built: built, replicates=2)
+        with self.assertWarnsRegex(UserWarning, "feasible"):
+            results = study.run(study.space.enumerate()[:4])
+        refinement = refine(study, OBJECTIVES, results, max_rounds=2, n_resamples=10)
+        self.assertTrue(refinement.summary.empty)
+        self.assertEqual(refinement.designs, [])
+        self.assertEqual(len(refinement.candidates), 4)
+        self.assertEqual(refinement.evaluations, 0)
+        self.assertEqual(len(refinement.results), len(results))

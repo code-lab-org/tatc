@@ -10,7 +10,9 @@ tolerances of the objectives, and the groups in which designs are judged
 separately. A mapping of objectives to their directions (`"min"` or
 `"max"`) is the criteria of these objectives alone. A design with a missing
 objective (`NaN`, such as a statistic of a metric that none of its feasible
-replicates gives) is not efficient, and dominates no other.
+replicates gives) is not efficient, and dominates no other. The probability
+that a design is efficient, given the uncertainty of its replicates, is that
+of `pareto_probability` (of the summaries of studies, see `aggregate`).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -26,21 +28,13 @@ from .criteria import (
     Criteria,
     Requirement,
     _as_criteria,
-    _bootstrap_error,
-    _check_summary,
-    _combiners,
     _costs_of,
     _get_tolerances,
-    _groups,
-    _judge,
-    _resamples,
-    _resolve,
     _signs,
-    _summary_groups,
     _violation_of,
-    aggregate,
 )
 from .dominance import _dominated, _efficient
+from .summary import _check_summary, _groups, aggregate
 
 
 def _get_costs(frame: pd.DataFrame, criteria: Criteria) -> np.ndarray:
@@ -111,7 +105,7 @@ def pareto_front(
     """
     criteria = _as_criteria(criteria)
     _check_summary(summary, criteria.by)
-    tolerances = _get_tolerances(criteria.objectives, criteria.tolerance)
+    tolerances = _get_tolerances(criteria.objectives, criteria.tolerances)
     efficient = np.zeros(len(summary), dtype=bool)
     for _, positions in _groups(summary, criteria.by):
         group = summary.iloc[positions]
@@ -148,7 +142,7 @@ def pareto_ranks(
     """
     criteria = _as_criteria(criteria)
     _check_summary(summary, criteria.by)
-    tolerances = _get_tolerances(criteria.objectives, criteria.tolerance)
+    tolerances = _get_tolerances(criteria.objectives, criteria.tolerances)
     ranks = np.full(len(summary), -1, dtype=int)
     for _, positions in _groups(summary, criteria.by):
         group = summary.iloc[positions]
@@ -298,109 +292,3 @@ def hypervolume_progress(
         name="hypervolume",
         dtype=float,
     )
-
-
-def pareto_probability(
-    results: pd.DataFrame,
-    criteria: Criteria | Mapping[str, str],
-    *,
-    n_resamples: int = 500,
-    seed: int = 0,
-    design_columns: Sequence[str] | None = None,
-) -> pd.DataFrame:
-    """
-    Estimates the probability that each design is Pareto-efficient by
-    criteria (and meets their requirements, if any), given the uncertainty
-    of its replicates, by a bootstrap: each resample draws replicates with
-    replacement, the same replicates for every design (which keeps the
-    correlation between designs of common random numbers, see
-    `Design.realize`), computes the statistics of each design over the drawn
-    replicates, and finds the front of the designs that meet the
-    requirements (in each group of the criteria's `by`). The probability is
-    the share of resamples in which a design is on that front.
-
-    Designs that are efficient with a probability between 0 and 1 are those
-    whose efficiency the replicates do not settle: more replicates (see
-    `refine`) would settle it, unless designs differ by less than matters (as
-    near saturation), which a tolerance of the objectives settles: designs
-    within the tolerances of the front are efficient (see `pareto_front`).
-    With few replicates, the bootstrap has few distinct resamples and
-    understates the uncertainty. Designs may have different replicates (as
-    after `refine`): replicates are drawn from all of them, and each design's
-    statistics are those of its drawn replicates (or of all of its
-    replicates, if none is drawn). With criteria `across` the scenarios of a
-    study (see `Across`), a drawn replicate is drawn in every scenario, in
-    which it has the same uncertain parameters.
-
-    Args:
-        results (pandas.DataFrame): The results of a study (see
-            `Study.run`), with a record per replicate of each design (and
-            group of the criteria's `by`). Infeasible results are ignored.
-        criteria (Criteria | Mapping[str, str]): The criteria, or the
-            objectives (metrics whose means they are) and their directions
-            (`"min"` or `"max"`).
-        n_resamples (int): The number of resamples (at least 2).
-        seed (int): The seed of the resamples.
-        design_columns (Sequence[str] | None): The columns of the values of
-            designs, or `None` for those that are the same in every
-            replicate of a design (see `aggregate`).
-
-    Returns:
-        pandas.DataFrame: a row per design (and group): the summary of the
-            criteria over every replicate (see `aggregate`: the values of the
-            design, the statistics, the number of `replicates`, the
-            `violation` of the requirements, whether the design meets them,
-            `meets_requirements`, and whether it is efficient among those
-            that do, `pareto`), the standard error of each objective
-            (`<objective> se`, its standard deviation over the resamples),
-            the probability that it is efficient (`pareto_probability`), and
-            the probability that it meets the requirements
-            (`requirements_probability`)
-    """
-    criteria = _as_criteria(criteria)
-    resolved = _resolve(criteria)
-    tolerances = _get_tolerances(criteria.objectives, criteria.tolerance)
-    combiners = None if criteria.across is None else _combiners(criteria)
-    rng = np.random.default_rng(seed)
-    frames = []
-    for frame, table in _summary_groups(
-        results,
-        resolved,
-        criteria.by,
-        criteria.requirements,
-        criteria.across,
-        combiners,
-        design_columns,
-    ):
-        values, violation = table.evaluate()
-        counts = np.zeros(len(table.designs))
-        met = np.zeros(len(table.designs))
-        # the sums of the objectives (and of their squares) over the resamples
-        sums = {name: np.zeros(len(table.designs)) for name in criteria.objectives}
-        squares = {name: np.zeros(len(table.designs)) for name in criteria.objectives}
-        for drawn in _resamples(len(table.replicates), n_resamples, rng):
-            sample, sample_violation = table.evaluate(drawn)
-            # designs without a drawn replicate keep the statistics of all of theirs
-            for name in sample:
-                missing = np.isnan(sample[name]) & ~np.isnan(values[name])
-                sample[name][missing] = values[name][missing]
-            missing = np.isnan(sample_violation)
-            sample_violation[missing] = violation[missing]
-            meets = sample_violation == 0
-            counts += _efficient(_costs_of(sample, criteria), meets, tolerances)
-            met += meets
-            for name in criteria.objectives:
-                sums[name] += sample[name]
-                squares[name] += sample[name] ** 2
-        for name, value in values.items():
-            frame[name] = value
-        for name in criteria.objectives:
-            frame[f"{name} se"] = _bootstrap_error(
-                sums[name], squares[name], n_resamples
-            )
-        frame["replicates"] = table.counts
-        _judge(frame, values, violation, criteria)
-        frame["pareto_probability"] = counts / n_resamples
-        frame["requirements_probability"] = met / n_resamples
-        frames.append(frame)
-    return pd.concat(frames, ignore_index=True)

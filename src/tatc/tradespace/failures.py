@@ -12,7 +12,8 @@ the probability that a launch fails, and a `RestorationPolicy` whether and
 how failed satellites are restored: by spares in orbit, by spares on the
 ground, or by satellites built when needed. A policy is a decision of a
 design with a fragment of a design space (`policy_space`), whose values
-configure it (see `configure`).
+configure it (see `configure`), as the policy of each design of a
+`MissionPlan` may be.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -322,7 +323,7 @@ class Piecewise(Lifetime):
 class FailureModel:
     """
     The failures of a mission: the life of the satellites (of every type, or
-    of each, by kind; `None` if they do not fail) and the probability that a
+    of each, by type; `None` if they do not fail) and the probability that a
     launch fails, losing its satellites.
 
     Args:
@@ -359,9 +360,12 @@ class RestorationPolicy:
     of their design life, if they are), or to restore them, from the fastest
     source available when the failure is known (`detection_years` after it):
 
-    * a spare in orbit in the failed satellite's plane (see the `spares` of
-      `DeploymentSchedule.plan`), which takes its place after
-      `drift_years`;
+    * a spare in orbit in the failed satellite's plane (`orbit_spares` in
+      each plane of every type, or of each, which a deployment plans: see
+      `DeploymentSchedule.plan`, and `MissionPlan`, which plans those of
+      the policy of each design), which takes its place after
+      `drift_years` (and is then replaced as planned, as the satellite it
+      replaces would have been);
     * a spare on the ground (`ground_spares` of each type, produced after
       the first satellites and stored), launched at the next launch slot;
     * a satellite produced when needed, `procurement_years` after it is
@@ -383,8 +387,11 @@ class RestorationPolicy:
             of a failed satellite.
         procurement_years (float): The time from ordering a satellite to the
             start of its production.
+        orbit_spares (int | Mapping[Any, int]): The spares in orbit in each
+            plane of every type of satellite, or of each (by type, every type
+            of the deployment), which the deployment plans.
         ground_spares (int | Mapping[Any, int]): The spares on the ground of
-            every type of satellite, or of each (by kind, every kind of the
+            every type of satellite, or of each (by type, every type of the
             deployment).
         replenish (bool): `True` to replace the spares that are used.
         batch_years (float): The time that restorations of a plane wait to
@@ -395,6 +402,7 @@ class RestorationPolicy:
     detection_years: float = 0.1
     drift_years: float = 0.25
     procurement_years: float = 0.0
+    orbit_spares: int | Mapping[Any, int] = 0
     ground_spares: int | Mapping[Any, int] = 0
     replenish: bool = False
     batch_years: float = 0.0
@@ -408,8 +416,21 @@ class RestorationPolicy:
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must not be negative")
-        if any(value < 0 for value in _per_type_values(self.ground_spares)):
-            raise ValueError("ground_spares must not be negative")
+        for name in ("orbit_spares", "ground_spares"):
+            if any(value < 0 for value in _per_type_values(getattr(self, name))):
+                raise ValueError(f"{name} must not be negative")
+
+    def orbit_spares_of(self, kind: Any) -> int:
+        """
+        Gets the spares in orbit in each plane of a type of satellite.
+
+        Args:
+            kind (Any): The type.
+
+        Returns:
+            int: the number of spares
+        """
+        return int(_per_type(self.orbit_spares, kind, "orbit spares"))
 
     def ground_spares_of(self, kind: Any) -> int:
         """
@@ -444,19 +465,25 @@ def policy_space(
     `RestorationPolicy`), for trades of their cost against their
     robustness: whether to `restore` failed satellites (by default a
     variable, `False` or `True`), the spares in orbit in each plane
-    (`orbit_spares`, which a deployment plans, see the `spares` of
+    (`orbit_spares`, which a deployment plans, see
     `DeploymentSchedule.plan`), the spares on the ground (`ground_spares`),
     whether to `replenish` used spares, and other fields of the policy (such
     as `drift_years`). Each is a node of a design space (such as a design
     variable) or a value.
 
-    A design's policy is configured from the values of the fragment, and its
-    deployment planned with their spares in orbit, as an `ObservationStudy`
-    does with a mission plan that names the fragment (`MissionPlan.policy`)::
+    A design's policy is configured from the values of the fragment (see
+    `configure`), and its deployment planned with its spares in orbit::
 
         policy = configure(BASE_POLICY, d.policy)
-        deployment = SCHEDULE.plan(d.layout, spares=d.policy.orbit_spares)
+        deployment = SCHEDULE.plan(d.layout, orbit_spares=policy.orbit_spares)
         history = deployment.simulate(FAILURE_MODEL, policy, d.failure_seed)
+
+    as an `ObservationStudy` does with a mission plan that names the
+    fragment (see `MissionPlan.policy`), whose values configure the default
+    policy (give the fields of a base policy to the fragment, or a function
+    of the design that configures it)::
+
+        PLAN = MissionPlan(SCHEDULE, COST_MODEL, policy="policy")
 
     Spares without restoration would never be used, so a constraint excludes
     them (unless `require_restoration` is `False`).

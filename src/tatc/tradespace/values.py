@@ -350,17 +350,29 @@ def configure(base: Any, values: Any = None, **overrides: Any) -> Any:
 
     Args:
         base (Any): The dataclass instance, whose other fields are kept.
-        values (Any): The values of a design (a `Values` or `ChoiceValues`
-            view, or a mapping), or `None`.
+        values (Any): The values of a design (a `Design`, a `Values` or
+            `ChoiceValues` view, or a mapping), or `None`.
         **overrides (Any): Other values of fields.
 
     Returns:
         Any: a copy of `base` with the values of its fields
+
+    Raises:
+        TypeError: if `base` is not a dataclass instance, or `values` are
+            not values of a design.
     """
     if not dataclasses.is_dataclass(base) or isinstance(base, type):
         raise TypeError("configure requires a dataclass instance")
     if isinstance(values, ChoiceValues):
         values = values.value
+    elif values is not None and not isinstance(values, Mapping):
+        # a design (see `Design.values`), whose module imports this one
+        view = getattr(values, "values", None)
+        if not isinstance(view, Values):
+            raise TypeError(
+                f"configure requires the values of a design, not {values!r}"
+            )
+        values = view
     names = {field.name for field in dataclasses.fields(base)}
     changes = {name: values[name] for name in (values or {}) if name in names}
     unknown = set(overrides) - names

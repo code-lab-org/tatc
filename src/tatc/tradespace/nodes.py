@@ -403,6 +403,20 @@ def _as_node(value: Any) -> Node:
     return value if isinstance(value, Node) else Fixed(value)
 
 
+class Group(Node):
+    """
+    Base class of groups of nodes (see `tatc.tradespace.DesignSpace`): its
+    children, by name, are decided in order, and its constraints are checked
+    once they are.
+    """
+
+    children: dict[str, Node]
+    """dict[str, Node]: The nodes, by name, in the order they are decided."""
+
+    constraints: list[Callable[[Scope], Any]]
+    """list[Callable]: The constraints on the values of the group."""
+
+
 class Choice(Node):
     """
     A choice of exactly one of several alternatives (branches), each a node

@@ -5,6 +5,7 @@ Unit tests for fingerprints of the definitions of trade studies.
 """
 
 import ast
+import functools
 import importlib
 import os
 import tempfile
@@ -75,13 +76,51 @@ def _uses_attribute(d):
 values = pd.DataFrame({"a": [1.0]})  # pylint: disable=invalid-name
 
 
-CACHES = {}
+class _Cache:
+    """State of the study's own, kept in an attribute (not described)."""
+
+    def __init__(self):
+        self.results = {}
+
+
+CACHE = _Cache()
 
 
 def _uses_cache(d):
-    if d not in CACHES:
-        CACHES[d] = object()
-    return CACHES[d]
+    if d not in CACHE.results:
+        CACHE.results[d] = object()
+    return CACHE.results[d]
+
+
+PAYLOAD = Instrument(name="imager", field_of_regard=30)
+INSTRUMENTS = {30: Instrument(name="a", field_of_regard=30)}
+SCORER = _Own(3)
+METRIC = partial(max, 3)
+
+
+def _uses_payload(d):
+    return PAYLOAD.field_of_regard * d
+
+
+def _uses_instruments(d):
+    return INSTRUMENTS[d]
+
+
+def _uses_scorer(d):
+    return SCORER.value * d
+
+
+def _uses_metric(d):
+    return METRIC(d)
+
+
+@functools.lru_cache(maxsize=None)
+def _cached(x):
+    return x * THRESHOLD
+
+
+def _uses_cached(d):
+    return _cached(d)
 
 
 def _uses_model(d):
@@ -215,10 +254,103 @@ class TestFingerprint(unittest.TestCase):
             TABLE = pd.DataFrame({"a": [1.0]})
 
     def test_global_state(self):
-        """Mutable globals (such as caches) do not change the fingerprint."""
+        """State in the attributes of objects (such as caches) does not change
+        the fingerprint, but global containers (such as of instruments) do."""
         before = get_fingerprint(_uses_cache)
         _uses_cache(1)
         self.assertEqual(before, get_fingerprint(_uses_cache))
+        global INSTRUMENTS  # pylint: disable=global-statement
+        before = get_fingerprint(_uses_instruments)
+        INSTRUMENTS = {30: Instrument(name="a", field_of_regard=45)}
+        try:
+            self.assertNotEqual(before, get_fingerprint(_uses_instruments))
+        finally:
+            INSTRUMENTS = {30: Instrument(name="a", field_of_regard=30)}
+
+    def test_globals_by_content(self):
+        """Globals are described as the values they are: models, objects of the
+        study's own classes, partial functions, and decorated functions."""
+        global THRESHOLD  # pylint: disable=global-statement
+        cases = [
+            ("PAYLOAD", _uses_payload, Instrument(name="imager", field_of_regard=60)),
+            ("SCORER", _uses_scorer, _Own(5)),
+            ("METRIC", _uses_metric, partial(max, 5)),
+        ]
+        for name, function, changed in cases:
+            with self.subTest(name=name):
+                original = globals()[name]
+                before = get_fingerprint(function)
+                globals()[name] = changed
+                try:
+                    self.assertNotEqual(before, get_fingerprint(function))
+                finally:
+                    globals()[name] = original
+        # a function that a decorator wraps, by the wrapped function's code
+        before = get_fingerprint(_uses_cached)
+        THRESHOLD = 5
+        try:
+            self.assertNotEqual(before, get_fingerprint(_uses_cached))
+        finally:
+            THRESHOLD = 4
+
+    def test_one_rule(self):
+        """A global is described as the same value given directly is."""
+        for name, function in (
+            ("PAYLOAD", _uses_payload),
+            ("INSTRUMENTS", _uses_instruments),
+            ("SCORER", _uses_scorer),
+            ("METRIC", _uses_metric),
+            ("TABLE", _uses_table),
+        ):
+            with self.subTest(name=name):
+                described = get_definition(f=function)["values"]["f"]["globals"]
+                given = get_definition(globals()[name])["values"]["0"]
+                self.assertEqual(described[name], given)
+
+    def test_versions(self):
+        """The same study with other code is found across versions of Python,
+        whose code orders, groups, and repeats constants differently, and a
+        study of other literals is not."""
+        # pylint: disable=protected-access
+        # the constants of the same function in Python 3.10 and 3.14
+        older = {
+            "code": "aa",
+            "constants": [
+                "target_hash",
+                0,
+                "sufficient",
+                "0.0",
+                100,
+                {"code": "bb", "constants": [1], "names": []},
+                "evaluate.<locals>.<listcomp>",
+                ["sufficient", "n"],
+                None,
+            ],
+            "names": ["groupby"],
+        }
+        newer = {
+            "code": "cc",
+            "constants": ["target_hash", "sufficient", "0.0", "n", 0, 100, 100, 1],
+            "names": ["groupby", "size"],
+        }
+        self.assertEqual(
+            fingerprint._without_code({"f": older}),
+            fingerprint._without_code({"f": newer}),
+        )
+        other = {**newer, "constants": [*newer["constants"], 4]}
+        self.assertNotEqual(
+            fingerprint._without_code({"f": older}),
+            fingerprint._without_code({"f": other}),
+        )
+        # of definitions
+        definition = {"values": {"f": newer}}
+        self.assertEqual(
+            fingerprint._with_other_code(
+                definition,
+                {"a": {"values": {"f": older}}, "b": None, "c": {"values": {}}},
+            ),
+            ["a"],
+        )
 
     def test_dataclasses(self):
         """Dataclasses, such as cost models, are described by their fields."""
@@ -425,6 +557,36 @@ class TestDescriptions(unittest.TestCase):
             finally:
                 sys.path.remove(directory)
                 sys.modules.pop("tatc_own_helpers", None)
+
+    def test_own_module_attributes(self):
+        """Functions and values of a module of the study's own that a function
+        reaches through the module are described as globals."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "tatc_own_attributes.py")
+            path.write_text(
+                "LIMIT = 2\n\ndef score(x):\n    return x * 1\n", encoding="utf-8"
+            )
+            sys.path.insert(0, directory)
+            try:
+                module = importlib.import_module("tatc_own_attributes")
+                calling = _function(
+                    "def f(x):\n    return helpers.score(x) + helpers.LIMIT\n",
+                    helpers=module,
+                )
+                before = get_fingerprint(f=calling)
+                described = get_definition(f=calling)["values"]["f"]["globals"]
+                self.assertEqual(
+                    set(described["helpers"]["attributes"]), {"score", "LIMIT"}
+                )
+                # (of another size, so that its compiled code is not reused)
+                path.write_text(
+                    "LIMIT = 2\n\ndef score(x):\n    return x * 20\n", encoding="utf-8"
+                )
+                importlib.reload(module)
+                self.assertNotEqual(before, get_fingerprint(f=calling))
+            finally:
+                sys.path.remove(directory)
+                sys.modules.pop("tatc_own_attributes", None)
 
 
 class TestOwnClasses(unittest.TestCase):

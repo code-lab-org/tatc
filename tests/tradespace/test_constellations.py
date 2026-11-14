@@ -9,6 +9,8 @@ from datetime import datetime, time, timezone
 
 import numpy as np
 
+import tatc.tradespace
+
 from tatc.schemas import (
     CircularOrbit,
     Instrument,
@@ -44,6 +46,7 @@ from tatc.tradespace.constellations import (
     remove_failures,
 )
 from tatc.tradespace.constellations import (
+    WALKER,
     Layouts,
     MOGLayout,
     SOCLayout,
@@ -96,7 +99,7 @@ class TestFragments(unittest.TestCase):
         self.assertTrue(all(count_satellites(d.layout) <= 4 for d in designs))
 
     def test_counts(self):
-        """Satellites and planes are counted for each kind of layout."""
+        """Satellites and planes are counted for each pattern of layout."""
         designs = _space().enumerate()
         walker = [d for d in designs if d.layout.choice == "walker"][-1]
         self.assertEqual(count_planes(walker.layout), walker.layout.planes)
@@ -720,7 +723,10 @@ class TestLayout(unittest.TestCase):
         self.assertEqual(planes[0].values.crossing, sso.layout.planes[0].crossing)
         self.assertIsNone(layout_of(walker.layout).planes()[0].values)
         with self.assertRaises(ValueError):
-            layout_of({"kind": "flower"})
+            layout_of({"pattern": "flower"})
+        # the values of a fragment name its pattern (not a type of satellite)
+        self.assertEqual(walker.layout.value.pattern, WALKER)
+        self.assertIs(tatc.tradespace.layout_of, layout_of)
 
     def test_walker_planes(self):
         """The satellites of a Walker layout follow each other plane by plane."""
