@@ -89,10 +89,10 @@ class TestPlaneSizes(unittest.TestCase):
         """Plane sizes of each layout, and of several."""
         walker = _walker(planes=2, per_plane=3)
         sso = _design(
-            layout=sso_planes_space(crossing=13.5, satellites=2, count=1)
+            layout=sso_planes_space(crossing=13.5, per_plane=2, planes=1)
         ).layout
         inclined = _design(
-            layout=planes_space(inclination=30.0, node=0.0, satellites=4, count=2)
+            layout=planes_space(inclination=30.0, node=0.0, per_plane=4, planes=2)
         ).layout
         self.assertEqual(plane_sizes(walker), [3, 3])
         self.assertEqual(plane_sizes(sso), [2])
@@ -177,7 +177,7 @@ class TestCostModel(unittest.TestCase):
         small = SatelliteCost(development=10, first_unit=1)
         model = CostModel({"large": self.satellite, "small": small})
         sso = _design(
-            layout=sso_planes_space(crossing=13.5, satellites=3, count=1)
+            layout=sso_planes_space(crossing=13.5, per_plane=3, planes=1)
         ).layout
         mixed = model.estimate(
             DeploymentSchedule().plan({"large": _walker(1, 2), "small": sso})
@@ -578,7 +578,7 @@ class TestComponents(unittest.TestCase):
             }
         )
         sso = _design(
-            layout=sso_planes_space(crossing=13.5, satellites=3, count=1)
+            layout=sso_planes_space(crossing=13.5, per_plane=3, planes=1)
         ).layout
         mixed = model.estimate(
             DeploymentSchedule().plan({"a": _walker(1, 2), "b": sso})
@@ -604,7 +604,7 @@ class TestGrowthByType(unittest.TestCase):
             operations=OperationsCost(per_year=1),
         )
         sso = _design(
-            layout=sso_planes_space(crossing=13.5, satellites=2, count=1)
+            layout=sso_planes_space(crossing=13.5, per_plane=2, planes=1)
         ).layout
         self.deployment = DeploymentSchedule().plan(
             {"narrow": _walker(1, 2), "wide": sso}

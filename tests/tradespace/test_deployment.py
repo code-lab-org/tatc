@@ -115,7 +115,7 @@ class TestPlan(unittest.TestCase):
         """Types are developed over their own durations, planes in an order."""
         schedule = DeploymentSchedule(development_years={"new": 5, "heritage": 2})
         sso = DesignSpace(
-            layout=sso_planes_space(crossing=Real(9, 12, step=3), satellites=1, count=2)
+            layout=sso_planes_space(crossing=Real(9, 12, step=3), per_plane=1, planes=2)
         )
         layout = sso.enumerate()[0].layout
         deployment = schedule.plan({"new": _walker(1, 2), "heritage": layout})

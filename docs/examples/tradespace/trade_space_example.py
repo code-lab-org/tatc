@@ -56,8 +56,8 @@ space = DesignSpace(
         ),
         sso=sso_planes_space(
             crossing=Real(6, 18, step=3),
-            satellites=Integer(1, 2),
-            count=Integer(1, 2),
+            planes=Integer(1, 2),
+            per_plane=Integer(1, 2),
         ),
     ),
     points_seed=Uncertain.seed(),
@@ -109,7 +109,7 @@ def describe(d):
         )
     else:
         planes = [
-            f"{d[f'layout.sso.planes[{k}].satellites']:.0f} at "
+            f"{d[f'layout.sso.planes[{k}].per_plane']:.0f} at "
             f"{d[f'layout.sso.planes[{k}].crossing']:02.0f}:00"
             for k in range(int(d["layout.sso.planes.count"]))
         ]

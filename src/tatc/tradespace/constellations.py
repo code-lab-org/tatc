@@ -2,10 +2,18 @@
 Building blocks of trade studies of constellations: fragments of design
 spaces for common constellation layouts (Walker constellations, planes of
 sun-synchronous orbits, and planes of inclined orbits, whose satellites are
-evenly spaced or follow each other in trains), a builder of the satellites of
+evenly spaced or follow each other in trains, streets-of-coverage
+constellations, and mutual orbiting groups), a builder of the satellites of
 a layout (or of several, such as the shells of a mixed constellation) with a
 payload (instruments, or entries of the instrument catalog), and counts of
 satellites and planes for objectives and constraints.
+
+The fragments share the names of their values: `planes` is the number of
+planes, `per_plane` the number of satellites in each plane, and
+`satellites` the number of satellites of a layout without planes (a mutual
+orbiting group); `inclination` and `node` are in degrees, and
+`phase_fraction` and `node_fraction` are fractions of the intervals over
+which the phase and node give distinct layouts.
 
 A fragment is a `DesignSpace` to place in a larger design space, for example
 as a branch of a `Choice` between layouts::
@@ -49,7 +57,9 @@ import numpy as np
 from ..schemas import (
     CircularOrbit,
     Instrument,
+    MOGConstellation,
     Satellite,
+    SOCConstellation,
     SunSynchronousOrbit,
     TrainConstellation,
     WalkerConstellation,
@@ -64,6 +74,10 @@ SSO_PLANES = "sso planes"
 """The kind of the layouts of `sso_planes_space`."""
 PLANES = "planes"
 """The kind of the layouts of `planes_space`."""
+SOC = "soc"
+"""The kind of the layouts of `soc_space`."""
+MOG = "mog"
+"""The kind of the layouts of `mog_space`."""
 
 
 def _node(value: Any, default: Any) -> Any:
@@ -159,7 +173,7 @@ def _lead_right_ascension(d: Scope) -> float:
 
 def _plane_true_anomaly(d: Scope) -> float:
     """The true anomaly (degrees) of the first satellite of a plane."""
-    period = 360 if d.interval is not None else 360 / d.satellites
+    period = 360 if d.interval is not None else 360 / d.per_plane
     return float(d.phase_fraction) * period % 360
 
 
@@ -172,8 +186,8 @@ def _distinct_crossings(d: Scope) -> bool:
 def sso_planes_space(
     *,
     crossing: Any = None,
-    satellites: Any = None,
-    count: Any = None,
+    planes: Any = None,
+    per_plane: Any = None,
     phase_fraction: Any = 0.0,
     interval: Any = None,
     altitude: Any = None,
@@ -188,10 +202,14 @@ def sso_planes_space(
     (see `tatc.schemas.SunSynchronousOrbit`), each with its own equator
     crossing time (local solar time, in hours), number of satellites,
     spacing of its satellites, and phase (see below), and (optionally, if not
-    given to
-    `build_constellation`) their altitude (meters). Each is a node of a
-    design space (such as a design variable, a value derived from the index
-    of the plane, or an uncertain parameter) or a value.
+    given to `build_constellation`) their altitude (meters). Each is a node
+    of a design space (such as a design variable, a value derived from the
+    index of the plane, or an uncertain parameter) or a value.
+
+    The planes are a `Repeat` named `planes`: the number of planes is its
+    `count` (in a design, `planes.count`), and the values of each plane
+    (`crossing`, `per_plane`, `interval`, `phase_fraction`, and the derived
+    `true_anomaly`) are its items (`planes[0].crossing`).
 
     The satellites of a plane are evenly spaced around its orbit if its
     `interval` is `None`, or follow each other in a train (see
@@ -207,7 +225,7 @@ def sso_planes_space(
 
     The phase of each plane is a fraction of the interval over which it
     gives distinct planes (as that of a Walker constellation, see
-    `walker_space`): `360 / satellites` degrees of true anomaly if its
+    `walker_space`): `360 / per_plane` degrees of true anomaly if its
     satellites are evenly spaced (a shift by which moves each onto the next),
     or 360 degrees if they are a train. Fractions in [0, 1) therefore give
     every distinct plane once, may be design variables or uncertain
@@ -224,11 +242,11 @@ def sso_planes_space(
     Args:
         crossing (Any): The crossing time of each plane, by default a variable
             from 6 to 18 hours in steps of 1.5.
-        satellites (Any): The number of satellites of each plane, by default a
-            variable from 1 to 4.
-        count (Any): The number of planes, by default a variable from 1 to 3.
+        planes (Any): The number of planes, by default a variable from 1 to 3.
+        per_plane (Any): The number of satellites in each plane, by default
+            a variable from 1 to 4.
         phase_fraction (Any): The phase of each plane, as a fraction of
-            `360 / satellites` degrees (evenly spaced) or 360 degrees (a
+            `360 / per_plane` degrees (evenly spaced) or 360 degrees (a
             train): an uncertain parameter, such as `Uncertain.uniform(0, 1)`,
             if it is not designed.
         interval (Any): The interval (minutes) between the satellites of a
@@ -247,7 +265,7 @@ def sso_planes_space(
     """
     plane = DesignSpace(
         crossing=_node(crossing, Real(6, 18, step=1.5)),
-        satellites=_node(satellites, Integer(1, 4)),
+        per_plane=_node(per_plane, Integer(1, 4)),
         interval=Fixed(None) if interval is None else interval,
         phase_fraction=phase_fraction,
         true_anomaly=Derived(_plane_true_anomaly),
@@ -256,7 +274,7 @@ def sso_planes_space(
         "kind": Fixed(SSO_PLANES),
         "ascending": ascending,
         "repeat_ground_track": repeat_ground_track,
-        "planes": Repeat(plane, count=_node(count, Integer(1, 3)), ordered=ordered),
+        "planes": Repeat(plane, count=_node(planes, Integer(1, 3)), ordered=ordered),
     }
     if altitude is not None:
         children["altitude"] = altitude
@@ -268,8 +286,8 @@ def planes_space(
     *,
     inclination: Any = None,
     node: Any = None,
-    satellites: Any = None,
-    count: Any = None,
+    planes: Any = None,
+    per_plane: Any = None,
     phase_fraction: Any = 0.0,
     interval: Any = None,
     altitude: Any = None,
@@ -283,10 +301,11 @@ def planes_space(
     node (right ascension of the ascending node at the epoch, degrees),
     number of satellites, spacing of its satellites (evenly spaced, or a
     train at an `interval`), and phase (a fraction, see `sso_planes_space`),
-    and (optionally, if not given to
-    `build_constellation`) their altitude (meters). Each is a node of a
-    design space (such as a design variable, a value derived from the index
-    of the plane, or an uncertain parameter) or a value.
+    and (optionally, if not given to `build_constellation`) their altitude
+    (meters). Each is a node of a design space (such as a design variable, a
+    value derived from the index of the plane, or an uncertain parameter) or
+    a value. The planes are a `Repeat` named `planes`, as those of
+    `sso_planes_space`.
 
     Unlike a Walker constellation, whose planes are evenly spaced in node,
     the planes may have any nodes and inclinations, as those of satellites
@@ -300,11 +319,11 @@ def planes_space(
             variable from 30 to 90 degrees in steps of 15.
         node (Any): The node of each plane, by default uncertain (uniform
             from 0 to 360 degrees).
-        satellites (Any): The number of satellites of each plane, by default a
-            variable from 1 to 4.
-        count (Any): The number of planes, by default a variable from 1 to 3.
+        planes (Any): The number of planes, by default a variable from 1 to 3.
+        per_plane (Any): The number of satellites in each plane, by default
+            a variable from 1 to 4.
         phase_fraction (Any): The phase of each plane, as a fraction of
-            `360 / satellites` degrees (evenly spaced) or 360 degrees (a
+            `360 / per_plane` degrees (evenly spaced) or 360 degrees (a
             train).
         interval (Any): The interval (minutes) between the satellites of a
             train in each plane, or `None` for evenly spaced satellites.
@@ -320,7 +339,7 @@ def planes_space(
     plane = DesignSpace(
         inclination=_node(inclination, Real(30, 90, step=15)),
         node=_node(node, Uncertain.uniform(0, 360)),
-        satellites=_node(satellites, Integer(1, 4)),
+        per_plane=_node(per_plane, Integer(1, 4)),
         interval=Fixed(None) if interval is None else interval,
         phase_fraction=phase_fraction,
         true_anomaly=Derived(_plane_true_anomaly),
@@ -328,10 +347,188 @@ def planes_space(
     children = {
         "kind": Fixed(PLANES),
         "repeat_ground_track": repeat_ground_track,
-        "planes": Repeat(plane, count=_node(count, Integer(1, 3)), ordered=ordered),
+        "planes": Repeat(plane, count=_node(planes, Integer(1, 3)), ordered=ordered),
     }
     if altitude is not None:
         children["altitude"] = altitude
+    return DesignSpace(constraints=constraints, **children)
+
+
+def _soc_of(values: Any, altitude: float, epoch: datetime | None = None):
+    """The streets-of-coverage constellation of the values of a layout (or of
+    a scope), at an altitude and (if given) an epoch."""
+    orbit = {
+        "altitude": altitude,
+        "inclination": values.inclination,
+        "true_anomaly": getattr(values, "true_anomaly", 0.0),
+        "right_ascension_ascending_node": getattr(values, "right_ascension", 0.0),
+    }
+    return SOCConstellation(
+        name="soc",
+        orbit=CircularOrbit(**orbit, **({} if epoch is None else {"epoch": epoch})),
+        swath_width=values.swath_width,
+        packing_distance=values.packing_distance,
+        polar=values.polar,
+    )
+
+
+def _soc_planes(d: Scope) -> int:
+    """The number of planes of a streets-of-coverage layout."""
+    return _soc_of(d, d.altitude).get_number_planes()
+
+
+def _soc_per_plane(d: Scope) -> int:
+    """The number of satellites in each plane of a streets-of-coverage
+    layout."""
+    return _soc_of(d, d.altitude).get_satellites_per_plane()
+
+
+def _soc_right_ascension(d: Scope) -> float:
+    """The right ascension of the ascending node (degrees) of the lead
+    satellite of a streets-of-coverage layout."""
+    period = 360 if _soc_of(d, d.altitude).is_polar() else 360 / d.planes
+    return float(d.node_fraction) * period % 360
+
+
+def soc_space(
+    *,
+    swath_width: Any,
+    inclination: Any = None,
+    packing_distance: Any = 1.0,
+    polar: Any = None,
+    altitude: Any = None,
+    phase_fraction: Any = 0.0,
+    node_fraction: Any = 0.0,
+    constraints: Sequence[Callable[[Scope], Any]] = (),
+) -> DesignSpace:
+    """
+    Gets a fragment of a design space of streets-of-coverage constellations
+    (see `tatc.schemas.SOCConstellation`): the fewest satellites whose
+    footprints (of a swath width, in meters) cover the Earth continuously at
+    an inclination (degrees), in a Walker delta pattern for inclined orbits
+    or the polar pattern for near-polar ones (`polar`, by default chosen by
+    the inclination), with a margin of overlap (`packing_distance`, 1 for
+    none). Each is a node of a design space (such as a design variable, or a
+    value derived from the instrument, as the swath width of the sensor of a
+    design) or a value.
+
+    The fragment derives its number of planes (`planes`) and of satellites
+    in each plane (`per_plane`) from them and the altitude (meters), which
+    therefore must be decided before them: a value of the fragment
+    (`altitude`), or of the design space outside it (declared before it),
+    the same as given to `build_constellation`.
+
+    The phase and node of the lead satellite are fractions, as those of a
+    Walker constellation (see `walker_space`): of `360 / per_plane` degrees
+    of phase, and of `360 / planes` degrees of node (inclined orbits) or 360
+    degrees (polar orbits, whose planes span 180 degrees). The fragment
+    derives the lead satellite's `true_anomaly` and `right_ascension`
+    (degrees) from them.
+
+    Args:
+        swath_width (Any): The swath width (meters) of the footprints.
+        inclination (Any): The inclination, by default a variable from 30 to
+            90 degrees in steps of 15.
+        packing_distance (Any): The relative distance between footprints
+            (inclined orbits) or the relative radius of the footprints (polar
+            orbits), in (0, 1]: less than 1 for a margin of overlap.
+        polar (Any): `True` for the polar pattern, `False` for the Walker
+            delta pattern, or `None` for the polar pattern of near-polar
+            orbits.
+        altitude (Any): The altitude, if part of the layout.
+        phase_fraction (Any): The phase of the lead satellite, as a fraction
+            of `360 / per_plane` degrees.
+        node_fraction (Any): The node of the lead satellite, as a fraction of
+            `360 / planes` degrees (inclined orbits) or 360 degrees (polar
+            orbits).
+        constraints (Sequence[Callable]): Constraints of the fragment (such
+            as a maximum of `planes * per_plane` satellites).
+
+    Returns:
+        DesignSpace: the fragment
+    """
+    children = {
+        "kind": Fixed(SOC),
+        "inclination": _node(inclination, Real(30, 90, step=15)),
+        "swath_width": swath_width,
+        "packing_distance": packing_distance,
+        "polar": Fixed(None) if polar is None else polar,
+        "phase_fraction": phase_fraction,
+        "node_fraction": node_fraction,
+    }
+    if altitude is not None:
+        children["altitude"] = altitude
+    children["planes"] = Derived(_soc_planes)
+    children["per_plane"] = Derived(_soc_per_plane)
+    children["true_anomaly"] = Derived(_lead_true_anomaly)
+    children["right_ascension"] = Derived(_soc_right_ascension)
+    return DesignSpace(constraints=constraints, **children)
+
+
+def _group_true_anomaly(d: Scope) -> float:
+    """The true anomaly (degrees) of the reference orbit of a mutual orbiting
+    group."""
+    return float(d.phase_fraction) * 360 % 360
+
+
+def mog_space(
+    *,
+    parallel_axis: Any,
+    transverse_axis: Any,
+    inclination: Any = None,
+    node: Any = 0.0,
+    satellites: Any = None,
+    clockwise: Any = True,
+    altitude: Any = None,
+    phase_fraction: Any = 0.0,
+    constraints: Sequence[Callable[[Scope], Any]] = (),
+) -> DesignSpace:
+    """
+    Gets a fragment of a design space of mutual orbiting groups (see
+    `tatc.schemas.MOGConstellation`): satellites that orbit each other (on
+    an ellipse with axes, in meters, parallel and transverse to the
+    velocity, clockwise or not) about a reference circular orbit of an
+    inclination and node (degrees), and (optionally, if not given to
+    `build_constellation`) altitude (meters). Each is a node of a design
+    space (such as a design variable) or a value.
+
+    The satellites of a group are launched together, as a single plane (of
+    `count_planes`), although the orbit of each has its own inclination and
+    node. The phase of the reference orbit is a fraction of 360 degrees,
+    from which the fragment derives its `true_anomaly` (degrees).
+
+    Args:
+        parallel_axis (Any): The axis (meters) of the mutual orbit parallel
+            to the velocity.
+        transverse_axis (Any): The axis (meters) of the mutual orbit
+            transverse to the velocity.
+        inclination (Any): The inclination of the reference orbit, by default
+            a variable from 30 to 90 degrees in steps of 15.
+        node (Any): The node of the reference orbit.
+        satellites (Any): The number of satellites, by default a variable
+            from 2 to 6.
+        clockwise (Any): Whether the mutual orbit is clockwise.
+        altitude (Any): The altitude, if part of the layout.
+        phase_fraction (Any): The phase of the reference orbit, as a fraction
+            of 360 degrees.
+        constraints (Sequence[Callable]): Constraints of the fragment.
+
+    Returns:
+        DesignSpace: the fragment
+    """
+    children = {
+        "kind": Fixed(MOG),
+        "inclination": _node(inclination, Real(30, 90, step=15)),
+        "node": node,
+        "satellites": _node(satellites, Integer(2, 6)),
+        "parallel_axis": parallel_axis,
+        "transverse_axis": transverse_axis,
+        "clockwise": clockwise,
+        "phase_fraction": phase_fraction,
+    }
+    if altitude is not None:
+        children["altitude"] = altitude
+    children["true_anomaly"] = Derived(_group_true_anomaly)
     return DesignSpace(constraints=constraints, **children)
 
 
@@ -354,10 +551,11 @@ class Layout:
     """
     The satellites of a constellation, plane by plane: a Walker
     constellation (`WalkerLayout`), planes of sun-synchronous orbits
-    (`SSOPlanesLayout`) or of inclined orbits (`PlanesLayout`), or several
-    layouts flown together (`Layouts`). `layout_of` gets the layout of the
-    values of a design (of `walker_space`, `sso_planes_space`, or
-    `planes_space`). The functions of layouts (`build_constellation`,
+    (`SSOPlanesLayout`) or of inclined orbits (`PlanesLayout`), a
+    streets-of-coverage constellation (`SOCLayout`), a mutual orbiting group
+    (`MOGLayout`), or several layouts flown together (`Layouts`). `layout_of`
+    gets the layout of the values of a design (of a fragment such as
+    `walker_space`). The functions of layouts (`build_constellation`,
     `count_satellites`, `count_planes`, `plane_sizes`, and
     `DeploymentSchedule.plan`) take either.
 
@@ -524,7 +722,7 @@ class _PlanesLayout(Layout):
         self.values = values
 
     def planes(self) -> list[Plane]:
-        return [Plane(int(plane.satellites), plane) for plane in self.values.planes]
+        return [Plane(int(plane.per_plane), plane) for plane in self.values.planes]
 
     def _orbit(self, plane: Any, epoch: datetime, altitude: float, anomaly: float):
         """Gets the orbit of a satellite of a plane at a true anomaly."""
@@ -581,6 +779,85 @@ class PlanesLayout(_PlanesLayout):
         )
 
 
+class SOCLayout(Layout):
+    """
+    A streets-of-coverage constellation (see
+    `tatc.schemas.SOCConstellation`): the values of `soc_space` in a design,
+    whose planes and satellites in each plane it derived at the altitude of
+    the design. Its satellites are named `"<name> <k>"`, in order.
+
+    Args:
+        values (Values): The values of the layout.
+    """
+
+    def __init__(self, values: Any):
+        self.values = values
+
+    def planes(self) -> list[Plane]:
+        return [Plane(int(self.values.per_plane))] * int(self.values.planes)
+
+    def orbits(self, epoch: datetime, altitude: float | None = None) -> list[list[Any]]:
+        values = self.values
+        soc = _soc_of(values, _get_altitude(values, altitude), epoch)
+        members = soc.generate_members()
+        size, planes = int(values.per_plane), int(values.planes)
+        if len(members) != size * planes:
+            raise ValueError(
+                "the altitude of a streets-of-coverage layout must be the one "
+                + "its planes were derived at"
+            )
+        # the members of each plane follow each other
+        return [
+            [member.orbit for member in members[p * size : (p + 1) * size]]
+            for p in range(planes)
+        ]
+
+    def names(self, name: str) -> list[list[str]]:
+        size = int(self.values.per_plane)
+        return [
+            [f"{name} {p * size + s + 1}" for s in range(size)]
+            for p in range(int(self.values.planes))
+        ]
+
+
+class MOGLayout(Layout):
+    """
+    A mutual orbiting group (see `tatc.schemas.MOGConstellation`): the
+    values of `mog_space` in a design, a single plane (launched together).
+    Its satellites are named `"<name> <k>"`, in order.
+
+    Args:
+        values (Values): The values of the layout.
+    """
+
+    def __init__(self, values: Any):
+        self.values = values
+
+    def planes(self) -> list[Plane]:
+        return [Plane(int(self.values.satellites))]
+
+    def orbits(self, epoch: datetime, altitude: float | None = None) -> list[list[Any]]:
+        values = self.values
+        members = MOGConstellation(
+            name="mog",
+            orbit=CircularOrbit(
+                altitude=_get_altitude(values, altitude),
+                inclination=values.inclination,
+                right_ascension_ascending_node=float(values.node) % 360,
+                true_anomaly=getattr(values, "true_anomaly", 0.0),
+                epoch=epoch,
+            ),
+            parallel_axis=values.parallel_axis,
+            transverse_axis=values.transverse_axis,
+            clockwise=bool(values.clockwise),
+            number_satellites=int(values.satellites),
+        ).generate_members()
+        return [[member.orbit for member in members]]
+
+    def names(self, name: str) -> list[list[str]]:
+        return [[f"{name} {s + 1}" for s in range(int(self.values.satellites))]]
+
+
 class Layouts(Layout):
     """
     Several layouts flown together (such as the shells of a mixed
@@ -613,16 +890,22 @@ class Layouts(Layout):
         ]
 
 
-_KINDS = {WALKER: WalkerLayout, SSO_PLANES: SSOPlanesLayout, PLANES: PlanesLayout}
+_KINDS = {
+    WALKER: WalkerLayout,
+    SSO_PLANES: SSOPlanesLayout,
+    PLANES: PlanesLayout,
+    SOC: SOCLayout,
+    MOG: MOGLayout,
+}
 """The layouts of the kinds of the fragments of design spaces."""
 
 
 def layout_of(layout: Any) -> Layout:
     """
-    Gets the layout of the values of a design: those of `walker_space`,
-    `sso_planes_space`, or `planes_space` (or of a choice of them), or of
-    several (a list or a repetition of layouts, see `Layouts`). A layout is
-    its own.
+    Gets the layout of the values of a design: those of a fragment
+    (`walker_space`, `sso_planes_space`, `planes_space`, `soc_space`, or
+    `mog_space`, or of a choice of them), or of several (a list or a
+    repetition of layouts, see `Layouts`). A layout is its own.
 
     Args:
         layout (Any): The values of the layout (or layouts), or a layout.
@@ -643,17 +926,16 @@ def layout_of(layout: Any) -> Layout:
     if not isinstance(kind, str) or kind not in _KINDS:
         raise ValueError(
             "a layout must be the values of walker_space, sso_planes_space, "
-            + "or planes_space, or a Layout"
+            + "planes_space, soc_space, or mog_space, or a Layout"
         )
     return _KINDS[kind](layout)
 
 
 def count_satellites(layout: Any) -> int:
     """
-    Counts the satellites of a layout (the values of `walker_space`,
-    `sso_planes_space`, or `planes_space`, or of a choice of them, or of
-    several, or a `Layout`, see `layout_of`), for objectives and
-    constraints.
+    Counts the satellites of a layout (the values of a fragment such as
+    `walker_space`, or of a choice of them, or of several, or a `Layout`,
+    see `layout_of`), for objectives and constraints.
 
     Args:
         layout (Any): The values of the layout (or layouts), or a layout.
@@ -666,10 +948,9 @@ def count_satellites(layout: Any) -> int:
 
 def count_planes(layout: Any) -> int:
     """
-    Counts the orbit planes of a layout (the values of `walker_space`,
-    `sso_planes_space`, or `planes_space`, or of a choice of them, or of
-    several, or a `Layout`, see `layout_of`), each of which needs its own
-    launch.
+    Counts the orbit planes of a layout (the values of a fragment such as
+    `walker_space`, or of a choice of them, or of several, or a `Layout`,
+    see `layout_of`), each of which needs its own launch.
 
     Args:
         layout (Any): The values of the layout (or layouts), or a layout.
@@ -683,8 +964,8 @@ def count_planes(layout: Any) -> int:
 def plane_sizes(layout: Any) -> list[int]:
     """
     Gets the number of satellites of each orbit plane of a layout (the
-    values of `walker_space`, `sso_planes_space`, or `planes_space`, or of a
-    choice of them, or of several, or a `Layout`, see `layout_of`).
+    values of a fragment such as `walker_space`, or of a choice of them, or
+    of several, or a `Layout`, see `layout_of`).
 
     Args:
         layout (Any): The values of the layout (or layouts), or a layout.
@@ -761,7 +1042,7 @@ def _plane_orbits(
     anomaly.
     """
     interval = getattr(plane, "interval", None)
-    count = int(plane.satellites)
+    count = int(plane.per_plane)
     if interval is None:
         return [
             make((plane.true_anomaly + 360 * s / count) % 360) for s in range(count)
@@ -793,10 +1074,10 @@ def build_constellation(
     time_step: float | None = None,
 ) -> list[Satellite]:
     """
-    Builds the satellites of a layout: the values of `walker_space`,
-    `sso_planes_space`, or `planes_space` in a design (or of a choice of
-    them), or a `Layout` (see `layout_of`), at the layout's altitude (or the
-    given one), each with a payload:
+    Builds the satellites of a layout: the values of a fragment (such as
+    `walker_space`) in a design (or of a choice of them), or a `Layout` (see
+    `layout_of`), at the layout's altitude (or the given one), each with a
+    payload:
 
     * an `Instrument` (or a list of instruments);
     * the identifier of an entry of the instrument catalog (see
@@ -808,9 +1089,10 @@ def build_constellation(
       together (with the attitude of the first);
     * a function of a name and an orbit that builds a satellite.
 
-    Satellites of Walker constellations are named `"<name> <k>"`, and
-    those of planes `"<name> <p>-<s>"` (plane `p`, satellite `s`), in the
-    order of the planes (see `Layout`).
+    Satellites of Walker and streets-of-coverage constellations and of
+    mutual orbiting groups are named `"<name> <k>"`, and those of planes
+    `"<name> <p>-<s>"` (plane `p`, satellite `s`), in the order of the
+    planes (see `Layout`).
 
     Several layouts (a list or a repetition of layouts, such as the shells
     of a mixed constellation, see `Layouts`) are built in turn, with the

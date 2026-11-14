@@ -26,7 +26,9 @@ from .constellations import (
     build_constellation,
     count_planes,
     count_satellites,
+    mog_space,
     planes_space,
+    soc_space,
     sso_planes_space,
     walker_space,
 )
@@ -115,8 +117,10 @@ __all__ = [
     "build_constellation",
     "count_planes",
     "count_satellites",
+    "mog_space",
     "planes_space",
     "policy_space",
+    "soc_space",
     "sso_planes_space",
     "walker_space",
     # studies

@@ -9,7 +9,13 @@ from datetime import datetime, time, timezone
 
 import numpy as np
 
-from tatc.schemas import CircularOrbit, Instrument, Satellite
+from tatc.schemas import (
+    CircularOrbit,
+    Instrument,
+    MOGConstellation,
+    Satellite,
+    SOCConstellation,
+)
 from tatc.tradespace import (
     Categorical,
     Choice,
@@ -23,7 +29,9 @@ from tatc.tradespace import (
     build_constellation,
     count_planes,
     count_satellites,
+    mog_space,
     planes_space,
+    soc_space,
     sso_planes_space,
     walker_space,
 )
@@ -35,7 +43,13 @@ from tatc.tradespace.constellations import (
     plane_sizes,
     remove_failures,
 )
-from tatc.tradespace.constellations import Layouts, SSOPlanesLayout, WalkerLayout
+from tatc.tradespace.constellations import (
+    Layouts,
+    MOGLayout,
+    SOCLayout,
+    SSOPlanesLayout,
+    WalkerLayout,
+)
 
 EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
 IMAGER = Instrument(name="imager", field_of_regard=60)
@@ -52,8 +66,8 @@ def _space():
             ),
             sso=sso_planes_space(
                 crossing=Real(9, 15, step=3),
-                satellites=Integer(1, 2),
-                count=Integer(1, 2),
+                planes=Integer(1, 2),
+                per_plane=Integer(1, 2),
             ),
         ),
         constraints=[lambda d: count_satellites(d.layout) - 4],
@@ -132,8 +146,8 @@ class TestBuild(unittest.TestCase):
         space = DesignSpace(
             layout=sso_planes_space(
                 crossing=13.5,
-                satellites=4,
-                count=1,
+                per_plane=4,
+                planes=1,
                 phase_fraction=Uncertain.uniform(0, 1),
                 altitude=700e3,
             ),
@@ -155,11 +169,11 @@ class TestBuild(unittest.TestCase):
     def test_derived_planes(self):
         """Plane values may be derived from their index and enclosing values."""
         space = DesignSpace(
-            per_plane=Integer(1, 2),
+            size=Integer(1, 2),
             layout=sso_planes_space(
                 crossing=Derived(lambda d: (13.5 + 12 * d.index / d.planes.count) % 24),
-                satellites=Derived(lambda d: d.per_plane),
-                count=Integer(1, 3),
+                planes=Integer(1, 3),
+                per_plane=Derived(lambda d: d.size),
                 ordered=True,
             ),
         )
@@ -167,7 +181,7 @@ class TestBuild(unittest.TestCase):
         satellites = build_constellation(
             design.layout, IMAGER, epoch=EPOCH, altitude=830e3
         )
-        self.assertEqual(len(satellites), 3 * design.per_plane)
+        self.assertEqual(len(satellites), 3 * design.size)
         times = sorted({s.orbit.equator_crossing_time for s in satellites})
         self.assertEqual(times, [time(13, 30), time(17, 30), time(21, 30)])
 
@@ -175,7 +189,7 @@ class TestBuild(unittest.TestCase):
         """Catalog entries are built with their validated attitude."""
         space = DesignSpace(
             sounder=Categorical(["atms", "cris"]),
-            layout=sso_planes_space(crossing=13.5, satellites=1, count=1),
+            layout=sso_planes_space(crossing=13.5, per_plane=1, planes=1),
         )
         design = space.enumerate()[0]
         satellite = build_constellation(
@@ -356,7 +370,7 @@ class TestTrains(unittest.TestCase):
 
     def _build(self, **kwargs):
         space = DesignSpace(
-            layout=sso_planes_space(crossing=13.5, satellites=3, count=1, **kwargs)
+            layout=sso_planes_space(crossing=13.5, per_plane=3, planes=1, **kwargs)
         )
         return build_constellation(
             _single(space).layout, IMAGER, epoch=EPOCH, altitude=700e3
@@ -405,7 +419,7 @@ class TestTrains(unittest.TestCase):
         """The interval is a design variable that may be evenly spaced."""
         space = DesignSpace(
             layout=sso_planes_space(
-                crossing=13.5, satellites=2, count=1, interval=Categorical([None, 5])
+                crossing=13.5, per_plane=2, planes=1, interval=Categorical([None, 5])
             )
         )
         designs = space.enumerate()
@@ -428,7 +442,7 @@ class TestPlanes(unittest.TestCase):
     def test_uncertain_nodes(self):
         """Nodes are uncertain by default, drawn for each replicate."""
         space = DesignSpace(
-            layout=planes_space(inclination=30.0, satellites=2, count=Integer(1, 3)),
+            layout=planes_space(inclination=30.0, per_plane=2, planes=Integer(1, 3)),
             constraints=[lambda d: count_satellites(d.layout) <= 4],
         )
         designs = space.enumerate()
@@ -453,8 +467,8 @@ class TestPlanes(unittest.TestCase):
             layout=planes_space(
                 inclination=Real(30, 60, step=30),
                 node=Real(0, 90, step=90),
-                satellites=2,
-                count=1,
+                per_plane=2,
+                planes=1,
                 interval=5,
                 repeat_ground_track=False,
             )
@@ -470,6 +484,140 @@ class TestPlanes(unittest.TestCase):
         self.assertEqual({s.orbit.inclination for s in satellites}, {60})
 
 
+class TestStreetsOfCoverage(unittest.TestCase):
+    """
+    Unit tests for streets-of-coverage layouts.
+    """
+
+    def test_derived_planes(self):
+        """The planes and satellites in each are those of the constellation."""
+        space = DesignSpace(
+            layout=soc_space(swath_width=4000e3, inclination=60.0, altitude=700e3)
+        )
+        (design,) = space.enumerate()
+        soc = SOCConstellation(
+            name="soc",
+            orbit=CircularOrbit(altitude=700e3, inclination=60, epoch=EPOCH),
+            swath_width=4000e3,
+            packing_distance=1,
+        )
+        self.assertEqual(design.layout.planes, soc.get_number_planes())
+        self.assertEqual(design.layout.per_plane, soc.get_satellites_per_plane())
+        self.assertIsInstance(layout_of(design.layout), SOCLayout)
+        satellites = build_constellation(design.layout, IMAGER, epoch=EPOCH)
+        self.assertEqual(_orbits(satellites), _orbits(soc.generate_members()))
+        self.assertEqual(satellites[0].name, "satellite 1")
+        self.assertEqual(count_planes(design.layout), design.layout.planes)
+        self.assertEqual(
+            plane_sizes(design.layout), [design.layout.per_plane] * design.layout.planes
+        )
+
+    def test_altitude_outside(self):
+        """The altitude may be decided outside the fragment, before it."""
+        space = DesignSpace(
+            altitude=Real(500e3, 1000e3, step=500e3),
+            layout=soc_space(swath_width=6000e3, inclination=90.0),
+        )
+        low, high = space.enumerate()
+        self.assertGreater(count_satellites(low.layout), count_satellites(high.layout))
+        satellites = build_constellation(
+            high.layout, IMAGER, epoch=EPOCH, altitude=high.altitude
+        )
+        self.assertEqual(len(satellites), count_satellites(high.layout))
+        # the satellites of the planes derived at another altitude do not fit
+        with self.assertRaises(ValueError):
+            build_constellation(high.layout, IMAGER, epoch=EPOCH, altitude=500e3)
+
+    def test_constraints(self):
+        """Constraints of the fragment limit the satellites it derives."""
+        space = DesignSpace(
+            layout=soc_space(
+                swath_width=Categorical([4000e3, 6000e3]),
+                inclination=90.0,
+                altitude=1000e3,
+                constraints=[lambda d: d.planes * d.per_plane <= 50],
+            )
+        )
+        (design,) = space.enumerate()
+        self.assertEqual(design.layout.swath_width, 6000e3)
+
+    def test_fractions(self):
+        """The node of the lead satellite of polar planes is of 360 degrees."""
+        for inclination, polar in [(60.0, False), (90.0, True)]:
+            space = DesignSpace(
+                layout=soc_space(
+                    swath_width=6000e3,
+                    inclination=inclination,
+                    altitude=1000e3,
+                    phase_fraction=0.5,
+                    node_fraction=0.5,
+                )
+            )
+            (design,) = space.enumerate()
+            layout = design.layout
+            self.assertAlmostEqual(layout.true_anomaly, 180 / layout.per_plane)
+            self.assertAlmostEqual(
+                layout.right_ascension, 180 if polar else 180 / layout.planes
+            )
+            satellites = build_constellation(layout, IMAGER, epoch=EPOCH)
+            self.assertAlmostEqual(
+                satellites[0].orbit.right_ascension_ascending_node,
+                layout.right_ascension,
+            )
+
+
+class TestMutualOrbitingGroup(unittest.TestCase):
+    """
+    Unit tests for mutual orbiting groups.
+    """
+
+    def test_build(self):
+        """A group is a single plane of the satellites of the constellation."""
+        space = DesignSpace(
+            layout=mog_space(
+                parallel_axis=100e3,
+                transverse_axis=50e3,
+                inclination=60.0,
+                node=30.0,
+                satellites=3,
+                phase_fraction=0.25,
+                altitude=500e3,
+            )
+        )
+        (design,) = space.enumerate()
+        self.assertEqual(design.layout.true_anomaly, 90)
+        self.assertIsInstance(layout_of(design.layout), MOGLayout)
+        satellites = build_constellation(design.layout, IMAGER, epoch=EPOCH)
+        mog = MOGConstellation(
+            name="mog",
+            orbit=CircularOrbit(
+                altitude=500e3,
+                inclination=60,
+                right_ascension_ascending_node=30,
+                true_anomaly=90,
+                epoch=EPOCH,
+            ),
+            parallel_axis=100e3,
+            transverse_axis=50e3,
+            number_satellites=3,
+        )
+        self.assertEqual(
+            [s.orbit for s in satellites], [m.orbit for m in mog.generate_members()]
+        )
+        self.assertEqual(
+            [s.name for s in satellites], ["satellite 1", "satellite 2", "satellite 3"]
+        )
+        self.assertEqual(count_satellites(design.layout), 3)
+        self.assertEqual(count_planes(design.layout), 1)
+
+    def test_defaults(self):
+        """By default, the inclination and number of satellites are designed."""
+        space = DesignSpace(
+            layout=mog_space(parallel_axis=100e3, transverse_axis=50e3, altitude=500e3)
+        )
+        self.assertEqual(space.size(), 5 * 5)
+
+
 class TestMixedLayouts(unittest.TestCase):
     """
     Unit tests for constellations of several layouts.
@@ -482,7 +630,7 @@ class TestMixedLayouts(unittest.TestCase):
                 inclination=65.0, planes=1, per_plane=2, relative_spacing=0
             ),
             polar=sso_planes_space(
-                crossing=13.5, satellites=1, count=2, distinct=False
+                crossing=13.5, per_plane=1, planes=2, distinct=False
             ),
         )
         design = _single(space)
@@ -503,7 +651,7 @@ class TestMixedLayouts(unittest.TestCase):
                     walker=walker_space(
                         inclination=65.0, planes=1, per_plane=2, relative_spacing=0
                     ),
-                    sso=sso_planes_space(crossing=13.5, satellites=1, count=1),
+                    sso=sso_planes_space(crossing=13.5, per_plane=1, planes=1),
                 ),
                 count=Integer(1, 2),
             )
