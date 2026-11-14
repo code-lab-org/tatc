@@ -23,19 +23,12 @@ The following provide examples of TAT-C use in a Jupyter notebook environment.
   AssessSamplingSufficiency.ipynb
   RunOSSEMonsoon.ipynb
   RunOSSEHurricane.ipynb
-  SearchTradeSpace.ipynb
-  RankUncertainDesigns.ipynb
-  CompareScenarios.ipynb
-  TradeCostAndUtility.ipynb
-  PlanMissions.ipynb
+  tradespace/index
 
 Note that running the above examples in a local Python environment requires additional dependencies which can be installed via::
 
   pip install tatc[examples]
 
-using the pip package manager. The AssessSamplingSufficiency example also requires xarray (``pip install xarray``) for its nature run. The trade space examples also require::
+using the pip package manager. The AssessSamplingSufficiency example also requires xarray (``pip install xarray``) for its nature run. The trade space tutorial also requires::
 
   pip install tatc[tradespace]
-
-The trade space examples after the first (SearchTradeSpace) import its design space and study from
-``trade_space_example.py``, beside the notebooks.

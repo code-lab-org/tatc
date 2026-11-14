@@ -5,8 +5,8 @@ Trade Space
 .. automodule:: tatc.tradespace
    :no-members:
 
-The examples :doc:`../../examples/SearchTradeSpace` and the notebooks that
-follow it show each step on a study of the observations of constellations.
+The :doc:`../../examples/tradespace/index` shows each step on a study of the
+observations of constellations, one step at a time.
 
 Steps of a Trade Study
 ======================
