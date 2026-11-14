@@ -34,7 +34,6 @@ Weights for random points can be read from a GeoTIFF raster with
 Rotated Lattice
 ---------------
 
-.. autofunction:: tatc.generation.generate_points_rotated_lattice
 
 Cells
 =====

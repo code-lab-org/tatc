@@ -55,7 +55,7 @@ class Targets:
     """
     The targets of observations (such as points): fixed (a data frame), or
     generated in each replicate by a function (such as
-    `tatc.generation.generate_points_rotated_lattice`) given the `arguments`
+    `tatc.generation.generate_points_fibonacci_lattice`) given the `arguments`
     and `keywords`, and a seed that is a value of the design (as its keyword
     `seed`, such as of `Uncertain.seed`), so that each replicate samples
     other targets. Generated targets are kept in memory by seed.
@@ -473,7 +473,7 @@ class ObservationStudy(Study):
         study = ObservationStudy(
             space,
             build,  # the satellites of a design
-            Observations(Targets(generate_points_rotated_lattice, 100, seed="seed"), START, DAY),
+            Observations(Targets(generate_points_fibonacci_lattice, count=100, rotate=True, seed="seed"), START, DAY),
             sample,  # the metrics of observations
             plan=MissionPlan(SCHEDULE, COST_MODEL),
             phases=True,

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from tatc.analysis import estimate_sampling_error
-from tatc.generation import generate_points_rotated_lattice
+from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import Instrument
 from tatc.tradespace import (
     Categorical,
@@ -84,7 +84,9 @@ def count_samples(observations, duration=DURATION):
 
 CACHE_DIRECTORY = Path(tempfile.gettempdir()) / "tatc-trade-space"
 # the points of each replicate: a lattice in a random orientation, from its seed
-TARGETS = Targets(generate_points_rotated_lattice, N_POINTS, seed="points_seed")
+TARGETS = Targets(
+    generate_points_fibonacci_lattice, count=N_POINTS, rotate=True, seed="points_seed"
+)
 OBSERVATIONS = Observations(TARGETS, START, DURATION, directory=CACHE_DIRECTORY)
 
 study = ObservationStudy(

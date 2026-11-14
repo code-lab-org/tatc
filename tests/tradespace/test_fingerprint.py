@@ -24,7 +24,7 @@ import pandas as pd
 from shapely.geometry import Point, box
 
 from tatc.analysis import collect_observations
-from tatc.generation import generate_points_rotated_lattice
+from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import Instrument
 from tatc.tradespace import fingerprint
 from tatc.tradespace import (
@@ -216,12 +216,14 @@ class TestFingerprint(unittest.TestCase):
             get_fingerprint(pd.Series([1.0], name="a")),
             get_fingerprint(pd.Series([1.0], name="b")),
         )
-        points = generate_points_rotated_lattice(5, seed=1)
+        points = generate_points_fibonacci_lattice(count=5, rotate=True, seed=1)
         moved = points.copy()
         moved.loc[0, "geometry"] = Point(0, 1e-9)
         self.assertEqual(
             get_fingerprint(points),
-            get_fingerprint(generate_points_rotated_lattice(5, seed=1)),
+            get_fingerprint(
+                generate_points_fibonacci_lattice(count=5, rotate=True, seed=1)
+            ),
         )
         self.assertNotEqual(get_fingerprint(points), get_fingerprint(moved))
         # other objects are described by their type only

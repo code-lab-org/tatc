@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 from tatc.analysis import collect_observations
-from tatc.generation import generate_points_rotated_lattice
+from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import Instrument
 from tatc.tradespace import (
     Categorical,
@@ -69,7 +69,9 @@ SPACE = DesignSpace(
     points_seed=Uncertain.seed(),
     failure_seed=Uncertain.seed(),
 )
-TARGETS = Targets(generate_points_rotated_lattice, N_POINTS, seed="points_seed")
+TARGETS = Targets(
+    generate_points_fibonacci_lattice, count=N_POINTS, rotate=True, seed="points_seed"
+)
 SCHEDULE = DeploymentSchedule(years=3, production_rate=4, launch_interval=0.5)
 COSTS = CostModel(SatelliteCost(development=10, first_unit=2))
 PLAN = MissionPlan(SCHEDULE, COSTS, growth={"development": "growth"})
@@ -122,7 +124,10 @@ class TestTargets(unittest.TestCase):
         first, second = design.realize(0), design.realize(1)
         targets = TARGETS.of(first)
         pd.testing.assert_frame_equal(
-            targets, generate_points_rotated_lattice(N_POINTS, seed=first.points_seed)
+            targets,
+            generate_points_fibonacci_lattice(
+                count=N_POINTS, rotate=True, seed=first.points_seed
+            ),
         )
         self.assertIs(TARGETS.of(first), targets)  # kept in memory
         self.assertFalse(TARGETS.of(second).equals(targets))
@@ -132,11 +137,11 @@ class TestTargets(unittest.TestCase):
 
     def test_fixed(self):
         """Fixed targets are the same in every replicate."""
-        points = generate_points_rotated_lattice(5, seed=1)
+        points = generate_points_fibonacci_lattice(count=5, rotate=True, seed=1)
         targets = Targets(points)
         self.assertIs(targets.of(), points)
         self.assertIsNone(targets.seed_of(None))
-        same = Targets(generate_points_rotated_lattice, 5, seed=None)
+        same = Targets(generate_points_fibonacci_lattice, count=5, rotate=True)
         self.assertTrue(same.of().equals(same.of()))
         with self.assertRaises(ValueError):
             Targets(points, seed="points_seed")
@@ -536,7 +541,9 @@ class TestObservationStudy(unittest.TestCase):
         """The metrics of phases that read uncertain values of the design are
         those of its replicate, and shared by the designs of a replicate."""
         space = SPACE.extend(u=Uncertain.uniform(0, 1))
-        fixed = Targets(generate_points_rotated_lattice(N_POINTS, seed=1))
+        fixed = Targets(
+            generate_points_fibonacci_lattice(count=N_POINTS, rotate=True, seed=1)
+        )
 
         def metric(observations, design):
             del observations
@@ -834,7 +841,10 @@ class TestOneDesign(unittest.TestCase):
             "    return found\n"
         )
         more = Targets(
-            generate_points_rotated_lattice, N_POINTS + 5, seed="points_seed"
+            generate_points_fibonacci_lattice,
+            count=N_POINTS + 5,
+            rotate=True,
+            seed="points_seed",
         )
         with tempfile.TemporaryDirectory() as directory:
             first = Observations(TARGETS, START, HOURS, plain, directory=directory)

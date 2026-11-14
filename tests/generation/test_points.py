@@ -15,7 +15,6 @@ from tatc.utils.projection import _transform
 from tatc.generation import (
     generate_points_fibonacci_lattice,
     generate_points_random,
-    generate_points_rotated_lattice,
     generate_points_uniform_angular_distance,
     generate_points_uniform_spacing,
 )
@@ -501,34 +500,43 @@ class TestGeneratePointsRandom(unittest.TestCase):
 
 class TestGeneratePointsRotatedLattice(unittest.TestCase):
     """
-    Unit tests for randomly rotated Fibonacci lattices.
+    Unit tests for Fibonacci lattices of a number of points, in a random
+    orientation.
     """
 
     def test_points(self):
         """Lattices have the number of points, reproducibly, uniform by area."""
-        points = generate_points_rotated_lattice(500, seed=3)
+        points = generate_points_fibonacci_lattice(count=500, rotate=True, seed=3)
         self.assertEqual(len(points), 500)
         self.assertEqual(list(points.columns), ["point_id", "geometry"])
         self.assertEqual(points.crs, "EPSG:4326")
-        same = generate_points_rotated_lattice(500, seed=3)
+        same = generate_points_fibonacci_lattice(count=500, rotate=True, seed=3)
         self.assertTrue(points.geometry.geom_equals(same.geometry).all())
-        other = generate_points_rotated_lattice(500, seed=4)
+        other = generate_points_fibonacci_lattice(count=500, rotate=True, seed=4)
         self.assertFalse(points.geometry.geom_equals(other.geometry).all())
-        self.assertEqual(len(generate_points_rotated_lattice(0, seed=1)), 0)
+        self.assertEqual(
+            len(generate_points_fibonacci_lattice(count=0, rotate=True, seed=1)), 0
+        )
         with self.assertRaises(ValueError):
-            generate_points_rotated_lattice(-1)
+            generate_points_fibonacci_lattice(count=-1)
         # uniform by area: the sine of latitude is uniform on [-1, 1]
         sines = np.concatenate(
             [
                 np.sin(
-                    np.radians(generate_points_rotated_lattice(200, seed=k).geometry.y)
+                    np.radians(
+                        generate_points_fibonacci_lattice(
+                            count=200, rotate=True, seed=k
+                        ).geometry.y
+                    )
                 )
                 for k in range(100)
             ]
         )
         self.assertAlmostEqual(sines.mean(), 0, delta=0.01)
         self.assertAlmostEqual(sines.var(), 1 / 3, delta=0.01)
-        elevated = generate_points_rotated_lattice(10, elevation=100, seed=1)
+        elevated = generate_points_fibonacci_lattice(
+            count=10, rotate=True, elevation=100, seed=1
+        )
         self.assertTrue((elevated.geometry.z == 100).all())
 
     def test_mask(self):
@@ -539,14 +547,18 @@ class TestGeneratePointsRotatedLattice(unittest.TestCase):
             Polygon([(-100, 20), (-80, 25), (-90, 45)]),
         ):
             counts = [
-                len(generate_points_rotated_lattice(100, mask=mask, seed=k))
+                len(
+                    generate_points_fibonacci_lattice(
+                        count=100, rotate=True, mask=mask, seed=k
+                    )
+                )
                 for k in range(50)
             ]
             self.assertAlmostEqual(np.mean(counts), 100, delta=2)
             self.assertLess(max(counts) - min(counts), 15)
         with self.assertRaises(ValueError):
-            generate_points_rotated_lattice(
-                10, mask=Polygon([(0, 0), (1, 1), (0, 1), (1, 0)])
+            generate_points_fibonacci_lattice(
+                count=10, mask=Polygon([(0, 0), (1, 1), (0, 1), (1, 0)])
             )
 
     def test_stratification(self):
@@ -557,8 +569,40 @@ class TestGeneratePointsRotatedLattice(unittest.TestCase):
             return points.geometry.within(region).mean()
 
         lattices = [
-            share(generate_points_rotated_lattice(200, seed=k)) for k in range(60)
+            share(generate_points_fibonacci_lattice(count=200, rotate=True, seed=k))
+            for k in range(60)
         ]
         randoms = [share(generate_points_random(200, seed=k)) for k in range(60)]
         self.assertAlmostEqual(np.mean(lattices), np.mean(randoms), delta=0.02)
         self.assertLess(np.var(lattices), 0.5 * np.var(randoms))
+
+    def test_arguments(self):
+        """A lattice takes a distance or a count of points, and a seed of its
+        orientation only if it is rotated."""
+        for kwargs in ({}, {"distance": 1e6, "count": 5}, {"count": 5, "seed": 1}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                generate_points_fibonacci_lattice(**kwargs)
+        # the same lattice of a count, in its fixed orientation
+        fixed = generate_points_fibonacci_lattice(count=50)
+        self.assertEqual(len(fixed), 50)
+        self.assertTrue(
+            fixed.geometry.geom_equals(
+                generate_points_fibonacci_lattice(count=50).geometry
+            ).all()
+        )
+        # a lattice of a distance, in a random orientation
+        rotated = generate_points_fibonacci_lattice(2000e3, rotate=True, seed=1)
+        self.assertEqual(len(rotated), len(generate_points_fibonacci_lattice(2000e3)))
+
+    def test_antimeridian_mask(self):
+        """Rotated lattices sample masks that cross the antimeridian."""
+        mask = box(170, -10, 190, 10)
+        counts = [
+            len(
+                generate_points_fibonacci_lattice(
+                    count=100, mask=mask, rotate=True, seed=k
+                )
+            )
+            for k in range(30)
+        ]
+        self.assertAlmostEqual(np.mean(counts), 100, delta=3)
