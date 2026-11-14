@@ -65,8 +65,17 @@ class TestConfirm(unittest.TestCase):
         self.assertTrue((confirmation.summary.replicates == 20).all())
         # the new replicates follow every replicate of the results
         self.assertEqual(set(confirmation.results.replicate), set(range(3, 23)))
-        optimism = confirmation.optimism()
+        optimism = confirmation.optimism
         self.assertAlmostEqual(optimism["cost"], 0)
+        # the optimism of each design, signed by the direction of the objective
+        summary = confirmation.summary
+        np.testing.assert_allclose(
+            summary["value optimism"], summary["value selected"] - summary["value"]
+        )
+        np.testing.assert_allclose(
+            summary["cost optimism"], summary["cost"] - summary["cost selected"]
+        )
+        self.assertAlmostEqual(optimism["value"], summary["value optimism"].mean())
         # the 5 best of 50 designs of 3 replicates look better by about a
         # standard deviation of their means (0.58), which the new ones remove
         self.assertGreater(optimism["value"], 0.6)

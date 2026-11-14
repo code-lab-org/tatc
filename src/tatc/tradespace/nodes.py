@@ -7,15 +7,15 @@ values, choices, and repetitions (see `tatc.tradespace.DesignSpace`).
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
+import numbers
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
+from .hashing import _canonical, _digest
 from .values import Scope
 
 
@@ -119,8 +119,7 @@ class _Domain:
         """
         if self.kind == "categorical":
             if self.dynamic:
-                text = json.dumps(self.levels, sort_keys=True, default=str)
-                name = f"{name}#{hashlib.sha1(text.encode()).hexdigest()[:8]}"
+                name = f"{name}#{_digest(_canonical(self.levels), 8)}"
             return trial.suggest_categorical(name, self.levels)
         if self.kind == "integer":
             return trial.suggest_int(
@@ -307,30 +306,65 @@ class Uncertain(Node):
     replicate of a design (see `Design.realize`), does not identify designs
     (see `Design.key`), and takes its nominal value until then.
 
+    The constructors of common distributions (`uniform`, `normal`,
+    `triangular`, `choice`, and `seed`) name their distributions in their
+    representations; their nominal values are `NaN` (or `None`), unless
+    given, so that what depends on them before a design is realized is
+    plainly unrealized.
+
     Args:
         sampler (Callable): A function that draws a value from a
             `numpy.random.Generator`.
         nominal (Any): The value before a design is realized.
+        label (str | None): A description of the distribution, for the
+            representation (`None` for the sampler's).
     """
 
     def __init__(
-        self, sampler: Callable[[np.random.Generator], Any], nominal: Any = math.nan
+        self,
+        sampler: Callable[[np.random.Generator], Any],
+        nominal: Any = math.nan,
+        label: str | None = None,
     ):
-        self.sampler, self.nominal = sampler, nominal
+        self.sampler, self.nominal, self.label = sampler, nominal, label
 
     @classmethod
-    def uniform(cls, low: float, high: float) -> Uncertain:
+    def uniform(cls, low: float, high: float, nominal: Any = math.nan) -> Uncertain:
         """
         An uncertain parameter distributed uniformly on `[low, high)`.
         """
-        return cls(lambda rng: float(rng.uniform(low, high)))
+        return cls(
+            lambda rng: float(rng.uniform(low, high)),
+            nominal,
+            f"uniform({low!r}, {high!r})",
+        )
 
     @classmethod
-    def normal(cls, mean: float, std: float) -> Uncertain:
+    def normal(cls, mean: float, std: float, nominal: Any = math.nan) -> Uncertain:
         """
         An uncertain parameter distributed normally.
         """
-        return cls(lambda rng: float(rng.normal(mean, std)))
+        return cls(
+            lambda rng: float(rng.normal(mean, std)),
+            nominal,
+            f"normal({mean!r}, {std!r})",
+        )
+
+    @classmethod
+    def triangular(
+        cls, low: float, mode: float, high: float, nominal: Any = math.nan
+    ) -> Uncertain:
+        """
+        An uncertain parameter with a triangular distribution from `low` to
+        `high`, most likely at `mode` (such as the growth of a cost).
+        """
+        if not low <= mode <= high or low == high:
+            raise ValueError("a triangular distribution needs low <= mode <= high")
+        return cls(
+            lambda rng: float(rng.triangular(low, mode, high)),
+            nominal,
+            f"triangular({low!r}, {mode!r}, {high!r})",
+        )
 
     @classmethod
     def seed(cls) -> Uncertain:
@@ -341,19 +375,25 @@ class Uncertain(Node):
         common random numbers, every design draws the same seed in the same
         replicate.
         """
-        return cls(lambda rng: int(rng.integers(2**31)), None)
+        return cls(lambda rng: int(rng.integers(2**31)), None, "seed()")
 
     @classmethod
-    def choice(cls, options: Sequence, p: Sequence[float] | None = None) -> Uncertain:
+    def choice(
+        cls, options: Sequence, p: Sequence[float] | None = None, nominal: Any = None
+    ) -> Uncertain:
         """
         An uncertain parameter that takes one of `options` (with
         probabilities `p`, or equally likely).
         """
         options = list(options)
-        return cls(lambda rng: options[int(rng.choice(len(options), p=p))], None)
+        label = f"choice({options!r}" + ("" if p is None else f", p={list(p)!r}") + ")"
+        return cls(
+            lambda rng: options[int(rng.choice(len(options), p=p))], nominal, label
+        )
 
     def __repr__(self) -> str:
-        return f"Uncertain({self.sampler!r})"
+        label = repr(self.sampler) if self.label is None else self.label
+        return f"Uncertain({label})"
 
 
 def _as_node(value: Any) -> Node:
@@ -368,7 +408,9 @@ class Choice(Node):
     A choice of exactly one of several alternatives (branches), each a node
     (typically a `DesignSpace`). The nodes of the other branches are
     inactive. The value of a choice gives the name of the chosen branch as
-    `choice`, and the values of the branch as its attributes.
+    `choice` (and equals it), and the values of the branch as its attributes
+    (see `ChoiceValues`), so that its branches may not be named `choice` or
+    `value`.
 
     Args:
         **branches (Node): The alternatives, by name.
@@ -377,6 +419,9 @@ class Choice(Node):
     def __init__(self, **branches: Any):
         if len(branches) == 0:
             raise ValueError("a choice requires at least one branch")
+        reserved = sorted({"choice", "value"}.intersection(branches))
+        if reserved:
+            raise ValueError(f"reserved names of branches: {reserved}")
         self.branches = {name: _as_node(node) for name, node in branches.items()}
 
     def __repr__(self) -> str:
@@ -397,15 +442,28 @@ class Repeat(Node):
 
     Args:
         item (Node): The repeated node.
-        count (int | Integer): The number of items, fixed or a design variable.
+        count (int | Integer | Categorical | Fixed | Derived): The number of
+            items: fixed (a number, or a `Fixed` one), a design variable of
+            integers (`Integer`, or `Categorical` of integers), or derived
+            from the values decided before (`Derived`, which a search that
+            encodes designs in a unit hypercube cannot encode).
         ordered (bool): `False` if designs that differ only in the order of
             their items are the same.
     """
 
-    def __init__(self, item: Any, count: int | Integer, ordered: bool = True):
+    def __init__(self, item: Any, count: Any, ordered: bool = True):
         self.item = _as_node(item)
-        if isinstance(count, int) and count < 0:
-            raise ValueError("count must not be negative")
+        if isinstance(count, bool) or not isinstance(
+            count, (numbers.Integral, Integer, Categorical, Fixed, Derived)
+        ):
+            raise TypeError(
+                "the count of a repetition is a number, an Integer or Categorical "
+                + f"design variable, or a Fixed or Derived value, not {count!r}"
+            )
+        if isinstance(count, numbers.Integral):
+            if count < 0:
+                raise ValueError("count must not be negative")
+            count = int(count)
         self.count, self.ordered = count, ordered
 
     def __repr__(self) -> str:

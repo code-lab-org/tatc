@@ -8,6 +8,7 @@ design spaces.
 from __future__ import annotations
 
 import dataclasses
+import re
 from collections.abc import Iterator, Mapping
 from typing import Any
 
@@ -43,17 +44,96 @@ def _view(value: Any) -> Any:
     return value
 
 
+_SEGMENT = re.compile(r"\[(\d+)\]|([^.\[\]]+)")
+"""A segment of a path: the index of an item (`[k]`) or a name."""
+
+
+def _segments(path: str) -> list[str | int]:
+    """
+    Gets the segments of a path of values (see `Values`), such as
+    `["layout", "sso", "planes", 0, "crossing"]` of
+    `"layout.sso.planes[0].crossing"`.
+    """
+    segments: list[str | int] = []
+    for index, name in _SEGMENT.findall(path):
+        segments.append(int(index) if index else name)
+    rebuilt = "".join(f"[{s}]" if isinstance(s, int) else f".{s}" for s in segments)
+    if not segments or rebuilt.lstrip(".") != path.lstrip("."):
+        raise KeyError(f"{path!r} is not a path of values")
+    return segments
+
+
+def _join(path: str, segment: str | int) -> str:
+    """Gets the path of a segment within a path (see `_segments`)."""
+    if isinstance(segment, int):
+        return f"{path}[{segment}]"
+    return f"{path}.{segment}" if path else segment
+
+
+def _step(value: Any, segment: str | int, path: str) -> Any:
+    """
+    Gets the value of a segment of a path within a value (see `Values`): a
+    child of a group, an item of a repetition (`[k]`) or its `count`, or, of
+    a choice, its chosen branch (by its name) or a value of that branch.
+    """
+    where = path or "the design"
+    if isinstance(value, RepeatValues):
+        if isinstance(segment, int):
+            if not 0 <= segment < len(value):
+                raise KeyError(f"{where} has {len(value)} items, not an item {segment}")
+            return value[segment]
+        if segment == "count":
+            return value.count
+        raise KeyError(f"{where} is a repetition: give an item ([k]) or its count")
+    if isinstance(value, ChoiceValues):
+        if segment == value.choice:
+            return value.value
+        try:
+            return _step(value.value, segment, path)
+        except KeyError:
+            raise KeyError(
+                f"{where} chose {value.choice!r}, which has no value {segment!r}"
+            ) from None
+    if isinstance(value, Values) and isinstance(segment, str):
+        names = list(value)
+        if segment in names:
+            return value[segment]
+        raise KeyError(f"{where} has no value {segment!r} (it has {names})")
+    raise KeyError(f"{where} is a value ({value!r}), which has no {segment!r}")
+
+
+def _resolve_path(value: Any, path: str) -> Any:
+    """Gets the value at a path within a value (see `Values`)."""
+    walked = ""
+    for segment in _segments(path):
+        value = _step(value, segment, walked)
+        walked = _join(walked, segment)
+    return value
+
+
 class Values(Mapping):
     """
     A read-only view of the values of a design space (a group of nodes), by
-    attribute or by key.
+    attribute or by key. A key may also be a path of values, as the columns
+    of the results of a study name them (see `Design.flat`): `"a.b"` for the
+    value `b` of group `a`, `"c.<branch>.d"` for the value `d` of the chosen
+    branch of choice `c` (an error if it chose another), `"e.count"` for the
+    count of repetition `e`, and `"e[k].f"` for the value `f` of its item
+    `k`. Fixed values, which the columns of results omit, are also given::
+
+        d["layout.walker.planes"]  # d.layout.walker.planes, if it chose walker
+        d["layout.sso.planes[0].crossing"]
     """
 
     def __init__(self, values: dict, index: int | None = None):
         self._values, self._index = values, index
 
     def __getitem__(self, name: str) -> Any:
-        return _view(self._values[name])
+        if name in self._values:
+            return _view(self._values[name])
+        if isinstance(name, str) and ("." in name or "[" in name):
+            return _resolve_path(self, name)
+        raise KeyError(name)
 
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):
@@ -78,7 +158,16 @@ class Values(Mapping):
 class ChoiceValues:
     """
     A read-only view of the value of a choice: the name of the chosen branch
-    (`choice`) and, as attributes, the values of the branch.
+    (`choice`), which the view equals (as the columns of the results of a
+    study give it, see `Design.flat`), and, as attributes (or keys), the
+    values of the branch, which are also those of the branch's name::
+
+        d.layout == "walker"  # d.layout.choice == "walker"
+        d.layout.planes  # d.layout.walker.planes, if it chose walker
+
+    An attribute is a value of the branch if the branch has one of that
+    name, and otherwise the branch, if it is the branch's name; a path (see
+    `Values`) names the branch first, as the columns of results do.
     """
 
     def __init__(self, value: _ChoiceValue):
@@ -95,12 +184,38 @@ class ChoiceValues:
         return _view(self._value.value)
 
     def __getattr__(self, name: str) -> Any:
+        # the values of the branch first (as before branches were attributes),
+        # then the branch by its name (which paths give first, see `Values`)
         if name.startswith("_"):
             raise AttributeError(name)
-        return getattr(self.value, name)
+        try:
+            return getattr(self.value, name)
+        except AttributeError:
+            if name == self._value.choice:
+                return self.value
+            raise AttributeError(
+                f"the choice chose {self.choice!r}, which has no value {name!r}"
+            ) from None
 
     def __getitem__(self, name: str) -> Any:
-        return self.value[name]
+        return _resolve_path(self, name)
+
+    def __contains__(self, name: object) -> bool:
+        try:
+            self[name]  # type: ignore[index]
+        except (KeyError, TypeError):
+            return False
+        return True
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, str):
+            return self.choice == other
+        if isinstance(other, ChoiceValues):
+            return self.choice == other.choice and self.value == other.value
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash(self.choice)
 
     def __repr__(self) -> str:
         return f"ChoiceValues({self.choice!r}, {self.value!r})"
@@ -120,7 +235,11 @@ class RepeatValues:
         """The number of items."""
         return self._value.count
 
-    def __getitem__(self, index: int) -> Any:
+    def __getitem__(self, index: int | slice) -> Any:
+        if isinstance(index, slice):
+            return [self[k] for k in range(len(self))[index]]
+        if index < 0:
+            index += len(self)
         item = self._value.items[index]
         return Values(item, index) if isinstance(item, dict) else _view(item)
 
@@ -129,6 +248,13 @@ class RepeatValues:
 
     def __iter__(self) -> Iterator[Any]:
         return (self[k] for k in range(len(self)))
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, (RepeatValues, list, tuple)):
+            return list(self) == list(other)
+        return NotImplemented
+
+    __hash__ = None  # type: ignore[assignment]
 
     def __repr__(self) -> str:
         return f"RepeatValues({list(self)!r})"
@@ -163,7 +289,22 @@ class Scope:
         raise AttributeError(f"{name!r} is not decided before it is used")
 
     def __getitem__(self, name: str) -> Any:
-        return getattr(self, name)
+        """
+        Gets a value by its name, or by a path within it (see `Values`), such
+        as `"layout.walker.planes"`.
+        """
+        segments = _segments(name)
+        if not isinstance(segments[0], str):
+            raise KeyError(f"{name!r} does not start with a name")
+        try:
+            value = getattr(self, segments[0])
+        except AttributeError as error:
+            raise KeyError(str(error)) from None
+        walked = segments[0]
+        for segment in segments[1:]:
+            value = _step(value, segment, walked)
+            walked = _join(walked, segment)
+        return value
 
 
 def configure(base: Any, values: Any = None, **overrides: Any) -> Any:

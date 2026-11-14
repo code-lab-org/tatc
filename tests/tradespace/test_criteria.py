@@ -203,11 +203,22 @@ class TestAggregate(unittest.TestCase):
         )
         frame = aggregate(_results(), criteria).set_index("design")
         self.assertEqual(
-            list(frame.columns[-6:-2]), ["cost", "value", "value p25", "replicates"]
+            list(frame.columns[-7:]),
+            [
+                "cost",
+                "value",
+                "value p25",
+                "replicates",
+                "violation",
+                "meets_requirements",
+                "pareto",
+            ],
         )
         self.assertAlmostEqual(frame.loc["a", "violation"], 0.5 / 1.5)
         self.assertAlmostEqual(frame.loc["c", "violation"], 4 / 5)
         self.assertEqual(list(frame.meets_requirements), [False, False, False])
+        # none meets the requirements, so that none is efficient
+        self.assertEqual(list(frame.pareto), [False, False, False])
         with self.assertRaises(ValueError):
             aggregate(_results(), criteria, by=["size"])
 
@@ -365,3 +376,43 @@ class TestScreenRequirements(unittest.TestCase):
         self.assertGreater(misses.pareto_rank.min(), meets.pareto_rank.max())
         # the nearest miss (cost 4) is kept to fill four designs
         self.assertEqual(sorted(first[first.kept].cost), [1, 2, 3, 4])
+
+
+class TestSummaries(unittest.TestCase):
+    """
+    Unit tests for summaries of criteria.
+    """
+
+    def test_pareto(self):
+        """Summaries of criteria give the efficient designs, in each group."""
+        criteria = Criteria({"cost": "min", "value": "max"}, by="size")
+        summary = aggregate(_results(), criteria)
+        self.assertEqual(
+            list(summary.pareto),
+            list(pareto_front(summary.drop(columns="pareto"), criteria)),
+        )
+        # designs a (a mean of 13) and b (17.5) of the same cost, and c alone
+        self.assertEqual(
+            dict(zip(summary.design, summary.pareto)),
+            {"a": False, "b": True, "c": True},
+        )
+
+    def test_summarize_criteria(self):
+        """Summaries of criteria add the spread of their means of metrics."""
+        criteria = Criteria(
+            {"cost": "min", "value": "max"},
+            statistics={"value p25": Quantile("value", 0.25)},
+        )
+        summary = summarize(_results(), criteria)
+        for column in ("cost std", "cost se", "value std", "value se", "pareto"):
+            self.assertIn(column, summary.columns)
+        self.assertNotIn("value p25 se", summary.columns)
+        grouped = summarize(_results(), {"value": "max"}, by="size")
+        self.assertEqual(len(grouped), 3)
+        with self.assertRaises(ValueError):
+            summarize(_results(), Criteria({"value": "max"}), by="size")
+
+    def test_statistics_of_names(self):
+        """Statistics given by names are the means of the metrics."""
+        summary = aggregate(_results(), {"value": "max"}, statistics=["cost"])
+        self.assertEqual(list(summary.cost), [2.0, 2.0, 1.0])

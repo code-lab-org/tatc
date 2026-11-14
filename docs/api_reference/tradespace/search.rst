@@ -39,7 +39,7 @@ Attribution of Variance
 .. autofunction:: tatc.tradespace.attribute_variance
 
 .. autoclass:: tatc.tradespace.attribution.Attribution
-   :members: summary, differences
+   :members: results, shares, summary, summary_of, differences, designs
 
 Optimizers
 ==========

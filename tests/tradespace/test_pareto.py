@@ -383,3 +383,19 @@ class TestStandardErrors(unittest.TestCase):
         np.testing.assert_allclose(
             probability.set_index("design")["y se"], expected, rtol=0.15
         )
+
+
+class TestMissingObjectives(unittest.TestCase):
+    """
+    Unit tests for designs with missing objectives.
+    """
+
+    def test_not_efficient(self):
+        """A design with a missing objective is not efficient, and dominates none."""
+        summary = pd.DataFrame(
+            {"design": list("abc"), "x": [1.0, np.nan, 2.0], "y": [1.0, 0.0, 0.0]}
+        )
+        objectives = {"x": "min", "y": "min"}
+        self.assertEqual(list(pareto_front(summary, objectives)), [True, False, True])
+        self.assertEqual(list(pareto_ranks(summary, objectives)), [0, 1, 0])
+        self.assertAlmostEqual(hypervolume(summary, objectives, {"x": 3, "y": 2}), 3.0)

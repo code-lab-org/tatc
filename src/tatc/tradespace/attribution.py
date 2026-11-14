@@ -16,6 +16,7 @@ from itertools import combinations
 import numpy as np
 import pandas as pd
 
+from .criteria import _resamples
 from .space import Design, DesignSpace, _check_uncertain, _designs, _generic
 from .study import Study
 
@@ -60,8 +61,18 @@ class Attribution:
     """numpy.ndarray | None: The rows of A, B, and the mixed replicates in
     each resample of the bootstrap (a row per resample), which `differences`
     resamples too."""
+    designs: list[Design] = field(default_factory=list)
+    """list[Design]: The designs attributed (of differences, those of the
+    pairs)."""
 
-    def summary(self, share: str = "total") -> pd.DataFrame:
+    @property
+    def summary(self) -> pd.DataFrame:
+        """pandas.DataFrame: The total shares of the variance of each metric
+        that each parameter causes, alone or with others, over every design
+        (see `summary_of`)."""
+        return self.summary_of("total")
+
+    def summary_of(self, share: str = "total") -> pd.DataFrame:
         """
         Gets the shares of the variance of each metric that each parameter
         explains over every design (and for each group of `by`): the
@@ -172,7 +183,9 @@ class Attribution:
             raise ValueError("differences need an attribution of designs")
         designs = list(pd.unique(self.results["design"]))
         pairs = list(combinations(designs, 2)) if pairs is None else pairs
-        keyed = [(getattr(a, "key", a), getattr(b, "key", b)) for a, b in pairs]
+        keyed = [
+            tuple(d.key if isinstance(d, Design) else d for d in pair) for pair in pairs
+        ]
         unknown = sorted({key for pair in keyed for key in pair} - set(designs))
         if unknown:
             raise ValueError(f"designs that are not attributed: {unknown}")
@@ -215,12 +228,14 @@ class Attribution:
             self.by,
             self.resamples,
         )
+        paired = {key for pair in keyed for key in pair}
         return Attribution(
             results=differences,
             shares=shares,
             by=self.by,
             samples=samples,
             resamples=self.resamples,
+            designs=[design for design in self.designs if design.key in paired],
         )
 
 
@@ -466,7 +481,7 @@ def attribute_variance(
     designs: Sequence[Design] | pd.DataFrame,
     *,
     parameters: Sequence[str] | Mapping[str, Sequence[str]] | None = None,
-    replicates: int | None = None,
+    sample_size: int | None = None,
     by: Sequence[str] = (),
     n_resamples: int = 500,
     seed: int = 0,
@@ -482,8 +497,8 @@ def attribute_variance(
     The effect of a parameter is measured by drawing it again while holding
     the others (a pick-freeze design, as of Sobol' indices), as its values
     need not relate to the outcomes in any order (as those of a seed do
-    not). The designs are evaluated in `2 n` plain replicates (`n` of
-    `replicates`): A, the first `n`, and B, the next `n` (those evaluated
+    not). The designs are evaluated in `2 n` plain replicates (`n` the
+    `sample_size`): A, the first `n`, and B, the next `n` (those evaluated
     before are taken from the study's store). For each parameter (or group
     of parameters), they are also evaluated in `n` mixed replicates: those
     of A, with the parameter drawn as in B (see `Study.run`'s `shift`), which
@@ -531,8 +546,8 @@ def attribute_variance(
             see `DesignSpace.uncertain_paths`), groups of them (by name), or
             `None` for each of the design space's. Parameters not given vary
             between replicates, but are not attributed variance.
-        replicates (int | None): The replicates of A and of B (`n`), or
-            `None` for the study's.
+        sample_size (int | None): The replicates of each of A and B (`n`),
+            or `None` for the study's replicates.
         by (Sequence[str]): The columns that separate the records of an
             evaluation, if it has several (such as a sensor).
         n_resamples (int): The number of resamples of the bootstrap.
@@ -542,15 +557,14 @@ def attribute_variance(
         Attribution: the results, and the shares of each design, metric, and
             parameter
     """
-    n = study.replicates if replicates is None else int(replicates)
+    n = study.replicates if sample_size is None else int(sample_size)
     if n < 2:
-        raise ValueError("replicates must be at least 2")
-    if n_resamples < 2:
-        raise ValueError("n_resamples must be at least 2")
+        raise ValueError("sample_size must be at least 2")
+    resamples = _resamples(n, n_resamples, seed)
     groups = _groups_of(study.space, parameters)
     metrics, by = list(metrics), tuple(by)
     unique = _designs(study.space, designs)
-    plain = study.run(unique, replicates=range(2 * n))
+    plain = study.run(unique, replicate_indices=range(2 * n))
     missing = [column for column in (*metrics, *by) if column not in plain.columns]
     if missing and plain["feasible"].any():
         raise ValueError(f"columns that are not in the results: {missing}")
@@ -565,12 +579,11 @@ def attribute_variance(
         drawing = [design for design in unique if _draws(design, paths)]
         if drawing:
             mixed = study.run(
-                drawing, replicates=range(n), shift={path: n for path in paths}
+                drawing, replicate_indices=range(n), shift={path: n for path in paths}
             )
             frames.append(mixed.assign(redrawn=name))
     results = pd.concat(frames, ignore_index=True)
 
-    resamples = np.random.default_rng(seed).integers(n, size=(n_resamples, n))
     shares, samples = _shares(
         results,
         ("design",),
@@ -581,5 +594,10 @@ def attribute_variance(
         resamples,
     )
     return Attribution(
-        results=results, shares=shares, by=by, samples=samples, resamples=resamples
+        results=results,
+        shares=shares,
+        by=by,
+        samples=samples,
+        resamples=resamples,
+        designs=unique,
     )

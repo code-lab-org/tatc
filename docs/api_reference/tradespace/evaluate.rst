@@ -6,7 +6,7 @@ Trade Studies
 =============
 
 .. autoclass:: tatc.tradespace.Study
-   :members: run, replace, workers, definition, fingerprint
+   :members: run, realize, replace, prune, workers, definition, fingerprint
 
 Observation Studies
 ===================
@@ -15,10 +15,10 @@ Observation Studies
    :no-members:
 
 .. autoclass:: tatc.tradespace.ObservationStudy
-   :members: satellites_of, targets_of, observations_of
+   :members: satellites_of, targets_of, observations_of, deployment_of, phases_of, estimate_of
 
 .. autoclass:: tatc.tradespace.Observations
-   :members: end, start_of, end_of, cache_of, context_of, __call__
+   :members: end, start_of, end_of, cache_of, context_of, prune, __call__
 
 .. autoclass:: tatc.tradespace.Targets
    :members: of, seed_of
@@ -37,7 +37,7 @@ Stores of Results
 =================
 
 .. autoclass:: tatc.tradespace.ResultStore
-   :members: get, put, define, definition, contexts, prune, clear
+   :members: get, put, define, definition, contexts, remove, clear
 
 Caches of Satellites
 ====================
@@ -46,7 +46,7 @@ Caches of Satellites
    :no-members:
 
 .. autoclass:: tatc.tradespace.SatelliteCache
-   :members: get, prune, clear, __call__
+   :members: get, prune, clear_memory, folder, __call__
 
 .. autofunction:: tatc.tradespace.cache.get_satellite_key
 

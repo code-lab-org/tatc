@@ -33,8 +33,10 @@ class Screening:
     the `stage` (0 for the first)."""
     summaries: list[pd.DataFrame] = field(default_factory=list)
     """list[pandas.DataFrame]: For each stage, the summary of its designs
-    (see `aggregate`), with their Pareto rank (`pareto_rank`, see
-    `pareto_ranks`) and whether they were `kept` for the next stage."""
+    (see `aggregate`, with whether each is efficient by the stage's
+    analysis, `pareto`), with their Pareto rank (`pareto_rank`, see
+    `pareto_ranks`), whether they were `kept` for the next stage, and the
+    `stage`."""
     designs: list[Design] = field(default_factory=list)
     """list[Design]: The designs analyzed in the last stage."""
 
@@ -72,8 +74,8 @@ def screen(
     designs).
 
     Designs that miss a requirement are ranked after those that meet them
-    all, in order of their violation (see `pareto_ranks`), rather than
-    dropped:
+    all, in order of their violation, and designs with a missing objective
+    last (see `pareto_ranks`), rather than dropped:
     a cheap analysis may miss a requirement that the full analysis meets, so
     designs that nearly meet the requirements are kept if `keep` reaches
     them.
@@ -133,8 +135,6 @@ def screen(
         results = study.run(current).assign(stage=stage)
         frames.append(results)
         summary = aggregate(results, criteria)
-        summary = summary.dropna(subset=list(criteria.objectives))
-        summary = summary.reset_index(drop=True)
         summary["pareto_rank"] = pareto_ranks(summary, criteria)
         if stage < transitions:
             amount = keeps[stage]

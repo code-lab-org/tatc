@@ -22,6 +22,8 @@ from typing import Any
 
 import numpy as np
 
+from .hashing import _canonical
+
 _RESULTS_TABLE = (
     "CREATE TABLE IF NOT EXISTS results (namespace TEXT, context TEXT, "
     + "design TEXT, replicate INTEGER, variant TEXT, records TEXT, "
@@ -252,7 +254,7 @@ class ResultStore:
                     [
                         self.namespace,
                         context,
-                        json.dumps(definition, sort_keys=True, default=str),
+                        _canonical(definition),
                         defined,
                     ],
                 )
@@ -295,28 +297,32 @@ class ResultStore:
     def __len__(self) -> int:
         return sum(self.contexts().values())
 
-    def prune(self, keep: str) -> int:
+    def remove(self, contexts: str | Iterable[str]) -> int:
         """
-        Removes the stored records (and definitions) of the namespace's other
-        contexts, such as those of earlier definitions of a study (keeping
-        those of its fingerprint, see `Study.fingerprint`).
+        Removes the stored records (and definitions) of contexts of the
+        namespace, such as those of earlier definitions of a study (see
+        `Study.prune`, which removes those of the study with other code, and
+        not those of other studies that share the namespace).
 
         Args:
-            keep (str): The context to keep.
+            contexts (str | Iterable[str]): The contexts.
 
         Returns:
             int: the number of evaluations removed
         """
+        contexts = [contexts] if isinstance(contexts, str) else list(contexts)
+        removed = 0
         with closing(self._connect()) as connection:
             with connection:
-                removed = connection.execute(
-                    "DELETE FROM results WHERE namespace = ? AND context != ?",
-                    [self.namespace, keep],
-                ).rowcount
-                connection.execute(
-                    "DELETE FROM definitions WHERE namespace = ? AND context != ?",
-                    [self.namespace, keep],
-                )
+                for context in contexts:
+                    removed += connection.execute(
+                        "DELETE FROM results WHERE namespace = ? AND context = ?",
+                        [self.namespace, context],
+                    ).rowcount
+                    connection.execute(
+                        "DELETE FROM definitions WHERE namespace = ? AND context = ?",
+                        [self.namespace, context],
+                    )
         return removed
 
     def clear(self) -> None:

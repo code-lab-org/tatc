@@ -120,7 +120,7 @@ class TestCostModel(unittest.TestCase):
         schedule = DeploymentSchedule(years=6, design_life=3, launch_capacity=3)
         estimate = model.estimate(schedule.plan(_walker(planes=3, per_plane=4)))
         # two generations of 3 planes of 4 satellites, 2 launches each
-        self.assertEqual(estimate.units, {"satellites": 24})
+        self.assertEqual(estimate.units, {None: 24})
         self.assertEqual(estimate.launches, 12)
         self.assertEqual(estimate.development, 100)
         self.assertAlmostEqual(estimate.production, self.satellite.production(24))
@@ -152,7 +152,7 @@ class TestCostModel(unittest.TestCase):
             self.satellite, launch=LaunchCost(per_satellite=2, per_kg=0.1)
         )
         estimate = model.estimate(DeploymentSchedule().plan(_walker(1, 4)))
-        self.assertEqual(estimate.launches, 0)
+        self.assertEqual(estimate.launches, 1)  # counted, though not priced per launch
         self.assertAlmostEqual(estimate.launch, 4 * (2 + 0.1 * 50))
         with self.assertRaises(ValueError):
             CostModel(SatelliteCost(), launch=LaunchCost(per_kg=1)).estimate(
@@ -168,7 +168,7 @@ class TestCostModel(unittest.TestCase):
         )
         schedule = DeploymentSchedule(launch_capacity=4)
         estimate = model.estimate(schedule.plan(_walker(2, 4), spares=1))
-        self.assertEqual(estimate.units["satellites"], 10)
+        self.assertEqual(estimate.units[None], 10)
         self.assertEqual(estimate.launches, 4)
         self.assertEqual(estimate.operations, 10)
 
@@ -306,8 +306,8 @@ class TestDatedCosts(unittest.TestCase):
             self.terms["satellites"], block_size=4, redevelopment=0.5
         )
         dated = self._estimate(development_years=2, production_rate=8)
-        self.assertEqual(dated.units, {"satellites": 24})
-        self.assertEqual(dated.blocks, {"satellites": 6})
+        self.assertEqual(dated.units, {None: 24})
+        self.assertEqual(dated.blocks, {None: 6})
         self.assertAlmostEqual(dated.development, 90 + 5 * 45)
         learning = SatelliteCost(first_unit=10, learning_rate=0.9)
         self.assertAlmostEqual(dated.production, 6 * learning.production(4))
@@ -316,17 +316,18 @@ class TestDatedCosts(unittest.TestCase):
         ]
         # the second block (the second plane of the first generation, produced
         # from 2.5) is developed over the two years before
-        self.assertIn((1.0, 22.5), development)
-        self.assertIn((2.0, 22.5), development)
+        # (in parts within the years from the start of development)
+        for flow in [(0.75, 11.25), (1.5, 22.5), (2.25, 11.25)]:
+            self.assertIn(flow, development)
         # the fourth (the first replacements, produced from 5.25)
-        self.assertIn((3.75, 22.5), development)
-        self.assertIn((4.75, 22.5), development)
+        for flow in [(3.625, 16.875), (4.5, 22.5), (5.125, 5.625)]:
+            self.assertIn(flow, development)
         # without blocks, one
         self.assertEqual(
             CostModel(SatelliteCost(development=90))
             .estimate(DeploymentSchedule(years=6, design_life=3).plan(self.layout))
             .blocks,
-            {"satellites": 1},
+            {None: 1},
         )
 
     def test_sustained(self):
@@ -349,11 +350,11 @@ class TestDatedCosts(unittest.TestCase):
         sustained = model.estimate(
             DeploymentSchedule(**terms, sustained=True).plan(_walker(1, 1))
         )
-        self.assertEqual(ending.units, {"satellites": 3})
+        self.assertEqual(ending.units, {None: 3})
         self.assertEqual(ending.development, 90 + 90)
         self.assertEqual(ending.production, 30)
-        self.assertEqual(sustained.units, {"satellites": 4})
-        self.assertEqual(sustained.blocks, {"satellites": 2})
+        self.assertEqual(sustained.units, {None: 4})
+        self.assertEqual(sustained.blocks, {None: 2})
         # the third block is developed over [8, 11], two thirds by the end
         self.assertAlmostEqual(sustained.development, 90 + 90 + 60)
         # half of the fourth unit, and none of the fifth
@@ -751,3 +752,21 @@ class TestRiskSpace(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             risk_space(dotted)
+
+
+class TestSpread(unittest.TestCase):
+    """
+    Unit tests for amounts spread over durations.
+    """
+
+    def test_years(self):
+        """Amounts are spread in parts within years, for the annual costs."""
+        from tatc.tradespace.cost import (
+            _spread,
+        )  # pylint: disable=import-outside-toplevel
+
+        flows = _spread(10.0, 3.5, 6.0)
+        self.assertEqual(flows, [(3.75, 2.0), (4.5, 4.0), (5.5, 4.0)])
+        self.assertEqual(_spread(10.0, 0.0, 2.0), [(0.5, 5.0), (1.5, 5.0)])
+        # the part before the end of a sustained mission
+        self.assertEqual(_spread(10.0, 3.5, 6.0, until=5.0), [(3.75, 2.0), (4.5, 4.0)])

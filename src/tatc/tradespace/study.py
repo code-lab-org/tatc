@@ -7,9 +7,7 @@ replicates that draw their uncertain parameters, in sequence or in parallel.
 
 from __future__ import annotations
 
-import hashlib
 import inspect
-import json
 import math
 import os
 import time
@@ -21,12 +19,8 @@ from typing import Any, NamedTuple
 import pandas as pd
 from pydantic import ValidationError
 
-from .fingerprint import (
-    _fingerprint_of,
-    _without_code,
-    compare_definitions,
-    get_definition,
-)
+from .fingerprint import _fingerprint_of, _with_other_code, get_definition
+from .hashing import _canonical, _digest
 from .nodes import Infeasible
 from .space import (
     Design,
@@ -409,6 +403,52 @@ class Study:
             "scenarios": self.scenarios,
         }
 
+    def realize(
+        self, design: Design, replicate: int = 0, scenario: str | None = None
+    ) -> Design:
+        """
+        Realizes a replicate of a design as the study evaluates it (see
+        `Design.realize`): with the study's seed and common random numbers,
+        and in one of its scenarios (by name), if given, such as for analyses
+        of a design other than its metrics.
+
+        Args:
+            design (Design): The design.
+            replicate (int): The replicate.
+            scenario (str | None): A scenario of the study (by name), or `None`
+                for the values of the design space.
+
+        Returns:
+            Design: the realized design
+
+        Raises:
+            KeyError: if the study has no scenario of the name.
+        """
+        values = None
+        if scenario is not None:
+            if not self.scenarios or scenario not in self.scenarios:
+                raise KeyError(
+                    f"no scenario {scenario!r} of the study "
+                    + f"(it has {list(self.scenarios or {})})"
+                )
+            values = self.scenarios[scenario]
+        return design.realize(
+            replicate, self.seed, self.common_random_numbers, None, values
+        )
+
+    def _prepare(
+        self,
+        design: Design,
+        replicate: int,
+        shift: Mapping[str, int] | None,
+        case: _Case,
+    ) -> None:
+        """
+        Prepares to evaluate designs (in this process, before any worker
+        does), given the first evaluation of a run: nothing, unless a subclass
+        prepares something.
+        """
+
     @property
     def definition(self) -> dict:
         """dict: The definition of the study (see `get_definition`), which
@@ -431,9 +471,28 @@ class Study:
     def fingerprint(self) -> str:
         """str: A key of the definition of the study (see `definition`), which
         changes if it does. It keys the records of a store (see
-        `ResultStore`); data that it cannot describe (such as data frames)
-        must be identified by the store's namespace."""
+        `ResultStore`); what it cannot describe (data that the functions read,
+        such as from files, and the code of installed modules other than
+        TAT-C's, see `get_definition`) must be identified by the store's
+        namespace."""
         return _fingerprint_of(self.definition)
+
+    def prune(self) -> int:
+        """
+        Removes the evaluations of the study's store (in its namespace) by
+        this study with other code (of its functions, of TAT-C, or of Python:
+        the same values but for code), which it does not reuse, and of which
+        it warns. The evaluations of other studies that share the namespace
+        (such as variants with other settings) are kept.
+
+        Returns:
+            int: the number of evaluations removed (0 without a store)
+        """
+        if self.store is None:
+            return 0
+        definition = self.definition
+        context = _fingerprint_of(definition)
+        return self.store.remove(_other_code(self.store, context, definition))
 
     @property
     def workers(self) -> int:
@@ -448,7 +507,8 @@ class Study:
         self,
         designs: Iterable[Design] | pd.DataFrame | None = None,
         progress: Callable[[int, int], None] | None = None,
-        replicates: Iterable[int] | None = None,
+        *,
+        replicate_indices: Iterable[int] | None = None,
         shift: Mapping[str, int] | None = None,
     ) -> pd.DataFrame:
         """
@@ -475,7 +535,7 @@ class Study:
             progress (Callable | None): A function called as evaluations
                 complete with the number completed and the number of
                 evaluations (not counting those taken from the store).
-            replicates (Iterable[int] | None): The replicates (their
+            replicate_indices (Iterable[int] | None): The replicates (their
                 indices, which seed their uncertain parameters), or `None` for
                 the study's (`range(replicates)`).
             shift (Mapping[str, int] | None): The offsets of the replicates as
@@ -503,72 +563,17 @@ class Study:
             (i, design, replicate, case)
             for replicate in (
                 range(self.replicates)
-                if replicates is None
-                else sorted(set(replicates))
+                if replicate_indices is None
+                else sorted(set(replicate_indices))
             )
             for case in range(len(cases))
             for i, design in enumerate(unique)
         ]
-        results: list[tuple[int, int, int, list[dict]]] = []
-        context = ""
-        if self.store is not None:
-            # evaluations stored before (by an interrupted or earlier run)
-            definition = self.definition
-            context = _fingerprint_of(definition)
-            stored = {}
-            for k, case in enumerate(cases):
-                found = self.store.get(
-                    ((d.key, r) for _, d, r, c in tasks if c == k),
-                    context,
-                    case.variant,
-                )
-                stored.update(
-                    {(key, r, k): records for (key, r), records in found.items()}
-                )
-            if tasks and not stored:
-                _warn_other_definitions(self.store, context, definition)
-            self.store.define(context, definition)
-            results.extend(
-                (i, case, replicate, stored[design.key, replicate, case])
-                for i, design, replicate, case in tasks
-                if (design.key, replicate, case) in stored
-            )
-            tasks = [t for t in tasks if (t[1].key, t[2], t[3]) not in stored]
-        total = len(tasks)
-        if self.executor is None and self.n_jobs == 1:
-            for done, (i, design, replicate, case) in enumerate(tasks, 1):
-                records = self._evaluate_and_store(
-                    design, replicate, context, shift, cases[case]
-                )
-                results.append((i, case, replicate, records))
-                if progress is not None:
-                    progress(done, total)
-        elif tasks:
-            executor = self.executor or _get_executor(self.workers)
-            n_chunks = min(total, self.workers * self.chunks_per_job)
-            size = math.ceil(total / max(n_chunks, 1))
-            chunks = [tasks[k : k + size] for k in range(0, total, size)]
-            futures = {
-                executor.submit(self._run_chunk, chunk, context, shift, cases): chunk
-                for chunk in chunks
-            }
-            done = 0
-            try:
-                for future in as_completed(futures):
-                    chunk = futures[future]
-                    evaluated = future.result()
-                    for (i, _, replicate, case), records in zip(chunk, evaluated):
-                        results.append((i, case, replicate, records))
-                    done += len(chunk)
-                    if progress is not None:
-                        progress(done, total)
-            except BaseException:
-                # interrupted (or an error): chunks that have not begun are
-                # cancelled, and those in progress add their evaluations to
-                # the store as they complete
-                for future in futures:
-                    future.cancel()
-                raise
+        context, results, tasks = self._stored(tasks, cases)
+        if tasks:
+            first = tasks[0]
+            self._prepare(first[1], first[2], shift, cases[first[3]])
+        results.extend(self._execute(tasks, context, shift, cases, progress))
         results.sort(key=lambda result: result[:3])
         frame = pd.DataFrame.from_records(
             [
@@ -579,6 +584,98 @@ class Study:
         )
         _check_feasible(frame)
         return frame
+
+    def _stored(
+        self, tasks: list[_Task], cases: Sequence[_Case]
+    ) -> tuple[str, list[_Outcome], list[_Task]]:
+        """
+        Takes the evaluations of tasks stored before (by an interrupted or
+        earlier run), if the study has a store: the context of its
+        evaluations in the store (its fingerprint, `""` without a store), the
+        outcomes of the stored tasks, and the tasks left to evaluate. Warns of
+        evaluations of the study with other code if none is stored.
+        """
+        if self.store is None:
+            return "", [], tasks
+        definition = self.definition
+        context = _fingerprint_of(definition)
+        stored = {}
+        for k, case in enumerate(cases):
+            found = self.store.get(
+                ((d.key, r) for _, d, r, c in tasks if c == k), context, case.variant
+            )
+            stored.update({(key, r, k): records for (key, r), records in found.items()})
+        if tasks and not stored:
+            _warn_other_definitions(self.store, context, definition)
+        self.store.define(context, definition)
+        outcomes = [
+            (i, case, replicate, stored[design.key, replicate, case])
+            for i, design, replicate, case in tasks
+            if (design.key, replicate, case) in stored
+        ]
+        left = [t for t in tasks if (t[1].key, t[2], t[3]) not in stored]
+        return context, outcomes, left
+
+    def _execute(
+        self,
+        tasks: list[_Task],
+        context: str,
+        shift: Mapping[str, int],
+        cases: Sequence[_Case],
+        progress: Callable[[int, int], None] | None,
+    ) -> list[_Outcome]:
+        """
+        Evaluates tasks (in this process, or in chunks by workers), adding
+        each to the store (if any) in a context, and reporting progress.
+        """
+        # pylint: disable=too-many-arguments,too-many-positional-arguments
+        outcomes: list[_Outcome] = []
+        total = len(tasks)
+        if self.executor is None and self.n_jobs == 1:
+            for done, (i, design, replicate, case) in enumerate(tasks, 1):
+                records = self._evaluate_and_store(
+                    design, replicate, context, shift, cases[case]
+                )
+                outcomes.append((i, case, replicate, records))
+                if progress is not None:
+                    progress(done, total)
+            return outcomes
+        if not tasks:
+            return outcomes
+        executor = self.executor or _get_executor(self.workers)
+        n_chunks = min(total, self.workers * self.chunks_per_job)
+        size = math.ceil(total / max(n_chunks, 1))
+        chunks = [tasks[k : k + size] for k in range(0, total, size)]
+        futures = {
+            executor.submit(self._run_chunk, chunk, context, shift, cases): chunk
+            for chunk in chunks
+        }
+        done = 0
+        try:
+            for future in as_completed(futures):
+                chunk = futures[future]
+                for (i, _, replicate, case), records in zip(chunk, future.result()):
+                    outcomes.append((i, case, replicate, records))
+                done += len(chunk)
+                if progress is not None:
+                    progress(done, total)
+        except BaseException:
+            # interrupted (or an error): chunks that have not begun are
+            # cancelled, and those in progress add their evaluations to the
+            # store as they complete
+            for future in futures:
+                future.cancel()
+            raise
+        return outcomes
+
+
+_Task = tuple  # (index of the design, design, replicate, index of the case)
+"""A task of a run: the index of a design, the design, the replicate, and
+the index of the case (scenario) in which to evaluate it."""
+
+_Outcome = tuple  # (index of the design, index of the case, replicate, records)
+"""The outcome of a task: the index of the design, the index of the case, the
+replicate, and the records of the evaluation."""
 
 
 def _in_scenario(record: dict, name: str | None) -> dict:
@@ -642,10 +739,10 @@ def _variant_of(shift: Mapping[str, int] | None, scenario: str = "") -> str:
     shift = {name: int(offset) for name, offset in (shift or {}).items() if offset}
     parts: dict[str, Any] = {}
     if scenario:
-        parts["scenario"] = hashlib.sha1(scenario.encode()).hexdigest()[:16]
+        parts["scenario"] = _digest(scenario, 16)
     if shift:
         parts["shift"] = shift
-    return json.dumps(parts, sort_keys=True) if parts else ""
+    return _canonical(parts) if parts else ""
 
 
 def _takes_design(function: Callable) -> bool:
@@ -663,34 +760,42 @@ def _takes_design(function: Callable) -> bool:
     )
 
 
+def _other_code(store: ResultStore, context: str, definition: dict) -> list[str]:
+    """
+    Gets the contexts of a store's namespace whose evaluations are of the same
+    study with other code (its functions', TAT-C's, or Python's: the same
+    values but for the code of functions, see `_with_other_code`), the latest
+    first.
+    """
+    others = [other for other in store.contexts() if other != context]
+    return [
+        other
+        for other in reversed(others)
+        if _with_other_code(definition, [store.definition(other)]) is not None
+    ]
+
+
 def _warn_other_definitions(store: ResultStore, context: str, definition: dict) -> None:
     """
     Warns if a store has evaluations of its namespace by the same study with
-    other code (its functions', TAT-C's, or Python's: the same values but for
-    the code of functions, see `_without_code`), which a study does not
-    reuse, with the differences (see `compare_definitions`). Studies of other
+    other code (see `_other_code`), which a study does not reuse, with the
+    differences from the latest (see `compare_definitions`). Studies of other
     values (such as other settings) share a namespace without a warning, as
     their fingerprints keep their evaluations apart.
     """
+    stale = _other_code(store, context, definition)
+    if not stale:
+        return
     contexts = store.contexts()
-    others = [other for other in contexts if other != context]
-    if not others:
-        return
-    values = _without_code(definition.get("values", {}))
-    for other in reversed(others):
-        before = store.definition(other)
-        if before is None or _without_code(before.get("values", {})) != values:
-            continue
-        differences = compare_definitions(before, definition)
-        warnings.warn(
-            f"the store has {contexts[other]} evaluations of namespace "
-            + f"{store.namespace!r} by this study with other code, which are not "
-            + "reused (see Study.fingerprint, and ResultStore.prune to remove "
-            + "them); it differs in: "
-            + "; ".join(differences),
-            stacklevel=3,
-        )
-        return
+    count = sum(contexts.get(other, 0) for other in stale)
+    differences = _with_other_code(definition, [store.definition(stale[0])])
+    warnings.warn(
+        f"the store has {count} evaluations of namespace {store.namespace!r} by "
+        + "this study with other code, which are not reused (see "
+        + "Study.fingerprint; Study.prune removes them); the latest differs in: "
+        + "; ".join(differences or []),
+        stacklevel=3,
+    )
 
 
 def _unstored(records: list[dict]) -> bool:

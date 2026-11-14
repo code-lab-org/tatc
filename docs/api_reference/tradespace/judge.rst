@@ -107,3 +107,12 @@ Plots
 .. autofunction:: tatc.tradespace.plot_progress
 
 .. autofunction:: tatc.tradespace.style_axes
+
+.. autodata:: tatc.tradespace.plotting.COLORS
+   :annotation:
+
+.. autodata:: tatc.tradespace.plotting.INK
+   :annotation:
+
+.. autodata:: tatc.tradespace.plotting.GRAY
+   :annotation:

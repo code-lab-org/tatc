@@ -63,7 +63,7 @@ class TestAttributeVariance(unittest.TestCase):
             cls.study,
             ["y", "z", "v", "w"],
             cls.designs,
-            replicates=300,
+            sample_size=300,
             n_resamples=200,
         )
 
@@ -128,13 +128,13 @@ class TestAttributeVariance(unittest.TestCase):
     def test_designs_of_frame(self):
         """Designs may be given by a data frame of their values."""
         frame = pd.DataFrame([{"design": d.key, **d.flat()} for d in self.designs])
-        a = attribute_variance(self.study, ["y"], frame.iloc[:1], replicates=2)
+        a = attribute_variance(self.study, ["y"], frame.iloc[:1], sample_size=2)
         self.assertEqual(set(a.shares.design), {self.designs[0].key})
 
     def test_summary(self):
         """The summary pools the designs' shares, weighted by their variances."""
         a = self.attribution
-        summary = a.summary()
+        summary = a.summary
         metrics = ["y", "z", "v", "w"]
         self.assertEqual(
             list(summary.columns), [*metrics, *(f"{m} se" for m in metrics)]
@@ -149,12 +149,12 @@ class TestAttributeVariance(unittest.TestCase):
         np.testing.assert_allclose(summary.loc["u2", "y se"], rows["total se"])
         self.assertTrue((summary.loc[["u1", "u2"], ["y se", "z se"]] > 0).all().all())
         np.testing.assert_array_equal(summary.loc["s", ["y se", "z se"]], 0.0)
-        first = a.summary("first")
+        first = a.summary_of("first")
         self.assertAlmostEqual(first.loc["s", "v"], 1.0)
         self.assertAlmostEqual(first.loc["s", "v se"], 0.0)
         self.assertEqual(a.samples["total"].shape, (len(a.shares), 200))
         with self.assertRaises(ValueError):
-            a.summary("second")
+            a.summary_of("second")
 
     def test_groups(self):
         """Groups of parameters are redrawn together."""
@@ -163,7 +163,7 @@ class TestAttributeVariance(unittest.TestCase):
             ["y"],
             self.designs[:1],
             parameters={"normal": ["u1", "u2"], "seed": "s"},
-            replicates=50,
+            sample_size=50,
             n_resamples=50,
         )
         self.assertEqual(list(a.shares.parameter), ["normal", "seed"])
@@ -171,7 +171,7 @@ class TestAttributeVariance(unittest.TestCase):
         np.testing.assert_allclose(_share(a, "y", "normal", "total"), 1.0, atol=0.3)
         np.testing.assert_array_equal(_share(a, "y", "seed", "total"), 0.0)
         named = attribute_variance(
-            self.study, ["y"], self.designs[:1], parameters=["u2"], replicates=50
+            self.study, ["y"], self.designs[:1], parameters=["u2"], sample_size=50
         )
         self.assertEqual(list(named.shares.parameter), ["u2"])
         self.assertEqual(set(named.results.redrawn.dropna()), {"u2"})
@@ -186,12 +186,12 @@ class TestAttributeVariance(unittest.TestCase):
                         ["y"],
                         self.designs,
                         parameters=parameters,
-                        replicates=2,
+                        sample_size=2,
                     )
         with self.assertRaises(ValueError):
-            attribute_variance(self.study, ["y"], self.designs, replicates=1)
+            attribute_variance(self.study, ["y"], self.designs, sample_size=1)
         with self.assertRaises(ValueError):
-            attribute_variance(self.study, ["q"], self.designs, replicates=2)
+            attribute_variance(self.study, ["q"], self.designs, sample_size=2)
         certain = Study(DesignSpace(x=Integer(1, 2)), lambda d: d, lambda d: {"y": d.x})
         with self.assertRaises(ValueError):
             attribute_variance(certain, ["y"], certain.space.enumerate())
@@ -212,7 +212,7 @@ class TestAttributeVariance(unittest.TestCase):
 
         study = Study(space, lambda d: d, evaluate)
         designs = space.enumerate()
-        a = attribute_variance(study, ["y"], designs, replicates=20, n_resamples=20)
+        a = attribute_variance(study, ["y"], designs, sample_size=20, n_resamples=20)
         redrawn = a.results[a.results.redrawn == "layout.a.phase"]
         self.assertEqual(set(redrawn.design), {designs[0].key})
         shares = a.shares.set_index(["design", "parameter"])
@@ -234,7 +234,7 @@ class TestAttributeVariance(unittest.TestCase):
 
         study = Study(SPACE, build, _evaluate)
         a = attribute_variance(
-            study, ["y"], self.designs[:1], parameters=["u1", "u2"], replicates=100
+            study, ["y"], self.designs[:1], parameters=["u1", "u2"], sample_size=100
         )
         self.assertFalse(a.results.feasible.all())
         self.assertTrue(a.shares[["first", "total"]].notna().all().all())
@@ -244,12 +244,12 @@ class TestAttributeVariance(unittest.TestCase):
 
         never = Study(SPACE, reject, _evaluate)
         with self.assertWarns(UserWarning):
-            none = attribute_variance(never, ["y"], self.designs, replicates=2)
+            none = attribute_variance(never, ["y"], self.designs, sample_size=2)
         self.assertEqual(len(none.shares), 0)
-        self.assertEqual(len(none.summary()), 0)
+        self.assertEqual(len(none.summary), 0)
         with self.assertWarns(UserWarning):
             separated = attribute_variance(
-                never, ["y"], self.designs, replicates=2, by=["sensor"]
+                never, ["y"], self.designs, sample_size=2, by=["sensor"]
             )
         self.assertEqual(len(separated.shares), 0)
 
@@ -267,16 +267,16 @@ class TestAttributeVariance(unittest.TestCase):
             ["y"],
             self.designs[:1],
             parameters=["u1", "u2"],
-            replicates=20,
+            sample_size=20,
             by=["sensor"],
         )
         shares = a.shares.set_index(["sensor", "parameter"])["total"]
         self.assertAlmostEqual(shares["one", "u1"], 1.0, delta=0.5)
         self.assertEqual(shares["one", "u2"], 0.0)
         self.assertEqual(shares["two", "u1"], 0.0)
-        self.assertEqual(list(a.summary().index.names), ["sensor", "parameter"])
+        self.assertEqual(list(a.summary.index.names), ["sensor", "parameter"])
         with self.assertRaises(ValueError):
-            attribute_variance(study, ["y"], self.designs[:1], replicates=2)
+            attribute_variance(study, ["y"], self.designs[:1], sample_size=2)
 
     def test_store(self):
         """The evaluations are stored, and taken from the store again."""
@@ -289,10 +289,10 @@ class TestAttributeVariance(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = ResultStore(Path(directory) / "results.sqlite", "attribution")
             study = Study(SPACE, lambda d: d, evaluate, replicates=3, store=store)
-            first = attribute_variance(study, ["y"], self.designs, replicates=3)
+            first = attribute_variance(study, ["y"], self.designs, sample_size=3)
             self.assertEqual(len(self.calls), 2 * (2 * 3 + 3 * 3))
             self.calls.clear()
-            again = attribute_variance(study, ["y"], self.designs, replicates=3)
+            again = attribute_variance(study, ["y"], self.designs, sample_size=3)
             self.assertEqual(self.calls, [])
             pd.testing.assert_frame_equal(first.shares, again.shares)
 
@@ -318,7 +318,7 @@ class TestDifferences(unittest.TestCase):
             ["y", "c"],
             cls.designs,
             parameters=["u1", "u2"],
-            replicates=200,
+            sample_size=200,
             n_resamples=200,
         )
         cls.differences = cls.attribution.differences()
@@ -336,7 +336,7 @@ class TestDifferences(unittest.TestCase):
         np.testing.assert_allclose(_share(d, "c", "u1", "first"), 1.0)
         estimate, error = _share(d, "c", "u1"), _share(d, "c", "u1", "total se")
         self.assertTrue((np.abs(estimate - 1) <= 3 * error).all())
-        self.assertAlmostEqual(d.summary().loc["u2", "c se"], 0.0)
+        self.assertAlmostEqual(d.summary.loc["u2", "c se"], 0.0)
         # u2 spreads c of both designs, but not their difference
         self.assertTrue((_share(self.attribution, "c", "u2") > 0.1).all())
 
@@ -394,7 +394,7 @@ class TestDifferences(unittest.TestCase):
 
         study = Study(space, lambda d: d, evaluate)
         designs = space.enumerate()
-        a = attribute_variance(study, ["y"], designs, replicates=20, n_resamples=20)
+        a = attribute_variance(study, ["y"], designs, sample_size=20, n_resamples=20)
         d = a.differences().shares.set_index(["design", "other", "parameter"])
         branch_a, b1, b2 = (design.key for design in designs)
         # a less b1 is the phase alone
@@ -408,7 +408,7 @@ class TestDifferences(unittest.TestCase):
         """Without common random numbers, no parameter cancels."""
         study = Study(SPACE, lambda d: d, _evaluate_pairs, common_random_numbers=False)
         a = attribute_variance(
-            study, ["c"], self.designs, parameters=["u1", "u2"], replicates=200
+            study, ["c"], self.designs, parameters=["u1", "u2"], sample_size=200
         )
         d = a.differences()
         # c of the designs differs by u1 of both and u2 of both: 5 and 2 of 7

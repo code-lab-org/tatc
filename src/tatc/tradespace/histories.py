@@ -20,18 +20,19 @@ import numpy as np
 import pandas as pd
 
 from ..schemas import Satellite
-from .cache import get_satellite_key
 from .criteria import _OPERATORS, Requirement
 from .failures import FailureModel, RestorationPolicy
 from .mission import (
+    PHASE_COLUMNS,
     MissionHistory,
     Phase,
     PhaseCache,
-    _Simulation,
-    _given_design,
-    evaluate_phases,
+    _as_cache,
+    _position_names,
+    _satellite_keys,
     summarize_phases,
 )
+from .simulation import _Simulation
 
 if TYPE_CHECKING:
     from .deployment import Deployment
@@ -41,7 +42,8 @@ def evaluate_missions(
     histories: Sequence[MissionHistory],
     satellites: Sequence[Satellite],
     observations: pd.DataFrame,
-    metric: Callable[[pd.DataFrame], Mapping[str, float]] | PhaseCache,
+    metric: Callable[..., Mapping[str, float]] | PhaseCache,
+    *,
     context: Any = None,
     cost_model: Any = None,
     growth: Any = 1.0,
@@ -53,8 +55,9 @@ def evaluate_missions(
     phases of the mission (`<metric> mission`, see `summarize_phases`), its
     measures (see `MissionHistory.metrics`), and its cost (see
     `CostEstimate.metrics`, with a cost model). The histories share the
-    observations of the replicate, so that a `PhaseCache` (as the metric)
-    evaluates each set of operating satellites once.
+    observations of the replicate, so that each set of operating satellites
+    is evaluated once (by a `PhaseCache` given as the metric, which keeps
+    them for other calls, or one of this call's own).
 
     Args:
         histories (Sequence[MissionHistory]): The histories.
@@ -77,16 +80,13 @@ def evaluate_missions(
     """
     rows = []
     weighted = any(history.weight != 1.0 for history in histories)
-    keys = {s.name: get_satellite_key(s) for s in satellites}
+    keys = _satellite_keys(satellites)
+    cache = _as_cache(metric)
     for history in histories:
-        phases = history.phases(satellites)
-        if isinstance(metric, PhaseCache):
-            capability = metric.evaluate(phases, observations, keys, context, design)
-        else:
-            capability = evaluate_phases(
-                phases, observations, _given_design(metric, design)
-            )
-        row = {**summarize_phases(capability), **history.metrics()}
+        phases = cache.evaluate(
+            history.phases(satellites), keys, observations, context, design
+        )
+        row = {**summarize_phases(phases), **history.metrics()}
         if weighted:
             row["weight"] = history.weight
         if cost_model is not None:
@@ -316,31 +316,17 @@ def _simulate_many(
     ]
 
 
-def expected_metrics(
+def _expected_metrics(
     deployment: Deployment,
     failures: FailureModel,
-    policy: RestorationPolicy | None = None,
-    histories: int = 1000,
-    seed: int = 0,
-    sampling: str = "stratified",
+    policy: RestorationPolicy | None,
+    seed: int,
+    histories: int,
+    sampling: str,
 ) -> dict[str, float]:
     """
-    Estimates the expected measures of a mission (see
-    `MissionHistory.metrics`, such as its `availability`) from many
-    simulated histories, without evaluating their phases: precise and
-    cheap, as the expected values of control variates (see
-    `summarize_missions`).
-
-    Args:
-        deployment (Deployment): The deployment.
-        failures (FailureModel): The failures.
-        policy (RestorationPolicy | None): The policy for failed satellites.
-        histories (int): The number of histories.
-        seed (int): The seed of the histories.
-        sampling (str): The sampling of their failures.
-
-    Returns:
-        dict[str, float]: the mean of each measure
+    Estimates the expected measures of a mission from many simulated
+    histories (see `Deployment.expected_metrics`).
     """
     rows = pd.DataFrame(
         [
@@ -528,12 +514,13 @@ def expected_missions(
     failures: FailureModel,
     satellites: Sequence[Satellite],
     observations: pd.DataFrame,
-    metric: Callable[[pd.DataFrame], Mapping[str, float]] | PhaseCache,
+    metric: Callable[..., Mapping[str, float]] | PhaseCache,
+    *,
     context: Any = None,
+    design: Any = None,
     tolerance: float = 1e-3,
     steps: int = 400,
     max_sets: int = 200_000,
-    design: Any = None,
 ) -> dict[str, float]:
     """
     Computes the expected capability of a mission without restoration
@@ -573,6 +560,8 @@ def expected_missions(
             set of satellites that gives its metrics, or a cache of one.
         context (Any): A hashable identifier of the observations, for a
             cache.
+        design (Design | None): The (realized) design of the mission, for a
+            metric with a parameter named `design` (see `PhaseCache`).
         tolerance (float): The share of the mission's time that the sets
             evaluated may leave out.
         steps (int): The times at which the probabilities are integrated.
@@ -591,12 +580,7 @@ def expected_missions(
             "exact expectations need a deployment that is not staged: "
             + "simulate histories of a staged deployment instead"
         )
-    names = [s.name for s in satellites]
-    built = sum(b for _, b, _ in deployment.planes)
-    if len(names) != built:
-        raise ValueError(
-            f"expected {built} satellites for the planes, not {len(names)}"
-        )
+    names = list(_position_names(deployment.planes, satellites).values())
     begin, end = deployment.begin, deployment.end
     times = begin + (np.arange(steps) + 0.5) * (end - begin) / steps
     count, groups = _launch_groups(deployment, failures, times)
@@ -629,21 +613,15 @@ def expected_missions(
         if covered >= 1 - tolerance:
             break
     weights.sort(key=lambda item: -item[0])
-    keys = {s.name: get_satellite_key(s) for s in satellites}
+    keys = _satellite_keys(satellites)
+    cache = _as_cache(metric)
     totals: dict[str, float] = {}
     evaluated, sets = 0.0, 0
     for weight, members in weights:
         phase = Phase(begin, end, tuple(names[k] for k in members))
-        if isinstance(metric, PhaseCache):
-            values = metric.evaluate([phase], observations, keys, context, design).iloc[
-                0
-            ]
-        else:
-            values = evaluate_phases(
-                [phase], observations, _given_design(metric, design)
-            ).iloc[0]
+        values = cache.evaluate([phase], keys, observations, context, design).iloc[0]
         for name, value in values.items():
-            if name in ("start", "end", "duration", "satellites"):
+            if name in PHASE_COLUMNS:
                 continue
             totals[f"{name} mission"] = totals.get(
                 f"{name} mission", 0.0

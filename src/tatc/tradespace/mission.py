@@ -1,21 +1,20 @@
 """
 Simulated missions: the history of a deployment with failures and
-restorations (see `Deployment.simulate`), the phases of a mission in which
-constant sets of satellites operate, and their evaluation over the study's
-representative period and combination over the mission.
+restorations (see `Deployment.simulate`, whose simulation is in the module
+`simulation`), the decisions of the rules of its stages, the phases of a
+mission in which constant sets of satellites operate, and their evaluation
+over the study's representative period and combination over the mission.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from __future__ import annotations
 
-import heapq
-import itertools
 import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from functools import cached_property, partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -23,8 +22,7 @@ import pandas as pd
 from ..schemas import Satellite
 from .cache import get_satellite_key
 from .criteria import _OPERATORS, Requirement
-from .events import Launch, Production, _per_type
-from .failures import FailureModel, RestorationPolicy
+from .events import Launch, Production
 from .study import _takes_design
 
 if TYPE_CHECKING:
@@ -51,8 +49,80 @@ class Phase:
         return self.end - self.start
 
 
+PHASE_COLUMNS = ("start", "end", "duration", "satellites")
+"""The columns of the evaluations of phases that are not metrics (see
+`evaluate_phases`)."""
+
+
 def _names(satellites: Sequence[Satellite | str]) -> list[str]:
     return [s.name if isinstance(s, Satellite) else str(s) for s in satellites]
+
+
+def _position_names(
+    planes: Sequence[tuple[Any, int, int]], satellites: Sequence[Satellite | str]
+) -> dict[tuple[int, int], str]:
+    """
+    Gets the name of the satellite at each position of each plane (by plane
+    and position) of satellites in the order of the planes, without spares
+    (see `MissionHistory.phases`), raising a `ValueError` if their numbers
+    differ.
+    """
+    names = _names(satellites)
+    positions = [
+        (plane, position)
+        for plane, (_, built, _) in enumerate(planes)
+        for position in range(built)
+    ]
+    if len(names) != len(positions):
+        raise ValueError(
+            f"expected {len(positions)} satellites for the planes, not {len(names)}"
+        )
+    return dict(zip(positions, names))
+
+
+def _satellite_keys(
+    satellites: Sequence[Satellite | str] | Mapping[str, str],
+) -> dict[str, str]:
+    """
+    Gets the keys of satellites in a cache of their metrics (see
+    `PhaseCache`), by name: of their content (see `get_satellite_key`), or
+    their names, if given as names (or the keys given, by name).
+    """
+    if isinstance(satellites, Mapping):
+        return dict(satellites)
+    return {
+        name: get_satellite_key(s) if isinstance(s, Satellite) else name
+        for name, s in zip(_names(satellites), satellites)
+    }
+
+
+class Failure(NamedTuple):
+    """A failure of a satellite (see `MissionHistory.failures`)."""
+
+    time: float
+    """float: The time of the failure (years from the start of development)."""
+    plane: int
+    """int: The plane (its index)."""
+    position: int
+    """int: The position in the plane."""
+    cause: str
+    """str: `"life"`, or `"launch"` (lost in a launch)."""
+
+
+class Restoration(NamedTuple):
+    """A restoration of a failed satellite (see `MissionHistory.restorations`)."""
+
+    plane: int
+    """int: The plane (its index)."""
+    position: int
+    """int: The position in the plane."""
+    failed: float
+    """float: The time of the failure (years from the start of development)."""
+    restored: float
+    """float: The time of the restoration."""
+    source: str
+    """str: `"orbit"` (a spare in orbit), `"ground"` (a spare on the ground),
+    or `"production"` (a satellite produced when needed)."""
 
 
 @dataclass
@@ -76,13 +146,13 @@ class MissionHistory:
     plane (by plane and position) operates."""
     parked: list[tuple[float, float, int]] = field(default_factory=list)
     """list: The intervals in which spares wait in orbit, and their number."""
-    failures: list[tuple[float, int, int, str]] = field(default_factory=list)
-    """list: The failures: their time, plane, position, and cause (`"life"`
-    or `"launch"`)."""
-    restorations: list[tuple[int, int, float, float, str]] = field(default_factory=list)
-    """list: The restorations: their plane, position, the time of the failure
-    and of the restoration, and the source (`"orbit"`, `"ground"`, or
-    `"production"`)."""
+    failures: list[Failure] = field(default_factory=list)
+    """list[Failure]: The failures: their time, plane, position, and cause
+    (`"life"` or `"launch"`)."""
+    restorations: list[Restoration] = field(default_factory=list)
+    """list[Restoration]: The restorations: their plane, position, the time
+    of the failure and of the restoration, and the source (`"orbit"`,
+    `"ground"`, or `"production"`)."""
     weight: float = 1.0
     """float: The likelihood ratio of the history, drawn from stressed
     failures (see `Deployment.simulate_many`), or 1."""
@@ -153,16 +223,10 @@ class MissionHistory:
         Returns:
             list[Phase]: the phases, in order
         """
-        names = _names(satellites)
-        expected = sum(built for _, built, _ in self.planes)
-        if len(names) != expected:
-            raise ValueError(
-                f"expected {expected} satellites for the planes, not {len(names)}"
-            )
-        offsets = np.cumsum([0] + [built for _, built, _ in self.planes])
+        named = _position_names(self.planes, satellites)
+        names = list(named.values())
         intervals = {
-            names[offsets[plane] + position]: spans
-            for (plane, position), spans in self.operating.items()
+            named[position]: spans for position, spans in self.operating.items()
         }
         begin, end = self.begin, self.end
         events = {begin, end}
@@ -194,22 +258,33 @@ class MissionHistory:
         restorations (`restorations`), the spares used (`spares used`), the
         mean time from failure to restoration (`restoration years`, `NaN`
         without restorations), and the availability of the satellites
-        (`availability`: their years of operation, as a share of those of
-        the planned deployment).
+        (`availability`: their years of operation, as a share of those
+        possible from the launches that deployed them to the end of the
+        mission, whether these succeeded or not, and of the stages that this
+        history deployed).
 
         Returns:
             dict[str, float]: the metrics
         """
-        planned = self.deployment.planned()
         operated = sum(b - a for spans in self.operating.values() for a, b in spans)
-        possible = sum(b - a for spans in planned.operating.values() for a, b in spans)
-        delays = [restored - failed for *_, failed, restored, _ in self.restorations]
+        built = [b for _, b, _ in self.planes]
+        possible = sum(
+            max(self.end - launch.time, 0.0)
+            * max(
+                min(launch.first + launch.satellites, built[launch.plane])
+                - launch.first,
+                0,
+            )
+            for launch in self.launches
+            if launch.purpose == "deployment"
+        )
+        delays = [r.restored - r.failed for r in self.restorations]
         metrics = {
             "failures": float(len(self.failures)),
             "launch failures": float(sum(launch.failed for launch in self.launches)),
             "restorations": float(len(self.restorations)),
             "spares used": float(
-                sum(source != "production" for *_, source in self.restorations)
+                sum(r.source != "production" for r in self.restorations)
             ),
             "restoration years": float(np.mean(delays)) if delays else math.nan,
             "availability": operated / possible if possible > 0 else math.nan,
@@ -228,24 +303,33 @@ class Decision:
     deploy the stage (see `Stage`): the satellites operating and the history
     so far, and the capability of the satellites operating (see
     `capability`), such as for a stage deployed only if the satellites in
-    orbit fall short of a requirement.
+    orbit fall short of a requirement. Its time is from the start of
+    development, as every time of a mission (see `since_launch` for the
+    time after the first launch, as of the times of the stage).
     """
 
     time: float
-    """float: The time of the decision, in years after the first launch."""
+    """float: The time of the decision (years from the start of
+    development)."""
     stage: int
     """int: The stage (its index)."""
-    operating: int
+    satellites_operating: int
     """int: The number of satellites operating."""
     history: MissionHistory
     """MissionHistory: The history of the mission so far: its production,
     launches, failures, restorations, and the periods of operation that
     have ended."""
-    deployed: tuple[int, ...]
-    """tuple[int, ...]: The stages deployed so far."""
+    stages_deployed: tuple[int, ...]
+    """tuple[int, ...]: The stages deployed so far (their indices)."""
     _measure: Callable[[], dict[str, float]] | None = field(
         default=None, repr=False, compare=False
     )
+
+    @property
+    def since_launch(self) -> float:
+        """float: The time of the decision after the first launch (years), as
+        the times of stages are given (see `Stage`)."""
+        return self.time - self.history.begin
 
     @cached_property
     def capability(self) -> dict[str, float]:
@@ -271,448 +355,11 @@ class Decision:
         return dict(self._measure())
 
 
-@dataclass
-class _Booking:
-    """A launch of restorations or spares, open to more until it flies."""
-
-    time: float
-    plane: int
-    kind: Any
-    items: list = field(default_factory=list)
-    order: int = 0
-
-
-class _Simulation:
-    """
-    A discrete-event simulation of a mission (see `Deployment.simulate`).
-    """
-
-    # pylint: disable=too-many-instance-attributes
-
-    def __init__(
-        self,
-        deployment: Deployment,
-        failures: FailureModel,
-        policy: RestorationPolicy,
-        seed: int | Sequence[int] | None,
-        uniforms: Callable[[tuple, int], np.ndarray] | None = None,
-        stress: float = 1.0,
-        launch_stress: float = 1.0,
-    ):
-        self.deployment, self.failures, self.policy = deployment, failures, policy
-        self.seed, self.uniforms = seed, uniforms
-        self.stress, self.launch_stress = stress, launch_stress
-        self.log_weight = 0.0
-        self.schedule = deployment.schedule
-        self.end = deployment.end
-        self.history = MissionHistory(
-            deployment, production=list(deployment.production)
-        )
-        self.events: list = []
-        self.counter = itertools.count()
-        # the state of each position: its generation, when it began to
-        # operate (or None), when it failed, and whether it awaits restoration
-        self.slots = {
-            (plane, position): {
-                "generation": -1,
-                "up": None,
-                "down": None,
-                "pending": False,
-            }
-            for plane, (_, built, _) in enumerate(deployment.planes)
-            for position in range(built)
-        }
-        self.spares = dict.fromkeys(range(len(deployment.planes)), 0)
-        self.spares_since: dict[int, float] = {}
-        self.ground: dict[Any, int] = {}
-        self.line = {
-            kind: max(
-                (
-                    b.end
-                    for b in deployment.production
-                    if b.kind == kind and b.purpose == "deployment"
-                ),
-                default=developed,
-            )
-            for kind, developed in deployment.development.items()
-        }
-        self.booked = sorted(launch.time for launch in deployment.launches)
-        self.open: dict[int, list[_Booking]] = {}
-        self.launches_of_plane: dict[int, int] = {}
-        self.decided: dict[int, float] = {}
-
-    # --- randomness
-
-    def _rng(self, *key: int) -> np.random.Generator:
-        seed = list(self.seed) if isinstance(self.seed, Sequence) else [self.seed]
-        return np.random.default_rng([*seed, *key])
-
-    def _life(
-        self, plane: int, position: int, generation: int, start: float = 0.0
-    ) -> float:
-        if self.seed is None:
-            return math.inf
-        life = self.failures.life_of(self.deployment.planes[plane][0])
-        if life is None:
-            return math.inf
-        key = (0, plane, position, generation)
-        if self.stress != 1.0:
-            uniform = (
-                self.uniforms(key, life.dimensions)
-                if self.uniforms is not None
-                else self._rng(*key).random(life.dimensions)
-            )
-            value, log_ratio = life.stressed(uniform, self.stress, self.end - start)
-            self.log_weight += log_ratio
-            return value
-        if self.uniforms is not None:
-            return life.from_uniform(self.uniforms(key, life.dimensions))
-        return life.sample(self._rng(*key))
-
-    def _launch_fails(self, *key: int) -> bool:
-        if self.seed is None or self.failures.launch == 0:
-            return False
-        uniform = (
-            self.uniforms((1, *key), 1)[0]
-            if self.uniforms is not None
-            else self._rng(1, *key).random()
-        )
-        p = self.failures.launch
-        if self.launch_stress == 1.0:
-            return bool(uniform < p)
-        stressed = min(p * self.launch_stress, 0.5)
-        failed = bool(uniform < stressed)
-        ratio = p / stressed if failed else (1 - p) / (1 - stressed)
-        self.log_weight += math.log(ratio)
-        return failed
-
-    # --- events
-
-    def _push(self, time: float, kind: str, *payload: Any) -> None:
-        heapq.heappush(self.events, (time, next(self.counter), kind, payload))
-
-    def run(self) -> MissionHistory:
-        """Runs the simulation, returning the history of the mission."""
-        # pylint: disable=too-many-branches
-        for kind in self.deployment.development:
-            count = self.policy.ground_spares_of(kind)
-            if count > 0:
-                begin = self.line[kind]
-                ready = begin + self._producing(kind, count)
-                self.history.production.append(
-                    Production(kind, begin, ready, count, "spare")
-                )
-                self.line[kind] = ready
-                self.ground.setdefault(kind, 0)
-                self._push(ready, "stock", kind, count)
-        for launch in self.deployment.launches:
-            self._push(launch.time, "planned", launch)
-        for index, stage in enumerate(self.deployment.stages):
-            for time in stage.times:
-                self._push(self.deployment.begin + time, "decide", index)
-        steps = 0
-        while self.events:
-            time, _, kind, payload = heapq.heappop(self.events)
-            if time >= self.end:
-                break
-            steps += 1
-            if steps > 1_000_000:
-                raise RuntimeError("the simulation does not progress")
-            getattr(self, f"_on_{kind}")(time, *payload)
-        for (plane, position), slot in self.slots.items():
-            if slot["up"] is not None:
-                self._close(plane, position, self.end)
-        for plane, since in self.spares_since.items():
-            if self.spares[plane] > 0:
-                self.history.parked.append((since, self.end, self.spares[plane]))
-        self.history.weight = math.exp(self.log_weight)
-        self.history.stages = [
-            self.decided.get(index) for index in range(len(self.deployment.stages))
-        ]
-        self.history.production.sort(key=lambda batch: batch.begin)
-        self.history.launches.sort(key=lambda launch: (launch.time, launch.plane))
-        return self.history
-
-    def _on_stock(self, time: float, kind: Any, count: int) -> None:
-        del time
-        self.ground[kind] = self.ground.get(kind, 0) + count
-
-    def _on_planned(self, time: float, launch: Launch) -> None:
-        failed = self._launch_fails(0, launch.plane, launch.first, launch.generation)
-        self.history.launches.append(replace(launch, failed=failed))
-        built = self.deployment.planes[launch.plane][1]
-        positions = range(launch.first, launch.first + launch.satellites)
-        for position in positions:
-            if position >= built:
-                continue
-            slot = self.slots[launch.plane, position]
-            if launch.purpose == "deployment":
-                if failed:
-                    self._fail(time, launch.plane, position, "launch")
-                else:
-                    self._up(time, launch.plane, position)
-            elif not failed:
-                # a planned replacement takes the place of the satellite
-                if slot["up"] is not None:
-                    self._close(launch.plane, position, time)
-                self._up(time, launch.plane, position)
-        spares = sum(position >= built for position in positions)
-        if spares and not failed:
-            level = self.deployment.planes[launch.plane][2]
-            if launch.purpose == "deployment":
-                self._park(time, launch.plane, spares)
-            else:
-                self._park(
-                    time,
-                    launch.plane,
-                    max(0, min(spares, level - self.spares[launch.plane])),
-                )
-
-    def _on_decide(self, time: float, index: int) -> None:
-        if index in self.decided:
-            return  # deployed at an earlier decision
-        stage = self.deployment.stages[index]
-        if stage.rule is not None:
-            operating = [
-                position
-                for position, slot in self.slots.items()
-                if slot["up"] is not None
-            ]
-            capability = self.deployment.capability
-            decision = Decision(
-                time - self.deployment.begin,
-                index,
-                len(operating),
-                self.history,
-                tuple(sorted(self.decided)),
-                (
-                    None
-                    if capability is None
-                    else partial(capability.at, self.deployment.planes, operating)
-                ),
-            )
-            if not stage.rule(decision):
-                return
-        self.decided[index] = time
-        self._deploy(time, stage)
-
-    def _on_fail(self, time: float, plane: int, position: int, generation: int) -> None:
-        slot = self.slots[plane, position]
-        if slot["generation"] != generation or slot["up"] is None:
-            return  # a satellite replaced before it failed
-        self._close(plane, position, time)
-        self._fail(time, plane, position, "life")
-
-    def _fail(self, time: float, plane: int, position: int, cause: str) -> None:
-        slot = self.slots[plane, position]
-        slot["down"] = time
-        self.history.failures.append((time, plane, position, cause))
-        if self.policy.restore and not slot["pending"]:
-            slot["pending"] = True
-            self._push(time + self.policy.detection_years, "request", plane, position)
-
-    def _on_request(self, time: float, plane: int, position: int) -> None:
-        slot = self.slots[plane, position]
-        if slot["up"] is not None:  # restored by a planned replacement
-            slot["pending"] = False
-            return
-        kind = self.deployment.planes[plane][0]
-        if self.spares[plane] > 0:
-            self._park(time, plane, -1)
-            self._push(
-                time + self.policy.drift_years, "activate", plane, position, "orbit"
-            )
-            if self.policy.replenish:
-                ready = self._produce(time, kind, 1, "spare")
-                self._book(plane, kind, ready, ("spare",))
-        elif self.ground.get(kind, 0) > 0:
-            self.ground[kind] -= 1
-            self._book(plane, kind, time, ("slot", position, "ground"))
-            if self.policy.replenish:
-                ready = self._produce(time, kind, 1, "spare")
-                self._push(ready, "stock", kind, 1)
-        else:
-            ready = self._produce(time, kind, 1, "restoration")
-            self._book(plane, kind, ready, ("slot", position, "production"))
-
-    def _on_activate(self, time: float, plane: int, position: int, source: str) -> None:
-        slot = self.slots[plane, position]
-        if slot["up"] is not None:
-            self._park(time, plane, 1)  # not needed: back to waiting
-            return
-        self._restore(time, plane, position, source)
-
-    def _on_booking(self, time: float, booking: _Booking) -> None:
-        self.open[booking.plane].remove(booking)
-        failed = self._launch_fails(1, booking.plane, booking.order)
-        spare = all(item[0] == "spare" for item in booking.items)
-        self.history.launches.append(
-            Launch(
-                time,
-                booking.plane,
-                booking.kind,
-                -1,
-                len(booking.items),
-                purpose="spare" if spare else "restoration",
-                failed=failed,
-            )
-        )
-        for item in booking.items:
-            if item[0] == "spare":
-                if not failed:
-                    self._park(time, booking.plane, 1)
-                continue
-            _, position, source = item
-            slot = self.slots[booking.plane, position]
-            if failed:
-                slot["pending"] = False
-                self.history.failures.append((time, booking.plane, position, "launch"))
-                if self.policy.restore:
-                    slot["pending"] = True
-                    self._push(
-                        time + max(self.policy.detection_years, 1e-6),
-                        "request",
-                        booking.plane,
-                        position,
-                    )
-            elif slot["up"] is not None:
-                self._park(time, booking.plane, 1)  # not needed: a spare in orbit
-            else:
-                self._restore(time, booking.plane, position, source)
-
-    # --- actions
-
-    def _up(self, time: float, plane: int, position: int) -> None:
-        slot = self.slots[plane, position]
-        slot["generation"] += 1
-        slot["up"], slot["pending"] = time, False
-        life = self._life(plane, position, slot["generation"], time)
-        if time + life < self.end:
-            self._push(time + life, "fail", plane, position, slot["generation"])
-
-    def _close(self, plane: int, position: int, time: float) -> None:
-        slot = self.slots[plane, position]
-        if time > slot["up"]:
-            self.history.operating.setdefault((plane, position), []).append(
-                (slot["up"], time)
-            )
-        slot["up"] = None
-
-    def _restore(self, time: float, plane: int, position: int, source: str) -> None:
-        slot = self.slots[plane, position]
-        self.history.restorations.append((plane, position, slot["down"], time, source))
-        self._up(time, plane, position)
-
-    def _park(self, time: float, plane: int, change: int) -> None:
-        if change == 0:
-            return
-        if self.spares[plane] > 0:
-            since = self.spares_since[plane]
-            if time > since:
-                self.history.parked.append((since, time, self.spares[plane]))
-        self.spares[plane] += change
-        self.spares_since[plane] = time
-
-    def _deploy(self, time: float, stage: Any) -> None:
-        """
-        Deploys the planes of a stage: produced after its lead time (on their
-        type's line), launched at the next launch slots, and replaced at the
-        end of their design life.
-        """
-        for plane in stage.planes:
-            kind, size, spares = self.deployment.planes[plane]
-            count = size + spares
-            if count == 0:
-                continue
-            begin = max(self.line[kind], time + stage.lead_years)
-            ready = begin + self._producing(kind, count)
-            self.line[kind] = ready
-            self.history.production.append(Production(kind, begin, ready, count))
-            launches = self.schedule.launches_of(
-                count,
-                self.deployment.masses.get(kind),
-                self._plane(plane),
-            )
-            position = 0
-            for j in range(launches):
-                carried = count // launches + (1 if j < count % launches else 0)
-                at = self._slot(ready)
-                self.booked = sorted(self.booked + [at])
-                self._push(at, "planned", Launch(at, plane, kind, position, carried))
-                # pylint: disable-next=protected-access
-                for produced, need, generation in self.schedule._replacements(
-                    kind, at, carried, self.end
-                ):
-                    self.history.production.append(
-                        Production(kind, produced, need, carried, "replacement")
-                    )
-                    if need >= self.end - 1e-9:
-                        continue  # of a sustained constellation, after the end
-                    replacement = Launch(
-                        need, plane, kind, position, carried, generation, "replacement"
-                    )
-                    self.booked = sorted(self.booked + [need])
-                    self._push(need, "planned", replacement)
-                position += carried
-
-    def _producing(self, kind: Any, count: int) -> float:
-        rate = _per_type(self.schedule.production_rate, kind, "production rate")
-        return 0.0 if rate is None else count / rate
-
-    def _produce(self, time: float, kind: Any, count: int, purpose: str) -> float:
-        begin = max(self.line[kind], time + self.policy.procurement_years)
-        ready = begin + self._producing(kind, count)
-        self.line[kind] = ready
-        self.history.production.append(Production(kind, begin, ready, count, purpose))
-        return ready
-
-    def _slot(self, ready: float) -> float:
-        """The earliest launch at or after a time, at the launch cadence."""
-        interval = self.schedule.launch_interval
-        time = ready
-        if interval > 0:
-            for booked in self.booked:
-                if booked - interval < time < booked + interval:
-                    time = booked + interval
-        return time
-
-    def _plane(self, plane: int) -> tuple[int, Any]:
-        """The index and values of a plane (see `DeploymentSchedule`)."""
-        values = self.deployment.plane_values
-        return plane, values[plane] if plane < len(values) else None
-
-    def _capacity(self, plane: int, kind: Any) -> float:
-        capacity = math.inf
-        if self.schedule.launch_capacity is not None:
-            capacity = self.schedule.launch_capacity
-        mass_capacity = self.schedule.mass_capacity_of(self._plane(plane))
-        if mass_capacity is not None:
-            mass = self.deployment.masses.get(kind)
-            if mass is not None:
-                capacity = min(capacity, math.floor(mass_capacity / mass))
-        return capacity
-
-    def _book(self, plane: int, kind: Any, ready: float, item: tuple) -> None:
-        """Books an item on a launch of a plane: an open one, or a new one."""
-        for booking in self.open.get(plane, []):
-            if booking.time >= ready and len(booking.items) < self._capacity(
-                plane, kind
-            ):
-                booking.items.append(item)
-                return
-        time = self._slot(ready + self.policy.batch_years)
-        order = self.launches_of_plane.get(plane, 0)
-        self.launches_of_plane[plane] = order + 1
-        booking = _Booking(time, plane, kind, [item], order)
-        self.open.setdefault(plane, []).append(booking)
-        self.booked = sorted(self.booked + [time])
-        self._push(time, "booking", booking)
-
-
 def evaluate_phases(
     phases: Sequence[Phase],
     observations: pd.DataFrame,
-    metric: Callable[[pd.DataFrame], Mapping[str, float]],
+    metric: Callable[..., Mapping[str, float]],
+    design: Any = None,
 ) -> pd.DataFrame:
     """
     Evaluates the phases of a mission: a metric of the observations of the
@@ -738,17 +385,21 @@ def evaluate_phases(
         observations (pandas.DataFrame): The observations of every
             satellite, with their names (`satellite`).
         metric (Callable): A function of the observations of a phase (which
-            may be empty) that gives its metrics.
+            may be empty) that gives its metrics (and of the design, if it
+            has a parameter named `design`, as the metrics of a study).
+        design (Design | None): The (realized) design of the mission, for a
+            metric with a parameter named `design`.
 
     Returns:
         pandas.DataFrame: a row per phase: its `start`, `end`, `duration`,
             number of `satellites`, and metrics
     """
-    return _evaluate_phases(phases, observations, lambda subset, _: metric(subset()))
+    given = _given_design(metric, design)
+    return _evaluate_phases(phases, observations, lambda subset, _: given(subset()))
 
 
 def summarize_phases(
-    capability: pd.DataFrame,
+    phases: pd.DataFrame,
     metrics: Sequence[str] | None = None,
     requirements: Sequence[Requirement] = (),
 ) -> dict[str, float]:
@@ -761,30 +412,27 @@ def summarize_phases(
     if none does).
 
     Args:
-        capability (pandas.DataFrame): The metrics of each phase.
+        phases (pandas.DataFrame): The metrics of each phase (see
+            `evaluate_phases`).
         metrics (Sequence[str] | None): The metrics, or `None` for every
-            column other than those of the phases.
+            column other than those of the phases (see `PHASE_COLUMNS`).
         requirements (Sequence[Requirement]): Requirements on metrics.
 
     Returns:
         dict[str, float]: the summary, as metrics of an evaluation
     """
     if metrics is None:
-        metrics = [
-            column
-            for column in capability.columns
-            if column not in ("start", "end", "duration", "satellites")
-        ]
-    weights = capability["duration"].to_numpy(dtype=float)
+        metrics = [column for column in phases.columns if column not in PHASE_COLUMNS]
+    weights = phases["duration"].to_numpy(dtype=float)
     summary = {}
     for name in metrics:
-        values = capability[name].to_numpy(dtype=float)
+        values = phases[name].to_numpy(dtype=float)
         summary[f"{name} mission"] = float(np.sum(values * weights) / np.sum(weights))
     for requirement in requirements:
         met = _OPERATORS[requirement.operator](
-            capability[requirement.name].to_numpy(dtype=float), requirement.value
+            phases[requirement.name].to_numpy(dtype=float), requirement.value
         )
-        starts = capability["start"].to_numpy(dtype=float)[met]
+        starts = phases["start"].to_numpy(dtype=float)[met]
         summary[f"{requirement.name} time"] = (
             float(starts[0]) if len(starts) > 0 else math.inf
         )
@@ -834,6 +482,11 @@ def _given_design(metric: Callable, design: Any) -> Callable:
     return partial(metric, design=design) if _takes_design(metric) else metric
 
 
+def _as_cache(metric: Callable[..., Mapping[str, float]] | PhaseCache) -> PhaseCache:
+    """Gets a cache of a metric (see `PhaseCache`), or the cache given."""
+    return metric if isinstance(metric, PhaseCache) else PhaseCache(metric)
+
+
 class PhaseCache:
     """
     A cache of a metric of the phases of missions (see `evaluate_phases`),
@@ -873,9 +526,9 @@ class PhaseCache:
     def evaluate(
         self,
         phases: Sequence[Phase],
+        satellites: Sequence[Satellite | str] | Mapping[str, str],
         observations: pd.DataFrame,
-        satellites: Sequence[Satellite] | Mapping[str, str],
-        context: Any,
+        context: Any = None,
         design: Any = None,
     ) -> pd.DataFrame:
         """
@@ -885,11 +538,12 @@ class PhaseCache:
 
         Args:
             phases (Sequence[Phase]): The phases.
+            satellites (Sequence[Satellite | str] | Mapping[str, str]): The
+                satellites, which key the cache by their content (or by
+                their names, if given as names, or by the keys given of their
+                names, see `get_satellite_key`).
             observations (pandas.DataFrame): The observations of every
                 satellite, with their names (`satellite`).
-            satellites (Sequence[Satellite] | Mapping[str, str]): The
-                satellites, which key the cache by their content (or the keys
-                of their names, see `get_satellite_key`).
             context (Any): A hashable identifier of the observations (such
                 as the seed of their targets and their period).
             design (Design | None): The (realized) design of the mission,
@@ -899,12 +553,7 @@ class PhaseCache:
             pandas.DataFrame: a row per phase: its `start`, `end`,
                 `duration`, number of `satellites`, and metrics
         """
-        keys = (
-            satellites
-            if isinstance(satellites, Mapping)
-            else {s.name: get_satellite_key(s) for s in satellites}
-        )
-
+        keys = _satellite_keys(satellites)
         metric = _given_design(self.metric, design)
 
         def cached(subset: Callable[[], pd.DataFrame], names: frozenset) -> dict:
@@ -994,14 +643,12 @@ class Capability:
     @cached_property
     def _keys(self) -> dict[str, str]:
         """The keys of the satellites in a cache, by name."""
-        return {
-            name: (
-                get_satellite_key(satellite)
-                if isinstance(satellite, Satellite)
-                else name
-            )
-            for name, satellite in zip(self._names, self.satellites)
-        }
+        return _satellite_keys(self.satellites)
+
+    @cached_property
+    def _cache(self) -> PhaseCache:
+        """The cache of the metric (that given, or one of its own)."""
+        return _as_cache(self.metric)
 
     def __call__(self, names: Iterable[str]) -> dict[str, float]:
         """
@@ -1018,15 +665,10 @@ class Capability:
         if unknown:
             raise ValueError(f"satellites that are not given: {sorted(unknown)}")
         subset = partial(_subset, self.observations, names)
-        metric = (
-            self.metric.metric if isinstance(self.metric, PhaseCache) else self.metric
-        )
-        metric = _given_design(metric, self.design)
-        if isinstance(self.metric, PhaseCache):
-            key = (self.context, frozenset(self._keys[name] for name in names))
-            # pylint: disable-next=protected-access
-            return dict(self.metric._metrics(key, subset, metric))
-        return dict(metric(subset()))
+        metric = _given_design(self._cache.metric, self.design)
+        key = (self.context, frozenset(self._keys[name] for name in names))
+        # pylint: disable-next=protected-access
+        return dict(self._cache._metrics(key, subset, metric))
 
     def at(
         self,
@@ -1046,12 +688,5 @@ class Capability:
         Returns:
             dict[str, float]: the metrics
         """
-        offsets = np.cumsum([0] + [built for _, built, _ in planes])
-        if len(self._names) != offsets[-1]:
-            raise ValueError(
-                f"expected {offsets[-1]} satellites for the planes, "
-                + f"not {len(self._names)}"
-            )
-        return self(
-            self._names[offsets[plane] + position] for plane, position in positions
-        )
+        named = _position_names(planes, self._names)
+        return self(named[plane, position] for plane, position in positions)

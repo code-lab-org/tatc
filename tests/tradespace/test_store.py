@@ -108,7 +108,7 @@ class TestResultStore(unittest.TestCase):
         store = ResultStore(self.path, "study")
         self._study(store).run()
         self.calls.clear()
-        results = self._study(store).run(replicates=range(5))
+        results = self._study(store).run(replicate_indices=range(5))
         self.assertEqual(len(self.calls), 4 * 2)
         self.assertEqual(len(results), 4 * 5)
 
@@ -180,6 +180,16 @@ class TestResultStore(unittest.TestCase):
         with self.assertWarnsRegex(UserWarning, "other code.*evaluate.code"):
             edited = study(lambda d: {"value": d.a + 1}).run()
         self.assertEqual(list(edited.value[:2]), [2, 2])
+        # another study (of other settings) shares the namespace
+        other = study(lambda d: {"value": d.a + 1}).replace(seed=1)
+        other.run()
+        # pruning removes the study's evaluations with other code, only
+        current = study(lambda d: {"value": d.a + 1})
+        self.assertEqual(current.prune(), 8)
+        self.assertEqual(
+            store.contexts(), {current.fingerprint: 8, other.fingerprint: 8}
+        )
+        self.assertEqual(current.prune(), 0)
 
     def test_records_as_json(self):
         """Records are kept as JSON, and read as they were written."""
@@ -240,8 +250,8 @@ class TestResultStore(unittest.TestCase):
         self.assertEqual(
             list(store.contexts()), [study.fingerprint, reseeded.fingerprint]
         )
-        # the records of other definitions are removed
-        self.assertEqual(store.prune(reseeded.fingerprint), 12)
+        # the records of a context are removed
+        self.assertEqual(store.remove(study.fingerprint), 12)
         self.assertEqual(store.contexts(), {reseeded.fingerprint: 12})
         self.assertIsNone(store.definition(study.fingerprint))
         store.clear()
@@ -288,7 +298,7 @@ class TestResultStore(unittest.TestCase):
         shifted = self._study(store).run(shift={"noise": 3})
         self.assertEqual(len(self.calls), 2 * 4 * 3)
         self.assertEqual(list(shifted.replicate), list(plain.replicate))
-        later = self._study(store).run(replicates=range(3, 6))
+        later = self._study(store).run(replicate_indices=range(3, 6))
         np.testing.assert_array_equal(shifted.noise, later.noise)
         self.calls.clear()
         again = self._study(store).run(shift={"noise": 3})

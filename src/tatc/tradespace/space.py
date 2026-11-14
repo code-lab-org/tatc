@@ -22,8 +22,6 @@ position of the innermost enclosing repeated item.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
 import re
 import zlib
@@ -35,6 +33,7 @@ import numpy as np
 import pandas as pd
 
 from .fingerprint import _Describer
+from .hashing import _canonical, _digest
 from .nodes import (
     Choice,
     Derived,
@@ -58,8 +57,25 @@ from .values import (
 _ABSENT = object()
 """Marker of a node that records no decision (fixed, derived, or uncertain)."""
 
-_RESERVED_NAMES = {"index", "count", "choice"}
-"""Names that cannot be given to the children of a design space."""
+_RESERVED_NAMES = {
+    # names that the views of values give otherwise (see `Values`)
+    "index",
+    "count",
+    "choice",
+    "get",
+    "items",
+    "keys",
+    "values",
+    # attributes of designs (see `Design`)
+    "decisions",
+    "flat",
+    "key",
+    "realize",
+    "replicate",
+    "space",
+}
+"""Names that cannot be given to the children of a design space, as the views
+of the values of designs (and designs) give them otherwise."""
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +87,7 @@ def _decision_key(decision: Any) -> str:
     """
     Gets a canonical string of a decision.
     """
-    return json.dumps(decision, sort_keys=True, default=str)
+    return _canonical(decision)
 
 
 def _plain(value: Any) -> Any:
@@ -324,7 +340,7 @@ def _walk_repeat(
     their decisions and decided again in that order if they are unordered
     (see `_walk`).
     """
-    if isinstance(node.count, Integer):
+    if isinstance(node.count, Variable):
         count = int(
             ctx.decide(
                 _join(path, "count"),
@@ -332,8 +348,14 @@ def _walk_repeat(
                 _ABSENT if prescribed is _ABSENT else len(prescribed),
             )
         )
+    elif isinstance(node.count, Fixed):
+        count = int(node.count.value)
+    elif isinstance(node.count, Derived):
+        count = int(node.count.function(scope))
     else:
         count = int(node.count)
+    if count < 0:
+        raise Infeasible(f"the count of {path} is negative ({count})")
     result, decisions = _walk_items(node, path, scope, ctx, count, prescribed, publish)
     if not node.ordered:
         canonical = sorted(decisions, key=_decision_key)
@@ -388,13 +410,14 @@ class Design:
         decisions: dict,
         values: dict,
         replicate: int | None = None,
+        scenario: str = "",
     ):
         self.space, self.decisions, self.replicate = space, decisions, replicate
         self._values = values
-        self._scenario = ""
+        self._scenario = scenario
         """str: A description of the values of the scenario of a realized
         design (see `realize`), `""` without one."""
-        self.key = hashlib.sha1(_decision_key(decisions).encode()).hexdigest()[:12]
+        self.key = _digest(_decision_key(decisions), 12)
         """str: An identifier of the design, from its decisions only (not
         from its derived values or uncertain parameters)."""
 
@@ -513,10 +536,13 @@ class Design:
 
         ctx = _Context(draw=draw, check=False, fix=fix if scenario else None)
         values, _ = _walk(self.space, "", Scope(), ctx, self.decisions)
-        realized = Design(self.space, self.decisions, values, replicate)
-        # pylint: disable-next=protected-access
-        realized._scenario = _describe_scenario(scenario)
-        return realized
+        return Design(
+            self.space,
+            self.decisions,
+            values,
+            replicate,
+            _describe_scenario(scenario),
+        )
 
     def __repr__(self) -> str:
         replicate = "" if self.replicate is None else f", replicate={self.replicate}"
@@ -650,7 +676,8 @@ class DesignSpace(Node):
 
         Raises:
             Infeasible: if the design violates a constraint.
-            ValueError: if an override names no child of the design space.
+            ValueError: if an override names no child of the design space, or
+                a decision is not a value of its variable's domain.
         """
         if isinstance(decisions, Design):
             decisions = decisions.decisions
@@ -662,7 +689,9 @@ class DesignSpace(Node):
             merged[name] = (
                 decision.decisions if isinstance(decision, Design) else decision
             )
-        values, merged = _walk(self, "", Scope(), _Context(), merged)
+        values, merged = _walk(
+            self, "", Scope(), _Context(record=_check_domain), merged
+        )
         return Design(self, merged, values)
 
     def extend(
@@ -872,7 +901,7 @@ class DesignSpace(Node):
         Returns:
             list[str]: the paths
         """
-        return _uncertain_paths(self, "")
+        return _leaf_paths(self, "", Uncertain)
 
     def decode(self, unit: Sequence[float]) -> Design:
         """
@@ -962,41 +991,77 @@ def _unit_paths(node: Node, path: str) -> list[str]:
             for p in _unit_paths(branch, _join(path, name))
         ]
     if isinstance(node, Repeat):
-        if isinstance(node.count, Integer):
-            if callable(node.count.high):
-                raise ValueError(
-                    f"the count of {path} needs a fixed upper bound to be encoded"
-                )
-            paths, largest = [_join(path, "count")], int(node.count.high)
-        else:
-            paths, largest = [], int(node.count)
+        paths, largest = [], _largest_count(node.count, path)
+        if isinstance(node.count, Variable):
+            paths = [_join(path, "count")]
         return paths + [
             p for k in range(largest) for p in _unit_paths(node.item, f"{path}[{k}]")
         ]
     return []
 
 
-def _fixed_paths(node: Node, path: str) -> list[str]:
+def _largest_count(count: Any, path: str) -> int:
     """
-    Gets the paths of the fixed values of a node, with `[*]` for the index of
-    any item of a repetition (as `_uncertain_paths`).
+    Gets the largest count of a repetition (see `_unit_paths`), which must
+    not depend on other values.
     """
-    if isinstance(node, Fixed):
+    if isinstance(count, Integer) and not callable(count.high):
+        return int(count.high)
+    if isinstance(count, Variable) and not isinstance(count, Integer):
+        options = getattr(count, "options", None)
+        if options is not None and not callable(options):
+            return int(max(options))
+    elif isinstance(count, Fixed):
+        return int(count.value)
+    elif isinstance(count, int):
+        return count
+    raise ValueError(f"the count of {path} needs a fixed upper bound to be encoded")
+
+
+def _check_domain(path: str, domain: _Domain, value: Any) -> None:
+    """
+    Checks that a decision is a value of its domain (see `DesignSpace.design`),
+    raising a `ValueError` if not.
+    """
+    if domain.levels is not None:
+        try:
+            if value in domain.levels:
+                return
+        except (TypeError, ValueError):
+            pass
+        raise ValueError(f"{value!r} is not a level of {path} ({domain.levels})")
+    try:
+        if domain.low <= float(value) <= domain.high:
+            return
+    except (TypeError, ValueError):
+        pass
+    raise ValueError(
+        f"{value!r} is not in the range of {path} ({domain.low}, {domain.high})"
+    )
+
+
+def _leaf_paths(node: Node, path: str, kind: type) -> list[str]:
+    """
+    Gets the paths of the leaves of a kind of a node (such as its fixed
+    values), with `[*]` for the index of any item of a repetition, and with
+    the branches of choices, whether a design chooses them or not.
+    """
+    if isinstance(node, kind):
         return [path]
     if isinstance(node, DesignSpace):
         return [
             p
             for name, child in node.children.items()
-            for p in _fixed_paths(child, _join(path, name))
+            for p in _leaf_paths(child, _join(path, name), kind)
         ]
     if isinstance(node, Choice):
         return [
             p
             for name, branch in node.branches.items()
-            for p in _fixed_paths(branch, _join(path, name))
+            for p in _leaf_paths(branch, _join(path, name), kind)
         ]
     if isinstance(node, Repeat):
-        return _fixed_paths(node.item, f"{path}[*]")
+        return _leaf_paths(node.item, f"{path}[*]", kind)
     return []
 
 
@@ -1058,6 +1123,15 @@ def _design_items(designs: Iterable[Design | str] | pd.DataFrame) -> list[Design
     return items
 
 
+def _keys_of(designs: Iterable[Design | str] | pd.DataFrame) -> list[str]:
+    """
+    Gets the keys of designs given as designs, keys, or a data frame of them
+    (with keys `design`, a column or the name of the index), each once.
+    """
+    keys = [d.key if isinstance(d, Design) else d for d in _design_items(designs)]
+    return list(dict.fromkeys(keys))
+
+
 def _designs(
     space: DesignSpace,
     designs: Iterable[Design | str] | pd.DataFrame,
@@ -1107,7 +1181,7 @@ def _check_scenario(space: DesignSpace, values: Mapping[str, Any]) -> None:
     """
     if not values:
         return
-    known = [*_fixed_paths(space, ""), *space.uncertain_paths()]
+    known = [*_leaf_paths(space, "", Fixed), *space.uncertain_paths()]
     unknown = sorted(set(values) - set(known))
     if unknown:
         raise ValueError(
@@ -1124,7 +1198,7 @@ def _describe_scenario(values: Mapping[str, Any]) -> str:
     if not values:
         return ""
     described = _Describer().describe(dict(values))
-    return json.dumps(described, sort_keys=True, default=str)
+    return _canonical(described)
 
 
 def _scenario_of(design: Design) -> str:
@@ -1146,27 +1220,3 @@ def _check_uncertain(space: DesignSpace, paths: Iterable[str]) -> None:
         raise ValueError(
             f"not uncertain parameters of the design space: {unknown} (it has {known})"
         )
-
-
-def _uncertain_paths(node: Node, path: str) -> list[str]:
-    """
-    Gets the paths of the uncertain parameters of a node (see
-    `DesignSpace.uncertain_paths`).
-    """
-    if isinstance(node, Uncertain):
-        return [path]
-    if isinstance(node, DesignSpace):
-        return [
-            p
-            for name, child in node.children.items()
-            for p in _uncertain_paths(child, _join(path, name))
-        ]
-    if isinstance(node, Choice):
-        return [
-            p
-            for name, branch in node.branches.items()
-            for p in _uncertain_paths(branch, _join(path, name))
-        ]
-    if isinstance(node, Repeat):
-        return _uncertain_paths(node.item, f"{path}[*]")
-    return []

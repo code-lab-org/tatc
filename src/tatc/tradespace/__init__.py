@@ -86,6 +86,9 @@ from .pareto import (
     pareto_ranks,
 )
 from .plotting import (
+    COLORS,
+    GRAY,
+    INK,
     plot_designs,
     plot_exceedance,
     plot_means,
@@ -181,6 +184,9 @@ __all__ = [
     "refine",
     "screen",
     # plots
+    "COLORS",
+    "GRAY",
+    "INK",
     "plot_designs",
     "plot_exceedance",
     "plot_means",

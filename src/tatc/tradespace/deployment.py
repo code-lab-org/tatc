@@ -42,11 +42,11 @@ from typing import Any
 
 from ..schemas import Satellite
 from .constellations import layout_of
-from .events import Launch, PerType, Production, _per_type
+from .events import Launch, PerType, Production, _per_type, _per_type_values
 from .failures import FailureModel, RestorationPolicy
-from .histories import _simulate_many
-from .histories import expected_metrics as _expected_metrics
-from .mission import Capability, Decision, MissionHistory, Phase, _Simulation
+from .histories import _expected_metrics, _simulate_many
+from .mission import Capability, Decision, MissionHistory, Phase
+from .simulation import _Simulation
 from .values import Values
 
 
@@ -235,9 +235,10 @@ class Deployment:
     def simulate_many(
         self,
         failures: FailureModel,
-        policy: RestorationPolicy | None,
-        seed: int | None,
-        histories: int,
+        policy: RestorationPolicy | None = None,
+        seed: int | None = None,
+        histories: int = 1,
+        *,
         sampling: str = "stratified",
         stress: float = 1.0,
         launch_stress: float | None = None,
@@ -279,8 +280,10 @@ class Deployment:
         Args:
             failures (FailureModel): The failures.
             policy (RestorationPolicy | None): The policy for failed
-                satellites.
-            seed (int | None): The seed of the replicate.
+                satellites, or `None` to restore them by producing new ones
+                (as `simulate`).
+            seed (int | None): The seed of the replicate, or `None` for the
+                one history without failures.
             histories (int): The number of histories.
             sampling (str): `"stratified"` or `"random"`.
             stress (float): The factor of the hazards of stressed failures.
@@ -302,27 +305,31 @@ class Deployment:
         self,
         failures: FailureModel,
         policy: RestorationPolicy | None = None,
-        histories: int = 1000,
         seed: int = 0,
+        histories: int = 1000,
+        *,
         sampling: str = "stratified",
     ) -> dict[str, float]:
         """
         Estimates the expected measures of the mission (see
         `MissionHistory.metrics`, such as its `availability`) from many
-        simulated histories (see `expected_metrics`).
+        simulated histories (see `simulate_many`), without evaluating their
+        phases: precise and cheap, as the expected values of control
+        variates (see `summarize_missions`, and the `controls` of
+        `Failures`).
 
         Args:
             failures (FailureModel): The failures.
             policy (RestorationPolicy | None): The policy for failed
-                satellites.
-            histories (int): The number of histories.
+                satellites (see `simulate_many`).
             seed (int): The seed of the histories.
+            histories (int): The number of histories.
             sampling (str): The sampling of their failures.
 
         Returns:
             dict[str, float]: the mean of each measure
         """
-        return _expected_metrics(self, failures, policy, histories, seed, sampling)
+        return _expected_metrics(self, failures, policy, seed, histories, sampling)
 
     def phases(self, satellites: Sequence[Satellite | str]) -> list[Phase]:
         """
@@ -360,7 +367,8 @@ class DeploymentSchedule:
     * The mission lasts `years` from the first launch. Satellites are
       replaced at the end of their `design_life` (one for every type, or one
       for each; if before the end of the mission), each replacement produced
-      at the production rate just before it is needed and launched then. A
+      at the production rate just before it is needed and launched then
+      (see `replacements`). A
       design life does not retire a satellite: one that is not replaced (as
       near the end of the mission, or if its replacement's launch fails)
       operates until it fails (by the wear-out of its life, see
@@ -418,21 +426,21 @@ class DeploymentSchedule:
     def __post_init__(self):
         if self.years <= 0:
             raise ValueError("years must be positive")
-        lives = self.design_life
-        values = lives.values() if isinstance(lives, Mapping) else [lives]
-        if any(life is not None and life <= 0 for life in values):
+        if any(
+            life is not None and life <= 0
+            for life in _per_type_values(self.design_life)
+        ):
             raise ValueError("design_life must be positive")
         if self.launch_interval < 0:
             raise ValueError("launch_interval must not be negative")
         if self.launch_capacity is not None and self.launch_capacity < 1:
             raise ValueError("launch_capacity must be at least 1")
-        rates = self.production_rate
-        values = rates.values() if isinstance(rates, Mapping) else [rates]
-        if any(rate is not None and rate <= 0 for rate in values):
+        if any(
+            rate is not None and rate <= 0
+            for rate in _per_type_values(self.production_rate)
+        ):
             raise ValueError("production_rate must be positive")
-        years = self.development_years
-        values = years.values() if isinstance(years, Mapping) else [years]
-        if any(value < 0 for value in values):
+        if any(years < 0 for years in _per_type_values(self.development_years)):
             raise ValueError("development_years must not be negative")
 
     def design_life_of(self, kind: Any = None) -> float | None:
@@ -448,30 +456,67 @@ class DeploymentSchedule:
         """
         return _per_type(self.design_life, kind, "design life")
 
-    def _replacements(
-        self, kind: Any, time: float, satellites: int, end: float
-    ) -> list[tuple[float, float, int]]:
+    def production_years(self, kind: Any, satellites: int) -> float:
         """
-        Gets the planned replacements of satellites launched at a time: the
-        start of the production and the launch of each, and its generation.
-        Replacements are launched before the end of the mission, or, for a
-        sustained constellation, produced after it from those whose
-        production begins within the development years of their type after
-        the end (whose later blocks of production may be developed before
-        it).
+        Gets the time to produce satellites of a type on its line.
+
+        Args:
+            kind (Any): The type of the satellites.
+            satellites (int): The number of satellites.
+
+        Returns:
+            float: the years (0 for production that takes no time)
         """
-        life = self.design_life_of(kind)
+        rate = _per_type(self.production_rate, kind, "production rate")
+        return 0.0 if rate is None else satellites / rate
+
+    def replacements(
+        self, launch: Launch, end: float
+    ) -> list[tuple[Production, Launch | None]]:
+        """
+        Gets the planned replacements of the satellites of a launch, at the
+        end of their design life: the production of each (just before it is
+        needed) and its launch. Replacements are launched before the end of
+        the mission, or, for a sustained constellation, produced after it
+        (without a launch, `None`) from those whose production begins within
+        the development years of their type after the end (whose later
+        blocks of production may be developed before it).
+
+        Args:
+            launch (Launch): The launch.
+            end (float): The end of the mission.
+
+        Returns:
+            list[tuple[Production, Launch | None]]: the production and the
+                launch of each replacement, in order
+        """
+        life = self.design_life_of(launch.kind)
         if life is None:
             return []
-        rate = _per_type(self.production_rate, kind, "production rate")
-        producing = 0.0 if rate is None else satellites / rate
+        producing = self.production_years(launch.kind, launch.satellites)
         horizon = end
         if self.sustained:
-            horizon += float(_per_type(self.development_years, kind, "development"))
-        replacements = []
-        need, generation = time + life, 1
+            horizon += float(
+                _per_type(self.development_years, launch.kind, "development")
+            )
+        replacements: list[tuple[Production, Launch | None]] = []
+        need, generation = launch.time + life, 1
         while (need - producing if self.sustained else need) < horizon - 1e-9:
-            replacements.append((need - producing, need, generation))
+            production = Production(
+                launch.kind, need - producing, need, launch.satellites, "replacement"
+            )
+            replacement = None
+            if need < end - 1e-9:  # not those of a sustained constellation after it
+                replacement = Launch(
+                    need,
+                    launch.plane,
+                    launch.kind,
+                    launch.first,
+                    launch.satellites,
+                    generation,
+                    "replacement",
+                )
+            replacements.append((production, replacement))
             need, generation = need + life, generation + 1
         return replacements
 
@@ -493,6 +538,62 @@ class DeploymentSchedule:
             raise ValueError("a launch capacity of each plane needs the plane")
         return float(capacity(*plane))
 
+    def per_launch(
+        self, mass: float | None = None, plane: tuple[int, Any] | None = None
+    ) -> float:
+        """
+        Gets the most satellites of a launch (to a plane), by the capacity of
+        launches in number and in mass.
+
+        Args:
+            mass (float | None): The mass (kg) of each satellite.
+            plane (tuple[int, Any] | None): The index and values of the plane,
+                for a capacity in mass that is a function of the plane.
+
+        Returns:
+            float: the number of satellites (infinite if not limited)
+
+        Raises:
+            ValueError: if a capacity in mass is not given the mass, or a
+                satellite exceeds it.
+        """
+        capacity = math.inf if self.launch_capacity is None else self.launch_capacity
+        mass_capacity = self.mass_capacity_of(plane)
+        if mass_capacity is not None:
+            if mass is None:
+                raise ValueError("a launch capacity in mass requires masses")
+            fits = math.floor(mass_capacity / mass)
+            if fits < 1:
+                raise ValueError("a satellite exceeds the mass capacity of a launch")
+            capacity = min(capacity, fits)
+        return capacity
+
+    def split(
+        self,
+        satellites: int,
+        mass: float | None = None,
+        plane: tuple[int, Any] | None = None,
+    ) -> list[int]:
+        """
+        Gets the satellites of each launch of a plane: as few launches as
+        carry them (see `per_launch`, at least one), sharing them evenly.
+
+        Args:
+            satellites (int): The number of satellites.
+            mass (float | None): The mass (kg) of each satellite.
+            plane (tuple[int, Any] | None): The index and values of the plane,
+                for a capacity in mass that is a function of the plane.
+
+        Returns:
+            list[int]: the satellites of each launch
+        """
+        capacity = self.per_launch(mass, plane)
+        count = max(1, math.ceil(satellites / capacity)) if capacity < math.inf else 1
+        return [
+            satellites // count + (1 if j < satellites % count else 0)
+            for j in range(count)
+        ]
+
     def launches_of(
         self,
         satellites: int,
@@ -500,7 +601,7 @@ class DeploymentSchedule:
         plane: tuple[int, Any] | None = None,
     ) -> int:
         """
-        Gets the launches of a plane of satellites.
+        Gets the launches of a plane of satellites (see `split`).
 
         Args:
             satellites (int): The number of satellites.
@@ -511,18 +612,7 @@ class DeploymentSchedule:
         Returns:
             int: the number of launches
         """
-        count = 1
-        if self.launch_capacity is not None:
-            count = max(count, math.ceil(satellites / self.launch_capacity))
-        capacity = self.mass_capacity_of(plane)
-        if capacity is not None:
-            if mass is None:
-                raise ValueError("a launch capacity in mass requires masses")
-            per_launch = math.floor(capacity / mass)
-            if per_launch < 1:
-                raise ValueError("a satellite exceeds the mass capacity of a launch")
-            count = max(count, math.ceil(satellites / per_launch))
-        return count
+        return len(self.split(satellites, mass, plane))
 
     def plan(
         self,
@@ -575,7 +665,6 @@ class DeploymentSchedule:
         planes = []  # (ready, index, kind, satellites, mass)
         for name, item in fleets.items():
             developed = float(_per_type(self.development_years, name, "development"))
-            rate = _per_type(self.production_rate, name, "production rate")
             mass = None if masses is None else _per_type(masses, name, "mass")
             deployment.development[name] = developed
             deployment.masses[name] = mass
@@ -591,7 +680,7 @@ class DeploymentSchedule:
                 listed.sort(key=lambda plane: self.order(plane[0], plane[2]))
             line = developed
             for index, size, _ in listed:
-                ready = line + (0.0 if rate is None else size / rate)
+                ready = line + self.production_years(name, size)
                 deployment.production.append(Production(name, line, ready, size))
                 planes.append((ready, index, name, size, mass))
                 line = ready
@@ -604,43 +693,27 @@ class DeploymentSchedule:
             raise ValueError("a deployment requires satellites (that are not staged)")
         cadence = -math.inf
         for ready, index, name, size, mass in sorted(planes, key=lambda p: p[0]):
-            count = self.launches_of(
-                size, mass, (index, deployment.plane_values[index])
-            )
+            carried = self.split(size, mass, (index, deployment.plane_values[index]))
             first = max(ready, cadence)
             position = 0
-            for j in range(count):
-                carried = size // count + (1 if j < size % count else 0)
+            for j, satellites in enumerate(carried):
                 deployment.launches.append(
                     Launch(
-                        first + j * self.launch_interval, index, name, position, carried
+                        first + j * self.launch_interval,
+                        index,
+                        name,
+                        position,
+                        satellites,
                     )
                 )
-                position += carried
-            cadence = first + count * self.launch_interval
+                position += satellites
+            cadence = first + len(carried) * self.launch_interval
         end = deployment.end
         for launch in list(deployment.launches):
-            for produced, need, generation in self._replacements(
-                launch.kind, launch.time, launch.satellites, end
-            ):
-                deployment.production.append(
-                    Production(
-                        launch.kind, produced, need, launch.satellites, "replacement"
-                    )
-                )
-                # not those of a sustained constellation after the end
-                if need < end - 1e-9:
-                    deployment.launches.append(
-                        Launch(
-                            need,
-                            launch.plane,
-                            launch.kind,
-                            launch.first,
-                            launch.satellites,
-                            generation,
-                            "replacement",
-                        )
-                    )
+            for production, replacement in self.replacements(launch, end):
+                deployment.production.append(production)
+                if replacement is not None:
+                    deployment.launches.append(replacement)
         deployment.production.sort(key=lambda batch: batch.begin)
         deployment.launches.sort(key=lambda launch: (launch.time, launch.plane))
         return deployment

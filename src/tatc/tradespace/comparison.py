@@ -24,16 +24,7 @@ import numpy as np
 import pandas as pd
 
 from .criteria import _get_matrices, _groups
-from .space import Design, _design_items
-
-
-def _keys_of(designs: Iterable[Design | str] | pd.DataFrame) -> list[str]:
-    """
-    Gets the keys of designs given as designs, keys, or a data frame of them
-    (with keys `design`, a column or the name of the index), each once.
-    """
-    keys = [d.key if isinstance(d, Design) else d for d in _design_items(designs)]
-    return list(dict.fromkeys(keys))
+from .space import Design, _keys_of
 
 
 def exceedance(

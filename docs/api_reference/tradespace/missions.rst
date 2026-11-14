@@ -15,7 +15,7 @@ Constellations
    :no-members:
 
 .. autoclass:: tatc.tradespace.constellations.Layout
-   :members: planes, orbits, names, satellites, build
+   :members: planes, orbits, names, describe, satellites, build
 
 .. autoclass:: tatc.tradespace.constellations.Plane
 
@@ -26,6 +26,10 @@ Constellations
 .. autoclass:: tatc.tradespace.constellations.SSOPlanesLayout
 
 .. autoclass:: tatc.tradespace.constellations.PlanesLayout
+
+.. autoclass:: tatc.tradespace.constellations.SOCLayout
+
+.. autoclass:: tatc.tradespace.constellations.MOGLayout
 
 .. autoclass:: tatc.tradespace.constellations.Layouts
 
@@ -42,7 +46,7 @@ Deployment
    :no-members:
 
 .. autoclass:: tatc.tradespace.DeploymentSchedule
-   :members: plan, launches_of, mass_capacity_of
+   :members: plan, production_years, replacements, per_launch, split, launches_of, mass_capacity_of, design_life_of
 
 .. autoclass:: tatc.tradespace.Stage
 
@@ -54,7 +58,7 @@ Deployment
 .. autoclass:: tatc.tradespace.deployment.Production
 
 .. autoclass:: tatc.tradespace.mission.Decision
-   :members: time, stage, operating, history, deployed, capability
+   :members: time, since_launch, stage, satellites_operating, history, stages_deployed, capability
 
 Failures
 ========
@@ -91,6 +95,13 @@ Missions
 .. autoclass:: tatc.tradespace.mission.Phase
    :members: duration
 
+.. autoclass:: tatc.tradespace.mission.Failure
+
+.. autoclass:: tatc.tradespace.mission.Restoration
+
+.. autodata:: tatc.tradespace.mission.PHASE_COLUMNS
+   :annotation:
+
 .. autofunction:: tatc.tradespace.mission.evaluate_phases
 
 .. autofunction:: tatc.tradespace.mission.summarize_phases
@@ -101,6 +112,9 @@ Missions
 .. autoclass:: tatc.tradespace.mission.Capability
    :members: at
    :special-members: __call__
+
+.. automodule:: tatc.tradespace.simulation
+   :no-members:
 
 .. automodule:: tatc.tradespace.histories
    :no-members:
@@ -120,7 +134,7 @@ Costs
    :no-members:
 
 .. autoclass:: tatc.tradespace.CostModel
-   :members: estimate, draw, score_names, discount
+   :members: estimate, satellite_cost_of, draw, score_names, discount
 
 .. autoclass:: tatc.tradespace.SatelliteCost
    :members: production, blocks, total_development, total_first_unit

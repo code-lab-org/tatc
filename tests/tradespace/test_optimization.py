@@ -121,7 +121,7 @@ class TestEncoding(unittest.TestCase):
         """Counts need fixed upper bounds to be encoded."""
         space = DesignSpace(
             n=Integer(1, 3),
-            items=Repeat(Integer(0, 1), count=Integer(1, lambda d: d.n)),
+            parts=Repeat(Integer(0, 1), count=Integer(1, lambda d: d.n)),
         )
         with self.assertRaises(ValueError):
             space.unit_paths()
@@ -482,6 +482,9 @@ class TestOptunaSearch(unittest.TestCase):
         share = evaluations.infeasibility[space.enumerate()[1].key]
         self.assertGreater(share, 0)
         self.assertLess(share, 1)
+        # the summary of a search is of the designs it found feasible
+        summary = evaluations.search(None).summary
+        self.assertEqual(list(summary.design), [space.enumerate()[0].key])
         optuna_study = optimize_optuna(study, {"f": "max"}, n_trials=6).state
         for trial in optuna_study.trials:
             if trial.params.get("x") == 1:

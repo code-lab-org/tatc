@@ -136,7 +136,7 @@ class TestStudyScenarios(unittest.TestCase):
         store = ResultStore(self.path, "scenarios")
         study = self._study(SCENARIOS, store=store)
         a = attribute_variance(
-            study, ["y"], SPACE.enumerate(), replicates=20, by=["scenario"]
+            study, ["y"], SPACE.enumerate(), sample_size=20, by=["scenario"]
         )
         shares = a.shares.set_index(["design", "scenario"])["total"]
         key = SPACE.enumerate()[0].key
@@ -146,7 +146,7 @@ class TestStudyScenarios(unittest.TestCase):
         self.assertTrue(np.isnan(shares[key, "pinned"]))
         self.calls.clear()
         attribute_variance(
-            study, ["y"], SPACE.enumerate(), replicates=20, by=["scenario"]
+            study, ["y"], SPACE.enumerate(), sample_size=20, by=["scenario"]
         )
         self.assertEqual(self.calls, [])
 
@@ -271,6 +271,8 @@ class TestRobustness(unittest.TestCase):
         # every design trades y against cost, in every scenario
         np.testing.assert_allclose(r["pareto_trace"], 1.0)
         self.assertEqual(len(r), 3)
+        # with the values of the designs, from which they are rebuilt
+        self.assertEqual(len(SPACE.designs_of(r)), 3)
 
 
 class TestAcross(unittest.TestCase):

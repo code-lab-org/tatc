@@ -368,9 +368,8 @@ class TestSimulation(unittest.TestCase):
         ):
             with self.assertRaises(ValueError):
                 RestorationPolicy(**invalid)
-        self.assertEqual(
-            RestorationPolicy(ground_spares={"a": 2}).ground_spares_of("b"), 0
-        )
+        with self.assertRaisesRegex(ValueError, "ground spares"):
+            RestorationPolicy(ground_spares={"a": 2}).ground_spares_of("b")
 
 
 class TestPolicySpace(unittest.TestCase):
@@ -530,7 +529,7 @@ class TestManyMissions(unittest.TestCase):
         cache = PhaseCache(self._metric)
         for history in histories:
             phases = history.phases(self.satellites)
-            cached = cache.evaluate(phases, self.observations, self.satellites, "r0")
+            cached = cache.evaluate(phases, self.satellites, self.observations, "r0")
             direct = evaluate_phases(phases, self.observations, self._metric)
             pd.testing.assert_frame_equal(cached, direct)
         self.assertGreater(cache.hits, cache.misses)
@@ -543,13 +542,13 @@ class TestManyMissions(unittest.TestCase):
             {s.name: r.name for s, r in zip(self.satellites, renamed)}
         )
         misses = cache.misses
-        cache.evaluate(histories[0].phases(renamed), observations, renamed, "r0")
+        cache.evaluate(histories[0].phases(renamed), renamed, observations, "r0")
         self.assertEqual(cache.misses, misses)
         # other observations (another context) are evaluated again
         cache.evaluate(
             histories[0].phases(self.satellites),
-            self.observations,
             self.satellites,
+            self.observations,
             "r1",
         )
         self.assertGreater(cache.misses, misses)
@@ -662,7 +661,7 @@ class TestVarianceReduction(unittest.TestCase):
                                 RestorationPolicy(restore=False),
                                 seed,
                                 20,
-                                sampling,
+                                sampling=sampling,
                             )
                         ]
                     )

@@ -117,20 +117,21 @@ class TestSatelliteCache(unittest.TestCase):
         """Results on disk are not shared by functions of other definitions."""
 
         def make(rows):
-            return SatelliteCache(
-                lambda satellite, rows=rows: pd.DataFrame(
-                    {"satellite": [satellite.name] * rows}
-                ),
-                directory,
-                namespace="x",
+            # the same function, edited to give other rows
+            namespace = {"pd": pd}
+            exec(  # pylint: disable=exec-used
+                "def analysis(satellite):\n"
+                + f"    return pd.DataFrame({{'satellite': [satellite.name] * {rows}}})",
+                namespace,
             )
+            return SatelliteCache(namespace["analysis"], directory, namespace="x")
 
         with tempfile.TemporaryDirectory() as directory:
             for rows in (1, 1):
                 self.assertEqual(len(make(rows)(_satellite("a"))), rows)
-            # a namespace with results only of other definitions warns
+            # a namespace with results only of the function with other code warns
             with self.assertWarnsRegex(
-                UserWarning, r"1 results.*defaults\[0\]: 1 -> 2"
+                UserWarning, r"1 results.*with other code.*function.(code|constants)"
             ):
                 cache = make(2)
             # once, of the caches of the definition (such as of parallel workers)
@@ -163,7 +164,10 @@ class TestSatelliteCache(unittest.TestCase):
             same = make(pd.DataFrame({"value": [1.0]}))
             same(_satellite("b"))
             self.assertEqual((same.hits, same.misses), (1, 0))
-            with self.assertWarns(UserWarning):
+            # results of other data are not reused, without a warning (as
+            # they are not of the same function with other code)
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
                 other = make(pd.DataFrame({"value": [2.0]}))
             self.assertEqual(list(other(_satellite("c")).value), [2.0])
             self.assertEqual(other.misses, 1)
@@ -207,7 +211,7 @@ class TestSatelliteCache(unittest.TestCase):
         cache.get(_satellite("a"))
         copy = pickle.loads(pickle.dumps(cache))
         self.assertEqual(copy._memory, {})  # pylint: disable=protected-access
-        cache.clear()
+        cache.clear_memory()
         self.assertEqual((cache.hits, cache.misses), (0, 0))
 
     def test_no_satellites(self):

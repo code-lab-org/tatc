@@ -35,6 +35,7 @@ from tatc.tradespace import (
     sso_planes_space,
     walker_space,
 )
+from tatc.tradespace.constellations import layout_of
 
 # EvaluateTradeSpace: the design space, and the study of sufficient sampling
 
@@ -100,21 +101,8 @@ OBJECTIVES = {"satellites": "min", "planes": "min", "sufficient": "max"}
 
 
 def describe(d):
-    """A short description of a design (a row of its values)."""
-    if d.layout == "walker":
-        layout = (
-            f"Walker {d['layout.walker.inclination']:.0f} deg: "
-            f"{d['layout.walker.planes']:.0f} x {d['layout.walker.per_plane']:.0f} "
-            f"(spacing {d['layout.walker.relative_spacing']:.0f})"
-        )
-    else:
-        planes = [
-            f"{d[f'layout.sso.planes[{k}].per_plane']:.0f} at "
-            f"{d[f'layout.sso.planes[{k}].crossing']:02.0f}:00"
-            for k in range(int(d["layout.sso.planes.count"]))
-        ]
-        layout = "SSO: " + ", ".join(planes)
-    return f"{d.altitude / 1e3:.0f} km, {d.field_of_regard} deg FOR, {layout}"
+    """A short description of a design: its altitude, field of regard, and layout."""
+    return f"{d.altitude / 1e3:.0f} km, {d.field_of_regard} deg FOR, {layout_of(d.layout).describe()}"
 
 
 def planes_name(planes):
@@ -185,7 +173,5 @@ COST_MODEL = CostModel(
 PLAN = MissionPlan(
     SCHEDULE, COST_MODEL, kind="field_of_regard", growth={"development": "cost_growth"}
 )
-cost_space = space.extend(
-    cost_growth=Uncertain(lambda rng: float(rng.triangular(0.9, 1.0, 1.6)))
-)
+cost_space = space.extend(cost_growth=Uncertain.triangular(0.9, 1.0, 1.6))
 cost_study = accuracy_study.replace(space=cost_space, plan=PLAN)

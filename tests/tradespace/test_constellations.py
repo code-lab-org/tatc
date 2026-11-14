@@ -300,7 +300,7 @@ class TestWalkerPhase(unittest.TestCase):
         """The lead satellite is at the origin by default."""
         design, satellites = _walker()
         self.assertEqual(design.layout.true_anomaly, 0)
-        self.assertEqual(design.layout.right_ascension, 0)
+        self.assertEqual(design.layout.node, 0)
         self.assertEqual(satellites[0].orbit.true_anomaly, 0)
         self.assertEqual(satellites[0].orbit.right_ascension_ascending_node, 0)
 
@@ -308,11 +308,11 @@ class TestWalkerPhase(unittest.TestCase):
         """Fractions give angles of the intervals of distinct constellations."""
         design, satellites = _walker(phase_fraction=0.5, node_fraction=0.25)
         self.assertAlmostEqual(design.layout.true_anomaly, 0.5 * 360 / 4)
-        self.assertAlmostEqual(design.layout.right_ascension, 0.25 * 360 / 3)
+        self.assertAlmostEqual(design.layout.node, 0.25 * 360 / 3)
         self.assertAlmostEqual(satellites[0].orbit.true_anomaly, 45)
         self.assertAlmostEqual(satellites[0].orbit.right_ascension_ascending_node, 30)
         star, _ = _walker(configuration="star", node_fraction=0.25)
-        self.assertAlmostEqual(star.layout.right_ascension, 90)
+        self.assertAlmostEqual(star.layout.node, 90)
 
     def test_symmetries(self):
         """A whole interval of phase or node gives the same constellation."""
@@ -347,7 +347,7 @@ class TestWalkerPhase(unittest.TestCase):
         fraction = realized.layout.phase_fraction
         self.assertTrue(0 <= fraction < 1)
         self.assertAlmostEqual(realized.layout.true_anomaly, fraction * 180)
-        self.assertAlmostEqual(realized.layout.right_ascension, 0.5 * 180)
+        self.assertAlmostEqual(realized.layout.node, 0.5 * 180)
         # the same draw in every design (common random numbers)
         self.assertEqual(designs[0].realize(0).layout.phase_fraction, fraction)
 
@@ -524,9 +524,15 @@ class TestStreetsOfCoverage(unittest.TestCase):
             high.layout, IMAGER, epoch=EPOCH, altitude=high.altitude
         )
         self.assertEqual(len(satellites), count_satellites(high.layout))
-        # the satellites of the planes derived at another altitude do not fit
-        with self.assertRaises(ValueError):
-            build_constellation(high.layout, IMAGER, epoch=EPOCH, altitude=500e3)
+        # the fragment keeps the altitude its planes were derived at, which
+        # builds its satellites whatever altitude is given
+        self.assertEqual(high.layout.altitude, high.altitude)
+        for given in (None, 500e3):
+            built = build_constellation(
+                high.layout, IMAGER, epoch=EPOCH, altitude=given
+            )
+            self.assertEqual(len(built), count_satellites(high.layout))
+            self.assertAlmostEqual(built[0].orbit.mean_altitude, 1000e3)
 
     def test_constraints(self):
         """Constraints of the fragment limit the satellites it derives."""
@@ -556,13 +562,11 @@ class TestStreetsOfCoverage(unittest.TestCase):
             (design,) = space.enumerate()
             layout = design.layout
             self.assertAlmostEqual(layout.true_anomaly, 180 / layout.per_plane)
-            self.assertAlmostEqual(
-                layout.right_ascension, 180 if polar else 180 / layout.planes
-            )
+            self.assertAlmostEqual(layout.node, 180 if polar else 180 / layout.planes)
             satellites = build_constellation(layout, IMAGER, epoch=EPOCH)
             self.assertAlmostEqual(
                 satellites[0].orbit.right_ascension_ascending_node,
-                layout.right_ascension,
+                layout.node,
             )
 
 
@@ -771,3 +775,87 @@ class TestLayout(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             Short([0, 90], altitude=600e3).build(IMAGER, epoch=EPOCH)
+
+
+class TestDescriptions(unittest.TestCase):
+    """
+    Unit tests for the descriptions of layouts, and their altitudes.
+    """
+
+    def test_describe(self):
+        """Layouts describe themselves briefly."""
+        from tatc.tradespace.constellations import (
+            layout_of,
+        )  # pylint: disable=import-outside-toplevel
+
+        walker = _single(
+            DesignSpace(
+                layout=walker_space(
+                    inclination=60, planes=3, per_plane=4, relative_spacing=1
+                )
+            )
+        ).layout
+        self.assertEqual(
+            layout_of(walker).describe(), "Walker 60 deg: 3 x 4 (spacing 1)"
+        )
+        self.assertIn("Walker 60 deg", repr(layout_of(walker)))
+        sso = _single(
+            DesignSpace(
+                layout=sso_planes_space(
+                    crossing=Derived(lambda d: [6, 13.5][d.index]),
+                    planes=2,
+                    per_plane=Integer(1, 1),
+                    ordered=True,
+                )
+            )
+        ).layout
+        self.assertEqual(str(layout_of(sso)), "SSO: 1 at 06:00, 1 at 13:30")
+        mixed = layout_of([walker, sso])
+        self.assertEqual(
+            mixed.describe(),
+            "Walker 60 deg: 3 x 4 (spacing 1); SSO: 1 at 06:00, 1 at 13:30",
+        )
+        mog = _single(
+            DesignSpace(
+                layout=mog_space(
+                    parallel_axis=10e3,
+                    transverse_axis=5e3,
+                    inclination=45,
+                    satellites=3,
+                    altitude=500e3,
+                )
+            )
+        ).layout
+        self.assertEqual(
+            layout_of(mog).describe(), "MOG 45 deg at 500 km: 3 satellites (10 x 5 km)"
+        )
+
+    def test_own_altitude(self):
+        """A layout's own altitude is built, rather than the one given."""
+        layout = _single(
+            DesignSpace(
+                layout=walker_space(
+                    inclination=60, planes=1, per_plane=1, altitude=700e3
+                )
+            )
+        ).layout
+        satellites = build_constellation(layout, IMAGER, epoch=EPOCH, altitude=500e3)
+        self.assertAlmostEqual(satellites[0].orbit.mean_altitude, 700e3)
+
+    def test_unrealized(self):
+        """A layout of unrealized values (NaN) is not built."""
+        space = DesignSpace(
+            layout=walker_space(
+                inclination=60,
+                planes=1,
+                per_plane=2,
+                phase_fraction=Uncertain.uniform(0, 1),
+            )
+        )
+        design = space.enumerate()[0]
+        with self.assertRaisesRegex(ValueError, "realize"):
+            build_constellation(design.layout, IMAGER, epoch=EPOCH, altitude=500e3)
+        built = build_constellation(
+            design.realize(0).layout, IMAGER, epoch=EPOCH, altitude=500e3
+        )
+        self.assertEqual(len(built), 2)

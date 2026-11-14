@@ -123,7 +123,7 @@ class TestPlots(unittest.TestCase):
             }
         )
         compared = exceedance(results, "cost")
-        ax = plot_exceedance(compared, labels={"a": "first"})
+        ax = plot_exceedance(compared, names={"a": "first"})
         matrix = ax.images[0].get_array()
         self.assertEqual(matrix.shape, (3, 3))
         self.assertEqual(matrix[2, 0], 1.0)  # c costs more than a
@@ -135,3 +135,38 @@ class TestPlots(unittest.TestCase):
         twice = pd.concat([compared, compared.assign(scenario="other")])
         with self.assertRaises(ValueError):
             plot_exceedance(twice)
+
+
+class TestHighlights(unittest.TestCase):
+    """
+    Unit tests for plots of some designs over others.
+    """
+
+    def tearDown(self):
+        plt.close("all")
+
+    def test_highlight(self):
+        """Highlighted designs are colored over the others, in gray."""
+        summary = pd.DataFrame(
+            {
+                "x": [1.0, 2.0, 3.0, 4.0],
+                "y": [1.0, 2.0, 2.5, 4.0],
+                "pareto": [True, True, False, True],
+            }
+        )
+        ax = plot_designs(
+            summary,
+            "x",
+            "y",
+            highlight=[True, False, True, False],
+            label="chosen",
+            others="the rest",
+            front=summary.pareto.to_numpy(),
+            front_label="true front",
+            colors={"a": "#123456"},
+        )
+        labels = [text.get_text() for text in ax.get_legend().get_texts()]
+        self.assertEqual(labels, ["the rest", "chosen", "true front"])
+        self.assertEqual(len(ax.collections[1].get_offsets()), 2)
+        with self.assertRaises(ValueError):
+            plot_designs(summary, "x", "y", highlight=[True])

@@ -52,6 +52,10 @@ satellites (see :doc:`missions` for the layouts themselves).
 
 .. autofunction:: tatc.tradespace.planes_space
 
+.. autofunction:: tatc.tradespace.soc_space
+
+.. autofunction:: tatc.tradespace.mog_space
+
 .. autofunction:: tatc.tradespace.policy_space
 
 .. autofunction:: tatc.tradespace.build_constellation

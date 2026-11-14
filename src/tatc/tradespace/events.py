@@ -13,16 +13,25 @@ from dataclasses import dataclass
 from typing import Any
 
 PerType = float | Mapping[Any, float]
-"""A value for every type of satellite, or for each (by its name)."""
+"""A value for every type of satellite, or for each (a mapping by kind)."""
 
 
 def _per_type(value: Any, kind: Any, name: str) -> Any:
-    """Gets the value of a type of satellite."""
+    """
+    Gets the value of a type of satellite (by its kind) of a value for every
+    type or a mapping of each, raising a `ValueError` (naming the value) if
+    the mapping lacks the kind.
+    """
     if isinstance(value, Mapping):
         if kind not in value:
             raise ValueError(f"no {name} of satellites of kind {kind!r}")
         return value[kind]
     return value
+
+
+def _per_type_values(value: Any) -> list:
+    """Gets the values of every type of satellite (of a mapping), or the value."""
+    return list(value.values()) if isinstance(value, Mapping) else [value]
 
 
 @dataclass(frozen=True)

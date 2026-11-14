@@ -13,7 +13,6 @@ again for every design that flies it.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import pickle
@@ -28,7 +27,8 @@ from typing import Any
 import pandas as pd
 
 from ..schemas import Satellite
-from .fingerprint import _fingerprint_of, compare_definitions, get_definition
+from .fingerprint import _fingerprint_of, _with_other_code, get_definition
+from .hashing import _canonical, _digest
 
 
 def _write(path: Path, data: bytes, replace: bool = False) -> None:
@@ -52,6 +52,14 @@ def _write(path: Path, data: bytes, replace: bool = False) -> None:
             raise
 
 
+def _read_definition(folder: Path) -> dict | None:
+    """Reads the definition of the results of a folder (`None` if unreadable)."""
+    try:
+        return json.loads((folder / "definition.json").read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def get_satellite_key(satellite: Satellite) -> str:
     """
     Gets a key of a satellite's content: its orbit, instruments, and
@@ -65,10 +73,7 @@ def get_satellite_key(satellite: Satellite) -> str:
         str: the key
     """
     data = satellite.model_dump(mode="json", exclude={"name"})
-    text = json.dumps(
-        {"type": type(satellite).__name__, **data}, sort_keys=True, default=str
-    )
-    return hashlib.sha1(text.encode()).hexdigest()
+    return _digest(_canonical({"type": type(satellite).__name__, **data}))
 
 
 class SatelliteCache:
@@ -95,10 +100,14 @@ class SatelliteCache:
     each namespace (by a hash of it, with the namespace in `namespace.txt`),
     and in it a folder of each fingerprint (with the definition in
     `definition.json`). A cache warns if its namespace has results only of
-    other definitions of its function, which it does not reuse, with the
-    differences from the latest (see `compare_definitions`), and removes
-    them with `prune`. A result that cannot be read (such as one written
-    with other versions of the libraries of its data) is computed again.
+    the same function with other code (of the function, of TAT-C, or of
+    Python: the same values but for code, as a study warns of its store, see
+    `Study`), which it does not reuse, with the differences from the latest
+    (see `compare_definitions`), and removes the results of other
+    definitions with `prune` (see `Observations.prune` for the caches of the
+    observations of a study). A result that cannot be read (such as one
+    written with other versions of the libraries of its data) is computed
+    again.
 
     Args:
         function (Callable): The analysis of one satellite.
@@ -129,13 +138,18 @@ class SatelliteCache:
         if self.directory is not None:
             definition = get_definition(function=function)
             self.fingerprint = _fingerprint_of(definition)
-            space = hashlib.sha1(namespace.encode()).hexdigest()[:16]
+            space = _digest(namespace, 16)
             self._folder = self.directory / space / self.fingerprint
             self._folder.mkdir(parents=True, exist_ok=True)
             _write(self._folder.parent / "namespace.txt", namespace.encode())
-            text = json.dumps(definition, sort_keys=True, default=str)
-            _write(self._folder / "definition.json", text.encode())
+            _write(self._folder / "definition.json", _canonical(definition).encode())
             self._warn_other_definitions(definition)
+
+    @property
+    def folder(self) -> Path | None:
+        """pathlib.Path | None: The folder of the results of the function's
+        definition on disk (in the folder of its namespace), if any."""
+        return self._folder
 
     def __getstate__(self) -> dict:
         # copies sent to parallel workers start with empty memories
@@ -159,14 +173,20 @@ class SatelliteCache:
 
     def _warn_other_definitions(self, definition: dict) -> None:
         """
-        Warns if the namespace has results only of other definitions of the
-        function, with the differences from the latest, once (of the caches
-        of the definition, such as those of parallel workers).
+        Warns if the namespace has results only of the function with other
+        code (see `_with_other_code`), with the differences from the latest,
+        once (of the caches of the definition, such as those of parallel
+        workers).
         """
         if next(self._folder.glob("*.pkl"), None) is not None:
             return
         others = self._others()
-        if not others:
+        stale = [
+            folder
+            for folder in reversed(others)
+            if _with_other_code(definition, [_read_definition(folder)]) is not None
+        ]
+        if not stale:
             return
         try:
             # the first cache of the definition to warn marks its folder
@@ -174,20 +194,16 @@ class SatelliteCache:
                 pass
         except FileExistsError:
             return
-        count = sum(1 for folder in others for _ in folder.glob("*.pkl"))
-        message = (
-            f"the cache has {count} results of namespace {self.namespace!r} by "
-            + "other definitions of its function, which are not reused (remove "
-            + "them with SatelliteCache.prune)"
+        count = sum(1 for folder in stale for _ in folder.glob("*.pkl"))
+        differences = _with_other_code(definition, [_read_definition(stale[0])])
+        warnings.warn(
+            f"the cache in {self.directory} has {count} results of namespace "
+            + f"{self.namespace!r} by its function with other code, which are not "
+            + "reused (prune removes them: Observations.prune for the observations "
+            + "of a study); the latest differs in: "
+            + "; ".join(differences or []),
+            stacklevel=3,
         )
-        try:
-            before = json.loads((others[-1] / "definition.json").read_text())
-        except (OSError, ValueError):
-            before = None
-        if before is not None:
-            differences = compare_definitions(before, definition)
-            message += "; the latest differs in: " + "; ".join(differences)
-        warnings.warn(message, stacklevel=3)
 
     def prune(self) -> int:
         """
@@ -287,16 +303,17 @@ class SatelliteCache:
         if not results:
             # no satellites (such as if all fail): an empty frame
             return pd.DataFrame()
-        if results and all(isinstance(result, pd.DataFrame) for result in results):
+        if all(isinstance(result, pd.DataFrame) for result in results):
             non_empty = [result for result in results if len(result) > 0]
             if not non_empty:
                 return results[0]
             return pd.concat(non_empty, ignore_index=True)
         return results
 
-    def clear(self) -> None:
+    def clear_memory(self) -> None:
         """
-        Clears the cache in memory (not on disk) and its statistics.
+        Clears the cache in memory and its statistics (not the results on
+        disk, which `prune` removes of other definitions).
         """
         self._memory.clear()
         self.hits = self.misses = 0

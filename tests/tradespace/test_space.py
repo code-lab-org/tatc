@@ -330,7 +330,7 @@ class TestEnumeration(unittest.TestCase):
         """Walking one order of unordered items gives the same designs."""
         spaces = [
             DesignSpace(
-                items=Repeat(
+                parts=Repeat(
                     DesignSpace(
                         kind=Choice(
                             a=DesignSpace(x=Integer(0, 2)),
@@ -424,3 +424,165 @@ class TestDesignsOf(unittest.TestCase):
             extended.design(design, z=1)
         with self.assertRaises(Infeasible):
             extended.design({"a": 3, "b": 0, "c": "x"})
+
+
+def _layouts_space():
+    """A choice of a group of planes (a number) or a repetition of planes."""
+    return DesignSpace(
+        altitude=Real(500e3, 600e3, step=100e3),
+        layout=Choice(
+            walker=DesignSpace(planes=Integer(1, 2), per_plane=Fixed(2)),
+            sso=DesignSpace(
+                planes=Repeat(
+                    DesignSpace(crossing=Real(6, 9, step=3)), count=Categorical([1, 2])
+                )
+            ),
+        ),
+    )
+
+
+class TestValuesByPath(unittest.TestCase):
+    """
+    Unit tests for the values of designs by their paths.
+    """
+
+    def setUp(self):
+        self.designs = _layouts_space().enumerate()
+        self.walker = next(d for d in self.designs if d.layout == "walker")
+        self.sso = [d for d in self.designs if d.layout == "sso"][-1]
+
+    def test_paths(self):
+        """Paths of the columns of results (and of fixed values) give values."""
+        self.assertEqual(self.walker["layout.walker.planes"], self.walker.layout.planes)
+        self.assertEqual(self.walker["layout.walker.per_plane"], 2)  # fixed
+        self.assertEqual(self.walker["layout.walker"], self.walker.layout.value)
+        self.assertEqual(self.sso["layout.sso.planes.count"], 2)
+        self.assertEqual(
+            self.sso["layout.sso.planes[1].crossing"],
+            self.sso.layout.planes[1].crossing,
+        )
+        for design in (self.walker, self.sso):
+            for path, value in design.flat().items():
+                self.assertEqual(design[path], value, path)
+        with self.assertRaisesRegex(KeyError, "chose 'sso'"):
+            self.sso["layout.walker.planes"]  # pylint: disable=pointless-statement
+        with self.assertRaisesRegex(KeyError, "2 items"):
+            self.sso[
+                "layout.sso.planes[2].crossing"
+            ]  # pylint: disable=pointless-statement
+
+    def test_choices(self):
+        """A choice equals the name of its branch, and steps into it."""
+        layout = self.walker.layout
+        self.assertTrue(layout == "walker")
+        self.assertFalse(layout == "sso")
+        self.assertIn("planes", layout)
+        self.assertNotIn("crossing", layout)
+        self.assertEqual(layout.walker.planes, layout.planes)
+        with self.assertRaisesRegex(AttributeError, "chose 'walker'"):
+            layout.sso  # pylint: disable=pointless-statement
+
+    def test_items(self):
+        """Repetitions give views of their items, also of slices."""
+        planes = self.sso.layout.planes
+        self.assertEqual(planes[-1].crossing, planes[1].crossing)
+        self.assertEqual([plane.crossing for plane in planes[:1]], [planes[0].crossing])
+        self.assertEqual(planes, list(planes))
+
+    def test_constraints(self):
+        """The callables of a design space read values by paths too."""
+        space = DesignSpace(
+            layout=Choice(walker=DesignSpace(planes=Integer(1, 3))),
+            constraints=[lambda d: d["layout.walker.planes"] <= 2],
+        )
+        self.assertEqual(len(space.enumerate()), 2)
+
+
+class TestReservedNames(unittest.TestCase):
+    """
+    Unit tests for names that the views of values give otherwise.
+    """
+
+    def test_reserved(self):
+        """Children and branches may not be named as attributes of views."""
+        for name in ("values", "items", "keys", "get", "key", "flat", "space"):
+            with self.assertRaisesRegex(ValueError, "reserved"):
+                DesignSpace(**{name: 1})
+        for name in ("choice", "value"):
+            with self.assertRaisesRegex(ValueError, "reserved"):
+                Choice(**{name: DesignSpace()})
+
+
+class TestCounts(unittest.TestCase):
+    """
+    Unit tests for the counts of repetitions.
+    """
+
+    def test_kinds(self):
+        """Counts may be categorical, fixed, or derived."""
+        categorical = DesignSpace(
+            parts=Repeat(Integer(0, 1), count=Categorical([1, 3]))
+        )
+        designs = categorical.enumerate()
+        self.assertEqual(len(designs), 2 + 8)
+        self.assertEqual(
+            categorical.unit_paths(),
+            ["parts.count", "parts[0]", "parts[1]", "parts[2]"],
+        )
+        rebuilt = categorical.designs_of(
+            pd.DataFrame([{"design": d.key, **d.flat()} for d in designs])
+        )
+        self.assertEqual([d.key for d in rebuilt], [d.key for d in designs])
+        fixed = DesignSpace(parts=Repeat(Integer(0, 1), count=Fixed(2)))
+        self.assertEqual(len(fixed.enumerate()), 4)
+        derived = DesignSpace(
+            n=Integer(1, 2), parts=Repeat(Integer(0, 1), count=Derived(lambda d: d.n))
+        )
+        self.assertEqual(len(derived.enumerate()), 2 + 4)
+        with self.assertRaisesRegex(ValueError, "upper bound"):
+            derived.unit_paths()
+
+    def test_invalid(self):
+        """Counts of other nodes, or negative, are rejected at once."""
+        with self.assertRaisesRegex(TypeError, "count"):
+            Repeat(Integer(0, 1), count=Real(1, 2))
+        with self.assertRaises(ValueError):
+            Repeat(Integer(0, 1), count=-1)
+
+
+class TestDomains(unittest.TestCase):
+    """
+    Unit tests for the decisions of designs given by their values.
+    """
+
+    def test_checked(self):
+        """Decisions outside their variables' domains are rejected."""
+        space = DesignSpace(a=Integer(1, 6), b=Categorical(["x", "y"]), c=Real(0, 1))
+        self.assertEqual(space.design({"a": 2, "b": "x", "c": 0.5}).a, 2)
+        for decisions in ({"a": 99}, {"b": "z"}, {"c": 2.0}):
+            with self.assertRaises(ValueError):
+                space.design({"a": 2, "b": "x", "c": 0.5, **decisions})
+
+
+class TestUncertainConstructors(unittest.TestCase):
+    """
+    Unit tests for the constructors of uncertain parameters.
+    """
+
+    def test_triangular(self):
+        """A triangular parameter draws in its range, and names it."""
+        growth = Uncertain.triangular(0.9, 1.0, 1.6)
+        self.assertEqual(repr(growth), "Uncertain(triangular(0.9, 1.0, 1.6))")
+        self.assertTrue(math.isnan(growth.nominal))
+        space = DesignSpace(growth=growth)
+        draws = [space.enumerate()[0].realize(r).growth for r in range(50)]
+        self.assertTrue(all(0.9 <= draw <= 1.6 for draw in draws))
+        with self.assertRaises(ValueError):
+            Uncertain.triangular(1.0, 0.5, 2.0)
+
+    def test_nominal(self):
+        """The constructors take nominal values."""
+        space = DesignSpace(x=Uncertain.uniform(0, 1, nominal=0.5))
+        self.assertEqual(space.enumerate()[0].x, 0.5)
+        self.assertEqual(Uncertain.normal(0, 1, nominal=0.0).nominal, 0.0)
+        self.assertIn("seed()", repr(Uncertain.seed()))

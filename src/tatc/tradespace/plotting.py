@@ -83,8 +83,20 @@ def style_axes(ax: Any, grid: str | None = "y") -> Any:
 
 def _color(colors: Sequence[str] | Mapping[Any, str], value: Any, k: int) -> str:
     if isinstance(colors, Mapping):
+        if value is None and None not in colors:
+            return next(iter(colors.values()))  # of rows without groups
         return colors[value]
     return colors[k % len(colors)]
+
+
+def _mask(frame: pd.DataFrame, rows: str | Sequence[bool], name: str) -> np.ndarray:
+    """Gets the rows of a frame that a boolean column (or values) selects."""
+    if isinstance(rows, str):
+        return frame[rows].to_numpy(dtype=bool)
+    mask = np.asarray(rows, dtype=bool)
+    if mask.shape != (len(frame),):
+        raise ValueError(f"{name} needs a value for each row ({len(frame)})")
+    return mask
 
 
 def _name(names: Mapping[Any, str] | Callable[[Any], str] | None, value: Any) -> str:
@@ -108,10 +120,15 @@ def plot_designs(
     frame: pd.DataFrame,
     x: str,
     y: str,
+    *,
     by: str | None = None,
-    front: str | Criteria | Mapping[str, str] | None = None,
+    front: str | Sequence[bool] | Criteria | Mapping[str, str] | None = None,
     labels: str | Callable[[pd.Series], str] | None = None,
     names: Mapping[Any, str] | Callable[[Any], str] | None = None,
+    highlight: str | Sequence[bool] | None = None,
+    label: str | None = None,
+    others: str | None = None,
+    front_label: str = "Pareto-efficient",
     jitter: float = 0.0,
     colors: Sequence[str] | Mapping[Any, str] = COLORS,
     legend: str | None = "best",
@@ -121,19 +138,36 @@ def plot_designs(
     """
     Plots designs (such as a summary of a study, see `aggregate`) by two
     metrics: a point per row, colored by the value of a column `by` (if
-    any), with the efficient designs (`front`) ringed and labeled.
+    any), with the efficient designs (`front`) ringed and labeled. With
+    `highlight`, only some designs are colored, over the others in gray
+    (such as the designs a search evaluated, over every design)::
+
+        plot_designs(summary, "satellites", "sufficient", front="pareto")
+        plot_designs(
+            summary, "cost", "accurate", highlight=summary.policy == "degrade",
+            label="degrade", others="other policies", front="pareto",
+        )
 
     Args:
         frame (pandas.DataFrame): A row per design.
         x (str): The column of the horizontal axis.
         y (str): The column of the vertical axis.
         by (str | None): A column whose values color the designs, or `None`.
-        front (str | Criteria | Mapping | None): The efficient designs: a
-            boolean column, criteria (see `pareto_front`), or `None`.
+        front (str | Sequence[bool] | Criteria | Mapping | None): The
+            efficient designs: a boolean column (such as `"pareto"` of a
+            summary of criteria) or values (one per row), criteria (see
+            `pareto_front`), or `None`.
         labels (str | Callable | None): The labels of the efficient designs:
             a column, a function of a row, or `None`.
         names (Mapping | Callable | None): The names of the values of `by` in
             the legend (by default, the values).
+        highlight (str | Sequence[bool] | None): The designs to color (a
+            boolean column, or values), the others drawn in gray, or `None`
+            to color every design.
+        label (str | None): The name of the colored designs in the legend,
+            without `by`.
+        others (str | None): The name of the designs in gray in the legend.
+        front_label (str): The name of the efficient designs in the legend.
         jitter (float): The most that `x` is shifted at random (in its units),
             to separate designs of the same `x` (such as numbers of
             satellites).
@@ -150,11 +184,25 @@ def plot_designs(
     shift = np.random.default_rng(seed).uniform(-jitter, jitter, len(frame))
     xs = frame[x].to_numpy(dtype=float) + (shift if jitter else 0.0)
     ys = frame[y].to_numpy(dtype=float)
+    shown = np.ones(len(frame), dtype=bool)
+    if highlight is not None:
+        shown = _mask(frame, highlight, "highlight")
+        ax.scatter(
+            xs[~shown], ys[~shown], s=10, color=GRAY, alpha=0.3, lw=0, label=others
+        )
     if by is None:
-        ax.scatter(xs, ys, s=14, color=_color(colors, None, 0), alpha=0.55, lw=0)
+        ax.scatter(
+            xs[shown],
+            ys[shown],
+            s=14,
+            color=_color(colors, None, 0),
+            alpha=0.55 if highlight is None else 0.8,
+            lw=0,
+            label=label,
+        )
     else:
         for k, value in enumerate(_groups(frame, by)):
-            selected = (frame[by] == value).to_numpy()
+            selected = (frame[by] == value).to_numpy() & shown
             ax.scatter(
                 xs[selected],
                 ys[selected],
@@ -165,10 +213,10 @@ def plot_designs(
                 label=_name(names, value),
             )
     if front is not None:
-        if isinstance(front, str):
-            efficient = frame[front].to_numpy(dtype=bool)
-        else:
+        if isinstance(front, (Criteria, Mapping)):
             efficient = np.asarray(pareto_front(frame, front), dtype=bool)
+        else:
+            efficient = _mask(frame, front, "front")
         ax.scatter(
             xs[efficient],
             ys[efficient],
@@ -176,7 +224,7 @@ def plot_designs(
             facecolor="none",
             edgecolor=INK,
             lw=1.5,
-            label="Pareto-efficient",
+            label=front_label,
         )
         if labels is not None:
             rows = frame[efficient]
@@ -193,13 +241,15 @@ def plot_designs(
                 )
     ax.set(xlabel=x, ylabel=y)
     style_axes(ax)
-    if legend is not None and (by is not None or front is not None):
+    named = by is not None or front is not None or label is not None
+    if legend is not None and (named or others is not None):
         ax.legend(loc=legend, fontsize=8, frameon=False, markerscale=1.6)
     return ax
 
 
 def plot_progress(
     progress: Mapping[str, pd.Series],
+    *,
     colors: Sequence[str] | Mapping[str, str] = COLORS,
     legend: str | None = "lower right",
     ax: Any = None,
@@ -246,6 +296,7 @@ def plot_means(
     results: pd.DataFrame,
     x: str,
     y: str,
+    *,
     by: str | None = None,
     names: Mapping[Any, str] | Callable[[Any], str] | None = None,
     colors: Sequence[str] | Mapping[Any, str] = COLORS,
@@ -314,7 +365,8 @@ def plot_means(
 
 def plot_exceedance(
     frame: pd.DataFrame,
-    labels: Mapping[str, str] | Callable[[str], str] | None = None,
+    *,
+    names: Mapping[str, str] | Callable[[str], str] | None = None,
     colorbar: bool = True,
     ax: Any = None,
 ) -> Any:
@@ -332,7 +384,7 @@ def plot_exceedance(
     Args:
         frame (pandas.DataFrame): The probabilities of a group (see
             `exceedance`).
-        labels (Mapping | Callable | None): The labels of the designs (by
+        names (Mapping | Callable | None): The names of the designs (by
             key), or `None` for their keys.
         colorbar (bool): `True` to draw a color bar.
         ax (matplotlib.axes.Axes | None): The axes, or `None` for a new figure.
@@ -363,9 +415,9 @@ def plot_exceedance(
         matrix, cmap=scale, vmin=0, vmax=1, interpolation="nearest", aspect="equal"
     )
     ax.set_xticks(range(len(columns)))
-    ax.set_xticklabels([_name(labels, key) for key in columns], rotation=90)
+    ax.set_xticklabels([_name(names, key) for key in columns], rotation=90)
     ax.set_yticks(range(len(rows)))
-    ax.set_yticklabels([_name(labels, key) for key in rows])
+    ax.set_yticklabels([_name(names, key) for key in rows])
     ax.tick_params(length=0, labelsize=8, colors=INK)
     ax.set(xlabel="Other design", ylabel="Design")
     for spine in ax.spines.values():

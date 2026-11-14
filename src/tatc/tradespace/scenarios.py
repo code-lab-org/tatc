@@ -14,8 +14,7 @@ from collections.abc import Mapping
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria, _as_criteria, _get_tolerances, aggregate
-from .pareto import pareto_front
+from .criteria import Criteria, _as_criteria, _get_tolerances, _signs, aggregate
 
 
 def _scales(criteria: Criteria, scale: Mapping[str, float] | None) -> np.ndarray:
@@ -43,6 +42,7 @@ def _scales(criteria: Criteria, scale: Mapping[str, float] | None) -> np.ndarray
 def robustness(
     results: pd.DataFrame,
     criteria: Criteria | Mapping[str, str],
+    *,
     scenario: str = "scenario",
     scale: Mapping[str, float] | None = None,
 ) -> pd.DataFrame:
@@ -90,8 +90,10 @@ def robustness(
             objective (if it has one), or else 1 (its units).
 
     Returns:
-        pandas.DataFrame: a row per design (`design`): its `pareto_trace`,
-            `max_regret`, and regret in each scenario (`<scenario> regret`)
+        pandas.DataFrame: a row per design (`design`): the values of the
+            design (as a summary keeps them, see `aggregate`), its
+            `pareto_trace`, `max_regret`, and regret in each scenario
+            (`<scenario> regret`)
 
     Raises:
         ValueError: if the results have no scenarios, or the criteria group
@@ -116,12 +118,9 @@ def robustness(
     judged = dataclasses.replace(criteria, by=(scenario,))
     objectives = list(criteria.objectives)
     # each objective in units of its scale, larger being better
-    signs = np.array(
-        [1.0 if d == "max" else -1.0 for d in criteria.objectives.values()]
-    )
-    units = signs / _scales(criteria, scale)
+    units = -_signs(criteria) / _scales(criteria, scale)
     summary = aggregate(results, judged)
-    efficient = pareto_front(summary, judged).to_numpy()
+    efficient = summary["pareto"].to_numpy(dtype=bool)
     scenarios = list(pd.unique(results[scenario]))
     designs = list(pd.unique(results["design"]))
     regret = pd.DataFrame(np.inf, index=designs, columns=scenarios)
@@ -141,13 +140,23 @@ def robustness(
         meets = group["meets_requirements"].to_numpy(dtype=bool)
         regret.loc[keys, name] = np.where(front, 0.0, np.where(meets, needed, np.inf))
         trace[keys[front]] += 1
-    frame = pd.DataFrame(
-        {
-            "design": designs,
-            "pareto_trace": (trace / max(len(scenarios), 1)).to_numpy(),
-            "max_regret": regret.max(axis=1).to_numpy(),
-        }
-    )
+    # the values of each design (of its first record, as of a summary)
+    judged_columns = {
+        "design",
+        scenario,
+        *judged.names,
+        "replicates",
+        "violation",
+        "meets_requirements",
+        "pareto",
+    }
+    values = [column for column in summary.columns if column not in judged_columns]
+    first = results.drop_duplicates("design").set_index("design")
+    frame = pd.DataFrame({"design": designs})
+    for column in values:
+        frame[column] = first.loc[designs, column].to_numpy()
+    frame["pareto_trace"] = (trace / max(len(scenarios), 1)).to_numpy()
+    frame["max_regret"] = regret.max(axis=1).to_numpy()
     for name in scenarios:
         frame[f"{name} regret"] = regret[name].to_numpy()
     return frame

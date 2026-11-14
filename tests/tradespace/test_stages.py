@@ -110,24 +110,26 @@ class TestStages(unittest.TestCase):
 
         def rule(decision):
             seen.append(decision)
-            return decision.time >= 1.0
+            return decision.since_launch >= 1.0
 
         stages = [Stage(1, 0.25), Stage(2, [0.5, 1.0, 1.5], rule)]
         history = SCHEDULE.plan(_layout(), stages=stages).simulate()
-        self.assertEqual([d.time for d in seen], [0.5, 1.0])
+        self.assertEqual([d.since_launch for d in seen], [0.5, 1.0])
         self.assertEqual({d.stage for d in seen}, {1})
-        self.assertEqual(seen[0].deployed, (0,))
+        self.assertEqual(seen[0].stages_deployed, (0,))
         # the satellites of the first plane operate (those of the second are
         # still being produced)
-        self.assertEqual(seen[0].operating, 2)
+        self.assertEqual(seen[0].satellites_operating, 2)
         begin = min(launch.time for launch in history.launches)
+        # times are from the start of development, as every time of a mission
+        self.assertEqual([d.time for d in seen], [begin + 0.5, begin + 1.0])
         self.assertEqual(history.stages, [begin + 0.25, begin + 1.0])
 
     def test_contingency(self):
         """A rule on failures deploys a stage in the histories that need it."""
         failures = FailureModel(life=Exponential(0.1))
         policy = RestorationPolicy(restore=False)
-        stage = Stage(2, [0.5, 1.0, 1.5, 2.0], lambda d: d.operating < 4)
+        stage = Stage(2, [0.5, 1.0, 1.5, 2.0], lambda d: d.satellites_operating < 4)
         deployment = SCHEDULE.plan(_layout(), stages=[stage])
         self.assertEqual(deployment.simulate().stages, [None])
         histories = deployment.simulate_many(failures, policy, seed=1, histories=20)
@@ -137,6 +139,9 @@ class TestStages(unittest.TestCase):
             failed = [t for t, *_ in history.failures]
             if history.stages[0] is not None:
                 self.assertLess(min(failed), history.stages[0])
+            # the satellites of a stage count in the availability of the
+            # histories that deploy it (and only of those)
+            self.assertLessEqual(history.metrics()["availability"], 1.0)
         # the same history draws the same failures again
         again = deployment.simulate_many(failures, policy, seed=1, histories=20)
         self.assertEqual([h.stages for h in again], [h.stages for h in histories])
@@ -146,7 +151,13 @@ class TestStages(unittest.TestCase):
         seen = []
 
         def rule(decision):
-            seen.append((decision.time, decision.operating, decision.capability))
+            seen.append(
+                (
+                    decision.since_launch,
+                    decision.satellites_operating,
+                    decision.capability,
+                )
+            )
             return decision.capability["observing"] < 4
 
         deployment = SCHEDULE.plan(_layout(), stages=[Stage(2, [0.0, 0.5], rule)])
@@ -155,7 +166,7 @@ class TestStages(unittest.TestCase):
         # the first plane alone at the first launch (the second is launched later)
         self.assertEqual(seen, [(0.0, 2, {"observing": 2.0})])
         self.assertEqual(history.stages, [deployment.begin])
-        # the planned history (of the availability) reads it too
+        # the planned history reads it too
         self.assertEqual(history.metrics()["stages deployed"], 1.0)
         self.assertEqual(deployment.planned().stages, [deployment.begin])
         later = SCHEDULE.plan(_layout(), stages=[Stage(2, 0.5, rule)])
@@ -172,7 +183,9 @@ class TestStages(unittest.TestCase):
         policy = RestorationPolicy(restore=False)
         by_count = SCHEDULE.plan(
             _layout(),
-            stages=[Stage(2, [0.5, 1.0, 1.5, 2.0], lambda d: d.operating < 4)],
+            stages=[
+                Stage(2, [0.5, 1.0, 1.5, 2.0], lambda d: d.satellites_operating < 4)
+            ],
         )
         measured = SCHEDULE.plan(
             _layout(),

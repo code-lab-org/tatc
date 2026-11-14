@@ -14,7 +14,6 @@ import numpy as np
 import pandas as pd
 
 from .criteria import Criteria, _as_criteria, aggregate
-from .pareto import pareto_front
 from .space import Design, _designs
 from .study import Study
 
@@ -36,33 +35,29 @@ class Confirmation:
     """pandas.DataFrame: A row per design (and group): the values of the
     design, the statistics of the criteria by the new replicates, those of
     the replicates that selected the design (`<statistic> selected`), the
-    number of new `replicates`, and whether the design meets the
-    requirements (`meets_requirements`) and is efficient among the confirmed
-    designs that do (`pareto`), by the new replicates."""
+    optimism of the selection in each objective (`<objective> optimism`: by
+    how much the selecting replicates made the design look better than the
+    new replicates do, in its units, positive if they did), the number of
+    new `replicates`, the `violation` of the requirements, and whether the
+    design meets them (`meets_requirements`) and is efficient among the
+    confirmed designs that do (`pareto`), by the new replicates."""
     criteria: Criteria
     """Criteria: The criteria of the confirmation."""
     designs: list[Design] = field(default_factory=list)
     """list[Design]: The confirmed designs."""
 
+    @property
     def optimism(self) -> pd.Series:
-        """
-        Gets the optimism of selection: the mean amount by which the selecting
-        replicates made the designs look better than the new replicates do,
-        in each objective of the criteria (positive if they looked better).
-
-        Returns:
-            pandas.Series: the optimism of each objective, in its units
-        """
+        """pandas.Series: The optimism of selection: the mean over the designs
+        of their optimism in each objective of the criteria (see
+        `summary`), in its units, positive if the selecting replicates made
+        them look better."""
         return pd.Series(
             {
-                name: float(
-                    np.nanmean(
-                        (self.summary[f"{name} selected"] - self.summary[name])
-                        * (1.0 if direction == "max" else -1.0)
-                    )
-                )
-                for name, direction in self.criteria.objectives.items()
-            }
+                name: float(np.nanmean(self.summary[f"{name} optimism"]))
+                for name in self.criteria.objectives
+            },
+            dtype=float,
         )
 
 
@@ -115,41 +110,38 @@ def confirm(
         raise ValueError("replicates must be at least 1")
     if designs is None:
         summary = aggregate(results, criteria, design_columns=[])
-        summary = summary.dropna(subset=list(criteria.objectives))
-        designs = summary[pareto_front(summary, criteria)]
+        designs = summary[summary["pareto"]]
     designs = _designs(study.space, designs, results)
     keys = {design.key for design in designs}
     start = int(results["replicate"].max()) + 1 if len(results) > 0 else 0
-    fresh = study.run(designs, replicates=range(start, start + count))
+    fresh = study.run(designs, replicate_indices=range(start, start + count))
     names = criteria.names
     columns = ["design", *criteria.by]
+    confirmed = aggregate(fresh, criteria)
     selected = aggregate(
         results[results["design"].isin(keys)], criteria, design_columns=[]
-    )
-    confirmed = aggregate(fresh, criteria)
-    judged = {*columns, *names, "replicates", "violation", "meets_requirements"}
-    values = [column for column in confirmed.columns if column not in judged]
-    summary = confirmed[[*columns, *values, *names, "replicates", "meets_requirements"]]
-    summary = summary.merge(
-        selected[[*columns, *names]].rename(
-            columns={name: f"{name} selected" for name in names}
-        ),
+    )[[*columns, *names]]
+    summary = confirmed.merge(
+        selected.rename(columns={name: f"{name} selected" for name in names}),
         on=columns,
         how="left",
     )
+    for name, direction in criteria.objectives.items():
+        sign = 1.0 if direction == "max" else -1.0
+        summary[f"{name} optimism"] = sign * (
+            summary[f"{name} selected"] - summary[name]
+        )
+    status = ["replicates", "violation", "meets_requirements", "pareto"]
+    values = [c for c in confirmed.columns if c not in {*columns, *names, *status}]
     summary = summary[
         [
             *columns,
             *values,
             *(c for name in names for c in (name, f"{name} selected")),
-            "replicates",
-            "meets_requirements",
+            *(f"{name} optimism" for name in criteria.objectives),
+            *status,
         ]
     ]
-    # the front of the designs whose objectives are known, by the new replicates
-    known = summary.dropna(subset=list(criteria.objectives))
-    summary["pareto"] = False
-    summary.loc[known.index, "pareto"] = pareto_front(known, criteria).to_numpy()
     return Confirmation(
         results=fresh, summary=summary, criteria=criteria, designs=designs
     )

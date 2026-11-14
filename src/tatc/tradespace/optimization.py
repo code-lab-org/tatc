@@ -11,7 +11,8 @@ their means, or other statistics, such as a quantile or the probability of
 meeting a threshold. Requirements on statistics (see `Requirement`) are
 output constraints, whose violations the optimizers minimize along with
 those of the constraints of the design space. The tolerances of the
-criteria do not apply to searches.
+criteria do not apply to the optimizers' own ranking of designs, but they
+do to the front of the designs they evaluate (see `Search`).
 
 A search of a study with several scenarios (see `Study`) evaluates each
 design in every scenario, and judges it by criteria `across` the scenarios
@@ -48,7 +49,6 @@ from .criteria import (
     _Statistics,
     aggregate,
 )
-from .pareto import pareto_front
 from .space import Design, Infeasible
 from .study import Study
 
@@ -69,15 +69,17 @@ class Search:
 
     results: pd.DataFrame
     """pandas.DataFrame: The results of every evaluation (see `Study.run`)."""
-    designs: list[Design]
+    summary: pd.DataFrame = field(default_factory=pd.DataFrame)
+    """pandas.DataFrame: A row per design that the search found feasible
+    (feasible in every replicate, as the optimizers judge designs): the
+    summary of the criteria over its replicates (see `aggregate`), with
+    whether it is efficient among these designs (`pareto`, with the
+    tolerances of the criteria)."""
+    designs: list[Design] = field(default_factory=list)
     """list[Design]: The designs evaluated, in the order of their evaluation."""
-    state: Any
+    state: Any = None
     """Any: The optimizer's own outcome: the Optuna study (`optuna.Study`) or
     the result of pymoo (`pymoo.core.result.Result`)."""
-    summary: pd.DataFrame = field(default_factory=pd.DataFrame)
-    """pandas.DataFrame: A row per feasible design: the statistics of the
-    criteria over its replicates (see `aggregate`), and whether it is
-    efficient by them (`pareto`, see `pareto_front`)."""
 
 
 class Evaluations:
@@ -203,12 +205,17 @@ class Evaluations:
         """
         results = self.results
         summary = pd.DataFrame()
-        if len(results) > 0 and results["feasible"].any():
-            summary = aggregate(results, self.criteria)
-            summary = summary.dropna(subset=list(self.criteria.objectives))
-            summary = summary.reset_index(drop=True)
-            summary["pareto"] = pareto_front(summary, self.criteria).to_numpy()
-        return Search(results, list(self.designs.values()), state, summary)
+        feasible = [key for key, value in self.values.items() if value is not None]
+        if feasible:
+            summary = aggregate(
+                results[results["design"].isin(feasible)], self.criteria
+            )
+        return Search(
+            results=results,
+            summary=summary,
+            designs=list(self.designs.values()),
+            state=state,
+        )
 
     def worst(self) -> list[float]:
         """
@@ -236,6 +243,7 @@ def optimize_optuna(
     study: Study,
     criteria: Criteria | Mapping[str, str],
     n_trials: int,
+    *,
     sampler: Any = None,
     optuna_study: Any = None,
     batch_size: int | None = None,
@@ -513,7 +521,8 @@ def optimize_pymoo(
     criteria: Criteria | Mapping[str, str],
     algorithm: Any = None,
     termination: Any = ("n_gen", 10),
-    seed: int | None = None,
+    *,
+    seed: int | None = 0,
     distinct: bool = True,
     **kwargs: Any,
 ) -> Search:
@@ -533,7 +542,8 @@ def optimize_pymoo(
         algorithm (pymoo.core.algorithm.Algorithm | None): The algorithm, or
             `None` for NSGA-II with populations of 20.
         termination (Any): The termination criterion of `pymoo.optimize.minimize`.
-        seed (int | None): The seed of the algorithm.
+        seed (int | None): The seed of the algorithm (`None` for one drawn
+            anew, as pymoo does).
         distinct (bool): `True` to eliminate the proposals of designs proposed
             or evaluated before, `False` for the algorithm's own elimination
             of duplicates (of equal points).

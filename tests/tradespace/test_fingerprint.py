@@ -5,18 +5,21 @@ Unit tests for fingerprints of the definitions of trade studies.
 """
 
 import ast
+import importlib
 import os
+import tempfile
 import subprocess
 import sys
 import unittest
 from unittest import mock
 from datetime import datetime, timedelta, timezone
 from functools import partial
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from shapely.geometry import Point
+from shapely.geometry import Point, box
 
 from tatc.analysis import collect_observations
 from tatc.generation import generate_points_rotated_lattice
@@ -348,3 +351,70 @@ class TestFingerprint(unittest.TestCase):
             )
             prints.add(output.stdout.strip())
         self.assertEqual(len(prints), 1)
+
+
+_BOX = box(0, 0, 1, 1)
+
+
+def _uses_box(d):
+    return {"area": _BOX.area * d.a}
+
+
+def _function(source, **names):
+    """A function `f` of source code, with globals."""
+    namespace = dict(names)
+    exec(source, namespace)  # pylint: disable=exec-used
+    return namespace["f"]
+
+
+class TestDescriptions(unittest.TestCase):
+    """
+    Unit tests for the descriptions of values that fingerprints hash.
+    """
+
+    def test_geometries(self):
+        """Geometries are described by their content, also as globals."""
+
+        def closing(geometry):
+            return lambda d: geometry.area * d.a
+
+        self.assertNotEqual(
+            get_fingerprint(f=closing(box(0, 0, 1, 1))),
+            get_fingerprint(f=closing(box(0, 0, 2, 2))),
+        )
+        self.assertEqual(
+            get_fingerprint(f=closing(box(0, 0, 1, 1))),
+            get_fingerprint(f=closing(box(0, 0, 1, 1))),
+        )
+        described = get_definition(f=_uses_box)["values"]["f"]["globals"]["_BOX"]
+        self.assertIn("data", described)
+
+    def test_docstrings(self):
+        """The docstrings of functions do not change fingerprints."""
+        one = _function('def f(x):\n    """One."""\n    return x\n')
+        other = _function('def f(x):\n    """Another."""\n    return x\n')
+        changed = _function('def f(x):\n    """One."""\n    return x + 1\n')
+        self.assertEqual(get_fingerprint(f=one), get_fingerprint(f=other))
+        self.assertNotEqual(get_fingerprint(f=one), get_fingerprint(f=changed))
+
+    def test_own_modules(self):
+        """Functions of modules that are not installed are described by code."""
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "tatc_own_helpers.py").write_text(
+                "def helper(x):\n    return x + 1\n", encoding="utf-8"
+            )
+            sys.path.insert(0, directory)
+            try:
+                module = importlib.import_module("tatc_own_helpers")
+                calling = _function(
+                    "def f(x):\n    return helper(x)\n", helper=module.helper
+                )
+                described = get_definition(f=calling)["values"]["f"]["globals"]
+                self.assertIn("code", described["helper"])
+                # functions of installed modules by their names
+                installed = _function("def f(x):\n    return isna(x)\n", isna=pd.isna)
+                described = get_definition(f=installed)["values"]["f"]["globals"]
+                self.assertEqual(set(described["isna"]), {"name"})
+            finally:
+                sys.path.remove(directory)
+                sys.modules.pop("tatc_own_helpers", None)

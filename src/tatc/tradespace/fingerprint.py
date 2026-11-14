@@ -10,16 +10,21 @@ and data frames (by a hash of their data, with geometries by their
 well-known binary), the nodes of design spaces, dataclasses (such as cost
 models) by their fields (but those whose metadata has `"fingerprint":
 False`, such as directories of caches, which do not change results), and
-functions, by their compiled code (which ties a definition to the version of
-Python, which it records), the values they close over and their defaults,
-and the constants (numbers, strings, dates and times, and tuples of them),
-data (arrays and data frames), dataclasses, and functions of the same module
-that they refer to as globals (not mutable containers, which are often
-state, such as caches). Functions and classes of other modules are described
-by their names, and other objects by their type only. Data that functions
-read (such as from files) and the code of other modules they call (other
-than TAT-C's) are not described: identify them by a namespace (see
-`ResultStore` and `SatelliteCache`).
+geometries (by their well-known binary), and functions, by their compiled
+code (which ties a definition to the version of Python, which it records,
+but not their docstrings, which do not change results), the values they
+close over and their defaults, and the constants (numbers, strings, dates
+and times, and tuples of them), geometries, data (arrays and data frames),
+dataclasses, and functions that they refer to as globals (not mutable
+containers, which are often state, such as caches). Functions are described
+so if they are of their own module or of another module of the study's own,
+which is not installed (such as a module next to a notebook), so that a
+notebook's function that calls a function it imports from such a module is
+described as the module's copy of it is. Functions and classes of installed
+modules are described by their names, and other objects by their type only.
+Data that functions read (such as from files) and the code of installed
+modules they call (other than TAT-C's) are not described: identify them by
+a namespace (see `ResultStore` and `SatelliteCache`).
 
 TAT-C is described by the source of the modules that the values depend on:
 the modules that define the functions, classes, and objects of TAT-C they
@@ -45,6 +50,7 @@ import functools
 import hashlib
 import json
 import sys
+import sysconfig
 import types
 from collections.abc import Iterable
 from datetime import date, datetime, time, timedelta
@@ -53,7 +59,10 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import shapely
 from pydantic import BaseModel
+
+from .hashing import _canonical, _digest
 
 _MAX_DEPTH = 24
 """The deepest nesting described, beyond which values are described by type."""
@@ -81,7 +90,7 @@ def _name(value: Any) -> str:
 
 
 def _sort_key(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, default=str)
+    return _canonical(value)
 
 
 def _is_package_module(module: Any) -> bool:
@@ -99,6 +108,33 @@ def _is_dataclass(value: Any) -> bool:
 def _is_data(value: Any) -> bool:
     """Whether a value is data (an array or a data frame or series)."""
     return isinstance(value, (np.ndarray, pd.DataFrame, pd.Series))
+
+
+@functools.lru_cache(maxsize=1)
+def _installed_directories() -> tuple[Path, ...]:
+    """Gets the directories of installed modules (and the standard library)."""
+    paths = sysconfig.get_paths()
+    names = ("stdlib", "platstdlib", "purelib", "platlib")
+    found = {Path(paths[name]).resolve() for name in names if name in paths}
+    found.add(Path(sys.base_prefix).resolve())
+    return tuple(sorted(found))
+
+
+def _is_own_module(module: Any) -> bool:
+    """
+    Whether a module is of the study's own: neither of TAT-C nor installed
+    (such as `__main__`, or a module next to a notebook), so that its
+    functions are described by their code (see the module).
+    """
+    if not isinstance(module, str) or _is_package_module(module):
+        return False
+    if module == "__main__":
+        return True
+    file = getattr(sys.modules.get(module), "__file__", None)
+    if file is None:
+        return False  # built in, or not loaded
+    path = Path(file).resolve()
+    return not any(path.is_relative_to(d) for d in _installed_directories())
 
 
 def _hash_column(column: pd.Series) -> bytes:
@@ -204,14 +240,20 @@ class _Describer:
         if _is_package_module(module):
             self.modules.add(module)
 
-    def code(self, code: types.CodeType, depth: int, seen: set) -> dict:
+    def code(
+        self, code: types.CodeType, depth: int, seen: set, doc: str | None = None
+    ) -> dict:
         """
         Describes compiled code by its instructions, constants, and names (not
-        its file or line numbers, which change as code moves).
+        its file or line numbers, which change as code moves, nor the
+        docstring `doc` of its function, which does not change results).
         """
+        constants = list(code.co_consts)
+        if doc is not None and constants and constants[0] == doc:
+            constants = constants[1:]
         return {
             "code": code.co_code.hex(),
-            "constants": [self.describe(c, depth + 1, seen) for c in code.co_consts],
+            "constants": [self.describe(c, depth + 1, seen) for c in constants],
             "names": list(code.co_names),
         }
 
@@ -240,7 +282,7 @@ class _Describer:
                 continue
             value = function.__globals__[name]
             if isinstance(value, types.FunctionType):
-                if value.__module__ == module:
+                if value.__module__ == module or _is_own_module(value.__module__):
                     referenced[name] = self.function(value, depth + 1, seen)
                 else:
                     self.note(value.__module__)
@@ -250,6 +292,7 @@ class _Describer:
                 or _is_constant(value)
                 or _is_data(value)
                 or _is_dataclass(value)
+                or isinstance(value, shapely.Geometry)
             ):
                 referenced[name] = self.describe(value, depth + 1, seen)
             else:
@@ -257,7 +300,7 @@ class _Describer:
                 self.note(type(value).__module__)
         return {
             "function": function.__qualname__,
-            **self.code(function.__code__, depth, seen),
+            **self.code(function.__code__, depth, seen, function.__doc__),
             "closure": closure,
             "defaults": self.describe(function.__defaults__, depth + 1, seen),
             "keyword defaults": self.describe(function.__kwdefaults__, depth + 1, seen),
@@ -308,6 +351,8 @@ class _Describer:
             }
         if isinstance(value, (pd.DataFrame, pd.Series)):
             return _frame(value)
+        if isinstance(value, shapely.Geometry):
+            return {**_type(value), "data": hashlib.sha1(value.wkb).hexdigest()}
         if isinstance(value, (list, tuple)):
             if len(value) > _MAX_ITEMS:
                 return {**_type(value), "length": len(value)}
@@ -562,7 +607,7 @@ def _get_dependencies(modules: Iterable[str]) -> tuple[list[str], list[str]]:
 @functools.lru_cache(maxsize=None)
 def _hash_file(path: Path, modified: int, size: int) -> str:
     del modified, size  # keys of the cache, so that a changed file is hashed again
-    return hashlib.sha1(path.read_bytes()).hexdigest()[:16]
+    return _digest(path.read_bytes(), 16)
 
 
 def _hash(path: Path) -> str:
@@ -603,8 +648,7 @@ def get_definition(*values: Any, **named: Any) -> dict:
 
 def _fingerprint_of(definition: dict) -> str:
     """Gets the fingerprint of a definition (see `get_definition`)."""
-    text = json.dumps(definition, sort_keys=True, default=str)
-    return hashlib.sha1(text.encode()).hexdigest()[:16]
+    return _digest(_canonical(definition), 16)
 
 
 def get_fingerprint(*values: Any, **named: Any) -> str:
@@ -685,6 +729,24 @@ def _without_code(description: Any) -> Any:
     if isinstance(description, list):
         return [_without_code(value) for value in description]
     return description
+
+
+def _with_other_code(
+    definition: dict, others: Iterable[dict | None]
+) -> list[str] | None:
+    """
+    Gets the differences (see `compare_definitions`) from the first of other
+    definitions that has the same values as a definition but other code (of
+    its functions, of TAT-C, or of Python, see `_without_code`), or `None` if
+    none does: results of the same study with other code, which are not
+    reused, as opposed to those of other studies (such as variants of other
+    settings), which share stores and caches freely.
+    """
+    values = _without_code(definition.get("values", {}))
+    for other in others:
+        if other is not None and _without_code(other.get("values", {})) == values:
+            return compare_definitions(other, definition)
+    return None
 
 
 def compare_definitions(before: dict, after: dict, limit: int = 5) -> list[str]:

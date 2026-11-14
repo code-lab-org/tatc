@@ -10,6 +10,7 @@ import math
 import pickle
 import tempfile
 import unittest
+import warnings
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
@@ -50,6 +51,7 @@ from tatc.tradespace import (
     risk_space,
     walker_space,
 )
+from tatc.tradespace.mission import summarize_phases
 from tatc.tradespace.observations import value_of
 
 HAS_JOBLIB = importlib.util.find_spec("joblib") is not None
@@ -578,3 +580,108 @@ class TestObservationStudy(unittest.TestCase):
             parallel = study(n_jobs=2).run(designs)
         columns = [c for c in serial.columns if c != "seconds"]
         pd.testing.assert_frame_equal(serial[columns], parallel[columns])
+
+
+class TestOneDesign(unittest.TestCase):
+    """
+    Unit tests for the parts of the evaluations of one design.
+    """
+
+    def setUp(self):
+        self.study = ObservationStudy(
+            SPACE,
+            _build,
+            _observations(),
+            _metrics,
+            layout="layout",
+            plan=PLAN,
+            phases=True,
+            replicates=2,
+        )
+        self.design = SPACE.enumerate()[3]
+
+    def test_mission(self):
+        """The deployment, phases, and costs of a design are its evaluation's."""
+        result = self.study.run([self.design]).iloc[1]
+        realized = self.study.realize(self.design, 1)
+        deployment = self.study.deployment_of(self.design, 1)
+        self.assertEqual(deployment.planes, SCHEDULE.plan(realized.layout).planes)
+        self.assertIsNotNone(deployment.capability)
+        phases = self.study.phases_of(self.design, 1)
+        self.assertAlmostEqual(
+            summarize_phases(phases)["observed mission"], result["observed mission"]
+        )
+        self.assertAlmostEqual(
+            self.study.estimate_of(self.design, 1).total, result["cost"]
+        )
+        unplanned = self.study.replace(plan=None, phases=None)
+        with self.assertRaisesRegex(ValueError, "plan"):
+            unplanned.deployment_of(self.design)
+
+    def test_realize(self):
+        """A study realizes designs with its seed, and in its scenarios."""
+        self.assertEqual(
+            self.study.realize(self.design, 1).growth, self.design.realize(1).growth
+        )
+        self.assertNotEqual(
+            self.study.replace(seed=3).realize(self.design, 1).growth,
+            self.design.realize(1).growth,
+        )
+        slow = self.study.replace(scenarios={"slow": {"growth": 1.2}})
+        self.assertEqual(slow.realize(self.design, 1, "slow").growth, 1.2)
+        self.assertEqual(
+            slow.satellites_of(self.design, 1, "slow"),
+            slow.satellites_of(self.design, 1),
+        )
+        with self.assertRaises(KeyError):
+            slow.realize(self.design, 1, "fast")
+
+    def test_prune(self):
+        """Observations remove their caches' results of other definitions."""
+        with tempfile.TemporaryDirectory() as directory:
+            first = _observations(directory)
+            other = Observations(
+                TARGETS,
+                START,
+                HOURS,
+                analysis=partial(collect_observations),
+                directory=directory,
+            )
+            realized = self.design.realize(0)
+            satellites = _build(realized)
+            first(satellites, realized)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                other(satellites, realized)
+            self.assertEqual(other.prune(), len(satellites))
+            self.assertEqual(other.prune(), 0)
+            self.assertEqual(Observations(TARGETS, START, HOURS).prune(), 0)
+
+    def test_failure_options(self):
+        """Failures sample stressed histories, with controls and spreads."""
+        self.assertTrue(Failures(FAILURES).policy.restore)
+        study = ObservationStudy(
+            SPACE,
+            _build,
+            _observations(),
+            _metrics,
+            layout="layout",
+            plan=PLAN,
+            failures=Failures(
+                FAILURES,
+                histories=6,
+                seed="failure_seed",
+                stress=2.0,
+                controls=["availability"],
+                control_histories=50,
+                spread=True,
+            ),
+        )
+        result = study.run([self.design]).iloc[0]
+        self.assertIn("observed mission histories std", result.index)
+        self.assertLess(result["effective histories"], 6)
+        self.assertTrue(math.isfinite(result["observed mission"]))
+        with self.assertRaisesRegex(ValueError, "controls"):
+            study.replace(
+                failures=Failures(FAILURES, seed="failure_seed", controls=["other"])
+            ).run([self.design])

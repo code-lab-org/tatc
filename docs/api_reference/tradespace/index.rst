@@ -16,7 +16,7 @@ before::
 
     from tatc.tradespace import (
         Criteria, DesignSpace, Integer, ResultStore, Study, Uncertain,
-        aggregate, confirm, pareto_front, refine,
+        aggregate, confirm, refine,
     )
 
     space = DesignSpace(planes=Integer(1, 4), per_plane=Integer(1, 4), seed=Uncertain.seed())
@@ -24,8 +24,8 @@ before::
     results = study.run()  # a row per design and replicate
 
     criteria = Criteria({"satellites": "min", "coverage": "max"})
-    summary = aggregate(results, criteria)  # a row per design
-    front = summary[pareto_front(summary, criteria)]
+    summary = aggregate(results, criteria)  # a row per design, with `pareto`
+    front = summary[summary.pareto]
 
     refinement = refine(study, criteria, results)  # replicates where efficiency is uncertain
     confirmation = confirm(study, criteria, refinement.results)  # the front, with new replicates
@@ -54,8 +54,10 @@ and a scenario), with the key of the design (`design`), the `replicate`, the
 values of the design by path (see `Design.flat`), whether it is `feasible`,
 and its metrics. A **summary** has a row per design (and per group of the
 criteria's `by`): statistics over its replicates, the number of
-`replicates`, and the values of the design. Functions take one or the
-other:
+`replicates`, and the values of the design, and, of criteria, the
+`violation` of their requirements, whether the design meets them
+(`meets_requirements`), and whether it is efficient (`pareto`). Functions
+take one or the other:
 
 .. list-table::
    :header-rows: 1
@@ -80,7 +82,9 @@ and columns that TAT-C defines are named in snake case:
 * statistics over the replicates of a design: named by the criteria (such
   as `"cost p70"` for `Quantile("cost", 0.7)`), the means of metrics by
   their names, and `<metric> std` and `<metric> se` (by `summarize`, and the
-  standard error of each objective by `pareto_probability`).
+  standard error of each objective by `pareto_probability`), and of
+  confirmed designs, `<statistic> selected` (by the replicates that selected
+  them) and `<objective> optimism`.
 * statistics within a replicate, over the mission of a design (see
   `ObservationStudy`): `<metric> mission` (the mean over the phases of the
   mission), `<metric> time` (when the phases first meet a requirement), and,
@@ -95,7 +99,11 @@ Designs and Their Variants
 
 Results keep the values of designs, from which `DesignSpace.designs_of`
 rebuilds them, so that the steps of a study take designs as `Design`
-objects, their keys, or rows of a summary or of results::
+objects, their keys, or rows of a summary or of results. A design gives its
+values by attribute (`d.layout.planes`) or by the path of a column of the
+results (`d["layout.walker.planes"]`, see `Values`), and a study realizes
+it as it evaluates it (`Study.realize`, and, of an `ObservationStudy`,
+`satellites_of`, `observations_of`, `deployment_of`, and `phases_of`)::
 
     confirmation = confirm(study, criteria, results, summary[summary.pareto])
 
@@ -124,7 +132,8 @@ their evaluations. A namespace of the store identifies only what
 fingerprints cannot see (such as data that the functions read from files). A
 study warns if the store has evaluations of the same study with other code
 (of its functions, of TAT-C, or of Python), which it does not reuse
-(`ResultStore.prune` removes them).
+(`Study.prune` removes them, and not the evaluations of other studies that
+share the store).
 
 .. toctree::
   :maxdepth: 1

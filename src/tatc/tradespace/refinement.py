@@ -43,10 +43,10 @@ class Refinement:
     its least replicates) and, if so, whether it is `indifferent` (its
     objectives are known to within the precision of their tolerances)."""
     history: pd.DataFrame = field(default_factory=pd.DataFrame)
-    """pandas.DataFrame: For each round, the number of designs whose
-    efficiency is uncertain (`uncertain`), of these, those that are
-    indifferent (`indifferent`), the number to which replicates were added
-    (`refined`), and the evaluations added (`evaluations`)."""
+    """pandas.DataFrame: For each round (`round`, from 0), the number of
+    designs whose efficiency is uncertain (`uncertain`), of these, those that
+    are indifferent (`indifferent`), the number to which replicates were
+    added (`refined`), and the evaluations added (`evaluations`)."""
     designs: list[Design] = field(default_factory=list)
     """list[Design]: The designs that could be refined."""
 
@@ -198,16 +198,11 @@ def refine(
         raise ValueError("budget must not be negative")
     refined = _designs(study.space, results if designs is None else designs, results)
     by_key = {design.key: design for design in refined}
-    frames = [results]
-    history = []
-    spent = 0
+    combined, history, spent = results, [], 0
 
     def estimate(round_: int) -> pd.DataFrame:
         probability = pareto_probability(
-            pd.concat(frames, ignore_index=True),
-            criteria,
-            n_resamples=n_resamples,
-            seed=seed + round_,
+            combined, criteria, n_resamples=n_resamples, seed=seed + round_
         )
         few = probability["replicates"] < min_replicates
         probability["uncertain"] = (
@@ -221,49 +216,18 @@ def refine(
 
     for round_ in range(max_rounds):
         probability = estimate(round_)
-        grouped = probability.groupby("design")
-        uncertain = grouped["uncertain"].any()
-        # a design is indifferent if it is in every group in which it is uncertain
-        settling = (
-            (probability["uncertain"] & ~probability["indifferent"])
-            .groupby(probability["design"])
-            .any()
-        )
-        indifferent = uncertain & ~settling
-        combined = pd.concat(frames, ignore_index=True)
+        uncertain, indifferent, settling = _settling(probability)
         following = combined.groupby("design")["replicate"].max() + 1
-        # the designs to refine, the fewest replicates and the least settled first
-        distance = (probability["pareto_probability"] - 0.5).abs()
-        priority = pd.DataFrame(
-            {
-                "few": grouped["replicates"].min() < min_replicates,
-                "distance": distance.groupby(probability["design"]).min(),
-                "replicates": grouped["replicates"].min(),
-            }
+        added_to = _allocate(
+            probability,
+            settling,
+            following,
+            list(by_key),
+            step=step,
+            min_replicates=min_replicates,
+            max_replicates=max_replicates,
+            budget=None if budget is None else budget - spent,
         )
-        candidates = priority[settling.reindex(priority.index, fill_value=False)]
-        candidates = candidates.sort_values(
-            ["few", "distance", "replicates"], ascending=[False, True, True]
-        )
-        left = None if budget is None else budget - spent
-        added_to = {}
-        for key in candidates.index:
-            if key not in by_key:
-                continue
-            count = (
-                step
-                if max_replicates is None
-                else min(step, max_replicates - int(following[key]))
-            )
-            if left is not None:
-                count = min(count, left)
-            if count <= 0:
-                continue
-            added_to[key] = count
-            if left is not None:
-                left -= count
-                if left == 0:
-                    break
         record = {
             "round": round_,
             "uncertain": int(uncertain.sum()),
@@ -274,21 +238,11 @@ def refine(
         if not added_to:
             history.append(record)
             break
-        # designs with the same next replicates are evaluated together
-        plan = pd.DataFrame(
-            {
-                "start": following[list(added_to)].astype(int),
-                "count": list(added_to.values()),
-            },
-            index=list(added_to),
+        added = _evaluate_added(study, by_key, following, added_to)
+        combined = pd.concat([combined, *added], ignore_index=True)
+        record["evaluations"] = sum(
+            new.groupby(["design", "replicate"]).ngroups for new in added
         )
-        for (start, count), keys in plan.groupby(["start", "count"]):
-            new = study.run(
-                [by_key[key] for key in keys.index],
-                replicates=range(int(start), int(start) + int(count)),
-            )
-            frames.append(new)
-            record["evaluations"] += new.groupby(["design", "replicate"]).ngroups
         spent += record["evaluations"]
         history.append(record)
     else:
@@ -304,8 +258,98 @@ def refine(
             stacklevel=2,
         )
     return Refinement(
-        results=pd.concat(frames, ignore_index=True),
+        results=combined,
         summary=probability,
         history=pd.DataFrame(history),
         designs=refined,
     )
+
+
+def _settling(probability: pd.DataFrame) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """
+    Gets, by design, whether its efficiency is uncertain (in any group of the
+    criteria's `by`), indifferent (uncertain only where its objectives are
+    known to within the precision of their tolerances), and settling (more
+    replicates would settle it), for a round of `refine`.
+    """
+    uncertain = probability.groupby("design")["uncertain"].any()
+    settling = (
+        (probability["uncertain"] & ~probability["indifferent"])
+        .groupby(probability["design"])
+        .any()
+    )
+    return uncertain, uncertain & ~settling, settling
+
+
+def _allocate(
+    probability: pd.DataFrame,
+    settling: pd.Series,
+    following: pd.Series,
+    refinable: list[str],
+    *,
+    step: int,
+    min_replicates: int,
+    max_replicates: int | None,
+    budget: int | None,
+) -> dict[str, int]:
+    """
+    Gets the replicates to add to designs whose efficiency more replicates
+    would settle (by key), for a round of `refine`: `step` each (up to
+    `max_replicates`), the fewest replicates and the least settled first
+    (nearest a probability of 0.5), within a budget (if any).
+    """
+    grouped = probability.groupby("design")
+    distance = (probability["pareto_probability"] - 0.5).abs()
+    priority = pd.DataFrame(
+        {
+            "few": grouped["replicates"].min() < min_replicates,
+            "distance": distance.groupby(probability["design"]).min(),
+            "replicates": grouped["replicates"].min(),
+        }
+    )
+    candidates = priority[settling.reindex(priority.index, fill_value=False)]
+    candidates = candidates.sort_values(
+        ["few", "distance", "replicates"], ascending=[False, True, True]
+    )
+    left: int | None = budget
+    added: dict[str, int] = {}
+    allowed = set(refinable)
+    for key in candidates.index:
+        if key not in allowed:
+            continue
+        count = step
+        if max_replicates is not None:
+            count = min(count, max_replicates - int(following[key]))
+        if left is not None:
+            count = min(count, left)
+        if count <= 0:
+            continue
+        added[key] = count
+        if left is not None:
+            left -= count
+            if left == 0:
+                break
+    return added
+
+
+def _evaluate_added(
+    study: Study,
+    designs: dict[str, Design],
+    following: pd.Series,
+    added: dict[str, int],
+) -> list[pd.DataFrame]:
+    """
+    Evaluates the replicates added to designs (by key, after the replicates
+    each has): designs with the same new replicates together.
+    """
+    plan = pd.DataFrame(
+        {"start": following[list(added)].astype(int), "count": list(added.values())},
+        index=list(added),
+    )
+    return [
+        study.run(
+            [designs[key] for key in keys.index],
+            replicate_indices=range(int(start), int(start) + int(count)),
+        )
+        for (start, count), keys in plan.groupby(["start", "count"])
+    ]

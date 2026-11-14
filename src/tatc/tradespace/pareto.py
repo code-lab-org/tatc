@@ -8,7 +8,9 @@ data frame, such as the statistics of a summary of a study, see `aggregate`)
 to minimize or maximize, requirements that efficient designs meet, the
 tolerances of the objectives, and the groups in which designs are judged
 separately. A mapping of objectives to their directions (`"min"` or
-`"max"`) is the criteria of these objectives alone.
+`"max"`) is the criteria of these objectives alone. A design with a missing
+objective (`NaN`, such as a statistic of a metric that none of its feasible
+replicates gives) is not efficient, and dominates no other.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -23,25 +25,26 @@ import pandas as pd
 from .criteria import (
     Criteria,
     Requirement,
-    _across_groups,
     _as_criteria,
+    _bootstrap_error,
     _check_summary,
     _combiners,
+    _costs_of,
     _get_tolerances,
     _groups,
+    _resamples,
     _resolve,
     _signs,
-    _Statistics,
-    _value_columns,
-    _with_values,
+    _summary_groups,
     aggregate,
 )
+from .dominance import _dominated, _efficient
 
 
 def _get_costs(frame: pd.DataFrame, objectives: Mapping[str, str]) -> np.ndarray:
     """
     Gets the objectives of a data frame as costs (to minimize): maximized
-    objectives are negated.
+    objectives are negated (missing values are `NaN`).
     """
     missing = [column for column in objectives if column not in frame.columns]
     if missing:
@@ -50,10 +53,7 @@ def _get_costs(frame: pd.DataFrame, objectives: Mapping[str, str]) -> np.ndarray
     for column, direction in objectives.items():
         values = frame[column].to_numpy(dtype=float)
         columns.append(values if direction == "min" else -values)
-    costs = np.column_stack(columns) if len(frame) > 0 else np.empty((0, len(columns)))
-    if np.isnan(costs).any():
-        raise ValueError("objectives must not be NaN")
-    return costs
+    return np.column_stack(columns) if len(frame) > 0 else np.empty((0, len(columns)))
 
 
 def _get_violation(
@@ -77,87 +77,6 @@ def _get_violation(
     return np.where(np.isnan(violation), np.inf, violation)
 
 
-_BLOCK_ELEMENTS = 2_000_000
-"""The most elements of the temporary arrays of a block of comparisons."""
-
-_CHUNK = 64
-"""The points of each chunk of a sweep (see `_dominated_plain`)."""
-
-
-def _dominated_by(
-    points: np.ndarray, others: np.ndarray, tolerances: np.ndarray | None = None
-) -> np.ndarray:
-    """
-    Finds the points dominated by any of others, even if the other is
-    penalized by the tolerances (see `_dominated`), comparing them in blocks
-    whose temporary arrays are limited to a few million elements.
-    """
-    dominated = np.zeros(len(points), dtype=bool)
-    if len(points) == 0 or len(others) == 0:
-        return dominated
-    if tolerances is None:
-        tolerances = np.zeros((2, points.shape[1]))
-    absolute, relative = tolerances
-    penalties = np.any(tolerances)
-    block = max(1, _BLOCK_ELEMENTS // max(len(others) * points.shape[1], 1))
-    for start in range(0, len(points), block):
-        part = points[start : start + block]
-        # [i, j]: other j dominates point i of the block
-        penalized = others[None, :, :]
-        if penalties:
-            penalized = penalized + absolute + relative * np.abs(part[:, None, :])
-        no_worse = np.all(penalized <= part[:, None, :], axis=2)
-        better = np.any(penalized < part[:, None, :], axis=2)
-        dominated[start : start + block] = np.any(no_worse & better, axis=1)
-    return dominated
-
-
-def _dominated_plain(costs: np.ndarray) -> np.ndarray:
-    """
-    Finds the points dominated by another (without tolerances) by a sweep in
-    lexicographic order, in which a point can only be dominated by points
-    before it, and is dominated by one if it is by any of the efficient
-    points before it (dominance is transitive). The sweep compares each
-    chunk of points with the efficient points before it, then those it does
-    not dominate with each other.
-    """
-    n = len(costs)
-    order = np.lexsort(costs.T[::-1])
-    ordered = costs[order]
-    dominated = np.zeros(n, dtype=bool)
-    efficient = np.empty((0, costs.shape[1]))
-    for start in range(0, n, _CHUNK):
-        part = ordered[start : start + _CHUNK]
-        beaten = _dominated_by(part, efficient)
-        # a point that an earlier efficient point dominates dominates nothing
-        # that it does not: compare only the others with each other
-        survivors = part[~beaten]
-        beaten[~beaten] = _dominated_by(survivors, survivors)
-        dominated[order[start : start + _CHUNK]] = beaten
-        efficient = np.vstack([efficient, part[~beaten]])
-    return dominated
-
-
-def _dominated(costs: np.ndarray, tolerances: np.ndarray | None = None) -> np.ndarray:
-    """
-    Finds the points (rows of costs) dominated by another, even if the other
-    is penalized by the tolerances: no worse in every cost, and better in at
-    least one, by at least its tolerance (absolute, plus a share of the
-    magnitude of the cost of the point it would dominate, see
-    `_get_tolerances`).
-
-    A point that is dominated with tolerances is also dominated by a point
-    that is efficient without them: the penalty depends only on the point
-    dominated, so any point no worse than its dominator in every cost (as
-    some efficient point is) dominates it too. Points are therefore compared
-    only with the efficient points (see `_dominated_plain`), which are few.
-    """
-    plain = _dominated_plain(costs)
-    if tolerances is None or not np.any(tolerances):
-        return plain
-    return _dominated_by(costs, costs[~plain], tolerances)
-
-
 def pareto_front(
     summary: pd.DataFrame, criteria: Criteria | Mapping[str, str]
 ) -> pd.Series:
@@ -168,7 +87,9 @@ def pareto_front(
     the requirements of the criteria (by the columns of their statistics)
     and that no other row that meets them dominates, being no worse in every
     objective and better in at least one, in each group of the criteria's
-    `by`. Rows with the same objectives are all efficient if any is.
+    `by`. Rows with the same objectives are all efficient if any is, and a
+    row with a missing objective (`NaN`) is not. Summaries of criteria give
+    whether each design is efficient already (`pareto`, see `aggregate`).
 
     With a tolerance of an objective (see `Criteria`), a row dominates
     another only if it would still dominate it if it were worse by the
@@ -200,9 +121,8 @@ def pareto_front(
     for _, positions in _groups(summary, criteria.by):
         group = summary.iloc[positions]
         meets = _get_violation(group, criteria.requirements) == 0
-        if meets.any():
-            costs = _get_costs(group[meets], criteria.objectives)
-            efficient[positions[meets]] = ~_dominated(costs, tolerances)
+        costs = _get_costs(group, criteria.objectives)
+        efficient[positions] = _efficient(costs, meets, tolerances)
     return pd.Series(efficient, index=summary.index, name="pareto")
 
 
@@ -216,7 +136,8 @@ def pareto_ranks(
     rank 1 the front of the others, and so on, with the tolerances of the
     criteria. Rows that miss the requirements of the criteria are ranked
     after those that meet them, in order of their violation (the sum of the
-    violations of the requirements, see `Requirement`).
+    violations of the requirements, see `Requirement`), and rows with a
+    missing objective (`NaN`) that meet them last.
 
     Args:
         summary (pandas.DataFrame): The rows (such as designs).
@@ -237,18 +158,23 @@ def pareto_ranks(
     for _, positions in _groups(summary, criteria.by):
         group = summary.iloc[positions]
         violation = _get_violation(group, criteria.requirements)
-        meets = violation == 0
-        costs = _get_costs(group[meets], criteria.objectives)
-        remaining = positions[meets]
+        costs = _get_costs(group, criteria.objectives)
+        known = ~np.isnan(costs).any(axis=1)
+        meets = (violation == 0) & known
+        remaining, costs = positions[meets], costs[meets]
         rank = 0
         while len(remaining) > 0:
             front = ~_dominated(costs, tolerances)
             ranks[remaining[front]] = rank
             remaining, costs = remaining[~front], costs[~front]
             rank += 1
-        if (~meets).any():
-            order = pd.Series(violation[~meets]).rank(method="dense").to_numpy()
-            ranks[positions[~meets]] = rank + order.astype(int) - 1
+        missing = violation != 0
+        if missing.any():
+            order = pd.Series(violation[missing]).rank(method="dense").to_numpy()
+            ranks[positions[missing]] = rank + order.astype(int) - 1
+            rank = int(ranks[positions[missing]].max()) + 1
+        unknown = (violation == 0) & ~known
+        ranks[positions[unknown]] = rank
     return pd.Series(ranks, index=summary.index, name="pareto_rank")
 
 
@@ -289,9 +215,9 @@ def hypervolume(
     design, see `pareto_front`): the volume of the
     objective space that they dominate, up to a reference point that is
     worse than every row of interest in every objective. Rows that are not
-    better than the reference in every objective, or that miss the
-    requirements of the criteria, add nothing (the tolerances of the
-    criteria do not apply). A larger hypervolume is a better set of designs,
+    better than the reference in every objective, that miss the requirements
+    of the criteria, or that have a missing objective add nothing (the
+    tolerances of the criteria do not apply). A larger hypervolume is a better set of designs,
     which makes it a measure of the progress of a search, or of how close a
     search comes to the true Pareto front.
 
@@ -338,6 +264,7 @@ def hypervolume_progress(
     results: pd.DataFrame,
     criteria: Criteria | Mapping[str, str],
     reference: Mapping[str, float] | Sequence[float],
+    *,
     step: int = 10,
 ) -> pd.Series:
     """
@@ -381,6 +308,7 @@ def hypervolume_progress(
 def pareto_probability(
     results: pd.DataFrame,
     criteria: Criteria | Mapping[str, str],
+    *,
     n_resamples: int = 500,
     seed: int = 0,
     design_columns: Sequence[str] | None = None,
@@ -416,62 +344,46 @@ def pareto_probability(
         criteria (Criteria | Mapping[str, str]): The criteria, or the
             objectives (metrics whose means they are) and their directions
             (`"min"` or `"max"`).
-        n_resamples (int): The number of resamples.
+        n_resamples (int): The number of resamples (at least 2).
         seed (int): The seed of the resamples.
         design_columns (Sequence[str] | None): The columns of the values of
             designs, or `None` for those that are the same in every
             replicate of a design (see `aggregate`).
 
     Returns:
-        pandas.DataFrame: a row per design (and group): the values of the
-            design (see `aggregate`), the statistics of
-            the criteria over every replicate, the standard error of each
-            objective (`<objective> se`, its standard deviation over the
-            resamples), the number of `replicates`,
-            whether the design meets the requirements (`meets_requirements`)
-            and is efficient among those that do (`pareto`) by these
-            statistics, the probability that it is efficient
-            (`pareto_probability`), and the probability that it meets the
-            requirements (`requirements_probability`)
+        pandas.DataFrame: a row per design (and group): the summary of the
+            criteria over every replicate (see `aggregate`: the values of the
+            design, the statistics, the number of `replicates`, the
+            `violation` of the requirements, whether the design meets them,
+            `meets_requirements`, and whether it is efficient among those
+            that do, `pareto`), the standard error of each objective
+            (`<objective> se`, its standard deviation over the resamples),
+            the probability that it is efficient (`pareto_probability`), and
+            the probability that it meets the requirements
+            (`requirements_probability`)
     """
     criteria = _as_criteria(criteria)
     resolved = _resolve(criteria)
-    requirements = criteria.requirements
-    signs = _signs(criteria)
     tolerances = _get_tolerances(criteria.objectives, criteria.tolerance)
-    feasible = results[results["feasible"]] if "feasible" in results else results
     combiners = None if criteria.across is None else _combiners(criteria)
-    groups = _across_groups(results, criteria.across)
-    columns = _value_columns(
-        feasible, resolved, criteria.by, criteria.across, design_columns
-    )
     rng = np.random.default_rng(seed)
     frames = []
-    for key, positions in _groups(feasible, criteria.by):
-        group = feasible.iloc[positions]
-        table = _Statistics(
-            group, resolved, requirements, criteria.across, combiners, groups
-        )
-        designs, replicates = table.designs, table.replicates
+    for frame, table in _summary_groups(
+        results,
+        resolved,
+        criteria.by,
+        criteria.requirements,
+        criteria.across,
+        combiners,
+        design_columns,
+    ):
         values, violation = table.evaluate()
-
-        def front(values, violation):
-            costs = np.column_stack(
-                [s * values[name] for s, name in zip(signs, criteria.objectives)]
-            )
-            ok = (violation == 0) & ~np.isnan(costs).any(axis=1)
-            efficient = np.zeros(len(costs), dtype=bool)
-            efficient[ok] = ~_dominated(costs[ok], tolerances)
-            return efficient, ok
-
-        efficient, meets = front(values, violation)
-        counts = np.zeros(len(designs))
-        met = np.zeros(len(designs))
+        counts = np.zeros(len(table.designs))
+        met = np.zeros(len(table.designs))
         # the sums of the objectives (and of their squares) over the resamples
-        sums = {name: np.zeros(len(designs)) for name in criteria.objectives}
-        squares = {name: np.zeros(len(designs)) for name in criteria.objectives}
-        for _ in range(n_resamples):
-            drawn = rng.integers(0, len(replicates), len(replicates))
+        sums = {name: np.zeros(len(table.designs)) for name in criteria.objectives}
+        squares = {name: np.zeros(len(table.designs)) for name in criteria.objectives}
+        for drawn in _resamples(len(table.replicates), n_resamples, rng):
             sample, sample_violation = table.evaluate(drawn)
             # designs without a drawn replicate keep the statistics of all of theirs
             for name in sample:
@@ -479,25 +391,23 @@ def pareto_probability(
                 sample[name][missing] = values[name][missing]
             missing = np.isnan(sample_violation)
             sample_violation[missing] = violation[missing]
-            sample_front, sample_meets = front(sample, sample_violation)
-            counts += sample_front
-            met += sample_meets
+            meets = sample_violation == 0
+            counts += _efficient(_costs_of(sample, criteria), meets, tolerances)
+            met += meets
             for name in criteria.objectives:
                 sums[name] += sample[name]
                 squares[name] += sample[name] ** 2
-        frame = pd.DataFrame({"design": designs})
-        for name, value in zip(criteria.by, key):
-            frame[name] = value
-        _with_values(frame, group, designs, columns)
         for name, value in values.items():
             frame[name] = value
         for name in criteria.objectives:
-            mean = sums[name] / n_resamples
-            variance = np.maximum(squares[name] / n_resamples - mean**2, 0.0)
-            frame[f"{name} se"] = np.sqrt(variance)
+            frame[f"{name} se"] = _bootstrap_error(
+                sums[name], squares[name], n_resamples
+            )
+        meets = violation == 0
         frame["replicates"] = table.counts
+        frame["violation"] = violation
         frame["meets_requirements"] = meets
-        frame["pareto"] = efficient
+        frame["pareto"] = _efficient(_costs_of(values, criteria), meets, tolerances)
         frame["pareto_probability"] = counts / n_resamples
         frame["requirements_probability"] = met / n_resamples
         frames.append(frame)

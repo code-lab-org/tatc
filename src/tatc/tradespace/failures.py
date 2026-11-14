@@ -26,6 +26,7 @@ from typing import Any
 
 import numpy as np
 
+from .events import _per_type, _per_type_values
 from .nodes import Categorical
 from .space import DesignSpace
 from .values import Scope
@@ -331,8 +332,8 @@ class Piecewise(Lifetime):
 class FailureModel:
     """
     The failures of a mission: the life of the satellites (of every type, or
-    of each, by name; `None` if they do not fail) and the probability that
-    a launch fails, losing its satellites.
+    of each, by kind; `None` if they do not fail) and the probability that a
+    launch fails, losing its satellites.
 
     Args:
         life (Lifetime | Mapping[Any, Lifetime] | None): The life of the
@@ -357,11 +358,7 @@ class FailureModel:
         Returns:
             Lifetime | None: the life, or `None` if it does not fail
         """
-        if isinstance(self.life, Mapping):
-            if kind not in self.life:
-                raise ValueError(f"no life of satellites of kind {kind!r}")
-            return self.life[kind]
-        return self.life
+        return _per_type(self.life, kind, "life")
 
 
 @dataclass(frozen=True)
@@ -397,7 +394,8 @@ class RestorationPolicy:
         procurement_years (float): The time from ordering a satellite to the
             start of its production.
         ground_spares (int | Mapping[Any, int]): The spares on the ground of
-            each type of satellite.
+            every type of satellite, or of each (by kind, every kind of the
+            deployment).
         replenish (bool): `True` to replace the spares that are used.
         batch_years (float): The time that restorations of a plane wait to
             share a launch.
@@ -420,12 +418,7 @@ class RestorationPolicy:
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must not be negative")
-        values = (
-            self.ground_spares.values()
-            if isinstance(self.ground_spares, Mapping)
-            else [self.ground_spares]
-        )
-        if any(value < 0 for value in values):
+        if any(value < 0 for value in _per_type_values(self.ground_spares)):
             raise ValueError("ground_spares must not be negative")
 
     def ground_spares_of(self, kind: Any) -> int:
@@ -438,9 +431,7 @@ class RestorationPolicy:
         Returns:
             int: the number of spares
         """
-        if isinstance(self.ground_spares, Mapping):
-            return int(self.ground_spares.get(kind, 0))
-        return int(self.ground_spares)
+        return int(_per_type(self.ground_spares, kind, "ground spares"))
 
 
 def _spares_restore(d: Scope) -> bool:

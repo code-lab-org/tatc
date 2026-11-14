@@ -42,11 +42,12 @@ the units in production then by the share produced. The dated costs give
 the present value of the cost at a discount rate, and the cost of each year
 (such as its peak, for annual budgets)::
 
-    def evaluate(built):
-        d, satellites = built
-        deployment = SCHEDULE.plan(d.layout, kind=d.payload)
-        cost = MODEL.estimate(deployment, growth={"development": d.growth})
+    def evaluate(satellites, design):
+        deployment = SCHEDULE.plan(design.layout, kind=design.payload)
+        cost = MODEL.estimate(deployment, growth={"development": design.growth})
         return cost.metrics()
+
+(as an `ObservationStudy` with a `MissionPlan` does for each design).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -64,6 +65,7 @@ import numpy as np
 import pandas as pd
 
 from .deployment import Deployment
+from .events import _per_type
 from .mission import MissionHistory
 from .nodes import Uncertain
 from .space import _RESERVED_NAMES, DesignSpace
@@ -367,16 +369,18 @@ def _spread(
     amount: float, begin: float, end: float, until: float = math.inf
 ) -> list[tuple[float, float]]:
     """
-    Spreads an amount evenly from `begin` to `end` (years), dated at the
-    middle of each of its years (or at `begin`, if it has no duration), the
-    part before `until` (the end of a sustained mission).
+    Spreads an amount evenly from `begin` to `end` (years), in parts within
+    the years from the start of development (so that each falls in its year
+    of `CostEstimate.annual`), each dated at its middle (or at `begin`, if it
+    has no duration), the parts before `until` (the end of a sustained
+    mission).
     """
     if end <= begin:
         return [(begin, amount)] if begin < until else []
     flows = []
     time, stop = begin, min(end, until)
     while time < stop - 1e-12:
-        step = min(1.0, stop - time)
+        step = min(math.floor(time + 1e-9) + 1 - time, stop - time)
         flows.append((time + step / 2, amount * step / (end - begin)))
         time += step
     return flows
@@ -397,20 +401,21 @@ class CostEstimate:
     """float: The cost of launches."""
     operations: float = 0.0
     """float: The cost of operations."""
-    units: dict[str, int] = field(default_factory=dict)
-    """dict: The units built of each type of satellite (including
+    units: dict[Any, int] = field(default_factory=dict)
+    """dict: The units built of each type of satellite, by kind (`None` for
+    the satellites of a deployment of one type without a kind), including
     replacements and spares, and those in production at the end of a
-    sustained mission)."""
+    sustained mission."""
     launches: int = 0
-    """int: The launches priced per launch."""
+    """int: The launches (including those that fail)."""
     flows: list[tuple[float, str, float]] = field(default_factory=list)
     """list: The dated costs: the time (years from the start of
     development), element, and amount of each."""
     present: dict[str, float] = field(default_factory=dict)
     """dict: The present value of each element."""
-    blocks: dict[str, int] = field(default_factory=dict)
-    """dict: The blocks of production of each type of satellite (see
-    `SatelliteCost.block_size`)."""
+    blocks: dict[Any, int] = field(default_factory=dict)
+    """dict: The blocks of production of each type of satellite, by kind
+    (see `units` and `SatelliteCost.block_size`)."""
 
     @property
     def total(self) -> float:
@@ -496,8 +501,8 @@ class CostModel:
     of different types of satellites, estimated alike).
 
     Args:
-        satellites (SatelliteCost | Mapping[str, SatelliteCost]): The cost of
-            the satellites, or of each type of satellite (by name). The
+        satellites (SatelliteCost | Mapping[Any, SatelliteCost]): The cost of
+            the satellites, or of each type of satellite (by kind). The
             components of the same name of different types must be the same
             (equal costs and growth).
         launch (LaunchCost): The cost of launches.
@@ -509,7 +514,7 @@ class CostModel:
             (see `draw`), in [0, 1].
     """
 
-    satellites: SatelliteCost | Mapping[str, SatelliteCost]
+    satellites: SatelliteCost | Mapping[Any, SatelliteCost]
     launch: LaunchCost = LaunchCost()
     operations: OperationsCost = OperationsCost()
     discount_rate: float = 0.0
@@ -522,7 +527,7 @@ class CostModel:
         if not 0 <= self.correlation <= 1:
             raise ValueError("correlation must be in [0, 1]")
         components: dict[str, Component] = {}
-        for _, _, cost in self._types():
+        for _, cost in self._types():
             for component in cost.components:
                 if component.name == COMMON:
                     raise ValueError(
@@ -546,25 +551,28 @@ class CostModel:
         """
         return float((1 + self.discount_rate) ** -(self.start + time))
 
-    def _get_type(self, kind: Any) -> SatelliteCost:
+    def satellite_cost_of(self, kind: Any = None) -> SatelliteCost:
+        """
+        Gets the cost of a type of satellite.
+
+        Args:
+            kind (Any): The type (its kind), or `None` for a model of one
+                type.
+
+        Returns:
+            SatelliteCost: the cost
+        """
         if isinstance(self.satellites, SatelliteCost):
             return self.satellites
         if kind is None:
             raise ValueError("a model of several types of satellites needs a kind")
-        if kind not in self.satellites:
-            raise ValueError(f"no cost of satellites of kind {kind!r}")
-        return self.satellites[kind]
+        return _per_type(self.satellites, kind, "cost")
 
-    def _types(self) -> list[tuple[str, Any, SatelliteCost]]:
-        """
-        Gets the types of satellites: the name of each (as of the units of
-        estimates), its kind, and its cost.
-        """
+    def _types(self) -> list[tuple[Any, SatelliteCost]]:
+        """Gets the types of satellites: the kind of each, and its cost."""
         if isinstance(self.satellites, SatelliteCost):
-            return [(_type_name(None), None, self.satellites)]
-        return [
-            (_type_name(kind), kind, cost) for kind, cost in self.satellites.items()
-        ]
+            return [(None, self.satellites)]
+        return list(self.satellites.items())
 
     def score_names(self) -> list[str]:
         """
@@ -578,7 +586,7 @@ class CostModel:
         names = list(
             dict.fromkeys(
                 component.name
-                for _, _, cost in self._types()
+                for _, cost in self._types()
                 for component in cost.components
                 if component.uncertain
             )
@@ -631,7 +639,7 @@ class CostModel:
                 ) * float(scores[name])
                 probabilities[name] = 0.5 * (1 + math.erf(score / math.sqrt(2)))
         drawn = {}
-        for _, kind, cost in self._types():
+        for kind, cost in self._types():
             components = tuple(
                 (
                     dataclasses.replace(
@@ -688,7 +696,7 @@ class CostModel:
 
         Growth factors multiply the estimate, such as uncertain parameters of
         cost growth drawn for each replicate (for example,
-        `Uncertain(lambda rng: rng.triangular(0.9, 1.0, 1.5))`), whose
+        `Uncertain.triangular(0.9, 1.0, 1.5)`), whose
         statistics over the replicates give the cost at a confidence level
         (such as the 0.7 `Quantile`). Factors of each type of satellite (such
         as `{"development": {"narrow": "growth_narrow", "wide":
@@ -717,7 +725,7 @@ class CostModel:
         """
         factors = _get_growth(growth)
         history = (
-            deployment.simulate() if isinstance(deployment, Deployment) else deployment
+            deployment.planned() if isinstance(deployment, Deployment) else deployment
         )
         estimate = CostEstimate()
         flows: list[tuple[float, str, float]] = []
@@ -729,7 +737,7 @@ class CostModel:
             flows.extend((time, element, amount * factor) for time, amount in amounts)
 
         if self.launch.per_kg > 0 and any(
-            self._get_type(kind).mass is None for kind in history.development
+            self.satellite_cost_of(kind).mass is None for kind in history.development
         ):
             raise ValueError("launches priced by mass require masses")
         # the costs of a sustained constellation are those incurred by the end
@@ -738,7 +746,7 @@ class CostModel:
         for kind, developed in sorted(
             history.development.items(), key=lambda item: item[1]
         ):
-            cost = self._get_type(kind)
+            cost = self.satellite_cost_of(kind)
             amount = cost.development + sum(
                 c.development * c.factor
                 for c in cost.components
@@ -749,7 +757,7 @@ class CostModel:
         built: dict[Any, int] = {}
         begun: dict[Any, int] = {}
         for batch in history.production:
-            cost = self._get_type(batch.kind)
+            cost = self.satellite_cost_of(batch.kind)
             before = built.get(batch.kind, 0)
             amount = cost.production(before + batch.satellites) - cost.production(
                 before
@@ -784,15 +792,15 @@ class CostModel:
                             ),
                             batch.kind,
                         )
-        estimate.units = {_type_name(kind): units for kind, units in begun.items()}
+        estimate.units = dict(begun)
         estimate.blocks = {
-            _type_name(kind): self._get_type(kind).blocks(units)
+            kind: self.satellite_cost_of(kind).blocks(units)
             for kind, units in begun.items()
         }
         begin, end = history.begin, history.end
         for launch in history.launches:
-            cost = self._get_type(launch.kind)
-            estimate.launches += int(self.launch.per_launch > 0)
+            cost = self.satellite_cost_of(launch.kind)
+            estimate.launches += 1
             price = self.launch.per_launch + launch.satellites * (
                 self.launch.per_satellite + self.launch.per_kg * (cost.mass or 0.0)
             )
@@ -828,14 +836,6 @@ class CostModel:
         return estimate
 
 
-def _type_name(kind: Any) -> str:
-    """
-    Gets the name of a type of satellite (as of the units of estimates): its
-    kind, or `"satellites"` without one.
-    """
-    return "satellites" if kind is None else str(kind)
-
-
 def _get_growth(growth: Growth) -> dict[str, float | dict[Any, float]]:
     """
     Gets the growth factor of each element of cost (or a mapping of each kind
@@ -866,13 +866,9 @@ def _get_factor(
     (`None` for costs of no type).
     """
     factor = factors[element]
-    if not isinstance(factor, Mapping):
-        return factor
-    if kind is None:
+    if isinstance(factor, Mapping) and kind is None:
         raise ValueError(f"growth of {element} by type of satellite needs kinds")
-    if kind not in factor:
-        raise ValueError(f"no growth of {element} of satellites of kind {kind!r}")
-    return factor[kind]
+    return _per_type(factor, kind, f"growth of {element}")
 
 
 def risk_space(*models: CostModel) -> DesignSpace:
