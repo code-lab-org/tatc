@@ -122,6 +122,12 @@ def planes_name(planes):
     return f"{planes:.0f} plane{'s' if planes > 1 else ''}"
 
 
+# the groups of numbers of planes that color the designs of plots (by
+# `planes.clip(upper=3)`): at most three colors, which readers with color vision
+# deficiencies tell apart in a scatter of designs
+PLANE_GROUPS = {1: "1 plane", 2: "2 planes", 3: "3 or 4 planes"}
+
+
 # ExplainTradeSpace: the study of accurate sampling as well
 
 DECORRELATION_TIME = timedelta(hours=3)  # of the field whose daily mean is estimated
