@@ -21,8 +21,7 @@ The following provide examples of TAT-C use in a Jupyter notebook environment.
   CollectLimb.ipynb
   CollectSpace.ipynb
   AssessSamplingSufficiency.ipynb
-  RunOSSEMonsoon.ipynb
-  RunOSSEHurricane.ipynb
+  osse/index
   tradespace/index
 
 Note that running the above examples in a local Python environment requires additional dependencies which can be installed via::

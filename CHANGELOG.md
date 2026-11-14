@@ -41,6 +41,7 @@ Added:
  - The `RunOSSEMonsoon` example declares its constellation trade as a design space, caches the looks of each satellite, evaluates its replicates in parallel, and finds its Pareto-efficient designs.
 
 Changed:
+ - The OSSE examples (`RunOSSEMonsoon`, `RunOSSEHurricane`) are in `docs/examples/osse`, and download the Nature Run to a `data` directory beside them.
  - Instruments reject unknown fields, rather than ignoring them: a misspelled field in the data of a `PointedInstrument` previously gave an `Instrument` with a field of regard of 180 degrees.
  - Dumping a `Satellite` or other system with a `PointedInstrument` or `ConicalInstrument` keeps the fields of its class, and loading the data restores it. Previously, these instruments were written and restored as a base `Instrument`, without a warning. Data written by earlier versions lacks these fields, so it still loads as an `Instrument`.
  - Dumping a space system with an `attitude` omits the `velocity_frame` of its instruments, which the attitude sets, so the data can be loaded.
