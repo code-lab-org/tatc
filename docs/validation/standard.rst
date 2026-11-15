@@ -28,7 +28,7 @@ Versions
      - Adds the lidar class, for ICESat-2 ATLAS, whose beams fit none of the other
        classes. No threshold of version 1 changed, so results recorded under
        version 1 still apply. The lidar gates were drafted knowing an earlier result
-       (:doc:`ValidateLidarICESat2`: the central beam pair within about 2 km of the
+       (:doc:`instruments/ValidateLidarICESat2`: the central beam pair within about 2 km of the
        ground track over Antarctica, and 95% of beam segments within views about
        4 km wide), and frozen before any data were analyzed for the catalog.
    * - 3
