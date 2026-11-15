@@ -1,0 +1,42 @@
+{
+  "entry_id": "earthcare_msi",
+  "configurations": {
+    "swath": {
+      "digest": "b686125d467695ed4e9e8819886ed578b9b5b4450bf6a5cf152ec7eb72067dc4",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_earthcare_msi.py",
+      "reference": "MSI_RGR_1C (pixel positions of every fourth orbit, every eighth line), with spacecraft positions of ATL_NOM_1B",
+      "period": "2026-11-07",
+      "platform": "earthcare",
+      "holdout_gap_days": 41,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.54560207724765
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.54560207724765
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.4999694812
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.22029766902091796
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.989315821762553
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.5024910009499999
+      }
+    }
+  },
+  "standard_version": 6
+}

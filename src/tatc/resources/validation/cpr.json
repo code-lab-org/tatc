@@ -1,0 +1,38 @@
+{
+  "entry_id": "cpr",
+  "configurations": {
+    "nadir": {
+      "digest": "c71562f90b481806dbdbe5d458988cfe622d6e7d4708514f6b7edb1471ab5bcd",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_cpr.py",
+      "reference": "CPR_NOM_1B (profile positions and times)",
+      "period": "2026-11-07",
+      "platform": "earthcare",
+      "holdout_gap_days": 41,
+      "metrics": [
+        {
+          "name": "segment_recall",
+          "value": 100.0
+        },
+        {
+          "name": "track_offset_median",
+          "value": 0.7189287950122534
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.48488375245
+        },
+        {
+          "name": "epoch_median",
+          "value": 0.2038715585
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.4574536675499999
+      }
+    }
+  },
+  "standard_version": 6
+}

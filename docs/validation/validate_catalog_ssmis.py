@@ -9,7 +9,8 @@ fitted scan on data held out from the fit. The tests follow those of AMSR2:
 * A point is observed on a pass if it lies in a cell of the lattice of S1 samples, at
   the time it crosses the cone, from the recorded spacecraft positions.
 * The swath width is compared with the distance between the first and last samples.
-* The swath area over an orbit is compared with the union of the cells.
+* The swath area over a span of the day (from noon) is compared with the union of
+  the cells.
 
 Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`. Only the
 needed fields of the product's files are read, with range requests:

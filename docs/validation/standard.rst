@@ -7,7 +7,7 @@ entry must show before it is called validated, so that entries can be compared
 and the claim means the same for each. An entry's tier is computed from its
 results and these thresholds, and cannot be declared.
 
-This is version 5 of the standard. The thresholds of version 1 were drafted from
+This is version 6 of the standard. The thresholds of version 1 were drafted from
 the earlier results below, so they can show little about those instruments. They
 were frozen before validating instruments new to TAT-C, which are their first real
 test. Changing a threshold requires a new version and a stated reason here.
@@ -50,6 +50,14 @@ Versions
        union of the predicted field of regard with the area imaged in a scan, at
        least 0.95, as for swaths. No threshold of earlier versions changed, so their
        results still apply. The gate was frozen before any TEMPO data were analyzed.
+   * - 6
+     - Adds the profiler class, for single-beam atmospheric profilers near nadir
+       (EarthCARE's ATLID lidar and CPR radar), which observe a narrow track, as
+       altimeters do, but are neither altimeters nor multi-beam lidars, whose beam
+       spacing gate needs several beams. Its gates are those of the altimeter
+       class, so that a class filter does not mix the two. No threshold of earlier
+       versions changed, so their results still apply. The gates were adopted
+       before any profiler data were analyzed.
 
 Rules
 =====
@@ -96,8 +104,11 @@ epoch gate. Cross-track and conical instruments also need a configuration at the
 sample size grade. Orbit error against recorded positions is reported but not
 gated, because it grades the element set rather than the instrument.
 
-Lidar and altimeter gates are separate, because they observe narrow tracks
-rather than a swath:
+Lidar, altimeter, and profiler gates are separate, because they observe narrow
+tracks rather than a swath. Profilers take the altimeter's gates, with the track
+offset measured from the predicted track of the view's center, which is the ground
+track for a view at nadir; a profiler pointed off nadir (ATLID, a few degrees behind)
+observes a track displaced from the ground track by the Earth's rotation:
 
 .. list-table::
    :header-rows: 1
@@ -211,7 +222,8 @@ rather than a swath:
 Pushbroom imagers, SAR, and lidar have no precision gate because they acquire or
 point according to plans, so a predicted observation that was not made is not an
 error of geometry. Nor do altimeters, whose products omit measurements by surface
-and quality, or scatterometers, whose wind products omit land and sea ice.
+and quality, profilers, whose products omit profiles by quality and mode, or
+scatterometers, whose wind products omit land and sea ice.
 
 A swath's IoU is measured at several time steps, up to 120 s, and gated at the
 lowest. Configurations whose instruments are swept (`is_swept`), as every

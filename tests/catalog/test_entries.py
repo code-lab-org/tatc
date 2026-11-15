@@ -117,13 +117,15 @@ class TestLoading(unittest.TestCase):
         """
         self.assertEqual(
             [e.id for e in list_entries(instrument_class="conical")],
-            ["amsr2", "gmi", "smap_radiometer", "ssmis"],
+            ["amsr2", "gmi", "smap_radiometer", "ssmis", "tmi"],
         )
         self.assertEqual(
             [e.id for e in list_entries(instrument_class="geostationary")],
             ["abi", "ahi"],
         )
-        self.assertEqual([e.id for e in list_entries("conical", "validated")], ["gmi"])
+        self.assertEqual(
+            [e.id for e in list_entries("conical", "validated")], ["gmi", "tmi"]
+        )
         self.assertEqual(
             [e.id for e in list_entries("conical", "partial")],
             ["amsr2", "smap_radiometer", "ssmis"],
@@ -137,8 +139,11 @@ class TestLoading(unittest.TestCase):
                 "amsr2",
                 "amsua",
                 "atlas",
+                "atlid",
                 "avhrr",
+                "bbr",
                 "ceres",
+                "cpr",
                 "cris",
                 "csar",
                 "ecostress",
@@ -152,6 +157,7 @@ class TestLoading(unittest.TestCase):
                 "omps_nm",
                 "smap_radiometer",
                 "ssmis",
+                "trmm_pr",
             ],
         )
         with self.assertRaises(ValueError):
@@ -1007,6 +1013,96 @@ class TestEntryStatus(unittest.TestCase):
             ["footprint_iou_median", "pass_recall"],
         )
         self.assertEqual(swath.record.holdout_gap_days, 35)
+
+    def test_virs_entry_validated(self):
+        """
+        Test that the TRMM VIRS entry passes with its fitted values on data held out 39
+        days from the fit.
+        """
+        validation = get_entry("virs").validation
+        self.assertEqual(validation.tier, Tier.VALIDATED)
+        for key in ("swath", "pixels"):
+            configuration = validation.configurations[key]
+            self.assertEqual(configuration.tier, Tier.VALIDATED, key)
+            self.assertEqual(configuration.record.holdout_gap_days, 39, key)
+
+    def test_tmi_entry_validated(self):
+        """
+        Test that the TRMM TMI entry passes with its fitted feeds on data held out 39
+        days from the fit, as alternatives scored one at a time.
+        """
+        entry = get_entry("tmi")
+        self.assertEqual(entry.instrument_class, InstrumentClass.CONICAL)
+        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
+        self.assertEqual(entry.configurations["feeds"].grouping, "alternatives")
+        for key in ("feeds", "sample_size"):
+            configuration = entry.validation.configurations[key]
+            self.assertEqual(configuration.tier, Tier.VALIDATED, key)
+            self.assertEqual(configuration.record.holdout_gap_days, 39, key)
+
+    def test_trmm_pr_entry_partial_on_published_footprint(self):
+        """
+        Test that the TRMM PR entry is partial because its published footprint at the
+        scan's edge does not meet the sample size gate, with its swath validated on data
+        held out 39 days from the fit.
+        """
+        validation = get_entry("trmm_pr").validation
+        self.assertEqual(validation.tier, Tier.PARTIAL)
+        self.assertEqual(validation.configurations["swath"].tier, Tier.VALIDATED)
+        beams = validation.configurations["beams"]
+        self.assertEqual(
+            [r.gate.metric for r in beams.gates if not r.passed],
+            ["sample_size_within_3pct"],
+        )
+        self.assertEqual(beams.record.holdout_gap_days, 39)
+
+    def test_earthcare_msi_entry_validated(self):
+        """
+        Test that the EarthCARE MSI entry passes with its fitted view on data held out
+        41 days from the fit.
+        """
+        validation = get_entry("earthcare_msi").validation
+        self.assertEqual(validation.tier, Tier.VALIDATED)
+        swath = validation.configurations["swath"]
+        self.assertEqual(swath.record.holdout_gap_days, 41)
+
+    def test_earthcare_profilers_partial_on_track_offset(self):
+        """
+        Test that the ATLID and CPR entries, of the profiler class added in version 6
+        of the standard, are partial because of their track offset alone on data held
+        out 41 days from the fit.
+        """
+        for entry_id, key in (("atlid", "profile"), ("cpr", "nadir")):
+            entry = get_entry(entry_id)
+            self.assertEqual(entry.instrument_class, InstrumentClass.PROFILER)
+            self.assertEqual(entry.validation.tier, Tier.PARTIAL, entry_id)
+            self.assertGreaterEqual(entry.record.standard_version, 6)
+            configuration = entry.validation.configurations[key]
+            self.assertEqual(
+                [r.gate.metric for r in configuration.gates if not r.passed],
+                ["track_offset_median"],
+                entry_id,
+            )
+            self.assertEqual(configuration.record.holdout_gap_days, 41, entry_id)
+
+    def test_bbr_entry_partial_on_held_out_day(self):
+        """
+        Test that the BBR entry, whose three views are alternatives scored on data
+        held out 41 days from the fit, is partial on pass recall and footprint IoU
+        (the gates take the worst view) and passes its width and epoch gates.
+        """
+        entry = get_entry("bbr")
+        self.assertEqual(entry.instrument_class, InstrumentClass.PUSHBROOM)
+        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
+        views = entry.validation.configurations["views"]
+        self.assertEqual(
+            sorted(r.gate.metric for r in views.gates if not r.passed),
+            ["footprint_iou_median", "pass_recall"],
+        )
+        self.assertEqual(views.record.holdout_gap_days, 41)
+        self.assertEqual(
+            {m.scope for m in views.record.metrics}, {"AFT", "NADIR", "FORE"}
+        )
 
     def test_oco2_glint_builds_glint_attitude(self):
         """
