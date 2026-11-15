@@ -5,7 +5,7 @@
       "digest": "6dd777f2374b8062437f0f7437e4b22db0994867904b99869abc86ed890998a5",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_tropomi.py",
+      "source": "validation/catalog/validate_catalog_tropomi.py",
       "reference": "Sentinel-5P TROPOMI aerosol index product (near real time)",
       "period": "2026-11-10",
       "platform": "sentinel-5p",

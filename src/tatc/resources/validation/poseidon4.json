@@ -5,7 +5,7 @@
       "digest": "5270b7e4de6236de4a54677131ec62eefb5c29566aaf188925fd3b6b64fa6910",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_poseidon4.py",
+      "source": "validation/catalog/validate_catalog_poseidon4.py",
       "reference": "JASON_CS_S6A_L2_ALT_LR_RED_OST_NRT_F (1 Hz measurement positions and times)",
       "period": "2026-11-07",
       "platform": "sentinel-6a",

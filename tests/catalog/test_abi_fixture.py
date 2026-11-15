@@ -1,8 +1,8 @@
 """
 Regression tests that recompute the results of the geostationary entries from
 reduced fixtures of pixels: GOES-19 ABI pixels, written by
-`docs/validation/validate_catalog_abi.py`, and Himawari-9 AHI pixels, written by
-`docs/validation/validate_catalog_ahi.py`.
+`validation/catalog/validate_catalog_abi.py`, and Himawari-9 AHI pixels, written by
+`validation/catalog/validate_catalog_ahi.py`.
 
 These detect changes in TAT-C's results without network access. They do not
 themselves establish agreement with the reference data, which the scripts do.

@@ -7,7 +7,7 @@ the difference between UT1 tables. TAT-C's timescale uses the table bundled with
 the installed skyfield, which changes between skyfield releases (predicted values
 become measured ones) and is extrapolated past its last date. So each fixture
 holds the delta T (TT - UT1) its records were made with, sampled around its days
-(`delta_t_tt`, `delta_t`, written by `docs/validation/validation_io.py`), and its
+(`delta_t_tt`, `delta_t`, written by `validation/catalog/validation_io.py`), and its
 tests compute with those samples.
 
 Times outside a fixture's days use the installed table. Only the checks of

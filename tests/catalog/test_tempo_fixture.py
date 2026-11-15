@@ -1,6 +1,6 @@
 """
 Regression tests that recompute the result of the TEMPO entry from a reduced fixture
-written by `docs/validation/validate_catalog_tempo.py`: grid points near and away
+written by `validation/catalog/validate_catalog_tempo.py`: grid points near and away
 from the edges of the area a held-out scan imaged, with whether each was imaged.
 
 These detect changes in TAT-C's results without network access. They do not themselves

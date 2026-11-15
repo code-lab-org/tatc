@@ -1,7 +1,7 @@
 """
 Regression tests that recompute the results of the SMAP radiometer entry's sample size
 configuration from a reduced fixture, written by
-`docs/validation/validate_catalog_smap.py`.
+`validation/catalog/validate_catalog_smap.py`.
 
 These detect changes in TAT-C's results without network access. They do not
 themselves establish agreement with the reference data, which the script does.

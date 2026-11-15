@@ -5,7 +5,7 @@
       "digest": "75e98ffbe9347dbffa3aae71f348097c01a6911aa947abaf47b98d264a728327",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_emit.py",
+      "source": "validation/catalog/validate_catalog_emit.py",
       "reference": "EMITL1BRAD version 002, observation geometry (pixel positions and line times of every 16th line)",
       "period": "2026-11-08",
       "platform": "iss",

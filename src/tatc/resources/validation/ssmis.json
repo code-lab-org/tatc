@@ -5,7 +5,7 @@
       "digest": "9e367bd86d4b2e1cc8e2e50ad0eb46f83fca7b69ae489721bb074803817dd54a",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_ssmis.py",
+      "source": "validation/catalog/validate_catalog_ssmis.py",
       "reference": "GPM_1CF18SSMIS version 08 (positions of the S1 samples)",
       "period": "2026-11-03",
       "platform": "dmsp-f18",

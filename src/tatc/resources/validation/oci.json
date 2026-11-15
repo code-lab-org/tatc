@@ -5,7 +5,7 @@
       "digest": "fbfdc468489c8229a04346c1416405cc9aec8a33ed0e9167dc347205575b2878",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_oci.py",
+      "source": "validation/catalog/validate_catalog_oci.py",
       "reference": "PACE_OCI_L1B_SCI version 3 (sample positions and times)",
       "period": "2026-11-10",
       "platform": "pace",

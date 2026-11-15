@@ -5,7 +5,7 @@
       "digest": "c71562f90b481806dbdbe5d458988cfe622d6e7d4708514f6b7edb1471ab5bcd",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_cpr.py",
+      "source": "validation/catalog/validate_catalog_cpr.py",
       "reference": "CPR_NOM_1B (profile positions and times)",
       "period": "2026-11-07",
       "platform": "earthcare",

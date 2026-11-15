@@ -5,7 +5,7 @@
       "digest": "c91a076745f0c7ae78527f94f525be947c12960c33fa2cac0922f8782de7bfd9",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_gedi.py",
+      "source": "validation/catalog/validate_catalog_gedi.py",
       "reference": "GEDI01_B version 003 (every 200th shot, where the beams' center lies within 1 deg of nadir)",
       "period": "2026-06-08",
       "platform": "iss",

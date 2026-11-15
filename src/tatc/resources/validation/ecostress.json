@@ -5,7 +5,7 @@
       "digest": "86d9d7f5ab5a5e0223abd434f481c70367c2182691922da307a3fe9523e3eafc",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_ecostress.py",
+      "source": "validation/catalog/validate_catalog_ecostress.py",
       "reference": "ECO_L1B_GEO version 002 (sample positions and times of every fourth sweep, in blocks of eight consecutive scenes of every 32)",
       "period": "2026-11-08",
       "platform": "iss",

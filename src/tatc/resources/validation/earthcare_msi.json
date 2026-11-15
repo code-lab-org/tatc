@@ -5,7 +5,7 @@
       "digest": "b686125d467695ed4e9e8819886ed578b9b5b4450bf6a5cf152ec7eb72067dc4",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_earthcare_msi.py",
+      "source": "validation/catalog/validate_catalog_earthcare_msi.py",
       "reference": "MSI_RGR_1C (pixel positions of every fourth orbit, every eighth line), with spacecraft positions of ATL_NOM_1B",
       "period": "2026-11-07",
       "platform": "earthcare",

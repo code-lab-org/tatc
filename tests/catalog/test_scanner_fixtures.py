@@ -1,17 +1,17 @@
 """
 Regression tests that recompute the results of the entries of cross-track scanners
-from reduced fixtures, written by `docs/validation/validate_catalog_atms.py`,
-`docs/validation/validate_catalog_viirs.py`,
-`docs/validation/validate_catalog_modis.py`,
-`docs/validation/validate_catalog_iasi.py`,
-`docs/validation/validate_catalog_cris.py`,
-`docs/validation/validate_catalog_dpr.py`,
-`docs/validation/validate_catalog_mhs.py`,
-`docs/validation/validate_catalog_airs.py`,
-`docs/validation/validate_catalog_amsua.py`,
-`docs/validation/validate_catalog_avhrr.py`,
-`docs/validation/validate_catalog_trmm_pr.py`, and
-`docs/validation/validate_catalog_virs.py`, and of other swaths and narrow views
+from reduced fixtures, written by `validation/catalog/validate_catalog_atms.py`,
+`validation/catalog/validate_catalog_viirs.py`,
+`validation/catalog/validate_catalog_modis.py`,
+`validation/catalog/validate_catalog_iasi.py`,
+`validation/catalog/validate_catalog_cris.py`,
+`validation/catalog/validate_catalog_dpr.py`,
+`validation/catalog/validate_catalog_mhs.py`,
+`validation/catalog/validate_catalog_airs.py`,
+`validation/catalog/validate_catalog_amsua.py`,
+`validation/catalog/validate_catalog_avhrr.py`,
+`validation/catalog/validate_catalog_trmm_pr.py`, and
+`validation/catalog/validate_catalog_virs.py`, and of other swaths and narrow views
 written by their validation scripts.
 
 These detect changes in TAT-C's results without network access. They do not themselves

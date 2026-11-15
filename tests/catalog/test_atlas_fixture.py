@@ -1,7 +1,7 @@
 """
 Regression tests that recompute the results of the lidar entries (ICESat-2 ATLAS and
-GEDI) from reduced fixtures, written by `docs/validation/validate_catalog_atlas.py`
-and `docs/validation/validate_catalog_gedi.py`.
+GEDI) from reduced fixtures, written by `validation/catalog/validate_catalog_atlas.py`
+and `validation/catalog/validate_catalog_gedi.py`.
 
 These detect changes in TAT-C's results without network access. They do not themselves
 establish agreement with the reference data, which the script does.

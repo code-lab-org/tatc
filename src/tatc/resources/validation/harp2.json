@@ -5,7 +5,7 @@
       "digest": "dbbda9bbb91e8bfad0332d07dc4e83711dcebe054f8d7c1450c687b22efb47bd",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_harp2.py",
+      "source": "validation/catalog/validate_catalog_harp2.py",
       "reference": "PACE_HARP2_L1B_SCI version 4 (positions and times of the near-nadir view)",
       "period": "2026-11-07",
       "platform": "pace",

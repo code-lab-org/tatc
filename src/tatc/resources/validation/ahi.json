@@ -5,7 +5,7 @@
     "full_disk": {
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_ahi.py",
+      "source": "validation/catalog/validate_catalog_ahi.py",
       "period": "2026-11-08T12:00Z",
       "platform": "himawari-9",
       "digest": "5d2ecc67bdbb68e12af30c19e66df0aaa5fcf3e4ff2b13907a799b4f1aeea633",
@@ -28,7 +28,7 @@
     "cloud_top_height": {
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_ahi.py",
+      "source": "validation/catalog/validate_catalog_ahi.py",
       "period": "2026-11-08T12:00Z",
       "platform": "himawari-9",
       "digest": "c8a8fcb28e64996bea02ea074e53c4519119687b7252385dd2a7eac09dffaff9",

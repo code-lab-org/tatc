@@ -5,7 +5,7 @@
       "digest": "e5519e6a3649052d584f93a14cd30790cceb1d49489a3d023983e02f5d6ee636",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_atlid.py",
+      "source": "validation/catalog/validate_catalog_atlid.py",
       "reference": "ATL_NOM_1B (profile positions and times)",
       "period": "2026-11-07",
       "platform": "earthcare",

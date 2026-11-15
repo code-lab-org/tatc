@@ -6,7 +6,7 @@
       "digest": "c44fd0bd205eb689dfdd9449710a57782ffbb7959072be988dd750364b234842",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_tempo.py",
+      "source": "validation/catalog/validate_catalog_tempo.py",
       "reference": "TEMPO_RAD_L1 V04 (outer corners of the outermost pixels of a full scan, ultraviolet band)",
       "period": "2026-11-08T18:22Z",
       "platform": "intelsat-40e",

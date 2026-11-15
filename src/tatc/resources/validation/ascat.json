@@ -5,7 +5,7 @@
       "digest": "5d9d3f2ba6c6b2a59be1a0fb383cd836acbd56df2a78be1dc5251ce092f002b9",
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_ascat.py",
+      "source": "validation/catalog/validate_catalog_ascat.py",
       "reference": "ASCATC-L2-25km (wind vector cell positions and row times)",
       "period": "2026-11-08",
       "platform": "metop-c",

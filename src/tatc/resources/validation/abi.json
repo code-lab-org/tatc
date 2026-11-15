@@ -5,7 +5,7 @@
     "full_disk": {
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_abi.py",
+      "source": "validation/catalog/validate_catalog_abi.py",
       "period": "2026-10-03T12:00Z",
       "platform": "goes-19",
       "digest": "0f24250ef8d0f2c98436fe13b243610e5617b920edc31c6c4ea794c3b1326e73",
@@ -28,7 +28,7 @@
     "sst_good_quality": {
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_abi.py",
+      "source": "validation/catalog/validate_catalog_abi.py",
       "period": "2026-10-03T12:00Z",
       "platform": "goes-19",
       "digest": "61f9d59e6d03c56b386b70e62a6f025e9f21eacfcd6bec545120e5d067823023",
@@ -50,7 +50,7 @@
     "lst_good_quality": {
       "evidence": "rerun",
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_abi.py",
+      "source": "validation/catalog/validate_catalog_abi.py",
       "period": "2026-10-03T12:00Z",
       "platform": "goes-19",
       "digest": "3c44900855e1fb4542e9f2948171c27c9cec3723ff52a082ecc9d919bf13ffb9",

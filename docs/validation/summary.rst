@@ -179,8 +179,8 @@ Instruments and Pointing
    * - Geostationary imagers
      - GOES-19 ABI, Himawari-9 AHI, TEMPO
      - A 17.4 deg field of regard observes the full disk; elevation angles within 0.0004 deg; product coverage limits
-       within about 0.3 deg of local zenith angle (:doc:`ValidateGeostationaryGOES`). On held-out AHI cloud top
-       heights, the product's limit within 0.70 deg (:doc:`catalog`). TEMPO's region, as a rectangular view fitted
+       within 0.36 deg of local zenith angle; on held-out AHI cloud top heights, the product's limit within 0.70 deg
+       (:doc:`catalog`). TEMPO's region, as a rectangular view fitted
        to the edges of a full scan: field of regard IoU 0.994 with the area a held-out scan imaged; the hourly
        east-west sweep is not modeled (:doc:`catalog`)
    * - Tilted scanners (`pitch_angle_profile`), sun glint (`compute_glint_angle`)

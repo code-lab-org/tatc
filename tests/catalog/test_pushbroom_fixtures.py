@@ -3,7 +3,7 @@ Regression tests that recompute the results of the entries of pushbroom imagers,
 synthetic aperture radars, ASCAT, the SMAP radiometer, SSMIS, and OCI's swath from reduced
 fixtures, written by
 the scripts
-`docs/validation/validate_catalog_<entry>.py`.
+`validation/catalog/validate_catalog_<entry>.py`.
 
 These detect changes in TAT-C's results without network access. They do not themselves
 establish agreement with the reference data, which the scripts do.

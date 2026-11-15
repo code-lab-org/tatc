@@ -1,6 +1,6 @@
 """
 Regression tests that recompute the GMI entry's results from a reduced fixture of
-observed passes, written by `docs/validation/validate_catalog_gmi.py`.
+observed passes, written by `validation/catalog/validate_catalog_gmi.py`.
 
 These detect changes in TAT-C's results without network access. They do not
 themselves establish agreement with the reference data, which the script does.
