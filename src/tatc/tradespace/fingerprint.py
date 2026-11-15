@@ -22,9 +22,10 @@ values they close over, and their defaults), or are within other values:
   - the nodes of design spaces, by their attributes;
   - objects that describe themselves by a method `__fingerprint__()`, by
     the value that it returns, which is described in their place: designs
-    (by their design space, decisions, replicate, and scenario) and caches
+    (by their design space, decisions, replicate, and scenario), caches
     of satellites (by their function and namespace, not their counts of
-    hits and misses, nor what they hold);
+    hits and misses, nor what they hold), and statistics (by their
+    attributes, such as their column and quantile);
   - partial functions (by their function and arguments), bound methods (by
     their function and object), and functions that decorators wrap (such
     as by `functools.lru_cache`, by the wrapped function).

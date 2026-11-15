@@ -181,7 +181,14 @@ class Values(Mapping):
         try:
             return self[name]
         except KeyError:
-            raise AttributeError(name) from None
+            raise AttributeError(
+                f"no value {name!r} (it has {list(self._values)})", name=name, obj=self
+            ) from None
+
+    def __dir__(self) -> list[str]:
+        # the values, for completion (and suggestions of misspelled names)
+        index = ["index"] if self._index is not None else []
+        return sorted({*object.__dir__(self), *self._values, *index})
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._values)
@@ -237,8 +244,18 @@ class ChoiceValues:
         if name == self._value.choice:
             return value
         raise AttributeError(
-            f"the choice chose {self.choice!r}, which has no value {name!r}"
+            f"the choice chose {self.choice!r}, which has no value {name!r}",
+            name=name,
+            obj=self,
         )
+
+    def __dir__(self) -> list[str]:
+        # the values of the branch and its name, for completion (and
+        # suggestions of misspelled names)
+        value = self.value
+        branch = isinstance(value, (Values, ChoiceValues, RepeatValues))
+        names = dir(value) if branch else []
+        return sorted({*object.__dir__(self), *names, self._value.choice})
 
     def __getitem__(self, name: str) -> Any:
         return _resolve_path(self, name)

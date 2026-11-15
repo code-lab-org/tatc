@@ -152,6 +152,16 @@ class TestPareto(unittest.TestCase):
         with self.assertRaises(ValueError):
             pareto_front(self.frame, criteria)  # no column of the requirement
 
+    def test_missing_group(self):
+        """Rows without a value of a column of groups are a group of their own."""
+        frame = pd.DataFrame(
+            {"cost": [1.0, 0.5, 2.0, 0.2], "sensor": ["x", None, "x", np.nan]}
+        )
+        grouped = Criteria({"cost": "min"}, by="sensor")
+        # the rows without a sensor are judged together, not left out
+        self.assertEqual(list(pareto_front(frame, grouped)), [True, False, False, True])
+        self.assertEqual(list(pareto_ranks(frame, grouped)), [0, 1, 1, 0])
+
 
 class TestRelativeTolerance(unittest.TestCase):
     """

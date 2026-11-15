@@ -234,7 +234,7 @@ def plot_designs(
             such as of `pareto_front`), or `None`.
         annotate (str | Callable | None): The labels of the efficient
             designs, written next to them: a column, a function of a row, or
-            `None`.
+            `None` (which needs a front).
         names (Mapping | Callable | None): The names of the values of `by` in
             the legend (by default, the values).
         highlight (str | Sequence[bool] | None): The designs to color (a
@@ -259,8 +259,15 @@ def plot_designs(
 
     Raises:
         ValueError: if `front` is a column (other than `"pareto"`) that the
-            frame lacks, or values of a length other than the frame's.
+            frame lacks, or values of a length other than the frame's, or if
+            designs are annotated without a front.
     """
+    ringed = _front(frame, front)
+    if annotate is not None and ringed is None:
+        raise ValueError(
+            "annotate labels the efficient designs: give a front (a column "
+            + "'pareto', such as of a summary of criteria, or values)"
+        )
     ax = _axes(ax, (9, 4.5))
     shift = np.random.default_rng(_JITTER_SEED).uniform(-jitter, jitter, len(frame))
     xs = frame[x].to_numpy(dtype=float) + (shift if jitter else 0.0)
@@ -307,7 +314,6 @@ def plot_designs(
                 lw=0,
                 label=None if named else (others or "other"),
             )
-    ringed = _front(frame, front)
     if ringed is not None:
         ax.scatter(
             xs[ringed],

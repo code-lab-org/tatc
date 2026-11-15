@@ -623,6 +623,29 @@ class TestValuesByPath(unittest.TestCase):
         self.assertEqual([plane.crossing for plane in planes[:1]], [planes[0].crossing])
         self.assertEqual(planes, list(planes))
 
+    def test_attribute_names(self):
+        """Designs and views list their values, and name those they lack."""
+        names = dir(self.walker)
+        self.assertTrue({"layout", "realize", "key"} <= set(names))
+        self.assertIn("planes", dir(self.walker.layout))
+        self.assertIn("walker", dir(self.walker.layout))
+        self.assertIn("count", dir(self.sso.layout.planes))
+        self.assertIn("index", dir(self.sso.layout.planes[0]))
+        self.assertIn("crossing", dir(self.sso.layout.planes[0]))
+        with self.assertRaisesRegex(AttributeError, "no value 'layuot'") as raised:
+            self.walker.layuot  # pylint: disable=pointless-statement
+        self.assertEqual(raised.exception.name, "layuot")
+        self.assertIs(raised.exception.obj, self.walker)
+        self.assertIn("it has ['altitude', 'layout']", str(raised.exception))
+        with self.assertRaises(AttributeError) as raised:
+            self.walker.layout.plane  # pylint: disable=pointless-statement
+        self.assertEqual(raised.exception.name, "plane")
+        with self.assertRaises(AttributeError) as raised:
+            self.sso.layout.planes[0].crosing  # pylint: disable=pointless-statement
+        self.assertEqual(raised.exception.name, "crosing")
+        # getattr with a default, as of an optional value
+        self.assertIsNone(getattr(self.walker.layout, "altitude", None))
+
     def test_constraints(self):
         """The callables of a design space read values by paths too."""
         space = DesignSpace(

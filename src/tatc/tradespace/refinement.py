@@ -93,7 +93,7 @@ def _precise(
     design's value). Designs whose varying objectives lack a tolerance are
     not precise. An objective without a standard error (which
     `pareto_probability` leaves out where it is zero for every design) does
-    not vary.
+    not vary, and one whose standard error is unknown (`NaN`) is not precise.
     """
     precise = np.zeros(len(probability), dtype=bool)
     if precision is None or not criteria.tolerances:
@@ -106,7 +106,8 @@ def _precise(
         error = probability[f"{name} se"].to_numpy(dtype=float)
         value = np.abs(probability[name].to_numpy(dtype=float))
         tolerance = tolerances[0, i] + tolerances[1, i] * value
-        varies = np.nan_to_num(error) > 0
+        # an unknown (NaN) error may vary, and is not less than any precision
+        varies = ~(error == 0)
         precise &= ~varies | (error < precision * tolerance)
     return precise
 

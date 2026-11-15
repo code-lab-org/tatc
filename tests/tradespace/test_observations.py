@@ -144,6 +144,35 @@ class TestTargets(unittest.TestCase):
         with self.assertRaises(TypeError):
             Targets([1, 2])
 
+    def test_fixed_seed(self):
+        """An integer seed generates the same targets in every replicate."""
+        design = SPACE.enumerate()[0]
+        first, second = design.realize(0), design.realize(1)
+        targets = Targets(
+            generate_points_fibonacci_lattice, count=N_POINTS, rotate=True, seed=7
+        )
+        expected = generate_points_fibonacci_lattice(
+            count=N_POINTS, rotate=True, seed=7
+        )
+        pd.testing.assert_frame_equal(targets._of(first), expected)
+        self.assertIs(targets._of(second), targets._of(first))
+        self.assertEqual(targets._seed_of(None), 7)
+        pd.testing.assert_frame_equal(targets._of(), expected)
+        # observations of a fixed seed need no design
+        observations = Observations(targets, START, HOURS)
+        satellites = _build(first)
+        pd.testing.assert_frame_equal(
+            observations(satellites), observations(satellites, second)
+        )
+
+    def test_invalid_seeds(self):
+        """A seed is a reference, an integer, or None."""
+        for seed in (7.5, True, [1], timedelta(hours=1)):
+            with self.assertRaisesRegex(TypeError, "seed of targets"):
+                Targets(generate_points_fibonacci_lattice, count=5, seed=seed)
+        Targets(generate_points_fibonacci_lattice, count=5, seed=np.int64(3))
+        Targets(generate_points_fibonacci_lattice, count=5, seed=lambda d: 3)
+
 
 class TestObservations(unittest.TestCase):
     """
@@ -703,10 +732,14 @@ class TestObservationStudy(unittest.TestCase):
             PLAN, policy=lambda d: configure(base, d.policy)
         )._policy_of(realized)
         self.assertEqual(configured, RestorationPolicy(orbit_spares=1, drift_years=1.0))
-        # by default, the design's values `policy`, if they configure a policy
+        # by default, the design's values `policy`, which must configure a
+        # policy (others need a function that gives it), or else none
         self.assertEqual(PLAN._policy_of(realized), RestorationPolicy(orbit_spares=1))
         other = SPACE.extend(policy=Categorical(["a", "b"])).enumerate()[0]
-        self.assertEqual(PLAN._policy_of(other.realize(0)), RestorationPolicy())
+        with self.assertRaisesRegex(TypeError, "policy= a function"):
+            PLAN._policy_of(other.realize(0))
+        unset = SPACE.extend(policy=Fixed(None)).enumerate()[0]
+        self.assertEqual(PLAN._policy_of(unset.realize(0)), RestorationPolicy())
         self.assertEqual(PLAN._policy_of(designs[0].realize(0)), RestorationPolicy())
 
     def test_failure_times(self):
@@ -813,6 +846,19 @@ class TestObservationStudy(unittest.TestCase):
         observations = _observations()
         with self.assertRaises(ValueError):
             ObservationStudy(SPACE, _build, observations, _metrics, phases=True)
+        # one requirement on the phases of each metric
+        with self.assertRaisesRegex(ValueError, r"metrics \['observed'\]"):
+            ObservationStudy(
+                SPACE,
+                _build,
+                observations,
+                _metrics,
+                plan=PLAN,
+                phases=[
+                    Requirement("observed", ">=", 50),
+                    Requirement("observed", ">=", 80),
+                ],
+            )
         study = ObservationStudy(SPACE, _build, observations, _metrics, plan=PLAN)
         self.assertEqual(study.layout, "layout")
         shells = DesignSpace(

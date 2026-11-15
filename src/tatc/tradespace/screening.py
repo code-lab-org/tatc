@@ -54,10 +54,10 @@ class Screening:
     the first), such as for the cost of the screening."""
     summaries: pd.DataFrame = field(default_factory=pd.DataFrame)
     """pandas.DataFrame: The summaries of the designs of every stage (see
-    `summarize`, with whether each is efficient by the stage's analysis,
-    `pareto`), with their Pareto rank (`pareto_rank`, see `pareto_ranks`),
-    whether they were `kept` for the next stage, and the `stage` (0 for the
-    first)."""
+    `summarize`, with the spreads of means and whether each is efficient by
+    the stage's analysis, `pareto`), with their Pareto rank (`pareto_rank`,
+    see `pareto_ranks`), whether they were `kept` for the next stage, and the
+    `stage` (0 for the first)."""
 
 
 def _per_stage(value, count: int, name: str) -> list:
@@ -173,7 +173,7 @@ def screen(
         criteria = stages[stage]
         results = study.run(current)
         frames.append(results.assign(stage=stage))
-        summary = _summarize(results, criteria)
+        summary = _summarize(results, criteria, spread=True)
         summary["pareto_rank"] = pareto_ranks(summary, criteria)
         if stage < transitions:
             amount = keeps[stage]

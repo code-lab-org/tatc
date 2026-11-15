@@ -21,10 +21,11 @@ from .mission import _PHASE_COLUMNS, Capability, _position_names
 if TYPE_CHECKING:
     from .deployment import Deployment
 
-MAX_SETS = 200_000
+MAX_SETS = 4_096
 """The most sets of satellites that exact expectations enumerate by default
 (see `exact_expectations`), as those of the failures of a study do (see
-`Failures`)."""
+`Failures`): those of about 12 satellites, whose metrics they evaluate
+(nearly every set) in about 35 times as many evaluations as 20 histories."""
 
 
 class ExactExpectationsError(ValueError):
@@ -201,10 +202,12 @@ def exact_expectations(
 
     Without sampling error, an expectation estimates the mean of many
     histories with none of their variance (see `Deployment.simulate_many`),
-    for missions of a few to a dozen or two satellites; for larger ones
-    (whose sets number more than `max_sets`, which is known before any is
-    enumerated), or with restoration (whose shared production and launches
-    make failures dependent), simulate histories.
+    for missions of a few to about a dozen satellites, but evaluates the
+    metrics of nearly every set (about `2 ** n` of `n` satellites, against
+    the few sets that histories evaluate); for larger ones (whose sets
+    number more than `max_sets`, which is known before any is enumerated),
+    or with restoration (whose shared production and launches make failures
+    dependent), simulate histories.
 
     Args:
         deployment (Deployment): The deployment, whose policy does not

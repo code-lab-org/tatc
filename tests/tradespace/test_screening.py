@@ -80,6 +80,14 @@ class TestScreen(unittest.TestCase):
         self.assertEqual(len(screening.results), len(last))
         self.assertNotIn("stage", screening.results.columns)
         self.assertEqual(screening.criteria.objectives, OBJECTIVES)
+        # the summaries of the stages are those of summarize, with spreads
+        noisy = screen(
+            [_study(0.3, 2), _study(0.3, 2)], OBJECTIVES, self.designs, keep=20
+        )
+        for column in ("value std", "value se"):
+            self.assertIn(column, noisy.summary.columns)
+            self.assertIn(column, noisy.summaries.columns)
+        self.assertNotIn("value se", screening.summary.columns)  # without noise
 
     def test_finds_front(self):
         """A tolerance of the noise of the first stage keeps the efficient designs."""

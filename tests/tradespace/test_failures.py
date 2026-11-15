@@ -7,6 +7,7 @@ simulations of missions.
 
 import math
 import unittest
+import warnings
 from dataclasses import dataclass
 from unittest import mock
 
@@ -606,6 +607,27 @@ class TestManyMissions(unittest.TestCase):
         cache.clear()
         self.assertEqual((cache.hits, cache.misses), (0, 0))
 
+    def test_phase_cache_of_identical_satellites(self):
+        """Satellites of the same content each count in the sets of a cache."""
+        one = self.satellites[0]
+        twin = one.model_copy(update={"name": "twin"})
+        observations = pd.DataFrame(
+            {"satellite": [one.name] * 3 + ["twin"] * 3, "target": [0, 1, 2] * 2}
+        )
+
+        def count(subset):
+            return {"observations": float(len(subset))}
+
+        for sets in (
+            [[one.name], [one.name, "twin"]],
+            [[one.name, "twin"], [one.name]],
+        ):
+            capability = Capability([one, twin], observations, PhaseCache(count))
+            self.assertEqual(
+                [capability(names)["observations"] for names in sets],
+                [3.0 * len(names) for names in sets],
+            )
+
     def test_evaluate_and_summarize(self):
         """Histories are evaluated, priced, and summarized as one record."""
         deployment = self.schedule.plan(self.layout)
@@ -769,6 +791,43 @@ class TestVarianceReduction(unittest.TestCase):
         self.assertTrue(np.isfinite(summary["years"]))
         with self.assertRaises(ValueError):
             summarize_histories(missions, controls={"cost": 1.0})
+        # a time that a history never meets keeps its infinite mean
+        availability = rng.uniform(0.6, 1.0, 20)
+        time = 3 + 2 * (1 - availability) + rng.normal(0, 0.05, 20)
+        time[availability < 0.65] = math.inf
+        missions = pd.DataFrame({"availability": availability, "share time": time})
+        controlled = summarize_histories(missions, controls={"availability": 0.8})
+        self.assertEqual(controlled["share time"], math.inf)
+
+    def test_statistics_with_infinite_values(self):
+        """Statistics over histories of equal weights are those over
+        replicates, also of infinite values; weighted spreads of infinite
+        values are missing."""
+        times = [float(t) for t in range(1, 21)]
+        statistics = [Quantile("time", 0.1), Quantile("time", 0.5)]
+        finite = summarize_histories(
+            pd.DataFrame({"time": times[:-1] + [1e9]}), statistics=statistics
+        )
+        never = summarize_histories(
+            pd.DataFrame({"time": times[:-1] + [math.inf]}), statistics=statistics
+        )
+        # a history that never meets it (the latest) moves no lower quantile
+        self.assertAlmostEqual(never["time histories p10"], 2.9)
+        for name in ("time histories p10", "time histories p50"):
+            self.assertAlmostEqual(never[name], finite[name])
+        spread = [StandardDeviation("time")]
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            plain = summarize_histories(
+                pd.DataFrame({"time": [1.0, 2.0, math.inf]}), statistics=spread
+            )
+            weighted = summarize_histories(
+                pd.DataFrame({"time": [1.0, 2.0, math.inf], "weight": [0.5, 1.0, 1.5]}),
+                statistics=spread,
+            )
+        self.assertTrue(math.isnan(plain["time histories std"]))
+        self.assertTrue(math.isnan(weighted["time histories std"]))
+        self.assertEqual(weighted["time"], math.inf)
 
 
 def _costs(replicate_seconds, history_seconds):
@@ -1076,7 +1135,8 @@ class TestImportanceSampling(unittest.TestCase):
             ],
         )
         self.assertEqual(summary["accurate time"], math.inf)
-        self.assertEqual(summary["accurate time histories p30"], 2.0)
+        # linear between the known values, as over replicates
+        self.assertAlmostEqual(summary["accurate time histories p30"], 2.6)
         self.assertEqual(summary["accurate time histories p90"], math.inf)
         self.assertEqual(summary["P(accurate time <= 3) histories"], 2 / 3)
         with self.assertRaisesRegex(ValueError, "other"):

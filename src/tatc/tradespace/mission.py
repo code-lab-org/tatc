@@ -453,11 +453,22 @@ def summarize_phases(
         metrics (Sequence[str] | None): The metrics, or `None` for every
             column other than those of the phases (`start`, `end`,
             `duration`, and `satellites`).
-        requirements (Sequence[Requirement]): Requirements on metrics.
+        requirements (Sequence[Requirement]): Requirements on metrics, at
+            most one of each metric (whose time it names).
 
     Returns:
         dict[str, float]: the summary, as metrics of an evaluation
+
+    Raises:
+        ValueError: if two requirements are of the same metric.
     """
+    named = [requirement.name for requirement in requirements]
+    repeated = sorted({name for name in named if named.count(name) > 1})
+    if repeated:
+        raise ValueError(
+            f"requirements on phases of the same metrics: {repeated} (the time "
+            + "until a phase meets a requirement is named by its metric)"
+        )
     if metrics is None:
         metrics = [column for column in phases.columns if column not in _PHASE_COLUMNS]
     weights = phases["duration"].to_numpy(dtype=float)
@@ -559,10 +570,12 @@ class PhaseCache(Forgetful):
         """
         Gets the metrics of satellites that operate together, by their keys
         in the cache (by their names in the observations), from the cache if
-        they are in it (keyed by the context and the keys), or else of their
-        observations (and kept), given the design if the metric takes one.
+        they are in it (keyed by the context and the keys, with those of
+        satellites of the same content counted, as each observes), or else
+        of their observations (and kept), given the design if the metric
+        takes one.
         """
-        key = (context, frozenset(keys.values()))
+        key = (context, tuple(sorted(keys.values())))
         if key in self._memory:
             self.hits += 1
         else:

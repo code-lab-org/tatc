@@ -87,6 +87,26 @@ class TestConfirm(unittest.TestCase):
         )
         self.assertLess(abs(errors.mean()), 0.15)
 
+    def test_spreads(self):
+        """The summary gives the spreads of the means by the new replicates,
+        after each statistic, as summarize does."""
+        confirmation = confirm(
+            self.study, OBJECTIVES, self.results, self.selected, replicates=20
+        )
+        summary = confirmation.summary
+        new = summarize(confirmation.results, OBJECTIVES).set_index("design")
+        np.testing.assert_allclose(
+            summary.set_index("design").loc[new.index, "value se"], new["value se"]
+        )
+        # the cost, the same in every replicate, has no spread
+        self.assertNotIn("cost se", summary.columns)
+        columns = list(summary.columns)
+        self.assertEqual(
+            columns[columns.index("value") : columns.index("value") + 4],
+            ["value", "value std", "value se", "value selected"],
+        )
+        self.assertLess(columns.index("variant"), columns.index("cost"))
+
     def test_default_front(self):
         """Without designs, the front of the results is confirmed; designs may
         also be given by their keys or a data frame of them."""

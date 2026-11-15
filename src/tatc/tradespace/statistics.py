@@ -154,6 +154,18 @@ class Statistic:
     def __hash__(self) -> int:
         return hash((type(self), tuple(sorted(vars(self).items()))))
 
+    def __fingerprint__(self) -> dict:
+        """
+        Gets what identifies the statistic in a definition (see
+        `tatc.tradespace.fingerprint`), such as of the statistics of the
+        failures of a study (see `Failures`): its attributes (such as its
+        column, and its quantile or threshold).
+
+        Returns:
+            dict: the attributes
+        """
+        return dict(vars(self))
+
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.column!r})"
 

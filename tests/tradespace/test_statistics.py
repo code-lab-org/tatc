@@ -18,6 +18,7 @@ from tatc.tradespace import (
     StandardDeviation,
     Statistic,
 )
+from tatc.tradespace.fingerprint import get_fingerprint
 from tatc.tradespace.statistics import _standard_error
 
 VALUES = np.array(
@@ -77,6 +78,30 @@ class TestStatistics(unittest.TestCase):
         self.assertNotEqual(Mean("x"), Maximum("x"))
         self.assertEqual(len({Mean("x"), Mean("x"), Mean("y")}), 2)
         self.assertIsInstance(Mean("x"), Statistic)
+
+    def test_fingerprints(self):
+        """Statistics are fingerprinted by their kind and parameters."""
+        self.assertNotEqual(
+            get_fingerprint(Quantile("c", 0.7)), get_fingerprint(Quantile("c", 0.9))
+        )
+        self.assertNotEqual(
+            get_fingerprint(Probability("c", ">=", 50)),
+            get_fingerprint(Probability("c", ">=", 80)),
+        )
+        self.assertNotEqual(
+            get_fingerprint(Probability("c", ">=", 50)),
+            get_fingerprint(Probability("c", "<=", 50)),
+        )
+        self.assertNotEqual(get_fingerprint(Mean("c")), get_fingerprint(Mean("d")))
+        self.assertNotEqual(get_fingerprint(Mean("c")), get_fingerprint(Maximum("c")))
+        # equal statistics, equal fingerprints
+        self.assertEqual(
+            get_fingerprint(Quantile("c", 0.7)), get_fingerprint(Quantile("c", 0.7))
+        )
+        self.assertEqual(
+            get_fingerprint(Probability("c", ">=", 50)),
+            get_fingerprint(Probability("c", ">=", 50)),
+        )
 
 
 class TestNames(unittest.TestCase):

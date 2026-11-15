@@ -145,7 +145,16 @@ class Design:
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):
             raise AttributeError(name)
-        return getattr(self.values, name)
+        try:
+            return getattr(self.values, name)
+        except AttributeError as error:
+            raise AttributeError(
+                f"the design has {error}", name=name, obj=self
+            ) from None
+
+    def __dir__(self) -> list[str]:
+        # the values, for completion (and suggestions of misspelled names)
+        return sorted({*object.__dir__(self), *self._values})
 
     def __getitem__(self, name: str) -> Any:
         return self.values[name]

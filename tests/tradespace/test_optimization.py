@@ -192,11 +192,10 @@ class TestEvaluations(unittest.TestCase):
         self.assertEqual(
             [evaluations.infeasibility[d.key] for d in designs], [0.0, 0.0, 1.0]
         )
-        # the summary of a search is that of its results (see summarize)
+        # the summary of a search is that of its results (see summarize),
+        # with the spreads of means
         search = evaluations.search(None)
-        pd.testing.assert_frame_equal(
-            search.summary, summarize(results, {"f": "max"}, spread=False)
-        )
+        pd.testing.assert_frame_equal(search.summary, summarize(results, {"f": "max"}))
         self.assertEqual([d.key for d in search.designs], [designs[1].key])
         self.assertEqual(len(search.evaluated), 3)
         # a requirement on the share of feasible replicates
@@ -321,6 +320,7 @@ class TestPymoo(unittest.TestCase):
         # the summary of the feasible designs, and their front
         summary = search.summary
         self.assertEqual(set(summary.design), set(results.design[results.feasible]))
+        self.assertIn("value se", summary.columns)  # with the spreads of means
         np.testing.assert_array_equal(
             summary.pareto, pareto_front(summary, OBJECTIVES).to_numpy()
         )

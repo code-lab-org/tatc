@@ -59,6 +59,8 @@ def groups(frame: pd.DataFrame, by: Sequence[str]) -> Iterator[tuple[tuple, Any]
     """
     Iterates over the groups of a data frame by columns (or the frame, if
     none): the values of the columns, and the positions of the group's rows.
+    Rows without a value of a column (`NaN` or `None`) are a group of their
+    own, rather than left out.
 
     Args:
         frame (pandas.DataFrame): The data frame.
@@ -77,7 +79,8 @@ def groups(frame: pd.DataFrame, by: Sequence[str]) -> Iterator[tuple[tuple, Any]
     missing = [column for column in by if column not in frame.columns]
     if missing:
         raise ValueError(f"no columns {missing} to group by")
-    for key, positions in frame.groupby(list(by), sort=False).indices.items():
+    grouped = frame.groupby(list(by), sort=False, dropna=False)
+    for key, positions in grouped.indices.items():
         yield (key if isinstance(key, tuple) else (key,)), positions
 
 

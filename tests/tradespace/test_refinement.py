@@ -24,6 +24,7 @@ from tatc.tradespace import (
     refine,
 )
 from tatc.tradespace.refinement import _precise
+from tatc.tradespace.tables import draw_resamples
 
 OBJECTIVES = {"cost": "min", "value": "max"}
 
@@ -350,6 +351,52 @@ class TestRefine(unittest.TestCase):
             _precise(probability.drop(columns="cost se"), criteria, 0.5),
             [True, False, True],
         )
+        # an unknown standard error is not precise
+        unknown = probability.assign(**{"value se": [np.nan, 1.0, np.nan]})
+        np.testing.assert_array_equal(
+            _precise(unknown, criteria, 0.5), [False, True, False]
+        )
+
+    def test_partly_infeasible_quantile(self):
+        """A design infeasible in most replicates, judged by a quantile, is
+        refined while its efficiency is uncertain, although some resamples
+        draw none of its feasible replicates."""
+        space = DesignSpace(
+            variant=Integer(0, 1),
+            noise=Uncertain.normal(0, 1),
+            gate=Uncertain.uniform(0, 1),
+        )
+
+        def evaluate(d):
+            if d.variant == 0 and d.gate > 0.25:
+                raise Infeasible("rarely feasible")
+            return {"value": 5.0 + 0.3 * d.variant + 2 * d.noise}
+
+        study = Study(space, lambda d: d, evaluate, replicates=20, seed=3)
+        results = study.run(space.enumerate())
+        rare = results[results.variant == 0]
+        feasible = rare.replicate[rare.feasible].to_numpy()
+        self.assertEqual(len(feasible), 5)  # as many as min_replicates
+        # resamples of the first round that draw none of them
+        drawn = draw_resamples(20, 1000, np.random.default_rng(0))
+        self.assertGreater((~np.isin(drawn, feasible).any(axis=1)).sum(), 0)
+        criteria = Criteria(
+            {"value p50": "max"},
+            statistics=[Quantile("value", 0.5)],
+            tolerances={"value p50": 0.5},
+        )
+        first = pareto_probability(results, criteria, n_resamples=1000, seed=0)
+        first = first.set_index("variant")
+        self.assertTrue(np.isfinite(first.loc[0, "value p50 se"]))
+        self.assertTrue(0.05 < first.loc[0, "pareto_probability"] < 0.95)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            refinement = refine(
+                study, criteria, results, step=5, max_rounds=1, n_resamples=1000
+            )
+        self.assertEqual(refinement.rounds.indifferent.iloc[0], 0)
+        added = refinement.results.iloc[len(results) :]
+        self.assertIn(0, set(added.variant))  # the rare design is refined
 
 
 class TestRefineInfeasible(unittest.TestCase):

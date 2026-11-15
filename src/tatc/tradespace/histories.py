@@ -100,7 +100,10 @@ def summarize_histories(
     requirement (`<metric> time`, see `evaluate_histories`) is infinite if a
     history never meets it, and its quantiles, or the share of the
     histories that meet it by a time (such as `Probability("accurate time",
-    "<=", 4)`), summarize it.
+    "<=", 4)`), summarize it. Histories of equal weights take each statistic
+    as over replicates (a linear quantile, and a standard deviation that is
+    `NaN` with an infinite value); weighted ones take the quantile of the
+    weighted distribution.
 
     With `controls`, the means are estimated with control variates: columns
     whose expected values are known (such as the `availability` of a
@@ -111,7 +114,9 @@ def summarize_histories(
     controls over the histories, which removes the share of its variance
     that the controls explain (a share of `rho ** 2` for a correlation
     `rho`): fewer histories give the same precision. The other statistics
-    are not corrected.
+    are not corrected, nor are the means of columns with an infinite value
+    (such as the time until a requirement is met, if a history never meets
+    it), which stay infinite.
 
     Histories of stressed failures (see `Deployment.simulate_many`) are
     weighted by their likelihood ratios (`weight`), for every statistic, and
@@ -210,23 +215,31 @@ def _weighted_statistic(
 ) -> float:
     """
     Computes a statistic over histories (see `summarize_histories`) of their
-    values, by their weights, leaving out missing values (`NaN`).
+    values, by their weights, leaving out missing values (`NaN`): with equal
+    weights, the statistic as over replicates (see `Statistic.reduce`), and
+    otherwise weighted (a quantile of the weighted distribution, and a
+    standard deviation that is `NaN` with an infinite value).
     """
+    known = ~np.isnan(values)
+    given = weights[known]
+    if len(given) == 0 or np.all(given == given[0]):
+        return float(statistic.reduce(values[None, :])[0])
     if isinstance(statistic, Quantile):
         return _weighted_quantile(values, weights, statistic.q)
-    known = ~np.isnan(values)
     if isinstance(statistic, Probability):
-        if not known.any() or weights[known].sum() <= 0:
+        if weights[known].sum() <= 0:
             return math.nan
         requirement = Requirement(
             statistic.column, statistic.operator, statistic.threshold
         )
         met = requirement.met(values[known])
         return float(np.sum(weights[known] * met) / np.sum(weights[known]))
+    count = known.sum()
+    if count < 2 or np.isinf(values[known]).any():
+        return math.nan
     mean = _weighted_mean(values, weights)
     variance = _weighted_mean((values - mean) ** 2, weights)
-    count = known.sum()
-    return float(np.sqrt(variance * count / (count - 1))) if count > 1 else math.nan
+    return float(np.sqrt(variance * count / (count - 1)))
 
 
 def _weighted_mean(values: np.ndarray, weights: np.ndarray) -> float:
@@ -244,15 +257,12 @@ def _weighted_quantile(values: np.ndarray, weights: np.ndarray, q: float) -> flo
     """
     The quantile of the known values (not `NaN`, but infinite ones), by
     their weights: the least value whose cumulative weight reaches the share
-    `q` of the total (as numpy's `inverted_cdf`), or numpy's linear quantile
-    of finite values without weights.
+    `q` of the total (as numpy's `inverted_cdf`).
     """
     known = ~np.isnan(values)
     values, weights = values[known], weights[known]
     if len(values) == 0:
         return math.nan
-    if np.all(weights == weights[0]) and np.all(np.isfinite(values)):
-        return float(np.quantile(values, q))
     order = np.argsort(values)
     cumulative = np.cumsum(weights[order]) / weights.sum()
     position = min(int(np.searchsorted(cumulative, q - 1e-12)), len(values) - 1)
@@ -267,7 +277,8 @@ def _controlled_means(
     `summarize_histories`): each column's mean less the regression of the
     column on the controls applied to the deviations of the controls' means
     from their expected values, over the histories in which the column and
-    the controls are known.
+    the controls are known. A column with an infinite value keeps its plain
+    (infinite) mean.
     """
     names = list(controls)
     missing = set(names) - set(numeric.columns)
@@ -278,6 +289,8 @@ def _controlled_means(
     for column in numeric.columns:
         if column in controls:
             continue
+        if np.isinf(numeric[column].to_numpy(dtype=float)).any():
+            continue  # an infinite mean (such as of a time never met) is kept
         data = numeric[[column, *names]].to_numpy(dtype=float)
         known = np.all(np.isfinite(data), axis=1)
         data, w = data[known], weights[known]

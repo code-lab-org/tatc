@@ -349,19 +349,24 @@ class TestPhases(unittest.TestCase):
         self.assertEqual(list(capability.targets), [50, 25, 75, 100])
         self.assertEqual(list(capability.satellites), [2, 1, 3, 4])
         summary = summarize_phases(
-            capability,
-            requirements=[
-                Requirement("targets", ">=", 75),
-                Requirement("targets", ">=", 200),
-            ],
+            capability, requirements=[Requirement("targets", ">=", 200)]
         )
         expected = (50 * 0.5 + 25 * 0.5 + 75 * 1 + 100 * 2) / 4
         self.assertAlmostEqual(summary["targets mission"], expected)
-        self.assertEqual(summary["targets time"], math.inf)  # the last requirement
+        self.assertEqual(summary["targets time"], math.inf)  # never met
         first = summarize_phases(
             capability, requirements=[Requirement("targets", ">=", 75)]
         )
         self.assertEqual(first["targets time"], 3)
+        # two requirements of a metric would name the same time
+        with self.assertRaisesRegex(ValueError, "same metric"):
+            summarize_phases(
+                capability,
+                requirements=[
+                    Requirement("targets", ">=", 75),
+                    Requirement("targets", ">=", 200),
+                ],
+            )
         # phases of the same satellites are evaluated once
         repeated = evaluate_phases(phases + phases, observations, metric)
         self.assertEqual(len(repeated), 8)

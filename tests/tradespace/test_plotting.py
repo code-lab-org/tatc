@@ -85,6 +85,19 @@ class TestPlots(unittest.TestCase):
         self.assertEqual(len(ax.collections), 1)
         with self.assertRaisesRegex(ValueError, "efficient"):
             plot_designs(self.summary, "satellites", "sufficient", front="best")
+        # labels of the efficient designs need a front
+        figures = len(plt.get_fignums())
+        for frame, front in ((plain, "pareto"), (self.summary, None)):
+            with self.subTest(front=front):
+                with self.assertRaisesRegex(ValueError, "annotate"):
+                    plot_designs(
+                        frame,
+                        "satellites",
+                        "sufficient",
+                        front=front,
+                        annotate="design",
+                    )
+        self.assertEqual(len(plt.get_fignums()), figures)  # before drawing
 
     def test_given_axes(self):
         """Plots draw on given axes."""

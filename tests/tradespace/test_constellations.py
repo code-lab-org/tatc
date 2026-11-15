@@ -119,6 +119,44 @@ class TestFragments(unittest.TestCase):
             DesignSpace(layout=sso_planes_space(altitude=500e3)).size(), 100
         )
 
+    def test_single_constraint(self):
+        """Fragments take a constraint, or a sequence of them."""
+
+        def at_most_two(d):
+            return count_satellites(d) <= 2
+
+        fragments = {
+            "walker": lambda c: walker_space(
+                inclination=60,
+                planes=Integer(1, 2),
+                per_plane=Integer(1, 2),
+                constraints=c,
+            ),
+            "sso": lambda c: sso_planes_space(
+                crossing=Real(6, 9, step=3),
+                planes=Integer(1, 2),
+                per_plane=Integer(1, 2),
+                constraints=c,
+            ),
+            "planes": lambda c: planes_space(
+                inclination=60,
+                planes=Integer(1, 2),
+                per_plane=Integer(1, 2),
+                constraints=c,
+            ),
+        }
+        for name, fragment in fragments.items():
+            single = DesignSpace(layout=fragment(at_most_two)).enumerate()
+            listed = DesignSpace(layout=fragment([at_most_two])).enumerate()
+            self.assertEqual([d.key for d in single], [d.key for d in listed], name)
+            self.assertTrue(all(count_satellites(d.layout) <= 2 for d in single))
+            self.assertLess(len(single), DesignSpace(layout=fragment(())).size())
+        # the crossings of planes of sun-synchronous orbits are still distinct
+        planes = DesignSpace(layout=fragments["sso"](at_most_two)).enumerate()
+        for design in planes:
+            crossings = [plane.crossing for plane in design.layout.planes]
+            self.assertEqual(len(set(crossings)), len(crossings))
+
 
 class TestBuild(unittest.TestCase):
     """

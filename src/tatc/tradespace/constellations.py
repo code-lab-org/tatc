@@ -69,7 +69,7 @@ from ..schemas import (
     WalkerConstellation,
 )
 from .nodes import Derived, Fixed, Integer, Real, Repeat, Uncertain
-from .space import DesignSpace
+from .space import DesignSpace, _as_constraints
 from .values import ChoiceValues, RepeatValues, Scope, Values
 
 WALKER = "walker"
@@ -98,7 +98,7 @@ def walker_space(
     configuration: Any = "delta",
     phase_fraction: Any = 0.0,
     node_fraction: Any = 0.0,
-    constraints: Sequence[Callable[[Scope], Any]] = (),
+    constraints: Callable[[Scope], Any] | Sequence[Callable[[Scope], Any]] = (),
 ) -> DesignSpace:
     """
     Gets a fragment of a design space of Walker constellations (see
@@ -141,7 +141,8 @@ def walker_space(
         node_fraction (Any): The node of the lead satellite, as a fraction of
             `360 / planes` degrees (delta configuration) or 360 degrees (star
             configuration).
-        constraints (Sequence[Callable]): Constraints of the fragment.
+        constraints (Callable | Sequence[Callable]): A constraint, or the
+            constraints, of the fragment.
 
     Returns:
         DesignSpace: the fragment
@@ -199,7 +200,7 @@ def sso_planes_space(
     repeat_ground_track: Any = True,
     ordered: bool = False,
     distinct: bool = True,
-    constraints: Sequence[Callable[[Scope], Any]] = (),
+    constraints: Callable[[Scope], Any] | Sequence[Callable[[Scope], Any]] = (),
 ) -> DesignSpace:
     """
     Gets a fragment of a design space of planes of sun-synchronous orbits
@@ -262,7 +263,8 @@ def sso_planes_space(
         ordered (bool): `True` if the planes are ordered (for example, if
             their values depend on their index).
         distinct (bool): `True` to require different crossing times.
-        constraints (Sequence[Callable]): Other constraints of the fragment.
+        constraints (Callable | Sequence[Callable]): Another constraint,
+            or other constraints, of the fragment.
 
     Returns:
         DesignSpace: the fragment
@@ -282,7 +284,10 @@ def sso_planes_space(
     }
     if altitude is not None:
         children["altitude"] = altitude
-    constraints = ([_distinct_crossings] if distinct else []) + list(constraints)
+    constraints = [
+        *([_distinct_crossings] if distinct else []),
+        *_as_constraints(constraints),
+    ]
     return DesignSpace(constraints=constraints, **children)
 
 
@@ -297,7 +302,7 @@ def planes_space(
     altitude: Any = None,
     repeat_ground_track: Any = True,
     ordered: bool = False,
-    constraints: Sequence[Callable[[Scope], Any]] = (),
+    constraints: Callable[[Scope], Any] | Sequence[Callable[[Scope], Any]] = (),
 ) -> DesignSpace:
     """
     Gets a fragment of a design space of planes of circular orbits (see
@@ -335,7 +340,8 @@ def planes_space(
         repeat_ground_track (Any): Whether the satellites of a train follow
             the same ground track (or the same plane).
         ordered (bool): `True` if the planes are ordered.
-        constraints (Sequence[Callable]): Constraints of the fragment.
+        constraints (Callable | Sequence[Callable]): A constraint, or the
+            constraints, of the fragment.
 
     Returns:
         DesignSpace: the fragment
@@ -408,7 +414,7 @@ def soc_space(
     altitude: Any = None,
     phase_fraction: Any = 0.0,
     node_fraction: Any = 0.0,
-    constraints: Sequence[Callable[[Scope], Any]] = (),
+    constraints: Callable[[Scope], Any] | Sequence[Callable[[Scope], Any]] = (),
 ) -> DesignSpace:
     """
     Gets a fragment of a design space of streets-of-coverage constellations
@@ -453,8 +459,9 @@ def soc_space(
         node_fraction (Any): The node of the lead satellite, as a fraction of
             `360 / planes` degrees (inclined orbits) or 360 degrees (polar
             orbits).
-        constraints (Sequence[Callable]): Constraints of the fragment (such
-            as a maximum of `planes * per_plane` satellites).
+        constraints (Callable | Sequence[Callable]): A constraint, or the
+            constraints, of the fragment (such as a maximum of
+            `planes * per_plane` satellites).
 
     Returns:
         DesignSpace: the fragment
@@ -492,7 +499,7 @@ def mog_space(
     clockwise: Any = True,
     altitude: Any = None,
     phase_fraction: Any = 0.0,
-    constraints: Sequence[Callable[[Scope], Any]] = (),
+    constraints: Callable[[Scope], Any] | Sequence[Callable[[Scope], Any]] = (),
 ) -> DesignSpace:
     """
     Gets a fragment of a design space of mutual orbiting groups (see
@@ -522,7 +529,8 @@ def mog_space(
         altitude (Any): The altitude, if part of the layout.
         phase_fraction (Any): The phase of the reference orbit, as a fraction
             of 360 degrees.
-        constraints (Sequence[Callable]): Constraints of the fragment.
+        constraints (Callable | Sequence[Callable]): A constraint, or the
+            constraints, of the fragment.
 
     Returns:
         DesignSpace: the fragment

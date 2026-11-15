@@ -74,9 +74,10 @@ class Search:
     """pandas.DataFrame: A row per design that the search found feasible
     (with a feasible replicate, in every scenario with criteria `across`
     scenarios, as designs are judged by their feasible replicates, see
-    `summarize`): the summary of the criteria over its replicates, with
-    whether it is efficient among these designs (`pareto`, with the
-    tolerances of the criteria)."""
+    `summarize`): the summary of the criteria over its replicates (with the
+    spreads of means, as `summarize` gives them), with whether it is
+    efficient among these designs (`pareto`, with the tolerances of the
+    criteria)."""
     designs: list[Design]
     """list[Design]: The efficient designs that the search found (`pareto` of
     `summary`), for the next step."""
@@ -212,7 +213,7 @@ class Evaluations:
             Search: the search
         """
         results = self.results
-        summary = _summarize(results, self.criteria)
+        summary = _summarize(results, self.criteria, spread=True)
         return Search(
             results=results,
             criteria=self.criteria,

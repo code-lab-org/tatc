@@ -29,7 +29,7 @@ from .expectations import ExactExpectationsError, exact_expectations
 from .failures import FailureModel, RestorationPolicy
 from .histories import _history_statistics, evaluate_histories, summarize_histories
 from .mission import Capability, Mission
-from .references import Reference, configure, value_of
+from .references import Reference, _number, configure, value_of
 from .simulation import _check_sampling
 from .space import Design
 from .statistics import Statistic
@@ -49,6 +49,18 @@ def _resolve(design: Design, value: Any, kinds: type | tuple[type, ...] = ()) ->
     if value is None or isinstance(value, kinds):
         return value
     return value_of(design, value)
+
+
+def _numbers(design: Design, value: Any) -> Any:
+    """
+    Gets the value of a field of numbers of a plan for a design (see
+    `_NUMBERS`): a number, or a mapping of each type of satellite to its
+    number, each given or a reference to a value of the design.
+    """
+    value = _resolve(design, value, _NUMBERS)
+    if isinstance(value, Mapping):
+        return {kind: _number(design, number) for kind, number in value.items()}
+    return value
 
 
 def _policy(value: Any) -> RestorationPolicy | None:
@@ -96,11 +108,12 @@ class MissionPlan:
     plane (`RestorationPolicy.orbit_spares`) and on the ground, which are
     produced (and cost) whether or not the study has failures (see
     `Failures`). By default, the policy of a design is its value `policy`,
-    if it has one that configures a policy (such as a group of
-    `policy_space`, whose values configure the default policy, see
-    `configure`), and otherwise the default policy, which restores failed
-    satellites by producing new ones. A policy may also be given, or a
-    reference to another value of the design (a policy, or a group that
+    if it has one (a policy, or a group that configures one, such as a group
+    of `policy_space`, whose values configure the default policy, see
+    `configure`; other values raise a `TypeError`), and otherwise the
+    default policy, which restores failed satellites by producing new ones.
+    A policy may also be given, or a reference to another value of the
+    design (a policy, or a group that
     configures one), or a function that gives each design's policy (such as
     one that configures a base policy)::
 
@@ -127,8 +140,8 @@ class MissionPlan:
         policy (RestorationPolicy | Reference | None): The policy for the
             failed satellites of each design, and its spares (or the values
             of a group that configure the default policy), or `None` for the
-            design's value `policy`, if it has one that configures a policy,
-            and otherwise the default policy.
+            design's value `policy`, if it has one (which must be a policy or
+            configure one), and otherwise the default policy.
         growth (float | Reference | Mapping): The growth of the costs (see
             `CostModel.estimate`): a factor, or a mapping of each element
             (such as `"development"`) to a factor, or to a mapping of each
@@ -140,8 +153,8 @@ class MissionPlan:
             operating at a decision, by the study's metrics (see
             `Decision.capability`).
         masses (float | Mapping | Reference | None): The mass (kg) of the
-            satellites (or of each type, a mapping), for launches limited (or
-            priced) in mass, or `None`.
+            satellites (or of each type, a mapping of each to a number or a
+            reference), for launches limited (or priced) in mass, or `None`.
         scores (Reference | None): The scores from which the growth of the
             components of the cost model is drawn (see `CostModel.draw`),
             such as a group of `risk_space`, or `None` for the expected
@@ -161,12 +174,22 @@ class MissionPlan:
     def _policy_of(self, design: Design) -> RestorationPolicy:
         """
         Gets the policy for the failed satellites of a design, and its
-        spares, raising a `TypeError` if the policy it refers to is not a
-        policy or a group that configures one.
+        spares, raising a `TypeError` if the policy it refers to (or, by
+        default, its value `policy`, if not `None`) is not a policy or a
+        group that configures one.
         """
         if self.policy is None:
-            named = _policy(design["policy"]) if "policy" in design else None
-            return RestorationPolicy() if named is None else named
+            value = design["policy"] if "policy" in design else None
+            if value is None:
+                return RestorationPolicy()
+            named = _policy(value)
+            if named is None:
+                raise TypeError(
+                    "the value policy of a design is the default policy of a plan: "
+                    + f"a RestorationPolicy, or values that configure one, not {value!r} "
+                    + "(give the plan's policy= a function of the design that gives it)"
+                )
+            return named
         policy = _policy(_resolve(design, self.policy, RestorationPolicy))
         if policy is None:
             raise TypeError(
@@ -194,13 +217,7 @@ class MissionPlan:
         growth = _resolve(design, self.growth, _NUMBERS)
         if not isinstance(growth, Mapping):
             return growth
-        resolved: dict[str, Any] = {}
-        for element, value in growth.items():
-            value = _resolve(design, value, _NUMBERS)
-            if isinstance(value, Mapping):
-                value = {k: _resolve(design, g, numbers.Real) for k, g in value.items()}
-            resolved[element] = value
-        return resolved
+        return {element: _numbers(design, value) for element, value in growth.items()}
 
     def plan_mission(
         self,
@@ -235,7 +252,7 @@ class MissionPlan:
             layout,
             kind=value_of(design, self.kind),
             policy=self._policy_of(design),
-            masses=_resolve(design, self.masses, _NUMBERS),
+            masses=_numbers(design, self.masses),
             stages=tuple(stages or ()),
             capability=capability,
         )
@@ -275,9 +292,10 @@ class Failures:
     the exact expectations over the failures (see `exact_expectations`) if
     they apply: if the deployment is not staged (see `Stage`, whose rules
     make its launches depend on the history) and has at most `MAX_SETS`
-    (200,000) sets of satellites to enumerate, which is known before they
-    are enumerated; otherwise (such as for constellations of about 20
-    satellites or more) they are the means of the histories.
+    (4,096) sets of satellites to enumerate, which is known before they are
+    enumerated; otherwise (such as for constellations of more than about 12
+    satellites, whose sets would cost far more evaluations than the
+    histories) they are the means of the histories.
 
     With a `stress`, the failures of satellites and launches are drawn from
     stressed distributions for importance sampling (see

@@ -9,6 +9,7 @@ import math
 import unittest
 
 import numpy as np
+import pandas as pd
 
 from tatc.tradespace import (
     Categorical,
@@ -18,6 +19,7 @@ from tatc.tradespace import (
     DesignSpace,
     Integer,
     LaunchCost,
+    MissionPlan,
     OperationsCost,
     Quantile,
     RestorationPolicy,
@@ -34,6 +36,7 @@ from tatc.tradespace import (
     walker_space,
 )
 from tatc.tradespace.constellations import plane_sizes
+from tatc.tradespace.mission import Capability
 
 
 def _design(**children):
@@ -197,6 +200,33 @@ class TestCostModel(unittest.TestCase):
         unsized = DeploymentSchedule(years=3).plan(_walker(1, 4))
         with self.assertRaisesRegex(ValueError, "masses"):
             model.estimate(unsized)
+
+    def test_masses_of_a_plan(self):
+        """The masses of a plan, and of each type, are numbers or references
+        to values of the design, as are the growths of each type."""
+        design = _design(
+            layout=walker_space(
+                inclination=55.0, planes=1, per_plane=2, relative_spacing=0
+            ),
+            payload=Categorical(["imager"]),
+            mass=Categorical([100.0]),
+            growth=Categorical([1.5]),
+        )
+        capability = Capability(["a", "b"], pd.DataFrame({"satellite": []}), len)
+        model = CostModel(
+            {"imager": SatelliteCost(first_unit=1)}, launch=LaunchCost(per_kg=0.01)
+        )
+        for masses in (100.0, "mass", {"imager": "mass"}, {"imager": lambda d: 100}):
+            plan = MissionPlan(
+                DeploymentSchedule(),
+                model,
+                kind="payload",
+                masses=masses,
+                growth={"launch": {"imager": "growth"}},
+            )
+            mission = plan.plan_mission(design, design.layout, capability)
+            self.assertEqual(mission.deployment.masses, {"imager": 100.0})
+            self.assertAlmostEqual(mission.estimate().launch, 1.5 * 2 * 100 * 0.01)
 
     def test_types(self):
         """Types of satellites are developed once each, with their own curves."""

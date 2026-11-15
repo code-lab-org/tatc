@@ -125,7 +125,12 @@ class TestSummary(unittest.TestCase):
         self.assertEqual(list(means.value), [13, 17.5, 1])
         # a mapping of statistics by name is not one of objectives
         with self.assertRaisesRegex(ValueError, "statistics"):
-            summarize(_results(), {"value": "value"})
+            summarize(_results(), {"value p25": Quantile("value", 0.25)})
+        # a misspelled direction is one, which criteria reject
+        for direction in ("minimize", "value"):
+            with self.subTest(direction=direction):
+                with self.assertRaisesRegex(ValueError, "must be 'min' or 'max'"):
+                    summarize(_results(), {"value": direction})
         with self.assertRaises(ValueError):
             summarize(_results())
 
@@ -255,6 +260,19 @@ class TestSummary(unittest.TestCase):
         frame = summarize(results, Criteria({"value": "max"}, by="sensor"))
         self.assertEqual(len(frame), 6)
         self.assertEqual(len(summarize(results, statistics=["value"], by="sensor")), 6)
+
+    def test_missing_group(self):
+        """Records without a value of a column of groups are a group of their
+        own, rather than left out."""
+        results = _results().assign(sensor="x")
+        results.loc[results.design == "c", "sensor"] = None
+        frame = summarize(results, Criteria({"value": "max"}, by="sensor"))
+        self.assertEqual(sorted(frame.design), ["a", "b", "c"])
+        # c is alone in its group, and so efficient
+        self.assertTrue(frame.set_index("design").loc["c", "pareto"])
+        self.assertTrue(frame.set_index("design").loc["c", ["sensor"]].isna().all())
+        means = summarize(results, statistics=["value"], by="sensor")
+        self.assertEqual(sorted(means.design), ["a", "b", "c"])
 
 
 class TestSpreads(unittest.TestCase):
@@ -741,6 +759,33 @@ class TestFeasibleProbability(unittest.TestCase):
             probability.loc["rare", "requirements_probability"], drawn, delta=0.03
         )
         self.assertEqual(probability.loc["steady", "requirements_probability"], 1.0)
+
+    def test_infeasible_draws_standard_error(self):
+        """The bootstrap standard error of an objective that is not a mean is
+        over the resamples in which a design is judged."""
+        rng = np.random.default_rng(3)
+        results = pd.DataFrame(
+            [
+                {
+                    "design": design,
+                    "replicate": r,
+                    # d0 is feasible in 5 of 15 replicates
+                    "feasible": design == "d1" or r % 3 == 0,
+                    "value": 5.0 + rng.normal(),
+                }
+                for design in ("d0", "d1")
+                for r in range(15)
+            ]
+        )
+        criteria = Criteria({"value p50": "max"}, statistics=[Quantile("value", 0.5)])
+        probability = pareto_probability(
+            results, criteria, n_resamples=1000, seed=0
+        ).set_index("design")
+        # some resamples draw none of d0's feasible replicates (about 2 in
+        # 1000), which do not judge it, rather than making its error unknown
+        errors = probability["value p50 se"]
+        self.assertTrue(np.isfinite(errors).all())
+        self.assertGreater(errors["d0"], errors["d1"])
 
     def test_no_feasible_design(self):
         """Results without a feasible record have an empty summary."""

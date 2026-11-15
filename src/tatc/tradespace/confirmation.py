@@ -37,9 +37,11 @@ class Confirmation:
     which do not include those that selected the designs."""
     summary: pd.DataFrame
     """pandas.DataFrame: A row per design (and group): the values of the
-    design, the statistics of the criteria by the new replicates, those of
-    the replicates that selected the design (`<statistic> selected`), the
-    optimism of the selection in each objective (`<objective> optimism`: by
+    design, the statistics of the criteria by the new replicates (each mean
+    followed by its spread, `<statistic> std` and `<statistic> se`, as
+    `summarize` gives them), those of the replicates that selected the
+    design (`<statistic> selected`), the optimism of the selection in each
+    objective (`<objective> optimism`: by
     how much the selecting replicates made the design look better than the
     new replicates do, in its units, positive if they did), the number of
     new feasible `replicates`, the share of the new replicates that are
@@ -132,7 +134,16 @@ def confirm(
     fresh = study.run(designs, replicate_indices=range(start, start + count))
     names = [name for name in criteria.names if name != FEASIBLE]
     columns = ["design", *criteria.by]
-    confirmed = _summarize(fresh, criteria)
+    confirmed = _summarize(fresh, criteria, spread=True)
+    # the spreads of the means by the new replicates, after each statistic
+    spreads = {
+        name: [
+            column
+            for column in (f"{name} std", f"{name} se")
+            if column in confirmed.columns and column not in names
+        ]
+        for name in names
+    }
     selected = _summarize(
         results[results["design"].isin(keys)], criteria, design_values=False
     )[[*columns, *names]]
@@ -147,12 +158,17 @@ def confirm(
             summary[f"{name} selected"] - summary[name]
         )
     status = ["replicates", FEASIBLE, *JUDGMENT]
-    values = [c for c in confirmed.columns if c not in {*columns, *names, *status}]
+    statistics = [
+        column
+        for name in names
+        for column in (name, *spreads[name], f"{name} selected")
+    ]
+    values = [c for c in confirmed.columns if c not in {*columns, *statistics, *status}]
     summary = summary[
         [
             *columns,
             *values,
-            *(c for name in names for c in (name, f"{name} selected")),
+            *statistics,
             *(f"{name} optimism" for name in criteria.objectives),
             *status,
         ]

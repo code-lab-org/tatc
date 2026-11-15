@@ -60,14 +60,20 @@ combined from the covariances of groups is zero (rather than the error of
 rounding of terms that cancel)."""
 
 
-def _bootstrap_error(sums: np.ndarray, squares: np.ndarray, n: int) -> np.ndarray:
+def _bootstrap_error(
+    sums: np.ndarray, squares: np.ndarray, n: np.ndarray
+) -> np.ndarray:
     """
     Gets the standard errors of statistics from the sums of their values (and
-    of their squares) over `n` resamples of a bootstrap: their standard
-    deviations over the resamples.
+    of their squares) over the resamples of a bootstrap in which each is
+    known (`n`, of each): their standard deviations over these resamples
+    (`NaN` with fewer than two).
     """
-    mean = sums / n
-    return np.sqrt(np.maximum(squares - n * mean**2, 0.0) / max(n - 1, 1))
+    n = np.asarray(n, dtype=float)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        mean = sums / n
+        variance = np.maximum(squares - n * mean**2, 0.0) / (n - 1)
+    return np.where(n >= 2, np.sqrt(variance), np.nan)
 
 
 def _replicates_of(feasible: pd.DataFrame, infeasible: pd.DataFrame) -> pd.Index:
@@ -424,7 +430,11 @@ def _criteria_of(
                 + "are) to summarize as `statistics`"
             )
         return None, extra, by
-    if isinstance(criteria, Mapping) and not set(criteria.values()) <= {"min", "max"}:
+    if isinstance(criteria, Mapping) and not all(
+        isinstance(value, str) for value in criteria.values()
+    ):
+        # statistics given as criteria (strings that are not directions, such
+        # as "minimize", are misspelled directions, which Criteria rejects)
         raise ValueError(
             "a mapping of criteria gives the directions of objectives ('min' or "
             + "'max'): give statistics by name as `statistics`"
@@ -631,7 +641,8 @@ def _summarize(
 ) -> pd.DataFrame:
     """
     Summarizes results by the statistics of their designs (see `summarize`),
-    as the steps of trade studies do: without spreads by default, and,
+    as the steps of trade studies judge designs: without spreads by default
+    (the summaries that steps give have them, as `summarize` does), and,
     without `design_values`, without the values of the designs (only their
     keys, `design`), which saves finding them.
     """
@@ -814,7 +825,8 @@ def pareto_probability(
             (see `summarize`, with the spreads of means), in which each
             objective that is not a mean (such as a quantile) is followed by
             its standard error, its standard deviation over the resamples
-            (`<objective> se`, left out if it is zero for every design, as
+            in which the design is judged (`<objective> se`, `NaN` with
+            fewer than two, and left out if it is zero for every design, as
             `summarize` leaves out spreads), and the probability that the
             design is efficient (`pareto_probability`) and that it meets the
             requirements (`requirements_probability`)
@@ -845,8 +857,10 @@ def pareto_probability(
         counts = np.zeros(len(table.designs))
         met = np.zeros(len(table.designs))
         # the sums of the objectives (and of their squares) over the resamples
+        # in which they are known (in which each design is judged)
         sums = {name: np.zeros(len(table.designs)) for name in booted}
         squares = {name: np.zeros(len(table.designs)) for name in booted}
+        known = {name: np.zeros(len(table.designs)) for name in booted}
         for drawn in draw_resamples(len(table.replicates), n_resamples, rng):
             sample, sample_violation = table.evaluate(drawn)
             # designs without a drawn replicate keep the statistics of all of
@@ -860,13 +874,16 @@ def pareto_probability(
             counts += efficient(_costs(criteria, sample), meets, tolerances)
             met += meets
             for name in booted:
-                sums[name] += sample[name]
-                squares[name] += sample[name] ** 2
+                value = sample[name]
+                found = ~np.isnan(value)
+                sums[name] += np.where(found, value, 0.0)
+                squares[name] += np.where(found, value, 0.0) ** 2
+                known[name] += found
         computed = dict(values)
         _with_spreads(computed, table, statistics, spreads)
         for name in booted:
             computed[f"{name} se"] = _bootstrap_error(
-                sums[name], squares[name], n_resamples
+                sums[name], squares[name], known[name]
             )
         ordered = {name: computed[name] for name in order}
         _assemble(frame, table, ordered, violation, criteria)
