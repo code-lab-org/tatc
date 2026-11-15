@@ -158,6 +158,7 @@ class TestPlots(unittest.TestCase):
             plot_exceedance(twice)
 
 
+@unittest.skipIf(plt is None, "requires matplotlib")
 class TestHighlights(unittest.TestCase):
     """
     Unit tests for plots of some designs over others.
@@ -193,6 +194,7 @@ class TestHighlights(unittest.TestCase):
             plot_designs(summary, "x", "y", highlight=[True])
 
 
+@unittest.skipIf(plt is None, "requires matplotlib")
 class TestShares(unittest.TestCase):
     """
     Unit tests for plots of shares, groups of values, and the style.
