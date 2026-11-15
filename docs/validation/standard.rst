@@ -109,7 +109,8 @@ Gates
 A configuration's grade states its use. Coverage and timing differ only in the
 epoch gate. Cross-track and conical instruments also need a configuration at the
 sample size grade. Orbit error against recorded positions is reported but not
-gated, because it grades the element set rather than the instrument.
+gated, because it grades the element set rather than the instrument. What each
+metric measures, and how, is stated under `Metrics`_.
 
 Lidar, altimeter, and profiler gates are separate, because they observe narrow
 tracks rather than a swath. Profilers take the altimeter's gates, with the track
@@ -240,6 +241,145 @@ the IoU at each time step measures that line, not a view stretched along track
 to cover the step. Swept swaths changed no threshold. Records were rescored with
 them on the same held-out data, and configurations whose tier changed were tested
 again on a later held-out day (:doc:`summary`).
+
+Metrics
+=======
+
+Each metric compares a prediction made with public TAT-C methods and the entry's
+values against reference data: the instrument's geolocated products, whose positions
+and times are taken as true. The catalog's validation scripts compute the metrics,
+with shared computations in :mod:`tatc.catalog.metrics`. Unit tests recompute them
+from a reduced fixture of each record. A test may score several parts or conditions
+separately (instruments, platforms, time steps, or the two edges of a swath); each
+is recorded with its scope, and a gate takes the worst value over scopes.
+
+Coverage
+--------
+
+**Pass recall** and **pass precision** test whether TAT-C predicts the right
+overpasses. Points are spread evenly over the Earth, a few hundred kilometers apart,
+on a Fibonacci lattice. A point is observed on a pass when it lies inside the cells
+formed by the product's geolocated samples, with one pass for each visit (samples
+more than 20 minutes apart, or in another acquisition, belong to separate visits).
+TAT-C predicts the observations of the same points over the same period with
+:func:`~tatc.analysis.collect_observations`, leaving out the periods without data.
+Each observed pass is matched with the nearest prediction for its point within 10
+minutes.
+
+* *Recall* is the share of observed passes that were predicted. A missed pass
+  means TAT-C would undercount coverage, so every class has this gate.
+* *Precision* is the share of predicted passes that were observed. A predicted
+  pass that was not observed means TAT-C would overcount coverage. The gate applies
+  only to instruments that observe whatever is in view, not to those whose
+  acquisitions follow plans or whose products omit observations (see `Gates`_).
+
+**Swath width, median** tests the width of the predicted swath across track. At a
+sample of scans, the width the instrument predicts (`get_swath_width`) at the
+satellite's altitude at the time of the scan is compared with the width of the
+data:
+
+* for cross-track scanners, the length of the scan line through the centers of
+  its samples, from one end to the other;
+* for conical scanners, the chord between the first and last samples of the
+  scanned arc;
+* for pushbroom imagers, the width of the valid data across track (of a tile or
+  through the center of a scene).
+
+The gate takes the median absolute difference, in km.
+
+**Swath edges, 95th percentile** tests the edges of side-looking swaths (SAR and
+scatterometers), whose roll angle may vary around the orbit. At each line across
+track of a product's geolocation grid, the rays at the near and far edges of the
+view (the roll angle plus or minus half the field of view, at the time of the line)
+are projected to the ground. The metric is the horizontal distance from each edge
+of the line to its ray. The gate takes the 95th percentile, in km, at whichever of
+the near and far edges is worse.
+
+**Footprint or swath IoU** tests the area covered, as the intersection over union
+of the predicted and observed areas, weighted by area: 1 when they coincide, and 0
+when they are disjoint. The predicted area is the swath of
+:func:`~tatc.analysis.compute_ground_track` over the same interval.
+
+* For global swaths (cross-track and conical scanners), the observed area is the
+  set of cells of a 0.1 deg grid inside the product's geolocation over one orbit.
+  Only cells within 300 km of the data, and away from the start and end of the
+  orbit, are compared, so the ends of the interval do not count as errors.
+* For pushbroom imagers, SAR, and scatterometers, whose products are tiles, scenes,
+  or frames of an acquisition, the observed area is the union of a chunk of
+  consecutive products, cut at lines across the track in the middle of the first
+  and last product, so that the ragged ends of products do not count as errors. The
+  median is taken over the chunks; for SAR and scatterometers, so is the 5th
+  percentile, so that a few poor chunks cannot hide behind a good median.
+
+Each is scored at several time steps, as stated above, and gated at the lowest.
+
+**Segment recall** tests narrow tracks (lidar, altimeters, and profilers), the
+counterpart of pass recall for views too narrow for a lattice of points. For a
+sample of measurements (beam segments, altimeter measurements, or profiles), TAT-C
+is asked with :func:`~tatc.analysis.collect_observations` whether the view of the
+measurement's beam observes its location within 2 minutes of its time. The metric
+is the share observed, at each time step, and the gate takes the lowest. For
+ICESat-2, only measurements over Antarctica count, where the beams follow their
+reference tracks rather than being pointed off them.
+
+**Beam spacing error, median** tests the distance across track between the beams of
+a multi-beam lidar. Each segment's offset across track from the predicted ground
+track is measured, and the median offset of each beam is taken in bins of 10 s.
+In each bin, the distance between adjacent beams is compared with the distance
+between the centers of their views on the ground. The gate takes the median
+absolute difference, in km. As a difference of offsets, it leaves out errors of
+the element set that move all beams together.
+
+**Track offset, median** tests where a narrow track lies. Each measurement's
+distance across track is measured from the predicted track: the ground track for an
+altimeter, and the track of the view's center (from `compute_footprint_center`
+within 30 s of the measurement) for a profiler. The gate takes the median absolute
+distance, in km.
+
+**Product limit of local zenith angle** tests the field of regard of geostationary
+imagers that observe the Earth's disk. Their products state a bound of local zenith
+angle beyond which retrievals are not of quantitative quality, and the field of
+regard is set to that bound. A sample of retrieved pixels within 5 deg of the bound
+is checked for whether TAT-C predicts each as observed. The metric is the larger of
+the distances from the bound of the greatest zenith angle predicted as observed and
+of the smallest predicted as not observed, in degrees: how far the predicted edge
+lies from the product's.
+
+**Field of regard IoU with the area imaged in a scan** tests geostationary
+instruments that scan a fixed region (TEMPO). The area imaged is the outline of the
+outer corners of the outermost pixels of a full scan. On a grid of 0.05 deg around
+it, each point is predicted as observed if it is in the field of view from the
+satellite's position at the middle of the scan and above its horizon. The metric is
+the intersection over union of the two areas, weighted by area.
+
+Timing
+------
+
+**Epoch, 95th percentile** tests when TAT-C predicts an observation. It is the
+difference between the predicted time of observation of a point and the time the
+reference shows the point was imaged, over matched passes or a sample of points.
+The reference time is that of the instrument's own geolocation: the time of the
+sample nearest the point (interpolated between the scans before and after it, for
+scanners), the zero-Doppler time of the grid line for SAR, the imaging time of the
+line for pushbroom imagers, and the time of the measurement for lidar, altimeters,
+and profilers. The gate takes the 95th percentile of the absolute differences, in
+seconds: up to 3 s at the coverage grade, and up to 1 s at the timing grade, for
+uses that need the time of each observation.
+
+Sample size
+-----------
+
+**Dimensions within 3%** tests the size of samples (footprints) on the ground.
+Published footprint dimensions, along and across track at stated scan angles, are
+compared with the sample sizes that `compute_sample_sizes` predicts for a satellite
+in a circular orbit at the published altitude and inclination, observing at those
+scan angles. Each footprint gives two dimensions, and the metric is the share whose
+relative error is within 3%.
+
+**Pixel position, median** tests where samples fall within the swath. At a sample of
+scans, the position that the instrument projects for each pixel at the middle of
+the scan (`compute_projected_pixel_position`) is compared with the geolocated center
+of the same sample in the product. The gate takes the median distance, in km.
 
 Back-Test
 =========
