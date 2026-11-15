@@ -27,7 +27,7 @@ from typing import Any
 
 import numpy as np
 
-from .events import _per_type, _per_type_values
+from .events import per_type, per_type_values
 from .nodes import Categorical
 from .space import DesignSpace
 from .values import Scope
@@ -349,7 +349,7 @@ class FailureModel:
         Returns:
             Lifetime | None: the life, or `None` if it does not fail
         """
-        return _per_type(self.life, kind, "life")
+        return per_type(self.life, kind, "life")
 
 
 @dataclass(frozen=True)
@@ -361,24 +361,29 @@ class RestorationPolicy:
     source available when the failure is known (`detection_years` after it):
 
     * a spare in orbit in the failed satellite's plane (`orbit_spares` in
-      each plane of every type, or of each, which a deployment plans: see
-      `DeploymentSchedule.plan`, and `MissionPlan`, which plans those of
-      the policy of each design), which takes its place after
-      `drift_years` (and is then replaced as planned, as the satellite it
-      replaces would have been);
+      each plane of every type, or of each, which a deployment planned with
+      the policy produces and launches with the plane: see
+      `DeploymentSchedule.plan`, and `MissionPlan`, which plans the
+      deployment of each design with its policy), which takes its place
+      after `drift_years` (and is then replaced as planned, as the satellite
+      it replaces would have been);
     * a spare on the ground (`ground_spares` of each type, produced after
       the first satellites and stored), launched at the next launch slot;
     * a satellite produced when needed, `procurement_years` after it is
       ordered (for long-lead items) and on its type's production line (after
       the work before it), then launched at the next launch slot.
 
-    A restoration of a plane joins a launch already booked for the plane, if
-    it has room (see the launch capacity of `DeploymentSchedule`); otherwise
-    it books one at the next launch slot after waiting `batch_years` for
-    others. With `replenish`, a spare that is used is produced again (and,
-    in orbit, launched to its plane), procured and produced as a satellite
-    produced when needed, which shares the production line with
-    restorations.
+    A restoration of a plane joins a launch already booked for the plane if
+    the launch has room (see the launch capacity of `DeploymentSchedule`)
+    and flies once the restoration is ready, but no later than a launch the
+    restoration would book; otherwise it books one at the next launch slot
+    after waiting `batch_years` for others. With `replenish`, a spare that
+    is used is produced again (and, in orbit, launched to its plane),
+    procured and produced as a satellite produced when needed, which shares
+    the production line with restorations.
+
+    A deployment has one policy (see `DeploymentSchedule.plan`), with which
+    it simulates its missions (see `Deployment.simulate`).
 
     Args:
         restore (bool): `True` to restore failed satellites.
@@ -389,7 +394,8 @@ class RestorationPolicy:
             start of its production.
         orbit_spares (int | Mapping[Any, int]): The spares in orbit in each
             plane of every type of satellite, or of each (by type, every type
-            of the deployment), which the deployment plans.
+            of the deployment), which a deployment planned with the policy
+            produces and launches.
         ground_spares (int | Mapping[Any, int]): The spares on the ground of
             every type of satellite, or of each (by type, every type of the
             deployment).
@@ -417,7 +423,7 @@ class RestorationPolicy:
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must not be negative")
         for name in ("orbit_spares", "ground_spares"):
-            if any(value < 0 for value in _per_type_values(getattr(self, name))):
+            if any(value < 0 for value in per_type_values(getattr(self, name))):
                 raise ValueError(f"{name} must not be negative")
 
     def orbit_spares_of(self, kind: Any) -> int:
@@ -430,7 +436,7 @@ class RestorationPolicy:
         Returns:
             int: the number of spares
         """
-        return int(_per_type(self.orbit_spares, kind, "orbit spares"))
+        return int(per_type(self.orbit_spares, kind, "orbit spares"))
 
     def ground_spares_of(self, kind: Any) -> int:
         """
@@ -442,7 +448,7 @@ class RestorationPolicy:
         Returns:
             int: the number of spares
         """
-        return int(_per_type(self.ground_spares, kind, "ground spares"))
+        return int(per_type(self.ground_spares, kind, "ground spares"))
 
 
 def _spares_restore(d: Scope) -> bool:
@@ -465,18 +471,18 @@ def policy_space(
     `RestorationPolicy`), for trades of their cost against their
     robustness: whether to `restore` failed satellites (by default a
     variable, `False` or `True`), the spares in orbit in each plane
-    (`orbit_spares`, which a deployment plans, see
-    `DeploymentSchedule.plan`), the spares on the ground (`ground_spares`),
-    whether to `replenish` used spares, and other fields of the policy (such
-    as `drift_years`). Each is a node of a design space (such as a design
-    variable) or a value.
+    (`orbit_spares`, which a deployment planned with the policy produces and
+    launches, see `DeploymentSchedule.plan`), the spares on the ground
+    (`ground_spares`), whether to `replenish` used spares, and other fields
+    of the policy (such as `drift_years`). Each is a node of a design space
+    (such as a design variable) or a value.
 
     A design's policy is configured from the values of the fragment (see
-    `configure`), and its deployment planned with its spares in orbit::
+    `configure`), and its deployment planned with the policy::
 
         policy = configure(BASE_POLICY, d.policy)
-        deployment = SCHEDULE.plan(d.layout, orbit_spares=policy.orbit_spares)
-        history = deployment.simulate(FAILURE_MODEL, policy, d.failure_seed)
+        deployment = SCHEDULE.plan(d.layout, policy=policy)
+        history = deployment.simulate(FAILURE_MODEL, d.failure_seed)
 
     as an `ObservationStudy` does with a mission plan that names the
     fragment (see `MissionPlan.policy`), whose values configure the default

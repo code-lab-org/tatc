@@ -17,10 +17,9 @@ import numpy as np
 import pandas as pd
 
 from .space import Design, DesignSpace, _designs
-from .statistics import _names
 from .study import Study
-from .summary import _resamples
-from .walks import _generic
+from .tables import FEASIBLE, check_records, draw_resamples, feasible_records, names
+from .values import generic_path
 
 _SHARES = ("first", "total")
 """The shares of variance of a parameter (see `attribute_variance`)."""
@@ -198,15 +197,15 @@ class Attribution:
         if same:
             raise ValueError(f"pairs of a design with itself: {same}")
         metrics = list(pd.unique(self.shares["metric"]))
-        names = list(pd.unique(self.shares["parameter"]))
+        parameters = list(pd.unique(self.shares["parameter"]))
         n = self.resamples.shape[1]
         tables = {
-            key: _tables(self.results, key, metrics, names, self.by)
+            key: _tables(self.results, key, metrics, parameters, self.by)
             for key in dict.fromkeys(key for pair in keyed for key in pair)
         }
         frames = []
         for first, other in keyed:
-            for name in [None, *names]:
+            for name in [None, *parameters]:
                 a, b = tables[first].get(name), tables[other].get(name)
                 if a is None and b is None:
                     continue  # neither design draws the parameter
@@ -218,7 +217,7 @@ class Attribution:
                         design=first, other=other, redrawn=name
                     )
                 )
-        columns = [*self.by, "replicate", *metrics, "feasible"]
+        columns = [*self.by, "replicate", *metrics, FEASIBLE]
         differences = (
             pd.concat(frames, ignore_index=True)
             if frames
@@ -228,7 +227,7 @@ class Attribution:
             differences,
             ("design", "other"),
             keyed,
-            names,
+            parameters,
             metrics,
             self.by,
             self.resamples,
@@ -284,7 +283,7 @@ def _draws(design: Design, paths: Sequence[str]) -> bool:
     see `DesignSpace.uncertain_paths`), which those of branches it does not
     choose (or of the items of an empty repetition) it does not.
     """
-    drawn = {_generic(path) for path in design.flat()}
+    drawn = {generic_path(path) for path in design.uncertain_values()}
     return any(path in drawn for path in paths)
 
 
@@ -346,7 +345,7 @@ def _tables(
     results: pd.DataFrame,
     key: str,
     metrics: Sequence[str],
-    names: Sequence[str],
+    parameters: Sequence[str],
     by: Sequence[str],
 ) -> dict[str | None, pd.DataFrame]:
     """
@@ -359,16 +358,16 @@ def _tables(
 
     def table(part: pd.DataFrame) -> pd.DataFrame:
         indexed = part.set_index([*by, "replicate"])
-        feasible = indexed["feasible"].astype(bool).to_numpy()
+        feasible = indexed[FEASIBLE].astype(bool).to_numpy()
         # a copy, as pandas may give a read-only view of the frame
         values = indexed.reindex(columns=list(metrics)).to_numpy(dtype=float, copy=True)
         values[~feasible] = np.nan
         frame = pd.DataFrame(values, index=indexed.index, columns=list(metrics))
-        frame["feasible"] = feasible
+        frame[FEASIBLE] = feasible
         return frame
 
     tables: dict[str | None, pd.DataFrame] = {None: table(rows[rows["redrawn"].isna()])}
-    for name in names:
+    for name in parameters:
         part = rows[rows["redrawn"] == name]
         if len(part):
             tables[name] = table(part)
@@ -391,8 +390,8 @@ def _difference(
     """
     index = a.index.union(b.index)
     difference = a.reindex(index)[list(metrics)] - b.reindex(index)[list(metrics)]
-    difference["feasible"] = a["feasible"].reindex(index, fill_value=False) & b[
-        "feasible"
+    difference[FEASIBLE] = a[FEASIBLE].reindex(index, fill_value=False) & b[
+        FEASIBLE
     ].reindex(index, fill_value=False)
     return difference.reset_index()
 
@@ -412,7 +411,7 @@ def _shares(
     results: pd.DataFrame,
     identity: Sequence[str],
     keys: Sequence[tuple],
-    names: Sequence[str],
+    parameters: Sequence[str],
     metrics: Sequence[str],
     by: Sequence[str],
     resamples: np.ndarray,
@@ -426,7 +425,7 @@ def _shares(
     returns (see `Attribution.samples`).
     """
     n = resamples.shape[1]
-    feasible = results[results["feasible"].astype(bool)]
+    feasible = feasible_records(results)[0]
     grouped = {
         key if isinstance(key, tuple) else (key,): group
         for key, group in feasible.groupby(list(identity), sort=False)
@@ -447,7 +446,7 @@ def _shares(
                     np.array(
                         [
                             _by_replicate(group, metric, redrawn == name, n)
-                            for name in names
+                            for name in parameters
                         ]
                     ),
                     n,
@@ -465,11 +464,13 @@ def _shares(
                             for share in ("first", "total", "first se", "total se")
                         },
                     }
-                    for i, name in enumerate(names)
+                    for i, name in enumerate(parameters)
                 )
                 for share in _SHARES:
                     samples[share].extend(estimates[f"{share} samples"])
-                samples["variance"].extend([estimates["variance samples"]] * len(names))
+                samples["variance"].extend(
+                    [estimates["variance samples"]] * len(parameters)
+                )
     columns = [*identity, *by, "metric", "parameter", "variance"]
     shares = pd.DataFrame(
         rows, columns=[*columns, "first", "total", "first se", "total se"]
@@ -566,19 +567,20 @@ def attribute_variance(
     n = study.replicates if sample_size is None else int(sample_size)
     if n < 2:
         raise ValueError("sample_size must be at least 2")
-    resamples = _resamples(n, n_resamples, seed)
+    drawn = draw_resamples(n, n_resamples, seed)
     groups = _groups_of(study.space, parameters)
-    metrics, by = _names(metrics), tuple(_names(by))
+    metrics, by = names(metrics), tuple(names(by))
     unique = _designs(study.space, designs)
     plain = study.run(unique, replicate_indices=range(2 * n))
     missing = [column for column in (*metrics, *by) if column not in plain.columns]
-    if missing and plain["feasible"].any():
+    if missing and plain[FEASIBLE].any():
         raise ValueError(f"columns that are not in the results: {missing}")
-    keys = ["design", *by, "replicate"]
-    if not missing and plain.duplicated(keys).any():
-        raise ValueError(
-            "the results have several records of an evaluation (a design in a "
-            + "replicate): give the columns that separate them as `by`"
+    if not missing:
+        check_records(
+            plain,
+            ["design", *by, "replicate"],
+            "give the columns that separate them as `by`",
+            metrics,
         )
     frames = [plain.assign(redrawn=None)]
     for name, paths in groups.items():
@@ -597,13 +599,13 @@ def attribute_variance(
         list(groups),
         metrics,
         by,
-        resamples,
+        drawn,
     )
     return Attribution(
         results=results,
         shares=shares,
         by=by,
         samples=samples,
-        resamples=resamples,
+        resamples=drawn,
         designs=unique,
     )

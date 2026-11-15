@@ -23,10 +23,12 @@ GENERAL = {
     "dominance",
     "fingerprint",
     "hashing",
+    "memory",
     "nodes",
     "optimization",
     "pareto",
     "plotting",
+    "references",
     "refinement",
     "scenarios",
     "screening",
@@ -36,11 +38,29 @@ GENERAL = {
     "store",
     "study",
     "summary",
+    "tables",
     "utility",
     "values",
     "walks",
 }
 """The modules of trade studies of any designs."""
+
+MISSIONS = {
+    "cache",
+    "constellations",
+    "cost",
+    "deployment",
+    "events",
+    "expectations",
+    "failures",
+    "histories",
+    "mission",
+    "observations",
+    "plans",
+    "simulation",
+}
+"""The modules of constellations and their missions (and the caches of their
+satellites), which may import the general modules."""
 
 
 def _imports(path: Path) -> set[str]:
@@ -78,6 +98,11 @@ class TestLayering(unittest.TestCase):
             for path in PACKAGE.glob("*.py")
             if path.stem != "__init__"
         }
+
+    def test_classified(self):
+        """Every module is either general or of constellations and missions."""
+        self.assertEqual(GENERAL & MISSIONS, set())
+        self.assertEqual(GENERAL | MISSIONS, set(self.modules))
 
     def test_general_modules(self):
         """General modules do not import those of constellations and missions."""

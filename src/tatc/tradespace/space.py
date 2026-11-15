@@ -31,7 +31,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .hashing import _canonical, _digest
+from .hashing import canonical, digest
 from .nodes import (
     Choice,
     Fixed,
@@ -41,12 +41,11 @@ from .nodes import (
     _as_node,
     _Domain,
 )
-from .values import Scope, Values
+from .values import Scope, Values, generic_path
 from .walks import (
     _Context,
     _decided,
     _flatten,
-    _generic,
     _leaf_paths,
     _level_of,
     _node_at,
@@ -55,32 +54,41 @@ from .walks import (
     _walk,
 )
 
-_RESERVED_NAMES = {
-    # names that the views of values give otherwise (see `Values`)
-    "index",
-    "count",
-    "choice",
-    "get",
-    "items",
-    "keys",
-    "values",
-    # attributes of designs (see `Design`)
-    "decisions",
-    "flat",
-    "key",
-    "realize",
-    "replicate",
-    "scenario",
-    "space",
-    # columns of the results of a study (see `Study.run`)
-    "design",
-    "error",
-    "feasible",
-    "seconds",
-}
-"""Names that cannot be given to the children of a design space, as the views
-of the values of designs (and designs) give them otherwise, or as the columns
-of the results of a study that are not values of designs."""
+STATUS_COLUMNS = ("design", "replicate", "scenario", "feasible", "error", "seconds")
+"""tuple[str, ...]: The columns of the results of a study (see `Study.run`)
+that are neither values of designs nor metrics, in their order: the key of
+the design, the replicate, the name of the scenario (of a study with
+scenarios only), whether the evaluation is feasible (and its error if not),
+and the seconds it took to build and evaluate the design. Neither metrics
+nor the children of design spaces may be named as them."""
+
+RESERVED_NAMES = frozenset(
+    {
+        # names that the views of values give otherwise (see `Values`)
+        "index",
+        "count",
+        "choice",
+        "get",
+        "items",
+        "keys",
+        "values",
+        # attributes of designs (see `Design`)
+        "decisions",
+        "flat",
+        "key",
+        "realize",
+        "replicate",
+        "scenario",
+        "space",
+        "uncertain_values",
+        # columns of the results of a study
+        *STATUS_COLUMNS,
+    }
+)
+"""frozenset[str]: The names that the children of a design space may not
+have: those that designs and the views of their values give otherwise (as
+attributes, such as `key`, `items`, or `index`), and the columns of the
+results of a study that are not values of designs (see `STATUS_COLUMNS`)."""
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +127,7 @@ class Design:
         levels of their decisions (see `Repeat`)."""
         self._values = values
         self._scenario = scenario
-        self.key = _digest(_canonical(decisions), 12)
+        self.key = digest(canonical(decisions), 12)
         """str: An identifier of the design, from its decisions only (not
         from its derived values or uncertain parameters)."""
 
@@ -152,10 +160,28 @@ class Design:
             isinstance(other, Design)
             and self.key == other.key
             and self.replicate == other.replicate
+            and self._scenario == other._scenario
         )
 
     def __hash__(self) -> int:
-        return hash((self.key, self.replicate))
+        return hash((self.key, self.replicate, self._scenario))
+
+    def __fingerprint__(self) -> dict:
+        """
+        Gets what identifies the design in a definition (see
+        `tatc.tradespace.fingerprint`), such as of a design that a function
+        of a study refers to: its design space, its decisions, and its
+        replicate and scenario (if it is realized).
+
+        Returns:
+            dict: the design space, decisions, replicate, and scenario
+        """
+        return {
+            "space": self.space,
+            "decisions": self.decisions,
+            "replicate": self.replicate,
+            "scenario": self._scenario,
+        }
 
     def flat(self) -> dict[str, Any]:
         """
@@ -171,6 +197,28 @@ class Design:
         out: dict = {}
         _flatten(self.space, self._values, "", out)
         return out
+
+    def uncertain_values(self) -> dict[str, Any]:
+        """
+        Gets the values of the uncertain parameters of the design (see
+        `Uncertain`) by path (as of `flat`), in the order they are drawn:
+        those of the branches that it chooses and of the items of its
+        repetitions, as drawn in its replicate (or given by its scenario) if
+        it is realized (see `realize`), and their nominal values otherwise.
+        Their paths with `[*]` for the indices of items (see
+        `generic_path`) are those of `DesignSpace.uncertain_paths`::
+
+            design.realize(3).uncertain_values()  # {"planes[0].phase": 41.2, ...}
+
+        Returns:
+            dict[str, Any]: the values, by path
+        """
+        paths = set(self.space.uncertain_paths())
+        return {
+            path: value
+            for path, value in self.flat().items()
+            if generic_path(path) in paths
+        }
 
     def realize(
         self,
@@ -215,12 +263,13 @@ class Design:
         design is of the scenario named `scenario` (see `Design.scenario`).
 
         Args:
-            replicate (int): The replicate.
+            replicate (int): The replicate (a non-negative integer).
             seed (int): The seed of the trade study (a non-negative integer).
             common_random_numbers (bool): `True` to use common random numbers
                 between designs.
             shift (Mapping[str, int] | None): The offsets of the replicates
-                as in which the named uncertain parameters are drawn, if any.
+                as in which the named uncertain parameters are drawn (each a
+                non-negative integer), if any.
             overrides (Mapping[str, Any] | None): The values of fixed values
                 and uncertain parameters in a scenario (by path), if any.
             scenario (str | None): The name of the scenario of the overrides,
@@ -232,31 +281,33 @@ class Design:
         Raises:
             Infeasible: if the design violates a constraint with the
                 overrides.
-            ValueError: if `seed` is negative, `shift` names a path that is
-                not of an uncertain parameter of the design space, or
+            ValueError: if `replicate`, `seed`, or an offset of `shift` is
+                not a non-negative integer, `shift` names a path that is not
+                of an uncertain parameter of the design space, or
                 `overrides` one that is not of a fixed value or an uncertain
                 parameter.
         """
         # pylint: disable=too-many-arguments
         _check_seed(seed)
-        shift = dict(shift or {})
+        replicate = _check_replicate(replicate)
+        shift = _check_shift(shift)
         self.space.check_uncertain(shift)
         overrides = dict(overrides or {})
         self.space.check_overrides(overrides)
         tail = [] if common_random_numbers else [int(self.key, 16)]
 
         def draw(path: str, node: Uncertain) -> Any:
-            name = _generic(path)
+            name = generic_path(path)
             if name in overrides:
                 return overrides[name]
-            drawn_in = replicate + int(shift.get(name, 0))
+            drawn_in = replicate + shift.get(name, 0)
             rng = np.random.default_rng(
                 [seed, drawn_in, *tail, zlib.crc32(path.encode())]
             )
             return node.sampler(rng)
 
         def fix(path: str, node: Fixed) -> Any:
-            return overrides.get(_generic(path), node.value)
+            return overrides.get(generic_path(path), node.value)
 
         ctx = _Context(
             draw=draw,
@@ -273,17 +324,59 @@ class Design:
         return f"Design({self.key}{replicate}{scenario}: {self.flat()})"
 
 
-def _check_seed(seed: Any) -> None:
+def _check_index(value: Any, what: str) -> int:
     """
-    Checks that a seed of uncertain parameters is a non-negative integer (as
-    numpy's generators require), raising a `ValueError` if not.
+    Checks that a value that seeds uncertain parameters (a seed, a replicate,
+    or the offset of a shift) is a non-negative integer, as numpy's
+    generators require, raising a `ValueError` if not (naming it `what`),
+    and returns it as a Python integer.
     """
     if (
-        isinstance(seed, (bool, np.bool_))
-        or not isinstance(seed, numbers.Integral)
-        or seed < 0
+        isinstance(value, (bool, np.bool_))
+        or not isinstance(value, numbers.Integral)
+        or value < 0
     ):
-        raise ValueError(f"the seed must be a non-negative integer, not {seed!r}")
+        raise ValueError(f"{what} must be a non-negative integer, not {value!r}")
+    return int(value)
+
+
+def _check_seed(seed: Any) -> None:
+    """
+    Checks that a seed of uncertain parameters is a non-negative integer (see
+    `_check_index`).
+    """
+    _check_index(seed, "the seed")
+
+
+def _check_replicate(replicate: Any) -> int:
+    """
+    Checks that a replicate is a non-negative integer (see `_check_index`),
+    returning it.
+    """
+    return _check_index(replicate, "a replicate")
+
+
+def _check_shift(shift: Mapping[str, Any] | None) -> dict[str, int]:
+    """
+    Checks that the offsets of a shift (see `Design.realize`) are
+    non-negative integers (see `_check_index`), returning them.
+    """
+    return {
+        name: _check_index(offset, f"the offset of {name!r} in a shift")
+        for name, offset in (shift or {}).items()
+    }
+
+
+def _as_constraints(constraints: Any) -> list[Callable[[Scope], Any]]:
+    """
+    Gets the constraints of a design space given as a constraint or a
+    sequence of them, raising a `TypeError` if one is not callable.
+    """
+    found = [constraints] if callable(constraints) else list(constraints)
+    for constraint in found:
+        if not callable(constraint):
+            raise TypeError(f"a constraint is a callable, not {constraint!r}")
+    return found
 
 
 def _lhs_column(n: int, rng: np.random.Generator) -> np.ndarray:
@@ -300,9 +393,9 @@ class DesignSpace(Group):
     as the design of each orbit plane). Children are given by name, in the
     order they are decided; plain values are fixed values. Children may not
     be named as the attributes of designs and of the views of their values
-    (such as `key`, `values`, or `index`), nor as the columns of the results
-    of a study that are not values of designs (`design`, `replicate`,
-    `scenario`, `feasible`, `error`, and `seconds`).
+    (such as `key`, `items`, or `index`), nor as the columns of the results
+    of a study that are not values of designs (see `STATUS_COLUMNS`): see
+    `RESERVED_NAMES`.
 
     Constraints are callables of the group's values (and those of enclosing
     groups), checked once the group's values are decided, that return
@@ -314,18 +407,26 @@ class DesignSpace(Group):
     They must not depend on uncertain parameters.
 
     Args:
-        constraints (Sequence[Callable]): The constraints.
+        constraints (Callable | Sequence[Callable]): A constraint, or the
+            constraints.
         **children (Any): The nodes, by name.
     """
 
     def __init__(
-        self, constraints: Sequence[Callable[[Scope], bool]] = (), **children: Any
+        self,
+        constraints: Callable[[Scope], Any] | Sequence[Callable[[Scope], Any]] = (),
+        **children: Any,
     ):
-        reserved = _RESERVED_NAMES.intersection(children)
+        reserved = RESERVED_NAMES.intersection(children)
         if reserved:
-            raise ValueError(f"reserved names: {sorted(reserved)}")
+            raise ValueError(
+                f"children may not be named {sorted(reserved)}: designs and the "
+                + "views of their values give these names otherwise (as attributes, "
+                + "such as `key` and `items`), as do the results of a study (as "
+                + f"columns); the reserved names are {sorted(RESERVED_NAMES)}"
+            )
         self.children = {name: _as_node(node) for name, node in children.items()}
-        self.constraints = list(constraints)
+        self.constraints = _as_constraints(constraints)
 
     def __repr__(self) -> str:
         return f"DesignSpace({', '.join(self.children)})"
@@ -366,8 +467,9 @@ class DesignSpace(Group):
 
         Raises:
             Infeasible: if the design violates a constraint.
-            ValueError: if an override names no child of the design space, or
-                a decision is not a value of its variable's domain.
+            ValueError: if an override names no child of the design space,
+                the decisions of a group name others than its children, or a
+                decision is not a value of its variable's domain.
         """
         if isinstance(decisions, Design):
             decisions = decisions.decisions
@@ -392,7 +494,9 @@ class DesignSpace(Group):
         return Design(self, merged, values)
 
     def extend(
-        self, constraints: Sequence[Callable[[Scope], Any]] = (), **children: Any
+        self,
+        constraints: Callable[[Scope], Any] | Sequence[Callable[[Scope], Any]] = (),
+        **children: Any,
     ) -> DesignSpace:
         """
         Gets a design space with other children: those named as children of
@@ -406,18 +510,20 @@ class DesignSpace(Group):
         decisions of its new children (see `design`).
 
         Args:
-            constraints (Sequence[Callable]): Other constraints.
+            constraints (Callable | Sequence[Callable]): Another constraint,
+                or other constraints.
             **children (Any): The nodes, by name.
 
         Returns:
             DesignSpace: the design space
         """
         return DesignSpace(
-            [*self.constraints, *constraints], **{**self.children, **children}
+            [*self.constraints, *_as_constraints(constraints)],
+            **{**self.children, **children},
         )
 
     def designs_of(
-        self, frame: pd.DataFrame, keys: Iterable[str] | None = None
+        self, frame: pd.DataFrame, *, keys: Iterable[str] | None = None
     ) -> pd.Series:
         """
         Rebuilds designs from the rows of a data frame of their values by path
@@ -757,6 +863,21 @@ def _keys_of(designs: Iterable[Design | str] | pd.DataFrame) -> list[str]:
     return list(dict.fromkeys(keys))
 
 
+def _in_space(space: DesignSpace, design: Design) -> Design:
+    """
+    Gets the design of a design space of the decisions of a design of
+    another (see `DesignSpace.design`), raising a `ValueError` if they are
+    not decisions of the design space.
+    """
+    try:
+        return space.design(design)
+    except ValueError as error:
+        raise ValueError(
+            f"design {design.key} is of another design space, whose decisions are "
+            + f"not those of a design of this one: {error}"
+        ) from error
+
+
 def _designs(
     space: DesignSpace,
     designs: Iterable[Design | str] | pd.DataFrame,
@@ -776,7 +897,7 @@ def _designs(
     found: dict[str, Design | None] = {}
     for item in _design_items(designs):
         if isinstance(item, Design):
-            design = item if item.space is space else space.design(item)
+            design = item if item.space is space else _in_space(space, item)
             found[design.key] = design
         else:
             found.setdefault(item, None)
@@ -791,7 +912,7 @@ def _designs(
         keys = set(rows["design"])
         present = [key for key in missing if key in keys]
         try:
-            for design in space.designs_of(rows, present):
+            for design in space.designs_of(rows, keys=present):
                 found[design.key] = design
         except ValueError as failure:
             error = failure  # the frame lacks values of the designs: try the next

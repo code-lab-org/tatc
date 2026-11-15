@@ -5,11 +5,13 @@ Unit tests for the confirmation of selected designs.
 """
 
 import unittest
+import warnings
 
 import numpy as np
 import pandas as pd
 
 from tatc.tradespace import (
+    Confirmation,
     Criteria,
     DesignSpace,
     Integer,
@@ -126,3 +128,16 @@ class TestConfirm(unittest.TestCase):
         self.assertFalse((summary.pareto & ~summary.meets_requirements).any())
         with self.assertRaises(ValueError):
             confirm(self.study, OBJECTIVES, self.results, self.selected, replicates=0)
+
+    def test_optimism_without_designs(self):
+        """The optimism of a confirmation without designs is unknown."""
+        empty = Confirmation(
+            results=pd.DataFrame(),
+            summary=pd.DataFrame({"cost optimism": [], "value optimism": []}),
+            criteria=Criteria(OBJECTIVES),
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            optimism = empty.optimism
+        self.assertTrue(optimism.isna().all())
+        self.assertEqual(list(optimism.index), list(OBJECTIVES))

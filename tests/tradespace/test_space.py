@@ -21,6 +21,8 @@ from tatc.tradespace import (
     Repeat,
     Uncertain,
 )
+from tatc.tradespace.space import RESERVED_NAMES, STATUS_COLUMNS
+from tatc.tradespace.values import generic_path, is_number
 
 
 def _planes_space():
@@ -104,6 +106,13 @@ class TestVariables(unittest.TestCase):
         with self.assertRaises(ValueError):
             DesignSpace(index=Integer(0, 1))
 
+    def test_representation(self):
+        """A logarithmic variable says so in its representation."""
+        self.assertEqual(
+            repr(Real(1, 10, log=True)), "Real(1, 10, step=None, log=True)"
+        )
+        self.assertEqual(repr(Real(1, 10)), "Real(1, 10, step=None)")
+
 
 class TestDesignSpace(unittest.TestCase):
     """
@@ -169,6 +178,39 @@ class TestDesignSpace(unittest.TestCase):
             self.assertEqual(space.design(design.decisions).key, design.key)
         with self.assertRaises(Infeasible):
             space.design({"per_plane": 4, "planes": [{}, {}]})
+
+    def test_unknown_decisions(self):
+        """Decisions of no children (such as a misspelt name) raise, also
+        within groups, as do decisions of a group that are not a mapping."""
+        space = DesignSpace(
+            a=Integer(1, 3),
+            b=Integer(1, 2),
+            g=DesignSpace(c=Integer(0, 1)),
+            parts=Repeat(DesignSpace(d=Integer(0, 1)), count=1),
+        )
+        good = {"a": 1, "b": 2, "g": {"c": 0}, "parts": [{"d": 1}]}
+        self.assertEqual(space.design(good).decisions, good)
+        with self.assertRaisesRegex(
+            ValueError, r"no children of the design space.*typo"
+        ):
+            space.design({**good, "typo": 7})
+        with self.assertRaisesRegex(ValueError, r"no children of g: \['e'\]"):
+            space.design({**good, "g": {"c": 0, "e": 1}})
+        with self.assertRaisesRegex(ValueError, r"no children of parts\[0\]"):
+            space.design({**good, "parts": [{"d": 1, "e": 1}]})
+        with self.assertRaisesRegex(ValueError, "a mapping"):
+            space.design({**good, "g": [0]})
+
+    def test_single_constraint(self):
+        """A design space (or an extension) takes a single constraint."""
+        space = DesignSpace(lambda d: d.a < 3, a=Integer(1, 3))
+        self.assertEqual([d.a for d in space.enumerate()], [1, 2])
+        keyword = DesignSpace(a=Integer(1, 3), constraints=lambda d: d.a < 3)
+        self.assertEqual(len(keyword.enumerate()), 2)
+        extended = space.extend(lambda d: d.a > 1)
+        self.assertEqual([d.a for d in extended.enumerate()], [2])
+        with self.assertRaisesRegex(TypeError, "a constraint is a callable"):
+            DesignSpace([lambda d: True, 3], a=Integer(1, 3))
 
     def test_sample(self):
         """Sampled designs are feasible, and Latin hypercube samples are stratified."""
@@ -275,6 +317,52 @@ class TestRealize(unittest.TestCase):
             space.uncertain_paths(), ["seed", "layout.a.phase", "layout.b.planes[*]"]
         )
         self.assertEqual(DesignSpace(a=Integer(1, 2)).uncertain_paths(), [])
+
+    def test_uncertain_values(self):
+        """A design gives the values of the uncertain parameters it draws, by
+        path: of the branches it chooses and of its items."""
+        space = DesignSpace(
+            planes=Repeat(
+                DesignSpace(phase=Uncertain.uniform(0, 1), k=Integer(0, 1)),
+                count=Integer(1, 2),
+            ),
+            layout=Choice(
+                drawn=DesignSpace(u=Uncertain.normal(0, 1)), plain=Integer(1, 2)
+            ),
+            seed=Uncertain.seed(),
+            fixed=1.0,
+        )
+        design = space.design(
+            {"planes": [{"k": 0}, {"k": 1}], "layout": ["drawn", None]}
+        )
+        realized = design.realize(3)
+        values = realized.uncertain_values()
+        self.assertEqual(
+            list(values),
+            ["planes[0].phase", "planes[1].phase", "layout.drawn.u", "seed"],
+        )
+        self.assertEqual(values["planes[1].phase"], realized.planes[1].phase)
+        self.assertEqual(values["seed"], realized.seed)
+        # nominal values of a design that is not realized
+        self.assertTrue(math.isnan(design.uncertain_values()["layout.drawn.u"]))
+        # not those of branches it does not choose
+        plain = space.design({"planes": [{"k": 0}], "layout": ["plain", 1]})
+        self.assertEqual(list(plain.uncertain_values()), ["planes[0].phase", "seed"])
+        # with the values of a scenario
+        overridden = design.realize(3, overrides={"seed": 7}, scenario="s")
+        self.assertEqual(overridden.uncertain_values()["seed"], 7)
+
+    def test_negative_indices(self):
+        """Replicates and the offsets of shifts are non-negative integers."""
+        design = _planes_space().enumerate()[0]
+        with self.assertRaisesRegex(ValueError, "a replicate must be a non-negative"):
+            design.realize(-1)
+        with self.assertRaisesRegex(ValueError, "a replicate must be a non-negative"):
+            design.realize(1.5)
+        with self.assertRaisesRegex(ValueError, "offset of 'planes"):
+            design.realize(3, shift={"planes[*].phase": -1})
+        shifted = design.realize(0, shift={"planes[*].phase": 3})
+        self.assertEqual(shifted.planes[0].phase, design.realize(3).planes[0].phase)
 
     def test_shift(self):
         """A shift draws named parameters as in other replicates."""
@@ -389,7 +477,7 @@ class TestDesignsOf(unittest.TestCase):
         self.assertEqual([d.flat() for d in rebuilt][5], self.designs[5].flat())
         # from a summary indexed by design, of some keys, in their order
         keys = [self.designs[3].key, self.designs[1].key]
-        some = self.space.designs_of(self.frame.set_index("design"), keys)
+        some = self.space.designs_of(self.frame.set_index("design"), keys=keys)
         self.assertEqual([d.key for d in some], keys)
         # a design for each row, aligned with the rows (as of results of
         # several rows of a design), each design rebuilt once
@@ -406,7 +494,7 @@ class TestDesignsOf(unittest.TestCase):
     def test_errors(self):
         """Rows without the values of decisions, or of other designs, raise."""
         with self.assertRaises(KeyError):
-            self.space.designs_of(self.frame, ["unknown"])
+            self.space.designs_of(self.frame, keys=["unknown"])
         with self.assertRaisesRegex(ValueError, "no value of altitude"):
             self.space.designs_of(self.frame.drop(columns="altitude"))
         other = self.frame.assign(design=self.frame.design.iloc[::-1].to_numpy())
@@ -512,6 +600,23 @@ class TestReservedNames(unittest.TestCase):
     """
     Unit tests for names that the views of values give otherwise.
     """
+
+    def test_message(self):
+        """The error of a reserved name says why, and lists the names."""
+        with self.assertRaises(ValueError) as context:
+            DesignSpace(items=Integer(1, 3))
+        message = str(context.exception)
+        self.assertIn("['items']", message)
+        self.assertIn("views of their values", message)
+        self.assertIn(str(sorted(RESERVED_NAMES)), message)
+
+    def test_status_columns(self):
+        """The status columns of results, and the attributes of designs, are
+        reserved names."""
+        self.assertLessEqual(set(STATUS_COLUMNS), RESERVED_NAMES)
+        self.assertIn("uncertain_values", RESERVED_NAMES)
+        with self.assertRaisesRegex(ValueError, "reserved"):
+            DesignSpace(uncertain_values=Integer(1, 2))
 
     def test_reserved(self):
         """Children and branches may not be named as attributes of views, or
@@ -645,6 +750,24 @@ class TestDecisionsAndViews(unittest.TestCase):
             with self.assertRaises(IndexError):
                 parts[index]  # pylint: disable=pointless-statement
 
+    def test_plain_branch(self):
+        """A choice whose branch is a plain value (a variable) gives the
+        branch by its name, not the attributes of the value."""
+        space = DesignSpace(x=Choice(a=Integer(1, 3), b=Real(0, 1, step=0.5)))
+        design = space.design({"x": ["a", 2]})
+        self.assertEqual(design.x.a, 2)
+        self.assertEqual(design.x, "a")
+        for name in ("real", "bit_length", "b"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(AttributeError, "chose 'a'"):
+                    getattr(design.x, name)
+                self.assertNotIn(name, design.x)
+        # a branch that is a repetition gives its count
+        repeated = DesignSpace(
+            x=Choice(parts=Repeat(Integer(0, 1), count=2), none=None)
+        ).design({"x": ["parts", [0, 1]]})
+        self.assertEqual(repeated.x.count, 2)
+
     def test_counts_given(self):
         """Items given for a count that is not decided must match it."""
         space = DesignSpace(
@@ -745,6 +868,18 @@ class TestScenarioOverrides(unittest.TestCase):
             space.design({"n": 1})
         self.assertEqual(context.exception.violation, 1)
 
+    def test_equality(self):
+        """Realized designs are equal if of the same replicate and scenario."""
+        design = self.space.design({"n": 1})
+        low = design.realize(0, overrides={"limit": 1}, scenario="low")
+        high = design.realize(0, overrides={"limit": 4}, scenario="high")
+        self.assertNotEqual(low, high)
+        self.assertEqual(len({low, high}), 2)
+        again = design.realize(0, overrides={"limit": 1}, scenario="low")
+        self.assertEqual(low, again)
+        self.assertEqual(hash(low), hash(again))
+        self.assertNotEqual(design.realize(0), low)
+
     def test_scenario_name(self):
         """A realized design gives the name of its scenario."""
         design = self.space.design({"n": 1})
@@ -788,6 +923,12 @@ class TestKeywords(unittest.TestCase):
             space.sample(5, "random")  # pylint: disable=too-many-function-args
         with self.assertRaises(TypeError):
             space.enumerate()[0].realize(0, 1)  # pylint: disable=too-many-function-args
+        with self.assertRaises(TypeError):
+            Repeat(Integer(0, 1), 2, False)  # pylint: disable=too-many-function-args
+        frame = pd.DataFrame([{"design": d.key, **d.flat()} for d in space.enumerate()])
+        with self.assertRaises(TypeError):
+            # pylint: disable-next=too-many-function-args
+            space.designs_of(frame, list(frame.design))
 
 
 class TestDesignsOfSpaces(unittest.TestCase):
@@ -807,6 +948,10 @@ class TestDesignsOfSpaces(unittest.TestCase):
         self.assertEqual([d.altitude for d in designs], [700, 700])
         same = higher.enumerate()
         self.assertTrue(all(a is b for a, b in zip(_designs(higher, same), same)))
+        # but not designs with decisions that the design space does not have
+        spared = space.extend(spares=Integer(0, 1)).design({"n": 1, "spares": 1})
+        with self.assertRaisesRegex(ValueError, "another design space.*spares"):
+            _designs(space, [spared])
 
     def test_frames(self):
         """Designs rebuilt from frames read the frame's keys once, and a frame
@@ -846,28 +991,22 @@ class TestDesignsOfSpaces(unittest.TestCase):
         self.assertIn("no value of b", str(context.exception.__cause__))
 
 
-class TestConfigure(unittest.TestCase):
+class TestPathHelpers(unittest.TestCase):
     """
-    Unit tests for dataclasses configured from the values of designs.
+    Unit tests for the helpers of the paths and values of designs.
     """
 
-    def test_design(self):
-        """A dataclass is configured from a design, or a view of its values."""
-        # pylint: disable=import-outside-toplevel
-        import dataclasses
+    def test_generic_path(self):
+        """The paths of nodes name any item of a repetition by `[*]`."""
+        self.assertEqual(generic_path("planes[12].phase"), "planes[*].phase")
+        self.assertEqual(generic_path("a[0].b[1]"), "a[*].b[*]")
+        self.assertEqual(generic_path("layout.walker.planes"), "layout.walker.planes")
 
-        from tatc.tradespace.values import configure
+    def test_is_number(self):
+        """Numbers are integers and floats (also numpy's), not booleans."""
+        import numpy as np  # pylint: disable=import-outside-toplevel
 
-        @dataclasses.dataclass(frozen=True)
-        class Policy:
-            """A policy of two fields."""
-
-            spares: int = 0
-            years: float = 1.0
-
-        design = DesignSpace(spares=Integer(1, 2), other=Integer(0, 1)).enumerate()[-1]
-        self.assertEqual(configure(Policy(), design), Policy(spares=2))
-        self.assertEqual(configure(Policy(), design.values), Policy(spares=2))
-        self.assertEqual(configure(Policy(), design, years=2.0).years, 2.0)
-        with self.assertRaisesRegex(TypeError, "values of a design"):
-            configure(Policy(), 3)
+        for value in (1, 2.5, np.int64(3), np.float32(1.5), math.nan):
+            self.assertTrue(is_number(value), value)
+        for value in (True, np.bool_(False), "1", None):
+            self.assertFalse(is_number(value), value)

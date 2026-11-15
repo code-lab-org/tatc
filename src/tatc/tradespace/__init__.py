@@ -11,17 +11,18 @@ uncertainty of its replicates (`refine`, `confirm`), or finds efficient
 designs of spaces too large to enumerate (`screen`, `optimize_optuna`,
 `optimize_pymoo`).
 
-This package exports the functions and classes of trade studies. The parts
+This package exports the functions and classes of trade studies, and the
+outcomes of their steps (such as `Refinement`), for type hints. The parts
 from which they are made (such as the layouts of constellations, the
 simulation of missions, and fingerprints) are in its modules.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from .attribution import attribute_variance
+from .attribution import Attribution, attribute_variance
 from .cache import SatelliteCache
 from .comparison import exceedance
-from .confirmation import confirm
+from .confirmation import Confirmation, confirm
 from .constellations import (
     build_constellation,
     count_planes,
@@ -65,7 +66,7 @@ from .nodes import (
     Uncertain,
 )
 from .observations import ObservationStudy, Observations, Targets
-from .optimization import optimize_optuna, optimize_pymoo
+from .optimization import Search, optimize_optuna, optimize_pymoo
 from .pareto import hypervolume, hypervolume_progress, pareto_front, pareto_ranks
 from .plans import Failures, MissionPlan
 from .plotting import (
@@ -80,9 +81,10 @@ from .plotting import (
     style_axes,
     use_style,
 )
-from .refinement import refine
+from .references import configure, value_of
+from .refinement import Refinement, refine
 from .scenarios import robustness
-from .screening import screen
+from .screening import Screening, screen
 from .sensitivity import main_effects, sensitivity
 from .space import Design, DesignSpace
 from .statistics import (
@@ -93,6 +95,7 @@ from .statistics import (
     Quantile,
     StandardDeviation,
     StandardError,
+    Statistic,
 )
 from .store import ResultStore
 from .study import Study
@@ -113,6 +116,7 @@ __all__ = [
     "Repeat",
     "Uncertain",
     "build_constellation",
+    "configure",
     "count_planes",
     "count_satellites",
     "layout_of",
@@ -121,6 +125,7 @@ __all__ = [
     "policy_space",
     "soc_space",
     "sso_planes_space",
+    "value_of",
     "walker_space",
     # studies
     "Bathtub",
@@ -160,6 +165,7 @@ __all__ = [
     "Requirement",
     "StandardDeviation",
     "StandardError",
+    "Statistic",
     "Utility",
     "aggregate",
     "exceedance",
@@ -173,6 +179,11 @@ __all__ = [
     "sensitivity",
     "summarize",
     # refinement and searches
+    "Attribution",
+    "Confirmation",
+    "Refinement",
+    "Screening",
+    "Search",
     "attribute_variance",
     "confirm",
     "optimize_optuna",

@@ -30,7 +30,11 @@ from tatc.tradespace import (
     pareto_front,
     summarize,
 )
-from tatc.tradespace.optimization import Evaluations, make_pymoo_problem
+from tatc.tradespace.optimization import (
+    Evaluations,
+    _constraint_names,
+    make_pymoo_problem,
+)
 
 HAS_OPTUNA = importlib.util.find_spec("optuna") is not None
 HAS_PYMOO = importlib.util.find_spec("pymoo") is not None
@@ -202,6 +206,20 @@ class TestEvaluations(unittest.TestCase):
         with self.assertRaises(ValueError):
             Evaluations(study, OBJECTIVES).evaluate(_space().enumerate()[:1])
 
+    def test_constraint_names(self):
+        """Requirements are constraints of distinct names: their statements,
+        their values in full where these are alike, or their order."""
+        requirements = [
+            Requirement("a", ">=", 2.0000001),
+            Requirement("a", ">=", 2.0000002),
+            Requirement("b", "<=", 1),
+            Requirement("b", "<=", 1, scale=2),
+        ]
+        self.assertEqual(
+            _constraint_names(requirements),
+            ["a >= 2.0000001", "a >= 2.0000002", "b <= 1", "b <= 1 (2)"],
+        )
+
 
 def _exact_hypervolume():
     summary = summarize(_study().run(), list(OBJECTIVES))
@@ -336,6 +354,22 @@ class TestPymoo(unittest.TestCase):
         self.assertGreater(len(distinct.evaluated), len(plain.evaluated))
         with self.assertRaises(ValueError):
             optimize_pymoo(_study(), OBJECTIVES, algorithm=object(), seed=1)
+
+    def test_algorithm_unchanged(self):
+        """A distinct search does not change the algorithm it is given, which
+        another search may take."""
+        # pylint: disable-next=import-outside-toplevel
+        from pymoo.algorithms.moo.nsga2 import NSGA2
+
+        algorithm = NSGA2(pop_size=8)
+        own = algorithm.mating.eliminate_duplicates
+        optimize_pymoo(_study(), OBJECTIVES, algorithm, ("n_gen", 2), seed=1)
+        self.assertIs(algorithm.mating.eliminate_duplicates, own)
+        self.assertIs(algorithm.initialization.eliminate_duplicates, own)
+        plain = optimize_pymoo(
+            _study(), OBJECTIVES, algorithm, ("n_gen", 2), seed=1, distinct=False
+        )
+        self.assertGreater(len(plain.evaluated), 0)
 
     def test_max_designs(self):
         """A search stops after the generation in which it has evaluated the
@@ -494,6 +528,27 @@ class TestRequirements(unittest.TestCase):
         self.assertTrue(any(v > 0 for v in violations))
         with self.assertRaises(ValueError):
             optimize_optuna(_study(), self.CRITERIA, n_trials=1, constraints=False)
+
+    def test_optuna_names(self):
+        """Requirements that state themselves alike are distinct constraints."""
+        import optuna  # pylint: disable=import-outside-toplevel
+
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+        criteria = Criteria(
+            OBJECTIVES,
+            statistics={"value p0": Minimum("value")},
+            requirements=[
+                Requirement("value p0", ">=", 2.0000001),
+                Requirement("value p0", ">=", 2.5000001),
+                Requirement("value p0", ">=", 2.5000002),
+            ],
+        )
+        optuna_study = optimize_optuna(
+            _study(), criteria, n_trials=10, sampler=optuna.samplers.RandomSampler(1)
+        ).state
+        names = ("value p0 >= 2", "value p0 >= 2.5000001", "value p0 >= 2.5000002")
+        keys = {tuple(sorted(trial.constraints)) for trial in optuna_study.trials}
+        self.assertEqual(keys, {("feasibility", *names)})
 
     def test_pymoo(self):
         """Problems have a constraint for each requirement."""

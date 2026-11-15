@@ -1,9 +1,10 @@
 """
 The discrete-event simulation of missions (see `Deployment.simulate`): the
 deployment of a constellation with the failures of its satellites and
-launches, the restoration of failed satellites by a policy, and the
+launches, the restoration of failed satellites by its policy, and the
 decisions of the rules of its stages, into the history of the mission (see
-`MissionHistory`).
+`MissionHistory`); and many histories of a replicate, independent or
+stratified (see `Deployment.simulate_many`).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -21,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .events import Launch, _Manifest
-from .failures import FailureModel, RestorationPolicy
+from .failures import FailureModel
 from .mission import Decision, Failure, MissionHistory, Restoration
 
 if TYPE_CHECKING:
@@ -111,9 +112,90 @@ class _Draws:
         return failed
 
 
+class _Sampler:
+    """
+    The uniform numbers of the failures of a history of a replicate,
+    stratified over the histories of the replicate (see
+    `Deployment.simulate_many`): a Latin hypercube in which, for each draw
+    (each life and launch), history `k` of `K` takes a uniform number in its
+    stratum of a permutation of the `K` strata of [0, 1). Each draw is keyed
+    by its key, so that the same draw of the same history of a replicate
+    takes the same number in every design (common random numbers).
+    """
+
+    def __init__(self, seed: int, index: int, histories: int):
+        self.seed, self.index, self.histories = seed, index, histories
+
+    def __call__(self, key: tuple, dimensions: int) -> np.ndarray:
+        strata = np.random.default_rng([self.seed, 1, self.histories, *key])
+        orders = [strata.permutation(self.histories) for _ in range(dimensions)]
+        jitter = np.random.default_rng([self.seed, 2, self.index, *key])
+        offsets = jitter.random(dimensions)
+        return np.array(
+            [
+                (order[self.index] + offset) / self.histories
+                for order, offset in zip(orders, offsets)
+            ]
+        )
+
+
+SAMPLINGS = ("random", "stratified")
+"""The samplings of the failures of histories (see `Deployment.simulate_many`)."""
+
+
+def simulate_histories(
+    deployment: Deployment,
+    model: FailureModel,
+    seed: int,
+    *,
+    histories: int = 1,
+    sampling: str = "stratified",
+    stress: float = 1.0,
+    launch_stress: float | None = None,
+) -> list[MissionHistory]:
+    """
+    Simulates the histories of a mission in a replicate (see
+    `Deployment.simulate_many`), history `k` from the seed and `k`.
+
+    Args:
+        deployment (Deployment): The deployment, with its policy.
+        model (FailureModel): The failures.
+        seed (int): The seed of the replicate.
+        histories (int): The number of histories.
+        sampling (str): `"stratified"` or `"random"`.
+        stress (float): The factor of the hazards of stressed failures.
+        launch_stress (float | None): The factor of the probability that a
+            launch fails, or `None` for the stress.
+
+    Returns:
+        list[MissionHistory]: the histories
+
+    Raises:
+        ValueError: if the sampling is unknown or a stress is not positive.
+    """
+    # pylint: disable=too-many-arguments
+    if sampling not in SAMPLINGS:
+        raise ValueError(f"sampling must be one of {SAMPLINGS}, not {sampling!r}")
+    if stress <= 0 or (launch_stress is not None and launch_stress <= 0):
+        raise ValueError("stress must be positive")
+    launch_stress = stress if launch_stress is None else launch_stress
+    return [
+        _Simulation(
+            deployment,
+            model,
+            (seed, k),
+            _Sampler(seed, k, histories) if sampling == "stratified" else None,
+            stress,
+            launch_stress,
+        ).run()
+        for k in range(histories)
+    ]
+
+
 class _Simulation:
     """
-    A discrete-event simulation of a mission (see `Deployment.simulate`).
+    A discrete-event simulation of a mission (see `Deployment.simulate`),
+    with the policy of its deployment.
     """
 
     # pylint: disable=too-many-instance-attributes
@@ -122,13 +204,13 @@ class _Simulation:
         self,
         deployment: Deployment,
         model: FailureModel,
-        policy: RestorationPolicy,
         seed: int | Sequence[int] | None,
         uniforms: Callable[[tuple, int], np.ndarray] | None = None,
         stress: float = 1.0,
         launch_stress: float = 1.0,
     ):
-        self.deployment, self.model, self.policy = deployment, model, policy
+        self.deployment, self.model = deployment, model
+        self.policy = deployment.policy
         self.draws = _Draws(seed, uniforms, stress, launch_stress)
         self.end = deployment.end
         self.history = MissionHistory(
@@ -144,28 +226,8 @@ class _Simulation:
         self.spares = dict.fromkeys(range(len(deployment.planes)), 0)
         self.spares_since: dict[int, float] = {}
         self.ground: dict[Any, int] = {}
-        # the production lines (free after the deployment's production) and
-        # the launches booked, shared with the plan's routine
-        lines = {
-            kind: max(
-                (
-                    b.end
-                    for b in deployment.production
-                    if b.kind == kind and b.purpose == "deployment"
-                ),
-                default=developed,
-            )
-            for kind, developed in deployment.development.items()
-        }
-        self.manifest = _Manifest(
-            deployment.schedule,
-            deployment.planes,
-            deployment.masses,
-            deployment.plane_values,
-            lines,
-            sorted(launch.time for launch in deployment.launches),
-            self.history.production,
-        )
+        # the production lines and the launches booked, after the plan's
+        self.manifest = _Manifest.resume(deployment, self.history.production)
         self.open: dict[int, list[_Booking]] = {}
         self.launches_of_plane: dict[int, int] = {}
         self.decided: dict[int, float] = {}
@@ -193,7 +255,7 @@ class _Simulation:
         for kind in self.deployment.development:
             count = self.policy.ground_spares_of(kind)
             if count > 0:
-                ready = self._produce(0.0, kind, count, "spare")
+                ready = self.manifest.produce(0.0, kind, count, "spare")
                 self.ground.setdefault(kind, 0)
                 self._push(ready, "stock", kind, count)
         for launch in self.deployment.launches:
@@ -217,7 +279,7 @@ class _Simulation:
             if self.spares[plane] > 0:
                 self.history.parked.append((since, self.end, self.spares[plane]))
         self.history.weight = self.draws.weight
-        self.history.stages = [
+        self.history.decided = [
             self.decided.get(index) for index in range(len(self.deployment.stages))
         ]
         self.history.production.sort(key=lambda batch: batch.begin)
@@ -306,7 +368,7 @@ class _Simulation:
                 time + self.policy.drift_years, "activate", plane, position, "orbit"
             )
             if self.policy.replenish:
-                ready = self._produce(
+                ready = self.manifest.produce(
                     time + self.policy.procurement_years, kind, 1, "spare"
                 )
                 self._book(plane, kind, ready, ("spare",))
@@ -314,12 +376,12 @@ class _Simulation:
             self.ground[kind] -= 1
             self._book(plane, kind, time, ("slot", position, "ground"))
             if self.policy.replenish:
-                ready = self._produce(
+                ready = self.manifest.produce(
                     time + self.policy.procurement_years, kind, 1, "spare"
                 )
                 self._push(ready, "stock", kind, 1)
         else:
-            ready = self._produce(
+            ready = self.manifest.produce(
                 time + self.policy.procurement_years, kind, 1, "restoration"
             )
             self._book(plane, kind, ready, ("slot", position, "production"))
@@ -413,36 +475,21 @@ class _Simulation:
         type's line), launched at the next launch slots, and replaced at the
         end of their design life.
         """
-        launches = []
-        for plane in stage.planes:
-            kind, size, spares = self.deployment.planes[plane]
-            if size + spares == 0:
-                continue
-            ready = self._produce(time + stage.lead_years, kind, size + spares)
-            launches.extend(self.manifest.launch(plane, ready))
-        for launch in launches + self.manifest.replace(launches, self.end):
+        start = time + stage.lead_years
+        for launch in self.manifest.deploy(stage.planes, start, self.end):
             self._push(launch.time, "planned", launch)
 
-    def _produce(
-        self, earliest: float, kind: Any, count: int, purpose: str = "deployment"
-    ) -> float:
-        """
-        Produces satellites on their type's line, from a time (after the work
-        before them), returning when they are ready.
-        """
-        return self.manifest.produce(earliest, kind, count, purpose)
-
-    def _capacity(self, plane: int, kind: Any) -> float:
-        return self.deployment.schedule.per_launch(
-            self.deployment.masses.get(kind), self.manifest.plane(plane)
-        )
-
     def _book(self, plane: int, kind: Any, ready: float, item: tuple) -> None:
-        """Books an item on a launch of a plane: an open one, or a new one."""
+        """
+        Books an item that is ready at a time on a launch of a plane: an open
+        one that has room and flies once the item is ready, but no later
+        than a new one would (at the next launch slot after waiting the
+        batch years), or else a new one.
+        """
+        latest = self.manifest.next_slot(ready + self.policy.batch_years)
+        capacity = self.manifest.capacity(plane)
         for booking in self.open.get(plane, []):
-            if booking.time >= ready and len(booking.items) < self._capacity(
-                plane, kind
-            ):
+            if ready <= booking.time <= latest and len(booking.items) < capacity:
                 booking.items.append(item)
                 return
         time = self.manifest.slot(ready + self.policy.batch_years)

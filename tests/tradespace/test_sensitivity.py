@@ -66,6 +66,16 @@ class TestSensitivity(unittest.TestCase):
         binned = main_effects(self.frame, "c", "metric", max_levels=4)
         self.assertEqual(len(binned), 4)
 
+    def test_order_of_bins(self):
+        """The bins of a numeric variable are in the order of their values."""
+        summary = pd.DataFrame({"altitude": range(21), "cost": range(21)})
+        effects = main_effects(summary, "altitude", "cost", max_levels=4)
+        self.assertTrue(effects.index.is_monotonic_increasing)
+        self.assertEqual(list(effects["mean"]), sorted(effects["mean"]))
+        self.assertEqual(
+            [interval.right for interval in effects.index], [5, 10, 15, 20]
+        )
+
     def test_results_raise(self):
         """The results of a study (a row per replicate) are not summaries."""
         results = pd.DataFrame(

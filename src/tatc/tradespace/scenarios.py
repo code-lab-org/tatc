@@ -14,8 +14,9 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria, _as_criteria, _get_tolerances, _resolve, _signs
-from .summary import _feasible_records, _value_columns, _with_values, aggregate
+from .criteria import Criteria
+from .summary import aggregate
+from .tables import design_values, value_columns
 
 
 def _scales(criteria: Criteria, scale: Mapping[str, float] | None) -> np.ndarray:
@@ -28,7 +29,7 @@ def _scales(criteria: Criteria, scale: Mapping[str, float] | None) -> np.ndarray
     unknown = sorted(set(scale) - set(objectives))
     if unknown:
         raise ValueError(f"scales of names that are not objectives: {unknown}")
-    absolute = _get_tolerances(criteria.objectives, criteria.tolerances)[0]
+    absolute = criteria.tolerance_array[0]
     values = np.array(
         [
             float(scale[name]) if name in scale else (absolute[i] or 1.0)
@@ -110,7 +111,7 @@ def robustness(
             records by several columns or combine them across scenarios (see
             `Across`, by which searches find robust designs).
     """
-    criteria = _as_criteria(criteria)
+    criteria = Criteria.of(criteria)
     if criteria.across is not None:
         raise ValueError(
             "robustness judges designs in each scenario: give criteria without "
@@ -130,7 +131,7 @@ def robustness(
     judged = dataclasses.replace(criteria, by=(scenario,))
     objectives = list(criteria.objectives)
     # each objective in units of its scale, larger being better
-    units = -_signs(criteria) / _scales(criteria, scale)
+    units = -criteria.signs / _scales(criteria, scale)
     summary = aggregate(results, judged, design_columns=[])
     efficient = summary["pareto"].to_numpy(dtype=bool)
     scenarios = list(pd.unique(results[scenario]))
@@ -157,9 +158,8 @@ def robustness(
     # the values of the designs (of their first records, as of a summary), and
     # the objectives that are values of the designs, which are the same in
     # every scenario
-    statistics = _resolve(judged)
-    feasible, _ = _feasible_records(results)
-    every = _value_columns(feasible, {}, (scenario,), None, design_columns)
+    statistics = judged.resolved
+    every = value_columns(results, {}, (scenario,), design_columns)
     metrics = {column for s in statistics.values() for column in s.columns}
     columns = [c for c in every if c not in metrics and c not in statistics]
     collapsed = {
@@ -167,8 +167,7 @@ def robustness(
         for name in objectives
         if name in every and set(statistics[name].columns) <= set(every)
     }
-    frame = pd.DataFrame({"design": designs})
-    _with_values(frame, results, designs, columns)
+    frame = design_values(results, designs, columns)
     for name in objectives:
         table = summary.pivot(index="design", columns=scenario, values=name)
         table = table.reindex(index=designs, columns=scenarios)

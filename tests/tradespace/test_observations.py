@@ -39,6 +39,7 @@ from tatc.tradespace import (
     Real,
     Requirement,
     RestorationPolicy,
+    SatelliteCache,
     SatelliteCost,
     Stage,
     Study,
@@ -52,10 +53,11 @@ from tatc.tradespace import (
     risk_space,
     walker_space,
 )
-from tatc.tradespace.histories import exact_expectations, summarize_histories
+from tatc.tradespace.expectations import exact_expectations
+from tatc.tradespace.fingerprint import get_fingerprint
+from tatc.tradespace.histories import summarize_histories
 from tatc.tradespace.mission import summarize_phases
-from tatc.tradespace.observations import value_of
-from tatc.tradespace.values import configure
+from tatc.tradespace import configure
 
 HAS_JOBLIB = importlib.util.find_spec("joblib") is not None
 
@@ -95,22 +97,10 @@ def _observations(directory=None):
     return Observations(TARGETS, START, HOURS, directory=directory)
 
 
-class TestReferences(unittest.TestCase):
-    """
-    Unit tests for references to the values of designs.
-    """
-
-    def test_value_of(self):
-        """References name values, paths of values, or compute them."""
-        d = SPACE.enumerate()[0].realize(0)
-        self.assertEqual(value_of(d, "altitude"), d.altitude)
-        self.assertEqual(value_of(d, "layout.planes"), d.layout.planes)
-        self.assertEqual(value_of(d, lambda d: 2 * d.altitude), 2 * d.altitude)
-        self.assertIsNone(value_of(d, None))
-        with self.assertRaises(KeyError):
-            value_of(d, "layout.other")
-        with self.assertRaises(TypeError):
-            value_of(d, 3)
+def _grid(count, seed=None):
+    """Targets at the equator, of a seed (which a replicate draws)."""
+    del seed
+    return pd.DataFrame({"latitude": [0.0] * count, "longitude": range(count)})
 
 
 class TestTargets(unittest.TestCase):
@@ -182,6 +172,47 @@ class TestObservations(unittest.TestCase):
             again = _observations(directory)
             again(_build(designs[0]), designs[0])
             self.assertEqual(again.cache_of(designs[0]).misses, 0)
+
+    def test_targets_generated_when_needed(self):
+        """Caches on disk of generated targets are keyed by their recipe and
+        seed, so that opening (and pruning) them generates no targets, nor do
+        results on disk."""
+        designs = [d.realize(r) for d in SPACE.enumerate()[:1] for r in (0, 1)]
+        original = Targets._of_seed  # pylint: disable=protected-access
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(
+                Targets, "_of_seed", autospec=True, side_effect=original
+            ) as generated,
+        ):
+            first = _observations(directory)
+            for d in designs:
+                first(_build(d)[:1], d)
+            self.assertEqual(generated.call_count, len(designs))
+            generated.reset_mock()
+            again = _observations(directory)
+            self.assertEqual(again.prune(), 0)
+            again(_build(designs[0])[:1], designs[0])  # from the results on disk
+            generated.assert_not_called()
+            self.assertEqual(
+                sorted(SatelliteCache.contexts(directory).values()),
+                sorted((d.points_seed, START) for d in designs),
+            )
+        # the fingerprint of a cache follows the recipe of the targets (their
+        # function and its arguments), not the targets kept in memory
+        d = designs[0]
+
+        def fingerprint(targets):
+            return get_fingerprint(
+                Observations(targets, START, HOURS).cache_of(d).function
+            )
+
+        fresh = Targets(_grid, 5, seed="points_seed")
+        recipes = [fresh, Targets(_grid, 6, seed="points_seed"), TARGETS]
+        prints = [fingerprint(targets) for targets in recipes]
+        self.assertEqual(len(set(prints)), 3)
+        fresh.of(d)
+        self.assertEqual(fingerprint(fresh), prints[0])
 
     def test_directory_not_in_fingerprint(self):
         """The directory of a cache does not change the fingerprint of a study."""
@@ -594,6 +625,27 @@ class TestObservationStudy(unittest.TestCase):
         # decision a year later, and launched at 1.5
         self.assertEqual(list(means["deployed"]), [0.25, 1.5])
 
+    def test_metrics_of_every_satellite_once(self):
+        """With a plan, the metrics of every satellite are those of the last
+        phase of the mission, evaluated once."""
+        calls = []
+
+        def metrics(observations):
+            if len(observations) > 0:
+                calls.append(frozenset(observations.satellite))
+            return _metrics(observations)
+
+        design = SPACE.enumerate()[3]
+        study = ObservationStudy(
+            SPACE, _build, _observations(), metrics, plan=PLAN, phases=True
+        )
+        result = study.run([design]).iloc[0]
+        self.assertEqual(len(calls), len(set(calls)))
+        satellites = study.satellites_of(design)
+        observed = study.observations_of(design)
+        self.assertEqual(result["observed"], _metrics(observed)["observed"])
+        self.assertIn(frozenset(s.name for s in satellites), calls)
+
     def test_spares_of_the_policy(self):
         """The policy of each design gives its spares, which are produced
         whether or not the study has failures."""
@@ -663,11 +715,12 @@ class TestObservationStudy(unittest.TestCase):
         for column in (
             "observed time",
             "observed time histories p50",
-            "P(observed time <= 1)",
+            "P(observed time <= 1) histories",
         ):
             self.assertEqual(result[column], summary[column])
         self.assertAlmostEqual(
-            result["P(observed time <= 1)"], (histories["observed time"] <= 1).mean()
+            result["P(observed time <= 1) histories"],
+            (histories["observed time"] <= 1).mean(),
         )
 
     def test_failure_validation(self):
@@ -796,8 +849,9 @@ class TestOneDesign(unittest.TestCase):
             summarize_phases(phases)["observed mission"], result["observed mission"]
         )
         self.assertAlmostEqual(mission.estimate().total, result["cost"])
-        self.assertEqual(mission.planned().deployed, result["deployed"])
-        self.assertIs(mission.planned(), mission.planned())
+        self.assertEqual(deployment.planned().deployed, result["deployed"])
+        self.assertIs(deployment.planned(), deployment.planned())
+        self.assertIs(deployment.policy, PLAN.policy)
         with self.assertRaisesRegex(ValueError, "failures"):
             mission.histories()
         unplanned = self.study.replace(plan=None, phases=None)
@@ -942,7 +996,8 @@ class TestFailureStudies(unittest.TestCase):
         result = study.run([design]).iloc[0]
         for column in ("observed mission", "availability"):
             self.assertAlmostEqual(result[column], exact[column])
-        with mock.patch("tatc.tradespace.plans.MAX_SETS", 1):
+        bounded = partial(exact_expectations, max_sets=1)
+        with mock.patch("tatc.tradespace.plans.exact_expectations", bounded):
             fallback = study.run([design]).iloc[0]
         for column in ("observed mission", "availability"):
             self.assertAlmostEqual(fallback[column], sampled[column].mean())

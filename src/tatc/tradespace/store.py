@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-from .hashing import _canonical
+from .hashing import canonical
 
 _RESULTS_TABLE = (
     "CREATE TABLE IF NOT EXISTS results (namespace TEXT, context TEXT, "
@@ -107,21 +107,17 @@ class ResultStore:
     a scenario are those of any scenario of the same overrides, and a
     scenario without overrides shares the evaluations of plain replicates.
 
-    Records are also keyed by a `context`: a study gives its fingerprint
-    (see `Study.fingerprint`), which changes with its seed, its use of
-    common random numbers, the definitions of its design space and its build
-    and evaluation functions (their code, and the plain values they refer
-    to), and the source of the modules of TAT-C they depend on, so that
-    records computed with other definitions are not reused. The store keeps
-    the definition of each context (see `define`), from which a study
-    explains why it does not reuse records (see `compare_definitions`). A
-    fingerprint describes the data that the functions are given (such as
-    data frames of targets they close over or refer to, by their content),
-    but not data that they read (such as from files) nor the code of other
-    modules they call (other than TAT-C's): a `namespace` identifies these,
-    and must change whenever they do. Studies of other definitions (such as
-    variants of a study) may share a namespace, as their fingerprints keep
-    their records apart, and several namespaces may share a file.
+    Records are also keyed by a `context`: a study gives its fingerprint,
+    which changes with its definition (see `Study.fingerprint` for what it
+    describes), so that records computed with other definitions are not
+    reused. The store keeps the definition of each context (see `define`),
+    from which a study explains why it does not reuse records (see
+    `compare_definitions`). What a fingerprint cannot describe (such as data
+    that the functions read from files, and the code of modules other than
+    TAT-C's that they call) a `namespace` identifies, which must change
+    whenever it does. Studies of other definitions (such as variants of a
+    study) may share a namespace, as their fingerprints keep their records
+    apart, and several namespaces may share a file.
 
     Records are kept as JSON (in the column `records` of the table `results`,
     a list of records per evaluation), which other tools can read: numbers
@@ -136,7 +132,7 @@ class ResultStore:
             studies cannot see (such as data they read from files), if any.
     """
 
-    def __init__(self, path: str | os.PathLike, namespace: str = ""):
+    def __init__(self, path: str | os.PathLike, *, namespace: str = ""):
         self.path, self.namespace = Path(path), namespace
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
@@ -259,7 +255,7 @@ class ResultStore:
                     [
                         self.namespace,
                         context,
-                        _canonical(definition),
+                        canonical(definition),
                         defined,
                     ],
                 )
@@ -351,4 +347,7 @@ class ResultStore:
                     )
 
     def __repr__(self) -> str:
-        return f"ResultStore({str(self.path)!r}, {self.namespace!r}: {len(self)} evaluations)"
+        return (
+            f"ResultStore({str(self.path)!r}, namespace={self.namespace!r}: "
+            + f"{len(self)} evaluations)"
+        )

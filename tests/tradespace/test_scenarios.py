@@ -106,7 +106,7 @@ class TestStudyScenarios(unittest.TestCase):
 
     def test_store(self):
         """The evaluations of each scenario are stored by its values."""
-        store = ResultStore(self.path, "scenarios")
+        store = ResultStore(self.path, namespace="scenarios")
         plain = self._study(store=store).run()
         self.assertEqual(len(self.calls), 6)
         # a scenario without values shares the evaluations without scenarios
@@ -133,7 +133,7 @@ class TestStudyScenarios(unittest.TestCase):
     def test_attribution(self):
         """The variance of designs in each scenario is attributed to their
         uncertain parameters."""
-        store = ResultStore(self.path, "scenarios")
+        store = ResultStore(self.path, namespace="scenarios")
         study = self._study(SCENARIOS, store=store)
         a = attribute_variance(
             study, ["y"], SPACE.enumerate(), sample_size=20, by=["scenario"]
@@ -423,28 +423,6 @@ class TestAcross(unittest.TestCase):
         np.testing.assert_allclose(probability.y, y.min(axis=1).loc[probability.index])
         np.testing.assert_array_equal(probability.replicates, 3)
         self.assertTrue(probability.pareto.all())
-
-    def test_resamples_share_replicates(self):
-        """A bootstrap draws each replicate in every scenario at once."""
-        rows = [
-            {
-                "design": "A",
-                "replicate": r,
-                "scenario": s,
-                "feasible": True,
-                "perf": v,
-            }
-            for r in range(6)
-            for s, v in (("s1", float(r)), ("s2", 10.0 - r))
-        ]
-        results = pd.DataFrame(rows)
-        mean = Criteria({"perf": "max"}, across=Across(rule="mean"))
-        probability = pareto_probability(results, mean, n_resamples=50)
-        self.assertAlmostEqual(probability["perf"].iloc[0], 5.0)
-        self.assertAlmostEqual(probability["perf se"].iloc[0], 0.0)
-        worst = Criteria({"perf": "max"}, across=Across())
-        probability = pareto_probability(results, worst, n_resamples=50)
-        self.assertGreater(probability["perf se"].iloc[0], 0.0)
 
     def test_invalid(self):
         """Rules, weights, and the statistics combined by their worst are

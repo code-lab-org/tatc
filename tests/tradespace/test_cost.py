@@ -20,6 +20,7 @@ from tatc.tradespace import (
     LaunchCost,
     OperationsCost,
     Quantile,
+    RestorationPolicy,
     SatelliteCost,
     Study,
     Triangular,
@@ -160,21 +161,29 @@ class TestCostModel(unittest.TestCase):
             )
 
     def test_spares(self):
-        """Spares in orbit are built, launched, and operated with each plane."""
+        """Spares in orbit are built, launched, and operated with each plane,
+        and spares on the ground are built, of the policy of the deployment."""
         model = CostModel(
             self.satellite,
             launch=LaunchCost(per_launch=30),
             operations=OperationsCost(per_satellite_year=1),
         )
         schedule = DeploymentSchedule(launch_capacity=4)
-        estimate = model.estimate(schedule.plan(_walker(2, 4), orbit_spares=1))
+        spared = RestorationPolicy(orbit_spares=1)
+        estimate = model.estimate(schedule.plan(_walker(2, 4), policy=spared))
         self.assertEqual(estimate.units[None], 10)
         self.assertEqual(estimate.launches, 4)
         self.assertEqual(estimate.operations, 10)
         # spares (which do not age) are not replaced at each design life
         replaced = dataclasses.replace(schedule, years=6, design_life=2)
-        units = model.estimate(replaced.plan(_walker(2, 4), orbit_spares=1)).units
+        units = model.estimate(replaced.plan(_walker(2, 4), policy=spared)).units
         self.assertEqual(units[None], 10 + 2 * 8)
+        # those on the ground, as the history of the deployment produces them
+        grounded = dataclasses.replace(spared, ground_spares=2)
+        deployment = schedule.plan(_walker(2, 4), policy=grounded)
+        estimate = model.estimate(deployment)
+        self.assertEqual(estimate.units[None], 10 + 2)
+        self.assertEqual(estimate.total, model.estimate(deployment.planned()).total)
 
     def test_masses_of_the_deployment(self):
         """Launches are priced by the masses that size them: those of the

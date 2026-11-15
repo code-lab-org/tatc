@@ -1,5 +1,7 @@
 """
-Unit tests for Pareto efficiency.
+Unit tests for the Pareto efficiency of the rows of summaries of designs:
+fronts, ranks, and hypervolumes, and the dominance of points with
+tolerances.
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -13,12 +15,30 @@ import pandas as pd
 from tatc.tradespace import (
     Criteria,
     Requirement,
+    aggregate,
     hypervolume,
     hypervolume_progress,
     pareto_front,
-    pareto_probability,
     pareto_ranks,
 )
+from tatc.tradespace.dominance import dominated
+
+
+def _results(values):
+    """Results of designs (rows) in replicates (columns), with a cost of 1."""
+    return pd.DataFrame(
+        [
+            {
+                "design": f"d{i}",
+                "replicate": r,
+                "cost": 1.0,
+                "value": v,
+                "feasible": True,
+            }
+            for i, row in enumerate(values)
+            for r, v in enumerate(row)
+        ]
+    )
 
 
 def _brute_hypervolume(costs: np.ndarray, reference: np.ndarray) -> float:
@@ -151,92 +171,38 @@ class TestRelativeTolerance(unittest.TestCase):
         self.assertEqual(list(absolute), [True, False, False, False])
 
 
-class TestParetoProbability(unittest.TestCase):
-    """
-    Unit tests for the probability of Pareto efficiency.
-    """
-
-    @staticmethod
-    def _results(values):
-        """Results of designs (rows) in replicates (columns), with a cost of 1."""
-        return pd.DataFrame(
-            [
-                {
-                    "design": f"d{i}",
-                    "replicate": r,
-                    "cost": 1.0,
-                    "value": v,
-                    "feasible": True,
-                }
-                for i, row in enumerate(values)
-                for r, v in enumerate(row)
-            ]
-        )
-
-    def test_settled(self):
-        """Designs separated in every replicate are efficient or not for sure."""
-        results = self._results([[1, 2, 3], [5, 6, 7]])
-        probability = pareto_probability(results, {"cost": "min", "value": "max"})
-        self.assertEqual(list(probability.pareto_probability), [0, 1])
-        self.assertEqual(list(probability.pareto), [False, True])
-        self.assertEqual(list(probability.value), [2, 6])
-
-    def test_common_random_numbers(self):
-        """Designs that differ by a constant in every replicate are settled."""
-        rng = np.random.default_rng(0)
-        common = rng.normal(0, 5, 8)
-        results = self._results([common, common + 0.1])
-        probability = pareto_probability(results, {"cost": "min", "value": "max"})
-        self.assertEqual(list(probability.pareto_probability), [0, 1])
-
-    def test_unsettled(self):
-        """Designs whose order changes between replicates are uncertain."""
-        # equal means: d0 varies between replicates, d1 does not
-        results = self._results([[0, 2] * 4, [1] * 8])
-        probability = pareto_probability(
-            results, {"cost": "min", "value": "max"}, n_resamples=300
-        )
-        p = probability.pareto_probability
-        self.assertTrue(((p > 0.05) & (p < 0.95)).all())
-
-    def test_groups(self):
-        """Fronts of groups are found separately."""
-        results = pd.concat(
-            [
-                self._results([[1, 2], [3, 4]]).assign(sensor="a"),
-                self._results([[3, 4], [1, 2]]).assign(sensor="b"),
-            ]
-        )
-        probability = pareto_probability(
-            results, Criteria({"cost": "min", "value": "max"}, by=["sensor"])
-        )
-        winners = probability[probability.pareto_probability == 1]
-        self.assertEqual(
-            sorted(zip(winners.sensor, winners.design)), [("a", "d1"), ("b", "d0")]
-        )
-
-    def test_design_values(self):
-        """Probabilities keep the values of the designs, as summaries do."""
-        results = self._results([[1, 2], [3, 4]])
-        results["size"] = results["design"].map({"d0": "small", "d1": "large"})
-        results["seed"] = results["replicate"]  # an uncertain parameter
-        probability = pareto_probability(results, {"cost": "min", "value": "max"})
-        self.assertEqual(list(probability["size"]), ["small", "large"])
-        self.assertNotIn("seed", probability.columns)
-        bare = pareto_probability(
-            results, {"cost": "min", "value": "max"}, design_columns=[]
-        )
-        self.assertNotIn("size", bare.columns)
-
-
 class TestSummaries(unittest.TestCase):
     """
-    Unit tests for the functions of summaries given the results of a study.
+    Unit tests for the efficient designs of summaries (a row per design), and
+    the functions of summaries given the results of a study.
     """
 
     def setUp(self):
-        self.results = TestParetoProbability._results([[1, 2, 3], [5, 6, 7]])
+        self.results = _results([[1, 2, 3], [5, 6, 7]])
         self.objectives = {"cost": "min", "value": "max"}
+
+    def test_pareto(self):
+        """Summaries of criteria give the efficient designs, in each group."""
+        results = pd.concat(
+            [
+                _results([[10, 12, 14, 16], [5, 30, 5, 30]]).assign(
+                    cost=2.0, size="small"
+                ),
+                _results([[1] * 4]).assign(design="d2", size="large"),
+            ],
+            ignore_index=True,
+        )
+        criteria = Criteria(self.objectives, by="size")
+        summary = aggregate(results, criteria)
+        self.assertEqual(
+            list(summary.pareto),
+            list(pareto_front(summary.drop(columns="pareto"), criteria)),
+        )
+        # designs d0 (a mean of 13) and d1 (17.5) of the same cost, and d2 alone
+        self.assertEqual(
+            dict(zip(summary.design, summary.pareto)),
+            {"d0": False, "d1": True, "d2": True},
+        )
 
     def test_results_raise(self):
         """Results with a row per replicate are not summaries of designs."""
@@ -279,19 +245,16 @@ class TestManyPoints(unittest.TestCase):
         absolute, relative = (
             np.zeros((2, costs.shape[1])) if tolerances is None else tolerances
         )
-        dominated = np.zeros(len(costs), dtype=bool)
+        beaten = np.zeros(len(costs), dtype=bool)
         for i, point in enumerate(costs):
             penalized = costs + absolute + relative * np.abs(point)
             no_worse = np.all(penalized <= point, axis=1)
             better = np.any(penalized < point, axis=1)
-            dominated[i] = np.any(no_worse & better)
-        return dominated
+            beaten[i] = np.any(no_worse & better)
+        return beaten
 
     def test_matches_every_pair(self):
         """Dominance, with or without tolerances, is that of every pair."""
-        # pylint: disable=import-outside-toplevel,protected-access
-        from tatc.tradespace import pareto
-
         rng = np.random.default_rng(3)
         sets = (
             rng.random((700, 3)),
@@ -309,7 +272,7 @@ class TestManyPoints(unittest.TestCase):
                 if tolerance is not None:
                     tolerance = tolerance[:, : costs.shape[1]]
                 np.testing.assert_array_equal(
-                    pareto._dominated(costs, tolerance),
+                    dominated(costs, tolerance),
                     self._every_pair(costs, tolerance),
                 )
 
@@ -355,37 +318,6 @@ class TestHypervolumeProgress(unittest.TestCase):
             hypervolume_progress(results, objectives, (10, 0), step=0)
 
 
-class TestStandardErrors(unittest.TestCase):
-    """
-    Unit tests for the standard errors of the objectives of designs.
-    """
-
-    def test_standard_errors(self):
-        """The bootstrap gives the standard error of each objective."""
-        rng = np.random.default_rng(0)
-        results = pd.DataFrame(
-            [
-                {
-                    "design": design,
-                    "replicate": r,
-                    "feasible": True,
-                    "x": float(i),
-                    "y": i + rng.normal(0, 2),
-                }
-                for i, design in enumerate("ab")
-                for r in range(40)
-            ]
-        )
-        probability = pareto_probability(
-            results, {"x": "min", "y": "max"}, n_resamples=2000
-        )
-        np.testing.assert_allclose(probability["x se"], 0.0)
-        expected = results.groupby("design").y.std(ddof=0) / np.sqrt(40)
-        np.testing.assert_allclose(
-            probability.set_index("design")["y se"], expected, rtol=0.15
-        )
-
-
 class TestMissingObjectives(unittest.TestCase):
     """
     Unit tests for designs with missing objectives.
@@ -400,69 +332,3 @@ class TestMissingObjectives(unittest.TestCase):
         self.assertEqual(list(pareto_front(summary, objectives)), [True, False, True])
         self.assertEqual(list(pareto_ranks(summary, objectives)), [0, 1, 0])
         self.assertAlmostEqual(hypervolume(summary, objectives, {"x": 3, "y": 2}), 3.0)
-
-
-class TestFeasibleProbability(unittest.TestCase):
-    """
-    Unit tests for the probability of efficiency of designs infeasible in
-    some replicates.
-    """
-
-    @staticmethod
-    def _results(feasible):
-        """Two designs in eight replicates: d1, better, is feasible only where
-        given."""
-        return pd.DataFrame(
-            [
-                {
-                    "design": design,
-                    "replicate": r,
-                    "feasible": True if design == "d0" else feasible[r],
-                    "cost": 1.0,
-                    "value": 1.0 if design == "d0" else 2.0,
-                }
-                for design in ("d0", "d1")
-                for r in range(len(feasible))
-            ]
-        )
-
-    def test_feasible_requirement(self):
-        """A requirement on the share of feasible replicates is uncertain in
-        the bootstrap."""
-        results = self._results([True, False] * 4)
-        criteria = Criteria(
-            {"cost": "min", "value": "max"},
-            requirements=[Requirement("feasible", ">=", 0.5)],
-        )
-        probability = pareto_probability(results, criteria, n_resamples=200)
-        probability = probability.set_index("design")
-        self.assertEqual(probability.loc["d1", "feasible"], 0.5)
-        self.assertEqual(probability.loc["d1", "replicates"], 4)
-        met = probability.loc["d1", "requirements_probability"]
-        self.assertGreater(met, 0.2)
-        self.assertLess(met, 0.9)
-        self.assertEqual(probability.loc["d0", "requirements_probability"], 1.0)
-        # without the requirement, d1 is judged by its feasible replicates
-        plain = pareto_probability(results, {"cost": "min", "value": "max"})
-        plain = plain.set_index("design")
-        self.assertEqual(plain.loc["d1", "pareto_probability"], 1.0)
-        self.assertEqual(plain.loc["d0", "pareto_probability"], 0.0)
-
-    def test_no_feasible_design(self):
-        """Results without a feasible record have an empty summary."""
-        results = self._results([False] * 4)
-        results = results[results.design == "d1"].drop(columns=["cost", "value"])
-        probability = pareto_probability(results, {"cost": "min", "value": "max"})
-        self.assertTrue(probability.empty)
-        self.assertEqual(
-            list(probability.columns[-6:]),
-            [
-                "feasible",
-                "violation",
-                "meets_requirements",
-                "pareto",
-                "pareto_probability",
-                "requirements_probability",
-            ],
-        )
-        self.assertIn("value se", probability.columns)

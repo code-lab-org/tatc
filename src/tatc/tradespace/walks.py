@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import copy
 import math
-import re
 from collections.abc import Callable, Mapping
 from functools import partial
 from typing import Any
@@ -38,7 +37,7 @@ from .nodes import (
     Variable,
     _Domain,
 )
-from .values import Scope, _ChoiceValue, _join, _RepeatValue
+from .values import Scope, _ChoiceValue, _join, _RepeatValue, is_number
 
 _ABSENT = object()
 """Marker of a node that records no decision (fixed, derived, or uncertain),
@@ -151,17 +150,6 @@ class _Unsorted(Infeasible):
     """
 
 
-_ITEM_INDEX = re.compile(r"\[\d+\]")
-
-
-def _generic(path: str) -> str:
-    """
-    Gets the path of a node with `[*]` for the index of any item of a
-    repetition (as of `DesignSpace.uncertain_paths`).
-    """
-    return _ITEM_INDEX.sub("[*]", path)
-
-
 def _walk(
     node: Node,
     path: str,
@@ -225,6 +213,8 @@ def _walk_group(
     Decides the children of a group in order, then checks its constraints
     (see `_walk`).
     """
+    if prescribed is not _ABSENT and ctx.normalize is not None:
+        _check_children(node, path, prescribed)
     values: dict = {}
     if publish is not None:
         publish(values)
@@ -253,6 +243,26 @@ def _walk_group(
                     1.0 if math.isnan(violation) else violation,
                 )
     return values, decisions
+
+
+def _check_children(node: Group, path: str, prescribed: Any) -> None:
+    """
+    Checks that the prescribed decisions of a group (such as those given to
+    `DesignSpace.design`) are a mapping of the decisions of its children,
+    raising a `ValueError` if not, or if they name others.
+    """
+    where = path or "the design space"
+    if not isinstance(prescribed, Mapping):
+        raise ValueError(
+            f"the decisions of {where} are a mapping of its children, "
+            + f"not {prescribed!r}"
+        )
+    unknown = [name for name in prescribed if name not in node.children]
+    if unknown:
+        raise ValueError(
+            f"decisions of no children of {where}: {sorted(unknown, key=str)} "
+            + f"(it has {list(node.children)})"
+        )
 
 
 def _get_violation(result: Any) -> float:
@@ -492,13 +502,6 @@ class _Odometer:
         return False
 
 
-def _is_number(value: Any) -> bool:
-    """Whether a value is a number (not a boolean)."""
-    return isinstance(value, (int, float, np.number)) and not isinstance(
-        value, (bool, np.bool_)
-    )
-
-
 def _level_of(path: str, domain: _Domain, value: Any) -> Any:
     """
     Gets the value of a domain that a decision is (see `DesignSpace.design`
@@ -523,9 +526,9 @@ def _level_of(path: str, domain: _Domain, value: Any) -> Any:
                 return _scalar(level)
         except (TypeError, ValueError):
             continue
-    if _is_number(value):
+    if is_number(value):
         for level in domain.levels:
-            if _is_number(level) and math.isclose(
+            if is_number(level) and math.isclose(
                 float(level), float(value), rel_tol=1e-9, abs_tol=1e-12
             ):
                 return _scalar(level)

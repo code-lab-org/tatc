@@ -11,8 +11,8 @@ from __future__ import annotations
 import sys
 import warnings
 
-_PACKAGE = __name__.rpartition(".")[0]
-"""The name of the package whose frames a warning skips."""
+_TRADESPACE = __name__.rpartition(".")[0]
+"""The name of the package of trade studies, whose frames a warning skips."""
 
 
 def _warn(message: str, category: type[Warning] = UserWarning) -> None:
@@ -26,13 +26,13 @@ def _warn(message: str, category: type[Warning] = UserWarning) -> None:
         category (type[Warning]): The category of the warning.
     """
     level, frame = 2, sys._getframe(1)  # pylint: disable=protected-access
-    while frame is not None and _is_package(frame.f_globals.get("__name__")):
+    while frame is not None and _is_tradespace_module(frame.f_globals.get("__name__")):
         frame, level = frame.f_back, level + 1
     warnings.warn(message, category, stacklevel=level)
 
 
-def _is_package(module: object) -> bool:
-    """Whether a module name is of the package (or the package itself)."""
+def _is_tradespace_module(module: object) -> bool:
+    """Whether a module name is of the package of trade studies or its modules."""
     return isinstance(module, str) and (
-        module == _PACKAGE or module.startswith(_PACKAGE + ".")
+        module == _TRADESPACE or module.startswith(_TRADESPACE + ".")
     )

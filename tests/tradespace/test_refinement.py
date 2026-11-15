@@ -11,8 +11,10 @@ import numpy as np
 import pandas as pd
 
 from tatc.tradespace import (
+    Across,
     Criteria,
     DesignSpace,
+    Fixed,
     Infeasible,
     Integer,
     Quantile,
@@ -94,8 +96,8 @@ class TestRefine(unittest.TestCase):
             max_rounds=6,
             n_resamples=200,
         )
-        history = refinement.history
-        self.assertGreater(history.refined.iloc[0], 0)
+        rounds = refinement.rounds
+        self.assertGreater(rounds.refined.iloc[0], 0)
         replicates = refinement.results.groupby("design").replicate.nunique()
         # the clearly worse variant is never refined
         worse = [d.key for d in self.designs if d.variant == 2]
@@ -133,7 +135,7 @@ class TestRefine(unittest.TestCase):
         self.assertLessEqual(
             refinement.results.groupby("design").replicate.nunique().max(), 8
         )
-        self.assertEqual(refinement.history.refined.iloc[-1], 0)
+        self.assertEqual(refinement.rounds.refined.iloc[-1], 0)
         with self.assertRaises(ValueError):
             refine(
                 self.study, OBJECTIVES, self.results, self.designs, bounds=(0.9, 0.1)
@@ -217,9 +219,11 @@ class TestRefine(unittest.TestCase):
         self.assertTrue(set(replicates) <= {5, 7})
 
     def test_warns_without_tolerance(self):
-        """Designs that remain uncertain without a tolerance give a warning."""
-        with self.assertWarns(UserWarning):
+        """Designs that remain uncertain without a tolerance give a warning,
+        at the call of the refinement."""
+        with self.assertWarns(UserWarning) as context:
             refine(self.study, OBJECTIVES, self.results, self.designs, max_rounds=1)
+        self.assertEqual(context.filename, __file__)
 
     def test_precision(self):
         """A design about a tolerance from the front stops once precise enough."""
@@ -258,7 +262,7 @@ class TestRefine(unittest.TestCase):
         self.assertLessEqual(precise, 30)
         self.assertEqual(refinement.indifferent.design.tolist(), [designs[1].key])
         self.assertEqual(len(refinement.uncertain), 0)
-        self.assertEqual(refinement.history.indifferent.iloc[-1], 1)
+        self.assertEqual(refinement.rounds.indifferent.iloc[-1], 1)
         with self.assertRaises(ValueError):
             refine(study, criteria, results, designs, precision=0)
 
@@ -272,7 +276,7 @@ class TestRefine(unittest.TestCase):
             nothing = refine(
                 self.study, OBJECTIVES, self.results, self.designs, budget=0
             )
-        self.assertEqual(refinement.history.evaluations.sum(), 12)
+        self.assertEqual(refinement.rounds.evaluations.sum(), 12)
         replicates = refinement.results.groupby("design").replicate.nunique()
         self.assertEqual(sorted(replicates[replicates > 5]), [7, 10, 10])
         # the designs whose probability was nearest 0.5
@@ -282,6 +286,40 @@ class TestRefine(unittest.TestCase):
         nearest = before.design[distance.sort_values(kind="stable").index[:3]]
         self.assertEqual(set(replicates[replicates > 5].index), set(nearest))
         self.assertEqual(len(nothing.results), len(self.results))
+
+    def test_budget_of_scenarios(self):
+        """A replicate of a study with scenarios spends an evaluation of the
+        budget in each scenario, as the refinement counts them."""
+        space = DesignSpace(
+            cost=Integer(1, 6),
+            variant=Integer(0, 2),
+            shift=Fixed(0.0),
+            noise=Uncertain.normal(0, 1),
+        )
+
+        def evaluate(d):
+            value = np.sqrt(d.cost) * 3 + {0: 0.0, 1: 1.0, 2: -3.0}[d.variant]
+            return {"cost": d.cost, "value": value + d.shift + d.noise}
+
+        study = Study(
+            space,
+            lambda d: d,
+            evaluate,
+            replicates=3,
+            common_random_numbers=False,
+            scenarios={"a": {}, "b": {"shift": 0.5}, "c": {"shift": -0.5}},
+        )
+        results = study.run(space.enumerate())
+        criteria = Criteria(OBJECTIVES, across=Across(rule="mean"))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            refinement = refine(
+                study, criteria, results, budget=13, step=2, max_rounds=3
+            )
+        added = len(refinement.results) - len(results)
+        self.assertEqual(refinement.evaluations, added)
+        # four replicates of the budget's 13 evaluations, in each of 3 scenarios
+        self.assertEqual(added, 12)
 
     def test_precise(self):
         """Designs are precise if each varying objective is within its tolerance."""
@@ -303,6 +341,11 @@ class TestRefine(unittest.TestCase):
         )
         np.testing.assert_array_equal(
             _precise(probability, Criteria(OBJECTIVES), 0.5), [False, False, False]
+        )
+        # an objective without a standard error does not vary
+        np.testing.assert_array_equal(
+            _precise(probability.drop(columns="cost se"), criteria, 0.5),
+            [True, False, True],
         )
 
 

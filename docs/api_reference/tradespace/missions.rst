@@ -51,13 +51,23 @@ Deployment
 .. autoclass:: tatc.tradespace.Stage
 
 .. autoclass:: tatc.tradespace.deployment.Deployment
-   :members: simulate, simulate_many, expected_metrics, planned, phases, begin, end, deployed, units, stages, capability
+   :members: simulate, simulate_many, expected_metrics, planned, phases, begin, end, deployed, units, stages, policy, capability
+
+.. automodule:: tatc.tradespace.events
+   :no-members:
 
 .. autoclass:: tatc.tradespace.events.PlannedPlane
 
-.. autoclass:: tatc.tradespace.deployment.Launch
+.. autoclass:: tatc.tradespace.events.Launch
 
-.. autoclass:: tatc.tradespace.deployment.Production
+.. autoclass:: tatc.tradespace.events.Production
+
+.. autodata:: tatc.tradespace.events.PerType
+   :annotation:
+
+.. autofunction:: tatc.tradespace.events.per_type
+
+.. autofunction:: tatc.tradespace.events.per_type_values
 
 .. autoclass:: tatc.tradespace.mission.Decision
    :members: time, since_launch, stage, satellites_operating, history, stages_deployed, capability
@@ -92,7 +102,7 @@ Missions
    :no-members:
 
 .. autoclass:: tatc.tradespace.mission.MissionHistory
-   :members: phases, metrics, in_orbit, deployed
+   :members: phases, metrics, in_orbit, deployed, decided
 
 .. autoclass:: tatc.tradespace.mission.Phase
    :members: duration
@@ -112,11 +122,16 @@ Missions
    :members: evaluate, metrics_of, clear
 
 .. autoclass:: tatc.tradespace.mission.Capability
-   :members: evaluate, at
+   :members: evaluate, at, position_names, names
    :special-members: __call__
 
 .. automodule:: tatc.tradespace.simulation
    :no-members:
+
+.. autofunction:: tatc.tradespace.simulation.simulate_histories
+
+.. autodata:: tatc.tradespace.simulation.SAMPLINGS
+   :annotation:
 
 .. automodule:: tatc.tradespace.histories
    :no-members:
@@ -127,9 +142,14 @@ Missions
 
 .. autofunction:: tatc.tradespace.histories.allocate_histories
 
-.. autofunction:: tatc.tradespace.histories.exact_expectations
+.. automodule:: tatc.tradespace.expectations
+   :no-members:
 
-.. autodata:: tatc.tradespace.histories.MAX_SETS
+.. autofunction:: tatc.tradespace.expectations.exact_expectations
+
+.. autoexception:: tatc.tradespace.expectations.ExactExpectationsError
+
+.. autodata:: tatc.tradespace.expectations.MAX_SETS
    :annotation:
 
 Costs

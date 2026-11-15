@@ -7,17 +7,18 @@ efficiency their replicates do not settle, within a budget of evaluations.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria, _as_criteria, _get_tolerances
+from .alerts import _warn
+from .criteria import Criteria
 from .space import Design, _designs
 from .study import Study
 from .summary import pareto_probability
+from .tables import efficient_keys
 
 
 @dataclass
@@ -50,11 +51,12 @@ class Refinement:
     objectives are known to within the precision of their tolerances)."""
     criteria: Criteria
     """Criteria: The criteria of the refinement."""
-    history: pd.DataFrame = field(default_factory=pd.DataFrame)
-    """pandas.DataFrame: For each round (`round`, from 0), the number of
+    rounds: pd.DataFrame = field(default_factory=pd.DataFrame)
+    """pandas.DataFrame: A row per round (`round`, from 0): the number of
     designs whose efficiency is uncertain (`uncertain`), of these, those that
     are indifferent (`indifferent`), the number to which replicates were
-    added (`refined`), and the evaluations added (`evaluations`)."""
+    added (`refined`), and the evaluations added (`evaluations`, a design in
+    a replicate in each scenario of a study with scenarios)."""
     designs: list[Design] = field(default_factory=list)
     """list[Design]: The designs efficient after the last round (`pareto` of
     `summary`, in any group of the criteria's `by`), for the next step."""
@@ -64,11 +66,12 @@ class Refinement:
 
     @property
     def evaluations(self) -> int:
-        """int: The number of evaluations added (a design in a replicate, in
-        each scenario of a study with scenarios), over every round."""
-        if "evaluations" not in self.history:
+        """int: The number of evaluations added over every round (a design in
+        a replicate in a scenario: a study with scenarios evaluates each
+        replicate in each scenario)."""
+        if "evaluations" not in self.rounds:
             return 0
-        return int(self.history["evaluations"].sum())
+        return int(self.rounds["evaluations"].sum())
 
     @property
     def uncertain(self) -> pd.DataFrame:
@@ -95,14 +98,18 @@ def _precise(
     of their tolerances: the standard error of each objective that varies
     between replicates is less than `precision` times its tolerance (at the
     design's value). Designs whose varying objectives lack a tolerance are
-    not precise.
+    not precise. An objective without a standard error (which
+    `pareto_probability` leaves out where it is zero for every design) does
+    not vary.
     """
     precise = np.zeros(len(probability), dtype=bool)
     if precision is None or not criteria.tolerances:
         return precise
-    tolerances = _get_tolerances(criteria.objectives, criteria.tolerances)
+    tolerances = criteria.tolerance_array
     precise[:] = True
     for i, name in enumerate(criteria.objectives):
+        if f"{name} se" not in probability:
+            continue
         error = probability[f"{name} se"].to_numpy(dtype=float)
         value = np.abs(probability[name].to_numpy(dtype=float))
         tolerance = tolerances[0, i] + tolerances[1, i] * value
@@ -138,7 +145,9 @@ def refine(
     refined), when the `budget` of evaluations is spent, or after
     `max_rounds`. If a round would spend more than is left of the budget, the
     designs with the fewest replicates (below `min_replicates`) are refined
-    first, and then those whose probability is nearest 0.5.
+    first, and then those whose probability is nearest 0.5. A study with
+    scenarios evaluates each replicate in each scenario, which spends an
+    evaluation of the budget in each.
 
     A bootstrap of few replicates has few distinct resamples, and can find a
     design surely inefficient (or efficient) by the luck of its replicates:
@@ -175,8 +184,9 @@ def refine(
 
     The refinement selects the designs efficient after its last round for
     the next step (`Refinement.designs`, such as of `confirm`), and keeps
-    those that could be refined (`Refinement.candidates`) and the number of
-    evaluations it added (`Refinement.evaluations`).
+    those that could be refined (`Refinement.candidates`), its rounds
+    (`Refinement.rounds`), and the number of evaluations it added
+    (`Refinement.evaluations`).
 
     Args:
         study (Study): The study that evaluates designs.
@@ -205,16 +215,16 @@ def refine(
             indifferent, or `None` to refine uncertain designs until
             `max_replicates`.
         budget (int | None): The most evaluations to add (a design in a
-            replicate, which a study with scenarios evaluates in each), if
-            limited.
+            replicate in a scenario: a replicate of a study with scenarios
+            takes an evaluation in each), if limited.
         n_resamples (int): The number of resamples of each bootstrap.
         seed (int): The seed of the bootstraps.
 
     Returns:
-        Refinement: the results, the final probabilities, the history, the
+        Refinement: the results, the final probabilities, the rounds, the
             efficient designs, and the candidates
     """
-    criteria = _as_criteria(criteria)
+    criteria = Criteria.of(criteria)
     low, high = bounds
     if not 0 <= low < high <= 1:
         raise ValueError("bounds must satisfy 0 <= low < high <= 1")
@@ -229,7 +239,9 @@ def refine(
         raise ValueError("budget must not be negative")
     refined = _designs(study.space, results if designs is None else designs, results)
     by_key = {design.key: design for design in refined}
-    combined, history, spent = results, [], 0
+    # the evaluations of a replicate of a design: one in each scenario
+    cost = len(study.scenarios or [None])
+    combined, rounds, spent = results, [], 0
 
     def estimate(round_: int) -> pd.DataFrame:
         probability = pareto_probability(
@@ -258,6 +270,7 @@ def refine(
             min_replicates=min_replicates,
             max_replicates=max_replicates,
             budget=None if budget is None else budget - spent,
+            cost=cost,
         )
         record = {
             "round": round_,
@@ -267,34 +280,30 @@ def refine(
             "evaluations": 0,
         }
         if not added_to:
-            history.append(record)
+            rounds.append(record)
             break
         added = _evaluate_added(study, by_key, following, added_to)
         combined = pd.concat([combined, *added], ignore_index=True)
-        record["evaluations"] = sum(
-            new.groupby(["design", "replicate"]).ngroups for new in added
-        )
+        record["evaluations"] = sum(_count_evaluations(new) for new in added)
         spent += record["evaluations"]
-        history.append(record)
+        rounds.append(record)
     else:
         probability = estimate(max_rounds)
     remaining = probability.loc[
         probability["uncertain"] & ~probability["indifferent"], "design"
     ].nunique()
     if remaining > 0 and not criteria.tolerances:
-        warnings.warn(
+        _warn(
             f"{remaining} designs remain uncertain: designs that differ by less "
             + "than replicates separate stay uncertain without a tolerance of "
-            + "the objectives (see Criteria)",
-            stacklevel=2,
+            + "the objectives (see Criteria)"
         )
-    efficient = probability.loc[probability["pareto"].astype(bool), "design"]
-    selected = [by_key.get(key, key) for key in pd.unique(efficient)]
+    selected = [by_key.get(key, key) for key in efficient_keys(probability)]
     return Refinement(
         results=combined,
         summary=probability,
         criteria=criteria,
-        history=pd.DataFrame(history),
+        rounds=pd.DataFrame(rounds),
         designs=_designs(study.space, selected, combined),
         candidates=refined,
     )
@@ -326,12 +335,14 @@ def _allocate(
     min_replicates: int,
     max_replicates: int | None,
     budget: int | None,
+    cost: int = 1,
 ) -> dict[str, int]:
     """
     Gets the replicates to add to designs whose efficiency more replicates
     would settle (by key), for a round of `refine`: `step` each (up to
     `max_replicates`), the fewest replicates and the least settled first
-    (nearest a probability of 0.5), within a budget (if any).
+    (nearest a probability of 0.5), within a budget of evaluations (if any),
+    of which each replicate spends `cost` (one in each scenario).
     """
     grouped = probability.groupby("design")
     distance = (probability["pareto_probability"] - 0.5).abs()
@@ -356,15 +367,24 @@ def _allocate(
         if max_replicates is not None:
             count = min(count, max_replicates - int(following[key]))
         if left is not None:
-            count = min(count, left)
+            count = min(count, left // cost)
         if count <= 0:
             continue
         added[key] = count
         if left is not None:
-            left -= count
-            if left == 0:
+            left -= count * cost
+            if left < cost:
                 break
     return added
+
+
+def _count_evaluations(results: pd.DataFrame) -> int:
+    """
+    Counts the evaluations of results: a design in a replicate (in a
+    scenario, with scenarios), whatever the number of records of each.
+    """
+    keys = ["design", "replicate", *(["scenario"] if "scenario" in results else [])]
+    return results.groupby(keys).ngroups
 
 
 def _evaluate_added(

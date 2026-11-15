@@ -24,45 +24,36 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 import pandas as pd
 
-from .criteria import (
-    Criteria,
-    Requirement,
-    _as_criteria,
-    _costs_of,
-    _get_tolerances,
-    _signs,
-    _violation_of,
-)
-from .dominance import _dominated, _efficient
-from .summary import _check_summary, _groups, aggregate
+from .criteria import Criteria
+from .dominance import dominated, efficient
+from .summary import aggregate
+from .tables import check_summary, groups
 
 
 def _get_costs(frame: pd.DataFrame, criteria: Criteria) -> np.ndarray:
     """
     Gets the objectives of criteria of a data frame (of their columns) as
-    costs (to minimize, see `_costs_of`).
+    costs (to minimize, see `Criteria.costs`).
     """
     missing = [column for column in criteria.objectives if column not in frame]
     if missing:
         raise ValueError(f"no columns of the objectives {missing}")
-    return _costs_of(frame, criteria)
+    return criteria.costs(frame)
 
 
-def _get_violation(
-    frame: pd.DataFrame, requirements: Sequence[Requirement]
-) -> np.ndarray:
+def _get_violation(frame: pd.DataFrame, criteria: Criteria) -> np.ndarray:
     """
-    Gets the total violation of requirements by the rows of a data frame,
-    from the columns of their statistics (infinite where a statistic is
-    missing).
+    Gets the total violation of the requirements of criteria by the rows of a
+    data frame, from the columns of their statistics (infinite where a
+    statistic is missing).
     """
-    missing = [r.name for r in requirements if r.name not in frame.columns]
+    missing = [r.name for r in criteria.requirements if r.name not in frame.columns]
     if missing:
         raise ValueError(
             f"no columns of the statistics {missing} of requirements: aggregate "
             + "the results with the criteria (see aggregate)"
         )
-    violation = _violation_of(frame, requirements, len(frame))
+    violation = criteria.violation(frame, len(frame))
     return np.where(np.isnan(violation), np.inf, violation)
 
 
@@ -103,16 +94,15 @@ def pareto_front(
         ValueError: if the summary has several rows of a design (in a group
             of the criteria's `by`), as the results of a study do.
     """
-    criteria = _as_criteria(criteria)
-    _check_summary(summary, criteria.by)
-    tolerances = _get_tolerances(criteria.objectives, criteria.tolerances)
-    efficient = np.zeros(len(summary), dtype=bool)
-    for _, positions in _groups(summary, criteria.by):
+    criteria = Criteria.of(criteria)
+    check_summary(summary, criteria.by)
+    front = np.zeros(len(summary), dtype=bool)
+    for _, positions in groups(summary, criteria.by):
         group = summary.iloc[positions]
-        meets = _get_violation(group, criteria.requirements) == 0
+        meets = _get_violation(group, criteria) == 0
         costs = _get_costs(group, criteria)
-        efficient[positions] = _efficient(costs, meets, tolerances)
-    return pd.Series(efficient, index=summary.index, name="pareto")
+        front[positions] = efficient(costs, meets, criteria.tolerance_array)
+    return pd.Series(front, index=summary.index, name="pareto")
 
 
 def pareto_ranks(
@@ -140,20 +130,20 @@ def pareto_ranks(
         ValueError: if the summary has several rows of a design (in a group
             of the criteria's `by`), as the results of a study do.
     """
-    criteria = _as_criteria(criteria)
-    _check_summary(summary, criteria.by)
-    tolerances = _get_tolerances(criteria.objectives, criteria.tolerances)
+    criteria = Criteria.of(criteria)
+    check_summary(summary, criteria.by)
+    tolerances = criteria.tolerance_array
     ranks = np.full(len(summary), -1, dtype=int)
-    for _, positions in _groups(summary, criteria.by):
+    for _, positions in groups(summary, criteria.by):
         group = summary.iloc[positions]
-        violation = _get_violation(group, criteria.requirements)
+        violation = _get_violation(group, criteria)
         costs = _get_costs(group, criteria)
         known = ~np.isnan(costs).any(axis=1)
         meets = (violation == 0) & known
         remaining, costs = positions[meets], costs[meets]
         rank = 0
         while len(remaining) > 0:
-            front = ~_dominated(costs, tolerances)
+            front = ~dominated(costs, tolerances)
             ranks[remaining[front]] = rank
             remaining, costs = remaining[~front], costs[~front]
             rank += 1
@@ -177,7 +167,7 @@ def _hypervolume(points: np.ndarray, reference: np.ndarray) -> float:
         return 0.0
     if points.shape[1] == 1:
         return float(reference[0] - points[:, 0].min())
-    points = points[~_dominated(points)]
+    points = points[~dominated(points)]
     order = np.argsort(points[:, -1], kind="stable")
     points = points[order]
     if points.shape[1] == 2:
@@ -229,21 +219,21 @@ def hypervolume(
             results of a study do (see `hypervolume_progress` for those of a
             search).
     """
-    criteria = _as_criteria(criteria)
+    criteria = Criteria.of(criteria)
     if criteria.by:
         raise ValueError(
             "a hypervolume is of the rows of one group: give criteria without `by`"
         )
-    _check_summary(summary)
+    check_summary(summary)
     objectives = criteria.objectives
     if isinstance(reference, Mapping):
         reference = [reference[column] for column in objectives]
     if len(reference) != len(objectives):
         raise ValueError("the reference point needs a value for each objective")
-    bound = _signs(criteria) * np.asarray(reference, dtype=float)
+    bound = criteria.signs * np.asarray(reference, dtype=float)
     if len(summary) == 0:
         return 0.0
-    summary = summary[_get_violation(summary, criteria.requirements) == 0]
+    summary = summary[_get_violation(summary, criteria) == 0]
     costs = _get_costs(summary, criteria)
     costs = costs[np.all(costs < bound, axis=1)]
     return _hypervolume(costs, bound)
@@ -277,7 +267,7 @@ def hypervolume_progress(
     """
     if step < 1:
         raise ValueError("step must be at least 1")
-    criteria = _as_criteria(criteria)
+    criteria = Criteria.of(criteria)
     summary = aggregate(results, criteria).set_index("design")
     order = results["design"].drop_duplicates().tolist()
     counts = list(range(step, len(order) + 1, step))

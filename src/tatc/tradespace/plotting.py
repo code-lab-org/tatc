@@ -24,6 +24,7 @@ import pandas as pd
 
 from .criteria import Criteria
 from .pareto import pareto_front
+from .tables import feasible_records
 
 COLORS = (
     "#2a78d6",
@@ -150,7 +151,7 @@ def _name(names: Mapping[Any, str] | Callable[[Any], str] | None, value: Any) ->
     return names.get(value, str(value))
 
 
-def _groups(values: pd.Series) -> list:
+def _distinct(values: pd.Series) -> list:
     """Gets the distinct values (of a column), sorted if they can be."""
     distinct = list(pd.unique(values.dropna()))
     try:
@@ -262,7 +263,7 @@ def plot_designs(
         )
     else:
         groups = _values_of(frame, by, "by")
-        for k, value in enumerate(_groups(groups)):
+        for k, value in enumerate(_distinct(groups)):
             selected = (groups == value).to_numpy() & shown
             ax.scatter(
                 xs[selected],
@@ -404,12 +405,13 @@ def plot_means(
         matplotlib.axes.Axes: the axes
     """
     ax = _axes(ax, (6.5, 4.2))
-    if "feasible" in results.columns:
-        results = results[results["feasible"].astype(bool)]
+    results = feasible_records(results)[0]
     groups = (
         [(None, results)]
         if by is None
-        else [(value, results[results[by] == value]) for value in _groups(results[by])]
+        else [
+            (value, results[results[by] == value]) for value in _distinct(results[by])
+        ]
     )
     missing = None if by is None else results[results[by].isna()]
     if missing is not None and len(missing) > 0:

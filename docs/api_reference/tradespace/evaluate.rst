@@ -23,10 +23,9 @@ Observation Studies
 .. autoclass:: tatc.tradespace.Targets
    :members: of, seed_of
 
-.. autodata:: tatc.tradespace.references.Reference
-   :annotation:
-
-.. autofunction:: tatc.tradespace.references.value_of
+The parts of observation studies read the values of designs by references
+(see :doc:`define` for :py:data:`tatc.tradespace.references.Reference` and
+:py:func:`tatc.tradespace.value_of`).
 
 Missions of Designs
 ===================
@@ -35,13 +34,13 @@ Missions of Designs
    :no-members:
 
 .. autoclass:: tatc.tradespace.MissionPlan
-   :members: schedule_of, cost_model_of, masses_of, growth_of, stages_of, policy_of, mission_of
+   :members: schedule_of, cost_model_of, masses_of, growth_of, stages_of, policy_of, plan_mission
 
 .. autoclass:: tatc.tradespace.Failures
    :members: seed_of, simulate, evaluate, summarize
 
-.. autoclass:: tatc.tradespace.plans.Mission
-   :members: planned, phases, estimate, histories, metrics, summarize
+.. autoclass:: tatc.tradespace.mission.Mission
+   :members: phases, estimate, histories, metrics, summarize
 
 Stores of Results
 =================
@@ -56,7 +55,7 @@ Caches of Satellites
    :no-members:
 
 .. autoclass:: tatc.tradespace.SatelliteCache
-   :members: get, prune, clear_memory, folder, __call__
+   :members: get, prune, clear_memory, folder, context, contexts, __call__
 
 .. autofunction:: tatc.tradespace.cache.get_satellite_key
 
@@ -71,3 +70,5 @@ Fingerprints
 .. autofunction:: tatc.tradespace.fingerprint.get_definition
 
 .. autofunction:: tatc.tradespace.fingerprint.compare_definitions
+
+.. autofunction:: tatc.tradespace.fingerprint.describe

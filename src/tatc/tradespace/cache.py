@@ -26,13 +26,10 @@ from typing import Any
 import pandas as pd
 
 from ..schemas import Satellite
-from .fingerprint import (
-    _fingerprint_of,
-    _warn_other_code,
-    _with_other_code,
-    get_definition,
-)
-from .hashing import _canonical, _digest
+from .fingerprint import _fingerprint_of, find_stale, get_definition, warn_stale
+from .hashing import canonical, digest
+from .memory import Forgetful
+from .store import _decode, _encode
 
 
 def _write(path: Path, data: bytes, replace: bool = False) -> None:
@@ -77,10 +74,10 @@ def get_satellite_key(satellite: Satellite) -> str:
         str: the key
     """
     data = satellite.model_dump(mode="json", exclude={"name"})
-    return _digest(_canonical({"type": type(satellite).__name__, **data}))
+    return digest(canonical({"type": type(satellite).__name__, **data}))
 
 
-class SatelliteCache:
+class SatelliteCache(Forgetful):
     """
     A cache of an analysis of single satellites, keyed by their content (see
     `get_satellite_key`), in memory and optionally on disk.
@@ -101,7 +98,8 @@ class SatelliteCache:
     the function reads, such as from files, and the code of other modules it
     calls, other than TAT-C's: change it whenever these change), and by the
     satellite, in a folder of each namespace (by a hash of it, with the
-    namespace in `namespace.txt`), and in it a folder of each fingerprint
+    namespace in `namespace.txt`, and a `context` that describes it in
+    `context.json`, see `contexts`), and in it a folder of each fingerprint
     (with the definition in `definition.json`).
 
     A cache warns if its namespace has results only of the same function
@@ -119,17 +117,27 @@ class SatelliteCache:
             results, or `None` to keep them in memory only.
         namespace (str): An identifier of the analysis (of what the
             fingerprint of the function cannot see).
+        context (Any): A description of the namespace, such as the values
+            from which it is made, kept on disk beside its results (see
+            `contexts`): JSON data, or values that `ResultStore` encodes
+            (such as tuples and datetimes), or `None` for none.
     """
+
+    _forgotten = ("_memory", "_unreadable")  # (copies sent to parallel workers)
 
     def __init__(
         self,
         function: Callable[[Satellite], Any],
+        *,
         directory: str | os.PathLike | None = None,
         namespace: str = "",
+        context: Any = None,
     ):
         self.function = function
         self.directory = None if directory is None else Path(directory)
         self.namespace = namespace
+        self.context = context
+        """Any: The description of the namespace, if any."""
         self.fingerprint = ""
         """str: The fingerprint of the function, which keys results on disk."""
         self.hits = 0
@@ -143,13 +151,47 @@ class SatelliteCache:
         if self.directory is not None:
             definition = get_definition(function=function)
             self.fingerprint = _fingerprint_of(definition)
-            space = _digest(namespace, 16)
+            space = digest(namespace, 16)
             self._folder = self.directory / space / self.fingerprint
             self._folder.mkdir(parents=True, exist_ok=True)
             _write(self._folder.parent / "namespace.txt", namespace.encode())
-            _write(self._folder / "definition.json", _canonical(definition).encode())
+            if context is not None:
+                data = json.dumps(_encode(context)).encode()
+                _write(self._folder.parent / "context.json", data)
+            _write(self._folder / "definition.json", canonical(definition).encode())
             self._definition = definition
             self._warn_other_definitions()
+
+    @staticmethod
+    def contexts(directory: str | os.PathLike) -> dict[str, Any]:
+        """
+        Gets the namespaces of the results in a directory (of the caches that
+        share it, see `SatelliteCache`) and their contexts, such as to find
+        the caches of a set of observations (see `Observations.prune`).
+
+        Args:
+            directory (str | os.PathLike): The directory.
+
+        Returns:
+            dict[str, Any]: the context of each namespace (`None` if it has
+                none, or if it cannot be read)
+        """
+        directory = Path(directory)
+        if not directory.is_dir():
+            return {}
+        contexts = {}
+        for folder in directory.iterdir():
+            try:
+                namespace = (folder / "namespace.txt").read_text(encoding="utf-8")
+            except OSError:
+                continue
+            try:
+                context = _decode(json.loads((folder / "context.json").read_text()))
+            except Exception:  # pylint: disable=broad-exception-caught
+                # none, or unreadable (such as pickled by other libraries)
+                context = None
+            contexts[namespace] = context
+        return contexts
 
     @property
     def folder(self) -> Path | None:
@@ -157,17 +199,24 @@ class SatelliteCache:
         definition on disk (in the folder of its namespace), if any."""
         return self._folder
 
-    def __getstate__(self) -> dict:
-        # copies sent to parallel workers start with empty memories
-        state = self.__dict__.copy()
-        state["_memory"], state["_unreadable"] = {}, set()
-        return state
+    def __fingerprint__(self) -> dict:
+        """
+        Gets what identifies the cache in a definition (see
+        `tatc.tradespace.fingerprint`), such as of a cache that a function of
+        a study refers to: its function and namespace, which identify its
+        results (not its directory, nor its counts of hits and misses, nor
+        the results it holds).
+
+        Returns:
+            dict: the function and namespace
+        """
+        return {"function": self.function, "namespace": self.namespace}
 
     def _stale(self) -> dict[Path, int]:
         """
         Gets the folders of the results of the namespace by the function with
-        other code (the same values but for code, see `_with_other_code`),
-        the latest first, and their numbers of results (including folders of
+        other code (the same values but for code, see `find_stale`), the
+        latest first, and their numbers of results (including folders of
         definitions without results).
         """
         folders = [
@@ -177,10 +226,11 @@ class SatelliteCache:
         ]
         folders.sort(key=lambda folder: folder.stat().st_mtime, reverse=True)
         others = {folder: _read_definition(folder) for folder in folders}
-        return {
-            folder: sum(1 for _ in folder.glob("*.pkl"))
-            for folder in _with_other_code(self._definition, others)
-        }
+        return find_stale(
+            self._definition,
+            others,
+            lambda folder: sum(1 for _ in folder.glob("*.pkl")),
+        )
 
     def _warn_other_definitions(self) -> None:
         """
@@ -190,21 +240,23 @@ class SatelliteCache:
         """
         if next(self._folder.glob("*.pkl"), None) is not None:
             return
-        stale = {folder: count for folder, count in self._stale().items() if count}
-        if not stale:
-            return
-        try:
+
+        def first() -> bool:
             # the first cache of the definition to warn marks its folder
-            with open(self._folder / "warned", "x", encoding="utf-8"):
-                pass
-        except FileExistsError:
-            return
-        _warn_other_code(
-            f"the cache in {self.directory} has {sum(stale.values())} results of "
+            try:
+                with open(self._folder / "warned", "x", encoding="utf-8"):
+                    return True
+            except FileExistsError:
+                return False
+
+        warn_stale(
+            self._stale(),
+            self._definition,
+            _read_definition,
+            lambda count: f"the cache in {self.directory} has {count} results of "
             + f"namespace {self.namespace!r} by its function",
             "prune removes them: Observations.prune for the observations of a study",
-            _read_definition(next(iter(stale))),
-            self._definition,
+            once=first,
         )
 
     def prune(self) -> int:

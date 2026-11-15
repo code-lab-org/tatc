@@ -13,10 +13,11 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria, _as_criteria
+from .criteria import Criteria
 from .space import Design, _designs
 from .study import Study
-from .summary import _FEASIBLE, _JUDGMENT, aggregate
+from .summary import aggregate
+from .tables import FEASIBLE, JUDGMENT, efficient_keys
 
 
 @dataclass
@@ -56,14 +57,21 @@ class Confirmation:
         """pandas.Series: The optimism of selection: the mean over the designs
         of their optimism in each objective of the criteria (see
         `summary`), in its units, positive if the selecting replicates made
-        them look better."""
+        them look better (`NaN` without designs)."""
         return pd.Series(
             {
-                name: float(np.nanmean(self.summary[f"{name} optimism"]))
+                name: _mean(self.summary[f"{name} optimism"])
                 for name in self.criteria.objectives
             },
             dtype=float,
         )
+
+
+def _mean(values: pd.Series) -> float:
+    """Gets the mean of the known values (`NaN` without any)."""
+    known = values.to_numpy(dtype=float)
+    known = known[~np.isnan(known)]
+    return float(known.mean()) if len(known) else float("nan")
 
 
 def confirm(
@@ -112,18 +120,17 @@ def confirm(
         Confirmation: the new results, the summary of each design, and the
             designs
     """
-    criteria = _as_criteria(criteria)
+    criteria = Criteria.of(criteria)
     count = study.replicates if replicates is None else replicates
     if count < 1:
         raise ValueError("replicates must be at least 1")
     if designs is None:
-        summary = aggregate(results, criteria, design_columns=[])
-        designs = summary[summary["pareto"]]
+        designs = efficient_keys(aggregate(results, criteria, design_columns=[]))
     designs = _designs(study.space, designs, results)
     keys = {design.key for design in designs}
     start = int(results["replicate"].max()) + 1 if len(results) > 0 else 0
     fresh = study.run(designs, replicate_indices=range(start, start + count))
-    names = [name for name in criteria.names if name != _FEASIBLE]
+    names = [name for name in criteria.names if name != FEASIBLE]
     columns = ["design", *criteria.by]
     confirmed = aggregate(fresh, criteria)
     selected = aggregate(
@@ -139,7 +146,7 @@ def confirm(
         summary[f"{name} optimism"] = sign * (
             summary[f"{name} selected"] - summary[name]
         )
-    status = ["replicates", _FEASIBLE, *_JUDGMENT]
+    status = ["replicates", FEASIBLE, *JUDGMENT]
     values = [c for c in confirmed.columns if c not in {*columns, *names, *status}]
     summary = summary[
         [

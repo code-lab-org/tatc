@@ -13,6 +13,7 @@ from tatc.tradespace import (
     Criteria,
     DesignSpace,
     Integer,
+    Requirement,
     Study,
     Uncertain,
     confirm,
@@ -166,3 +167,34 @@ class TestScreen(unittest.TestCase):
         self.assertTrue(
             (final.pareto_rank == 0).sum() >= pareto_front(final, OBJECTIVES).sum()
         )
+
+
+class TestScreenRequirements(unittest.TestCase):
+    """
+    Unit tests for screening with requirements.
+    """
+
+    def test_misses_ranked_last(self):
+        """Designs that miss requirements are ranked after those that meet them."""
+        space = DesignSpace(a=Integer(1, 6), noise=Uncertain.uniform(0, 1))
+        study = Study(
+            space,
+            lambda d: d,
+            lambda d: {"cost": d.a, "value": d.a**0.5 + d.noise},
+            replicates=2,
+        )
+        screening = screen(
+            [study, study],
+            Criteria(
+                {"cost": "min", "value": "max"},
+                requirements=[Requirement("cost", "<=", 3)],
+            ),
+            space.enumerate(),
+            keep=4,
+        )
+        first = screening.summaries[0].set_index("design")
+        meets = first[first.meets_requirements]
+        misses = first[~first.meets_requirements]
+        self.assertGreater(misses.pareto_rank.min(), meets.pareto_rank.max())
+        # the nearest miss (cost 4) is kept to fill four designs
+        self.assertEqual(sorted(first[first.kept].cost), [1, 2, 3, 4])

@@ -13,24 +13,17 @@ from collections.abc import Sequence
 import numpy as np
 import pandas as pd
 
-from .statistics import _names
-from .summary import _check_summary
-
-_ONE_ROW = (
-    "summarize the results of a study (a row per replicate) first, with a row "
-    + "per design (see aggregate), or select the rows of one group (such as those "
-    + "of a scenario)"
-)
-"""How to give designs a row each."""
+from .tables import check_summary, names
 
 
 def _levels(values: pd.Series, max_levels: int) -> pd.Series:
     """
     Gets the levels of a variable: its values, or (for a numeric variable
-    with more than `max_levels` values) equal-count bins of them.
+    with more than `max_levels` values) equal-count bins of them (intervals,
+    in order).
     """
     if pd.api.types.is_numeric_dtype(values) and values.nunique() > max_levels:
-        return pd.qcut(values, max_levels, duplicates="drop").astype(str)
+        return pd.qcut(values, max_levels, duplicates="drop")
     return values
 
 
@@ -53,13 +46,16 @@ def main_effects(
             its values are grouped in bins of equal counts.
 
     Returns:
-        pandas.DataFrame: a row per level: the `mean`, `std`, and `count` of
+        pandas.DataFrame: a row per level (in order, of the values or of the
+            bins of a numeric variable): the `mean`, `std`, and `count` of
             the metric
     """
-    _check_summary(summary, hint=_ONE_ROW)
+    check_summary(summary)
     active = summary.dropna(subset=[variable, metric])
     levels = _levels(active[variable], max_levels)
-    return active.groupby(levels, sort=True)[metric].agg(["mean", "std", "count"])
+    return active.groupby(levels, sort=True, observed=True)[metric].agg(
+        ["mean", "std", "count"]
+    )
 
 
 def sensitivity(
@@ -112,8 +108,8 @@ def sensitivity(
             variance it explains, and the share of designs in which it is
             `active`, sorted by the share of the first metric
     """
-    _check_summary(summary, hint=_ONE_ROW)
-    variables, metrics = _names(variables), _names(metrics)
+    check_summary(summary)
+    variables, metrics = names(variables), names(metrics)
     rows = []
     for variable in variables:
         row: dict = {"variable": variable}
@@ -127,7 +123,7 @@ def sensitivity(
                 row[metric] = np.nan
                 continue
             levels = _levels(subset[variable], max_levels)
-            means = values.groupby(levels).transform("mean")
+            means = values.groupby(levels, observed=True).transform("mean")
             between = float(((means - values.mean()) ** 2).sum())
             if not adjusted:
                 row[metric] = between / total

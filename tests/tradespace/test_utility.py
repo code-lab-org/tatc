@@ -196,8 +196,11 @@ class TestStatistics(unittest.TestCase):
             {"utility": "max", "cost": "min"}, statistics=[Mean(self.utility)]
         )
         summary = summarize(_results(), criteria).set_index("design")
-        for column in ("utility std", "utility se", "cost std", "cost se"):
+        for column in ("utility std", "utility se"):
             self.assertIn(column, summary.columns)
+        # the cost of each design is the same in every replicate
+        for column in ("cost std", "cost se"):
+            self.assertNotIn(column, summary.columns)
         spread = aggregate(
             _results(),
             criteria,

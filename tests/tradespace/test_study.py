@@ -5,6 +5,7 @@ Unit tests for trade studies.
 """
 
 import importlib.util
+import math
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -23,6 +24,7 @@ from tatc.schemas import (
     WalkerConstellation,
 )
 from tatc.tradespace import (
+    Derived,
     DesignSpace,
     Fixed,
     Infeasible,
@@ -269,7 +271,7 @@ class TestErrors(unittest.TestCase):
     def test_record(self):
         """Errors are recorded as infeasible evaluations, which are not stored."""
         with tempfile.TemporaryDirectory() as directory:
-            store = ResultStore(Path(directory) / "results.sqlite", "errors")
+            store = ResultStore(Path(directory) / "results.sqlite", namespace="errors")
             study = Study(
                 self.space, lambda d: d, self._evaluate, errors="record", store=store
             )
@@ -285,6 +287,34 @@ class TestErrors(unittest.TestCase):
             self.assertTrue(again.feasible.all())
             self.assertEqual(len(store), 4)
 
+    def test_realization(self):
+        """Errors of the realization of a design (such as of a value derived
+        from a drawn uncertain parameter) are recorded too, with the values of
+        the design."""
+        space = DesignSpace(
+            n=Integer(1, 2),
+            u=Uncertain.uniform(-1, 1),
+            root=Derived(lambda d: math.sqrt(d.u)),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            store = ResultStore(Path(directory) / "results.sqlite", namespace="draws")
+            study = Study(
+                space,
+                lambda d: d.n,
+                lambda n: {"m": n},
+                replicates=8,
+                errors="record",
+                store=store,
+            )
+            results = study.run()
+            failed = results[~results.feasible]
+            self.assertTrue(len(failed) > 0)
+            self.assertTrue(failed.error.str.startswith("ValueError: ").all())
+            self.assertEqual(sorted(failed.n.unique()), [1, 2])
+            self.assertEqual(len(store), int(results.feasible.sum()))
+        with self.assertRaises(ValueError):
+            study.replace(errors="raise", store=None).run()
+
 
 class TestFeasibility(unittest.TestCase):
     """
@@ -298,7 +328,7 @@ class TestFeasibility(unittest.TestCase):
 
     @staticmethod
     def _store(directory: str) -> ResultStore:
-        return ResultStore(Path(directory) / "results.sqlite", "feasibility")
+        return ResultStore(Path(directory) / "results.sqlite", namespace="feasibility")
 
     def test_rejected(self):
         """Designs that either function rejects with Infeasible are stored as infeasible."""
@@ -404,7 +434,15 @@ class TestMetricNames(unittest.TestCase):
     def test_reserved_names(self):
         """Metrics named as status columns, or replacing values of designs, raise errors."""
         space = DesignSpace(a=Integer(1, 2), noise=Uncertain.uniform(0, 1))
-        for metrics in ({"replicate": 0}, {"error": 0.1}, {"a": 9}, {"noise": 0.5}):
+        # also `scenario` (and the marker of unstored records) without scenarios
+        for metrics in (
+            {"replicate": 0},
+            {"error": 0.1},
+            {"a": 9},
+            {"noise": 0.5},
+            {"scenario": "mine"},
+            {"_unstored": False},
+        ):
             for errors in ("raise", "record"):
                 with self.subTest(metrics=metrics, errors=errors):
                     study = Study(
@@ -463,6 +501,18 @@ class TestDesignsOfOtherSpaces(unittest.TestCase):
             designs
         )
         self.assertTrue(results.growth.between(1, 2).all())
+
+    def test_other_decisions(self):
+        """Designs with decisions that the study's design space does not have
+        (such as of a design space that extends it) raise, rather than being
+        evaluated without them."""
+        base = DesignSpace(a=Integer(1, 2))
+        spared = base.extend(spares=Integer(0, 1)).design({"a": 1, "spares": 1})
+        study = Study(base, lambda d: d.a, lambda a: {"m": a})
+        with self.assertRaisesRegex(ValueError, "another design space.*spares"):
+            study.run([spared])
+        with self.assertRaisesRegex(ValueError, "another design space.*spares"):
+            study.realize(spared)
 
 
 class TestStudyScenarios(unittest.TestCase):
@@ -526,10 +576,33 @@ class TestArguments(unittest.TestCase):
             Study(space, lambda d: d.u, lambda x: {"s": x}, seed=-1)
 
     def test_keywords(self):
-        """The settings of a study are keywords."""
+        """The settings of a study, and the options of a run, are keywords."""
         space = DesignSpace(n=Integer(1, 2))
         with self.assertRaises(TypeError):
             Study(space, lambda d: d, dict, 3)  # pylint: disable=too-many-function-args
+        study = Study(space, lambda d: d.n, lambda n: {"m": n})
+        with self.assertRaises(TypeError):
+            study.run(None, print)  # pylint: disable=too-many-function-args
+
+    def test_indices(self):
+        """Replicate indices and the offsets of shifts are checked before any
+        evaluation."""
+        calls = []
+        space = DesignSpace(n=Integer(1, 2), u=Uncertain.uniform(0, 1))
+        study = Study(space, lambda d: d.n, lambda n: calls.append(n) or {"m": n})
+        for options in (
+            {"replicate_indices": [0, -1]},
+            {"replicate_indices": [0.5]},
+            {"shift": {"u": -1}},
+            {"shift": {"u": 1.5}},
+        ):
+            with self.subTest(options=options):
+                with self.assertRaisesRegex(ValueError, "non-negative integer"):
+                    study.run(**options)
+        self.assertEqual(calls, [])
+        shifted = study.run(replicate_indices=[2], shift={"u": 1})
+        plain = study.run(replicate_indices=[3])
+        self.assertEqual(list(shifted.u), list(plain.u))
 
 
 class TestEmptyResults(unittest.TestCase):

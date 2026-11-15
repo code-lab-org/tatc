@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 from .space import Design, _keys_of
-from .summary import _get_matrices, _groups
+from .tables import feasible_records, groups, matrices, names
 
 
 def exceedance(
@@ -75,13 +75,13 @@ def exceedance(
             design's less the other's, `<metric> difference`), the
             probability that the design's metric exceeds the other's
             (`exceedance`), and the number of replicates in which both are
-            feasible (`replicates`)
+            feasible (`shared_replicates`)
 
     Raises:
         ValueError: if the results lack the metric or a design, or have
             several records of a design in a replicate (of a group).
     """
-    by = (by,) if isinstance(by, str) else tuple(by)
+    by = tuple(names(by))
     if metric not in results.columns:
         raise ValueError(f"no metric {metric!r} in the results")
     keys = None if designs is None else _keys_of(designs)
@@ -91,17 +91,15 @@ def exceedance(
         if missing:
             raise ValueError(f"no results of designs {missing[:5]}")
     frames = []
-    for group_key, positions in _groups(results, by):
+    for group_key, positions in groups(results, by):
         group = results.iloc[positions]
         index = pd.Index(group["design"].unique() if keys is None else keys)
         if index.empty:
             continue
-        if "feasible" in group:
-            group = group[group["feasible"].astype(bool)]
-        _, _, matrices = _get_matrices(
+        group = feasible_records(group)[0]
+        values = matrices(
             group, [metric], index, hint="give the columns that separate them as `by`"
-        )
-        values = matrices[metric]
+        )[2][metric]
         valid = ~np.isnan(values)
         if keys is None:
             # by the mean of the metric, designs without feasible results last
@@ -114,7 +112,7 @@ def exceedance(
             "other": [],
             "difference": [],
             "exceedance": [],
-            "replicates": [],
+            "shared_replicates": [],
         }
         for i, design in enumerate(index):
             both = valid[i] & valid
@@ -127,7 +125,7 @@ def exceedance(
                 parts["exceedance"].append((greater + 0.5 * ties) / counts)
             parts["design"].append(np.full(len(index), design, dtype=object))
             parts["other"].append(np.asarray(index, dtype=object))
-            parts["replicates"].append(counts)
+            parts["shared_replicates"].append(counts)
         frame = pd.DataFrame(
             {
                 "design": np.concatenate(parts["design"]),
@@ -135,7 +133,7 @@ def exceedance(
                 **dict(zip(by, group_key)),
                 f"{metric} difference": np.concatenate(parts["difference"]),
                 "exceedance": np.concatenate(parts["exceedance"]),
-                "replicates": np.concatenate(parts["replicates"]),
+                "shared_replicates": np.concatenate(parts["shared_replicates"]),
             }
         )
         frames.append(frame)
@@ -147,7 +145,7 @@ def exceedance(
                 *by,
                 f"{metric} difference",
                 "exceedance",
-                "replicates",
+                "shared_replicates",
             ]
         )
     return pd.concat(frames, ignore_index=True)

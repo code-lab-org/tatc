@@ -1,16 +1,17 @@
 """
-Views of the values of designs, and the scopes given to the callables of
-design spaces.
+Views of the values of designs, the scopes given to the callables of design
+spaces, and the paths of values (see `Values`).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from __future__ import annotations
 
-import dataclasses
 import re
 from collections.abc import Iterator, Mapping
 from typing import Any
+
+import numpy as np
 
 
 class _ChoiceValue:
@@ -68,6 +69,43 @@ def _join(path: str, segment: str | int) -> str:
     if isinstance(segment, int):
         return f"{path}[{segment}]"
     return f"{path}.{segment}" if path else segment
+
+
+_ITEM_INDEX = re.compile(r"\[\d+\]")
+"""The index of an item of a repetition in a path (`[k]`)."""
+
+
+def generic_path(path: str) -> str:
+    """
+    Gets the path of the node of a value: its path (see `Design.flat`) with
+    `[*]` for the index of any item of a repetition, as the paths of
+    uncertain parameters (see `DesignSpace.uncertain_paths`), shifts, and
+    the overrides of scenarios name them (such as `planes[*].phase` of
+    `planes[2].phase`).
+
+    Args:
+        path (str): The path of a value.
+
+    Returns:
+        str: the path, with `[*]` for the indices of items
+    """
+    return _ITEM_INDEX.sub("[*]", path)
+
+
+def is_number(value: Any) -> bool:
+    """
+    Whether a value is a number: an integer or a float (also of numpy), but
+    not a boolean.
+
+    Args:
+        value (Any): The value.
+
+    Returns:
+        bool: `True` if the value is a number
+    """
+    return isinstance(value, (int, float, np.number)) and not isinstance(
+        value, (bool, np.bool_)
+    )
 
 
 def _step(value: Any, segment: str | int, path: str) -> Any:
@@ -165,9 +203,10 @@ class ChoiceValues:
         d.layout == "walker"  # d.layout.choice == "walker"
         d.layout.planes  # d.layout.walker.planes, if it chose walker
 
-    An attribute is a value of the branch if the branch has one of that
-    name, and otherwise the branch, if it is the branch's name; a path (see
-    `Values`) names the branch first, as the columns of results do.
+    An attribute is a value of the branch (of a branch that is a group, a
+    choice, or a repetition) if the branch has one of that name, and
+    otherwise the branch, if it is the branch's name; a path (see `Values`)
+    names the branch first, as the columns of results do.
     """
 
     def __init__(self, value: _ChoiceValue):
@@ -188,14 +227,18 @@ class ChoiceValues:
         # then the branch by its name (which paths give first, see `Values`)
         if name.startswith("_"):
             raise AttributeError(name)
-        try:
-            return getattr(self.value, name)
-        except AttributeError:
-            if name == self._value.choice:
-                return self.value
-            raise AttributeError(
-                f"the choice chose {self.choice!r}, which has no value {name!r}"
-            ) from None
+        value = self.value
+        if isinstance(value, (Values, ChoiceValues, RepeatValues)):
+            # not the attributes of a branch that is a plain value (a variable)
+            try:
+                return getattr(value, name)
+            except AttributeError:
+                pass
+        if name == self._value.choice:
+            return value
+        raise AttributeError(
+            f"the choice chose {self.choice!r}, which has no value {name!r}"
+        )
 
     def __getitem__(self, name: str) -> Any:
         return _resolve_path(self, name)
@@ -338,44 +381,3 @@ class Scope:
             value = _step(value, segment, walked)
             walked = _join(walked, segment)
         return value
-
-
-def configure(base: Any, values: Any = None, **overrides: Any) -> Any:
-    """
-    Configures a dataclass (such as a `RestorationPolicy` or a
-    `DeploymentSchedule`) from the values of a design: the fields of `base`
-    that the values name (such as those of `policy_space`, or design
-    variables named after fields) are replaced by them, as are those given
-    as keyword arguments. Values that name no field are ignored.
-
-    Args:
-        base (Any): The dataclass instance, whose other fields are kept.
-        values (Any): The values of a design (a `Design`, a `Values` or
-            `ChoiceValues` view, or a mapping), or `None`.
-        **overrides (Any): Other values of fields.
-
-    Returns:
-        Any: a copy of `base` with the values of its fields
-
-    Raises:
-        TypeError: if `base` is not a dataclass instance, or `values` are
-            not values of a design.
-    """
-    if not dataclasses.is_dataclass(base) or isinstance(base, type):
-        raise TypeError("configure requires a dataclass instance")
-    if isinstance(values, ChoiceValues):
-        values = values.value
-    elif values is not None and not isinstance(values, Mapping):
-        # a design (see `Design.values`), whose module imports this one
-        view = getattr(values, "values", None)
-        if not isinstance(view, Values):
-            raise TypeError(
-                f"configure requires the values of a design, not {values!r}"
-            )
-        values = view
-    names = {field.name for field in dataclasses.fields(base)}
-    changes = {name: values[name] for name in (values or {}) if name in names}
-    unknown = set(overrides) - names
-    if unknown:
-        raise ValueError(f"no fields named {sorted(unknown)}")
-    return dataclasses.replace(base, **changes, **overrides)

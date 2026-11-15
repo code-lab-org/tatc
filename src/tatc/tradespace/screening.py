@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from .criteria import Criteria, _as_criteria
+from .criteria import Criteria
 from .pareto import pareto_ranks
 from .space import Design, _designs
 from .study import Study
@@ -158,10 +158,10 @@ def screen(
     for amount in keeps:
         _check_keep(amount)
     if isinstance(criteria, (Criteria, Mapping)):
-        stages = [_as_criteria(criteria)] * len(studies)
+        stages = [Criteria.of(criteria)] * len(studies)
     else:
         stages = [
-            _as_criteria(c) for c in _per_stage(criteria, len(studies), "criteria")
+            Criteria.of(c) for c in _per_stage(criteria, len(studies), "criteria")
         ]
     for criteria in stages:
         if criteria.by:

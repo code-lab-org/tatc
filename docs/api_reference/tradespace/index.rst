@@ -43,8 +43,9 @@ before::
    design, and their Pareto efficiency.
 4. **Settle** the uncertainty of the replicates, or **search** spaces too
    large to enumerate (:doc:`search`). Each of these steps takes a study and
-   criteria, and returns its `results`, the `summary` of its designs, and the
-   `designs` themselves, for the next step.
+   criteria, and returns its `results`, the `summary` of its designs, the
+   `designs` themselves, for the next step, and its `criteria` (as an outcome,
+   such as a `Refinement`, see :doc:`search`).
 
 Results and Summaries
 =====================
@@ -86,14 +87,16 @@ and columns that TAT-C defines are named in snake case:
   convention if given without names (see `Statistic.name`, such as
   `"cost p70"` for `Quantile("cost", 0.7)`), the means of metrics by
   their names, and `<metric> std` and `<metric> se` (by `summarize`, and the
-  standard error of each objective by `pareto_probability`), and of
-  confirmed designs, `<statistic> selected` (by the replicates that selected
-  them) and `<objective> optimism`.
+  standard error of each objective by `pareto_probability`, left out where
+  they are zero for every design), and of confirmed designs, `<statistic>
+  selected` (by the replicates that selected them) and `<objective>
+  optimism`. A statistic other than the mean of a metric must not have the
+  name of a column of the results.
 * statistics within a replicate, over the mission of a design (see
   `ObservationStudy`): `<metric> mission` (the mean over the phases of the
   mission), `<metric> time` (when the phases first meet a requirement), and,
   over the histories of its failures, `<column> histories p<percent>`,
-  `<column> histories std`, and `P(<requirement>)`.
+  `<column> histories std`, and `P(<requirement>) histories`.
 * columns of judgments: `violation`, `meets_requirements`, `pareto`,
   `pareto_rank`, `pareto_probability`, `requirements_probability`,
   `pareto_trace`, `max_regret`, and the `<scenario> regret` of each scenario.

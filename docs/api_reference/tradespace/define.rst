@@ -12,7 +12,13 @@ Design Spaces and Designs
    :members: enumerate, size, sample, design, designs_of, extend, suggest, unit_paths, uncertain_paths, check_uncertain, check_overrides, encode, decode
 
 .. autoclass:: tatc.tradespace.Design
-   :members: flat, realize, values, decisions, scenario
+   :members: flat, uncertain_values, realize, values, decisions, scenario
+
+.. autodata:: tatc.tradespace.space.RESERVED_NAMES
+   :annotation:
+
+.. autodata:: tatc.tradespace.space.STATUS_COLUMNS
+   :annotation:
 
 Variables and Values
 ====================
@@ -80,4 +86,21 @@ and the values of designs are views of the values decided so far.
 
 .. autoclass:: tatc.tradespace.values.Scope
 
-.. autofunction:: tatc.tradespace.values.configure
+.. autofunction:: tatc.tradespace.values.generic_path
+
+Reading Designs
+===============
+
+.. automodule:: tatc.tradespace.references
+   :no-members:
+
+.. autodata:: tatc.tradespace.references.Reference
+   :annotation:
+
+.. autofunction:: tatc.tradespace.value_of
+
+.. autofunction:: tatc.tradespace.configure
+
+.. autofunction:: tatc.tradespace.references.takes_design
+
+.. autofunction:: tatc.tradespace.references.given_design

@@ -49,7 +49,7 @@ class TestExceedance(unittest.TestCase):
         self.assertEqual(compared.loc[("c", "a"), "exceedance"], 1.0)
         self.assertAlmostEqual(compared.loc[("a", "b"), "cost difference"], 0.0)
         self.assertAlmostEqual(compared.loc[("c", "a"), "cost difference"], 6.5)
-        self.assertTrue((compared["replicates"] == 4).all())
+        self.assertTrue((compared["shared_replicates"] == 4).all())
         self.assertEqual(len(compared), 9)
 
     def test_order_and_infeasible(self):
@@ -62,12 +62,12 @@ class TestExceedance(unittest.TestCase):
         compared = exceedance(results, "cost", ["b", "a"])
         self.assertEqual(list(compared["design"]), ["b", "b", "a", "a"])
         pair = compared[(compared.design == "b") & (compared.other == "a")].iloc[0]
-        self.assertEqual(pair["replicates"], 2)
+        self.assertEqual(pair["shared_replicates"], 2)
         self.assertEqual(pair["exceedance"], 1.0)
         missing = _results({"a": [np.nan, np.nan], "b": [1.0, 2.0]})
         pair = exceedance(missing, "cost").set_index(["design", "other"])
         self.assertTrue(np.isnan(pair.loc[("a", "b"), "exceedance"]))
-        self.assertEqual(pair.loc[("a", "b"), "replicates"], 0)
+        self.assertEqual(pair.loc[("a", "b"), "shared_replicates"], 0)
 
     def test_groups(self):
         """Designs are compared in each group of `by`, which several records of
@@ -104,7 +104,7 @@ class TestExceedance(unittest.TestCase):
         results["feasible"] = False
         compared = exceedance(results, "cost")
         self.assertEqual(len(compared), 4)
-        self.assertTrue((compared["replicates"] == 0).all())
+        self.assertTrue((compared["shared_replicates"] == 0).all())
         empty = exceedance(results.iloc[:0], "cost")
         self.assertTrue(empty.empty)
         self.assertIn("exceedance", empty.columns)

@@ -5,16 +5,8 @@ observations and, with a mission plan (see the module `plans`), its
 deployment and costs, the histories of its failures, and the phases of its
 mission.
 
-The parts refer to the values of designs by a `Reference` (see `value_of`):
-a name (such as `"points_seed"` for `d.points_seed`, or a path of
-`Design.flat`, such as `"layout.walker.planes"`), or a function of the
-(realized) design (such as `lambda d: d.layout`). A string given where a
-reference is expected is always a reference, never a value itself: give a
-function that returns a string (or a number, where numbers are references)
-to give a value::
-
-    MissionPlan(SCHEDULE, COST_MODEL, kind="field_of_regard")  # d.field_of_regard
-    MissionPlan(SCHEDULE, COST_MODEL, kind=lambda d: "imager")  # always "imager"
+The parts refer to the values of designs as `tatc.tradespace.references`
+describes.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -22,36 +14,33 @@ to give a value::
 from __future__ import annotations
 
 import dataclasses
-import json
 import os
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from functools import partial
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from ..analysis import collect_observations
 from ..schemas import Satellite
-from .cache import SatelliteCache, _write
+from .cache import SatelliteCache
 from .constellations import count_planes
 from .criteria import Requirement
-from .mission import Capability, PhaseCache, _given_design
-from .plans import Failures, Mission, MissionPlan
-from .references import Reference, value_of
+from .memory import Forgetful
+from .mission import Capability, Mission, PhaseCache
+from .plans import Failures, MissionPlan
+from .references import Reference, given_design, takes_design, value_of
 from .space import Design, DesignSpace
-from .store import _decode, _encode
-from .study import Study, _Case, _takes_design
-from .walks import _generic
+from .study import Study, _Case
 
 _MAX_TARGETS = 32
 """The most sets of targets (of seeds) kept in memory."""
 
 
 @dataclasses.dataclass(frozen=True, eq=False, init=False)
-class Targets:
+class Targets(Forgetful):
     """
     The targets of observations (such as points): fixed (a data frame), or
     generated in each replicate by a function (such as
@@ -74,6 +63,7 @@ class Targets:
     arguments: tuple
     keywords: dict
     seed: Reference | None
+    _forgotten = ("_memory",)  # (copies sent to parallel workers)
 
     def __init__(
         self,
@@ -94,12 +84,6 @@ class Targets:
         object.__setattr__(self, "keywords", dict(keywords))
         object.__setattr__(self, "seed", seed)
         object.__setattr__(self, "_memory", {})
-
-    def __getstate__(self) -> dict:
-        # copies sent to parallel workers start with empty memories
-        state = self.__dict__.copy()
-        state["_memory"] = {}
-        return state
 
     def seed_of(self, design: Design | None) -> Any:
         """
@@ -151,17 +135,23 @@ class Targets:
 
 def _observe(
     analysis: Callable,
-    targets: Any,
+    targets: Targets,
+    seed: Any,
     start: datetime,
     end: datetime,
     satellite: Satellite,
 ) -> pd.DataFrame:
-    """The observations of the targets by a satellite (see `Observations`)."""
-    return analysis(targets, satellite, start, end)
+    """
+    The observations of the targets of a seed by a satellite (see
+    `Observations`), generating them only if needed (and keeping them).
+    """
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
+    # pylint: disable-next=protected-access
+    return analysis(targets._of_seed(seed), satellite, start, end)
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
-class Observations:
+class Observations(Forgetful):
     """
     The observations of targets by satellites over a period, by an analysis
     of one satellite (such as `tatc.analysis.collect_observations`, called
@@ -169,10 +159,13 @@ class Observations:
     (see `SatelliteCache`) and each set of targets (of a seed, see
     `Targets`), in memory, or on disk in a `directory` (shared by the
     parallel workers of a study, and between sessions). The results on disk
-    are keyed by the fingerprint of the analysis, which describes the
-    targets by their content: the `namespace` need only identify data that
-    the analysis reads (such as from files) and the code of other modules it
-    calls (other than TAT-C's).
+    are keyed by the fingerprint of the analysis, which describes fixed
+    targets by their content and generated targets by their recipe (see
+    `Targets`: their function, its arguments, and the seed's reference),
+    and in a namespace of the seed and the period, so that opening a cache
+    generates no targets: the `namespace` need only identify data that the
+    analysis (or the function of the targets) reads, such as from files, and
+    the code of other modules it calls (other than TAT-C's).
 
     The period is one window that represents the mission (see
     `evaluate_phases`): its start may be a value of the design (see
@@ -208,17 +201,12 @@ class Observations:
         default=None, metadata={"fingerprint": False}
     )
     namespace: str = ""
+    _forgotten = ("_caches",)  # (copies sent to parallel workers)
 
     def __post_init__(self):
         if isinstance(self.targets, pd.DataFrame):
             object.__setattr__(self, "targets", Targets(self.targets))
         object.__setattr__(self, "_caches", {})
-
-    def __getstate__(self) -> dict:
-        # copies sent to parallel workers start without caches
-        state = self.__dict__.copy()
-        state["_caches"] = {}
-        return state
 
     @property
     def end(self) -> datetime:
@@ -299,8 +287,9 @@ class Observations:
     def _cache(self, seed: Any, start: datetime) -> SatelliteCache:
         """
         Gets the cache of the observations of the targets of a seed from a
-        start (see `cache_of`), with the seed and start in its namespace's
-        folder (`context.json`), from which `prune` finds it.
+        start (see `cache_of`), with the seed and start as the context of its
+        namespace (see `SatelliteCache.contexts`), from which `prune` finds
+        it. Its function generates the targets only if it computes a result.
         """
         if (seed, start) not in self._caches:
             if len(self._caches) >= _MAX_TARGETS:
@@ -308,17 +297,17 @@ class Observations:
             function = partial(
                 _observe,
                 self.analysis,
-                self.targets._of_seed(seed),  # pylint: disable=protected-access
+                self.targets,
+                seed,
                 start,
                 start + self.duration,
             )
-            cache = SatelliteCache(
-                function, self.directory, self._namespace(seed, start)
+            self._caches[seed, start] = SatelliteCache(
+                function,
+                directory=self.directory,
+                namespace=self._namespace(seed, start),
+                context=(seed, start),
             )
-            if self.directory is not None:
-                context = json.dumps(_encode([seed, start])).encode()
-                _write(cache.folder.parent / "context.json", context)
-            self._caches[seed, start] = cache
         return self._caches[seed, start]
 
     def prune(self) -> int:
@@ -332,14 +321,14 @@ class Observations:
         Returns:
             int: the number of results removed (0 without a directory)
         """
-        if self.directory is None or not Path(self.directory).is_dir():
+        if self.directory is None:
             return 0
         removed = 0
-        for folder in Path(self.directory).iterdir():
-            try:
-                seed, start = _decode(json.loads((folder / "context.json").read_text()))
-                namespace = (folder / "namespace.txt").read_text(encoding="utf-8")
-            except (OSError, ValueError, TypeError):
+        for namespace, context in SatelliteCache.contexts(self.directory).items():
+            if not isinstance(context, (tuple, list)) or len(context) != 2:
+                continue  # of other caches
+            seed, start = context
+            if not isinstance(start, datetime):
                 continue
             if namespace != self._namespace(seed, start):
                 continue  # of other observations
@@ -378,11 +367,8 @@ def _uncertain_values(design: Design) -> tuple:
     Gets the values of the uncertain parameters of a realized design, by
     path (see `DesignSpace.uncertain_paths`), as a key.
     """
-    paths = set(design.space.uncertain_paths())
     return tuple(
-        (path, _hashable(value))
-        for path, value in design.flat().items()
-        if _generic(path) in paths
+        (path, _hashable(value)) for path, value in design.uncertain_values().items()
     )
 
 
@@ -414,13 +400,19 @@ class _Evaluation:
         layout = value_of(design, self.layout)
         if layout is not None:
             record["planes"] = count_planes(layout)
-        mission = None
-        if self.plan is not None:
-            mission = self.mission_of(satellites, observations, design)
-            record.update(mission.metrics())
-        record.update(_given_design(self.metrics, design)(observations))
-        if mission is not None:
-            record.update(mission.summarize(self.phases))
+        if self.plan is None:
+            record.update(given_design(self.metrics, design)(observations))
+            return record
+        mission = self.mission_from(satellites, observations, design)
+        record.update(mission.metrics())
+        if "satellite" in observations.columns:
+            # those of every satellite by the capability, whose cache the
+            # phases of the mission (such as its last) share
+            capability = mission.capability
+            record.update(capability(capability.names))
+        else:
+            record.update(given_design(self.metrics, design)(observations))
+        record.update(mission.summarize(self.phases))
         return record
 
     def context_of(self, design: Design) -> tuple:
@@ -433,20 +425,20 @@ class _Evaluation:
         random numbers).
         """
         context = self.observations.context_of(design)
-        if _takes_design(self.metrics):
+        if takes_design(self.metrics):
             context = (context, design.scenario, _uncertain_values(design))
         return context
 
-    def mission_of(
+    def mission_from(
         self,
         satellites: Sequence[Satellite],
         observations: pd.DataFrame,
         design: Design,
     ) -> Mission:
         """
-        Plans the mission of a realized design (see `MissionPlan.mission_of`),
-        with the capability of its satellites (and the cache of the metrics
-        of their phases).
+        Plans the mission of a realized design from its satellites and their
+        observations (see `MissionPlan.plan_mission`), with the capability of
+        its satellites (and the cache of the metrics of their phases).
         """
         capability = Capability(
             satellites,
@@ -455,7 +447,7 @@ class _Evaluation:
             context=self.context_of(design),
             design=design,
         )
-        return self.plan.mission_of(
+        return self.plan.plan_mission(
             design, value_of(design, self.layout), capability, self.failures
         )
 
@@ -486,8 +478,9 @@ class ObservationStudy(Study):
     * the metrics of the observations of every satellite (by their names).
     * with a plan: `deployed`, the years from the start of development to the
       last launch of the first generation of the satellites in the history
-      of the mission without failures (see `Mission.planned`), including the
-      stages that their rules deploy then (see `Stage`); with stages, `stages
+      of the mission without failures (see `Deployment.planned`), including
+      the stages that their rules deploy then (see `Stage`), infinite if the
+      deployment does not finish within the mission; with stages, `stages
       deployed`, the number of stages that their rules deploy then (with
       failures, the mean over the histories); and, with a cost model, the
       costs of the deployment (`cost`, `cost development`, and so on, see
@@ -505,8 +498,8 @@ class ObservationStudy(Study):
       costs, and of the times of each history that meets the requirements of
       the `phases` of the failures (`<metric> time`); and the `quantiles` of
       columns over the histories (`<column> histories p<percent>`) and the
-      shares of the histories that meet `requirements` (`P(<requirement>)`),
-      see `summarize_histories`.
+      shares of the histories that meet `requirements` (`P(<requirement>)
+      histories`), see `summarize_histories`.
 
     Statistics over the replicates of these columns (see `Criteria`) judge
     designs: such as the mean over the replicates of `accurate mission`, or a
@@ -690,10 +683,11 @@ class ObservationStudy(Study):
     ) -> Mission:
         """
         Gets the mission of a replicate of a design, as its evaluation plans
-        it (see `MissionPlan.mission_of`), for analyses other than its
+        it (see `MissionPlan.plan_mission`), for analyses other than its
         metrics: its planned deployment (`Mission.deployment`, with the
         plan's schedule, type, policy and spares, masses, and stages, and the
-        capability of its satellites, which the rules of stages read), the
+        capability of its satellites, which the rules of stages read, whose
+        history without failures `Deployment.planned` gives), the
         metrics of its phases (`Mission.phases`, which a study with `phases`
         summarizes), its cost estimate (`Mission.estimate`, the costs of a
         study without failures), and the histories of its failures
@@ -717,7 +711,7 @@ class ObservationStudy(Study):
         realized = self.realize(design, replicate, scenario)
         satellites = list(self.build(realized))
         observations = self.observations(satellites, realized)
-        return self.evaluate.mission_of(satellites, observations, realized)
+        return self.evaluate.mission_from(satellites, observations, realized)
 
     def prune(self) -> int:
         """

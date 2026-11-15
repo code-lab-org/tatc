@@ -287,7 +287,9 @@ class TestAttributeVariance(unittest.TestCase):
             return _evaluate(d)
 
         with tempfile.TemporaryDirectory() as directory:
-            store = ResultStore(Path(directory) / "results.sqlite", "attribution")
+            store = ResultStore(
+                Path(directory) / "results.sqlite", namespace="attribution"
+            )
             study = Study(SPACE, lambda d: d, evaluate, replicates=3, store=store)
             first = attribute_variance(study, ["y"], self.designs, sample_size=3)
             self.assertEqual(len(self.calls), 2 * (2 * 3 + 3 * 3))

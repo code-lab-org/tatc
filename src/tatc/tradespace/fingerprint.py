@@ -20,6 +20,11 @@ values they close over, and their defaults), or are within other values:
     metadata has `"fingerprint": False` (such as directories of caches,
     which do not change results);
   - the nodes of design spaces, by their attributes;
+  - objects that describe themselves by a method `__fingerprint__()`, by
+    the value that it returns, which is described in their place: designs
+    (by their design space, decisions, replicate, and scenario) and caches
+    of satellites (by their function and namespace, not their counts of
+    hits and misses, nor what they hold);
   - partial functions (by their function and arguments), bound methods (by
     their function and object), and functions that decorators wrap (such
     as by `functools.lru_cache`, by the wrapped function).
@@ -45,11 +50,13 @@ values they close over, and their defaults), or are within other values:
   classes and built-in functions (but the study's own classes), and modules
   (but the attributes of the study's own modules that functions refer to).
 
-- By type: other objects, such as those of installed classes (a cache, or a
-  connection), whose state does not change results.
+- By type: other objects, such as those of installed classes (a connection,
+  or a lock) and those of TAT-C's classes that none of the rules above
+  describe, whose state a definition takes not to change results.
 
 - Not at all: data that functions read (such as from files) and the code of
-  installed modules other than TAT-C's. Identify them by a namespace (see
+  installed modules other than TAT-C's. Identify them, and the state of
+  objects described by type that changes results, by a namespace (see
   `ResultStore` and `SatelliteCache`).
 
 TAT-C is described by the source of the modules that the values depend on:
@@ -89,7 +96,7 @@ import shapely
 from pydantic import BaseModel
 
 from .alerts import _warn
-from .hashing import _canonical, _digest
+from .hashing import canonical, digest
 from .nodes import Node
 
 _MAX_DEPTH = 24
@@ -98,8 +105,9 @@ _MAX_DEPTH = 24
 _MAX_ITEMS = 1000
 """The most items of a container (or array) described one by one."""
 
-_PACKAGE = "tatc"
-"""The name of the package whose modules a definition describes by source."""
+_TATC = "tatc"
+"""The name of the package (TAT-C) whose modules a definition describes by
+source."""
 
 _ROOT = Path(__file__).resolve().parents[1]
 """The directory of the package."""
@@ -117,16 +125,24 @@ def _name(value: Any) -> str:
     return f"{getattr(value, '__module__', None)}.{value.__qualname__}"
 
 
-def _is_package_module(module: Any) -> bool:
-    """Whether a module name is of the package (TAT-C)."""
+def _is_tatc_module(module: Any) -> bool:
+    """Whether a module name is of TAT-C (or is TAT-C's package)."""
     return isinstance(module, str) and (
-        module == _PACKAGE or module.startswith(_PACKAGE + ".")
+        module == _TATC or module.startswith(_TATC + ".")
     )
 
 
 def _is_dataclass(value: Any) -> bool:
     """Whether a value is an instance of a dataclass (such as a cost model)."""
     return dataclasses.is_dataclass(value) and not isinstance(value, type)
+
+
+def _has_fingerprint(value: Any) -> bool:
+    """
+    Whether a value is an object that describes itself (by a method
+    `__fingerprint__`, see `_Describer.fingerprinted`), not a class.
+    """
+    return callable(getattr(type(value), "__fingerprint__", None))
 
 
 @functools.lru_cache(maxsize=1)
@@ -145,7 +161,7 @@ def _is_own_module(module: Any) -> bool:
     (such as `__main__`, or a module next to a notebook), so that its
     functions are described by their code (see the module).
     """
-    if not isinstance(module, str) or _is_package_module(module):
+    if not isinstance(module, str) or _is_tatc_module(module):
         return False
     if module == "__main__":
         return True
@@ -199,17 +215,17 @@ def _frame(value: pd.DataFrame | pd.Series) -> dict:
     a hash of its index and values.
     """
     frame = value.to_frame() if isinstance(value, pd.Series) else value
-    digest = hashlib.sha1()
-    digest.update(pd.util.hash_pandas_object(frame.index).to_numpy().tobytes())
+    hasher = hashlib.sha1()
+    hasher.update(pd.util.hash_pandas_object(frame.index).to_numpy().tobytes())
     for i in range(frame.shape[1]):
-        digest.update(_hash_column(frame.iloc[:, i]))
+        hasher.update(_hash_column(frame.iloc[:, i]))
     return {
         **_type(value),
         "columns": [str(column) for column in frame.columns],
         "types": [str(dtype) for dtype in frame.dtypes],
         "index": str(frame.index.dtype),
         "shape": list(value.shape),
-        "data": digest.hexdigest(),
+        "data": hasher.hexdigest(),
     }
 
 
@@ -309,7 +325,7 @@ class _Describer:
 
     def note(self, module: Any) -> None:
         """Notes a module that a value refers to (if it is of the package)."""
-        if _is_package_module(module):
+        if _is_tatc_module(module):
             self.modules.add(module)
 
     def describe(self, value: Any, depth: int = 0, seen: set | None = None) -> Any:
@@ -374,6 +390,21 @@ class _Describer:
             described["class"] = self.klass(type(value), depth + 1, seen)
         return described
 
+    def fingerprinted(self, value: Any, depth: int, seen: set) -> dict:
+        """
+        Describes an object by the value that its method `__fingerprint__()`
+        returns (such as a design by its design space and decisions), which
+        identifies what of it changes results.
+        """
+        self.note(type(value).__module__)
+        if id(value) in seen:
+            return {**_type(value), "recursive": True}
+        seen = seen | {id(value)}
+        return {
+            **_type(value),
+            "fingerprint": self.describe(value.__fingerprint__(), depth + 1, seen),
+        }
+
     def model(self, value: BaseModel, depth: int, seen: set) -> dict:
         """Describes a pydantic model by its data."""
         del depth, seen
@@ -411,9 +442,7 @@ class _Describer:
         """Describes a set by its sorted items (or its length, if long)."""
         if len(value) > _MAX_ITEMS:
             return {**_type(value), "length": len(value)}
-        return sorted(
-            (self.describe(v, depth + 1, seen) for v in value), key=_canonical
-        )
+        return sorted((self.describe(v, depth + 1, seen) for v in value), key=canonical)
 
     def mapping(self, value: dict, depth: int, seen: set) -> Any:
         """
@@ -428,7 +457,7 @@ class _Describer:
             [self.describe(k, depth + 1, seen), self.describe(v, depth + 1, seen)]
             for k, v in value.items()
         )
-        return sorted(pairs, key=_canonical)
+        return sorted(pairs, key=canonical)
 
     def node(self, value: Node, depth: int, seen: set) -> dict:
         """Describes a node of a design space by its attributes."""
@@ -642,6 +671,7 @@ _RULES: tuple[tuple[tuple[type, ...] | Callable[[Any], bool], Callable], ...] = 
     ((bytes,), _Describer.binary),
     ((datetime, date, time), _Describer.moment),
     ((timedelta,), _Describer.duration),
+    (_has_fingerprint, _Describer.fingerprinted),
     (_is_dataclass, _Describer.dataclass),
     ((BaseModel,), _Describer.model),
     ((np.ndarray,), _Describer.array),
@@ -681,12 +711,12 @@ def _module_files() -> dict[str, Path]:
         parts = path.relative_to(_ROOT).with_suffix("").parts
         if parts[-1] == "__init__":
             parts = parts[:-1]
-        found[".".join((_PACKAGE, *parts))] = path
+        found[".".join((_TATC, *parts))] = path
     return found
 
 
-def _is_package(module: str) -> bool:
-    """Whether a module of the package is a package (an `__init__.py`)."""
+def _is_init_module(module: str) -> bool:
+    """Whether a module of TAT-C is a package (an `__init__.py`)."""
     path = _module_files().get(module)
     return path is not None and path.name == "__init__.py"
 
@@ -701,7 +731,7 @@ def _absolute(module: str, node: ast.ImportFrom) -> str:
     """Gets the absolute name of the module of an import from a module."""
     if node.level == 0:
         return node.module or ""
-    package = module if _is_package(module) else module.rpartition(".")[0]
+    package = module if _is_init_module(module) else module.rpartition(".")[0]
     parts = package.split(".")
     parts = parts[: len(parts) - (node.level - 1)]
     return ".".join(parts + ([node.module] if node.module else []))
@@ -726,7 +756,7 @@ def _assigned(node: ast.stmt) -> tuple[list[str], ast.AST | None]:
 
 
 @functools.lru_cache(maxsize=None)
-def _resolve(module: str, name: str) -> frozenset[tuple[str, str]]:
+def _resolve_import(module: str, name: str) -> frozenset[tuple[str, str]]:
     """
     Gets what a name imported from a module of the package depends on: a
     submodule of that name, or (from a package) the module that defines it,
@@ -740,19 +770,20 @@ def _resolve(module: str, name: str) -> frozenset[tuple[str, str]]:
         return frozenset({("module", f"{module}.{name}")})
     if module not in files:
         return frozenset()
-    if not _is_package(module):
+    if not _is_init_module(module):
         return frozenset({("module", module)})
     for node in _tree(module).body:
         if isinstance(node, ast.ImportFrom):
             for alias in node.names:
                 if (alias.asname or alias.name) == name:
                     source = _absolute(module, node)
-                    if not _is_package_module(source) or source == module:
+                    if not _is_tatc_module(source) or source == module:
                         return frozenset({("file", module)})
-                    return frozenset({("file", module)}) | _resolve(source, alias.name)
+                    found = _resolve_import(source, alias.name)
+                    return frozenset({("file", module)}) | found
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.asname == name and _is_package_module(alias.name):
+                if alias.asname == name and _is_tatc_module(alias.name):
                     return frozenset({("file", module), ("module", alias.name)})
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             if node.name == name:
@@ -770,7 +801,7 @@ def _resolve(module: str, name: str) -> frozenset[tuple[str, str]]:
 def _imports(module: str) -> frozenset[tuple[str, str]]:
     """
     Gets what the imports of a module of the package (anywhere in its code)
-    depend on (see `_resolve`).
+    depend on (see `_resolve_import`).
     """
     found: set[tuple[str, str]] = set()
     for node in ast.walk(_tree(module)):
@@ -778,17 +809,17 @@ def _imports(module: str) -> frozenset[tuple[str, str]]:
             found.update(
                 ("module", alias.name)
                 for alias in node.names
-                if _is_package_module(alias.name)
+                if _is_tatc_module(alias.name)
             )
         elif isinstance(node, ast.ImportFrom):
             source = _absolute(module, node)
-            if not _is_package_module(source):
+            if not _is_tatc_module(source):
                 continue
             for alias in node.names:
                 if alias.name == "*":
                     found.add(("module", source))
                 else:
-                    found.update(_resolve(source, alias.name))
+                    found.update(_resolve_import(source, alias.name))
     return frozenset(found)
 
 
@@ -837,7 +868,7 @@ def _get_dependencies(modules: Iterable[str]) -> tuple[list[str], list[str]]:
     files = _module_files()
     whole: set[str] = set()
     sources: set[str] = set()
-    pending = [module for module in modules if _is_package_module(module)]
+    pending = [module for module in modules if _is_tatc_module(module)]
     while pending:
         module = pending.pop()
         if module in whole or module not in files:
@@ -857,13 +888,28 @@ def _get_dependencies(modules: Iterable[str]) -> tuple[list[str], list[str]]:
 @functools.lru_cache(maxsize=None)
 def _hash_file(path: Path, modified: int, size: int) -> str:
     del modified, size  # keys of the cache, so that a changed file is hashed again
-    return _digest(path.read_bytes(), 16)
+    return digest(path.read_bytes(), 16)
 
 
 def _hash(path: Path) -> str:
     """Gets a hash of the content of a file (computed again if it changes)."""
     status = path.stat()
     return _hash_file(path, status.st_mtime_ns, status.st_size)
+
+
+def describe(value: Any) -> Any:
+    """
+    Describes a value as plain data, as a definition describes the values it
+    is given (see the module and `get_definition`), such as to identify the
+    overrides of a scenario by their content.
+
+    Args:
+        value (Any): The value.
+
+    Returns:
+        Any: the description, as plain data
+    """
+    return _Describer().describe(value)
 
 
 def get_definition(*values: Any, **named: Any) -> dict:
@@ -898,7 +944,7 @@ def get_definition(*values: Any, **named: Any) -> dict:
 
 def _fingerprint_of(definition: dict) -> str:
     """Gets the fingerprint of a definition (see `get_definition`)."""
-    return _digest(_canonical(definition), 16)
+    return digest(canonical(definition), 16)
 
 
 def get_fingerprint(*values: Any, **named: Any) -> str:
@@ -993,7 +1039,7 @@ def _literals(constants: list) -> list:
             for item in constant["constants"]:
                 visit(item)
         else:
-            found.setdefault(_canonical(constant), constant)
+            found.setdefault(canonical(constant), constant)
 
     for constant in constants:
         visit(constant)
@@ -1042,19 +1088,76 @@ def _with_other_code(definition: dict, others: Mapping[Any, dict | None]) -> lis
     ]
 
 
-def _warn_other_code(subject: str, remedy: str, latest: dict, definition: dict) -> None:
+def find_stale(
+    definition: dict,
+    others: Mapping[Any, dict | None],
+    count: Callable[[Any], int],
+) -> dict[Any, int]:
     """
-    Warns (at the user's call) that results of the same study (or function)
-    with other code are not reused: `subject` says which (such as `"the
-    store has 12 evaluations of namespace 'a' by this study"`), and `remedy`
-    how to remove them, with the differences of the latest of their
+    Gets the results of the same study (or function) as a definition with
+    other code (of its functions, of TAT-C, or of Python), which are not
+    reused: the keys of the other definitions (such as the contexts of a
+    store, or the folders of a cache) that have the same values but other
+    code (see `_with_other_code`), in their order, with their numbers of
+    results. The results of other studies (such as variants of other
+    settings) are not stale, as studies share stores and caches freely.
+
+    Args:
+        definition (dict): The definition (see `get_definition`).
+        others (Mapping[Any, dict | None]): The other definitions, by key
+            (`None` for a definition that is unknown, of no study).
+        count (Callable[[Any], int]): A function of a key that counts its
+            results (0 for a definition kept without results).
+
+    Returns:
+        dict[Any, int]: the numbers of results, by key (in the order of
+            `others`)
+    """
+    return {key: count(key) for key in _with_other_code(definition, others)}
+
+
+def warn_stale(
+    found: Mapping[Any, int],
+    definition: dict,
+    definition_of: Callable[[Any], dict | None],
+    subject: Callable[[int], str],
+    remedy: str,
+    once: Callable[[], bool] | None = None,
+) -> bool:
+    """
+    Warns (at the user's call) that the results of the same study (or
+    function) as a definition with other code (see `find_stale`) are not
+    reused, if any are found, with the differences of the latest of their
     definitions from the definition (see `compare_definitions`).
+
+    Args:
+        found (Mapping[Any, int]): The numbers of stale results, by the key
+            of their definition, the latest first (see `find_stale`).
+        definition (dict): The definition (see `get_definition`).
+        definition_of (Callable[[Any], dict | None]): A function of a key
+            that gives its definition.
+        subject (Callable[[int], str]): A function of the number of stale
+            results that says which they are (such as `"the store has 12
+            evaluations of namespace 'a' by this study"`).
+        remedy (str): How to remove them.
+        once (Callable[[], bool] | None): A function called before warning
+            that gives whether to warn (such as only for the first of the
+            parallel workers of a study), or `None` to warn.
+
+    Returns:
+        bool: whether it warned
     """
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
+    found = {key: number for key, number in found.items() if number}
+    if not found or (once is not None and not once()):
+        return False
+    latest = definition_of(next(iter(found))) or {}
     _warn(
-        f"{subject} with other code, which are not reused ({remedy}); the "
-        + "latest differs in: "
+        f"{subject(sum(found.values()))} with other code, which are not reused "
+        + f"({remedy}); the latest differs in: "
         + "; ".join(compare_definitions(latest, definition))
     )
+    return True
 
 
 def compare_definitions(before: dict, after: dict, limit: int = 5) -> list[str]:

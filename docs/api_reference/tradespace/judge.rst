@@ -9,7 +9,7 @@ Criteria, Statistics, and Requirements
    :no-members:
 
 .. autoclass:: tatc.tradespace.Criteria
-   :members: names, metrics, statistic
+   :members: names, metrics, statistic, resolved, of, signs, costs, violation, combiners, tolerance_array
 
 .. autoclass:: tatc.tradespace.Requirement
    :members: met, violation
@@ -34,7 +34,7 @@ Criteria, Statistics, and Requirements
 
 .. autoclass:: tatc.tradespace.Probability
 
-.. autoclass:: tatc.tradespace.statistics.Statistic
+.. autoclass:: tatc.tradespace.Statistic
    :members: name, metric, reduce, columns, values_of
 
 Summaries

@@ -13,17 +13,12 @@ reliably it meets a threshold.
 from __future__ import annotations
 
 import operator as op
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
 
 _OPERATORS = {">=": op.ge, ">": op.gt, "<=": op.le, "<": op.lt}
-
-
-def _names(value: str | Sequence[str]) -> list[str]:
-    """Gets names given as a name or a sequence of names."""
-    return [value] if isinstance(value, str) else list(value)
 
 
 def _is_derived(metric: Any) -> bool:
@@ -100,11 +95,15 @@ class Statistic:
 
     @property
     def name(self) -> str:
-        """str: The conventional name of the statistic (the suffixes of which
-        are those of `summarize` and `summarize_histories`): such as `cost`
-        (a mean), `cost std`, `cost se`, `cost min`, `cost max`, `cost p70`
-        (a quantile), or `P(cost <= 150)`, by which criteria name the
-        statistics given without names."""
+        """str: The conventional name of the statistic, by which criteria name
+        the statistics given without names: such as `cost` (a mean), `cost
+        std`, `cost se` (as of `summarize`), `cost min`, `cost max`, `cost
+        p70` (a quantile), or `P(cost <= 150)`. The statistics within a
+        replicate over the histories of a mission (see `summarize_histories`)
+        are named apart from these, as `<column> histories p10`, `<column>
+        histories std`, and `P(<requirement>) histories`, and a statistic
+        other than the mean of a metric must not have the name of a column of
+        the results (see `aggregate`)."""
         return self.metric
 
     @property

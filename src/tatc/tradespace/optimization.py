@@ -39,17 +39,19 @@ refine the designs it evaluated (see `refine`) and confirm its front (see
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import copy
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria, _as_criteria, _signs
+from .criteria import Criteria, Requirement
 from .space import Design, Infeasible
 from .study import Study
 from .summary import aggregate
+from .tables import FEASIBLE, check_records, efficient_keys
 
 
 @dataclass
@@ -71,11 +73,12 @@ class Search:
     criteria: Criteria
     """Criteria: The criteria of the search."""
     summary: pd.DataFrame = field(default_factory=pd.DataFrame)
-    """pandas.DataFrame: A row per design that the search found feasible (in
-    any replicate, judged by its feasible replicates, see `aggregate`): the
-    summary of the criteria over its replicates, with whether it is
-    efficient among these designs (`pareto`, with the tolerances of the
-    criteria)."""
+    """pandas.DataFrame: A row per design that the search found feasible
+    (with a feasible replicate, in every scenario with criteria `across`
+    scenarios, as designs are judged by their feasible replicates, see
+    `aggregate`): the summary of the criteria over its replicates, with
+    whether it is efficient among these designs (`pareto`, with the
+    tolerances of the criteria)."""
     designs: list[Design] = field(default_factory=list)
     """list[Design]: The efficient designs that the search found (`pareto` of
     `summary`), for the next step."""
@@ -101,7 +104,7 @@ class Evaluations:
     """
 
     def __init__(self, study: Study, criteria: Criteria | Mapping[str, str]):
-        self.study, self.criteria = study, _as_criteria(criteria)
+        self.study, self.criteria = study, Criteria.of(criteria)
         if self.criteria.by:
             raise ValueError(
                 "searches need one record per evaluation: give criteria without `by`"
@@ -166,21 +169,22 @@ class Evaluations:
         self._records.append(records)
         across = self.criteria.across
         keys = ["design", "replicate", *([] if across is None else [across.column])]
-        if records.groupby(keys).size().max() > 1:
-            if across is None and "scenario" in records.columns:
-                raise ValueError(
-                    "a study with several scenarios gives a record per scenario: "
-                    + "give criteria `across` the scenarios (see Across), or "
-                    + "search a study with one scenario"
-                )
-            raise ValueError(
-                "objectives need one record per evaluation: make the "
-                + "study's evaluate function return a mapping of metrics"
+        if across is None and "scenario" in records.columns:
+            hint = (
+                "a study with several scenarios gives a record in each: give "
+                + "criteria `across` the scenarios (see Across), or search a study "
+                + "with one scenario"
             )
-        self._checked = self._checked or bool(records["feasible"].any())
+        else:
+            hint = (
+                "searches need one record per evaluation: make the study's evaluate "
+                + "function return a mapping of metrics"
+            )
+        check_records(records, keys, hint, self.criteria.metrics)
+        self._checked = self._checked or bool(records[FEASIBLE].any())
         summary = aggregate(records, self.criteria, design_columns=[])
         summary = summary.set_index("design")
-        shares = records.groupby("design")["feasible"].mean()
+        shares = records.groupby("design")[FEASIBLE].mean()
         for design in designs:
             key = design.key
             if key not in summary.index:
@@ -209,12 +213,11 @@ class Evaluations:
         """
         results = self.results
         summary = aggregate(results, self.criteria)
-        efficient = pd.unique(summary.loc[summary["pareto"].astype(bool), "design"])
         return Search(
             results=results,
             criteria=self.criteria,
             summary=summary,
-            designs=[self.designs[key] for key in efficient],
+            designs=[self.designs[key] for key in efficient_keys(summary)],
             evaluated=list(self.designs.values()),
             state=state,
         )
@@ -273,11 +276,12 @@ def optimize_optuna(
     design prunes its trial.
 
     Each requirement of the criteria is a constraint of the trials (named by
-    its statement, `str(requirement)`, such as `"sufficient p10 >= 80"`),
-    whose value is its violation (see `Requirement.violation`), and which
-    requires `constraints`. A requirement on `feasible` (the share of a
-    design's replicates that are feasible) constrains the designs that are
-    infeasible in some of their replicates.
+    its statement, `str(requirement)`, such as `"sufficient p10 >= 80"`, or,
+    if requirements state themselves alike, by their values in full and
+    their order), whose value is its violation (see `Requirement.violation`),
+    and which requires `constraints`. A requirement on `feasible` (the share
+    of a design's replicates that are feasible) constrains the designs that
+    are infeasible in some of their replicates.
 
     Trials are asked in batches, whose designs are evaluated together (in
     parallel, if the study is) before they are told. A batch defaults to one
@@ -344,7 +348,7 @@ def optimize_optuna(
     constrained = constraints and hasattr(optuna.trial.Trial, "set_constraint")
     if requirements and not constrained:
         raise ValueError("requirements need constraints (and Optuna 5 or later)")
-    names = [str(requirement) for requirement in requirements]
+    names = _constraint_names(requirements)
 
     def set_constraints(trial: Any, feasibility: float, violations) -> None:
         trial.set_constraint("feasibility", feasibility)
@@ -393,6 +397,24 @@ def optimize_optuna(
     return evaluations.search(optuna_study)
 
 
+def _constraint_names(requirements: Sequence[Requirement]) -> list[str]:
+    """
+    Gets distinct names of the constraints of requirements (other than
+    `"feasibility"`): their statements (see `Requirement`), with their values
+    in full where statements are alike, and their order where these are too
+    (such as of requirements that differ only in their scales).
+    """
+    names = [str(requirement) for requirement in requirements]
+    names = [
+        (f"{r.name} {r.operator} {r.value!r}" if names.count(name) > 1 else name)
+        for r, name in zip(requirements, names)
+    ]
+    return [
+        name if names[:i].count(name) == 0 else f"{name} ({names[:i].count(name) + 1})"
+        for i, name in enumerate(names)
+    ]
+
+
 def make_pymoo_problem(study: Study, criteria: Criteria | Mapping[str, str]) -> Any:
     """
     Makes a pymoo problem of a study's design space: its variables are the
@@ -439,7 +461,7 @@ def make_pymoo_problem(study: Study, criteria: Criteria | Mapping[str, str]) -> 
 
     evaluations = Evaluations(study, criteria)
     n_requirements = len(evaluations.criteria.requirements)
-    signs = _signs(evaluations.criteria)
+    signs = evaluations.criteria.signs
     n_var = len(study.space.unit_paths())
 
     def key_of(individual: Any) -> str | None:
@@ -585,7 +607,8 @@ def optimize_pymoo(
     proposed or evaluated before (its initialization and mating, see
     `make_pymoo_problem`'s `duplicates`), unless `distinct` is `False`, so
     that each generation proposes as many new designs as it can: as many
-    generations then evaluate more designs, and find more of the front.
+    generations then evaluate more designs, and find more of the front. The
+    algorithm given is not changed: a distinct search changes a copy.
 
     The generations of a search (of the `termination`) are a poor measure of
     its cost if they propose designs evaluated before (without `distinct`),
@@ -636,6 +659,8 @@ def optimize_pymoo(
         algorithm = NSGA2(pop_size=20)
     problem = make_pymoo_problem(study, criteria)
     if distinct:
+        # a copy, so that the caller's algorithm keeps its own elimination
+        algorithm = copy.deepcopy(algorithm)
         _eliminate_duplicates(algorithm, problem.duplicates)
     if max_designs is not None:
         termination = _designs_termination(

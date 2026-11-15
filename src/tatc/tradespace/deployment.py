@@ -9,10 +9,11 @@ A `DeploymentSchedule` holds the rates and durations of a study (the
 mission, the design life of satellites, the development and production of
 each type of satellite, and the launch cadence and capacity), from which
 each design's `Deployment` follows: a design of more satellites and planes
-takes longer to produce and launch. A deployment simulates a mission
+takes longer to produce and launch. A deployment is planned with a policy
+that restores the failures of its satellites or not (see
+`RestorationPolicy`), and its spares, and simulates a mission
 (`Deployment.simulate`) with the failures of its satellites and launches
-(see `FailureModel`) and a policy that restores them or not (see
-`RestorationPolicy`), drawn for each replicate: the `MissionHistory` of
+(see `FailureModel`), drawn for each replicate: the `MissionHistory` of
 what is produced and launched, which a `CostModel` prices, and of the
 satellites that operate. Their changes divide the mission into phases
 (`MissionHistory.phases`) of constant sets of operating satellites, each
@@ -42,6 +43,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from ..schemas import Satellite
 from .constellations import layout_of
@@ -51,13 +53,12 @@ from .events import (
     PlannedPlane,
     Production,
     _Manifest,
-    _per_type,
-    _per_type_values,
+    per_type,
+    per_type_values,
 )
 from .failures import FailureModel, RestorationPolicy
-from .histories import _expected_metrics, _simulate_many
 from .mission import Capability, Decision, MissionHistory, Phase
-from .simulation import _Simulation
+from .simulation import _Simulation, simulate_histories
 from .values import Values
 
 
@@ -93,7 +94,8 @@ class Stage:
     Args:
         planes (Sequence[int] | int): The planes of the stage (their indices,
             in the order of the layouts' planes, such as integers of numpy),
-            produced and launched in this order.
+            produced in this order (on their types' lines) and launched in
+            the order they are ready.
         times (float | Sequence[float]): The times of the decisions, in years
             after the first launch (a number, or a sequence or array of
             them).
@@ -136,7 +138,8 @@ class Deployment:
     """
     The planned deployment of a constellation: its development, production,
     launches, and planned replacements (see `DeploymentSchedule.plan`),
-    without failures.
+    without failures, and the policy with which it restores the failures of
+    its satellites (see `simulate`).
     """
 
     schedule: DeploymentSchedule
@@ -162,6 +165,10 @@ class Deployment:
     stages: tuple[Stage, ...] = ()
     """tuple[Stage, ...]: The stages deployed only if their rules decide to
     (whose planes the production and launches above do not include)."""
+    policy: RestorationPolicy = field(default_factory=RestorationPolicy)
+    """RestorationPolicy: The policy for failed satellites, whose spares in
+    orbit the planes above include (and whose spares on the ground its
+    simulations produce, see `simulate`)."""
     capability: Capability | None = field(default=None, repr=False, compare=False)
     """Capability | None: The capability of the satellites, which the rules
     of stages may read at their decisions (see `Decision.capability`) in
@@ -183,19 +190,20 @@ class Deployment:
     def deployed(self) -> float:
         """float: The time by which every satellite of the first generation
         is launched (years): of the planes that are not staged, and of the
-        stages that their rules deploy in the history of the mission without
-        failures (see `planned` and `MissionHistory.deployed`)."""
-        if self.stages:
-            return self.planned().deployed
-        return max(
-            launch.time for launch in self.launches if launch.purpose == "deployment"
-        )
+        stages that their rules deploy, in the history of the mission without
+        failures (see `planned` and `MissionHistory.deployed`, which is
+        infinite if the deployment does not finish within the mission)."""
+        return self.planned().deployed
 
     @property
     def units(self) -> dict[Any, int]:
-        """dict: The satellites produced of each type (including replacements
-        and spares, and, of a sustained constellation, those in production
-        at the end of the mission)."""
+        """dict: The satellites of each type that the plan produces: of the
+        planes that are not staged (with their spares in orbit) and their
+        planned replacements (and, of a sustained constellation, those in
+        production at the end of the mission), but not the spares on the
+        ground of the policy, the planes of stages, or restorations, which
+        its simulations produce (see `planned`, whose production a
+        `CostModel` prices)."""
         units: dict[Any, int] = {}
         for batch in self.production:
             if not self.schedule.sustained or batch.begin < self.end:
@@ -205,16 +213,18 @@ class Deployment:
     def simulate(
         self,
         model: FailureModel | None = None,
-        policy: RestorationPolicy | None = None,
         seed: int | Sequence[int] | None = None,
     ) -> MissionHistory:
         """
         Simulates the mission: the deployment, with the failures of its
         satellites and launches (drawn from a seed of a replicate, such as an
         uncertain parameter, see `Uncertain.seed`) and the restoration of
-        failed satellites by a policy. Without a seed, nothing fails (but a
-        policy's spares on the ground are still produced). The spares in
-        orbit are those of the plan (see `DeploymentSchedule.plan`).
+        failed satellites by its policy (see `policy`, whose spares in orbit
+        the plan produces and launches with their planes, and whose spares
+        on the ground the simulation produces after the planes of the plan).
+        Without a seed, nothing fails (but the spares are still produced).
+        To simulate another policy, plan the deployment with it (see
+        `DeploymentSchedule.plan`).
 
         A satellite's life is drawn when it is launched (or takes the place
         of a failed one), from uniform numbers of a random number generator
@@ -235,8 +245,6 @@ class Deployment:
 
         Args:
             model (FailureModel | None): The failures, or `None` for none.
-            policy (RestorationPolicy | None): The policy for failed
-                satellites, or `None` to restore them by producing new ones.
             seed (int | Sequence[int] | None): The seed of the replicate (or
                 a sequence of integers, such as the seed and the index of a
                 history, see `simulate_many`), or `None` for no failures.
@@ -244,26 +252,28 @@ class Deployment:
         Returns:
             MissionHistory: the history of the mission
         """
-        return _Simulation(
-            self, model or FailureModel(), policy or RestorationPolicy(), seed
-        ).run()
+        return _Simulation(self, model or FailureModel(), seed).run()
 
     def planned(self) -> MissionHistory:
         """
         Gets the history of the mission without failures (see `simulate`),
-        simulated once (for its capability).
+        simulated once (for its policy and capability): its deployment, with
+        the stages that their rules deploy and the spares of its policy,
+        whose costs a `CostModel` estimates (see `CostModel.estimate`).
 
         Returns:
             MissionHistory: the history
         """
-        if self._planned is None or self._planned[0] is not self.capability:
-            self._planned = (self.capability, self.simulate())
+        key = (self.policy, self.capability)
+        if self._planned is None or any(
+            a is not b for a, b in zip(self._planned[0], key)
+        ):
+            self._planned = (key, self.simulate())
         return self._planned[1]
 
     def simulate_many(
         self,
         model: FailureModel | None = None,
-        policy: RestorationPolicy | None = None,
         seed: int | None = None,
         *,
         histories: int = 1,
@@ -307,9 +317,6 @@ class Deployment:
 
         Args:
             model (FailureModel | None): The failures, or `None` for none.
-            policy (RestorationPolicy | None): The policy for failed
-                satellites, or `None` to restore them by producing new ones
-                (as `simulate`).
             seed (int | None): The seed of the replicate, or `None` for the
                 one history without failures.
             histories (int): The number of histories.
@@ -324,22 +331,20 @@ class Deployment:
         if histories < 1:
             raise ValueError("histories must be at least 1")
         if seed is None:
-            return [self.simulate(model, policy, None)]
-        return _simulate_many(
+            return [self.simulate(model, None)]
+        return simulate_histories(
             self,
             model or FailureModel(),
-            policy,
             seed,
-            histories,
-            sampling,
-            stress,
-            launch_stress,
+            histories=histories,
+            sampling=sampling,
+            stress=stress,
+            launch_stress=launch_stress,
         )
 
     def expected_metrics(
         self,
         model: FailureModel | None = None,
-        policy: RestorationPolicy | None = None,
         seed: int = 0,
         *,
         histories: int = 1000,
@@ -355,8 +360,6 @@ class Deployment:
 
         Args:
             model (FailureModel | None): The failures, or `None` for none.
-            policy (RestorationPolicy | None): The policy for failed
-                satellites (see `simulate_many`).
             seed (int): The seed of the histories.
             histories (int): The number of histories.
             sampling (str): The sampling of their failures.
@@ -364,9 +367,11 @@ class Deployment:
         Returns:
             dict[str, float]: the mean of each measure
         """
-        return _expected_metrics(
-            self, model or FailureModel(), policy, seed, histories, sampling
+        simulated = self.simulate_many(
+            model, seed, histories=histories, sampling=sampling
         )
+        rows = pd.DataFrame([history.metrics() for history in simulated])
+        return {column: float(rows[column].mean()) for column in rows.columns}
 
     def phases(self, satellites: Sequence[Satellite | str]) -> list[Phase]:
         """
@@ -396,10 +401,11 @@ class DeploymentSchedule:
       every type, or one for each).
     * Its satellites are then produced on one line at `production_rate`
       satellites a year (or at once, if `None`), plane by plane, in the
-      order of the layouts' planes (or of `order`). The line also produces,
-      after the work before them, the planes of stages that are deployed,
-      the satellites that restore failed ones, and the spares of a policy
-      (see `Stage` and `RestorationPolicy`).
+      order of the layouts' planes (or of `order`), with the spares in orbit
+      of the deployment's policy. The line also produces, after the work
+      before them, the spares on the ground of the policy, the planes of
+      stages that are deployed, and the satellites that restore failed ones
+      (see `RestorationPolicy` and `Stage`).
     * Each plane is launched when its satellites are ready, in as many
       launches as its satellites need (given a `launch_capacity` in number
       or mass, or one per plane), at most one every `launch_interval` years,
@@ -471,8 +477,7 @@ class DeploymentSchedule:
         if self.years <= 0:
             raise ValueError("years must be positive")
         if any(
-            life is not None and life <= 0
-            for life in _per_type_values(self.design_life)
+            life is not None and life <= 0 for life in per_type_values(self.design_life)
         ):
             raise ValueError("design_life must be positive")
         if self.launch_interval < 0:
@@ -481,10 +486,10 @@ class DeploymentSchedule:
             raise ValueError("launch_capacity must be at least 1")
         if any(
             rate is not None and rate <= 0
-            for rate in _per_type_values(self.production_rate)
+            for rate in per_type_values(self.production_rate)
         ):
             raise ValueError("production_rate must be positive")
-        if any(years < 0 for years in _per_type_values(self.development_years)):
+        if any(years < 0 for years in per_type_values(self.development_years)):
             raise ValueError("development_years must not be negative")
 
     def design_life_of(self, kind: Any = None) -> float | None:
@@ -498,7 +503,7 @@ class DeploymentSchedule:
             float | None: the design life (years), or `None` if they last
                 the mission
         """
-        return _per_type(self.design_life, kind, "design life")
+        return per_type(self.design_life, kind, "design life")
 
     def production_years(self, kind: Any, satellites: int) -> float:
         """
@@ -511,7 +516,7 @@ class DeploymentSchedule:
         Returns:
             float: the years (0 for production that takes no time)
         """
-        rate = _per_type(self.production_rate, kind, "production rate")
+        rate = per_type(self.production_rate, kind, "production rate")
         return 0.0 if rate is None else satellites / rate
 
     def mass_capacity_of(self, plane: tuple[int, Any] | None = None) -> float | None:
@@ -636,14 +641,19 @@ class DeploymentSchedule:
         layout: Any,
         *,
         kind: Any = None,
-        orbit_spares: int | Mapping[Any, int] = 0,
+        policy: RestorationPolicy | None = None,
         masses: PerType | None = None,
         stages: Sequence[Stage] = (),
     ) -> Deployment:
         """
         Plans the deployment of a constellation: the layout (or layouts) of
         its satellites, of one type (`kind`), or a mapping of types to
-        layouts (such as the shells of a mixed constellation). The planes of
+        layouts (such as the shells of a mixed constellation), with the
+        policy that restores the failures of its satellites (see
+        `Deployment.simulate`): its spares in orbit in each plane are
+        produced and launched with the plane, and wait in orbit to take the
+        place of failed satellites, and its spares on the ground are
+        produced after the planes (see `RestorationPolicy`). The planes of
         `stages` are deployed only if (and when) their rules decide to, in a
         simulation of the mission (see `Stage` and `Deployment.simulate`), and
         the others as planned.
@@ -652,11 +662,10 @@ class DeploymentSchedule:
             layout (Any): The layout (or layouts) of the satellites, or a
                 mapping of types of satellites to layouts.
             kind (Any): The type of the satellites of a layout.
-            orbit_spares (int | Mapping[Any, int]): The spares in orbit in
-                each plane (of every type, or of each), produced and launched
-                with it, which wait in orbit to take the place of failed
-                satellites (see `RestorationPolicy`, whose `orbit_spares` a
-                `MissionPlan` plans).
+            policy (RestorationPolicy | None): The policy for failed
+                satellites, and its spares, or `None` to restore them by
+                producing new ones (see `RestorationPolicy`, and `MissionPlan`,
+                which plans the deployment of each design with its policy).
             masses (float | Mapping | None): The mass (kg) of the satellites
                 (of each type), for a launch capacity in mass (and the price
                 of launches by mass, see `CostModel.estimate`).
@@ -668,12 +677,10 @@ class DeploymentSchedule:
 
         Raises:
             ValueError: if a plane is in several stages or is not a plane of
-                the layouts, if no satellites are planned, or if spares are
-                negative.
+                the layouts, if no satellites are planned, or if the spares of
+                the policy lack a type of the layouts.
         """
-        # pylint: disable=too-many-locals
-        if any(spares < 0 for spares in _per_type_values(orbit_spares)):
-            raise ValueError("orbit_spares must not be negative")
+        policy = RestorationPolicy() if policy is None else policy
         stages = tuple(stages)
         staged = [plane for stage in stages for plane in stage.planes]
         if len(set(staged)) != len(staged):
@@ -683,25 +690,16 @@ class DeploymentSchedule:
             fleets = dict(layout)
         else:
             fleets = {kind: layout}
-        deployment = Deployment(schedule=self, stages=stages)
-        manifest = _Manifest(
-            self,
-            deployment.planes,
-            deployment.masses,
-            deployment.plane_values,
-            {},
-            [],
-            deployment.production,
-        )
-        ready = []  # (ready, index) of the planes that are not staged
+        deployment = Deployment(schedule=self, stages=stages, policy=policy)
+        produced = []  # the planes that are not staged, in their order
         for name, item in fleets.items():
-            developed = float(_per_type(self.development_years, name, "development"))
-            spares = int(_per_type(orbit_spares, name, "orbit spares"))
+            developed = float(per_type(self.development_years, name, "development"))
+            spares = policy.orbit_spares_of(name)
+            policy.ground_spares_of(name)  # (raises if it lacks the type)
             deployment.development[name] = developed
             deployment.masses[name] = (
-                None if masses is None else _per_type(masses, name, "mass")
+                None if masses is None else per_type(masses, name, "mass")
             )
-            manifest.lines[name] = developed
             listed = []
             for plane in layout_of(item).planes():
                 index = len(deployment.planes)
@@ -715,21 +713,17 @@ class DeploymentSchedule:
                     listed.append((index, plane))
             if self.order is not None:
                 listed.sort(key=lambda item: self.order(item[0], item[1].values))
-            for index, plane in listed:
-                count = plane.satellites + spares
-                ready.append((manifest.produce(developed, name, count), index))
+            produced.extend(index for index, _ in listed)
         unknown = sorted(set(staged) - set(range(len(deployment.planes))))
         if unknown:
             raise ValueError(
                 f"stages of planes that the layouts do not have: {unknown}"
             )
-        if not ready:
+        if not produced:
             raise ValueError("a deployment requires satellites (that are not staged)")
-        for time, index in sorted(ready, key=lambda item: item[0]):
-            deployment.launches.extend(manifest.launch(index, time))
-        deployment.launches.extend(
-            manifest.replace(list(deployment.launches), deployment.end)
-        )
+        # each type's planes produced on its line from the end of its development
+        manifest = _Manifest(deployment, deployment.production)
+        deployment.launches.extend(manifest.deploy(produced, 0.0))
         deployment.production.sort(key=lambda batch: batch.begin)
         deployment.launches.sort(key=lambda launch: (launch.time, launch.plane))
         return deployment

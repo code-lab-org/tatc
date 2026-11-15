@@ -2,15 +2,12 @@
 The missions of the designs of an observation study (see `ObservationStudy`):
 the plan of each design's mission (`MissionPlan`: its deployment, the policy
 that restores the failures of its satellites, and its costs, from the
-values of the design), the failures of its satellites (`Failures`), and the
-mission of a replicate of a design (`Mission`), which an evaluation plans
-and summarizes into its record, and which `ObservationStudy.mission_of`
-gives for other analyses.
+values of the design), and the failures of its satellites (`Failures`),
+from which an evaluation plans the mission of a replicate of a design (see
+`Mission`) and summarizes it into its record.
 
-The parts refer to the values of designs by a `Reference` (see `value_of`),
-such as the type of the satellites of a design::
-
-    MissionPlan(SCHEDULE, COST_MODEL, kind="field_of_regard")  # d.field_of_regard
+The parts refer to the values of designs as `tatc.tradespace.references`
+describes.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -19,28 +16,22 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Callable, Mapping, Sequence
-from functools import cached_property
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from .cost import CostEstimate, CostModel
+from .cost import CostModel
 from .criteria import Requirement
-from .deployment import Deployment, DeploymentSchedule, Stage
+from .deployment import DeploymentSchedule, Stage
+from .expectations import ExactExpectationsError, exact_expectations
 from .failures import FailureModel, RestorationPolicy
-from .histories import (
-    MAX_SETS,
-    SAMPLINGS,
-    _exact_sets,
-    evaluate_histories,
-    exact_expectations,
-    summarize_histories,
-)
-from .mission import Capability, MissionHistory, summarize_phases
-from .references import Reference, _number, value_of
+from .histories import evaluate_histories, summarize_histories
+from .mission import Capability, Mission, MissionHistory
+from .references import Reference, _number, configure, value_of
+from .simulation import SAMPLINGS
 from .space import Design
-from .values import ChoiceValues, configure
+from .values import ChoiceValues
 
 
 @dataclasses.dataclass(frozen=True)
@@ -63,10 +54,11 @@ class MissionPlan:
 
         PLAN = MissionPlan(schedule, COST_MODEL, kind="payload")
 
-    The policy of a design gives its spares: in orbit in each plane
-    (`RestorationPolicy.orbit_spares`, which its deployment plans) and on
-    the ground, which are produced (and cost) whether or not the study has
-    failures (see `Failures`). A policy may be a decision of each design,
+    The deployment of each design is planned with its policy (see
+    `DeploymentSchedule.plan`), which gives its spares: in orbit in each
+    plane (`RestorationPolicy.orbit_spares`) and on the ground, which are
+    produced (and cost) whether or not the study has failures (see
+    `Failures`). A policy may be a decision of each design,
     such as a group of `policy_space` whose values configure the default
     policy (see `configure`), or a function of the design that gives its
     policy (such as one that configures a base policy)::
@@ -246,7 +238,7 @@ class MissionPlan:
                 growth[element] = _number(design, value)
         return growth
 
-    def mission_of(
+    def plan_mission(
         self,
         design: Design,
         layout: Any,
@@ -254,10 +246,9 @@ class MissionPlan:
         failures: Failures | None = None,
     ) -> Mission:
         """
-        Plans the mission of a realized design: its deployment (with the
-        spares in orbit of its policy, and whose stages read the capability
-        of the satellites operating at their decisions), its policy, and its
-        costs.
+        Plans the mission of a realized design: its deployment (with its
+        policy and spares, and whose stages read the capability of the
+        satellites operating at their decisions) and its costs.
 
         Args:
             design (Design): The (realized) design.
@@ -274,19 +265,13 @@ class MissionPlan:
         deployment = self.schedule_of(design).plan(
             layout,
             kind=value_of(design, self.kind),
-            orbit_spares=policy.orbit_spares,
+            policy=policy,
             masses=self.masses_of(design, cost_model),
             stages=self.stages_of(design),
         )
         deployment.capability = capability
         return Mission(
-            design,
-            deployment,
-            policy,
-            cost_model,
-            self.growth_of(design),
-            capability,
-            failures,
+            design, deployment, cost_model, self.growth_of(design), capability, failures
         )
 
 
@@ -294,9 +279,10 @@ class MissionPlan:
 class Failures:
     """
     The failures of the satellites of each design: histories of its mission
-    (see `Deployment.simulate_many`), restored by the policy of the design
-    (see `MissionPlan.policy`: by default by producing new satellites; with
-    `RestorationPolicy(restore=False)`, not restored), summarized over the
+    (see `Deployment.simulate_many`), restored by the policy of its
+    deployment (see `MissionPlan.policy`: by default by producing new
+    satellites; with `RestorationPolicy(restore=False)`, not restored),
+    summarized over the
     histories (see `summarize_histories`): the mean of each metric over the
     phases of the mission and the histories, `quantiles` and `requirements`
     of them, and their costs. With requirements on the metrics of the
@@ -308,12 +294,12 @@ class Failures:
 
     Without restoration, the means of the metrics and the availability are
     the exact expectations over the failures (see `exact_expectations`) if
-    `exact`, if the histories have failures (with a `seed`), if the
-    deployment is not staged (see `Stage`, whose rules make its launches
-    depend on the history), and if it has at most `MAX_SETS` (200,000) sets
-    of satellites to enumerate, which is known before they are enumerated;
-    otherwise (such as for constellations of about 20 satellites or more)
-    they are the means of the histories.
+    `exact`, if the histories have failures (with a `seed`), and if
+    exact expectations apply: if the deployment is not staged (see `Stage`,
+    whose rules make its launches depend on the history) and has at most
+    `MAX_SETS` (200,000) sets of satellites to enumerate, which is known
+    before they are enumerated; otherwise (such as for constellations of
+    about 20 satellites or more) they are the means of the histories.
 
     With a `stress`, the failures are drawn from stressed distributions for
     importance sampling (see `Deployment.simulate_many`), each history
@@ -410,7 +396,7 @@ class Failures:
     def simulate(self, mission: Mission) -> list[MissionHistory]:
         """
         Simulates the histories of a mission (see `Deployment.simulate_many`),
-        restored by its policy.
+        restored by the policy of its deployment.
 
         Args:
             mission (Mission): The mission.
@@ -420,7 +406,6 @@ class Failures:
         """
         return mission.deployment.simulate_many(
             self.model,
-            mission.policy,
             self.seed_of(mission.design),
             histories=self.histories,
             sampling=self.sampling,
@@ -469,7 +454,6 @@ class Failures:
             other = int(np.random.default_rng([int(seed), 7]).integers(2**31))
             expected = mission.deployment.expected_metrics(
                 self.model,
-                mission.policy,
                 other,
                 histories=self.control_histories,
                 sampling=self.sampling,
@@ -488,10 +472,13 @@ class Failures:
             controls=controls,
             spread=self.spread,
         )
-        if self._exact(mission, seed):
-            exact = exact_expectations(
-                mission.deployment, self.model, mission.capability
-            )
+        if self.exact and seed is not None:
+            try:
+                exact = exact_expectations(
+                    mission.deployment, self.model, mission.capability
+                )
+            except ExactExpectationsError:
+                exact = {}  # the means of the histories instead
             record.update(
                 {
                     key: value
@@ -500,156 +487,3 @@ class Failures:
                 }
             )
         return record
-
-    def _exact(self, mission: Mission, seed: Any) -> bool:
-        """
-        Whether the means of the histories of a mission are exact
-        expectations (see `Failures`): of failures with a seed, without
-        restoration, of a deployment that is not staged and whose sets of
-        satellites are few enough.
-        """
-        return (
-            self.exact
-            and seed is not None
-            and not mission.policy.restore
-            and not mission.deployment.stages
-            and _exact_sets(mission.deployment, self.model) <= MAX_SETS
-        )
-
-
-@dataclasses.dataclass(frozen=True, eq=False)
-class Mission:
-    """
-    The mission of a replicate of a design, as the evaluation of an
-    observation study plans it (see `MissionPlan.mission_of` and
-    `ObservationStudy.mission_of`): its planned deployment, the policy that
-    restores the failures of its satellites, its cost model and growth, and
-    the capability of its satellites (their observations, and the cache of
-    the metrics of their phases), from which follow the history of the
-    mission without failures (`planned`), the metrics of its phases
-    (`phases`), its cost estimate (`estimate`), and the histories of its
-    failures (`histories`, with `failures`).
-    """
-
-    design: Design
-    """Design: The realized design."""
-    deployment: Deployment
-    """Deployment: The planned deployment, with the capability of its
-    satellites (which the rules of its stages read, see
-    `Deployment.capability`)."""
-    policy: RestorationPolicy
-    """RestorationPolicy: The policy for failed satellites, and the spares."""
-    cost_model: CostModel | None
-    """CostModel | None: The cost model (with the growth of its components
-    drawn), if any."""
-    growth: Any
-    """Any: The growth of the costs (see `CostModel.estimate`)."""
-    capability: Capability
-    """Capability: The capability of the satellites."""
-    failures: Failures | None = None
-    """Failures | None: The failures of the satellites, if any."""
-
-    @cached_property
-    def _planned(self) -> MissionHistory:
-        """The history of the mission without failures (simulated once)."""
-        return self.deployment.simulate(policy=self.policy)
-
-    def planned(self) -> MissionHistory:
-        """
-        Gets the history of the mission without failures (see
-        `Deployment.simulate`): its deployment, with the stages that their
-        rules deploy and the spares on the ground of its policy.
-
-        Returns:
-            MissionHistory: the history
-        """
-        return self._planned
-
-    def phases(self) -> pd.DataFrame:
-        """
-        Gets the metrics of the phases of the mission without failures (see
-        `planned` and `evaluate_phases`), which the evaluation of a study
-        with `phases` summarizes (see `summarize_phases`).
-
-        Returns:
-            pandas.DataFrame: a row per phase: its `start`, `end`,
-                `duration`, number of `satellites`, and metrics
-        """
-        satellites = self.capability.satellites
-        return self.capability.evaluate(self.planned().phases(satellites))
-
-    def estimate(self) -> CostEstimate:
-        """
-        Gets the cost estimate of the mission without failures (see `planned`
-        and `CostModel.estimate`), with its growth: the costs of the
-        evaluation of a study without failures (those of a study with
-        failures are the means of those of its histories, see `histories`).
-
-        Returns:
-            CostEstimate: the estimate
-
-        Raises:
-            ValueError: if the plan has no cost model.
-        """
-        if self.cost_model is None:
-            raise ValueError("the mission plan has no cost model")
-        return self.cost_model.estimate(self.planned(), self.growth)
-
-    def histories(self) -> pd.DataFrame:
-        """
-        Gets the histories of the failures of the mission, which the
-        evaluation of a study with failures summarizes (see
-        `Failures.evaluate` and `evaluate_histories`): a row per history,
-        with the mean of each metric over its phases, the measures of its
-        mission, and its costs.
-
-        Returns:
-            pandas.DataFrame: a row per history
-
-        Raises:
-            ValueError: if the mission has no failures.
-        """
-        if self.failures is None:
-            raise ValueError("the study has no failures")
-        return self.failures.evaluate(self)
-
-    def metrics(self) -> dict[str, float]:
-        """
-        Gets the metrics of the planned mission that its evaluation records:
-        `deployed` (see `MissionHistory.deployed`, of the history without
-        failures), `stages deployed` (of a staged deployment, the stages that
-        its rules deploy without failures), and, without failures, its costs
-        (see `estimate` and `CostEstimate.metrics`).
-
-        Returns:
-            dict[str, float]: the metrics
-        """
-        planned = self.planned()
-        record = {"deployed": planned.deployed}
-        if self.deployment.stages:
-            record["stages deployed"] = planned.metrics()["stages deployed"]
-        if self.cost_model is not None and self.failures is None:
-            record.update(self.estimate().metrics())
-        return record
-
-    def summarize(
-        self, phases: Sequence[Requirement] | None = None
-    ) -> dict[str, float]:
-        """
-        Summarizes the mission as metrics of its evaluation: the histories of
-        its failures (see `Failures.summarize`), or else, with requirements
-        on its phases (or none, `()`), the phases of the mission without
-        failures (see `phases` and `summarize_phases`).
-
-        Args:
-            phases (Sequence[Requirement] | None): The requirements on the
-                phases, or `None` not to summarize them.
-
-        Returns:
-            dict[str, float]: the summary (empty without failures or phases)
-        """
-        if self.failures is not None:
-            return self.failures.summarize(self)
-        if phases is not None:
-            return summarize_phases(self.phases(), requirements=phases)
-        return {}

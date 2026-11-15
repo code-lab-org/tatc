@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from .hashing import _canonical, _digest
+from .hashing import canonical, digest
 from .values import Scope
 
 
@@ -53,7 +53,7 @@ Bound = float | Callable[[Scope], float]
 """A bound of a variable: a value, or a callable of the values decided so far."""
 
 
-def _resolve(bound: Any, scope: Scope) -> Any:
+def _resolve_bound(bound: Any, scope: Scope) -> Any:
     """
     Resolves a bound that may be a callable of the values decided so far.
     """
@@ -119,7 +119,7 @@ class _Domain:
         """
         if self.kind == "categorical":
             if self.dynamic:
-                name = f"{name}#{_digest(_canonical(self.levels), 8)}"
+                name = f"{name}#{digest(canonical(self.levels), 8)}"
             return trial.suggest_categorical(name, self.levels)
         if self.kind == "integer":
             return trial.suggest_int(
@@ -194,7 +194,8 @@ class Real(Variable):
         self.low, self.high, self.step, self.log = low, high, step, log
 
     def domain(self, scope: Scope) -> _Domain:
-        low, high = float(_resolve(self.low, scope)), float(_resolve(self.high, scope))
+        low = float(_resolve_bound(self.low, scope))
+        high = float(_resolve_bound(self.high, scope))
         if high < low:
             raise Infeasible(f"empty range [{low}, {high}]")
         if self.step is not None:
@@ -205,7 +206,8 @@ class Real(Variable):
         return _Domain(low=low, high=high, log=self.log, kind="real")
 
     def __repr__(self) -> str:
-        return f"Real({self.low!r}, {self.high!r}, step={self.step!r})"
+        log = ", log=True" if self.log else ""
+        return f"Real({self.low!r}, {self.high!r}, step={self.step!r}{log})"
 
 
 class Integer(Variable):
@@ -225,7 +227,8 @@ class Integer(Variable):
         self.low, self.high, self.step = low, high, step
 
     def domain(self, scope: Scope) -> _Domain:
-        low, high = int(_resolve(self.low, scope)), int(_resolve(self.high, scope))
+        low = int(_resolve_bound(self.low, scope))
+        high = int(_resolve_bound(self.high, scope))
         if high < low:
             raise Infeasible(f"empty range [{low}, {high}]")
         levels = _levels(low, high, self.step, integer=True)
@@ -253,7 +256,7 @@ class Categorical(Variable):
         self.options = options if callable(options) else list(options)
 
     def domain(self, scope: Scope) -> _Domain:
-        options = list(_resolve(self.options, scope))
+        options = list(_resolve_bound(self.options, scope))
         if len(options) == 0:
             raise Infeasible("no options")
         return _Domain(levels=options, dynamic=callable(self.options))
@@ -472,7 +475,7 @@ class Repeat(Node):
             their items are the same.
     """
 
-    def __init__(self, item: Any, count: Any, ordered: bool = True):
+    def __init__(self, item: Any, count: Any, *, ordered: bool = True):
         self.item = _as_node(item)
         if isinstance(count, bool) or not isinstance(
             count, (numbers.Integral, Integer, Categorical, Fixed, Derived)

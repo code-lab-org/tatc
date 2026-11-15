@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from tatc.tradespace import (
+    CostModel,
     DeploymentSchedule,
     DesignSpace,
     Exponential,
@@ -20,6 +21,8 @@ from tatc.tradespace import (
     Real,
     Requirement,
     RestorationPolicy,
+    SatelliteCost,
+    Stage,
     sso_planes_space,
     walker_space,
 )
@@ -65,11 +68,10 @@ class TestPlan(unittest.TestCase):
             schedule.launches_of(4, 50.0)
         self.assertEqual(schedule.launches_of(4, 50.0, (1, None)), 1)
         # restorations that wait to share a launch fill it to the plane's capacity
-        history = deployment.simulate(
-            FailureModel(life=Exponential(2.0)),
-            RestorationPolicy(batch_years=1.0),
-            seed=0,
+        batching = schedule.plan(
+            _walker(2, 4), masses=50.0, policy=RestorationPolicy(batch_years=1.0)
         )
+        history = batching.simulate(FailureModel(life=Exponential(2.0)), seed=0)
         restorations = [l for l in history.launches if l.purpose == "restoration"]
         self.assertTrue(any(l.plane == 1 and l.satellites > 2 for l in restorations))
         self.assertTrue(
@@ -78,16 +80,13 @@ class TestPlan(unittest.TestCase):
 
     def test_production_rate(self):
         """A production line deploys planes as their satellites are built."""
-        deployment = DeploymentSchedule(development_years=2, production_rate=8).plan(
-            _walker(3, 4)
-        )
+        schedule = DeploymentSchedule(years=2, development_years=2, production_rate=8)
+        deployment = schedule.plan(_walker(3, 4))
         # 4 satellites a plane at 8 a year: ready every half year
         self.assertEqual([l.time for l in deployment.launches], [2.5, 3.0, 3.5])
         self.assertEqual(deployment.begin, 2.5)
         self.assertEqual(deployment.deployed, 3.5)
-        larger = DeploymentSchedule(development_years=2, production_rate=8).plan(
-            _walker(3, 6)
-        )
+        larger = schedule.plan(_walker(3, 6))
         self.assertGreater(larger.deployed, deployment.deployed)
 
     def test_launch_cadence(self):
@@ -115,6 +114,19 @@ class TestPlan(unittest.TestCase):
         self.assertEqual(replacements, [(8, 0, 0), (9, 0, 2)])
         self.assertEqual(deployment.end, 10)
         self.assertEqual(deployment.units, {None: 12 + 4})
+
+    def test_deployment_outlasting_the_mission(self):
+        """A deployment whose launches outlast the mission is not deployed in
+        it: the time it is deployed is infinite (as the time until a mission
+        meets a requirement that it never meets)."""
+        schedule = DeploymentSchedule(years=1.5, launch_interval=1)
+        deployment = schedule.plan(_walker(3, 1))
+        self.assertEqual([l.time for l in deployment.launches], [0, 1, 2])
+        self.assertEqual([l.time for l in deployment.planned().launches], [0, 1])
+        self.assertEqual(deployment.planned().deployed, math.inf)
+        self.assertEqual(deployment.deployed, math.inf)
+        longer = dataclasses.replace(schedule, years=2.5).plan(_walker(3, 1))
+        self.assertEqual(longer.deployed, 2)
 
     def test_replacements_keep_the_interval(self):
         """Planned replacements of several types keep the launch interval, from
@@ -150,7 +162,8 @@ class TestPlan(unittest.TestCase):
         """Planned replacements replace the satellites of the layout, not the
         spares in orbit, which do not age: a spare is launched once."""
         schedule = DeploymentSchedule(years=6, design_life=2)
-        deployment = schedule.plan(_walker(1, 2), orbit_spares=1)
+        spared = RestorationPolicy(orbit_spares=1)
+        deployment = schedule.plan(_walker(1, 2), policy=spared)
         self.assertEqual(
             [(l.time, l.satellites, l.purpose) for l in deployment.launches],
             [(0, 3, "deployment"), (2, 2, "replacement"), (4, 2, "replacement")],
@@ -161,20 +174,50 @@ class TestPlan(unittest.TestCase):
         self.assertEqual(deployment.simulate().parked, [(0, 6, 1)])
         # a launch of the spare alone is not replaced
         single = dataclasses.replace(schedule, launch_capacity=1)
-        launches = single.plan(_walker(1, 2), orbit_spares=1).launches
+        launches = single.plan(_walker(1, 2), policy=spared).launches
         self.assertEqual(
             sorted((l.purpose, l.first) for l in launches),
             [("deployment", 0), ("deployment", 1), ("deployment", 2)]
             + [("replacement", 0)] * 2
             + [("replacement", 1)] * 2,
         )
-        with self.assertRaises(ValueError):
-            schedule.plan(_walker(1, 2), orbit_spares=-1)
-        # spares of each type
-        mixed = schedule.plan(
-            {"a": _walker(1, 2), "b": _walker(1, 2)}, orbit_spares={"a": 1, "b": 0}
-        )
+        # spares of each type (of every type of the deployment)
+        by_type = RestorationPolicy(orbit_spares={"a": 1, "b": 0})
+        mixed = schedule.plan({"a": _walker(1, 2), "b": _walker(1, 2)}, policy=by_type)
         self.assertEqual([p.orbit_spares for p in mixed.planes], [1, 0])
+        for lacking in (by_type, RestorationPolicy(ground_spares={"a": 1})):
+            with self.assertRaises(ValueError):
+                schedule.plan(_walker(1, 2), policy=lacking)
+
+    def test_policy(self):
+        """A deployment has the policy it is planned with, whose spares in
+        orbit its planes include, whose spares on the ground the history
+        without failures produces (after the planes that are not staged, and
+        before a stage, which the time it is deployed and its costs take),
+        and with which it restores failures."""
+        self.assertEqual(
+            DeploymentSchedule().plan(_walker()).policy, RestorationPolicy()
+        )
+        policy = RestorationPolicy(ground_spares=2)
+        schedule = DeploymentSchedule(years=5, production_rate=1.0)
+        # the second plane is staged, and deployed at the first launch
+        deployment = schedule.plan(_walker(2, 2), policy=policy, stages=[Stage(1, 0)])
+        self.assertIs(deployment.policy, policy)
+        planned = deployment.planned()
+        spares = [b for b in planned.production if b.purpose == "spare"]
+        self.assertEqual([(b.begin, b.end) for b in spares], [(2, 4)])
+        self.assertEqual(planned.deployed, 6)
+        self.assertEqual(deployment.deployed, 6)
+        self.assertEqual(deployment.units, {None: 2})  # of the plan alone
+        model = CostModel(SatelliteCost(first_unit=10))
+        self.assertEqual(model.estimate(deployment).production, 60)
+        self.assertEqual(model.estimate(deployment).units, {None: 6})
+        # its simulations restore failures with its spares in orbit
+        spared = DeploymentSchedule(years=5).plan(
+            _walker(1, 2), policy=RestorationPolicy(orbit_spares=1)
+        )
+        history = spared.simulate(FailureModel(life=Exponential(0.5)), seed=1)
+        self.assertEqual(history.restorations[0].source, "orbit")
 
     def test_types_and_order(self):
         """Types are developed over their own durations, planes in an order."""

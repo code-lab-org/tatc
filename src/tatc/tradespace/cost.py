@@ -65,10 +65,11 @@ import numpy as np
 import pandas as pd
 
 from .deployment import Deployment
-from .events import _per_type
+from .events import per_type
 from .mission import MissionHistory
 from .nodes import Uncertain
-from .space import _RESERVED_NAMES, DesignSpace
+from .space import DesignSpace
+from .values import is_number
 
 ELEMENTS = ("development", "production", "launch", "operations")
 """The elements of the cost of a constellation."""
@@ -145,10 +146,6 @@ class Triangular:
         return high - math.sqrt((1 - q) * (high - low) * (high - mode))
 
 
-def _is_number(value: Any) -> bool:
-    return isinstance(value, numbers.Real) and not isinstance(value, bool)
-
-
 @dataclass(frozen=True)
 class Component:
     """
@@ -182,7 +179,7 @@ class Component:
             raise ValueError("a component needs a name")
         if self.development < 0 or self.first_unit < 0:
             raise ValueError("costs must not be negative")
-        if _is_number(self.growth):
+        if is_number(self.growth):
             if self.growth < 0:
                 raise ValueError("growth must not be negative")
         elif not (hasattr(self.growth, "ppf") and hasattr(self.growth, "mean")):
@@ -193,7 +190,7 @@ class Component:
     @property
     def uncertain(self) -> bool:
         """bool: Whether its growth is drawn from a distribution."""
-        return not _is_number(self.growth)
+        return not is_number(self.growth)
 
     @property
     def factor(self) -> float:
@@ -567,7 +564,7 @@ class CostModel:
             return self.satellites
         if kind is None:
             raise ValueError("a model of several types of satellites needs a type")
-        return _per_type(self.satellites, kind, "cost")
+        return per_type(self.satellites, kind, "cost")
 
     def _types(self) -> list[tuple[Any, SatelliteCost]]:
         """Gets the types of satellites: each type, and its cost."""
@@ -663,9 +660,11 @@ class CostModel:
         self, deployment: Deployment | MissionHistory, growth: Growth = 1.0
     ) -> CostEstimate:
         """
-        Estimates the life-cycle cost of a deployment (as planned, without
-        failures) or of a simulated mission (see `Deployment.simulate`), with
-        the satellites and launches its failures and restorations take,
+        Estimates the life-cycle cost of a deployment (its history without
+        failures, with the stages that their rules deploy and the spares of
+        its policy, see `Deployment.planned`) or of a simulated mission (see
+        `Deployment.simulate`), with the satellites and launches its failures
+        and restorations take,
         dating its costs: the development of each type of satellite, spread
         over its development; the production of its units (including spares,
         replacements, and restorations) along its learning curve, spread over
@@ -916,7 +915,7 @@ def _get_factor(
     factor = factors[element]
     if isinstance(factor, Mapping) and kind is None:
         raise ValueError(f"growth of {element} by type of satellite needs types")
-    return _per_type(factor, kind, f"growth of {element}")
+    return per_type(factor, kind, f"growth of {element}")
 
 
 def risk_space(*models: CostModel) -> DesignSpace:
@@ -948,7 +947,7 @@ def risk_space(*models: CostModel) -> DesignSpace:
 
     Raises:
         ValueError: if a name has a character of paths (`.`, `[`, or `]`), or
-            is reserved (`index`, `count`, or `choice`).
+            is reserved (see `DesignSpace`, such as `index` or `count`).
     """
     names = list(
         dict.fromkeys(name for model in models for name in model.score_names())
@@ -956,10 +955,4 @@ def risk_space(*models: CostModel) -> DesignSpace:
     invalid = [n for n in names if any(c in n for c in _PATH_CHARACTERS)]
     if invalid:
         raise ValueError(f"names of scores must not have '.', '[', or ']': {invalid}")
-    reserved = sorted(_RESERVED_NAMES.intersection(names))
-    if reserved:
-        raise ValueError(
-            f"names of scores must not be those of values of groups ({sorted(_RESERVED_NAMES)}): "
-            + f"{reserved}"
-        )
     return DesignSpace(**{name: Uncertain.normal(0.0, 1.0) for name in names})

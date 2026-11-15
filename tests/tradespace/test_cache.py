@@ -23,6 +23,7 @@ from tatc.tradespace import (
     Study,
 )
 from tatc.tradespace.cache import get_satellite_key
+from tatc.tradespace.fingerprint import get_fingerprint
 
 HAS_JOBLIB = importlib.util.find_spec("joblib") is not None
 
@@ -104,11 +105,13 @@ class TestSatelliteCache(unittest.TestCase):
     def test_disk_cache(self):
         """Results on disk are shared by caches of the same namespace."""
         with tempfile.TemporaryDirectory() as directory:
-            SatelliteCache(self.analysis, directory, namespace="x")(_satellite("a"))
-            again = SatelliteCache(self.analysis, directory, namespace="x")
+            SatelliteCache(self.analysis, directory=directory, namespace="x")(
+                _satellite("a")
+            )
+            again = SatelliteCache(self.analysis, directory=directory, namespace="x")
             self.assertEqual(list(again(_satellite("b")).satellite), ["b", "b"])
             self.assertEqual((again.hits, again.misses), (1, 0))
-            other = SatelliteCache(self.analysis, directory, namespace="y")
+            other = SatelliteCache(self.analysis, directory=directory, namespace="y")
             other(_satellite("c"))
             self.assertEqual(other.misses, 1)
         self.assertEqual(self.calls, ["a", "c"])
@@ -125,7 +128,9 @@ class TestSatelliteCache(unittest.TestCase):
                 + f"    return pd.DataFrame({{'satellite': [{names}]}})",
                 namespace,
             )
-            return SatelliteCache(namespace["analysis"], directory, namespace="x")
+            return SatelliteCache(
+                namespace["analysis"], directory=directory, namespace="x"
+            )
 
         with tempfile.TemporaryDirectory() as directory:
             for rows in (1, 1):
@@ -158,12 +163,30 @@ class TestSatelliteCache(unittest.TestCase):
             self.assertEqual(len([p for p in namespaces[0].iterdir() if p.is_dir()]), 1)
             self.assertEqual(SatelliteCache(_name).prune(), 0)  # in memory
 
+    def test_fingerprint(self):
+        """A cache is described by its function and namespace, not by its
+        counts of hits and misses, nor the results it holds."""
+
+        def make(offset, namespace=""):
+            return SatelliteCache(lambda satellite: offset, namespace=namespace)
+
+        cache = make(0.0)
+        before = get_fingerprint(cache)
+        cache(_satellite("a"))
+        cache(_satellite("b"))
+        self.assertEqual((cache.hits, cache.misses), (1, 1))
+        self.assertEqual(get_fingerprint(cache), before)
+        self.assertEqual(get_fingerprint(make(0.0)), before)
+        self.assertNotEqual(get_fingerprint(make(1.0)), before)
+        self.assertNotEqual(get_fingerprint(make(0.0, "other")), before)
+
     def test_disk_cache_of_other_data(self):
         """Results on disk are keyed by the data the function closes over."""
 
         def make(frame):
             return SatelliteCache(
-                lambda satellite: frame.assign(satellite=satellite.name), directory
+                lambda satellite: frame.assign(satellite=satellite.name),
+                directory=directory,
             )
 
         with tempfile.TemporaryDirectory() as directory:
@@ -179,18 +202,45 @@ class TestSatelliteCache(unittest.TestCase):
             self.assertEqual(list(other(_satellite("c")).value), [2.0])
             self.assertEqual(other.misses, 1)
 
+    def test_contexts(self):
+        """A cache on disk keeps the context of its namespace beside its
+        results, by which the namespaces of a directory are found."""
+        with tempfile.TemporaryDirectory() as directory:
+            for namespace, context in (
+                ("x", (3, EPOCH)),
+                ("y", None),
+                ("z", {"seed": 1}),
+            ):
+                SatelliteCache(
+                    self.analysis,
+                    directory=directory,
+                    namespace=namespace,
+                    context=context,
+                )
+            contexts = SatelliteCache.contexts(directory)
+            self.assertEqual(contexts, {"x": (3, EPOCH), "y": None, "z": {"seed": 1}})
+            # a context that cannot be read is none
+            for path in Path(directory).rglob("context.json"):
+                path.write_text("{")
+            self.assertEqual(set(SatelliteCache.contexts(directory).values()), {None})
+        self.assertEqual(SatelliteCache.contexts(directory), {})  # removed
+        with self.assertRaises(TypeError):
+            SatelliteCache(  # pylint: disable=too-many-function-args
+                self.analysis, directory
+            )
+
     def test_unreadable_file(self):
         """A result that cannot be read from disk is computed again and replaced."""
         with tempfile.TemporaryDirectory() as directory:
-            cache = SatelliteCache(self.analysis, directory, namespace="x")
+            cache = SatelliteCache(self.analysis, directory=directory, namespace="x")
             cache(_satellite("a"))
             for path in Path(directory).rglob("*.pkl"):
                 path.write_bytes(b"not a pickle")
-            again = SatelliteCache(self.analysis, directory, namespace="x")
+            again = SatelliteCache(self.analysis, directory=directory, namespace="x")
             self.assertEqual(list(again(_satellite("b")).satellite), ["b", "b"])
             self.assertEqual(again.misses, 1)
             # the file is replaced
-            third = SatelliteCache(self.analysis, directory, namespace="x")
+            third = SatelliteCache(self.analysis, directory=directory, namespace="x")
             third(_satellite("c"))
             self.assertEqual((third.hits, third.misses), (1, 0))
 
@@ -199,7 +249,7 @@ class TestSatelliteCache(unittest.TestCase):
         """Workers of a study share a cache on disk, storing each result once."""
         satellites = [_satellite(f"s{i}", anomaly=30 * (i % 4)) for i in range(40)]
         with tempfile.TemporaryDirectory() as directory:
-            cache = SatelliteCache(_frame, directory, namespace="parallel")
+            cache = SatelliteCache(_frame, directory=directory, namespace="parallel")
             study = Study(
                 DesignSpace(i=Integer(0, 39)),
                 lambda d: satellites[d.i],

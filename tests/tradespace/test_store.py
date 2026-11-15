@@ -72,7 +72,7 @@ class TestResultStore(unittest.TestCase):
 
     def test_store_and_get(self):
         """Records are stored and retrieved by design and replicate."""
-        store = ResultStore(self.path, "x")
+        store = ResultStore(self.path, namespace="x")
         store.put([("d1", 0, [{"value": 1}]), ("d1", 1, [{"value": 2}])])
         self.assertEqual(len(store), 2)
         self.assertEqual(store.get([("d1", 1), ("d2", 0)]), {("d1", 1): [{"value": 2}]})
@@ -81,16 +81,20 @@ class TestResultStore(unittest.TestCase):
         self.assertEqual(store.get([("d1", 1)], "c"), {("d1", 1): [{"value": 3}]})
         self.assertEqual(store.get([("d1", 1)])[("d1", 1)], [{"value": 2}])
         self.assertEqual(store.contexts(), {"": 2, "c": 1})
-        other = ResultStore(self.path, "y")
+        other = ResultStore(self.path, namespace="y")
         self.assertEqual(len(other), 0)
         store.clear()
         self.assertEqual(len(store), 0)
         # a store without a namespace has its own records
         self.assertEqual(len(ResultStore(self.path)), 0)
+        # the namespace is a keyword
+        with self.assertRaises(TypeError):
+            ResultStore(self.path, "x")  # pylint: disable=too-many-function-args
+        self.assertIn("namespace='y'", repr(other))
 
     def test_resume(self):
         """An interrupted study resumes, evaluating only what is not stored."""
-        store = ResultStore(self.path, "study")
+        store = ResultStore(self.path, namespace="study")
         self.state.fail_at = 5
         with self.assertRaises(_Interrupt):
             self._study(store).run()
@@ -108,7 +112,7 @@ class TestResultStore(unittest.TestCase):
 
     def test_more_replicates(self):
         """Extending a study evaluates only the new replicates."""
-        store = ResultStore(self.path, "study")
+        store = ResultStore(self.path, namespace="study")
         self._study(store).run()
         self.calls.clear()
         results = self._study(store).run(replicate_indices=range(5))
@@ -118,7 +122,7 @@ class TestResultStore(unittest.TestCase):
     @unittest.skipUnless(HAS_JOBLIB, "requires joblib")
     def test_parallel(self):
         """Parallel studies store their evaluations as chunks complete."""
-        store = ResultStore(self.path, "study")
+        store = ResultStore(self.path, namespace="study")
         study = Study(
             self.space,
             lambda d: d,
@@ -135,7 +139,7 @@ class TestResultStore(unittest.TestCase):
     def test_other_definitions(self):
         """Records of studies of other definitions are not reused, and studies
         of other values share a store's namespace without a warning."""
-        store = ResultStore(self.path, "study")
+        store = ResultStore(self.path, namespace="study")
         self._study(store).run()
         self.calls.clear()
         self._study(store).run()
@@ -163,7 +167,7 @@ class TestResultStore(unittest.TestCase):
                 self.space,
                 lambda d: d,
                 lambda d, offset=offset: self.calls.append(1) or {"value": offset},
-                store=ResultStore(self.path, "closure"),
+                store=ResultStore(self.path, namespace="closure"),
             )
 
         study(0.0).run()
@@ -174,7 +178,7 @@ class TestResultStore(unittest.TestCase):
 
     def test_other_code(self):
         """A study warns of records of the same study with other code."""
-        store = ResultStore(self.path, "code")
+        store = ResultStore(self.path, namespace="code")
 
         def study(evaluate):
             return Study(self.space, lambda d: d, evaluate, replicates=2, store=store)
@@ -203,7 +207,7 @@ class TestResultStore(unittest.TestCase):
 
     def test_warning_location(self):
         """The warning of evaluations with other code points at the run."""
-        store = ResultStore(self.path, "where")
+        store = ResultStore(self.path, namespace="where")
 
         def study(evaluate):
             return Study(self.space, lambda d: d, evaluate, store=store)
@@ -218,7 +222,7 @@ class TestResultStore(unittest.TestCase):
     def test_prune_definitions(self):
         """Definitions kept without evaluations (of a study whose evaluations
         all failed) are of the study's contexts, which pruning removes."""
-        store = ResultStore(self.path, "failed")
+        store = ResultStore(self.path, namespace="failed")
 
         def study(evaluate, **kwargs):
             return Study(self.space, lambda d: d, evaluate, store=store, **kwargs)
@@ -259,7 +263,7 @@ class TestResultStore(unittest.TestCase):
             "tagged": {"$float": "x"},
             "array": np.arange(3),
         }
-        store = ResultStore(self.path, "x")
+        store = ResultStore(self.path, namespace="x")
         store.put([("d1", 0, [record])])
         read = store.get([("d1", 0)])[("d1", 0)][0]
         self.assertEqual(set(read), set(record))
@@ -281,7 +285,7 @@ class TestResultStore(unittest.TestCase):
 
     def test_definitions(self):
         """A store keeps the definitions of studies, which explain changes."""
-        store = ResultStore(self.path, "study")
+        store = ResultStore(self.path, namespace="study")
         study = self._study(store)
         study.run()
         self.assertEqual(store.definition(study.fingerprint), study.definition)
@@ -305,7 +309,7 @@ class TestResultStore(unittest.TestCase):
 
     def test_parallel_interruption(self):
         """Workers store each evaluation as it completes, before an error."""
-        store = ResultStore(self.path, "interrupted")
+        store = ResultStore(self.path, namespace="interrupted")
         # an executor that waits for the chunks in progress as it shuts down
         with ThreadPoolExecutor(2) as executor:
             study = Study(
@@ -327,7 +331,7 @@ class TestResultStore(unittest.TestCase):
 
     def test_variants(self):
         """Variants of replicates are kept apart from plain replicates."""
-        store = ResultStore(self.path, "x")
+        store = ResultStore(self.path, namespace="x")
         store.put([("d1", 0, [{"value": 1}])])
         store.put([("d1", 0, [{"value": 2}])], variant='{"u": 5}')
         self.assertEqual(store.get([("d1", 0)]), {("d1", 0): [{"value": 1}]})
@@ -339,7 +343,7 @@ class TestResultStore(unittest.TestCase):
 
     def test_shifted_runs(self):
         """Shifted replicates are stored and reused apart from plain ones."""
-        store = ResultStore(self.path, "study")
+        store = ResultStore(self.path, namespace="study")
         plain = self._study(store).run()
         shifted = self._study(store).run(shift={"noise": 3})
         self.assertEqual(len(self.calls), 2 * 4 * 3)
@@ -372,11 +376,11 @@ class TestResultStore(unittest.TestCase):
                 connection.execute(
                     "INSERT INTO results VALUES ('x', '', 'd1', 0, '[{\"value\": 1}]')"
                 )
-        store = ResultStore(self.path, "x")
+        store = ResultStore(self.path, namespace="x")
         self.assertEqual(store.get([("d1", 0)]), {("d1", 0): [{"value": 1}]})
         store.put([("d1", 0, [{"value": 2}])], variant="v")
         self.assertEqual(len(store), 2)
-        self.assertEqual(len(ResultStore(self.path, "x")), 2)
+        self.assertEqual(len(ResultStore(self.path, namespace="x")), 2)
 
     def test_earlier_format(self):
         """Files with evaluations of an earlier format are read as empty."""
@@ -389,7 +393,7 @@ class TestResultStore(unittest.TestCase):
                 connection.execute(
                     "INSERT INTO evaluations VALUES ('x', '', 'd1', 0, x'00')"
                 )
-        store = ResultStore(self.path, "x")
+        store = ResultStore(self.path, namespace="x")
         self.assertEqual(len(store), 0)
         store.put([("d1", 0, [{"value": 1}])])
         self.assertEqual(store.get([("d1", 0)]), {("d1", 0): [{"value": 1}]})

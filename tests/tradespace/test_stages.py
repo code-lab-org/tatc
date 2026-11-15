@@ -21,7 +21,7 @@ from tatc.tradespace import (
     Stage,
     walker_space,
 )
-from tatc.tradespace.histories import exact_expectations
+from tatc.tradespace.expectations import exact_expectations
 from tatc.tradespace.mission import Capability, PhaseCache
 
 # three planes of two satellites
@@ -65,7 +65,7 @@ class TestStages(unittest.TestCase):
         self.assertEqual({launch.plane for launch in deployment.launches}, {0, 1})
         history = deployment.simulate()
         decided = deployment.begin + 1.0
-        self.assertEqual(history.stages, [decided])
+        self.assertEqual(history.decided, [decided])
         # produced from the decision (after the line's earlier work) and launched
         produced = [b for b in history.production if b.begin == decided]
         self.assertEqual(
@@ -101,7 +101,7 @@ class TestStages(unittest.TestCase):
             _layout(), stages=[Stage([1, 2], [0.5, 1.0], lambda d: False)]
         )
         history = never.simulate()
-        self.assertEqual(history.stages, [None])
+        self.assertEqual(history.decided, [None])
         self.assertEqual(_launches(history, 1) + _launches(history, 2), [])
         self.assertNotIn((1, 0), history.operating)
         self.assertEqual(history.metrics()["stages deployed"], 0.0)
@@ -109,6 +109,21 @@ class TestStages(unittest.TestCase):
         self.assertLess(COSTS.estimate(never).total, COSTS.estimate(plain).total)
         self.assertNotIn("stages deployed", plain.simulate().metrics())
         self.assertEqual(never.deployed, history.deployed)
+
+    def test_deployed_after_the_end(self):
+        """A stage deployed too late to launch within the mission leaves the
+        deployment unfinished: the time it is deployed is infinite."""
+        late = SCHEDULE.plan(_layout(), stages=[Stage(2, 4.75)])
+        history = late.simulate()
+        self.assertEqual(history.decided, [late.begin + 4.75])
+        self.assertEqual(_launches(history, 2), [])
+        self.assertEqual(history.deployed, float("inf"))
+        self.assertEqual(late.deployed, float("inf"))
+        # or deployed within it, or not at all
+        early = SCHEDULE.plan(_layout(), stages=[Stage(2, 4.0)])
+        self.assertEqual(early.deployed, early.begin + 4.0 + 2 / 4)
+        never = SCHEDULE.plan(_layout(), stages=[Stage(2, 4.75, lambda d: False)])
+        self.assertLess(never.deployed, never.end)
 
     def test_cost_of_the_option(self):
         """A type of satellite whose planes are all staged costs its
@@ -128,7 +143,7 @@ class TestStages(unittest.TestCase):
             {"a": plane, "b": plane}, stages=[Stage(1, 0.0, lambda decision: False)]
         )
         estimate = model.estimate(never)
-        self.assertEqual(never.simulate().stages, [None])
+        self.assertEqual(never.simulate().decided, [None])
         self.assertEqual(estimate.units, {"a": 2})
         self.assertEqual(estimate.development, 10 + 50)
 
@@ -151,28 +166,28 @@ class TestStages(unittest.TestCase):
         begin = min(launch.time for launch in history.launches)
         # times are from the start of development, as every time of a mission
         self.assertEqual([d.time for d in seen], [begin + 0.5, begin + 1.0])
-        self.assertEqual(history.stages, [begin + 0.25, begin + 1.0])
+        self.assertEqual(history.decided, [begin + 0.25, begin + 1.0])
 
     def test_contingency(self):
         """A rule on failures deploys a stage in the histories that need it."""
         failures = FailureModel(life=Exponential(0.1))
         policy = RestorationPolicy(restore=False)
         stage = Stage(2, [0.5, 1.0, 1.5, 2.0], lambda d: d.satellites_operating < 4)
-        deployment = SCHEDULE.plan(_layout(), stages=[stage])
-        self.assertEqual(deployment.simulate().stages, [None])
-        histories = deployment.simulate_many(failures, policy, seed=1, histories=20)
-        deployed = [h.stages[0] is not None for h in histories]
+        deployment = SCHEDULE.plan(_layout(), policy=policy, stages=[stage])
+        self.assertEqual(deployment.simulate().decided, [None])
+        histories = deployment.simulate_many(failures, seed=1, histories=20)
+        deployed = [h.decided[0] is not None for h in histories]
         self.assertTrue(any(deployed) and not all(deployed))
         for history in histories:
             failed = [t for t, *_ in history.failures]
-            if history.stages[0] is not None:
-                self.assertLess(min(failed), history.stages[0])
+            if history.decided[0] is not None:
+                self.assertLess(min(failed), history.decided[0])
             # the satellites of a stage count in the availability of the
             # histories that deploy it (and only of those)
             self.assertLessEqual(history.metrics()["availability"], 1.0)
         # the same history draws the same failures again
-        again = deployment.simulate_many(failures, policy, seed=1, histories=20)
-        self.assertEqual([h.stages for h in again], [h.stages for h in histories])
+        again = deployment.simulate_many(failures, seed=1, histories=20)
+        self.assertEqual([h.decided for h in again], [h.decided for h in histories])
 
     def test_capability(self):
         """Rules read the capability of the satellites operating at a decision."""
@@ -193,13 +208,13 @@ class TestStages(unittest.TestCase):
         history = deployment.simulate()
         # the first plane alone at the first launch (the second is launched later)
         self.assertEqual(seen, [(0.0, 2, {"observing": 2.0})])
-        self.assertEqual(history.stages, [deployment.begin])
+        self.assertEqual(history.decided, [deployment.begin])
         # the planned history reads it too
         self.assertEqual(history.metrics()["stages deployed"], 1.0)
-        self.assertEqual(deployment.planned().stages, [deployment.begin])
+        self.assertEqual(deployment.planned().decided, [deployment.begin])
         later = SCHEDULE.plan(_layout(), stages=[Stage(2, 0.5, rule)])
         later.capability = deployment.capability
-        self.assertEqual(later.simulate().stages, [None])
+        self.assertEqual(later.simulate().decided, [None])
         # without a capability, a rule cannot read it
         unmeasured = SCHEDULE.plan(_layout(), stages=[Stage(2, 0.0, rule)])
         with self.assertRaisesRegex(ValueError, "capability"):
@@ -211,12 +226,14 @@ class TestStages(unittest.TestCase):
         policy = RestorationPolicy(restore=False)
         by_count = SCHEDULE.plan(
             _layout(),
+            policy=policy,
             stages=[
                 Stage(2, [0.5, 1.0, 1.5, 2.0], lambda d: d.satellites_operating < 4)
             ],
         )
         measured = SCHEDULE.plan(
             _layout(),
+            policy=policy,
             stages=[
                 Stage(
                     2,
@@ -229,10 +246,10 @@ class TestStages(unittest.TestCase):
         measured.capability = Capability(
             NAMES, OBSERVATIONS, cache, context="replicate"
         )
-        expected = by_count.simulate_many(failures, policy, seed=1, histories=20)
-        histories = measured.simulate_many(failures, policy, seed=1, histories=20)
-        self.assertEqual([h.stages for h in histories], [h.stages for h in expected])
-        self.assertTrue(any(h.stages[0] is not None for h in histories))
+        expected = by_count.simulate_many(failures, seed=1, histories=20)
+        histories = measured.simulate_many(failures, seed=1, histories=20)
+        self.assertEqual([h.decided for h in histories], [h.decided for h in expected])
+        self.assertTrue(any(h.decided[0] is not None for h in histories))
         # each set of satellites read at a decision is evaluated once
         self.assertGreater(cache.hits, 0)
 
@@ -279,11 +296,13 @@ class TestStages(unittest.TestCase):
             years=5, development_years=1, production_rate=4, launch_capacity=1
         )
         deployment = schedule.plan(
-            _layout(), orbit_spares=1, stages=[Stage(2, 1.0, lead_years=0.5)]
+            _layout(),
+            policy=RestorationPolicy(orbit_spares=1),
+            stages=[Stage(2, 1.0, lead_years=0.5)],
         )
         history = deployment.simulate()
         # the line is free by the end of the lead time
-        decided = history.stages[0]
+        decided = history.decided[0]
         launched = [l for l in history.launches if l.plane == 2]
         self.assertEqual([l.satellites for l in launched], [1, 1, 1])
         self.assertEqual(launched[0].time, decided + 0.5 + 3 / 4)
@@ -294,8 +313,12 @@ class TestStages(unittest.TestCase):
 
     def test_exact_expectations(self):
         """Exact expectations need a deployment that is not staged."""
-        deployment = SCHEDULE.plan(_layout(), stages=[Stage(2, 1.0)])
-        with self.assertRaises(ValueError):
+        deployment = SCHEDULE.plan(
+            _layout(),
+            policy=RestorationPolicy(restore=False),
+            stages=[Stage(2, 1.0)],
+        )
+        with self.assertRaisesRegex(ValueError, "staged"):
             exact_expectations(
                 deployment,
                 FailureModel(life=Exponential(0.2)),
@@ -327,7 +350,7 @@ class TestStages(unittest.TestCase):
         self.assertEqual((stage.planes, stage.times), ((2, 1), (0.0, 1.0)))
         self.assertEqual(Stage([1], range(3)).times, (0.0, 1.0, 2.0))
         deployment = SCHEDULE.plan(_layout(), stages=[Stage(np.int64(2), 1.0)])
-        self.assertEqual(deployment.simulate().stages, [deployment.begin + 1.0])
+        self.assertEqual(deployment.simulate().decided, [deployment.begin + 1.0])
 
 
 if __name__ == "__main__":

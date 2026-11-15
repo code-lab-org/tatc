@@ -12,6 +12,7 @@ import tempfile
 import subprocess
 import sys
 import unittest
+import warnings
 from types import SimpleNamespace
 from unittest import mock
 from datetime import datetime, timedelta, timezone
@@ -32,14 +33,18 @@ from tatc.tradespace import (
     DesignSpace,
     Integer,
     Real,
+    SatelliteCache,
     SatelliteCost,
     Study,
     Uncertain,
 )
 from tatc.tradespace.fingerprint import (
     compare_definitions,
+    describe,
     get_definition,
     get_fingerprint,
+    find_stale,
+    warn_stale,
 )
 
 THRESHOLD = 4
@@ -125,6 +130,23 @@ def _uses_cached(d):
 
 def _uses_model(d):
     return {"cost": MODEL.estimate(d.layout).total}
+
+
+def _offset_cache(offset):
+    """A cache of an analysis of satellites that gives an offset."""
+    return SatelliteCache(lambda satellite: offset)
+
+
+SATELLITES = _offset_cache(0.0)
+BASE = DesignSpace(n=Integer(1, 2)).design({"n": 1})
+
+
+def _uses_satellites(satellites):
+    return {"m": SATELLITES(satellites)}
+
+
+def _uses_base(d):
+    return {"m": BASE.n * d}
 
 
 START = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -427,7 +449,7 @@ class TestFingerprint(unittest.TestCase):
         self.assertTrue(resources)
         # a constant of a package depends on its source only
         self.assertEqual(
-            fingerprint._resolve("tatc", "__version__"), {("file", "tatc")}
+            fingerprint._resolve_import("tatc", "__version__"), {("file", "tatc")}
         )
 
     def test_static_imports(self):
@@ -624,3 +646,134 @@ class TestOwnClasses(unittest.TestCase):
         # the code of the methods of the class
         edited = classes("{'v': d.a + self.k}")
         self.assertNotEqual(get_fingerprint(f=score(1)), get_fingerprint(f=edited(1)))
+
+
+class _Described:
+    """An object that describes itself by what changes results."""
+
+    def __init__(self, value, calls=0):
+        self.value, self.calls = value, calls
+
+    def __fingerprint__(self):
+        return {"value": self.value}
+
+
+class TestSelfDescribed(unittest.TestCase):
+    """
+    Unit tests for objects that describe themselves (by `__fingerprint__`),
+    such as designs and caches of satellites.
+    """
+
+    def test_hook(self):
+        """An object is described by what its `__fingerprint__` gives, not by
+        its other attributes."""
+        self.assertEqual(
+            get_fingerprint(_Described(1)), get_fingerprint(_Described(1, calls=5))
+        )
+        self.assertNotEqual(
+            get_fingerprint(_Described(1)), get_fingerprint(_Described(2))
+        )
+        # the class is not described by the hook (it is not an object of it)
+        self.assertNotIn("fingerprint", get_definition(_Described)["values"]["0"])
+
+    def test_satellite_cache(self):
+        """A study whose function refers to a cache of satellites changes its
+        fingerprint with the cache's function, not with its use."""
+        global SATELLITES  # pylint: disable=global-statement
+        space = DesignSpace(n=Integer(1, 2))
+
+        def fingerprint_of():
+            return Study(space, lambda d: [], _uses_satellites).fingerprint
+
+        before = fingerprint_of()
+        SATELLITES([])
+        SATELLITES.hits += 3
+        self.assertEqual(fingerprint_of(), before)
+        try:
+            SATELLITES = _offset_cache(1.0)
+            self.assertNotEqual(fingerprint_of(), before)
+        finally:
+            SATELLITES = _offset_cache(0.0)
+        self.assertEqual(fingerprint_of(), before)
+
+    def test_design(self):
+        """A design is described by its design space, decisions, replicate,
+        and scenario."""
+        global BASE  # pylint: disable=global-statement
+        space = DesignSpace(n=Integer(1, 2), u=Uncertain.uniform(0, 1))
+        before = get_fingerprint(_uses_base)
+        try:
+            BASE = BASE.space.design({"n": 2})
+            self.assertNotEqual(get_fingerprint(_uses_base), before)
+        finally:
+            BASE = BASE.space.design({"n": 1})
+        self.assertEqual(get_fingerprint(_uses_base), before)
+        design = space.design({"n": 1})
+        prints = {
+            get_fingerprint(design),
+            get_fingerprint(space.design({"n": 2})),
+            get_fingerprint(design.realize(0)),
+            get_fingerprint(design.realize(1)),
+            get_fingerprint(design.realize(0, overrides={"u": 0.5}, scenario="half")),
+            get_fingerprint(DesignSpace(n=Integer(1, 3)).design({"n": 1})),
+        }
+        self.assertEqual(len(prints), 6)
+        self.assertEqual(
+            get_fingerprint(design), get_fingerprint(space.design({"n": 1}))
+        )
+
+    def test_describe(self):
+        """A value is described as a definition describes it."""
+        values = {"limit": 2.0, "names": ("a", "b")}
+        self.assertEqual(describe(values), get_definition(v=values)["values"]["v"])
+        self.assertEqual(describe(values), {"limit": "2.0", "names": ["a", "b"]})
+
+
+class TestStale(unittest.TestCase):
+    """
+    Unit tests for the results of the same study with other code.
+    """
+
+    def setUp(self):
+        self.older = {"values": {"f": {"code": "aa", "constants": [1], "names": []}}}
+        self.newer = {"values": {"f": {"code": "bb", "constants": [1], "names": []}}}
+        self.other = {"values": {"f": {"code": "bb", "constants": [2], "names": []}}}
+
+    def test_stale(self):
+        """Definitions of the same values but other code are stale, in order,
+        with their numbers of results."""
+        others = {"b": self.older, "c": self.other, "d": None, "a": self.older}
+        counts = {"a": 0, "b": 3, "c": 5, "d": 1}
+        found = find_stale(self.newer, others, counts.__getitem__)
+        self.assertEqual(list(found.items()), [("b", 3), ("a", 0)])
+
+    def test_warn_stale(self):
+        """A warning names the stale results and the differences of the latest
+        of them, once if asked."""
+        definitions = {"b": self.older}
+        with self.assertWarnsRegex(
+            UserWarning, r"^7 things with other code.*\(remove them\).*f\.code"
+        ):
+            warned = warn_stale(
+                {"a": 0, "b": 7},
+                self.newer,
+                definitions.get,
+                lambda count: f"{count} things",
+                "remove them",
+            )
+        self.assertTrue(warned)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self.assertFalse(
+                warn_stale({"a": 0}, self.newer, definitions.get, str, "remove them")
+            )
+            self.assertFalse(
+                warn_stale(
+                    {"b": 7},
+                    self.newer,
+                    definitions.get,
+                    str,
+                    "remove them",
+                    once=lambda: False,
+                )
+            )
