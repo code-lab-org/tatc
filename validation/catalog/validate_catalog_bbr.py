@@ -35,7 +35,6 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 
-import tatc
 from tatc.catalog import get_entry
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
@@ -50,13 +49,12 @@ from gesdisc_scanner import (
 )
 from validation_io import (
     build_grid,
-    get_holdout_gap,
     read_element_set_file,
     recompute_passes,
     score_passes,
     score_swath_area,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -66,7 +64,6 @@ from validation_io import (
 RECORD_PATH = RECORDS / "bbr.json"
 FIXTURE_PATH = FIXTURES / "bbr.npz"
 NORAD_ID = 59908
-FIT_DAY = datetime(2026, 9, 27, tzinfo=timezone.utc)
 ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "earthcare_2026-09-27.3le"
 PLATFORM = "earthcare"
 CONFIGURATION = "views"
@@ -132,7 +129,7 @@ def validate(day, tle, entry, orbit, references, write: bool) -> None:
 
     def satellite_for(time_step: float):
         return entry.to_satellite(
-            orbit, CONFIGURATION, time_step=time_step, platform=PLATFORM
+            orbit, configuration=CONFIGURATION, time_step=time_step, platform=PLATFORM
         )
 
     satellite = satellite_for(TIME_STEPS[0])
@@ -195,23 +192,17 @@ def validate(day, tle, entry, orbit, references, write: bool) -> None:
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
     )
     nadir = list(VIEWS).index("NADIR")
-    update_record(
+    write_record(
         RECORD_PATH,
-        "bbr",
+        entry,
         CONFIGURATION,
-        {
-            "digest": entry.configurations[CONFIGURATION].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": f"{PRODUCT} (pixel positions of the shortwave band, every "
-            "second line)",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": PLATFORM,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": metrics,
-            "fixture_metrics": recompute_passes(satellite, nadir, day, passes),
-        },
+        source=source_of(__file__),
+        reference=f"{PRODUCT} (pixel positions of the shortwave band, every "
+        "second line)",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[PLATFORM],
+        metrics=metrics,
+        fixture_metrics=recompute_passes(satellite, nadir, day, passes),
     )
     print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
 

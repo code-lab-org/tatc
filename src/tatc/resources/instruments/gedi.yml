@@ -37,13 +37,9 @@ configurations:
           roll_angle: &measured
             kind: measured
             source: validate_catalog_gedi.py --fit, the median and spread (99.5th percentile) of the beam's offsets from the ground track of the element set nearest the middle of the day, where the beams' center lay within 1 deg of nadir
-            platform: iss
+            platforms: [iss]
             period: "2026-05-01"
           cross_track_field_of_view: *measured
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: &tailored
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular: &rectangular
             kind: derived
             source: Models the band containing a beam's track as a rectangular view
@@ -58,8 +54,6 @@ configurations:
         provenance:
           roll_angle: *measured
           cross_track_field_of_view: *measured
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -72,8 +66,6 @@ configurations:
         provenance:
           roll_angle: *measured
           cross_track_field_of_view: *measured
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -86,8 +78,6 @@ configurations:
         provenance:
           roll_angle: *measured
           cross_track_field_of_view: *measured
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -100,8 +90,6 @@ configurations:
         provenance:
           roll_angle: *measured
           cross_track_field_of_view: *measured
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -114,8 +102,6 @@ configurations:
         provenance:
           roll_angle: *measured
           cross_track_field_of_view: *measured
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -128,8 +114,6 @@ configurations:
         provenance:
           roll_angle: *measured
           cross_track_field_of_view: *measured
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -142,8 +126,6 @@ configurations:
         provenance:
           roll_angle: *measured
           cross_track_field_of_view: *measured
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
     limitations:
       - Each view is about 15 km wide (2.06 deg), whereas a beam's footprint is about 25 m wide and the eight tracks span about 4.5 km. The width holds where the beams lie while GEDI points within 1 deg of nadir (80.9% of shots on the fitting day), with the error of an element set of the day, so a view shows where a beam may observe, not the area it observes.

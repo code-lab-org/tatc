@@ -23,6 +23,7 @@ which unit tests recompute the results.
 
 import argparse
 import concurrent.futures
+import functools
 import io
 import pathlib
 from datetime import datetime, timezone
@@ -34,12 +35,10 @@ from tatc.catalog import get_entry
 from tatc.schemas import GeneralPerturbationsOrbit
 from gesdisc_scanner import Reference, Setup, fit, fit_yaw, validate_swath
 from validation_io import (
+    ARCHIVES,
+    Archive,
     TO_GEODETIC,
-    fetch,
     iet_to_utc,
-    list_keys,
-    load_element_set,
-    use_archive,
     RECORDS,
     FIXTURES,
     source_of,
@@ -47,24 +46,19 @@ from validation_io import (
 
 GROUP = "All_Data/OMPS-TC-GEO_All/"
 LINE_STRIDE, SAMPLE_STRIDE = 2, 4
-# the day to which each platform's angles were fitted, and its configuration and
-# fixture
-FIT_DAYS = {
-    "noaa-20": datetime(2026, 10, 1, tzinfo=timezone.utc),
-    "noaa-21": datetime(2026, 10, 1, tzinfo=timezone.utc),
-}
+# the configuration of each platform's fit and its fixture
 CONFIGURATIONS = {
     "noaa-21": ("swath_noaa_21", FIXTURES / "omps_nm_noaa_21.npz"),
     "noaa-20": ("swath_noaa_20", FIXTURES / "omps_nm_noaa_20.npz"),
 }
 
 
-def read_granule(key: str) -> dict | None:
+def read_granule(archive: Archive, key: str) -> dict | None:
     """
     Reads a granule's lines: their middle times, the positions of their samples, the
     spacecraft's position, and their quality flags.
     """
-    with h5py.File(io.BytesIO(fetch(key))) as f:
+    with h5py.File(io.BytesIO(archive.fetch(key))) as f:
         g = f[GROUP]
         samples = int(g["NumberOfIFOVs"][0])
         if samples <= 0 or len(g["MidTime"]) == 0:
@@ -80,13 +74,17 @@ def read_granule(key: str) -> dict | None:
         }
 
 
-def load_day(day: datetime, directory: pathlib.Path, prefix: str) -> dict:
+def load_day(day: datetime, directory: pathlib.Path, archive: Archive) -> dict:
     """Downloads and reduces the geolocation of a day, or loads it from a cache."""
-    path = directory / f"{prefix}_omps_gotco_{day:%Y%m%d}.npz"
+    path = directory / f"{archive.prefix}_omps_gotco_{day:%Y%m%d}.npz"
     if not path.exists():
-        keys = list_keys(f"OMPS-TC-GEO/{day:%Y/%m/%d}/")
+        keys = archive.list_keys(f"OMPS-TC-GEO/{day:%Y/%m/%d}/")
         with concurrent.futures.ThreadPoolExecutor(8) as pool:
-            parts = [p for p in pool.map(read_granule, keys) if p is not None]
+            parts = [
+                p
+                for p in pool.map(functools.partial(read_granule, archive), keys)
+                if p is not None
+            ]
         samples = {int(p["samples"][0]) for p in parts}
         if len(samples) != 1:
             raise ValueError(f"granules differ in their number of samples: {samples}")
@@ -98,9 +96,11 @@ def load_day(day: datetime, directory: pathlib.Path, prefix: str) -> dict:
     return dict(np.load(path))
 
 
-def load_reference(day: datetime, directory: pathlib.Path, prefix: str) -> Reference:
+def load_reference(
+    day: datetime, directory: pathlib.Path, archive: Archive
+) -> Reference:
     """Loads a reduced day as a reference of scans."""
-    raw = load_day(day, directory, prefix)
+    raw = load_day(day, directory, archive)
     seconds = (iet_to_utc(raw["mid_iet"]) - day).total_seconds().to_numpy()
     sc_lon, sc_lat, sc_alt = TO_GEODETIC.transform(*raw["position"].T)
     samples = int(raw["samples"][0])
@@ -137,7 +137,6 @@ def make_setup(platform: str) -> Setup:
         reference="OMPS-TC-GEO (sample positions and times), NOAA Open Data "
         "Dissemination",
         published_reference="",
-        fit_day=FIT_DAYS[platform],
         time_steps=(10, 30, 120),
         pass_radius=40,
         point_spacing=200e3,
@@ -149,14 +148,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=pathlib.Path)
     parser.add_argument("day")
-    parser.add_argument("--platform", default="noaa-21", choices=sorted(FIT_DAYS))
+    parser.add_argument("--platform", default="noaa-21", choices=sorted(CONFIGURATIONS))
     parser.add_argument("--fit", action="store_true")
     parser.add_argument("--write", action="store_true")
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
-    prefix = use_archive(arguments.platform)
+    archive = ARCHIVES[arguments.platform]
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    reference = load_reference(day, arguments.directory, prefix)
+    reference = load_reference(day, arguments.directory, archive)
     print(
         f"{arguments.day} ({arguments.platform}): {len(reference.time)} lines from "
         f"{reference.time[0]}, {reference.pixels} samples, {len(reference.gaps)} gaps "
@@ -168,7 +167,7 @@ def main() -> None:
             fit(reference, frame)
             fit_yaw(reference, frame)
         return
-    tle = load_element_set(day, arguments.directory)
+    tle = archive.load_element_set(day, arguments.directory)
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     setup = make_setup(arguments.platform)

@@ -26,19 +26,18 @@ import requests
 import xarray as xr
 from skyfield.framelib import itrs
 
-import tatc
 from tatc.analysis import collect_observations
-from tatc.catalog import STANDARD_VERSION, get_entry
+from tatc.catalog import get_entry
 from tatc.catalog.metrics import compute_product_limit_error
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from tatc.utils import compute_field_of_regard
 from validation_io import (
     add_earth_orientation,
-    get_holdout_gap,
     RECORDS,
     FIXTURES,
     source_of,
+    write_record,
 )
 
 RECORD_PATH = RECORDS / "ahi.json"
@@ -195,11 +194,9 @@ def validate(directory: pathlib.Path, write: bool) -> None:
     orbit = GeneralPerturbationsOrbit.from_tle(list(TLE))
     position = satellite_position(orbit)
     common = {
-        "evidence": "rerun",
-        "tatc_version": tatc.__version__,
         "source": source_of(__file__),
         "period": f"{TIME:%Y-%m-%dT%H:%MZ}",
-        "platform": "himawari-9",
+        "platforms": ["himawari-9"],
     }
     fixture = {"tle": np.array(TLE), "time": np.array(TIME.isoformat())}
     records = {}
@@ -209,12 +206,13 @@ def validate(directory: pathlib.Path, write: bool) -> None:
         download("CMSK", TIME, directory), "CloudMask", position, 8
     )
     picks = rng.choice(np.flatnonzero(imaged), SAMPLES, replace=False)
-    satellite = entry.to_satellite(orbit, "full_disk", platform="himawari-9")
+    satellite = entry.to_satellite(
+        orbit, configuration="full_disk", platform="himawari-9"
+    )
     observed, elevation = predict(satellite, lat[picks], lon[picks])
     error = np.abs(elevation - (90 - zenith[picks]))
     records["full_disk"] = {
         **common,
-        "digest": entry.configurations["full_disk"].digest,
         "reference": "AHI-CMSK cloud mask, every 8th pixel",
         "metrics": [
             {"name": "imaged_pixels_observed", "value": 100 * float(observed.mean())},
@@ -241,15 +239,13 @@ def validate(directory: pathlib.Path, write: bool) -> None:
     picks = rng.choice(
         np.flatnonzero(np.abs(zenith - bound) <= 5), SAMPLES, replace=False
     )
-    satellite = entry.to_satellite(orbit, key, platform="himawari-9")
+    satellite = entry.to_satellite(orbit, configuration=key, platform="himawari-9")
     observed, _ = predict(satellite, lat[picks], lon[picks])
     picked_zenith = zenith[picks]
     records[key] = {
         **common,
-        "digest": entry.configurations[key].digest,
         "reference": "AHI-CHGT cloud top height, the greatest local zenith angle "
         "at which it is retrieved",
-        "holdout_gap_days": get_holdout_gap(TIME, FIT_TIME),
         "metrics": [
             {
                 "name": "product_limit",
@@ -274,12 +270,8 @@ def validate(directory: pathlib.Path, write: bool) -> None:
         return
     FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(FIXTURE_PATH, **add_earth_orientation(fixture))
-    record = {
-        "entry_id": "ahi",
-        "standard_version": STANDARD_VERSION,
-        "configurations": records,
-    }
-    RECORD_PATH.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    for key, results in records.items():
+        write_record(RECORD_PATH, entry, key, **results)
     print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
 
 

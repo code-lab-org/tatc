@@ -48,7 +48,6 @@ from validation_io import (
     source_of,
 )
 
-FIT_DAY = datetime(2026, 10, 4, tzinfo=timezone.utc)
 # the public element set of `validate_catalog_modis.py` for Aqua, with an epoch after
 # the days of data
 AQUA_ELEMENTS = (
@@ -101,7 +100,6 @@ SETUP = Setup(
     reference="AIRSAQIRL1B version 8.0 (footprint positions and times)",
     published_reference="Footprints published by the AIRS project; footprint "
     "positions of AIRSAQIRL1B version 8.0",
-    fit_day=FIT_DAY,
     time_steps=(SCAN_PERIOD, 32, 128),
     pass_radius=30,
     point_spacing=200e3,

@@ -46,7 +46,6 @@ from shapely.geometry import Polygon, shape
 from shapely.ops import unary_union
 from skyfield.framelib import itrs
 
-import tatc
 from tatc.analysis import collect_observations, compute_ground_track
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
@@ -54,9 +53,8 @@ from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from validation_io import (
     TO_GEODETIC,
-    add_transfer_metrics,
+    write_transfer,
     ecef,
-    get_holdout_gap,
     get_with_retries,
     match_passes,
     normalize,
@@ -65,7 +63,7 @@ from validation_io import (
     recompute_passes,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -80,7 +78,6 @@ ANGLES_TOKEN_URL = (
     "https://planetarycomputer.microsoft.com/api/sas/v1/token/landsat-c2-l2"
 )
 
-FIT_DAY = datetime(2026, 11, 5, tzinfo=timezone.utc)
 FIT_PLATFORM = "landsat-9"
 PLATFORMS = {"landsat-8": "LANDSAT_8", "landsat-9": "LANDSAT_9"}
 _OCTOBER = {
@@ -672,7 +669,9 @@ def validate(
     """Scores the configuration, and writes its results if requested."""
 
     def satellite_for(time_step: float):
-        return entry.to_satellite(orbit, KEY, time_step=time_step, platform=platform)
+        return entry.to_satellite(
+            orbit, configuration=KEY, time_step=time_step, platform=platform
+        )
 
     satellite = satellite_for(TIME_STEPS[0])
     intervals = get_intervals(scenes)
@@ -716,10 +715,11 @@ def validate(
         "footprint_iou_p5",
     )
     if platform != FIT_PLATFORM:
-        add_transfer_metrics(
+        write_transfer(
             RECORD_PATH,
             KEY,
-            f"{platform}, {day:%Y-%m-%d}",
+            platform,
+            f"{day:%Y-%m-%d}",
             {name: results[name] for name in names},
         )
         return
@@ -738,25 +738,17 @@ def validate(
     update_fixture(
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=fixture
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "oli",
+        entry,
         KEY,
-        {
-            "digest": entry.configurations[KEY].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "USGS Landsat Collection 2 scene footprints and center times; "
-            + "angle coefficient files of Level-2 products",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": platform,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": [
-                {"name": name, "value": float(results[name])} for name in names
-            ],
-            "fixture_metrics": recompute_passes(satellite, 0, day, fixture),
-        },
+        source=source_of(__file__),
+        reference="USGS Landsat Collection 2 scene footprints and center times; "
+        + "angle coefficient files of Level-2 products",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[platform],
+        metrics=[{"name": name, "value": float(results[name])} for name in names],
+        fixture_metrics=recompute_passes(satellite, 0, day, fixture),
     )
     print(f"wrote {RECORD_PATH}")
 

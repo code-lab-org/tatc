@@ -50,7 +50,6 @@ from pyproj import Geod
 from scipy.spatial import cKDTree
 from shapely import contains_xy, prepare
 
-import tatc
 from tatc.analysis import (
     collect_observations,
     compute_ground_track,
@@ -65,14 +64,13 @@ from validation_io import (
     TO_GEODETIC,
     build_grid,
     ecef,
-    get_holdout_gap,
     in_lattice_cells,
     normalize,
     read_element_set_file,
     recompute_passes,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -84,7 +82,6 @@ RECORD_PATH = RECORDS / "smap_radiometer.json"
 FIXTURE_PATH = FIXTURES / "smap_radiometer.npz"
 ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "smap_2026-09-20.3le"
 
-FIT_DAY = datetime(2026, 10, 24, tzinfo=timezone.utc)
 PLATFORM = "smap"
 NORAD_ID = 40376
 CONFIGURATION = "looks"
@@ -494,7 +491,10 @@ def score_published_footprints(entry) -> tuple[float, float]:
             epoch=PUBLISHED_EPOCH,
         )
         satellite = entry.to_satellite(
-            orbit, SAMPLE_CONFIGURATION, time_step=SCAN_PERIOD, platform=PLATFORM
+            orbit,
+            configuration=SAMPLE_CONFIGURATION,
+            time_step=SCAN_PERIOD,
+            platform=PLATFORM,
         )
         time = PUBLISHED_EPOCH + timedelta(minutes=10)
         target = satellite.get_instrument(0).compute_footprint_center(
@@ -585,7 +585,10 @@ def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> Non
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
     satellite = entry.to_satellite(
-        orbit, SAMPLE_CONFIGURATION, time_step=SCAN_PERIOD, platform=PLATFORM
+        orbit,
+        configuration=SAMPLE_CONFIGURATION,
+        time_step=SCAN_PERIOD,
+        platform=PLATFORM,
     )
     rows = measure_spacing(reference)
     arc, between = compute_spacing_ratios(day, satellite, rows)
@@ -606,31 +609,25 @@ def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> Non
         footprints=np.array([row[1:] for row in PUBLISHED_FOOTPRINTS], dtype=float),
         spacing=picks,
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "smap_radiometer",
+        entry,
         SAMPLE_CONFIGURATION,
-        {
-            "digest": entry.configurations[SAMPLE_CONFIGURATION].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "Footprints of Piepmeier et al. (2017) and the JPL SMAP "
-            "specifications; spacing of SPL1BTB",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": PLATFORM,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": [
-                {"name": "sample_size_within_3pct", "value": within},
-                {"name": "sample_size_largest_error", "value": largest},
-                {"name": "spacing_arc_ratio_median", "value": arc},
-                {"name": "spacing_scan_ratio_median", "value": between},
-            ],
-            "fixture_metrics": {
-                "sample_size_within_3pct": within,
-                "spacing_arc_ratio_median": fixture_arc,
-                "spacing_scan_ratio_median": fixture_between,
-            },
+        source=source_of(__file__),
+        reference="Footprints of Piepmeier et al. (2017) and the JPL SMAP "
+        "specifications; spacing of SPL1BTB",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[PLATFORM],
+        metrics=[
+            {"name": "sample_size_within_3pct", "value": within},
+            {"name": "sample_size_largest_error", "value": largest},
+            {"name": "spacing_arc_ratio_median", "value": arc},
+            {"name": "spacing_scan_ratio_median", "value": between},
+        ],
+        fixture_metrics={
+            "sample_size_within_3pct": within,
+            "spacing_arc_ratio_median": fixture_arc,
+            "spacing_scan_ratio_median": fixture_between,
         },
     )
 
@@ -763,22 +760,16 @@ def main() -> None:
             "footprint_iou_median",
         )
     ]
-    update_record(
+    write_record(
         RECORD_PATH,
-        "smap_radiometer",
+        entry,
         CONFIGURATION,
-        {
-            "digest": entry.configurations[CONFIGURATION].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "SPL1BTB (footprint positions and times)",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": PLATFORM,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": metrics,
-            "fixture_metrics": recompute_passes(satellite, 0, day, fixture),
-        },
+        source=source_of(__file__),
+        reference="SPL1BTB (footprint positions and times)",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[PLATFORM],
+        metrics=metrics,
+        fixture_metrics=recompute_passes(satellite, 0, day, fixture),
     )
     print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
 

@@ -34,13 +34,9 @@ configurations:
           field_of_regard: &measured_extent
             kind: measured
             source: validate_catalog_iasi.py --fit, between the outermost centers of fields of regard, over 1,082 scans
-            platform: metop-b
+            platforms: [metop-b]
             period: "2026-10-03"
           cross_track_field_of_view: *measured_extent
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular:
             kind: derived
             source: Models a scanned swath as a rectangular view
@@ -74,7 +70,7 @@ configurations:
           cross_track_field_of_view: &measured_spacing
             kind: measured
             source: validate_catalog_iasi.py --fit, 30 fields of regard at a fitted spacing of 3.332 deg
-            platform: metop-b
+            platforms: [metop-b]
             period: "2026-10-03"
           along_track_field_of_view: *measured_spacing
           cross_track_pixels:
@@ -83,7 +79,7 @@ configurations:
           roll_angle:
             kind: measured
             source: validate_catalog_iasi.py --fit, the fitted offset of the scan
-            platform: metop-b
+            platforms: [metop-b]
             period: "2026-10-03"
           is_rectangular:
             kind: derived

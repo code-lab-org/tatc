@@ -47,7 +47,6 @@ from validation_io import (
 from validate_catalog_atlid import read_atlid
 
 NORAD_ID = 59908
-FIT_DAY = datetime(2026, 9, 27, tzinfo=timezone.utc)
 ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "earthcare_2026-09-27.3le"
 PRODUCT = "MSI_RGR_1C"
 # the product's grid has 384 columns, of which 12 to 368 hold the imaged pixels and
@@ -77,7 +76,6 @@ SETUP = Setup(
     reference=f"{PRODUCT} (pixel positions of every fourth orbit, every eighth line), "
     "with spacecraft positions of ATL_NOM_1B",
     published_reference="",
-    fit_day=FIT_DAY,
     time_steps=(10, 30, 120),
     pass_radius=20,
     point_spacing=100e3,

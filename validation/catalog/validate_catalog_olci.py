@@ -58,7 +58,6 @@ from validation_io import (
     source_of,
 )
 
-FIT_DAY = datetime(2026, 10, 4, tzinfo=timezone.utc)
 # public element sets from CelesTrak, with epochs after each day of data
 ELEMENTS = {
     "2026-11-04": (
@@ -163,7 +162,6 @@ SETUP = Setup(
     source=source_of(__file__),
     reference="S3A_OL_1_EFR (tie point positions and times)",
     published_reference="",
-    fit_day=FIT_DAY,
     time_steps=(10, 30, 120),
     pass_radius=40,
     point_spacing=200e3,

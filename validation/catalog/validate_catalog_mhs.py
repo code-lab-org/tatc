@@ -50,7 +50,6 @@ from validation_io import (
 )
 
 NORAD_ID = 43689
-FIT_DAY = datetime(2026, 11, 5, tzinfo=timezone.utc)
 # public element sets from CelesTrak, with epochs after each day of data
 ELEMENTS = {
     "2026-11-05": (
@@ -108,7 +107,6 @@ SETUP = Setup(
     reference="GPM_1CMETOPCMHS version 08 (beam positions)",
     published_reference="Footprints of the TC PRIMED documentation; beam positions "
     "of GPM_1CMETOPCMHS version 08",
-    fit_day=FIT_DAY,
     time_steps=(SCAN_PERIOD, 32, 128),
     pass_radius=60,
     point_spacing=500e3,

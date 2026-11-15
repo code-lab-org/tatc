@@ -3,13 +3,14 @@
   "configurations": {
     "beams": {
       "digest": "dd262ee432d302cd5b1c611723d72397ef984a2e7243c409ba50494a2f44a364",
-      "evidence": "rerun",
+      "standard_version": 6,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_trmm_pr.py",
       "reference": "Footprints of the TC PRIMED documentation; beam positions of GPM_2APR version 07",
       "period": "2013-07-10",
-      "platform": "trmm",
-      "holdout_gap_days": 39,
+      "platforms": [
+        "trmm"
+      ],
       "metrics": [
         {
           "name": "sample_size_within_3pct",
@@ -36,6 +37,7 @@
           "value": 0.9999036149143976
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "sample_size_within_3pct": 75.0,
         "pixel_position_median": 1.4943282339928428,
@@ -45,13 +47,14 @@
     },
     "swath": {
       "digest": "4b6091eef521f2b0a097a5111d95f16de01347d9b1acf2bee3b165b9dd6f0191",
-      "evidence": "rerun",
+      "standard_version": 6,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_trmm_pr.py",
       "reference": "GPM_2APR version 07 (beam positions of the full swath)",
       "period": "2013-07-10",
-      "platform": "trmm",
-      "holdout_gap_days": 39,
+      "platforms": [
+        "trmm"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -74,11 +77,11 @@
           "value": 0.9972156199996317
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.5281053159499999
       }
     }
-  },
-  "standard_version": 6
+  }
 }

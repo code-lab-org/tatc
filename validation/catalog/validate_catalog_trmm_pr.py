@@ -50,7 +50,6 @@ from validation_io import (
 )
 
 NORAD_ID = 25063
-FIT_DAY = datetime(2013, 6, 1, tzinfo=timezone.utc)
 ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "trmm_2013-05-20.3le"
 PRODUCT = Product(
     short_name="GPM_2APR",
@@ -82,7 +81,6 @@ SETUP = Setup(
     reference="GPM_2APR version 07 (beam positions of the full swath)",
     published_reference="Footprints of the TC PRIMED documentation; beam positions "
     "of GPM_2APR version 07",
-    fit_day=FIT_DAY,
     time_steps=(10, 30, 120),
     pass_radius=10,
     point_spacing=100e3,

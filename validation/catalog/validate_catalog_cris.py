@@ -44,24 +44,20 @@ import pandas as pd
 from scipy.spatial import cKDTree
 from skyfield.api import wgs84
 
-import tatc
 import validation_io
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
 from validation_io import (
-    add_transfer_metrics,
-    use_archive,
+    ARCHIVES,
+    Archive,
+    write_transfer,
     build_grid,
     compute_published_errors,
     ecef,
-    fetch,
-    get_holdout_gap,
     iet_to_utc,
     in_lattice_cells,
-    list_keys,
-    load_element_set,
     normalize,
     recompute_passes,
     score_passes,
@@ -69,7 +65,7 @@ from validation_io import (
     score_swath_area,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -86,7 +82,6 @@ GATED = (
 RECORD_PATH = RECORDS / "cris.json"
 FIXTURE_PATH = FIXTURES / "cris.npz"
 
-FIT_DAY = datetime(2026, 10, 2, tzinfo=timezone.utc)
 FIELDS = (
     "StartTime",
     "MidTime",
@@ -126,16 +121,18 @@ FIT_FIELDS = (
 FOV_DIAMETER = 0.963
 
 
-def load_day(day: datetime, directory: pathlib.Path) -> dict[str, np.ndarray]:
+def load_day(
+    day: datetime, directory: pathlib.Path, archive: Archive
+) -> dict[str, np.ndarray]:
     """Downloads and reduces the geolocation of a day, or loads it from a cache."""
     path = directory / f"cris_gcrso_{day:%Y%m%d}.npz"
     if not path.exists():
 
         def read(key):
-            with h5py.File(io.BytesIO(fetch(key))) as f:
+            with h5py.File(io.BytesIO(archive.fetch(key))) as f:
                 return {k: f["All_Data/CrIS-SDR-GEO_All/" + k][:] for k in FIELDS}
 
-        keys = list_keys(f"CrIS-SDR-GEO/{day:%Y/%m/%d}/")
+        keys = archive.list_keys(f"CrIS-SDR-GEO/{day:%Y/%m/%d}/")
         with concurrent.futures.ThreadPoolExecutor(16) as pool:
             granules = list(pool.map(read, keys))
         np.savez_compressed(
@@ -362,7 +359,7 @@ def validate_pixels(
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
-    satellite = entry.to_satellite(orbit, PIXELS, platform=platform)
+    satellite = entry.to_satellite(orbit, configuration=PIXELS, platform=platform)
     pixels = measure_pixels(reference, satellite)
     median = summarize(pixels[:, 3])["median"]
     p95 = summarize(pixels[:, 3])["p95"]
@@ -375,10 +372,11 @@ def validate_pixels(
     if not write:
         return
     if platform != FIT_PLATFORM:
-        add_transfer_metrics(
+        write_transfer(
             RECORD_PATH,
             PIXELS,
-            f"{platform}, {day:%Y-%m-%d}",
+            platform,
+            f"{day:%Y-%m-%d}",
             {
                 "pixel_position_median": median,
                 "pixel_position_p95": p95,
@@ -390,34 +388,28 @@ def validate_pixels(
     update_fixture(
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), pixels=reduced
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "cris",
+        entry,
         PIXELS,
-        {
-            "digest": entry.configurations[PIXELS].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "Footprints published by the NWP SAF; fields of view of the "
-            "CrIS SDR geolocation",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": "noaa-20",
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": [
-                {"name": "sample_size_within_3pct", "value": within},
-                {"name": "sample_size_largest_error", "value": largest},
-                {"name": "pixel_position_median", "value": median},
-                {"name": "pixel_position_p95", "value": p95},
-                {
-                    "name": "pixel_position_central_median",
-                    "value": float(np.median(central[:, 3])),
-                },
-            ],
-            "fixture_metrics": {
-                "sample_size_within_3pct": within,
-                "pixel_position_median": summarize(reduced[:, 3])["median"],
+        source=source_of(__file__),
+        reference="Footprints published by the NWP SAF; fields of view of the "
+        "CrIS SDR geolocation",
+        period=f"{day:%Y-%m-%d}",
+        platforms=["noaa-20"],
+        metrics=[
+            {"name": "sample_size_within_3pct", "value": within},
+            {"name": "sample_size_largest_error", "value": largest},
+            {"name": "pixel_position_median", "value": median},
+            {"name": "pixel_position_p95", "value": p95},
+            {
+                "name": "pixel_position_central_median",
+                "value": float(np.median(central[:, 3])),
             },
+        ],
+        fixture_metrics={
+            "sample_size_within_3pct": within,
+            "pixel_position_median": summarize(reduced[:, 3])["median"],
         },
     )
 
@@ -428,7 +420,9 @@ def validate_swath(
     """Scores the swath configuration, and writes its results if requested."""
 
     def satellite_for(time_step: float):
-        return entry.to_satellite(orbit, SWATH, time_step=time_step, platform=platform)
+        return entry.to_satellite(
+            orbit, configuration=SWATH, time_step=time_step, platform=platform
+        )
 
     satellite = satellite_for(SCAN_PERIOD)
     points = generate_points_fibonacci_lattice(500e3)
@@ -449,10 +443,11 @@ def validate_swath(
     if not write:
         return
     if platform != FIT_PLATFORM:
-        add_transfer_metrics(
+        write_transfer(
             RECORD_PATH,
             SWATH,
-            f"{platform}, {day:%Y-%m-%d}",
+            platform,
+            f"{day:%Y-%m-%d}",
             {name: results[name] for name in GATED},
         )
         return
@@ -469,35 +464,31 @@ def validate_swath(
     update_fixture(
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "cris",
+        entry,
         SWATH,
-        {
-            "digest": entry.configurations[SWATH].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "CrIS SDR geolocation",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": "noaa-20",
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": [
-                {"name": name, "value": float(results[name])}
-                for name in (
-                    "pass_recall",
-                    "pass_precision",
-                    "epoch_p95",
-                    "swath_width_median",
-                    "footprint_iou_median",
-                )
-            ],
-            "fixture_metrics": recompute_passes(satellite, 0, day, passes),
-        },
+        source=source_of(__file__),
+        reference="CrIS SDR geolocation",
+        period=f"{day:%Y-%m-%d}",
+        platforms=["noaa-20"],
+        metrics=[
+            {"name": name, "value": float(results[name])}
+            for name in (
+                "pass_recall",
+                "pass_precision",
+                "epoch_p95",
+                "swath_width_median",
+                "footprint_iou_median",
+            )
+        ],
+        fixture_metrics=recompute_passes(satellite, 0, day, passes),
     )
 
 
-def load_fit_hours(day: datetime, directory: pathlib.Path) -> dict[str, np.ndarray]:
+def load_fit_hours(
+    day: datetime, directory: pathlib.Path, archive: Archive
+) -> dict[str, np.ndarray]:
     """
     Downloads the geolocation, with the spacecraft's position and velocity, of the
     hours of a day that the fit measures, or loads it from a cache.
@@ -507,12 +498,12 @@ def load_fit_hours(day: datetime, directory: pathlib.Path) -> dict[str, np.ndarr
     if not path.exists():
 
         def read(key):
-            with h5py.File(io.BytesIO(fetch(key))) as f:
+            with h5py.File(io.BytesIO(archive.fetch(key))) as f:
                 return {k: f["All_Data/CrIS-SDR-GEO_All/" + k][:] for k in FIT_FIELDS}
 
         keys = [
             k
-            for k in list_keys(f"CrIS-SDR-GEO/{day:%Y/%m/%d}/")
+            for k in archive.list_keys(f"CrIS-SDR-GEO/{day:%Y/%m/%d}/")
             if first <= int(k.split("_t")[1][:2]) < last
         ]
         with concurrent.futures.ThreadPoolExecutor(16) as pool:
@@ -624,20 +615,19 @@ def main() -> None:
 
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
     if arguments.fit:
-        use_archive(arguments.platform)
-        fit(load_fit_hours(day, arguments.directory))
+        fit(load_fit_hours(day, arguments.directory, ARCHIVES[arguments.platform]))
         return
-    prefix = use_archive(arguments.platform)
+    archive = ARCHIVES[arguments.platform]
     directory = (
         arguments.directory
         if arguments.platform == FIT_PLATFORM
-        else arguments.directory / prefix
+        else arguments.directory / archive.prefix
     )
     directory.mkdir(parents=True, exist_ok=True)
-    tle = load_element_set(day, directory)
+    tle = archive.load_element_set(day, directory)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     entry = get_entry("cris")
-    reference = Reference(load_day(day, directory))
+    reference = Reference(load_day(day, directory, archive))
     print(
         f"{arguments.day}: {tle[0][:32]}; {len(reference.time)} scans, "
         f"{len(reference.gaps)} gaps over a minute",

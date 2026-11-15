@@ -30,7 +30,8 @@ import pandas as pd
 from pyproj import Transformer
 
 from tatc.analysis import collect_observations, compute_sample_sizes
-from tatc.catalog import get_entry, get_gates
+from tatc.catalog import get_entry
+from tatc.catalog.standard import get_gates
 from tatc.catalog.metrics import summarize
 from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
 from tatc.utils import VelocityFrame, compute_projected_ray_position
@@ -101,7 +102,7 @@ class _SwathFixture:
         """
         satellite = self.entry.to_satellite(
             self.orbit,
-            self.swath_key,
+            configuration=self.swath_key,
             time_step=self.time_step(),
             platform=self.platform,
         )
@@ -148,7 +149,7 @@ class _ScannerFixture(_SwathFixture):
     def setUpClass(cls):
         super().setUpClass()
         cls.satellite = cls.entry.to_satellite(
-            cls.orbit, cls.sizes_key, platform=cls.platform
+            cls.orbit, configuration=cls.sizes_key, platform=cls.platform
         )
         cls.names = np.array([i.name for i in cls.satellite.instruments])
         cls.recorded = cls.entry.record.configurations[cls.sizes_key].fixture_metrics
@@ -174,7 +175,7 @@ class _ScannerFixture(_SwathFixture):
             orbit = CircularOrbit(
                 altitude=altitude * 1e3, inclination=inclination, epoch=PUBLISHED_EPOCH
             )
-            satellite = self.entry.to_satellite(orbit, self.sizes_key)
+            satellite = self.entry.to_satellite(orbit, configuration=self.sizes_key)
             time = PUBLISHED_EPOCH + timedelta(minutes=10)
             target = compute_projected_ray_position(
                 orbit.to_gp_orbit().get_orbit_track(time),

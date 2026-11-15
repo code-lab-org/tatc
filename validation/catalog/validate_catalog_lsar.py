@@ -52,7 +52,6 @@ import shapely
 from pyproj import Transformer
 from shapely.ops import unary_union
 
-import tatc
 from tatc.analysis import compute_ground_track
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import compute_pass_scores, summarize
@@ -69,7 +68,6 @@ from validate_catalog_csar import (
 )
 from validation_io import (
     ecef,
-    get_holdout_gap,
     match_passes,
     predict_passes,
     read_element_set_file,
@@ -77,7 +75,7 @@ from validation_io import (
     transform_geometry,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -89,7 +87,6 @@ RECORD_PATH = RECORDS / "lsar.json"
 FIXTURE_PATH = FIXTURES / "lsar.npz"
 SEARCH_URL = "https://api.daac.asf.alaska.edu/services/search/param"
 
-FIT_DAY = datetime(2026, 10, 2, tzinfo=timezone.utc)
 PLATFORM = "nisar"
 # public element sets from CelesTrak, with epochs after each day of data (that of the
 # fit day is the one of ValidateSARNISAR)
@@ -522,7 +519,9 @@ def measure(key, day, entry, orbit, catalog, products) -> dict | None:
         return None
 
     def satellite_for(time_step: float):
-        return entry.to_satellite(orbit, key, time_step=time_step, platform=PLATFORM)
+        return entry.to_satellite(
+            orbit, configuration=key, time_step=time_step, platform=PLATFORM
+        )
 
     satellite = satellite_for(TIME_STEPS[0])
     edges = score_edges(chosen, orbit, day, satellite.instruments[0])
@@ -649,26 +648,19 @@ def write_results(key, results, tles, entry, metrics) -> None:
             f"passes_{key}": fixture,
         },
     )
-    gaps = [get_holdout_gap(day, FIT_DAY) for day in days]
-    update_record(
+    write_record(
         RECORD_PATH,
-        "lsar",
+        entry,
         key,
-        {
-            "digest": entry.configurations[key].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "Geolocation grids, orbits, and bounding polygons of NISAR "
-            "Level 1 RSLC products",
-            "period": ", ".join(f"{day:%Y-%m-%d}" for day in days),
-            "platform": PLATFORM,
-            "holdout_gap_days": None if None in gaps else min(gaps),
-            "metrics": metrics,
-            "fixture_metrics": recompute_passes(
-                results[days[0]]["satellite"], 0, fixture_day, fixture
-            ),
-        },
+        source=source_of(__file__),
+        reference="Geolocation grids, orbits, and bounding polygons of NISAR "
+        "Level 1 RSLC products",
+        period=", ".join(f"{day:%Y-%m-%d}" for day in days),
+        platforms=[PLATFORM],
+        metrics=metrics,
+        fixture_metrics=recompute_passes(
+            results[days[0]]["satellite"], 0, fixture_day, fixture
+        ),
     )
     print(f"wrote {key} to {RECORD_PATH}")
 

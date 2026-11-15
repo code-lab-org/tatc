@@ -42,9 +42,8 @@ from skyfield.api import wgs84
 from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 
-import tatc
 from tatc.analysis import collect_observations
-from tatc.catalog import STANDARD_VERSION, get_entry
+from tatc.catalog import get_entry
 from tatc.catalog.metrics import compute_mask_iou
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
@@ -53,19 +52,18 @@ from validation_io import (
     RemoteFile,
     add_earth_orientation,
     ecef,
-    get_holdout_gap,
     get_with_retries,
     up,
     RECORDS,
     FIXTURES,
     source_of,
     login_earthdata,
+    write_record,
 )
 
 RECORD_PATH = RECORDS / "tempo.json"
 FIXTURE_PATH = FIXTURES / "tempo.npz"
 SHORT_NAME, VERSION = "TEMPO_RAD_L1", "V04"
-FIT_DAY = datetime(2026, 10, 6, tzinfo=timezone.utc)
 PLATFORM = "intelsat-40e"
 CONFIGURATION = "field_of_regard"
 # public element sets from CelesTrak, with epochs after each day of data
@@ -395,40 +393,32 @@ def validate(day, tle, scan, write) -> None:
         ),
     )
     fixture_predicted = predict_grid(satellite, track, lon[sample], lat[sample])
-    record = {
-        "entry_id": "tempo",
-        "standard_version": STANDARD_VERSION,
-        "configurations": {
-            CONFIGURATION: {
-                "digest": entry.configurations[CONFIGURATION].digest,
-                "evidence": "rerun",
-                "tatc_version": tatc.__version__,
-                "source": source_of(__file__),
-                "reference": f"{SHORT_NAME} {VERSION} (outer corners of the outermost "
-                "pixels of a full scan, ultraviolet band)",
-                "period": f"{time:%Y-%m-%dT%H:%MZ}",
-                "platform": PLATFORM,
-                "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-                "metrics": [
-                    {"name": "field_of_regard_iou", "value": float(iou)},
-                    {
-                        "name": "imaged_area_predicted",
-                        "value": results["observed_predicted"],
-                    },
-                    {
-                        "name": "predicted_area_imaged",
-                        "value": results["predicted_observed"],
-                    },
-                    {"name": "collect_observations_agreement", "value": agreement},
-                ],
-                "fixture_metrics": {
-                    "points_agreeing": 100
-                    * float(np.mean(fixture_predicted == fixture[:, 2].astype(bool)))
-                },
-            }
+    write_record(
+        RECORD_PATH,
+        entry,
+        CONFIGURATION,
+        source=source_of(__file__),
+        reference=f"{SHORT_NAME} {VERSION} (outer corners of the outermost "
+        "pixels of a full scan, ultraviolet band)",
+        period=f"{time:%Y-%m-%dT%H:%MZ}",
+        platforms=[PLATFORM],
+        metrics=[
+            {"name": "field_of_regard_iou", "value": float(iou)},
+            {
+                "name": "imaged_area_predicted",
+                "value": results["observed_predicted"],
+            },
+            {
+                "name": "predicted_area_imaged",
+                "value": results["predicted_observed"],
+            },
+            {"name": "collect_observations_agreement", "value": agreement},
+        ],
+        fixture_metrics={
+            "points_agreeing": 100
+            * float(np.mean(fixture_predicted == fixture[:, 2].astype(bool)))
         },
-    }
-    RECORD_PATH.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    )
     print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
 
 

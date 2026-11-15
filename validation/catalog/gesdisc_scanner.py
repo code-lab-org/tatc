@@ -25,7 +25,6 @@ from skyfield.api import wgs84
 from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 
-import tatc
 from tatc.catalog.metrics import summarize
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.constants import timescale
@@ -36,14 +35,13 @@ from tatc.utils import (
     compute_view_tangents,
 )
 from validation_io import (
-    add_transfer_metrics,
+    write_transfer,
     TO_GEODETIC,
     RemoteFile,
     build_grid,
     compute_published_errors,
     compute_spacing_ratios,
     ecef,
-    get_holdout_gap,
     get_with_retries,
     in_lattice_cells,
     normalize,
@@ -53,7 +51,7 @@ from validation_io import (
     score_swath_area,
     up,
     update_fixture,
-    update_record,
+    write_record,
     login_earthdata,
 )
 
@@ -727,7 +725,6 @@ class Setup:
     source: str
     reference: str
     published_reference: str
-    fit_day: datetime
     time_steps: tuple[float, ...]
     pass_radius: float
     point_spacing: float = 500e3
@@ -753,7 +750,7 @@ def validate_beams(
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
-    satellite = entry.to_satellite(orbit, setup.beams, platform=platform)
+    satellite = entry.to_satellite(orbit, configuration=setup.beams, platform=platform)
     names = [instrument.name for instrument in satellite.instruments]
     index = names.index(setup.size_instrument)
     pixels = measure_pixels(
@@ -774,10 +771,11 @@ def validate_beams(
     if not write:
         return
     if platform != setup.platform:
-        add_transfer_metrics(
+        write_transfer(
             setup.record_path,
             setup.beams,
-            f"{platform}, {day:%Y-%m-%d}",
+            platform,
+            f"{day:%Y-%m-%d}",
             {
                 "pixel_position_median": median,
                 "pixel_position_p95": p95,
@@ -800,33 +798,27 @@ def validate_beams(
         spacing=rows[picks],
         spacing_seconds=(times[picks] - pd.Timestamp(day)).total_seconds().to_numpy(),
     )
-    update_record(
+    write_record(
         setup.record_path,
-        setup.entry_id,
+        entry,
         setup.beams,
-        {
-            "digest": entry.configurations[setup.beams].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": setup.source,
-            "reference": setup.published_reference,
-            "period": f"{day:%Y-%m-%d}",
-            "platform": setup.platform,
-            "holdout_gap_days": get_holdout_gap(day, setup.fit_day),
-            "metrics": [
-                {"name": "sample_size_within_3pct", "value": within},
-                {"name": "sample_size_largest_error", "value": largest},
-                {"name": "pixel_position_median", "value": median},
-                {"name": "pixel_position_p95", "value": p95},
-                {"name": "spacing_along_ratio_median", "value": along},
-                {"name": "spacing_cross_ratio_median", "value": cross},
-            ],
-            "fixture_metrics": {
-                "sample_size_within_3pct": within,
-                "pixel_position_median": summarize(reduced[:, 2])["median"],
-                "spacing_along_ratio_median": fixture_along,
-                "spacing_cross_ratio_median": fixture_cross,
-            },
+        source=setup.source,
+        reference=setup.published_reference,
+        period=f"{day:%Y-%m-%d}",
+        platforms=[setup.platform],
+        metrics=[
+            {"name": "sample_size_within_3pct", "value": within},
+            {"name": "sample_size_largest_error", "value": largest},
+            {"name": "pixel_position_median", "value": median},
+            {"name": "pixel_position_p95", "value": p95},
+            {"name": "spacing_along_ratio_median", "value": along},
+            {"name": "spacing_cross_ratio_median", "value": cross},
+        ],
+        fixture_metrics={
+            "sample_size_within_3pct": within,
+            "pixel_position_median": summarize(reduced[:, 2])["median"],
+            "spacing_along_ratio_median": fixture_along,
+            "spacing_cross_ratio_median": fixture_cross,
         },
     )
 
@@ -844,7 +836,7 @@ def validate_swath(
         # the period of the day, for a configuration that schedules its attitude
         return entry.to_satellite(
             orbit,
-            setup.swath,
+            configuration=setup.swath,
             time_step=time_step,
             platform=platform,
             start=day,
@@ -876,10 +868,11 @@ def validate_swath(
     if not write:
         return
     if platform != setup.platform:
-        add_transfer_metrics(
+        write_transfer(
             setup.record_path,
             setup.swath,
-            f"{platform}, {day:%Y-%m-%d}",
+            platform,
+            f"{day:%Y-%m-%d}",
             {name: float(results[name]) for name in GATED},
         )
         return
@@ -901,29 +894,23 @@ def validate_swath(
         day=np.array(day.isoformat()),
         passes=passes,
     )
-    update_record(
+    write_record(
         setup.record_path,
-        setup.entry_id,
+        entry,
         setup.swath,
-        {
-            "digest": entry.configurations[setup.swath].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": setup.source,
-            "reference": setup.reference,
-            "period": f"{day:%Y-%m-%d}",
-            "platform": setup.platform,
-            "holdout_gap_days": get_holdout_gap(day, setup.fit_day),
-            "metrics": [
-                {"name": name, "value": float(results[name])}
-                for name in (
-                    "pass_recall",
-                    "pass_precision",
-                    "epoch_p95",
-                    "swath_width_median",
-                    "footprint_iou_median",
-                )
-            ],
-            "fixture_metrics": recompute_passes(satellite, 0, day, passes),
-        },
+        source=setup.source,
+        reference=setup.reference,
+        period=f"{day:%Y-%m-%d}",
+        platforms=[setup.platform],
+        metrics=[
+            {"name": name, "value": float(results[name])}
+            for name in (
+                "pass_recall",
+                "pass_precision",
+                "epoch_p95",
+                "swath_width_median",
+                "footprint_iou_median",
+            )
+        ],
+        fixture_metrics=recompute_passes(satellite, 0, day, passes),
     )

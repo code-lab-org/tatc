@@ -3,13 +3,14 @@
   "configurations": {
     "swath": {
       "digest": "fbfdc468489c8229a04346c1416405cc9aec8a33ed0e9167dc347205575b2878",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_oci.py",
       "reference": "PACE_OCI_L1B_SCI version 3 (sample positions and times)",
       "period": "2026-11-10",
-      "platform": "pace",
-      "holdout_gap_days": 33,
+      "platforms": [
+        "pace"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -32,11 +33,11 @@
           "value": 0.9971063735252174
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.44427739664999993
       }
     }
-  },
-  "standard_version": 5
+  }
 }

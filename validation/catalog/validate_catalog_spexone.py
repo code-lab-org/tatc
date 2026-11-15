@@ -55,7 +55,6 @@ from validation_io import (
     login_earthdata,
 )
 
-FIT_DAY = datetime(2026, 10, 4, tzinfo=timezone.utc)
 # public element sets from CelesTrak, with epochs after each day of data
 PACE_ELEMENTS = (
     "1 58928U 24025A   26313.27483190  .00000501  00000+0  10091-3 0  9993",
@@ -123,7 +122,6 @@ SETUP = Setup(
     reference="PACE_SPEXONE_L1C_SCI version 4 (positions of bins and times of the "
     "nadir view)",
     published_reference="",
-    fit_day=FIT_DAY,
     time_steps=(10, 30, 120),
     pass_radius=10,
     point_spacing=100e3,

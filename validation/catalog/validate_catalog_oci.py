@@ -42,7 +42,8 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from tatc.catalog import get_entry, get_subsolar_latitude
+from tatc.catalog import get_entry
+from tatc.utils import compute_subsolar_latitude
 from tatc.schemas import GeneralPerturbationsOrbit
 from gesdisc_scanner import Product, Reference, Setup, load_day, validate_swath
 from validation_io import (
@@ -60,7 +61,6 @@ from validation_io import (
 
 # the angles are fitted to 2026-10-04, and the schedule of the tilt's change to
 # 2026-08-15 through 2026-10-08, the last day of fitting data
-FIT_DAY = datetime(2026, 10, 8, tzinfo=timezone.utc)
 # public element sets from CelesTrak, with epochs after each day of data
 ELEMENTS = {
     "2026-11-04": (
@@ -139,7 +139,6 @@ SETUP = Setup(
     source=source_of(__file__),
     reference="PACE_OCI_L1B_SCI version 3 (sample positions and times)",
     published_reference="",
-    fit_day=FIT_DAY,
     time_steps=(10, 30, 120),
     pass_radius=40,
     point_spacing=200e3,
@@ -259,7 +258,7 @@ def find_switch_granules(day: datetime) -> list[str]:
     Finds the granules of a day that cross latitudes within 12 deg of the subsolar
     latitude, where the tilt changes to fore.
     """
-    subsolar = get_subsolar_latitude(day + timedelta(hours=12))
+    subsolar = compute_subsolar_latitude(day + timedelta(hours=12))
     items = get_with_retries(
         "https://cmr.earthdata.nasa.gov/search/granules.umm_json",
         params={
@@ -372,7 +371,9 @@ def fit_switches(first: datetime, last: datetime, directory: pathlib.Path) -> No
     daily = switches.groupby("day").lat.median()
     subsolar = np.array(
         [
-            get_subsolar_latitude(datetime.combine(d, time(12), tzinfo=timezone.utc))
+            compute_subsolar_latitude(
+                datetime.combine(d, time(12), tzinfo=timezone.utc)
+            )
             for d in daily.index
         ]
     )

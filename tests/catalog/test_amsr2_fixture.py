@@ -17,7 +17,8 @@ import numpy as np
 import pandas as pd
 
 from tatc.analysis import collect_observations, compute_sample_sizes
-from tatc.catalog import get_entry, get_gates
+from tatc.catalog import get_entry
+from tatc.catalog.standard import get_gates
 from tatc.catalog.metrics import summarize
 from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
 
@@ -117,7 +118,7 @@ class TestAmsr2SampleSizeFixture(unittest.TestCase):
 
     def _build(self, orbit):
         return self.entry.to_satellite(
-            orbit, "sample_size", time_step=SCAN_PERIOD, platform=PLATFORM
+            orbit, configuration="sample_size", time_step=SCAN_PERIOD, platform=PLATFORM
         )
 
     def test_published_dimensions(self):

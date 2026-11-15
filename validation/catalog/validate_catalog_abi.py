@@ -14,7 +14,6 @@ Reads anonymous public data, and needs the `validation` extra:
 """
 
 import concurrent.futures
-import json
 import pathlib
 import sys
 import xml.etree.ElementTree as ET
@@ -25,9 +24,8 @@ import requests
 import xarray as xr
 from skyfield.framelib import itrs
 
-import tatc
 from tatc.analysis import collect_observations
-from tatc.catalog import STANDARD_VERSION, get_entry
+from tatc.catalog import get_entry
 from tatc.catalog.metrics import compute_product_limit_error
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
@@ -37,6 +35,7 @@ from validation_io import (
     RECORDS,
     FIXTURES,
     source_of,
+    write_record,
 )
 
 RECORD_PATH = RECORDS / "abi.json"
@@ -158,11 +157,9 @@ def main(directory: pathlib.Path) -> None:
     entry = get_entry("abi")
     orbit = GeneralPerturbationsOrbit.from_tle(list(TLE))
     common = {
-        "evidence": "rerun",
-        "tatc_version": tatc.__version__,
         "source": source_of(__file__),
         "period": f"{TIME:%Y-%m-%dT%H:%MZ}",
-        "platform": "goes-19",
+        "platforms": ["goes-19"],
     }
     fixture = {"tle": np.array(TLE), "time": np.array(TIME.isoformat())}
     records = {}
@@ -176,11 +173,10 @@ def main(directory: pathlib.Path) -> None:
     picks = rng.choice(np.flatnonzero(on_grid & imaged), SAMPLES, replace=False)
     lat, lon = latitude.flat[picks], longitude.flat[picks]
     zenith = compute_zenith(orbit, lat, lon)
-    satellite = entry.to_satellite(orbit, "full_disk", platform="goes-19")
+    satellite = entry.to_satellite(orbit, configuration="full_disk", platform="goes-19")
     observed, elevation = predict(satellite, lat, lon)
     records["full_disk"] = {
         **common,
-        "digest": entry.configurations["full_disk"].digest,
         "reference": "ABI-L2-ACMF clear sky mask, every 8th pixel",
         "metrics": [
             {"name": "imaged_pixels_observed", "value": 100 * float(observed.mean())},
@@ -223,11 +219,10 @@ def main(directory: pathlib.Path) -> None:
         )
         lat, lon = latitude.flat[picks], longitude.flat[picks]
         picked_zenith, picked_good = zenith.flat[picks], good.flat[picks]
-        satellite = entry.to_satellite(orbit, key, platform="goes-19")
+        satellite = entry.to_satellite(orbit, configuration=key, platform="goes-19")
         observed, _ = predict(satellite, lat, lon)
         records[key] = {
             **common,
-            "digest": entry.configurations[key].digest,
             "reference": f"{product} {variable} and quality flags",
             "metrics": [
                 {
@@ -255,13 +250,8 @@ def main(directory: pathlib.Path) -> None:
 
     FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(FIXTURE_PATH, **add_earth_orientation(fixture))
-    RECORD_PATH.parent.mkdir(parents=True, exist_ok=True)
-    record = {
-        "entry_id": "abi",
-        "standard_version": STANDARD_VERSION,
-        "configurations": records,
-    }
-    RECORD_PATH.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    for key, results in records.items():
+        write_record(RECORD_PATH, entry, key, **results)
 
 
 if __name__ == "__main__":

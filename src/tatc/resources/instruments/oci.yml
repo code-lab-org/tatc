@@ -21,7 +21,7 @@ configurations:
     description: The swath scanned between the outermost samples, tilted aft over the southern part of the sunlit half orbit and forward over the northern part, changing at a latitude scheduled by day, with a view tailored to the analysis time step. Build it with the start and end of the analysis.
     platforms: [pace]
     velocity_frame: earth_fixed
-    attitude_schedule:
+    tilt_schedule:
       fore_pitch_angle: 19.8555
       aft_pitch_angle: -19.8149
       odd_day_offset: 5.2097
@@ -34,19 +34,19 @@ configurations:
         fore_pitch_angle: &measured_tilt
           kind: measured
           source: validate_catalog_oci.py --fit, the along-track angle of the samples forward and aft
-          platform: pace
+          platforms: [pace]
           period: "2026-10-04"
         aft_pitch_angle: *measured_tilt
         odd_day_offset: &measured_schedule
           kind: measured
           source: validate_catalog_oci.py --switches, the median by day of the spacecraft's geodetic latitude where the tilt changes to forward, less the subsolar latitude at noon (UTC), by the parity of the day of the year (standard deviation 0.018 deg over 55 days)
-          platform: pace
+          platforms: [pace]
           period: 2026-08-15 to 2026-10-08
         even_day_offset: *measured_schedule
         transition:
           kind: measured
           source: validate_catalog_oci.py --fit, the arc of argument of latitude over which the tilt changes, about 26 s
-          platform: pace
+          platforms: [pace]
           period: "2026-10-04"
         return_argument_of_latitude:
           kind: placeholder
@@ -54,8 +54,8 @@ configurations:
         blind_before: &measured_blind
           kind: measured
           source: validate_catalog_oci.py --blind, at full resolution, the median over 51 changes to forward of the end of the last valid scan before the tilt crosses zero (14.96 s before) and of the start of the first valid scan after it (19.37 s after); every scan between is flagged
-          platform: pace
-          period: 2026-08-20, 2026-09-15, 2026-10-04 and 2026-10-07
+          platforms: [pace]
+          period: 2026-08-20, 2026-09-15, 2026-10-04, 2026-10-07
         blind_after: *measured_blind
     instruments:
       - type: pointed
@@ -73,12 +73,8 @@ configurations:
           cross_track_field_of_view:
             kind: measured
             source: validate_catalog_oci.py --fit, between the outermost samples in the tilted view (113.234 deg forward, 113.237 deg aft)
-            platform: pace
+            platforms: [pace]
             period: "2026-10-04"
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular:
             kind: derived
             source: Models a scanned swath as a rectangular view

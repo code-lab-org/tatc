@@ -47,27 +47,25 @@ import h5py
 import numpy as np
 import pandas as pd
 import requests
-from pyproj import Geod, Transformer
+from pyproj import Geod
 from scipy.spatial import cKDTree
 from shapely import contains_xy, prepare
 
-import tatc
 from tatc.analysis import (
     collect_observations,
     compute_ground_track,
     compute_sample_sizes,
 )
-from tatc.catalog import STANDARD_VERSION, get_entry
+from tatc.catalog import get_entry
 from tatc.catalog.metrics import compute_mask_iou, compute_pass_scores, summarize
-from tatc.constants import EARTH_ROTATION_RATE
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
 import validation_io
+from validation_io import TO_GEODETIC, ecef, normalize, up
 
 RECORD_PATH = validation_io.RECORDS / "gmi.json"
 FIXTURE_PATH = validation_io.FIXTURES / "gmi.npz"
 
-FIT_DAY = datetime(2026, 10, 3, tzinfo=timezone.utc)
 # public element sets from CelesTrak, with epochs just after each day of data
 ELEMENTS = {
     "2026-10-03": (
@@ -110,8 +108,6 @@ SPACING_SCAN_STRIDE = 200
 FIXTURE_SPACING_SAMPLES = 100
 
 GEOD = Geod(ellps="WGS84")
-TO_ECEF = Transformer.from_crs("EPSG:4979", "EPSG:4978", always_xy=True)
-TO_GEODETIC = Transformer.from_crs("EPSG:4978", "EPSG:4979", always_xy=True)
 
 
 def load_day(day: datetime, directory: pathlib.Path) -> dict[str, np.ndarray]:
@@ -172,33 +168,6 @@ def load_day(day: datetime, directory: pathlib.Path) -> dict[str, np.ndarray]:
         keep = first[(reduced["time"][first] >= 0) & (reduced["time"][first] < 86400)]
         np.savez_compressed(cache, **{k: v[keep] for k, v in reduced.items()})
     return dict(np.load(cache))
-
-
-def ecef(lon, lat, height=0.0) -> np.ndarray:
-    """Gets the Earth-fixed position (m) of geodetic coordinates."""
-    return np.stack(
-        TO_ECEF.transform(lon, lat, np.broadcast_to(height, np.shape(lon))), axis=-1
-    )
-
-
-def up(lon, lat) -> np.ndarray:
-    """Gets the geodetic up unit vector."""
-    lon, lat = np.radians(lon), np.radians(lat)
-    return np.stack(
-        [np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)], axis=-1
-    )
-
-
-def normalize(x: np.ndarray) -> np.ndarray:
-    """Gets unit vectors along the last axis."""
-    return x / np.linalg.norm(x, axis=-1, keepdims=True)
-
-
-def inertial_velocity(position: np.ndarray, velocity: np.ndarray) -> np.ndarray:
-    """Gets the inertial velocity, expressed in Earth-fixed coordinates."""
-    return velocity + EARTH_ROTATION_RATE * np.stack(
-        [-position[..., 1], position[..., 0], np.zeros(position.shape[:-1])], axis=-1
-    )
 
 
 class Reference:
@@ -456,7 +425,10 @@ def score_published_footprints(entry) -> tuple[float, float]:
             epoch=PUBLISHED_EPOCH,
         )
         satellite = entry.to_satellite(
-            orbit, SAMPLE_CONFIGURATION, time_step=SCAN_PERIOD, platform="gpm"
+            orbit,
+            configuration=SAMPLE_CONFIGURATION,
+            time_step=SCAN_PERIOD,
+            platform="gpm",
         )
         names = [instrument.name for instrument in satellite.instruments]
         time = PUBLISHED_EPOCH + timedelta(minutes=10)
@@ -547,21 +519,6 @@ def update_fixture(**arrays) -> None:
     validation_io.update_fixture(FIXTURE_PATH, **arrays)
 
 
-def update_record(key: str, configuration: dict) -> None:
-    """Writes the results of a configuration to the record, keeping the others."""
-    record = {"entry_id": "gmi", "configurations": {}}
-    if RECORD_PATH.exists():
-        record = json.loads(RECORD_PATH.read_text(encoding="utf-8"))
-    record["standard_version"] = STANDARD_VERSION
-    record["configurations"][key] = configuration
-    RECORD_PATH.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-
-
-def get_holdout_gap(day: datetime) -> int | None:
-    """Gets the days from the fit to a day, to which the standard applies its gap."""
-    return None if day == FIT_DAY else abs((day - FIT_DAY).days)
-
-
 def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> None:
     """Scores the sample size configuration, and writes its results if requested."""
     within, largest = score_published_footprints(entry)
@@ -573,7 +530,7 @@ def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> Non
         {"name": "sample_size_largest_error", "value": largest},
     ]
     satellite = entry.to_satellite(
-        orbit, SAMPLE_CONFIGURATION, time_step=SCAN_PERIOD, platform="gpm"
+        orbit, configuration=SAMPLE_CONFIGURATION, time_step=SCAN_PERIOD, platform="gpm"
     )
     names = [instrument.name for instrument in satellite.instruments]
     rng = np.random.default_rng(2)
@@ -608,25 +565,19 @@ def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> Non
         spacing=np.concatenate(reduced),
         spacing_instruments=np.concatenate(indices),
     )
-    update_record(
+    validation_io.write_record(
+        RECORD_PATH,
+        entry,
         SAMPLE_CONFIGURATION,
-        {
-            "digest": entry.configurations[SAMPLE_CONFIGURATION].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": validation_io.source_of(__file__),
-            "reference": "Footprints of the GMI L1B ATBD and TC PRIMED; spacing of "
-            "GPM_1CGPMGMI version 08",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": "gpm",
-            # the fitted angles were not fitted to the published footprints, and the
-            # spacing is measured on this day
-            "holdout_gap_days": get_holdout_gap(day),
-            "metrics": metrics,
-            "fixture_metrics": {
-                "sample_size_within_3pct": within,
-                **fixture_metrics,
-            },
+        source=validation_io.source_of(__file__),
+        reference="Footprints of the GMI L1B ATBD and TC PRIMED; spacing of "
+        "GPM_1CGPMGMI version 08",
+        period=f"{day:%Y-%m-%d}",
+        platforms=["gpm"],
+        metrics=metrics,
+        fixture_metrics={
+            "sample_size_within_3pct": within,
+            **fixture_metrics,
         },
     )
 
@@ -676,22 +627,18 @@ def write_fixture_and_record(day, tle, entry, orbit, results, fixtures) -> None:
             metrics.append(
                 {"name": name, "value": float(results[feed][name]), "scope": feed}
             )
-    update_record(
+    validation_io.write_record(
+        RECORD_PATH,
+        entry,
         "feeds",
-        {
-            "digest": entry.configurations["feeds"].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": validation_io.source_of(__file__),
-            "reference": "GPM_1CGPMGMI version 08",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": "gpm",
-            "holdout_gap_days": get_holdout_gap(day),
-            "metrics": metrics,
-            "fixture_metrics": {
-                "passes_found": 100 * float(np.isfinite(differences).mean()),
-                "epoch_p95": summarize(differences)["p95"],
-            },
+        source=validation_io.source_of(__file__),
+        reference="GPM_1CGPMGMI version 08",
+        period=f"{day:%Y-%m-%d}",
+        platforms=["gpm"],
+        metrics=metrics,
+        fixture_metrics={
+            "passes_found": 100 * float(np.isfinite(differences).mean()),
+            "epoch_p95": summarize(differences)["p95"],
         },
     )
 

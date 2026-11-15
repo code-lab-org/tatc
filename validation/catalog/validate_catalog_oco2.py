@@ -42,7 +42,6 @@ from skyfield.positionlib import ICRF
 from skyfield.framelib import itrs
 from skyfield.units import Distance
 
-import tatc
 from tatc.analysis import collect_observations, compute_ground_track
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
@@ -54,18 +53,16 @@ from validation_io import (
     TO_GEODETIC,
     RemoteFile,
     ecef,
-    get_holdout_gap,
     recompute_passes,
     transform_geometry,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
 )
 
-FIT_DAY = datetime(2026, 10, 4, tzinfo=timezone.utc)
 # public element sets from CelesTrak, with epochs after each day of data
 OCO2_ELEMENTS = (
     "1 40059U 14035A   26313.25381781  .00000489  00000+0  11850-3 0  9999",
@@ -251,7 +248,9 @@ def validate_mode(day, tle, orbit, mode: int, reference: Reference, write: bool)
     entry = get_entry("oco2")
 
     def satellite_for(time_step):
-        return entry.to_satellite(orbit, key, time_step=time_step, platform="oco-2")
+        return entry.to_satellite(
+            orbit, configuration=key, time_step=time_step, platform="oco-2"
+        )
 
     rng = np.random.default_rng(1)
     frames = rng.choice(len(reference.time), SAMPLE, replace=False)
@@ -294,34 +293,26 @@ def validate_mode(day, tle, orbit, mode: int, reference: Reference, write: bool)
     update_fixture(
         fixture, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "oco2",
+        entry,
         key,
-        {
-            "digest": entry.configurations[key].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": f"OCO2_L1B_Science version 11.2 (sounding positions and "
-            f"times, {key} orbits)",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": "oco-2",
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": [
-                {"name": name, "value": float(results[name])}
-                for name in (
-                    "pass_recall",
-                    "epoch_p95",
-                    "epoch_median",
-                    "swath_width_median",
-                    "footprint_iou_median",
-                )
-            ],
-            "fixture_metrics": recompute_passes(
-                satellite_for(TIME_STEPS[0]), 0, day, passes
-            ),
-        },
+        source=source_of(__file__),
+        reference=f"OCO2_L1B_Science version 11.2 (sounding positions and "
+        f"times, {key} orbits)",
+        period=f"{day:%Y-%m-%d}",
+        platforms=["oco-2"],
+        metrics=[
+            {"name": name, "value": float(results[name])}
+            for name in (
+                "pass_recall",
+                "epoch_p95",
+                "epoch_median",
+                "swath_width_median",
+                "footprint_iou_median",
+            )
+        ],
+        fixture_metrics=recompute_passes(satellite_for(TIME_STEPS[0]), 0, day, passes),
     )
     print(f"wrote {RECORD_PATH} and {fixture}")
 

@@ -43,13 +43,9 @@ configurations:
           field_of_regard: &measured_extent
             kind: measured
             source: validate_catalog_modis.py --fit, 1,353 frame spacings of a fitted 0.08124 deg
-            platform: terra
+            platforms: [terra]
             period: "2026-10-04"
           cross_track_field_of_view: *measured_extent
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular:
             kind: derived
             source: Models a scanned swath as a rectangular view
@@ -81,12 +77,12 @@ configurations:
           cross_track_field_of_view:
             kind: measured
             source: validate_catalog_modis.py --fit, 1,354 frames of a fitted 0.08124 deg
-            platform: terra
+            platforms: [terra]
             period: "2026-10-04"
           along_track_field_of_view:
             kind: measured
             source: validate_catalog_modis.py --fit, 10 detectors, from 0.7311 deg over the 9 spacings between the first and last
-            platform: terra
+            platforms: [terra]
             period: "2026-10-04"
           cross_track_pixels:
             kind: nominal
@@ -97,7 +93,7 @@ configurations:
           roll_angle:
             kind: measured
             source: validate_catalog_modis.py --fit, the fitted offset of the scan angle
-            platform: terra
+            platforms: [terra]
             period: "2026-10-04"
           view_geometry:
             kind: derived

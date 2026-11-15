@@ -49,7 +49,6 @@ from validation_io import (
 RECORD_PATH = RECORDS / "atlid.json"
 FIXTURE_PATH = FIXTURES / "atlid.npz"
 NORAD_ID = 59908
-FIT_DAY = datetime(2026, 9, 27, tzinfo=timezone.utc)
 ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "earthcare_2026-09-27.3le"
 PLATFORM = "earthcare"
 CONFIGURATION = "profile"
@@ -102,7 +101,6 @@ def main() -> None:
         orbit,
         tle,
         day,
-        FIT_DAY,
         RECORD_PATH,
         FIXTURE_PATH,
         source_of(__file__),

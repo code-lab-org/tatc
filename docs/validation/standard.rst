@@ -63,19 +63,26 @@ Rules
 =====
 
 1. **Public methods, exact values.** A result counts only if it comes from public
-   TAT-C methods using the entry's exact values. Results from notebook-only
-   refinements, or from rounded or other values, are recorded as `reported` and
-   cannot make a configuration `validated`.
+   TAT-C methods using the entry's exact values. A record identifies the
+   configuration it tested by a digest of its values, so results of a
+   configuration that changed after its test cannot make it `validated`.
 2. **Holdout.** Values fitted to reference data are tested on data at least 30
-   days from their fitting data. Values from published specifications or computed
-   from other values need no holdout. Results on another platform of the same
-   instrument do not count: using a configuration on an untested platform warns.
+   days from their fitting data. The gap is computed, not declared: it is the
+   days between the nearest days of the period of each fitted value's data,
+   which its provenance states, and of the test's data, which its record states.
+   Values from published specifications or computed from other values need no
+   holdout. Results on another platform of the same instrument are recorded as
+   transfers, which do not count: using a configuration on an untested platform
+   warns.
 3. **Geometry, not acquisition.** Passes are scored before solar limits or
    acquisition plans. TAT-C predicts what a system can observe, not what it chose
    to observe.
 4. **Provenance.** Each parameter states whether it is `nominal`, `measured`,
    `derived`, or a `placeholder`, and its source. A published specification is
    never reported as measured.
+5. **Version.** Each configuration's record states the version of the standard
+   of its test. Its results apply under a compatible version that has the gates
+   of its class.
 
 Tiers
 =====

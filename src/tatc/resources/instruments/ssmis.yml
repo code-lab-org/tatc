@@ -33,13 +33,10 @@ configurations:
           cone_angle: &measured
             kind: measured
             source: validate_catalog_ssmis.py --fit, from the S1 samples and the recorded spacecraft positions (printed to 3 decimals)
-            platform: dmsp-f18
+            platforms: [dmsp-f18]
             period: "2026-10-04"
           scan_center_azimuth: *measured
           scan_half_width: *measured
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
     limitations:
       - The arc is that of the centers of the S1 samples, about 142 deg of the 144 deg active scan; the other groups of samples (37, 91, and 150 to 183 GHz) were not used to fit it.
 limitations:

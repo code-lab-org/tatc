@@ -43,7 +43,6 @@ import pandas as pd
 from pyproj import Geod
 from scipy.spatial import cKDTree
 
-import tatc
 from tatc.analysis import compute_sample_sizes
 from tatc.catalog import get_entry
 from tatc.generation import generate_points_fibonacci_lattice
@@ -56,7 +55,6 @@ from validation_io import (
     build_grid,
     compute_spacing_ratios,
     ecef,
-    get_holdout_gap,
     normalize,
     read_element_set_file,
     recompute_passes,
@@ -66,12 +64,12 @@ from validation_io import (
     to_observations,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
 )
-from validate_catalog_trmm_pr import ELEMENT_SET_FILE, FIT_DAY, NORAD_ID
+from validate_catalog_trmm_pr import ELEMENT_SET_FILE, NORAD_ID
 
 RECORD_PATH = RECORDS / "tmi.json"
 FIXTURE_PATH = FIXTURES / "tmi.npz"
@@ -341,7 +339,10 @@ def compute_published_errors(entry) -> np.ndarray:
             altitude=altitude * 1e3, inclination=inclination, epoch=PUBLISHED_EPOCH
         )
         satellite = entry.to_satellite(
-            orbit, SAMPLE_CONFIGURATION, time_step=SCAN_PERIOD, platform=PLATFORM
+            orbit,
+            configuration=SAMPLE_CONFIGURATION,
+            time_step=SCAN_PERIOD,
+            platform=PLATFORM,
         )
         names = [instrument.name for instrument in satellite.instruments]
         time = PUBLISHED_EPOCH + timedelta(minutes=10)
@@ -377,7 +378,10 @@ def validate_sample_sizes(day, tle, entry, orbit, references, write: bool) -> No
         {"name": "sample_size_largest_error", "value": largest},
     ]
     satellite = entry.to_satellite(
-        orbit, SAMPLE_CONFIGURATION, time_step=SCAN_PERIOD, platform=PLATFORM
+        orbit,
+        configuration=SAMPLE_CONFIGURATION,
+        time_step=SCAN_PERIOD,
+        platform=PLATFORM,
     )
     rng = np.random.default_rng(2)
     fixture_metrics = {"sample_size_within_3pct": within}
@@ -409,23 +413,17 @@ def validate_sample_sizes(day, tle, entry, orbit, references, write: bool) -> No
     update_fixture(
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), **reduced
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "tmi",
+        entry,
         SAMPLE_CONFIGURATION,
-        {
-            "digest": entry.configurations[SAMPLE_CONFIGURATION].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "Footprints of the TC PRIMED documentation; spacing of "
-            "GPM_1CTRMMTMI version 08",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": PLATFORM,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": metrics,
-            "fixture_metrics": fixture_metrics,
-        },
+        source=source_of(__file__),
+        reference="Footprints of the TC PRIMED documentation; spacing of "
+        "GPM_1CTRMMTMI version 08",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[PLATFORM],
+        metrics=metrics,
+        fixture_metrics=fixture_metrics,
     )
 
 
@@ -437,7 +435,7 @@ def validate_swath(day, tle, entry, orbit, references, write: bool) -> None:
 
     def satellite_for(time_step: float):
         return entry.to_satellite(
-            orbit, CONFIGURATION, time_step=time_step, platform=PLATFORM
+            orbit, configuration=CONFIGURATION, time_step=time_step, platform=PLATFORM
         )
 
     satellite = satellite_for(SCAN_PERIOD)
@@ -496,23 +494,17 @@ def validate_swath(day, tle, entry, orbit, references, write: bool) -> None:
     update_fixture(
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "tmi",
+        entry,
         CONFIGURATION,
-        {
-            "digest": entry.configurations[CONFIGURATION].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "GPM_1CTRMMTMI version 08 (positions of the S1, S2, and S3 "
-            "samples)",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": PLATFORM,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": metrics,
-            "fixture_metrics": recompute_passes(satellite, 0, day, passes),
-        },
+        source=source_of(__file__),
+        reference="GPM_1CTRMMTMI version 08 (positions of the S1, S2, and S3 "
+        "samples)",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[PLATFORM],
+        metrics=metrics,
+        fixture_metrics=recompute_passes(satellite, 0, day, passes),
     )
 
 

@@ -43,7 +43,6 @@ from shapely.geometry import LineString, Polygon, shape
 from shapely.ops import unary_union
 from skyfield.framelib import itrs
 
-import tatc
 from tatc.analysis import collect_observations, compute_ground_track
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
@@ -53,7 +52,6 @@ from tatc.utils import compute_projected_ray_position
 from validation_io import (
     TO_GEODETIC,
     ecef,
-    get_holdout_gap,
     get_with_retries,
     match_passes,
     normalize,
@@ -63,7 +61,7 @@ from validation_io import (
     recompute_passes,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -77,7 +75,6 @@ ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "sentinel_2026-08-12.3le"
 STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
 TOKEN_URL = "https://planetarycomputer.microsoft.com/api/sas/v1/token/sentinel-2-l2a"
 
-FIT_DAY = datetime(2026, 10, 3, tzinfo=timezone.utc)
 PLATFORMS = {
     "sentinel-2a": ("Sentinel-2A", 40697),
     "sentinel-2b": ("Sentinel-2B", 42063),
@@ -843,7 +840,7 @@ def validate(day, tles, entry, orbits, tiles, datatakes, sections, reference, wr
 
     def satellite_for(platform: str, time_step: float):
         return entry.to_satellite(
-            orbits[platform], KEY, time_step=time_step, platform=platform
+            orbits[platform], configuration=KEY, time_step=time_step, platform=platform
         )
 
     metrics = []
@@ -907,25 +904,19 @@ def validate(day, tles, entry, orbits, tiles, datatakes, sections, reference, wr
         day=np.array(day.isoformat()),
         passes=fixture,
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "msi",
+        entry,
         KEY,
-        {
-            "digest": entry.configurations[KEY].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "Valid data footprints of Sentinel-2 Level-2A tiles; viewing "
-            + "angle grids and GPS ephemerides of their metadata",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": ", ".join(sorted(PLATFORMS)),
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": metrics,
-            "fixture_metrics": recompute_passes(
-                satellite_for(FIXTURE_PLATFORM, TIME_STEPS[0]), 0, day, fixture
-            ),
-        },
+        source=source_of(__file__),
+        reference="Valid data footprints of Sentinel-2 Level-2A tiles; viewing "
+        + "angle grids and GPS ephemerides of their metadata",
+        period=f"{day:%Y-%m-%d}",
+        platforms=sorted(PLATFORMS),
+        metrics=metrics,
+        fixture_metrics=recompute_passes(
+            satellite_for(FIXTURE_PLATFORM, TIME_STEPS[0]), 0, day, fixture
+        ),
     )
     print(f"wrote {RECORD_PATH}")
 

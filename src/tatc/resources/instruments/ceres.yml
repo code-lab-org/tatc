@@ -34,13 +34,9 @@ configurations:
           field_of_regard: &measured_extent
             kind: measured
             source: validate_catalog_ceres.py --fit, between the outermost footprint centers projected to the ellipsoid (59.9884 deg left, 59.9808 deg right of the geodetic nadir, inertial frame)
-            platform: noaa-20
+            platforms: [noaa-20]
             period: "2026-08-25"
           cross_track_field_of_view: *measured_extent
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular:
             kind: derived
             source: Models a scanned swath as a rectangular view

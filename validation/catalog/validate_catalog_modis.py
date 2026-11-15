@@ -56,7 +56,6 @@ from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 from skyfield.units import Distance, Velocity
 
-import tatc
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.generation import generate_points_fibonacci_lattice
@@ -66,12 +65,11 @@ from tatc.utils import VelocityFrame, compute_view_angles
 from validation_io import (
     TO_GEODETIC,
     RemoteFile,
-    add_transfer_metrics,
+    write_transfer,
     build_grid,
     compute_published_errors,
     compute_spacing_ratios,
     ecef,
-    get_holdout_gap,
     in_lattice_cells,
     match_passes,
     normalize,
@@ -81,7 +79,7 @@ from validation_io import (
     score_swath_area,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -91,7 +89,6 @@ from validation_io import (
 RECORD_PATH = RECORDS / "modis.json"
 FIXTURE_PATH = FIXTURES / "modis.npz"
 
-FIT_DAY = datetime(2026, 10, 4, tzinfo=timezone.utc)
 FIT_PLATFORM = "terra"
 PRODUCTS = {"terra": "MOD03", "aqua": "MYD03"}
 # element sets with epochs about two days after the day of data
@@ -431,7 +428,7 @@ def validate_pixels(day, tle, entry, orbit, reference, platform, write) -> None:
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
-    satellite = entry.to_satellite(orbit, PIXELS, platform=platform)
+    satellite = entry.to_satellite(orbit, configuration=PIXELS, platform=platform)
     pixels = measure_pixels(reference, satellite, day)
     median = summarize(pixels[:, 4])["median"]
     p95 = summarize(pixels[:, 4])["p95"]
@@ -446,10 +443,11 @@ def validate_pixels(day, tle, entry, orbit, reference, platform, write) -> None:
     if not write:
         return
     if platform != FIT_PLATFORM:
-        add_transfer_metrics(
+        write_transfer(
             RECORD_PATH,
             PIXELS,
-            f"{platform}, {day:%Y-%m-%d}",
+            platform,
+            f"{day:%Y-%m-%d}",
             {
                 "pixel_position_median": median,
                 "pixel_position_p95": p95,
@@ -472,33 +470,27 @@ def validate_pixels(day, tle, entry, orbit, reference, platform, write) -> None:
         spacing=rows[picks],
         spacing_seconds=(times[picks] - pd.Timestamp(day)).total_seconds().to_numpy(),
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "modis",
+        entry,
         PIXELS,
-        {
-            "digest": entry.configurations[PIXELS].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "Footprints published by NASA LAADS; MOD03 geolocation",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": platform,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": [
-                {"name": "sample_size_within_3pct", "value": within},
-                {"name": "sample_size_largest_error", "value": largest},
-                {"name": "pixel_position_median", "value": median},
-                {"name": "pixel_position_p95", "value": p95},
-                {"name": "spacing_along_ratio_median", "value": along},
-                {"name": "spacing_cross_ratio_median", "value": cross},
-            ],
-            "fixture_metrics": {
-                "sample_size_within_3pct": within,
-                "pixel_position_median": summarize(reduced[:, 4])["median"],
-                "spacing_along_ratio_median": fixture_along,
-                "spacing_cross_ratio_median": fixture_cross,
-            },
+        source=source_of(__file__),
+        reference="Footprints published by NASA LAADS; MOD03 geolocation",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[platform],
+        metrics=[
+            {"name": "sample_size_within_3pct", "value": within},
+            {"name": "sample_size_largest_error", "value": largest},
+            {"name": "pixel_position_median", "value": median},
+            {"name": "pixel_position_p95", "value": p95},
+            {"name": "spacing_along_ratio_median", "value": along},
+            {"name": "spacing_cross_ratio_median", "value": cross},
+        ],
+        fixture_metrics={
+            "sample_size_within_3pct": within,
+            "pixel_position_median": summarize(reduced[:, 4])["median"],
+            "spacing_along_ratio_median": fixture_along,
+            "spacing_cross_ratio_median": fixture_cross,
         },
     )
 
@@ -507,7 +499,9 @@ def validate_swath(day, tle, entry, orbit, reference, platform, write) -> None:
     """Scores the swath configuration, and writes its results if requested."""
 
     def satellite_for(time_step: float):
-        return entry.to_satellite(orbit, SWATH, time_step=time_step, platform=platform)
+        return entry.to_satellite(
+            orbit, configuration=SWATH, time_step=time_step, platform=platform
+        )
 
     satellite = satellite_for(SCAN_PERIOD)
     points = generate_points_fibonacci_lattice(500e3)
@@ -548,10 +542,11 @@ def validate_swath(day, tle, entry, orbit, reference, platform, write) -> None:
         "footprint_iou_median",
     )
     if platform != FIT_PLATFORM:
-        add_transfer_metrics(
+        write_transfer(
             RECORD_PATH,
             SWATH,
-            f"{platform}, {day:%Y-%m-%d}",
+            platform,
+            f"{day:%Y-%m-%d}",
             {name: results[name] for name in gated},
         )
         return
@@ -568,24 +563,16 @@ def validate_swath(day, tle, entry, orbit, reference, platform, write) -> None:
     update_fixture(
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "modis",
+        entry,
         SWATH,
-        {
-            "digest": entry.configurations[SWATH].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "MOD03 geolocation",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": platform,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": [
-                {"name": name, "value": float(results[name])} for name in gated
-            ],
-            "fixture_metrics": recompute_passes(satellite, 0, day, passes),
-        },
+        source=source_of(__file__),
+        reference="MOD03 geolocation",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[platform],
+        metrics=[{"name": name, "value": float(results[name])} for name in gated],
+        fixture_metrics=recompute_passes(satellite, 0, day, passes),
     )
 
 

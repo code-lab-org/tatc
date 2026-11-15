@@ -1,11 +1,13 @@
 """
-Helpers shared by the scripts that validate catalog entries against NOAA-20 data:
-reading the public archive, geometry, and scoring through public TAT-C methods.
+Helpers shared by the scripts that validate catalog entries: reading the public
+archives of the JPSS satellites, geometry, scoring through public TAT-C methods,
+and writing validation records and test fixtures.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 import concurrent.futures
+import dataclasses
 import io
 import json
 import pathlib
@@ -29,18 +31,13 @@ from tatc.analysis import (
     compute_ground_track,
     compute_sample_sizes,
 )
-from tatc.catalog import STANDARD_VERSION
+import tatc
+from tatc.catalog import STANDARD_VERSION, InstrumentEntry
+from tatc.catalog.schemas import ConfigurationRecord, Transfer, ValidationRecord
 from tatc.catalog.metrics import compute_mask_iou, compute_pass_scores, summarize
 from tatc.constants import EARTH_ROTATION_RATE, timescale
 from tatc.schemas import CircularOrbit, Point
 from tatc.utils import VelocityFrame, compute_projected_ray_position
-
-# the archives of the JPSS satellites on NOAA Open Data Dissemination, by platform
-ARCHIVES = {
-    "noaa-20": ("https://noaa-nesdis-n20-pds.s3.amazonaws.com/", "n20"),
-    "noaa-21": ("https://noaa-nesdis-n21-pds.s3.amazonaws.com/", "n21"),
-}
-BUCKET, ARCHIVE_PREFIX = ARCHIVES["noaa-20"]
 
 # where the scripts read element sets and write validation records and test fixtures
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
@@ -127,28 +124,6 @@ def post_with_retries(url: str, body: dict) -> requests.Response:
     raise RuntimeError("unreachable")
 
 
-def list_keys(prefix: str) -> list[str]:
-    """Lists the keys of all objects in the archive with a prefix."""
-    keys, token = [], None
-    while True:
-        params = {"list-type": "2", "prefix": prefix}
-        if token:
-            params["continuation-token"] = token
-        listing = get_with_retries(BUCKET, params=params).text
-        keys += re.findall(r"<Key>(.*?)</Key>", listing)
-        match = re.search(
-            r"<NextContinuationToken>(.*?)</NextContinuationToken>", listing
-        )
-        if match is None:
-            return keys
-        token = match.group(1)
-
-
-def fetch(key: str) -> bytes:
-    """Downloads an object of the archive."""
-    return get_with_retries(BUCKET + key).content
-
-
 class RemoteFile(io.RawIOBase):
     """A read-only file of a URL, downloaded on demand with range requests."""
 
@@ -213,29 +188,57 @@ class RemoteFile(io.RawIOBase):
         return count
 
 
-def use_archive(platform: str) -> str:
+@dataclasses.dataclass(frozen=True)
+class Archive:
     """
-    Selects the archive of a JPSS satellite (NOAA-20 by default) from which objects
-    and element sets are read. Gets the prefix that distinguishes its cached files.
+    The archive of a JPSS satellite on NOAA Open Data Dissemination, from which
+    objects and element sets are read, with the prefix that distinguishes its
+    cached files.
     """
-    global BUCKET, ARCHIVE_PREFIX  # pylint: disable=global-statement
-    BUCKET, ARCHIVE_PREFIX = ARCHIVES[platform]
-    return ARCHIVE_PREFIX
+
+    url: str
+    prefix: str
+
+    def list_keys(self, prefix: str) -> list[str]:
+        """Lists the keys of all objects in the archive with a prefix."""
+        keys, token = [], None
+        while True:
+            params = {"list-type": "2", "prefix": prefix}
+            if token:
+                params["continuation-token"] = token
+            listing = get_with_retries(self.url, params=params).text
+            keys += re.findall(r"<Key>(.*?)</Key>", listing)
+            match = re.search(
+                r"<NextContinuationToken>(.*?)</NextContinuationToken>", listing
+            )
+            if match is None:
+                return keys
+            token = match.group(1)
+
+    def fetch(self, key: str) -> bytes:
+        """Downloads an object of the archive."""
+        return get_with_retries(self.url + key).content
+
+    def load_element_set(self, day: datetime, directory: pathlib.Path) -> list[str]:
+        """Gets the operational element set with an epoch at the start of a day."""
+        path = directory / f"{self.prefix}_tle_{day:%Y%m%d}.txt"
+        if not path.exists():
+            key = next(
+                k
+                for k in self.list_keys(f"TLE-AUX/{day:%Y/%m/%d}/")
+                if f"Z_{day:%Y%m%d}000000Z_" in k
+            )
+            with h5py.File(io.BytesIO(self.fetch(key))) as f:
+                text = bytes(f["All_Data/TLE-AUX_All/Dataset_Array_0"][:]).decode()
+            path.write_text(text.strip() + "\n", encoding="utf-8")
+        return path.read_text(encoding="utf-8").splitlines()
 
 
-def load_element_set(day: datetime, directory: pathlib.Path) -> list[str]:
-    """Gets the operational element set with an epoch at the start of a day."""
-    path = directory / f"{ARCHIVE_PREFIX}_tle_{day:%Y%m%d}.txt"
-    if not path.exists():
-        key = next(
-            k
-            for k in list_keys(f"TLE-AUX/{day:%Y/%m/%d}/")
-            if f"Z_{day:%Y%m%d}000000Z_" in k
-        )
-        with h5py.File(io.BytesIO(fetch(key))) as f:
-            text = bytes(f["All_Data/TLE-AUX_All/Dataset_Array_0"][:]).decode()
-        path.write_text(text.strip() + "\n", encoding="utf-8")
-    return path.read_text(encoding="utf-8").splitlines()
+# the archives of the JPSS satellites, by platform
+ARCHIVES = {
+    "noaa-20": Archive("https://noaa-nesdis-n20-pds.s3.amazonaws.com/", "n20"),
+    "noaa-21": Archive("https://noaa-nesdis-n21-pds.s3.amazonaws.com/", "n21"),
+}
 
 
 def read_element_set_file(
@@ -389,11 +392,6 @@ def in_lattice_cells(cells, is_next_contiguous, points, neighbors=2) -> np.ndarr
     return inside
 
 
-def get_holdout_gap(day: datetime, fit_day: datetime) -> int | None:
-    """Gets the days from the fit to a day, to which the standard applies its gap."""
-    return None if day == fit_day else abs((day - fit_day).days)
-
-
 def to_observations(satellite, instruments, epochs, lon, lat) -> gpd.GeoDataFrame:
     """Builds observations of points by named instruments of a satellite."""
     return gpd.GeoDataFrame(
@@ -418,7 +416,7 @@ def compute_published_errors(entry, key: str, footprints) -> np.ndarray:
         orbit = CircularOrbit(
             altitude=altitude * 1e3, inclination=inclination, epoch=PUBLISHED_EPOCH
         )
-        satellite = entry.to_satellite(orbit, key)
+        satellite = entry.to_satellite(orbit, configuration=key)
         time = PUBLISHED_EPOCH + timedelta(minutes=10)
         target = compute_projected_ray_position(
             orbit.to_gp_orbit().get_orbit_track(time),
@@ -667,28 +665,70 @@ def update_fixture(path: pathlib.Path, **arrays) -> None:
     np.savez_compressed(path, **add_earth_orientation({**existing, **arrays}, arrays))
 
 
-def update_record(path: pathlib.Path, entry_id: str, key: str, results: dict) -> None:
-    """Writes the results of a configuration to a record, keeping the others."""
-    record = {"entry_id": entry_id, "configurations": {}}
+def _read_record(path: pathlib.Path, entry_id: str) -> dict:
+    """Reads a record, or starts one."""
     if path.exists():
-        record = json.loads(path.read_text(encoding="utf-8"))
-    record["standard_version"] = STANDARD_VERSION
-    record["configurations"][key] = results
-    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        return json.loads(path.read_text(encoding="utf-8"))
+    return {"entry_id": entry_id, "configurations": {}}
 
 
-def add_transfer_metrics(
-    path: pathlib.Path, key: str, scope: str, values: dict[str, float]
+def _write_record(path: pathlib.Path, record: dict) -> None:
+    """Checks a record against its schema and writes it."""
+    checked = ValidationRecord(**record).model_dump(mode="json", exclude_none=True)
+    path.write_text(json.dumps(checked, indent=2) + "\n", encoding="utf-8")
+
+
+def write_record(
+    path: pathlib.Path,
+    entry: InstrumentEntry,
+    key: str,
+    *,
+    source: str,
+    reference: str,
+    period: str,
+    platforms: list[str],
+    metrics: list[dict],
+    fixture_metrics: dict[str, float] | None = None,
 ) -> None:
     """
-    Adds results of a configuration on a platform on which it was not fitted. Their
-    names differ from those of the gates, so that they do not count as validation.
+    Writes the results of a configuration to its entry's record, keeping those of
+    the others, with the configuration's digest and the versions of TAT-C and of
+    the standard. Its transfers are kept if the configuration is unchanged.
+    """
+    record = _read_record(path, entry.id)
+    digest = entry.configurations[key].digest
+    previous = record["configurations"].get(key, {})
+    record["configurations"][key] = ConfigurationRecord(
+        digest=digest,
+        standard_version=STANDARD_VERSION,
+        tatc_version=tatc.__version__,
+        source=source,
+        reference=reference,
+        period=period,
+        platforms=platforms,
+        metrics=metrics,
+        transfers=(
+            previous.get("transfers", {}) if previous.get("digest") == digest else {}
+        ),
+        fixture_metrics=fixture_metrics or {},
+    ).model_dump(mode="json", exclude_none=True)
+    _write_record(path, record)
+
+
+def write_transfer(
+    path: pathlib.Path,
+    key: str,
+    platform: str,
+    period: str,
+    values: dict[str, float],
+) -> None:
+    """
+    Writes the results of a configuration on a platform on which it was not
+    tested, which do not count toward its validation, to its record.
     """
     record = json.loads(path.read_text(encoding="utf-8"))
-    metrics = record["configurations"][key]["metrics"]
-    metrics[:] = [m for m in metrics if m.get("scope") != scope]
-    metrics += [
-        {"name": f"transfer_{name}", "value": float(value), "scope": scope}
-        for name, value in values.items()
-    ]
-    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    record["configurations"][key]["transfers"][platform] = Transfer(
+        period=period,
+        metrics=[{"name": name, "value": float(v)} for name, v in values.items()],
+    ).model_dump(mode="json", exclude_none=True)
+    _write_record(path, record)

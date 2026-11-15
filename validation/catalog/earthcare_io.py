@@ -24,7 +24,6 @@ import numpy as np
 import pandas as pd
 import requests
 
-import tatc
 from tatc.analysis import collect_observations
 from tatc.catalog.metrics import summarize
 from tatc.schemas import Point
@@ -32,13 +31,12 @@ from validation_io import (
     TO_GEODETIC,
     RemoteFile,
     ecef,
-    get_holdout_gap,
     get_with_retries,
     normalize,
     recompute_passes,
     up,
     update_fixture,
-    update_record,
+    write_record,
 )
 
 CATALOGUE = "https://catalog.maap.eo.esa.int/catalogue/collections"
@@ -334,7 +332,6 @@ def validate_profiler(
     orbit,
     tle,
     day: datetime,
-    fit_day: datetime,
     record_path: pathlib.Path,
     fixture_path: pathlib.Path,
     source: str,
@@ -359,7 +356,7 @@ def validate_profiler(
         }
     )
     satellite = entry.to_satellite(
-        orbit, configuration, time_step=TIME_STEPS[0], platform=platform
+        orbit, configuration=configuration, time_step=TIME_STEPS[0], platform=platform
     )
     offsets = track_offsets(satellite, sample)
     results = {"track_offset_median": float(np.median(offsets))}
@@ -371,7 +368,7 @@ def validate_profiler(
     by_step = {}
     for time_step in TIME_STEPS:
         satellite = entry.to_satellite(
-            orbit, configuration, time_step=time_step, platform=platform
+            orbit, configuration=configuration, time_step=time_step, platform=platform
         )
         differences = find_epochs(satellite, sample)
         found = np.isfinite(differences)
@@ -403,32 +400,26 @@ def validate_profiler(
         fixture_path, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
     )
     satellite = entry.to_satellite(
-        orbit, configuration, time_step=TIME_STEPS[0], platform=platform
+        orbit, configuration=configuration, time_step=TIME_STEPS[0], platform=platform
     )
-    update_record(
+    write_record(
         record_path,
-        entry.id,
+        entry,
         configuration,
-        {
-            "digest": entry.configurations[configuration].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source,
-            "reference": reference,
-            "period": f"{day:%Y-%m-%d}",
-            "platform": platform,
-            "holdout_gap_days": get_holdout_gap(day, fit_day),
-            "metrics": [
-                {"name": name, "value": float(results[name])}
-                for name in (
-                    "segment_recall",
-                    "track_offset_median",
-                    "epoch_p95",
-                    "epoch_median",
-                )
-            ],
-            "fixture_metrics": recompute_passes(satellite, 0, day, passes),
-        },
+        source=source,
+        reference=reference,
+        period=f"{day:%Y-%m-%d}",
+        platforms=[platform],
+        metrics=[
+            {"name": name, "value": float(results[name])}
+            for name in (
+                "segment_recall",
+                "track_offset_median",
+                "epoch_p95",
+                "epoch_median",
+            )
+        ],
+        fixture_metrics=recompute_passes(satellite, 0, day, passes),
     )
     print(f"wrote {record_path} and {fixture_path}")
     return results

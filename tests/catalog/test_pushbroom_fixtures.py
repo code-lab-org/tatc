@@ -54,7 +54,7 @@ class _PushbroomFixture:
         # the day is the period of the analysis, for a schedule of the attitude
         cls.satellite = cls.entry.to_satellite(
             GeneralPerturbationsOrbit.from_tle(cls.data[cls.tle_key].tolist()),
-            cls.configuration,
+            configuration=cls.configuration,
             time_step=cls.time_step,
             platform=cls.platform,
             start=cls.day,

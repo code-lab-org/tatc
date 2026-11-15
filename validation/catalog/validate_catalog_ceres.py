@@ -39,17 +39,15 @@ from tatc.catalog import get_entry
 from tatc.schemas import GeneralPerturbationsOrbit
 from gesdisc_scanner import Reference, Setup, fit, fit_yaw, validate_swath
 from validation_io import (
+    ARCHIVES,
     TO_GEODETIC,
     get_with_retries,
-    load_element_set,
-    use_archive,
     RECORDS,
     FIXTURES,
     source_of,
     login_earthdata,
 )
 
-FIT_DAY = datetime(2026, 8, 25, tzinfo=timezone.utc)
 SHORT_NAME, VERSION = "CER_ES8_NOAA20-FM6", "Edition1"
 RECORD_SAMPLES, SAMPLE_PERIOD, RECORD_PERIOD = 660, 0.01, 6.6
 # the samples of the first Earth sweep of each record; the second sweeps in the
@@ -197,7 +195,6 @@ SETUP = Setup(
     reference="CER_ES8_NOAA20-FM6 Edition1 (footprint positions, projected to the "
     "ellipsoid, and times)",
     published_reference="",
-    fit_day=FIT_DAY,
     time_steps=(RECORD_PERIOD, 30, 120),
     pass_radius=60,
     point_spacing=200e3,
@@ -230,8 +227,7 @@ def main() -> None:
         offsets = reference.beam_seconds - reference.seconds[:, np.newaxis]
         print(f"footprint times from the sweep's middle: {offsets[0, [0, -1]]}")
         return
-    use_archive("noaa-20")
-    tle = load_element_set(day, arguments.directory)
+    tle = ARCHIVES["noaa-20"].load_element_set(day, arguments.directory)
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     validate_swath(

@@ -45,7 +45,6 @@ import pandas as pd
 from pyproj import Geod
 from skyfield.api import wgs84
 
-import tatc
 from tatc.analysis import collect_observations
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
@@ -53,10 +52,9 @@ from tatc.constants import EARTH_MEAN_RADIUS, timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from validation_io import (
     RemoteFile,
-    get_holdout_gap,
     read_element_set_file,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -67,7 +65,6 @@ from validation_io import (
 RECORD_PATH = RECORDS / "atlas.json"
 FIXTURE_PATH = FIXTURES / "atlas.npz"
 
-FIT_DAY = datetime(2026, 10, 1, tzinfo=timezone.utc)
 # public element sets from CelesTrak, with epochs a few days after each day of data;
 # the first is that of `ValidateLidarICESat2`
 ELEMENTS = {
@@ -238,7 +235,7 @@ def score_segments(entry, orbit, segments: pd.DataFrame, day: datetime) -> dict:
     results = {}
     for time_step in TIME_STEPS:
         satellite = entry.to_satellite(
-            orbit, CONFIGURATION, time_step=time_step, platform="icesat-2"
+            orbit, configuration=CONFIGURATION, time_step=time_step, platform="icesat-2"
         )
         differences = find_epochs(satellite, sample)
         found = np.isfinite(differences)
@@ -349,7 +346,7 @@ def main() -> None:
     if not arguments.write:
         return
     satellite = entry.to_satellite(
-        orbit, CONFIGURATION, time_step=TIME_STEPS[0], platform="icesat-2"
+        orbit, configuration=CONFIGURATION, time_step=TIME_STEPS[0], platform="icesat-2"
     )
     rng = np.random.default_rng(2)
     reduced = passes[rng.choice(len(passes), FIXTURE_SEGMENTS, replace=False)]
@@ -368,33 +365,27 @@ def main() -> None:
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=reduced
     )
     found = np.isfinite(fixture_differences)
-    update_record(
+    write_record(
         RECORD_PATH,
-        "atlas",
+        entry,
         CONFIGURATION,
-        {
-            "digest": entry.configurations[CONFIGURATION].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "ATL08QL version 007 (land segments south of 60 deg S)",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": "icesat-2",
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": [
-                {
-                    "name": name,
-                    "value": values[name],
-                    "scope": f"time step {time_step} s",
-                }
-                for time_step, values in results.items()
-                for name in ("segment_recall", "epoch_p95", "epoch_median")
-            ]
-            + [{"name": "beam_spacing_error_median", "value": spacing}],
-            "fixture_metrics": {
-                "passes_found": 100 * float(found.mean()),
-                "epoch_p95": float(summarize(fixture_differences[found])["p95"]),
-            },
+        source=source_of(__file__),
+        reference="ATL08QL version 007 (land segments south of 60 deg S)",
+        period=f"{day:%Y-%m-%d}",
+        platforms=["icesat-2"],
+        metrics=[
+            {
+                "name": name,
+                "value": values[name],
+                "scope": f"time step {time_step} s",
+            }
+            for time_step, values in results.items()
+            for name in ("segment_recall", "epoch_p95", "epoch_median")
+        ]
+        + [{"name": "beam_spacing_error_median", "value": spacing}],
+        fixture_metrics={
+            "passes_found": 100 * float(found.mean()),
+            "epoch_p95": float(summarize(fixture_differences[found])["p95"]),
         },
     )
     print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")

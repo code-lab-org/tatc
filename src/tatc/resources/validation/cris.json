@@ -3,13 +3,14 @@
   "configurations": {
     "pixels": {
       "digest": "14a2de8b4b2b0fc73bbbd5b728623007b4ecbb20458ddd89c86d64d29dfc9f1c",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_cris.py",
       "reference": "Footprints published by the NWP SAF; fields of view of the CrIS SDR geolocation",
       "period": "2026-08-12",
-      "platform": "noaa-20",
-      "holdout_gap_days": 51,
+      "platforms": [
+        "noaa-20"
+      ],
       "metrics": [
         {
           "name": "sample_size_within_3pct",
@@ -30,18 +31,23 @@
         {
           "name": "pixel_position_central_median",
           "value": 10.012495649217449
-        },
-        {
-          "name": "transfer_pixel_position_median",
-          "value": 12.265464759977313,
-          "scope": "noaa-21, 2026-11-05"
-        },
-        {
-          "name": "transfer_pixel_position_p95",
-          "value": 43.828535562194325,
-          "scope": "noaa-21, 2026-11-05"
         }
       ],
+      "transfers": {
+        "noaa-21": {
+          "period": "2026-11-05",
+          "metrics": [
+            {
+              "name": "pixel_position_median",
+              "value": 12.265464759977313
+            },
+            {
+              "name": "pixel_position_p95",
+              "value": 43.828535562194325
+            }
+          ]
+        }
+      },
       "fixture_metrics": {
         "sample_size_within_3pct": 75.0,
         "pixel_position_median": 10.13770124804699
@@ -49,13 +55,14 @@
     },
     "swath": {
       "digest": "fc32ce15a3780ef5596decc7d4a8c2f7bd27c888973cfe6adeec5e19d98ad616",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_cris.py",
       "reference": "CrIS SDR geolocation",
       "period": "2026-08-12",
-      "platform": "noaa-20",
-      "holdout_gap_days": 51,
+      "platforms": [
+        "noaa-20"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -76,38 +83,39 @@
         {
           "name": "footprint_iou_median",
           "value": 0.9961643275378533
-        },
-        {
-          "name": "transfer_pass_recall",
-          "value": 99.8507710164152,
-          "scope": "noaa-21, 2026-11-05"
-        },
-        {
-          "name": "transfer_pass_precision",
-          "value": 99.9667994687915,
-          "scope": "noaa-21, 2026-11-05"
-        },
-        {
-          "name": "transfer_epoch_p95",
-          "value": 1.1227140565999998,
-          "scope": "noaa-21, 2026-11-05"
-        },
-        {
-          "name": "transfer_swath_width_median",
-          "value": 2.099583696063026,
-          "scope": "noaa-21, 2026-11-05"
-        },
-        {
-          "name": "transfer_footprint_iou_median",
-          "value": 0.9984279738261294,
-          "scope": "noaa-21, 2026-11-05"
         }
       ],
+      "transfers": {
+        "noaa-21": {
+          "period": "2026-11-05",
+          "metrics": [
+            {
+              "name": "pass_recall",
+              "value": 99.8507710164152
+            },
+            {
+              "name": "pass_precision",
+              "value": 99.9667994687915
+            },
+            {
+              "name": "epoch_p95",
+              "value": 1.1227140565999998
+            },
+            {
+              "name": "swath_width_median",
+              "value": 2.099583696063026
+            },
+            {
+              "name": "footprint_iou_median",
+              "value": 0.9984279738261294
+            }
+          ]
+        }
+      },
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.28104180079999985
       }
     }
-  },
-  "standard_version": 5
+  }
 }

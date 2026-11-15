@@ -51,7 +51,6 @@ from validation_io import (
     source_of,
 )
 
-FIT_DAY = datetime(2026, 10, 4, tzinfo=timezone.utc)
 # public element sets from CelesTrak, with epochs after each day of data
 PACE_ELEMENTS = (
     "1 58928U 24025A   26313.27483190  .00000501  00000+0  10091-3 0  9993",
@@ -113,7 +112,6 @@ SETUP = Setup(
     reference="PACE_HARP2_L1B_SCI version 4 (positions and times of the near-nadir "
     "view)",
     published_reference="",
-    fit_day=FIT_DAY,
     time_steps=(10, 30, 120),
     pass_radius=20,
     point_spacing=200e3,

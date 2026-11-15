@@ -44,7 +44,6 @@ from shapely import contains_xy, prepare
 from shapely.ops import unary_union
 from skyfield.framelib import itrs
 
-import tatc
 from tatc.analysis import compute_ground_track
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import compute_mask_iou
@@ -54,14 +53,13 @@ from tatc.utils import compute_projected_ray_position
 from validation_io import (
     TO_GEODETIC,
     ecef,
-    get_holdout_gap,
     normalize,
     predict_passes,
     match_passes,
     recompute_passes,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -71,7 +69,6 @@ from validation_io import (
 RECORD_PATH = RECORDS / "karin.json"
 FIXTURE_PATH = FIXTURES / "karin.npz"
 
-FIT_DAY = datetime(2026, 10, 1, tzinfo=timezone.utc)
 PLATFORM = "swot"
 CONFIGURATION = "swaths"
 # public element sets from CelesTrak, with epochs after each day of data (that of the
@@ -452,22 +449,16 @@ def validate(day, tle, entry, orbit, passes, write) -> None:
     update_fixture(
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=fixture
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "karin",
+        entry,
         CONFIGURATION,
-        {
-            "digest": entry.configurations[CONFIGURATION].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "SWOT_L2_LR_SSH_BASIC_D (good-quality pixels and line times)",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": PLATFORM,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": metrics,
-            "fixture_metrics": recompute_passes(satellite, None, day, fixture),
-        },
+        source=source_of(__file__),
+        reference="SWOT_L2_LR_SSH_BASIC_D (good-quality pixels and line times)",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[PLATFORM],
+        metrics=metrics,
+        fixture_metrics=recompute_passes(satellite, None, day, fixture),
     )
     print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
 

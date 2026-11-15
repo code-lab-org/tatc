@@ -34,13 +34,9 @@ configurations:
           field_of_regard: &measured_extent
             kind: measured
             source: validate_catalog_virs.py --fit, between the outermost samples (printed to 4 decimals)
-            platform: trmm
+            platforms: [trmm]
             period: "2013-06-01"
           cross_track_field_of_view: *measured_extent
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular:
             kind: derived
             source: Models a scanned swath as a rectangular view
@@ -69,7 +65,7 @@ configurations:
           cross_track_field_of_view: &measured_spacing
             kind: measured
             source: validate_catalog_virs.py --fit, a fitted spacing of 0.34511 deg over 261 samples
-            platform: trmm
+            platforms: [trmm]
             period: "2013-06-01"
           along_track_field_of_view:
             kind: derived
@@ -80,7 +76,7 @@ configurations:
           roll_angle:
             kind: measured
             source: validate_catalog_virs.py --fit, the offset of the fitted sample angles
-            platform: trmm
+            platforms: [trmm]
             period: "2013-06-01"
           is_rectangular:
             kind: derived
@@ -88,7 +84,7 @@ configurations:
           scan_period:
             kind: measured
             source: validate_catalog_virs.py --fit, the median time between scans
-            platform: trmm
+            platforms: [trmm]
             period: "2013-06-01"
     limitations:
       - TAT-C projects all pixels of a scan at one instant, at the time the product gives for the scan.

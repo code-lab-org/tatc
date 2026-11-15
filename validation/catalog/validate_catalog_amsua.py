@@ -48,7 +48,6 @@ from validation_io import (
     source_of,
 )
 
-FIT_DAY = datetime(2026, 10, 4, tzinfo=timezone.utc)
 # the public element set of `validate_catalog_modis.py` for Aqua, with an epoch after
 # the day of data
 ELEMENTS = {
@@ -132,7 +131,6 @@ SETUP = Setup(
     reference="AIRABRAD version 005 (footprint positions and times)",
     published_reference="Footprint published in the AIRABRAD documentation; "
     "footprint positions of AIRABRAD version 005",
-    fit_day=FIT_DAY,
     time_steps=(SCAN_PERIOD, 32, 128),
     pass_radius=80,
     point_spacing=500e3,

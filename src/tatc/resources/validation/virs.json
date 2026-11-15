@@ -3,13 +3,14 @@
   "configurations": {
     "pixels": {
       "digest": "b8688736d1951d0235a24974b3cfaf6564f6b7f8f268d8cf26c8e1bb7eb70093",
-      "evidence": "rerun",
+      "standard_version": 6,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_virs.py",
       "reference": "Footprint of the TRMM Version 7 README of GES DISC; sample positions of GPM_1BVIRS version 08",
       "period": "2013-07-10",
-      "platform": "trmm",
-      "holdout_gap_days": 39,
+      "platforms": [
+        "trmm"
+      ],
       "metrics": [
         {
           "name": "sample_size_within_3pct",
@@ -36,6 +37,7 @@
           "value": 0.9995835694555084
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "sample_size_within_3pct": 100.0,
         "pixel_position_median": 2.263626748871494,
@@ -45,13 +47,14 @@
     },
     "swath": {
       "digest": "61cd341ff4c2a8cc972c0690743595a8c5181eec53f0efcef70d09e1911bc8ae",
-      "evidence": "rerun",
+      "standard_version": 6,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_virs.py",
       "reference": "GPM_1BVIRS version 08 (sample positions), with spacecraft positions of GPM_2APR version 07",
       "period": "2013-07-10",
-      "platform": "trmm",
-      "holdout_gap_days": 39,
+      "platforms": [
+        "trmm"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -74,11 +77,11 @@
           "value": 0.993953665594313
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.6144587818
       }
     }
-  },
-  "standard_version": 6
+  }
 }

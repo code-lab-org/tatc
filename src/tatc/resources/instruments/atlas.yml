@@ -35,13 +35,9 @@ configurations:
           roll_angle: &measured
             kind: measured
             source: validate_catalog_atlas.py --fit, the median and spread (99.5th percentile) of the pair's offsets from the ground track over Antarctica
-            platform: icesat-2
+            platforms: [icesat-2]
             period: "2026-10-01"
           cross_track_field_of_view: *measured
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: &tailored
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular: &rectangular
             kind: derived
             source: Models the band containing a pair's track as a rectangular view
@@ -56,8 +52,6 @@ configurations:
         provenance:
           roll_angle: *measured
           cross_track_field_of_view: *measured
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -70,8 +64,6 @@ configurations:
         provenance:
           roll_angle: *measured
           cross_track_field_of_view: *measured
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
     limitations:
       - Each view is about 4.9 km wide, whereas a beam's footprint is about 11 m wide. The width holds the error of an element set a few days old (about 2.5 days at the fit), so a view shows where a pair may observe, not the area it observes. Older element sets need wider views.

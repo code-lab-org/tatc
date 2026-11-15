@@ -14,17 +14,15 @@ from pydantic import ValidationError
 
 from tatc.analysis import collect_observations
 from tatc.catalog import (
-    COMPATIBLE_VERSIONS,
-    STANDARD_VERSION,
     Grade,
-    InstrumentClass,
     InstrumentEntry,
-    Tier,
+    build_payload,
     get_entry,
     get_entry_ids,
     list_entries,
 )
 from tatc.catalog import loader
+from tatc.catalog.standard import is_compatible
 from tatc.schemas import (
     Attitude,
     AttitudeSchedule,
@@ -46,6 +44,352 @@ OCO2_TLE = [
     "1 40059U 14035A   26313.25381781  .00000489  00000+0  11850-3 0  9999",
     "2 40059  98.2167 252.4180 0000990  88.3344 271.7968 14.57127601657173",
 ]
+
+# the validation status of each entry: its tier, and for each configuration its
+# tier, the days between its fitting data and its test (`None` without fitted
+# values), and its gaps (by metric, for its gates), and the gaps of the entry
+EXPECTED_STATUS = {
+    "abi": (
+        "partial",
+        {
+            "full_disk": ("partial", None, ["product_limit"]),
+            "sst_good_quality": ("validated", None, []),
+            "lst_good_quality": ("validated", None, []),
+        },
+        [],
+    ),
+    "ahi": (
+        "partial",
+        {
+            "full_disk": ("partial", None, ["product_limit"]),
+            "cloud_top_height": ("partial", 38, ["product_limit"]),
+        },
+        [],
+    ),
+    "airs": (
+        "partial",
+        {
+            "swath": ("validated", None, []),
+            "footprints": ("partial", None, ["sample_size_within_3pct"]),
+        },
+        [],
+    ),
+    "amsr2": (
+        "partial",
+        {
+            "swath": ("validated", 36, []),
+            "sample_size": ("partial", 36, ["sample_size_within_3pct"]),
+        },
+        [],
+    ),
+    "amsua": (
+        "partial",
+        {
+            "swath": ("validated", None, []),
+            "footprints": ("partial", None, ["sample_size_within_3pct"]),
+        },
+        [],
+    ),
+    "ascat": (
+        "validated",
+        {
+            "swaths": ("validated", 34, []),
+        },
+        [],
+    ),
+    "atlas": (
+        "partial",
+        {
+            "beam_pairs": ("partial", 34, ["epoch_p95"]),
+        },
+        [],
+    ),
+    "atlid": (
+        "partial",
+        {
+            "profile": ("partial", 41, ["track_offset_median"]),
+        },
+        [],
+    ),
+    "atms": (
+        "validated",
+        {
+            "swath_noaa_20": ("validated", 51, []),
+            "beams_noaa_20": ("validated", 51, []),
+            "swath_noaa_21": ("validated", 34, []),
+            "beams_noaa_21": ("validated", 34, []),
+        },
+        [],
+    ),
+    "avhrr": (
+        "partial",
+        {
+            "swath": ("validated", 33, []),
+            "pixels": ("partial", 33, ["sample_size_within_3pct"]),
+        },
+        [],
+    ),
+    "bbr": (
+        "partial",
+        {
+            "views": ("partial", 41, ["pass_recall", "footprint_iou_median"]),
+        },
+        [],
+    ),
+    "ceres": (
+        "partial",
+        {
+            "swath": ("partial", 36, ["swath_width_median"]),
+        },
+        ["no configuration at the sample_size grade"],
+    ),
+    "cpr": (
+        "partial",
+        {
+            "nadir": ("partial", None, ["track_offset_median"]),
+        },
+        [],
+    ),
+    "cris": (
+        "partial",
+        {
+            "swath": ("validated", 51, []),
+            "pixels": (
+                "partial",
+                51,
+                ["sample_size_within_3pct", "pixel_position_median"],
+            ),
+        },
+        [],
+    ),
+    "csar": (
+        "partial",
+        {
+            "iw": ("partial", 51, ["pass_recall"]),
+            "ew": ("validated", 39, []),
+        },
+        [],
+    ),
+    "dpr": (
+        "validated",
+        {
+            "swath": ("validated", 38, []),
+            "beams": ("validated", 38, []),
+        },
+        [],
+    ),
+    "earthcare_msi": (
+        "validated",
+        {
+            "swath": ("validated", 41, []),
+        },
+        [],
+    ),
+    "ecostress": (
+        "partial",
+        {
+            "swath": ("partial", 35, ["pass_recall"]),
+        },
+        ["no configuration at the sample_size grade"],
+    ),
+    "emit": (
+        "partial",
+        {
+            "swath": ("partial", 35, ["pass_recall", "footprint_iou_median"]),
+        },
+        [],
+    ),
+    "gedi": (
+        "partial",
+        {
+            "beams": ("partial", 38, ["epoch_p95"]),
+        },
+        [],
+    ),
+    "gmi": (
+        "validated",
+        {
+            "feeds": ("validated", 75, []),
+            "sample_size": ("validated", 75, []),
+        },
+        [],
+    ),
+    "harp2": (
+        "validated",
+        {
+            "swath": ("validated", 34, []),
+        },
+        [],
+    ),
+    "iasi": (
+        "partial",
+        {
+            "swath": ("validated", 32, []),
+            "pixels": ("partial", 32, ["sample_size_within_3pct"]),
+        },
+        [],
+    ),
+    "karin": (
+        "validated",
+        {
+            "swaths": ("validated", 34, []),
+        },
+        [],
+    ),
+    "lsar": (
+        "partial",
+        {
+            "swath_20_40mhz": ("partial", 33, ["swath_edge_p95"]),
+            "swath_5mhz": ("partial", 33, ["pass_recall"]),
+            "swath_77mhz": (
+                "partial",
+                30,
+                ["footprint_iou_median", "footprint_iou_p5"],
+            ),
+        },
+        [],
+    ),
+    "mhs": (
+        "validated",
+        {
+            "swath": ("validated", None, []),
+            "beams": ("validated", None, []),
+        },
+        [],
+    ),
+    "modis": (
+        "validated",
+        {
+            "swath": ("validated", 32, []),
+            "pixels": ("validated", 32, []),
+        },
+        [],
+    ),
+    "msi": (
+        "validated",
+        {
+            "swath": ("validated", 38, []),
+        },
+        [],
+    ),
+    "oci": (
+        "partial",
+        {
+            "swath": ("validated", 33, []),
+        },
+        ["no configuration at the sample_size grade"],
+    ),
+    "oco2": (
+        "partial",
+        {
+            "nadir": ("partial", 34, ["pass_recall", "footprint_iou_median"]),
+            "glint": (
+                "partial",
+                34,
+                ["pass_recall", "footprint_iou_median", "epoch_p95"],
+            ),
+        },
+        [],
+    ),
+    "olci": (
+        "partial",
+        {
+            "swath": ("partial", 31, ["swath_width_median"]),
+        },
+        [],
+    ),
+    "oli": (
+        "validated",
+        {
+            "swath": ("validated", 33, []),
+        },
+        [],
+    ),
+    "omps_nm": (
+        "partial",
+        {
+            "swath_noaa_21": ("partial", 35, ["swath_width_median", "epoch_p95"]),
+            "swath_noaa_20": ("partial", 35, ["swath_width_median", "epoch_p95"]),
+        },
+        [],
+    ),
+    "poseidon4": (
+        "validated",
+        {
+            "nadir": ("validated", None, []),
+        },
+        [],
+    ),
+    "smap_radiometer": (
+        "partial",
+        {
+            "looks": ("validated", 34, []),
+            "footprints": ("partial", 34, ["sample_size_within_3pct"]),
+        },
+        [],
+    ),
+    "spexone": (
+        "validated",
+        {
+            "swath": ("validated", 34, []),
+        },
+        [],
+    ),
+    "ssmis": (
+        "partial",
+        {
+            "swath": ("validated", 30, []),
+        },
+        ["no configuration at the sample_size grade"],
+    ),
+    "tempo": (
+        "validated",
+        {
+            "field_of_regard": ("validated", 33, []),
+        },
+        [],
+    ),
+    "tmi": (
+        "validated",
+        {
+            "feeds": ("validated", 39, []),
+            "sample_size": ("validated", 39, []),
+        },
+        [],
+    ),
+    "trmm_pr": (
+        "partial",
+        {
+            "swath": ("validated", 39, []),
+            "beams": ("partial", 39, ["sample_size_within_3pct"]),
+        },
+        [],
+    ),
+    "tropomi": (
+        "validated",
+        {
+            "swath": ("validated", 36, []),
+        },
+        [],
+    ),
+    "viirs": (
+        "validated",
+        {
+            "swath_noaa_20": ("validated", 51, []),
+            "swath_noaa_21": ("validated", 34, []),
+            "zones_noaa_20": ("validated", 51, []),
+        },
+        [],
+    ),
+    "virs": (
+        "validated",
+        {
+            "swath": ("validated", 39, []),
+            "pixels": ("validated", 39, []),
+        },
+        [],
+    ),
+}
 
 
 class TestLoading(unittest.TestCase):
@@ -69,16 +413,13 @@ class TestLoading(unittest.TestCase):
         """
         for entry in list_entries():
             self.assertIsNotNone(entry.record, entry.id)
-            self.assertIn(entry.record.standard_version, COMPATIBLE_VERSIONS, entry.id)
-            self.assertLessEqual(
-                entry.record.standard_version, STANDARD_VERSION, entry.id
-            )
-            if entry.instrument_class == InstrumentClass.LIDAR:
-                # the lidar class was added in version 2
-                self.assertGreaterEqual(entry.record.standard_version, 2, entry.id)
             for key, record in entry.record.configurations.items():
                 self.assertEqual(
                     record.digest, entry.configurations[key].digest, (entry.id, key)
+                )
+                self.assertTrue(
+                    is_compatible(entry.instrument_class, record.standard_version),
+                    (entry.id, key),
                 )
 
     def test_platform_names(self):
@@ -132,33 +473,7 @@ class TestLoading(unittest.TestCase):
         )
         self.assertEqual(
             [e.id for e in list_entries(tier="partial")],
-            [
-                "abi",
-                "ahi",
-                "airs",
-                "amsr2",
-                "amsua",
-                "atlas",
-                "atlid",
-                "avhrr",
-                "bbr",
-                "ceres",
-                "cpr",
-                "cris",
-                "csar",
-                "ecostress",
-                "emit",
-                "gedi",
-                "iasi",
-                "lsar",
-                "oci",
-                "oco2",
-                "olci",
-                "omps_nm",
-                "smap_radiometer",
-                "ssmis",
-                "trmm_pr",
-            ],
+            [k for k, (tier, _, _) in EXPECTED_STATUS.items() if tier == "partial"],
         )
         with self.assertRaises(ValueError):
             list_entries(tier="approved")
@@ -296,9 +611,47 @@ class TestStrictFiles(unittest.TestCase):
         InstrumentEntry(**data)
         instrument = data["configurations"]["swath"]["instruments"][0]
         del instrument["parameters"]["is_swept"]
-        del instrument["provenance"]["is_swept"]
         with self.assertRaises(ValidationError):
             InstrumentEntry(**data)
+
+    def test_default_provenance(self):
+        """
+        Test that the provenance of a field of view tailored to the time step and of
+        `is_swept` is the same in every configuration, and that of other modeling
+        choices is not.
+        """
+        with open(
+            loader._ENTRIES / "msi.yml",  # pylint: disable=protected-access
+            "r",
+            encoding="utf-8",
+        ) as f:
+            data = yaml.safe_load(f)
+        instrument = data["configurations"]["swath"]["instruments"][0]
+        self.assertNotIn("along_track_field_of_view", instrument["provenance"])
+        self.assertNotIn("is_swept", instrument["provenance"])
+        entry = InstrumentEntry(**data)
+        provenance = entry.configurations["swath"].instruments[0].provenance
+        self.assertEqual(provenance["along_track_field_of_view"].kind, "derived")
+        self.assertEqual(provenance["is_swept"].kind, "derived")
+        del instrument["provenance"]["is_rectangular"]
+        with self.assertRaisesRegex(ValidationError, "is_rectangular"):
+            InstrumentEntry(**data)
+
+    def test_unknown_instrument_type(self):
+        """
+        Test that an instrument's type is one of the instrument schemas.
+        """
+        self.instrument["type"] = "conic"
+        self._assert_invalid()
+
+    def test_index_only_of_alternatives(self):
+        """
+        Test that only alternatives have an instrument to analyze by default.
+        """
+        self.feeds["instrument_index"] = 1
+        InstrumentEntry(**self.data)
+        self.feeds["grouping"] = "union"
+        self._assert_invalid()
 
     def test_index_out_of_range(self):
         """
@@ -333,7 +686,7 @@ class TestBuild(unittest.TestCase):
         self.assertIsInstance(payload.instruments[0], ConicalInstrument)
         self.assertEqual(payload.attitude.velocity_frame, VelocityFrame.INERTIAL)
         self.assertEqual(payload.instrument_index, 0)
-        self.assertEqual(payload.grouping, "alternatives")
+        self.assertEqual(payload.references, ("gmi:feeds",))
         self.assertFalse(payload.transferred)
         self.assertTrue(any("flies backward" in l for l in payload.limitations))
 
@@ -490,7 +843,18 @@ class TestBuild(unittest.TestCase):
         Test that an unknown configuration is an error that lists those available.
         """
         with self.assertRaisesRegex(ValueError, "feeds"):
-            self.entry.build("other", orbit=self.orbit, time_step=10)
+            self.entry.build(configuration="other", orbit=self.orbit, time_step=10)
+
+
+def _summarize_gaps(validation) -> list[str]:
+    """
+    Gets the gaps of a configuration, with those of its gates as their metrics.
+    """
+    metrics = [result.gate.metric for result in validation.gates]
+    return [
+        next((m for m in metrics if text.startswith(f"{m}:")), text)
+        for text in validation.gaps
+    ]
 
 
 class TestEntryStatus(unittest.TestCase):
@@ -498,44 +862,24 @@ class TestEntryStatus(unittest.TestCase):
     Unit tests for the status of the entries, which must not be overstated.
     """
 
-    def test_gmi_validated(self):
+    def test_status(self):
         """
-        Test that GMI's configurations pass with its exact values, with fitted
-        values tested on held-out data, at each of the grades of its class.
+        Test the status of each entry against the table of expected status, so
+        that no change to an entry, its record, or the standard changes a status
+        unnoticed.
         """
-        validation = get_entry("gmi").validation
-        self.assertEqual(validation.tier, Tier.VALIDATED)
-        self.assertEqual(validation.gaps, ())
-        for key in ("feeds", "sample_size"):
-            configuration = validation.configurations[key]
-            self.assertEqual(configuration.tier, Tier.VALIDATED, key)
-            self.assertEqual(configuration.record.evidence, "rerun", key)
-            self.assertEqual(configuration.record.holdout_gap_days, 75, key)
-            self.assertTrue(all(r.passed for r in configuration.gates), key)
-            self.assertEqual(configuration.gaps, (), key)
-
-    def test_jpss_entries_validated(self):
-        """
-        Test that the entries validated against NOAA-20 and NOAA-21 data pass with
-        their exact values, with fitted values tested on held-out data, at each
-        required grade, and that each platform's configurations were fitted and
-        tested on that platform.
-        """
-        gaps = {"noaa-20": 51, "noaa-21": 34}
-        for entry_id in ("atms", "viirs"):
-            entry = get_entry(entry_id)
-            validation = entry.validation
-            self.assertEqual(validation.tier, Tier.VALIDATED, entry_id)
-            self.assertEqual(validation.gaps, (), entry_id)
-            for key, configuration in validation.configurations.items():
-                (platform,) = entry.configurations[key].platforms
-                self.assertEqual(configuration.record.platform, platform, key)
-                self.assertTrue(key.endswith(platform.replace("-", "_")), key)
-                self.assertEqual(configuration.record.evidence, "rerun", key)
-                self.assertEqual(
-                    configuration.record.holdout_gap_days, gaps[platform], key
-                )
-                self.assertTrue(all(r.passed for r in configuration.gates), key)
+        self.assertEqual(sorted(EXPECTED_STATUS), get_entry_ids())
+        for entry_id, (tier, configurations, gaps) in EXPECTED_STATUS.items():
+            with self.subTest(entry_id):
+                validation = get_entry(entry_id).validation
+                self.assertEqual(validation.tier.value, tier)
+                self.assertEqual(list(validation.gaps), gaps)
+                self.assertEqual(set(validation.configurations), set(configurations))
+                for key, (c_tier, holdout, c_gaps) in configurations.items():
+                    configuration = validation.configurations[key]
+                    self.assertEqual(configuration.tier.value, c_tier, key)
+                    self.assertEqual(configuration.holdout_gap_days, holdout, key)
+                    self.assertEqual(_summarize_gaps(configuration), c_gaps, key)
 
     def test_atms_noaa21_models_yaw(self):
         """
@@ -552,578 +896,32 @@ class TestEntryStatus(unittest.TestCase):
         for key in ("swath_noaa_20", "beams_noaa_20"):
             self.assertEqual(entry.configurations[key].attitude, {}, key)
 
-    def test_modis_entry_validated_on_terra(self):
+    def test_mhs_has_no_fitted_values(self):
         """
-        Test that the MODIS entry passes with its exact values on held-out Terra data,
-        and that its results on Aqua, a transfer, are not those of any gate.
-        """
-        entry = get_entry("modis")
-        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
-        self.assertEqual(entry.validation.gaps, ())
-        for key, configuration in entry.validation.configurations.items():
-            record = configuration.record
-            self.assertEqual(record.evidence, "rerun", key)
-            self.assertEqual(record.platform, "terra", key)
-            self.assertEqual(record.holdout_gap_days, 32, key)
-            self.assertTrue(all(r.passed for r in configuration.gates), key)
-            transfers = [m for m in record.metrics if m.scope is not None]
-            self.assertTrue(transfers, key)
-            gated = {r.gate.metric for r in configuration.gates}
-            for metric in transfers:
-                self.assertTrue(metric.name.startswith("transfer_"), metric.name)
-                self.assertNotIn(metric.name, gated)
-
-    def test_oli_entry_validated_on_landsat_9(self):
-        """
-        Test that the OLI entry passes on held-out Landsat 9 data, and that its results
-        on Landsat 8, a transfer, are not those of any gate.
-        """
-        entry = get_entry("oli")
-        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
-        configuration = entry.validation.configurations["swath"]
-        record = configuration.record
-        self.assertEqual(record.platform, "landsat-9")
-        self.assertEqual(record.holdout_gap_days, 33)
-        self.assertTrue(all(r.passed for r in configuration.gates))
-        transfers = [m for m in record.metrics if m.scope is not None]
-        self.assertTrue(transfers)
-        for metric in transfers:
-            self.assertTrue(metric.name.startswith("transfer_"), metric.name)
-
-    def test_iasi_entry_partial_on_published_footprints(self):
-        """
-        Test that the IASI entry is partial because of the published footprint at its
-        swath edge alone, with its swath validated on held-out data.
-        """
-        entry = get_entry("iasi")
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        swath = entry.validation.configurations["swath"]
-        self.assertEqual(swath.tier, Tier.VALIDATED)
-        self.assertEqual(swath.record.holdout_gap_days, 32)
-        pixels = entry.validation.configurations["pixels"]
-        self.assertEqual(pixels.tier, Tier.PARTIAL)
-        self.assertEqual(
-            [r.gate.metric for r in pixels.gates if not r.passed],
-            ["sample_size_within_3pct"],
-        )
-
-    def test_tropomi_entry_validated(self):
-        """
-        Test that the TROPOMI entry, a union of swept views, is validated on a day held
-        out after swept swaths were added, which its limitations disclose.
-        """
-        entry = get_entry("tropomi")
-        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
-        configuration = entry.validation.configurations["swath"]
-        self.assertEqual(entry.configurations["swath"].grouping, "union")
-        self.assertEqual(configuration.record.holdout_gap_days, 36)
-        self.assertTrue(all(r.passed for r in configuration.gates))
-        self.assertTrue(
-            any(
-                "Rescored with swept swaths" in text
-                for text in entry.configurations["swath"].limitations
-            )
-        )
-
-    def test_msi_entry_validated(self):
-        """
-        Test that the MSI entry, tested on three satellites, is validated on a day held
-        out after swept swaths were added, which its limitations disclose.
-        """
-        entry = get_entry("msi")
-        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
-        configuration = entry.validation.configurations["swath"]
-        self.assertEqual(configuration.record.holdout_gap_days, 38)
-        scopes = {m.scope for m in configuration.record.metrics}
-        for platform in entry.configurations["swath"].platforms:
-            self.assertIn(platform, scopes)
-        self.assertTrue(all(r.passed for r in configuration.gates))
-        self.assertTrue(
-            any(
-                "Rescored with swept swaths" in text
-                for text in entry.configurations["swath"].limitations
-            )
-        )
-
-    def test_cris_entry_partial_on_pixels(self):
-        """
-        Test that the CrIS entry is partial because of its pixels alone, with its swath
-        validated at the timing grade on held-out data.
-        """
-        entry = get_entry("cris")
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        swath = entry.validation.configurations["swath"]
-        self.assertEqual(swath.tier, Tier.VALIDATED)
-        self.assertEqual(entry.configurations["swath"].grade, Grade.TIMING)
-        self.assertEqual(swath.record.holdout_gap_days, 51)
-        pixels = entry.validation.configurations["pixels"]
-        self.assertEqual(pixels.record.holdout_gap_days, 51)
-        self.assertEqual(
-            [r.gate.metric for r in pixels.gates if not r.passed],
-            ["sample_size_within_3pct", "pixel_position_median"],
-        )
-
-    def test_csar_entry_partial(self):
-        """
-        Test that the C-SAR entry is partial because its IW mode misses points at the
-        swath edges, with its EW mode validated on a later held-out day.
-        """
-        entry = get_entry("csar")
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        failed = {
-            key: [r.gate.metric for r in configuration.gates if not r.passed]
-            for key, configuration in entry.validation.configurations.items()
-        }
-        self.assertEqual(failed, {"iw": ["pass_recall"], "ew": []})
-        configurations = entry.validation.configurations
-        self.assertEqual(configurations["ew"].tier, Tier.VALIDATED)
-        self.assertEqual(configurations["iw"].record.holdout_gap_days, 51)
-        self.assertEqual(configurations["ew"].record.holdout_gap_days, 39)
-        for configuration in configurations.values():
-            self.assertEqual(configuration.record.platform, "sentinel-1c")
-
-    def test_amsr2_entry_partial_on_published_footprints(self):
-        """
-        Test that the AMSR2 entry is partial because of its published footprints
-        alone, with its swath validated at the timing grade on held-out data.
-        """
-        entry = get_entry("amsr2")
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        swath = entry.validation.configurations["swath"]
-        self.assertEqual(swath.tier, Tier.VALIDATED)
-        self.assertEqual(entry.configurations["swath"].grade, Grade.TIMING)
-        self.assertEqual(swath.record.holdout_gap_days, 36)
-        sample_size = entry.validation.configurations["sample_size"]
-        self.assertEqual(
-            [r.gate.metric for r in sample_size.gates if not r.passed],
-            ["sample_size_within_3pct"],
-        )
-
-    def test_karin_entry_validated(self):
-        """
-        Test that the KaRIn entry, a union of two swaths, passes with its exact values
-        on held-out data.
-        """
-        entry = get_entry("karin")
-        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
-        self.assertEqual(entry.configurations["swaths"].grouping, "union")
-        configuration = entry.validation.configurations["swaths"]
-        self.assertEqual(configuration.record.holdout_gap_days, 34)
-        self.assertTrue(all(r.passed for r in configuration.gates))
-
-    def test_dpr_entry_validated(self):
-        """
-        Test that the DPR entry is validated, with its swept swath and its beams, on
-        data held out 38 days from the fit.
-        """
-        entry = get_entry("dpr")
-        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
-        for configuration in entry.validation.configurations.values():
-            self.assertTrue(all(r.passed for r in configuration.gates))
-            self.assertEqual(configuration.record.holdout_gap_days, 38)
-
-    def test_mhs_entry_validated_on_published_values(self):
-        """
-        Test that the MHS entry, whose values are all published, is validated without
-        a holdout, at the coverage grade.
+        Test that the MHS entry, whose values are all published, needs no holdout.
         """
         entry = get_entry("mhs")
-        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
-        self.assertEqual(entry.configurations["swath"].grade, Grade.COVERAGE)
         for configuration in entry.configurations.values():
-            for instrument in configuration.instruments:
-                self.assertNotIn(
-                    "measured", [p.kind for p in instrument.provenance.values()]
-                )
-
-    def test_atlas_entry_partial_on_epochs(self):
-        """
-        Test that the ATLAS entry, of the lidar class added in version 2 of the
-        standard, is partial because of its epochs alone on held-out data.
-        """
-        entry = get_entry("atlas")
-        self.assertEqual(entry.instrument_class, InstrumentClass.LIDAR)
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        configuration = entry.validation.configurations["beam_pairs"]
-        self.assertEqual(
-            [r.gate.metric for r in configuration.gates if not r.passed],
-            ["epoch_p95"],
-        )
-        self.assertEqual(configuration.record.holdout_gap_days, 34)
-        self.assertGreaterEqual(entry.record.standard_version, 2)
-
-    def test_smap_entry_partial_on_published_footprints(self):
-        """
-        Test that the SMAP radiometer entry is partial because of its published
-        footprints alone, with its looks validated on held-out data.
-        """
-        entry = get_entry("smap_radiometer")
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        self.assertEqual(entry.validation.gaps, ())
-        looks = entry.validation.configurations["looks"]
-        self.assertEqual(looks.tier, Tier.VALIDATED)
-        self.assertEqual(looks.record.holdout_gap_days, 34)
-        footprints = entry.validation.configurations["footprints"]
-        self.assertEqual(
-            [r.gate.metric for r in footprints.gates if not r.passed],
-            ["sample_size_within_3pct"],
-        )
-        self.assertEqual(footprints.record.holdout_gap_days, 34)
-
-    def test_lsar_entry_partial(self):
-        """
-        Test that the L-SAR entry is partial: its modes with a 20 or 40 MHz band miss
-        the near-range edges, and those with only a 5 MHz band miss a point of a small
-        sample, while their swept swaths pass the swath area at every time step. The
-        77 MHz mode, tested on four pooled days with an element set of each day,
-        passes every gate tested, but its swath area is not tested, as its frames are
-        partial.
-        """
-        entry = get_entry("lsar")
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        failed = {
-            key: [r.gate.metric for r in configuration.gates if not r.passed]
-            for key, configuration in entry.validation.configurations.items()
-        }
-        self.assertEqual(
-            failed,
-            {
-                "swath_20_40mhz": ["swath_edge_p95"],
-                "swath_5mhz": ["pass_recall"],
-                "swath_77mhz": ["footprint_iou_median", "footprint_iou_p5"],
-            },
-        )
-        self.assertEqual(
-            {
-                key: configuration.record.holdout_gap_days
-                for key, configuration in entry.validation.configurations.items()
-            },
-            {"swath_20_40mhz": 33, "swath_5mhz": 33, "swath_77mhz": 30},
-        )
-
-    def test_aqua_sounder_entries_partial_on_published_footprints(self):
-        """
-        Test that the AIRS and AMSU-A entries, whose values are all published, are
-        partial because of their published footprints alone, with their swaths
-        validated, AIRS's at the timing grade and AMSU-A's at the coverage grade.
-        """
-        for entry_id, grade in (("airs", Grade.TIMING), ("amsua", Grade.COVERAGE)):
-            entry = get_entry(entry_id)
-            self.assertEqual(entry.validation.tier, Tier.PARTIAL, entry_id)
-            swath = entry.validation.configurations["swath"]
-            self.assertEqual(swath.tier, Tier.VALIDATED, entry_id)
-            self.assertEqual(entry.configurations["swath"].grade, grade)
-            footprints = entry.validation.configurations["footprints"]
-            self.assertEqual(
-                [r.gate.metric for r in footprints.gates if not r.passed],
-                ["sample_size_within_3pct"],
-                entry_id,
-            )
-            for configuration in entry.configurations.values():
-                for instrument in configuration.instruments:
-                    self.assertNotIn(
-                        "measured", [p.kind for p in instrument.provenance.values()]
-                    )
-
-    def test_avhrr_entry_partial_on_published_footprint(self):
-        """
-        Test that the AVHRR entry is partial on data held out 33 days from the fit
-        because of its published footprint alone, with its yawed swath validated at
-        the timing grade.
-        """
-        entry = get_entry("avhrr")
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        failed = {
-            key: [r.gate.metric for r in configuration.gates if not r.passed]
-            for key, configuration in entry.validation.configurations.items()
-        }
-        self.assertEqual(failed, {"swath": [], "pixels": ["sample_size_within_3pct"]})
-        self.assertEqual(entry.configurations["swath"].grade, Grade.TIMING)
-        for configuration in entry.validation.configurations.values():
-            self.assertEqual(configuration.record.holdout_gap_days, 33)
-        for key in ("swath", "pixels"):
-            self.assertEqual(entry.configurations[key].attitude, {"yaw_angle": 0.2943})
-
-    def test_ssmis_entry_partial_without_sample_size(self):
-        """
-        Test that the SSMIS entry is partial only for want of a sample size
-        configuration, with its swath validated on data held out 30 days from the fit.
-        """
-        entry = get_entry("ssmis")
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        self.assertEqual(
-            entry.validation.gaps, ("no configuration at the sample_size grade",)
-        )
-        swath = entry.validation.configurations["swath"]
-        self.assertEqual(swath.tier, Tier.VALIDATED)
-        self.assertEqual(swath.record.holdout_gap_days, 30)
-
-    def test_olci_entry_partial_on_swath_width(self):
-        """
-        Test that the OLCI entry, a rolled pushbroom, is partial because of its swath
-        width alone on data held out 31 days from the fit.
-        """
-        entry = get_entry("olci")
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        swath = entry.validation.configurations["swath"]
-        self.assertEqual(
-            [r.gate.metric for r in swath.gates if not r.passed],
-            ["swath_width_median"],
-        )
-        self.assertEqual(swath.record.holdout_gap_days, 31)
-
-    def test_oci_entry_partial(self):
-        """
-        Test that the OCI entry, whose tilt follows a daily schedule and is blind while
-        it changes, is partial without a sample size configuration alone, with its
-        swept swath validated on data held out 33 days from the fit.
-        """
-        entry = get_entry("oci")
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        self.assertEqual(
-            entry.validation.gaps, ("no configuration at the sample_size grade",)
-        )
-        swath = entry.validation.configurations["swath"]
-        self.assertEqual(swath.tier, Tier.VALIDATED)
-        self.assertEqual(swath.record.holdout_gap_days, 33)
-
-    def test_pace_polarimeters_validated(self):
-        """
-        Test that the HARP2 and SPEXone entries pass with their exact values on data
-        held out 34 days from the fit.
-        """
-        for entry_id in ("harp2", "spexone"):
-            entry = get_entry(entry_id)
-            self.assertEqual(entry.validation.tier, Tier.VALIDATED, entry_id)
-            swath = entry.validation.configurations["swath"]
-            self.assertEqual(swath.record.holdout_gap_days, 34, entry_id)
-
-    def test_poseidon4_entry_validated(self):
-        """
-        Test that the Poseidon-4 entry, of the altimeter class added in version 3 of
-        the standard, passes with its derived values.
-        """
-        entry = get_entry("poseidon4")
-        self.assertEqual(entry.instrument_class, InstrumentClass.ALTIMETER)
-        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
-        self.assertGreaterEqual(entry.record.standard_version, 3)
-
-    def test_omps_entry_partial_on_bowed_swath(self):
-        """
-        Test that the OMPS Nadir Mapper entry is partial on both platforms because of
-        its swath width and epochs alone, which the bowed swath sets.
-        """
-        validation = get_entry("omps_nm").validation
-        self.assertEqual(validation.tier, Tier.PARTIAL)
-        for key in ("swath_noaa_21", "swath_noaa_20"):
-            configuration = validation.configurations[key]
-            self.assertEqual(
-                sorted(r.gate.metric for r in configuration.gates if not r.passed),
-                ["epoch_p95", "swath_width_median"],
-                key,
-            )
-            self.assertEqual(configuration.record.holdout_gap_days, 35, key)
-
-    def test_scanner_entries_partial(self):
-        """
-        Test that the CERES entry is partial because of its swath width, and the
-        ECOSTRESS entry because of its recall, each without a sample size
-        configuration.
-        """
-        for entry_id, failed in (
-            ("ceres", ["swath_width_median"]),
-            ("ecostress", ["pass_recall"]),
-        ):
-            validation = get_entry(entry_id).validation
-            self.assertEqual(validation.tier, Tier.PARTIAL, entry_id)
-            self.assertEqual(
-                validation.gaps, ("no configuration at the sample_size grade",)
-            )
-            swath = validation.configurations["swath"]
-            self.assertEqual(
-                [r.gate.metric for r in swath.gates if not r.passed], failed
-            )
-
-    def test_ahi_partial_on_product_limit(self):
-        """
-        Test that the AHI entry is partial: its product's limit fails, and its full
-        disk configuration has no discriminating test.
-        """
-        validation = get_entry("ahi").validation
-        self.assertEqual(validation.tier, Tier.PARTIAL)
-        for configuration in validation.configurations.values():
-            self.assertEqual(configuration.tier, Tier.PARTIAL)
-        self.assertEqual(
-            validation.configurations["cloud_top_height"].record.holdout_gap_days, 38
-        )
-
-    def test_ascat_entry_validated(self):
-        """
-        Test that the ASCAT entry, of the scatterometer class added in version 4 of the
-        standard, passes on data held out 34 days from the fit, as a union of two
-        swaths.
-        """
-        entry = get_entry("ascat")
-        self.assertEqual(entry.instrument_class, InstrumentClass.SCATTEROMETER)
-        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
-        self.assertEqual(entry.configurations["swaths"].grouping, "union")
-        swaths = entry.validation.configurations["swaths"]
-        self.assertEqual(swaths.record.holdout_gap_days, 34)
-        self.assertGreaterEqual(entry.record.standard_version, 4)
-
-    def test_tempo_entry_validated(self):
-        """
-        Test that the TEMPO entry, of the regional geostationary class added in version
-        5 of the standard, passes on a scan held out 33 days from the fit.
-        """
-        entry = get_entry("tempo")
-        self.assertEqual(entry.instrument_class, InstrumentClass.GEOSTATIONARY_REGIONAL)
-        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
-        configuration = entry.validation.configurations["field_of_regard"]
-        self.assertEqual(
-            [r.gate.metric for r in configuration.gates], ["field_of_regard_iou"]
-        )
-        self.assertEqual(configuration.record.holdout_gap_days, 33)
-
-    def test_gedi_entry_partial_on_epochs(self):
-        """
-        Test that the GEDI entry, eight beams of the lidar class, is partial because of
-        its epochs alone on data held out 38 days from the fit.
-        """
-        entry = get_entry("gedi")
-        self.assertEqual(entry.instrument_class, InstrumentClass.LIDAR)
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        configuration = entry.validation.configurations["beams"]
-        self.assertEqual(len(entry.configurations["beams"].instruments), 8)
-        self.assertEqual(
-            [r.gate.metric for r in configuration.gates if not r.passed],
-            ["epoch_p95"],
-        )
-        self.assertEqual(configuration.record.holdout_gap_days, 38)
-
-    def test_emit_entry_partial_on_shifted_swath(self):
-        """
-        Test that the EMIT entry is partial because of its recall and swath area on
-        data held out 35 days from the fit, with its epochs and width passing.
-        """
-        swath = get_entry("emit").validation.configurations["swath"]
-        self.assertEqual(swath.tier, Tier.PARTIAL)
-        self.assertEqual(
-            sorted(r.gate.metric for r in swath.gates if not r.passed),
-            ["footprint_iou_median", "pass_recall"],
-        )
-        self.assertEqual(swath.record.holdout_gap_days, 35)
-
-    def test_virs_entry_validated(self):
-        """
-        Test that the TRMM VIRS entry passes with its fitted values on data held out 39
-        days from the fit.
-        """
-        validation = get_entry("virs").validation
-        self.assertEqual(validation.tier, Tier.VALIDATED)
-        for key in ("swath", "pixels"):
-            configuration = validation.configurations[key]
-            self.assertEqual(configuration.tier, Tier.VALIDATED, key)
-            self.assertEqual(configuration.record.holdout_gap_days, 39, key)
-
-    def test_tmi_entry_validated(self):
-        """
-        Test that the TRMM TMI entry passes with its fitted feeds on data held out 39
-        days from the fit, as alternatives scored one at a time.
-        """
-        entry = get_entry("tmi")
-        self.assertEqual(entry.instrument_class, InstrumentClass.CONICAL)
-        self.assertEqual(entry.validation.tier, Tier.VALIDATED)
-        self.assertEqual(entry.configurations["feeds"].grouping, "alternatives")
-        for key in ("feeds", "sample_size"):
-            configuration = entry.validation.configurations[key]
-            self.assertEqual(configuration.tier, Tier.VALIDATED, key)
-            self.assertEqual(configuration.record.holdout_gap_days, 39, key)
-
-    def test_trmm_pr_entry_partial_on_published_footprint(self):
-        """
-        Test that the TRMM PR entry is partial because its published footprint at the
-        scan's edge does not meet the sample size gate, with its swath validated on data
-        held out 39 days from the fit.
-        """
-        validation = get_entry("trmm_pr").validation
-        self.assertEqual(validation.tier, Tier.PARTIAL)
-        self.assertEqual(validation.configurations["swath"].tier, Tier.VALIDATED)
-        beams = validation.configurations["beams"]
-        self.assertEqual(
-            [r.gate.metric for r in beams.gates if not r.passed],
-            ["sample_size_within_3pct"],
-        )
-        self.assertEqual(beams.record.holdout_gap_days, 39)
-
-    def test_earthcare_msi_entry_validated(self):
-        """
-        Test that the EarthCARE MSI entry passes with its fitted view on data held out
-        41 days from the fit.
-        """
-        validation = get_entry("earthcare_msi").validation
-        self.assertEqual(validation.tier, Tier.VALIDATED)
-        swath = validation.configurations["swath"]
-        self.assertEqual(swath.record.holdout_gap_days, 41)
-
-    def test_earthcare_profilers_partial_on_track_offset(self):
-        """
-        Test that the ATLID and CPR entries, of the profiler class added in version 6
-        of the standard, are partial because of their track offset alone on data held
-        out 41 days from the fit.
-        """
-        for entry_id, key in (("atlid", "profile"), ("cpr", "nadir")):
-            entry = get_entry(entry_id)
-            self.assertEqual(entry.instrument_class, InstrumentClass.PROFILER)
-            self.assertEqual(entry.validation.tier, Tier.PARTIAL, entry_id)
-            self.assertGreaterEqual(entry.record.standard_version, 6)
-            configuration = entry.validation.configurations[key]
-            self.assertEqual(
-                [r.gate.metric for r in configuration.gates if not r.passed],
-                ["track_offset_median"],
-                entry_id,
-            )
-            self.assertEqual(configuration.record.holdout_gap_days, 41, entry_id)
-
-    def test_bbr_entry_partial_on_held_out_day(self):
-        """
-        Test that the BBR entry, whose three views are alternatives scored on data
-        held out 41 days from the fit, is partial on pass recall and footprint IoU
-        (the gates take the worst view) and passes its width and epoch gates.
-        """
-        entry = get_entry("bbr")
-        self.assertEqual(entry.instrument_class, InstrumentClass.PUSHBROOM)
-        self.assertEqual(entry.validation.tier, Tier.PARTIAL)
-        views = entry.validation.configurations["views"]
-        self.assertEqual(
-            sorted(r.gate.metric for r in views.gates if not r.passed),
-            ["footprint_iou_median", "pass_recall"],
-        )
-        self.assertEqual(views.record.holdout_gap_days, 41)
-        self.assertEqual(
-            {m.scope for m in views.record.metrics}, {"AFT", "NADIR", "FORE"}
-        )
+            self.assertFalse(configuration.is_fitted)
 
     def test_oco2_glint_builds_glint_attitude(self):
         """
         Test that OCO-2's glint configuration builds the glint attitude it declares,
-        and its nadir configuration a plain attitude, with both modes partial.
+        and its nadir configuration a plain attitude.
         """
         entry = get_entry("oco2")
         orbit = GeneralPerturbationsOrbit.from_tle(OCO2_TLE)
-        glint = entry.build("glint", orbit=orbit, time_step=10)
+        glint = entry.build(configuration="glint", orbit=orbit, time_step=10)
         self.assertIsInstance(glint.attitude, GlintAttitude)
         self.assertEqual(glint.attitude.max_off_nadir_angle, 51.0)
         self.assertEqual(glint.attitude.velocity_frame, VelocityFrame.EARTH_FIXED)
-        nadir = entry.build("nadir", orbit=orbit, time_step=10)
+        nadir = entry.build(configuration="nadir", orbit=orbit, time_step=10)
         self.assertNotIsInstance(nadir.attitude, GlintAttitude)
-        for configuration in entry.validation.configurations.values():
-            self.assertEqual(configuration.tier, Tier.PARTIAL)
 
     def test_transfers_recorded_apart(self):
         """
-        Test that results on sibling platforms are recorded as transfer metrics, which
-        no gate reads, and that the configurations transferred warn on those
+        Test that results on sibling platforms are recorded as transfers, which no
+        gate reads, and that the configurations transferred warn on those
         platforms.
         """
         transfers = {
@@ -1133,27 +931,31 @@ class TestEntryStatus(unittest.TestCase):
             "mhs": "metop-b",
             "avhrr": "metop-b",
             "csar": "sentinel-1d",
+            "modis": "aqua",
+            "oli": "landsat-8",
             "poseidon4": "sentinel-6b",
         }
+        recorded = {
+            entry.id: {
+                platform
+                for record in entry.record.configurations.values()
+                for platform in record.transfers
+            }
+            for entry in list_entries()
+        }
+        self.assertEqual(
+            {k: v for k, v in recorded.items() if v},
+            {k: {v} for k, v in transfers.items()},
+        )
         for entry_id, platform in transfers.items():
             entry = get_entry(entry_id)
-            self.assertIn(platform, [p.id for p in entry.platforms], entry_id)
-            transferred = {
-                key: [
-                    metric.name
-                    for metric in record.metrics
-                    if metric.scope and metric.scope.startswith(platform)
-                ]
-                for key, record in entry.record.configurations.items()
-            }
-            transferred = {key: names for key, names in transferred.items() if names}
-            self.assertTrue(transferred, entry_id)
-            for key, names in transferred.items():
-                self.assertTrue(all(n.startswith("transfer_") for n in names), key)
+            for key, record in entry.record.configurations.items():
+                if platform not in record.transfers:
+                    continue
                 self.assertNotIn(platform, entry.configurations[key].platforms, key)
                 with self.assertWarns(UserWarning):
                     entry.build(
-                        key,
+                        configuration=key,
                         orbit=GeneralPerturbationsOrbit.from_tle(GPM_TLE),
                         time_step=10,
                         platform=platform,
@@ -1177,23 +979,12 @@ class TestEntryStatus(unittest.TestCase):
             any(
                 "spacing between scans" in limitation
                 for limitation in entry.build(
-                    "sample_size",
+                    configuration="sample_size",
                     orbit=GeneralPerturbationsOrbit.from_tle(GPM_TLE),
                     time_step=1.875,
                 ).limitations
             )
         )
-
-    def test_abi_partial(self):
-        """
-        Test that ABI's product coverage is validated, but not the entry: its
-        full disk configuration has no discriminating test.
-        """
-        validation = get_entry("abi").validation
-        self.assertEqual(validation.tier, Tier.PARTIAL)
-        self.assertEqual(validation.configurations["full_disk"].tier, Tier.PARTIAL)
-        for key in ("sst_good_quality", "lst_good_quality"):
-            self.assertEqual(validation.configurations[key].tier, Tier.VALIDATED, key)
 
     def test_abi_builds_without_attitude(self):
         """
@@ -1203,6 +994,152 @@ class TestEntryStatus(unittest.TestCase):
         payload = get_entry("abi").build()
         self.assertIsNone(payload.attitude)
         self.assertIsInstance(payload.instruments[0], Instrument)
+
+
+class TestSelection(unittest.TestCase):
+    """
+    Unit tests for selecting configurations by platform and grade.
+    """
+
+    def setUp(self):
+        self.orbit = GeneralPerturbationsOrbit.from_tle(GPM_TLE)
+
+    def test_platform_selects_its_configuration(self):
+        """
+        Test that the platform modeled selects the configuration tested on it,
+        without a warning, and the default configuration otherwise.
+        """
+        viirs = get_entry("viirs")
+        self.assertEqual(viirs.select_configuration(), "swath_noaa_20")
+        self.assertEqual(
+            viirs.select_configuration(platform="noaa-21"), "swath_noaa_21"
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            payload = viirs.build(orbit=self.orbit, time_step=10, platform="noaa-21")
+        self.assertEqual(payload.references, ("viirs:swath_noaa_21",))
+        self.assertFalse(payload.transferred)
+
+    def test_grade_selects_a_configuration(self):
+        """
+        Test that a grade selects a configuration for its use, preferring the
+        platform's, and that the timing grade serves coverage.
+        """
+        atms = get_entry("atms")
+        self.assertEqual(
+            atms.select_configuration(grade="sample_size", platform="noaa-21"),
+            "beams_noaa_21",
+        )
+        self.assertEqual(
+            atms.select_configuration(grade="coverage", platform="noaa-21"),
+            "swath_noaa_21",
+        )
+        self.assertEqual(
+            get_entry("gmi").select_configuration(grade="coverage"), "feeds"
+        )
+        self.assertEqual(
+            get_entry("modis").select_configuration(grade=Grade.SAMPLE_SIZE), "pixels"
+        )
+
+    def test_transfer_when_untested(self):
+        """
+        Test that, without a configuration of the grade tested on the platform, one
+        tested on another is selected, with a warning.
+        """
+        viirs = get_entry("viirs")
+        with self.assertWarnsRegex(UserWarning, "noaa-21"):
+            payload = viirs.build(grade="sample_size", platform="noaa-21")
+        self.assertEqual(payload.references, ("viirs:zones_noaa_20",))
+        self.assertTrue(payload.transferred)
+
+    def test_grade_errors(self):
+        """
+        Test that a grade without a configuration, or a configuration of another
+        grade, is an error.
+        """
+        with self.assertRaisesRegex(ValueError, "sample_size"):
+            get_entry("csar").select_configuration(grade="sample_size")
+        with self.assertRaisesRegex(ValueError, "timing"):
+            get_entry("gmi").select_configuration("feeds", grade="sample_size")
+
+    def test_analysis_index(self):
+        """
+        Test the index with which a payload is analyzed: `None` for a union, the
+        configured index of alternatives, and 0 for a single instrument.
+        """
+        orbit = self.orbit
+        self.assertIsNone(
+            get_entry("ascat").build(orbit=orbit, time_step=10).instrument_index
+        )
+        self.assertEqual(
+            get_entry("viirs").build(grade="sample_size").instrument_index, 2
+        )
+        self.assertEqual(
+            get_entry("msi").build(orbit=orbit, time_step=10).instrument_index, 0
+        )
+
+
+class TestBuildPayload(unittest.TestCase):
+    """
+    Unit tests for the payloads of several catalog configurations.
+    """
+
+    def setUp(self):
+        self.orbit = GeneralPerturbationsOrbit.from_tle(GPM_TLE)
+
+    def test_carried_together(self):
+        """
+        Test that configurations with the same attitude are carried together,
+        analyzed together, with only the analyzed instrument of alternatives.
+        """
+        payload = build_payload(
+            ["viirs", "cris", "atms:beams_noaa_20"], orbit=self.orbit, time_step=10
+        )
+        self.assertEqual(
+            payload.references,
+            ("viirs:swath_noaa_20", "cris:swath", "atms:beams_noaa_20"),
+        )
+        beams = get_entry("atms").configurations["beams_noaa_20"]
+        self.assertEqual(
+            [i.name for i in payload.instruments][-1],
+            beams.instruments[beams.instrument_index].parameters["name"],
+        )
+        self.assertEqual(len(payload.instruments), 3)
+        self.assertIsNone(payload.instrument_index)
+        self.assertEqual(payload.attitude.velocity_frame, VelocityFrame.INERTIAL)
+
+    def test_one_reference(self):
+        """
+        Test that one instrument is analyzed alone, by an alias.
+        """
+        payload = build_payload("GPM Microwave Imager", orbit=self.orbit, time_step=10)
+        self.assertEqual(payload.references, ("gmi:feeds",))
+        self.assertEqual(len(payload.instruments), 1)
+        self.assertEqual(payload.instrument_index, 0)
+
+    def test_different_attitudes(self):
+        """
+        Test that configurations of different attitudes cannot be carried
+        together.
+        """
+        with self.assertRaisesRegex(ValueError, "different attitudes"):
+            build_payload(["viirs", "oco2:glint"], orbit=self.orbit, time_step=10)
+        with self.assertRaises(ValueError):
+            build_payload([], orbit=self.orbit)
+
+    def test_tilt_schedule_needs_period(self):
+        """
+        Test that a configuration whose tilt is scheduled by day is built for the
+        period of the analysis.
+        """
+        orbit = GeneralPerturbationsOrbit.from_tle(OCO2_TLE)
+        with self.assertRaisesRegex(ValueError, "start and end"):
+            build_payload("oci", orbit=orbit, time_step=10)
+        start = datetime(2026, 11, 10, tzinfo=timezone.utc)
+        payload = build_payload(
+            "oci", orbit=orbit, time_step=10, start=start, end=start + timedelta(days=1)
+        )
+        self.assertIsInstance(payload.attitude, AttitudeSchedule)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,8 @@ import numpy as np
 import pandas as pd
 
 from tatc.analysis import compute_sample_sizes
-from tatc.catalog import get_entry, get_gates
+from tatc.catalog import get_entry
+from tatc.catalog.standard import get_gates
 from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit
 
 from .common import use_fixture_earth_orientation
@@ -57,7 +58,7 @@ class TestSmapFootprintsFixture(unittest.TestCase):
 
     def _build(self, orbit):
         return self.entry.to_satellite(
-            orbit, CONFIGURATION, time_step=SCAN_PERIOD, platform=PLATFORM
+            orbit, configuration=CONFIGURATION, time_step=SCAN_PERIOD, platform=PLATFORM
         )
 
     def test_published_dimensions(self):

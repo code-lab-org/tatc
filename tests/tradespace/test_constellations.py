@@ -5,13 +5,14 @@ Unit tests for building blocks of constellations.
 """
 
 import unittest
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 
 import numpy as np
 
 import tatc.tradespace
 
 from tatc.schemas import (
+    AttitudeSchedule,
     CircularOrbit,
     Instrument,
     MOGConstellation,
@@ -246,6 +247,24 @@ class TestBuild(unittest.TestCase):
             time_step=30,
         )[0]
         self.assertEqual(len(both.instruments), 2)
+        with self.assertRaisesRegex(ValueError, "different attitudes"):
+            build_constellation(
+                design.layout,
+                ["atms", "oco2:glint"],
+                epoch=EPOCH,
+                altitude=830e3,
+                time_step=30,
+            )
+        tilted = build_constellation(
+            design.layout,
+            "oci",
+            epoch=EPOCH,
+            altitude=830e3,
+            time_step=30,
+            start=EPOCH,
+            end=EPOCH + timedelta(days=2),
+        )[0]
+        self.assertIsInstance(tilted.attitude, AttitudeSchedule)
         custom = build_constellation(
             design.layout,
             lambda name, orbit: Satellite(name=name, orbit=orbit, instruments=[IMAGER]),

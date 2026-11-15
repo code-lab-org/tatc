@@ -3,13 +3,14 @@
   "configurations": {
     "swath": {
       "digest": "6dd777f2374b8062437f0f7437e4b22db0994867904b99869abc86ed890998a5",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_tropomi.py",
       "reference": "Sentinel-5P TROPOMI aerosol index product (near real time)",
       "period": "2026-11-10",
-      "platform": "sentinel-5p",
-      "holdout_gap_days": 36,
+      "platforms": [
+        "sentinel-5p"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -32,11 +33,11 @@
           "value": 0.9992485574844769
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 2.0062314133499988
       }
     }
-  },
-  "standard_version": 5
+  }
 }

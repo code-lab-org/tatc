@@ -3,13 +3,14 @@
   "configurations": {
     "views": {
       "digest": "6287376998a9ec6e1230e2850df062d2266f5336b5e7d8c4d2601a4d98de31e5",
-      "evidence": "rerun",
+      "standard_version": 6,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_bbr.py",
       "reference": "BBR_SNG_1B (pixel positions of the shortwave band, every second line)",
       "period": "2026-11-07",
-      "platform": "earthcare",
-      "holdout_gap_days": 41,
+      "platforms": [
+        "earthcare"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -87,11 +88,11 @@
           "scope": "FORE"
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 96.66666666666667,
         "epoch_p95": 0.501839136
       }
     }
-  },
-  "standard_version": 6
+  }
 }

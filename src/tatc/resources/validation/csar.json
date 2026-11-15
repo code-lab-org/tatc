@@ -3,13 +3,14 @@
   "configurations": {
     "iw": {
       "digest": "a4281159073196f40a8cb313b9f2ee4f726cfb95a0a68f2f494347f332dd405c",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_csar.py",
       "reference": "Geolocation grids and restituted orbits of the annotations of Sentinel-1 Level-1 GRD products",
       "period": "2026-08-12",
-      "platform": "sentinel-1c",
-      "holdout_gap_days": 51,
+      "platforms": [
+        "sentinel-1c"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -62,63 +63,59 @@
         {
           "name": "epoch_median",
           "value": -0.05725999500000001
-        },
-        {
-          "name": "transfer_pass_recall",
-          "value": 98.63574351978171,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_swath_edge_p95_near_range",
-          "value": 6.578916929712105,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_swath_edge_p95_far_range",
-          "value": 7.8387009808722805,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_footprint_iou_median_time_step_10_s",
-          "value": 0.9744452010937642,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_footprint_iou_p5_time_step_10_s",
-          "value": 0.9565603985068362,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_footprint_iou_median_time_step_30_s",
-          "value": 0.9744442113156698,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_footprint_iou_p5_time_step_30_s",
-          "value": 0.9565604000666803,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_footprint_iou_median_time_step_120_s",
-          "value": 0.9744435423361394,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_footprint_iou_p5_time_step_120_s",
-          "value": 0.9565604155573993,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_epoch_p95",
-          "value": 0.44427412699999996,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_epoch_median",
-          "value": 0.040464019,
-          "scope": "sentinel-1d, 2026-11-05"
         }
       ],
+      "transfers": {
+        "sentinel-1d": {
+          "period": "2026-11-05",
+          "metrics": [
+            {
+              "name": "pass_recall",
+              "value": 98.63574351978171
+            },
+            {
+              "name": "swath_edge_p95_near_range",
+              "value": 6.578916929712105
+            },
+            {
+              "name": "swath_edge_p95_far_range",
+              "value": 7.8387009808722805
+            },
+            {
+              "name": "footprint_iou_median_time_step_10_s",
+              "value": 0.9744452010937642
+            },
+            {
+              "name": "footprint_iou_p5_time_step_10_s",
+              "value": 0.9565603985068362
+            },
+            {
+              "name": "footprint_iou_median_time_step_30_s",
+              "value": 0.9744442113156698
+            },
+            {
+              "name": "footprint_iou_p5_time_step_30_s",
+              "value": 0.9565604000666803
+            },
+            {
+              "name": "footprint_iou_median_time_step_120_s",
+              "value": 0.9744435423361394
+            },
+            {
+              "name": "footprint_iou_p5_time_step_120_s",
+              "value": 0.9565604155573993
+            },
+            {
+              "name": "epoch_p95",
+              "value": 0.44427412699999996
+            },
+            {
+              "name": "epoch_median",
+              "value": 0.040464019
+            }
+          ]
+        }
+      },
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.44815166794999994
@@ -126,13 +123,14 @@
     },
     "ew": {
       "digest": "d4db44c916245f35b65999b72767e909314348279335144b5abdfc3b64e624b1",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_csar.py",
       "reference": "Geolocation grids and restituted orbits of the annotations of Sentinel-1 Level-1 GRD products",
       "period": "2026-11-10",
-      "platform": "sentinel-1c",
-      "holdout_gap_days": 39,
+      "platforms": [
+        "sentinel-1c"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -185,68 +183,63 @@
         {
           "name": "epoch_median",
           "value": -0.060779662999999984
-        },
-        {
-          "name": "transfer_pass_recall",
-          "value": 98.69020501138952,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_swath_edge_p95_near_range",
-          "value": 7.5611920183202725,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_swath_edge_p95_far_range",
-          "value": 11.056278170799077,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_footprint_iou_median_time_step_10_s",
-          "value": 0.9884457495183735,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_footprint_iou_p5_time_step_10_s",
-          "value": 0.9622722405977889,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_footprint_iou_median_time_step_30_s",
-          "value": 0.9884461417226443,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_footprint_iou_p5_time_step_30_s",
-          "value": 0.9622723000479346,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_footprint_iou_median_time_step_120_s",
-          "value": 0.9884458216809694,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_footprint_iou_p5_time_step_120_s",
-          "value": 0.9622722346932403,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_epoch_p95",
-          "value": 0.3822467272499999,
-          "scope": "sentinel-1d, 2026-11-05"
-        },
-        {
-          "name": "transfer_epoch_median",
-          "value": -0.046273713999999966,
-          "scope": "sentinel-1d, 2026-11-05"
         }
       ],
+      "transfers": {
+        "sentinel-1d": {
+          "period": "2026-11-05",
+          "metrics": [
+            {
+              "name": "pass_recall",
+              "value": 98.69020501138952
+            },
+            {
+              "name": "swath_edge_p95_near_range",
+              "value": 7.5611920183202725
+            },
+            {
+              "name": "swath_edge_p95_far_range",
+              "value": 11.056278170799077
+            },
+            {
+              "name": "footprint_iou_median_time_step_10_s",
+              "value": 0.9884457495183735
+            },
+            {
+              "name": "footprint_iou_p5_time_step_10_s",
+              "value": 0.9622722405977889
+            },
+            {
+              "name": "footprint_iou_median_time_step_30_s",
+              "value": 0.9884461417226443
+            },
+            {
+              "name": "footprint_iou_p5_time_step_30_s",
+              "value": 0.9622723000479346
+            },
+            {
+              "name": "footprint_iou_median_time_step_120_s",
+              "value": 0.9884458216809694
+            },
+            {
+              "name": "footprint_iou_p5_time_step_120_s",
+              "value": 0.9622722346932403
+            },
+            {
+              "name": "epoch_p95",
+              "value": 0.3822467272499999
+            },
+            {
+              "name": "epoch_median",
+              "value": -0.046273713999999966
+            }
+          ]
+        }
+      },
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.32735908755
       }
     }
-  },
-  "standard_version": 5
+  }
 }

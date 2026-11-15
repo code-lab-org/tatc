@@ -40,7 +40,6 @@ import earthaccess
 import h5py
 import numpy as np
 
-import tatc
 from tatc.analysis import compute_ground_track
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
@@ -51,10 +50,9 @@ from validate_catalog_oco2 import area, find_epochs, observed_strip, score_width
 from validation_io import (
     TO_GEODETIC,
     RemoteFile,
-    get_holdout_gap,
     recompute_passes,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -63,7 +61,6 @@ from validation_io import (
 
 RECORD_PATH = RECORDS / "emit.json"
 FIXTURE_PATH = FIXTURES / "emit.npz"
-FIT_DAY = datetime(2026, 10, 4, tzinfo=timezone.utc)
 PLATFORM = "iss"
 CONFIGURATION = "swath"
 # public element sets from CelesTrak, with epochs after each day of data
@@ -275,34 +272,26 @@ def validate(day, tle, orbit, reference: Reference, write: bool) -> None:
     update_fixture(
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "emit",
+        entry,
         CONFIGURATION,
-        {
-            "digest": entry.configurations[CONFIGURATION].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "EMITL1BRAD version 002, observation geometry (pixel "
-            "positions and line times of every 16th line)",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": PLATFORM,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": [
-                {"name": name, "value": float(results[name])}
-                for name in (
-                    "pass_recall",
-                    "epoch_p95",
-                    "epoch_median",
-                    "swath_width_median",
-                    "footprint_iou_median",
-                )
-            ],
-            "fixture_metrics": recompute_passes(
-                satellite_for(TIME_STEPS[0]), 0, day, passes
-            ),
-        },
+        source=source_of(__file__),
+        reference="EMITL1BRAD version 002, observation geometry (pixel "
+        "positions and line times of every 16th line)",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[PLATFORM],
+        metrics=[
+            {"name": name, "value": float(results[name])}
+            for name in (
+                "pass_recall",
+                "epoch_p95",
+                "epoch_median",
+                "swath_width_median",
+                "footprint_iou_median",
+            )
+        ],
+        fixture_metrics=recompute_passes(satellite_for(TIME_STEPS[0]), 0, day, passes),
     )
     print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
 

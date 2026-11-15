@@ -33,7 +33,6 @@ import pandas as pd
 from pyproj import Geod
 from skyfield.api import wgs84
 
-import tatc
 from tatc.analysis import collect_observations
 from tatc.catalog.metrics import summarize
 from tatc.catalog import get_entry
@@ -41,11 +40,11 @@ from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from validation_io import (
     RemoteFile,
-    add_transfer_metrics,
+    write_transfer,
     get_with_retries,
     recompute_passes,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -229,10 +228,11 @@ def main() -> None:
     if not arguments.write:
         return
     if platform != "sentinel-6a":
-        add_transfer_metrics(
+        write_transfer(
             RECORD_PATH,
             "nadir",
-            f"{platform}, {day:%Y-%m-%d}",
+            platform,
+            f"{day:%Y-%m-%d}",
             {
                 name: results[name]
                 for name in ("segment_recall", "track_offset_median", "epoch_p95")
@@ -255,29 +255,24 @@ def main() -> None:
     satellite = entry.to_satellite(
         orbit, time_step=TIME_STEPS[0], platform="sentinel-6a"
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "poseidon4",
+        entry,
         "nadir",
-        {
-            "digest": entry.configurations["nadir"].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": f"{SHORT_NAMES[platform]} (1 Hz measurement positions and times)",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": "sentinel-6a",
-            "metrics": [
-                {"name": name, "value": float(results[name])}
-                for name in (
-                    "segment_recall",
-                    "track_offset_median",
-                    "epoch_p95",
-                    "epoch_median",
-                )
-            ],
-            "fixture_metrics": recompute_passes(satellite, 0, day, passes),
-        },
+        source=source_of(__file__),
+        reference=f"{SHORT_NAMES[platform]} (1 Hz measurement positions and times)",
+        period=f"{day:%Y-%m-%d}",
+        platforms=["sentinel-6a"],
+        metrics=[
+            {"name": name, "value": float(results[name])}
+            for name in (
+                "segment_recall",
+                "track_offset_median",
+                "epoch_p95",
+                "epoch_median",
+            )
+        ],
+        fixture_metrics=recompute_passes(satellite, 0, day, passes),
     )
     print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
 

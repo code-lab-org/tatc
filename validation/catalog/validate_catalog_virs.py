@@ -57,7 +57,7 @@ from validation_io import (
     FIXTURES,
     source_of,
 )
-from validate_catalog_trmm_pr import ELEMENT_SET_FILE, FIT_DAY, NORAD_ID
+from validate_catalog_trmm_pr import ELEMENT_SET_FILE, NORAD_ID
 from validate_catalog_trmm_pr import PRODUCT as PR_PRODUCT
 
 SAMPLES = 261
@@ -117,7 +117,6 @@ SETUP = Setup(
     "GPM_2APR version 07",
     published_reference="Footprint of the TRMM Version 7 README of GES DISC; sample "
     "positions of GPM_1BVIRS version 08",
-    fit_day=FIT_DAY,
     time_steps=(10, 30, 120),
     pass_radius=40,
     point_spacing=200e3,

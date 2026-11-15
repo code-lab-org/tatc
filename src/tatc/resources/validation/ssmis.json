@@ -3,13 +3,14 @@
   "configurations": {
     "swath": {
       "digest": "9e367bd86d4b2e1cc8e2e50ad0eb46f83fca7b69ae489721bb074803817dd54a",
-      "evidence": "rerun",
+      "standard_version": 2,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_ssmis.py",
       "reference": "GPM_1CF18SSMIS version 08 (positions of the S1 samples)",
       "period": "2026-11-03",
-      "platform": "dmsp-f18",
-      "holdout_gap_days": 30,
+      "platforms": [
+        "dmsp-f18"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -32,11 +33,11 @@
           "value": 0.9923645765603081
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.48150465934999936
       }
     }
-  },
-  "standard_version": 2
+  }
 }

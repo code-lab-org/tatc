@@ -45,26 +45,22 @@ import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
 
-import tatc
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
 import gesdisc_scanner
-import validation_io
 from validation_io import (
-    add_transfer_metrics,
-    use_archive,
+    ARCHIVES,
+    Archive,
+    write_transfer,
     TO_GEODETIC,
     RemoteFile,
     build_grid,
     compute_published_errors,
     compute_spacing_ratios,
     ecef,
-    get_holdout_gap,
     iet_to_utc,
-    list_keys,
-    load_element_set,
     normalize,
     recompute_passes,
     score_passes,
@@ -72,7 +68,7 @@ from validation_io import (
     score_swath_area,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -88,12 +84,7 @@ GATED = (
 )
 RECORD_PATH = RECORDS / "viirs.json"
 
-# the days to which each platform's angles were fitted, and its configurations
-# (swath, and zones if any) and fixture
-FIT_DAYS = {
-    "noaa-20": datetime(2026, 10, 2, tzinfo=timezone.utc),
-    "noaa-21": datetime(2026, 11, 5, tzinfo=timezone.utc),
-}
+# the configurations of each platform's fit and its fixture
 CONFIGURATIONS = {
     "noaa-20": ("swath_noaa_20", "zones_noaa_20", FIXTURES / "viirs_noaa_20.npz"),
     "noaa-21": ("swath_noaa_21", None, FIXTURES / "viirs_noaa_21.npz"),
@@ -120,21 +111,20 @@ FIXTURE_PASSES, FIXTURE_PIXELS, FIXTURE_SPACING = 60, 200, 200
 class Run:
     """
     What a run tests: the configurations of the swath and zones (if any), the platform
-    whose data they are tested on, the fixture, the day of the fit, and whether the
-    results are a transfer to a platform on which the configurations were not fitted.
+    whose data they are tested on, the fixture, and whether the results are a
+    transfer to a platform on which the configurations were not fitted.
     """
 
     platform: str
     swath: str
     zones: str | None
     fixture_path: pathlib.Path
-    fit_day: datetime
     transfer: bool
 
 
-def open_granule(key: str) -> h5py.File:
+def open_granule(url: str) -> h5py.File:
     """Opens a remote granule, first getting the metadata at its start and end."""
-    remote = RemoteFile(validation_io.BUCKET + key)
+    remote = RemoteFile(url)
     remote.fetch(0, remote.block_size)
     remote.fetch(
         (remote.size - 2**19) // remote.block_size * remote.block_size, remote.size
@@ -142,9 +132,9 @@ def open_granule(key: str) -> h5py.File:
     return h5py.File(remote)
 
 
-def read_scans(key: str) -> dict:
+def read_scans(url: str) -> dict:
     """Reads the scans and outline of a granule."""
-    with open_granule(key) as f:
+    with open_granule(url) as f:
         granule = f[GRANULE]
         return {
             "gring_lat": granule.attrs["G-Ring_Latitude"].ravel(),
@@ -157,9 +147,9 @@ def read_scans(key: str) -> dict:
         }
 
 
-def read_pixels(key: str) -> dict:
+def read_pixels(url: str) -> dict:
     """Reads a sample of the pixels of a granule."""
-    with open_granule(key) as f:
+    with open_granule(url) as f:
         lat, lon, height = (
             f[GEO + field][:].reshape(N_SCANS, N_DETECTORS, N_SAMPLES)
             for field in ("Latitude", "Longitude", "Height")
@@ -175,15 +165,18 @@ def read_pixels(key: str) -> dict:
     }
 
 
-def load_day(day: datetime, directory: pathlib.Path) -> tuple[dict, dict]:
+def load_day(
+    day: datetime, directory: pathlib.Path, archive: Archive
+) -> tuple[dict, dict]:
     """Downloads and reduces the geolocation of a day, or loads it from a cache."""
     scans_path = directory / f"viirs_gmtco_scans_{day:%Y%m%d}.npz"
     pixels_path = directory / f"viirs_gmtco_pixels_{day:%Y%m%d}.npz"
     if not (scans_path.exists() and pixels_path.exists()):
-        keys = list_keys(f"VIIRS-MOD-GEO-TC/{day:%Y/%m/%d}/")
+        keys = archive.list_keys(f"VIIRS-MOD-GEO-TC/{day:%Y/%m/%d}/")
+        urls = [archive.url + key for key in keys]
         with concurrent.futures.ThreadPoolExecutor(8) as pool:
-            scans = list(pool.map(read_scans, keys))
-            pixels = list(pool.map(read_pixels, keys[::PIXEL_GRANULES]))
+            scans = list(pool.map(read_scans, urls))
+            pixels = list(pool.map(read_pixels, urls[::PIXEL_GRANULES]))
         np.savez_compressed(
             scans_path,
             **{field: np.stack([s[field] for s in scans]) for field in scans[0]},
@@ -490,7 +483,9 @@ def validate_zones(day, tle, entry, orbit, reference, write: bool, run: Run) -> 
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
-    satellite = entry.to_satellite(orbit, run.zones, platform=run.platform)
+    satellite = entry.to_satellite(
+        orbit, configuration=run.zones, platform=run.platform
+    )
     names = np.array([instrument.name for instrument in satellite.instruments])
     pixels = measure_pixels(reference, satellite)
     median, p95 = (summarize(pixels[:, 3])[key] for key in ("median", "p95"))
@@ -503,10 +498,11 @@ def validate_zones(day, tle, entry, orbit, reference, write: bool, run: Run) -> 
     if not write:
         return
     if run.transfer:
-        add_transfer_metrics(
+        write_transfer(
             RECORD_PATH,
             run.zones,
-            f"{run.platform}, {day:%Y-%m-%d}",
+            run.platform,
+            f"{day:%Y-%m-%d}",
             {
                 "pixel_position_median": median,
                 "pixel_position_p95": p95,
@@ -529,34 +525,28 @@ def validate_zones(day, tle, entry, orbit, reference, write: bool, run: Run) -> 
         spacing=rows[picks],
         spacing_seconds=(times[picks] - pd.Timestamp(day)).total_seconds().to_numpy(),
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "viirs",
+        entry,
         run.zones,
-        {
-            "digest": entry.configurations[run.zones].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "Footprints published by NOAA/CIMSS; samples of the VIIRS "
-            "moderate-resolution geolocation",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": run.platform,
-            "holdout_gap_days": get_holdout_gap(day, run.fit_day),
-            "metrics": [
-                {"name": "sample_size_within_3pct", "value": within},
-                {"name": "sample_size_largest_error", "value": largest},
-                {"name": "pixel_position_median", "value": median},
-                {"name": "pixel_position_p95", "value": p95},
-                {"name": "spacing_along_ratio_median", "value": along},
-                {"name": "spacing_cross_ratio_median", "value": cross},
-            ],
-            "fixture_metrics": {
-                "sample_size_within_3pct": within,
-                "pixel_position_median": summarize(reduced[:, 3])["median"],
-                "spacing_along_ratio_median": fixture_along,
-                "spacing_cross_ratio_median": fixture_cross,
-            },
+        source=source_of(__file__),
+        reference="Footprints published by NOAA/CIMSS; samples of the VIIRS "
+        "moderate-resolution geolocation",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[run.platform],
+        metrics=[
+            {"name": "sample_size_within_3pct", "value": within},
+            {"name": "sample_size_largest_error", "value": largest},
+            {"name": "pixel_position_median", "value": median},
+            {"name": "pixel_position_p95", "value": p95},
+            {"name": "spacing_along_ratio_median", "value": along},
+            {"name": "spacing_cross_ratio_median", "value": cross},
+        ],
+        fixture_metrics={
+            "sample_size_within_3pct": within,
+            "pixel_position_median": summarize(reduced[:, 3])["median"],
+            "spacing_along_ratio_median": fixture_along,
+            "spacing_cross_ratio_median": fixture_cross,
         },
     )
 
@@ -566,7 +556,7 @@ def validate_swath(day, tle, entry, orbit, reference, write: bool, run: Run) -> 
 
     def satellite_for(time_step: float):
         return entry.to_satellite(
-            orbit, run.swath, time_step=time_step, platform=run.platform
+            orbit, configuration=run.swath, time_step=time_step, platform=run.platform
         )
 
     satellite = satellite_for(reference.scan_period)
@@ -594,10 +584,11 @@ def validate_swath(day, tle, entry, orbit, reference, write: bool, run: Run) -> 
     if not write:
         return
     if run.transfer:
-        add_transfer_metrics(
+        write_transfer(
             RECORD_PATH,
             run.swath,
-            f"{run.platform}, {day:%Y-%m-%d}",
+            run.platform,
+            f"{day:%Y-%m-%d}",
             {name: results[name] for name in GATED},
         )
         return
@@ -618,31 +609,25 @@ def validate_swath(day, tle, entry, orbit, reference, write: bool, run: Run) -> 
         passes=passes,
         scan_period=np.array(reference.scan_period),
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "viirs",
+        entry,
         run.swath,
-        {
-            "digest": entry.configurations[run.swath].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "VIIRS moderate-resolution geolocation",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": run.platform,
-            "holdout_gap_days": get_holdout_gap(day, run.fit_day),
-            "metrics": [
-                {"name": name, "value": float(results[name])}
-                for name in (
-                    "pass_recall",
-                    "pass_precision",
-                    "epoch_p95",
-                    "swath_width_median",
-                    "footprint_iou_median",
-                )
-            ],
-            "fixture_metrics": recompute_passes(satellite, 0, day, passes),
-        },
+        source=source_of(__file__),
+        reference="VIIRS moderate-resolution geolocation",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[run.platform],
+        metrics=[
+            {"name": name, "value": float(results[name])}
+            for name in (
+                "pass_recall",
+                "pass_precision",
+                "epoch_p95",
+                "swath_width_median",
+                "footprint_iou_median",
+            )
+        ],
+        fixture_metrics=recompute_passes(satellite, 0, day, passes),
     )
 
 
@@ -660,14 +645,14 @@ def main() -> None:
     arguments.directory.mkdir(parents=True, exist_ok=True)
 
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    prefix = use_archive(arguments.platform)
+    archive = ARCHIVES[arguments.platform]
     directory = (
         arguments.directory
         if arguments.platform == FIT_PLATFORM
-        else arguments.directory / prefix
+        else arguments.directory / archive.prefix
     )
     directory.mkdir(parents=True, exist_ok=True)
-    reference = Reference(*load_day(day, directory))
+    reference = Reference(*load_day(day, directory, archive))
     if arguments.fit:
         fit(day, reference)
         return
@@ -675,10 +660,9 @@ def main() -> None:
     run = Run(
         arguments.platform,
         *CONFIGURATIONS[fitted],
-        FIT_DAYS[fitted],
         fitted != arguments.platform,
     )
-    tle = load_element_set(day, directory)
+    tle = archive.load_element_set(day, directory)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     entry = get_entry("viirs")
     print(

@@ -42,26 +42,22 @@ import pandas as pd
 from scipy.spatial import cKDTree
 from skyfield.api import wgs84
 
-import tatc
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
 import gesdisc_scanner
 from validation_io import (
+    ARCHIVES,
+    Archive,
     TO_GEODETIC,
-    add_transfer_metrics,
-    use_archive,
+    write_transfer,
     build_grid,
     compute_published_errors,
     compute_spacing_ratios,
     ecef,
-    fetch,
-    get_holdout_gap,
     iet_to_utc,
     in_lattice_cells,
-    list_keys,
-    load_element_set,
     normalize,
     recompute_passes,
     score_passes,
@@ -69,7 +65,7 @@ from validation_io import (
     score_swath_area,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -85,12 +81,7 @@ GATED = (
 )
 RECORD_PATH = RECORDS / "atms.json"
 
-# the days to which each platform's angles were fitted, and its configurations
-# (swath, beams) and fixture
-FIT_DAYS = {
-    "noaa-20": datetime(2026, 10, 2, tzinfo=timezone.utc),
-    "noaa-21": datetime(2026, 11, 5, tzinfo=timezone.utc),
-}
+# the configurations of each platform's fit and its fixture
 CONFIGURATIONS = {
     "noaa-20": ("swath_noaa_20", "beams_noaa_20", FIXTURES / "atms_noaa_20.npz"),
     "noaa-21": ("swath_noaa_21", "beams_noaa_21", FIXTURES / "atms_noaa_21.npz"),
@@ -127,28 +118,29 @@ FIXTURE_PASSES, FIXTURE_PIXELS, FIXTURE_SPACING = 60, 200, 200
 class Run:
     """
     What a run tests: the configurations of the swath and beams, the platform whose
-    data they are tested on, the fixture, the day of the fit, and whether the results
-    are a transfer to a platform on which the configurations were not fitted.
+    data they are tested on, the fixture, and whether the results are a transfer to
+    a platform on which the configurations were not fitted.
     """
 
     platform: str
     swath: str
     beams: str
     fixture_path: pathlib.Path
-    fit_day: datetime
     transfer: bool
 
 
-def load_day(day: datetime, directory: pathlib.Path) -> dict[str, np.ndarray]:
+def load_day(
+    day: datetime, directory: pathlib.Path, archive: Archive
+) -> dict[str, np.ndarray]:
     """Downloads and reduces the geolocation of a day, or loads it from a cache."""
     path = directory / f"atms_gatmo_{day:%Y%m%d}.npz"
     if not path.exists():
 
         def read(key):
-            with h5py.File(io.BytesIO(fetch(key))) as f:
+            with h5py.File(io.BytesIO(archive.fetch(key))) as f:
                 return {k: f["All_Data/ATMS-SDR-GEO_All/" + k][:] for k in FIELDS}
 
-        keys = list_keys(f"ATMS-SDR-GEO/{day:%Y/%m/%d}/")
+        keys = archive.list_keys(f"ATMS-SDR-GEO/{day:%Y/%m/%d}/")
         with concurrent.futures.ThreadPoolExecutor(8) as pool:
             granules = list(pool.map(read, keys))
         np.savez_compressed(
@@ -419,7 +411,9 @@ def validate_beams(day, tle, entry, orbit, reference, write: bool, run: Run) -> 
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
-    satellite = entry.to_satellite(orbit, run.beams, platform=run.platform)
+    satellite = entry.to_satellite(
+        orbit, configuration=run.beams, platform=run.platform
+    )
     names = [instrument.name for instrument in satellite.instruments]
     index = names.index(SIZE_INSTRUMENT)
     pixels = measure_pixels(reference, satellite, index)
@@ -434,10 +428,11 @@ def validate_beams(day, tle, entry, orbit, reference, write: bool, run: Run) -> 
     if not write:
         return
     if run.transfer:
-        add_transfer_metrics(
+        write_transfer(
             RECORD_PATH,
             run.beams,
-            f"{run.platform}, {day:%Y-%m-%d}",
+            run.platform,
+            f"{day:%Y-%m-%d}",
             {
                 "pixel_position_median": median,
                 "pixel_position_p95": p95,
@@ -460,34 +455,28 @@ def validate_beams(day, tle, entry, orbit, reference, write: bool, run: Run) -> 
         spacing=rows[picks],
         spacing_seconds=(times[picks] - pd.Timestamp(day)).total_seconds().to_numpy(),
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "atms",
+        entry,
         run.beams,
-        {
-            "digest": entry.configurations[run.beams].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "Footprints of the TC PRIMED documentation; beam centers of "
-            "the ATMS SDR geolocation",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": run.platform,
-            "holdout_gap_days": get_holdout_gap(day, run.fit_day),
-            "metrics": [
-                {"name": "sample_size_within_3pct", "value": within},
-                {"name": "sample_size_largest_error", "value": largest},
-                {"name": "pixel_position_median", "value": median},
-                {"name": "pixel_position_p95", "value": p95},
-                {"name": "spacing_along_ratio_median", "value": along},
-                {"name": "spacing_cross_ratio_median", "value": cross},
-            ],
-            "fixture_metrics": {
-                "sample_size_within_3pct": within,
-                "pixel_position_median": summarize(reduced[:, 2])["median"],
-                "spacing_along_ratio_median": fixture_along,
-                "spacing_cross_ratio_median": fixture_cross,
-            },
+        source=source_of(__file__),
+        reference="Footprints of the TC PRIMED documentation; beam centers of "
+        "the ATMS SDR geolocation",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[run.platform],
+        metrics=[
+            {"name": "sample_size_within_3pct", "value": within},
+            {"name": "sample_size_largest_error", "value": largest},
+            {"name": "pixel_position_median", "value": median},
+            {"name": "pixel_position_p95", "value": p95},
+            {"name": "spacing_along_ratio_median", "value": along},
+            {"name": "spacing_cross_ratio_median", "value": cross},
+        ],
+        fixture_metrics={
+            "sample_size_within_3pct": within,
+            "pixel_position_median": summarize(reduced[:, 2])["median"],
+            "spacing_along_ratio_median": fixture_along,
+            "spacing_cross_ratio_median": fixture_cross,
         },
     )
 
@@ -497,7 +486,7 @@ def validate_swath(day, tle, entry, orbit, reference, write: bool, run: Run) -> 
 
     def satellite_for(time_step: float):
         return entry.to_satellite(
-            orbit, run.swath, time_step=time_step, platform=run.platform
+            orbit, configuration=run.swath, time_step=time_step, platform=run.platform
         )
 
     satellite = satellite_for(SCAN_PERIOD)
@@ -519,10 +508,11 @@ def validate_swath(day, tle, entry, orbit, reference, write: bool, run: Run) -> 
     if not write:
         return
     if run.transfer:
-        add_transfer_metrics(
+        write_transfer(
             RECORD_PATH,
             run.swath,
-            f"{run.platform}, {day:%Y-%m-%d}",
+            run.platform,
+            f"{day:%Y-%m-%d}",
             {name: results[name] for name in GATED},
         )
         return
@@ -542,31 +532,25 @@ def validate_swath(day, tle, entry, orbit, reference, write: bool, run: Run) -> 
         day=np.array(day.isoformat()),
         passes=passes,
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "atms",
+        entry,
         run.swath,
-        {
-            "digest": entry.configurations[run.swath].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "ATMS SDR geolocation",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": run.platform,
-            "holdout_gap_days": get_holdout_gap(day, run.fit_day),
-            "metrics": [
-                {"name": name, "value": float(results[name])}
-                for name in (
-                    "pass_recall",
-                    "pass_precision",
-                    "epoch_p95",
-                    "swath_width_median",
-                    "footprint_iou_median",
-                )
-            ],
-            "fixture_metrics": recompute_passes(satellite, 0, day, passes),
-        },
+        source=source_of(__file__),
+        reference="ATMS SDR geolocation",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[run.platform],
+        metrics=[
+            {"name": name, "value": float(results[name])}
+            for name in (
+                "pass_recall",
+                "pass_precision",
+                "epoch_p95",
+                "swath_width_median",
+                "footprint_iou_median",
+            )
+        ],
+        fixture_metrics=recompute_passes(satellite, 0, day, passes),
     )
 
 
@@ -584,14 +568,14 @@ def main() -> None:
     arguments.directory.mkdir(parents=True, exist_ok=True)
 
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    prefix = use_archive(arguments.platform)
+    archive = ARCHIVES[arguments.platform]
     directory = (
         arguments.directory
         if arguments.platform == FIT_PLATFORM
-        else arguments.directory / prefix
+        else arguments.directory / archive.prefix
     )
     directory.mkdir(parents=True, exist_ok=True)
-    reference = Reference(load_day(day, directory))
+    reference = Reference(load_day(day, directory, archive))
     if arguments.fit:
         fit(day, reference)
         return
@@ -599,10 +583,9 @@ def main() -> None:
     run = Run(
         arguments.platform,
         *CONFIGURATIONS[fitted],
-        FIT_DAYS[fitted],
         fitted != arguments.platform,
     )
-    tle = load_element_set(day, directory)
+    tle = archive.load_element_set(day, directory)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     entry = get_entry("atms")
     print(

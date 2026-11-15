@@ -63,7 +63,6 @@ from validation_io import (
 )
 
 NORAD_ID = 43689
-FIT_DAY = datetime(2026, 11, 5, tzinfo=timezone.utc)
 # public element sets from CelesTrak, with epochs after each day of data
 ELEMENTS = {
     "2026-11-05": (
@@ -160,7 +159,6 @@ SETUP = Setup(
     reference="AVHRRF_MC-STAR-L2P version 2.80 (sample positions and times)",
     published_reference="Footprint published by the NWP SAF; sample positions of "
     "AVHRRF_MC-STAR-L2P version 2.80",
-    fit_day=FIT_DAY,
     time_steps=(10, 30, 120),
     pass_radius=40,
     point_spacing=200e3,

@@ -45,26 +45,25 @@ import h5py
 import numpy as np
 import pandas as pd
 import requests
-from pyproj import Geod, Transformer
+from pyproj import Geod
 from scipy.spatial import cKDTree
 from shapely import contains_xy, prepare
 
-import tatc
 from tatc.analysis import (
     collect_observations,
     compute_ground_track,
     compute_sample_sizes,
 )
-from tatc.catalog import STANDARD_VERSION, get_entry
+from tatc.catalog import get_entry
 from tatc.catalog.metrics import compute_mask_iou, compute_pass_scores, summarize
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
 import validation_io
+from validation_io import TO_GEODETIC, ecef, normalize, up
 
 RECORD_PATH = validation_io.RECORDS / "amsr2.json"
 FIXTURE_PATH = validation_io.FIXTURES / "amsr2.npz"
 
-FIT_DAY = datetime(2026, 9, 26, tzinfo=timezone.utc)
 # public element sets from CelesTrak, with epochs after each day of data
 ELEMENTS = {
     "2026-09-26": (
@@ -103,8 +102,6 @@ SPACING_SCAN_STRIDE = 200
 FIXTURE_SPACING_SAMPLES = 100
 
 GEOD = Geod(ellps="WGS84")
-TO_ECEF = Transformer.from_crs("EPSG:4979", "EPSG:4978", always_xy=True)
-TO_GEODETIC = Transformer.from_crs("EPSG:4978", "EPSG:4979", always_xy=True)
 
 
 def load_day(day: datetime, directory: pathlib.Path) -> dict[str, np.ndarray]:
@@ -166,26 +163,6 @@ def load_day(day: datetime, directory: pathlib.Path) -> dict[str, np.ndarray]:
             cache, granules=len(granules), **{k: v[keep] for k, v in reduced.items()}
         )
     return dict(np.load(cache))
-
-
-def ecef(lon, lat, height=0.0) -> np.ndarray:
-    """Gets the Earth-fixed position (m) of geodetic coordinates."""
-    return np.stack(
-        TO_ECEF.transform(lon, lat, np.broadcast_to(height, np.shape(lon))), axis=-1
-    )
-
-
-def up(lon, lat) -> np.ndarray:
-    """Gets the geodetic up unit vector."""
-    lon, lat = np.radians(lon), np.radians(lat)
-    return np.stack(
-        [np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)], axis=-1
-    )
-
-
-def normalize(x: np.ndarray) -> np.ndarray:
-    """Gets unit vectors along the last axis."""
-    return x / np.linalg.norm(x, axis=-1, keepdims=True)
 
 
 class Reference:
@@ -454,7 +431,10 @@ def score_published_footprints(entry) -> tuple[float, float]:
             epoch=PUBLISHED_EPOCH,
         )
         satellite = entry.to_satellite(
-            orbit, SAMPLE_CONFIGURATION, time_step=SCAN_PERIOD, platform="gcom-w"
+            orbit,
+            configuration=SAMPLE_CONFIGURATION,
+            time_step=SCAN_PERIOD,
+            platform="gcom-w",
         )
         names = [instrument.name for instrument in satellite.instruments]
         time = PUBLISHED_EPOCH + timedelta(minutes=10)
@@ -545,21 +525,6 @@ def update_fixture(**arrays) -> None:
     validation_io.update_fixture(FIXTURE_PATH, **arrays)
 
 
-def update_record(key: str, configuration: dict) -> None:
-    """Writes the results of a configuration to the record, keeping the others."""
-    record = {"entry_id": "amsr2", "configurations": {}}
-    if RECORD_PATH.exists():
-        record = json.loads(RECORD_PATH.read_text(encoding="utf-8"))
-    record["standard_version"] = STANDARD_VERSION
-    record["configurations"][key] = configuration
-    RECORD_PATH.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-
-
-def get_holdout_gap(day: datetime) -> int | None:
-    """Gets the days from the fit to a day, to which the standard applies its gap."""
-    return None if day == FIT_DAY else abs((day - FIT_DAY).days)
-
-
 def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> None:
     """Scores the sample size configuration, and writes its results if requested."""
     within, largest = score_published_footprints(entry)
@@ -571,7 +536,10 @@ def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> Non
         {"name": "sample_size_largest_error", "value": largest},
     ]
     satellite = entry.to_satellite(
-        orbit, SAMPLE_CONFIGURATION, time_step=SCAN_PERIOD, platform="gcom-w"
+        orbit,
+        configuration=SAMPLE_CONFIGURATION,
+        time_step=SCAN_PERIOD,
+        platform="gcom-w",
     )
     names = [instrument.name for instrument in satellite.instruments]
     rng = np.random.default_rng(2)
@@ -606,25 +574,19 @@ def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> Non
         spacing=np.concatenate(reduced),
         spacing_instruments=np.concatenate(indices),
     )
-    update_record(
+    validation_io.write_record(
+        RECORD_PATH,
+        entry,
         SAMPLE_CONFIGURATION,
-        {
-            "digest": entry.configurations[SAMPLE_CONFIGURATION].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": validation_io.source_of(__file__),
-            "reference": "Footprints of JAXA's AMSR2 channel set; spacing of "
-            "GPM_1CGCOMW1AMSR2 version 08",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": "gcom-w",
-            # the angles were not fitted to the published footprints, and the
-            # spacing is measured on this day
-            "holdout_gap_days": get_holdout_gap(day),
-            "metrics": metrics,
-            "fixture_metrics": {
-                "sample_size_within_3pct": within,
-                **fixture_metrics,
-            },
+        source=validation_io.source_of(__file__),
+        reference="Footprints of JAXA's AMSR2 channel set; spacing of "
+        "GPM_1CGCOMW1AMSR2 version 08",
+        period=f"{day:%Y-%m-%d}",
+        platforms=["gcom-w"],
+        metrics=metrics,
+        fixture_metrics={
+            "sample_size_within_3pct": within,
+            **fixture_metrics,
         },
     )
 
@@ -663,22 +625,18 @@ def write_fixture_and_record(day, tle, entry, orbit, results, table) -> None:
             "footprint_iou_median",
         )
     ]
-    update_record(
+    validation_io.write_record(
+        RECORD_PATH,
+        entry,
         "swath",
-        {
-            "digest": entry.configurations["swath"].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": validation_io.source_of(__file__),
-            "reference": "GPM_1CGCOMW1AMSR2 version 08",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": "gcom-w",
-            "holdout_gap_days": get_holdout_gap(day),
-            "metrics": metrics,
-            "fixture_metrics": {
-                "passes_found": 100 * float(np.isfinite(differences).mean()),
-                "epoch_p95": summarize(differences)["p95"],
-            },
+        source=validation_io.source_of(__file__),
+        reference="GPM_1CGCOMW1AMSR2 version 08",
+        period=f"{day:%Y-%m-%d}",
+        platforms=["gcom-w"],
+        metrics=metrics,
+        fixture_metrics={
+            "passes_found": 100 * float(np.isfinite(differences).mean()),
+            "epoch_p95": summarize(differences)["p95"],
         },
     )
 

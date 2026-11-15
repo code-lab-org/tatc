@@ -38,7 +38,7 @@ configurations:
           cross_track_field_of_view: &measured
             kind: measured
             source: validate_catalog_tempo.py --fit, the view that centers the median tangents of the edges of the area a full scan imaged (the outer corners of its outermost pixels, ultraviolet band), seen from the satellite's position in the product
-            platform: intelsat-40e
+            platforms: [intelsat-40e]
             period: "2026-10-06"
           along_track_field_of_view: *measured
           roll_angle: *measured

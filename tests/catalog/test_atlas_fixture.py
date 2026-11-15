@@ -59,7 +59,10 @@ class _LidarFixture:
         recorded epochs.
         """
         satellite = self.entry.to_satellite(
-            self.orbit, self.configuration, time_step=1, platform=self.platform
+            self.orbit,
+            configuration=self.configuration,
+            time_step=1,
+            platform=self.platform,
         )
         differences = []
         for latitude, longitude, seconds, pair in self.data["passes"]:
@@ -94,7 +97,10 @@ class _LidarFixture:
         Test that the views are ordered from left to right, without gaps between them.
         """
         satellite = self.entry.to_satellite(
-            self.orbit, self.configuration, time_step=1, platform=self.platform
+            self.orbit,
+            configuration=self.configuration,
+            time_step=1,
+            platform=self.platform,
         )
         rolls = [i.roll_angle for i in satellite.instruments]
         self.assertEqual(rolls, sorted(rolls, reverse=True))

@@ -38,16 +38,12 @@ configurations:
           cross_track_field_of_view:
             kind: measured
             source: validate_catalog_lsar.py --fit, the median difference of the look angles of the near-range and far-range points of 45,538 grid lines of 95 RSLC products
-            platform: nisar
+            platforms: [nisar]
             period: "2026-10-02"
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           roll_angle_profile:
             kind: measured
             source: validate_catalog_lsar.py --fit, the median roll angle (the mean of the near-range and far-range look angles) of the grid lines in each 10 deg bin of argument of latitude
-            platform: nisar
+            platforms: [nisar]
             period: "2026-10-02"
           is_rectangular:
             kind: derived
@@ -79,16 +75,12 @@ configurations:
           cross_track_field_of_view:
             kind: measured
             source: validate_catalog_lsar.py --fit, the median difference of the look angles of the near-range and far-range points of 23,573 grid lines of 55 RSLC products
-            platform: nisar
+            platforms: [nisar]
             period: "2026-10-02"
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           roll_angle_profile:
             kind: measured
             source: validate_catalog_lsar.py --fit, the median roll angle (the mean of the near-range and far-range look angles) of the grid lines in each 10 deg bin of argument of latitude
-            platform: nisar
+            platforms: [nisar]
             period: "2026-10-02"
           is_rectangular:
             kind: derived
@@ -120,16 +112,12 @@ configurations:
           cross_track_field_of_view:
             kind: measured
             source: validate_catalog_lsar.py --fit, the median difference of the look angles of the near-range and far-range points of 11,022 grid lines of 26 RSLC products
-            platform: nisar
+            platforms: [nisar]
             period: "2026-10-02"
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           roll_angle_profile:
             kind: measured
             source: validate_catalog_lsar.py --fit, the median roll angle (the mean of the near-range and far-range look angles) of the grid lines in each 10 deg bin of argument of latitude
-            platform: nisar
+            platforms: [nisar]
             period: "2026-10-02"
           is_rectangular:
             kind: derived

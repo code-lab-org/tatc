@@ -672,6 +672,8 @@ class Layout:
         altitude: float | None = None,
         name: str = "satellite",
         time_step: float | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> list[Satellite]:
         """
         Builds the satellites, in the order of the planes, each with a
@@ -685,6 +687,10 @@ class Layout:
             name (str): The prefix of the names of the satellites.
             time_step (float | None): The analysis time step (seconds), for
                 catalog configurations that tailor a field of view to it.
+            start (datetime.datetime | None): The start of the analysis, for
+                catalog configurations that schedule their tilt by day.
+            end (datetime.datetime | None): The end of the analysis, for
+                catalog configurations that schedule their tilt by day.
 
         Returns:
             list[Satellite]: the satellites
@@ -704,7 +710,9 @@ class Layout:
         if [len(o) for o in orbits] != counts or [len(n) for n in names] != counts:
             raise ValueError("the orbits and names of a layout must match its planes")
         return [
-            _make_satellite(payload, satellite, orbit, time_step)
+            _make_satellite(
+                payload, satellite, orbit, time_step=time_step, start=start, end=end
+            )
             for plane_names, plane_orbits in zip(names, orbits)
             for satellite, orbit in zip(plane_names, plane_orbits)
         ]
@@ -1148,7 +1156,13 @@ orbit that builds a satellite."""
 
 
 def _make_satellite(
-    payload: Any, name: str, orbit: Any, time_step: float | None
+    payload: Any,
+    name: str,
+    orbit: Any,
+    *,
+    time_step: float | None,
+    start: datetime | None,
+    end: datetime | None,
 ) -> Satellite:
     """
     Makes a satellite with a payload in an orbit (see `build_constellation`).
@@ -1161,18 +1175,14 @@ def _make_satellite(
     if not all(isinstance(item, str) for item in payloads):
         raise ValueError("a payload mixes instruments and catalog entries")
     # pylint: disable=import-outside-toplevel
-    from ..catalog import get_entry
+    from ..catalog import build_payload
 
-    instruments, attitude = [], None
-    for item in payloads:
-        entry_id, _, configuration = item.partition(":")
-        built = get_entry(entry_id).build(
-            configuration or None, orbit=orbit, time_step=time_step
-        )
-        instruments.extend(built.instruments)
-        if attitude is None:
-            attitude = built.attitude
-    return Satellite(name=name, orbit=orbit, instruments=instruments, attitude=attitude)
+    built = build_payload(
+        payloads, orbit=orbit, time_step=time_step, start=start, end=end
+    )
+    return Satellite(
+        name=name, orbit=orbit, instruments=built.instruments, attitude=built.attitude
+    )
 
 
 def _plane_orbits(
@@ -1217,6 +1227,8 @@ def build_constellation(
     altitude: float | None = None,
     name: str = "satellite",
     time_step: float | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
 ) -> list[Satellite]:
     """
     Builds the satellites of a layout: the values of a fragment (such as
@@ -1225,13 +1237,15 @@ def build_constellation(
     with a payload:
 
     * an `Instrument` (or a list of instruments);
-    * the identifier of an entry of the instrument catalog (see
-      `tatc.catalog.get_entry`), optionally with a configuration after a
-      colon (such as `"atms:swath_noaa_20"`), whose instruments are built for the
-      orbit with the attitude they were validated with (and, if the
-      configuration tailors a field of view, the analysis `time_step`), or
-      a list of identifiers, whose instruments the satellite carries
-      together (with the attitude of the first);
+    * the identifier of an entry of the instrument catalog, optionally with
+      a configuration after a colon (such as `"atms:swath_noaa_20"`), or a
+      list of them, whose instruments the satellite carries together with
+      the attitude they share (see `tatc.catalog.build_payload`), built for
+      the orbit and, if a configuration tailors a field of view, the
+      analysis `time_step`, or, if it schedules its tilt by day, the
+      analysis `start` and `end`; a satellite with several instruments (of
+      several entries, or the parts of one view) is analyzed with
+      `instrument_index=None`;
     * a function of a name and an orbit that builds a satellite.
 
     Satellites of Walker and streets-of-coverage constellations and of
@@ -1254,12 +1268,22 @@ def build_constellation(
         name (str): The prefix of the names of the satellites.
         time_step (float | None): The analysis time step (seconds), for
             catalog configurations that tailor a field of view to it.
+        start (datetime.datetime | None): The start of the analysis, for
+            catalog configurations that schedule their tilt by day.
+        end (datetime.datetime | None): The end of the analysis, for
+            catalog configurations that schedule their tilt by day.
 
     Returns:
         list[Satellite]: the satellites
     """
     return layout_of(layout).build(
-        payload, epoch=epoch, altitude=altitude, name=name, time_step=time_step
+        payload,
+        epoch=epoch,
+        altitude=altitude,
+        name=name,
+        time_step=time_step,
+        start=start,
+        end=end,
     )
 
 

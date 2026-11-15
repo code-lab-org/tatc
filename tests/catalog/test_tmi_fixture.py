@@ -17,7 +17,8 @@ import numpy as np
 import pandas as pd
 
 from tatc.analysis import collect_observations, compute_sample_sizes
-from tatc.catalog import get_entry, get_gates
+from tatc.catalog import get_entry
+from tatc.catalog.standard import get_gates
 from tatc.catalog.metrics import summarize
 from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
 
@@ -76,7 +77,7 @@ class _TmiFixture:
         Gets the configuration's satellite on an orbit.
         """
         return self.entry.to_satellite(
-            orbit, self.key, time_step=SCAN_PERIOD, platform=PLATFORM
+            orbit, configuration=self.key, time_step=SCAN_PERIOD, platform=PLATFORM
         )
 
 

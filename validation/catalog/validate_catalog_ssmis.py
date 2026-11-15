@@ -34,7 +34,6 @@ import pandas as pd
 from pyproj import Geod
 from scipy.spatial import cKDTree
 
-import tatc
 from tatc.catalog import get_entry
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
@@ -43,14 +42,13 @@ from validation_io import (
     TO_GEODETIC,
     build_grid,
     ecef,
-    get_holdout_gap,
     normalize,
     recompute_passes,
     score_passes,
     score_swath_area,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -58,7 +56,6 @@ from validation_io import (
 
 RECORD_PATH = RECORDS / "ssmis.json"
 FIXTURE_PATH = FIXTURES / "ssmis.npz"
-FIT_DAY = datetime(2026, 10, 4, tzinfo=timezone.utc)
 PLATFORM = "dmsp-f18"
 CONFIGURATION = "swath"
 # public element sets from CelesTrak, with epochs after each day of data
@@ -240,7 +237,7 @@ def main() -> None:
 
     def satellite_for(time_step: float):
         return entry.to_satellite(
-            orbit, CONFIGURATION, time_step=time_step, platform=PLATFORM
+            orbit, configuration=CONFIGURATION, time_step=time_step, platform=PLATFORM
         )
 
     satellite = satellite_for(SCAN_PERIOD)
@@ -279,31 +276,25 @@ def main() -> None:
     update_fixture(
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "ssmis",
+        entry,
         CONFIGURATION,
-        {
-            "digest": entry.configurations[CONFIGURATION].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "GPM_1CF18SSMIS version 08 (positions of the S1 samples)",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": PLATFORM,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": [
-                {"name": name, "value": float(results[name])}
-                for name in (
-                    "pass_recall",
-                    "pass_precision",
-                    "epoch_p95",
-                    "swath_width_median",
-                    "footprint_iou_median",
-                )
-            ],
-            "fixture_metrics": recompute_passes(satellite, 0, day, passes),
-        },
+        source=source_of(__file__),
+        reference="GPM_1CF18SSMIS version 08 (positions of the S1 samples)",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[PLATFORM],
+        metrics=[
+            {"name": name, "value": float(results[name])}
+            for name in (
+                "pass_recall",
+                "pass_precision",
+                "epoch_p95",
+                "swath_width_median",
+                "footprint_iou_median",
+            )
+        ],
+        fixture_metrics=recompute_passes(satellite, 0, day, passes),
     )
     print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
 

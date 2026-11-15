@@ -60,7 +60,6 @@ from validation_io import (
     login_earthdata,
 )
 
-FIT_DAY = datetime(2026, 10, 4, tzinfo=timezone.utc)
 # public element sets from CelesTrak, with epochs after each day of data
 ELEMENTS = {
     "2026-11-07": (
@@ -173,7 +172,6 @@ SETUP = Setup(
     reference="ECO_L1B_GEO version 002 (sample positions and times of every fourth "
     "sweep, in blocks of eight consecutive scenes of every 32)",
     published_reference="",
-    fit_day=FIT_DAY,
     time_steps=(10, 30, 120),
     pass_radius=20,
     point_spacing=100e3,

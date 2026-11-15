@@ -45,7 +45,6 @@ from scipy.spatial import cKDTree
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
-import tatc
 from tatc.analysis import collect_observations, compute_ground_track
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
@@ -53,10 +52,9 @@ from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit, Point, PointedInstrument
 from tatc.utils import compute_argument_of_latitude, compute_projected_ray_position
 from validation_io import (
-    add_transfer_metrics,
+    write_transfer,
     TO_GEODETIC,
     ecef,
-    get_holdout_gap,
     get_with_retries,
     in_lattice_cells,
     match_passes,
@@ -67,7 +65,7 @@ from validation_io import (
     recompute_passes,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -81,7 +79,6 @@ ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "sentinel_2026-08-12.3le"
 STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
 TOKEN_URL = "https://planetarycomputer.microsoft.com/api/sas/v1/token/sentinel-1-grd"
 
-FIT_DAY = datetime(2026, 10, 2, tzinfo=timezone.utc)
 PLATFORM = FIT_PLATFORM = "sentinel-1c"
 # sibling platforms, on which results are reported as a transfer, with public element
 # sets from CelesTrak, with epochs after each day of data
@@ -637,7 +634,9 @@ def validate_mode(key, day, tle, entry, orbit, products, write) -> None:
     print(f"--- {key}: {len(chosen)} products", flush=True)
 
     def satellite_for(time_step: float):
-        return entry.to_satellite(orbit, key, time_step=time_step, platform=PLATFORM)
+        return entry.to_satellite(
+            orbit, configuration=key, time_step=time_step, platform=PLATFORM
+        )
 
     satellite = satellite_for(TIME_STEPS[0])
     instrument = satellite.instruments[0]
@@ -690,10 +689,11 @@ def validate_mode(key, day, tle, entry, orbit, products, write) -> None:
     if not write:
         return
     if PLATFORM != FIT_PLATFORM:
-        add_transfer_metrics(
+        write_transfer(
             RECORD_PATH,
             key,
-            f"{PLATFORM}, {day:%Y-%m-%d}",
+            PLATFORM,
+            f"{day:%Y-%m-%d}",
             {
                 metric["name"]
                 + (
@@ -720,23 +720,17 @@ def validate_mode(key, day, tle, entry, orbit, products, write) -> None:
             f"passes_{key}": fixture,
         },
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "csar",
+        entry,
         key,
-        {
-            "digest": entry.configurations[key].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "Geolocation grids and restituted orbits of the annotations "
-            + "of Sentinel-1 Level-1 GRD products",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": PLATFORM,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": metrics,
-            "fixture_metrics": recompute_passes(satellite, 0, day, fixture),
-        },
+        source=source_of(__file__),
+        reference="Geolocation grids and restituted orbits of the annotations "
+        + "of Sentinel-1 Level-1 GRD products",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[PLATFORM],
+        metrics=metrics,
+        fixture_metrics=recompute_passes(satellite, 0, day, fixture),
     )
     print(f"wrote {key} to {RECORD_PATH}")
 

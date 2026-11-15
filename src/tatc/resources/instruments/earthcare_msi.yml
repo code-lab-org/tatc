@@ -39,14 +39,10 @@ configurations:
           cross_track_field_of_view: &measured
             kind: measured
             source: validate_catalog_earthcare_msi.py --fit-view, the view that TAT-C centers on the outermost imaged pixels (columns 12 and 368 of MSI_RGR_1C), with the instrument's pitch (Earth-fixed frame), from spacecraft positions of ATL_NOM_1B
-            platform: earthcare
+            platforms: [earthcare]
             period: "2026-09-27"
           roll_angle: *measured
           pitch_angle: *measured
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular:
             kind: derived
             source: Models an imaged line as a rectangular view

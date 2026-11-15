@@ -41,7 +41,6 @@ import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
 
-import tatc
 from tatc.catalog import get_entry
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
@@ -50,7 +49,6 @@ from validation_io import (
     RemoteFile,
     build_grid,
     ecef,
-    get_holdout_gap,
     get_with_retries,
     in_lattice_cells,
     match_passes,
@@ -60,7 +58,7 @@ from validation_io import (
     score_swath_area,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -71,7 +69,6 @@ FIXTURE_PATH = FIXTURES / "tropomi.npz"
 
 BUCKET = "https://meeo-s5p.s3.amazonaws.com/"
 PREFIX = "NRTI/L2__AER_AI/"
-FIT_DAY = datetime(2026, 10, 5, tzinfo=timezone.utc)
 PLATFORM = "sentinel-5p"
 ELEMENT_SETS = {
     "2026-11-04": [
@@ -477,7 +474,9 @@ def validate(day, tle, entry, orbit, reference, write) -> None:
     """Scores the configuration, and writes its results if requested."""
 
     def satellite_for(time_step: float):
-        return entry.to_satellite(orbit, KEY, time_step=time_step, platform=PLATFORM)
+        return entry.to_satellite(
+            orbit, configuration=KEY, time_step=time_step, platform=PLATFORM
+        )
 
     satellite = satellite_for(ANALYSIS_TIME_STEP)
     points = generate_points_fibonacci_lattice(POINT_SPACING)
@@ -516,24 +515,16 @@ def validate(day, tle, entry, orbit, reference, write) -> None:
         "swath_width_median",
         "footprint_iou_median",
     )
-    update_record(
+    write_record(
         RECORD_PATH,
-        "tropomi",
+        entry,
         KEY,
-        {
-            "digest": entry.configurations[KEY].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": "Sentinel-5P TROPOMI aerosol index product (near real time)",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": PLATFORM,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": [
-                {"name": name, "value": float(results[name])} for name in names
-            ],
-            "fixture_metrics": recompute_passes(satellite, None, day, passes),
-        },
+        source=source_of(__file__),
+        reference="Sentinel-5P TROPOMI aerosol index product (near real time)",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[PLATFORM],
+        metrics=[{"name": name, "value": float(results[name])} for name in names],
+        fixture_metrics=recompute_passes(satellite, None, day, passes),
     )
     print(f"wrote {RECORD_PATH}")
 

@@ -14,16 +14,11 @@ Entries
 
 .. autofunction:: tatc.catalog.list_entries
 
+.. autofunction:: tatc.catalog.build_payload
+
 .. autopydantic_model:: tatc.catalog.InstrumentEntry
 
 .. autoclass:: tatc.catalog.InstrumentPayload
-
-Attitudes by Day
-----------------
-
-.. autopydantic_model:: tatc.catalog.TiltSchedule
-
-.. autofunction:: tatc.catalog.get_subsolar_latitude
 
 Validation Status
 -----------------
@@ -45,9 +40,30 @@ See :doc:`/validation/standard`.
 .. autoclass:: tatc.catalog.InstrumentClass
    :members:
 
-.. autofunction:: tatc.catalog.get_gates
+Schemas
+-------
 
-.. autofunction:: tatc.catalog.get_required_grades
+The schemas of the files of entries and of their validation records.
+
+.. autopydantic_model:: tatc.catalog.schemas.Configuration
+
+.. autopydantic_model:: tatc.catalog.schemas.InstrumentSpecification
+
+.. autopydantic_model:: tatc.catalog.schemas.Provenance
+
+.. autopydantic_model:: tatc.catalog.schemas.TiltSchedule
+
+.. autopydantic_model:: tatc.catalog.schemas.ConfigurationRecord
+
+.. autopydantic_model:: tatc.catalog.schemas.Transfer
+
+.. autofunction:: tatc.catalog.schemas.get_period_days
+
+Standard
+--------
+
+.. automodule:: tatc.catalog.standard
+   :members: STANDARD_VERSION, COMPATIBLE_VERSIONS, MIN_HOLDOUT_GAP_DAYS, Gate, get_gates, get_required_grades, is_compatible
 
 Metrics
 -------

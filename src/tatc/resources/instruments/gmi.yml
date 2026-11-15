@@ -34,13 +34,10 @@ configurations:
           cone_angle: &measured
             kind: measured
             source: validate_catalog_gmi.py --fit, medians over every 20th scan of each feed (printed to 3 decimals)
-            platform: gpm
+            platforms: [gpm]
             period: "2026-10-03"
           scan_center_azimuth: *measured
           scan_half_width: *measured
-          along_track_field_of_view: &tailored
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
       - type: conical
         parameters:
           name: GMI S2
@@ -52,7 +49,6 @@ configurations:
           cone_angle: *measured
           scan_center_azimuth: *measured
           scan_half_width: *measured
-          along_track_field_of_view: *tailored
     limitations:
       - GPM periodically flies backward, when GMI scans behind the satellite. These configurations represent forward flight; supply an attitude schedule for yaw flips.
   sample_size:
@@ -75,7 +71,6 @@ configurations:
           cone_angle: *measured
           scan_center_azimuth: *measured
           scan_half_width: *measured
-          along_track_field_of_view: *tailored
           beam_width: &beam_width
             kind: nominal
             source: GMI L1B ATBD, Table 1-1
@@ -119,7 +114,6 @@ configurations:
           cone_angle: *measured
           scan_center_azimuth: *measured
           scan_half_width: *measured
-          along_track_field_of_view: *tailored
           beam_width: *beam_width
           scan_sample_spacing: *sample_spacing
       - type: conical

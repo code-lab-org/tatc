@@ -37,12 +37,8 @@ configurations:
           cross_track_field_of_view:
             kind: measured
             source: validate_catalog_oco2.py --fit, the median angle between the first and eighth soundings seen from the spacecraft in nadir mode
-            platform: oco-2
+            platforms: [oco-2]
             period: "2026-10-04"
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular:
             kind: derived
             source: Models the slit's swath as a rectangular view
@@ -73,12 +69,8 @@ configurations:
           cross_track_field_of_view:
             kind: measured
             source: validate_catalog_oco2.py --fit, the median angle between the first and eighth soundings seen from the spacecraft in nadir mode
-            platform: oco-2
+            platforms: [oco-2]
             period: "2026-10-04"
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular:
             kind: derived
             source: Models the slit's swath as a rectangular view

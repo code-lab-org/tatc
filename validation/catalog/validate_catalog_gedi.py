@@ -44,7 +44,6 @@ import pandas as pd
 from pyproj import Geod
 from skyfield.api import wgs84
 
-import tatc
 from tatc.analysis import collect_observations
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
@@ -54,12 +53,11 @@ from validate_catalog_atlas import add_offsets
 from validation_io import (
     RemoteFile,
     ecef,
-    get_holdout_gap,
     get_with_retries,
     read_element_set_file,
     up,
     update_fixture,
-    update_record,
+    write_record,
     RECORDS,
     FIXTURES,
     source_of,
@@ -71,7 +69,6 @@ RECORD_PATH = RECORDS / "gedi.json"
 FIXTURE_PATH = FIXTURES / "gedi.npz"
 ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "iss_2026-04-01.3le"
 NORAD_ID = 25544
-FIT_DAY = datetime(2026, 5, 1, tzinfo=timezone.utc)
 PLATFORM = "iss"
 CONFIGURATION = "beams"
 SHORT_NAME, VERSION = "GEDI01_B", "003"
@@ -310,7 +307,7 @@ def score_shots(entry, orbit, shots: pd.DataFrame, day: datetime):
     results = {}
     for time_step in TIME_STEPS:
         satellite = entry.to_satellite(
-            orbit, CONFIGURATION, time_step=time_step, platform=PLATFORM
+            orbit, configuration=CONFIGURATION, time_step=time_step, platform=PLATFORM
         )
         differences = find_epochs(satellite, sample)
         found = np.isfinite(differences)
@@ -391,7 +388,7 @@ def main() -> None:
     if not arguments.write:
         return
     satellite = entry.to_satellite(
-        orbit, CONFIGURATION, time_step=TIME_STEPS[0], platform=PLATFORM
+        orbit, configuration=CONFIGURATION, time_step=TIME_STEPS[0], platform=PLATFORM
     )
     rng = np.random.default_rng(2)
     reduced = passes[rng.choice(len(passes), FIXTURE_SHOTS, replace=False)]
@@ -410,34 +407,28 @@ def main() -> None:
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=reduced
     )
     found = np.isfinite(fixture_differences)
-    update_record(
+    write_record(
         RECORD_PATH,
-        "gedi",
+        entry,
         CONFIGURATION,
-        {
-            "digest": entry.configurations[CONFIGURATION].digest,
-            "evidence": "rerun",
-            "tatc_version": tatc.__version__,
-            "source": source_of(__file__),
-            "reference": f"{SHORT_NAME} version {VERSION} (every 200th shot, where "
-            "the beams' center lies within 1 deg of nadir)",
-            "period": f"{day:%Y-%m-%d}",
-            "platform": PLATFORM,
-            "holdout_gap_days": get_holdout_gap(day, FIT_DAY),
-            "metrics": [
-                {
-                    "name": name,
-                    "value": values[name],
-                    "scope": f"time step {time_step} s",
-                }
-                for time_step, values in results.items()
-                for name in ("segment_recall", "epoch_p95", "epoch_median")
-            ]
-            + [{"name": "beam_spacing_error_median", "value": spacing}],
-            "fixture_metrics": {
-                "passes_found": 100 * float(found.mean()),
-                "epoch_p95": float(summarize(fixture_differences[found])["p95"]),
-            },
+        source=source_of(__file__),
+        reference=f"{SHORT_NAME} version {VERSION} (every 200th shot, where "
+        "the beams' center lies within 1 deg of nadir)",
+        period=f"{day:%Y-%m-%d}",
+        platforms=[PLATFORM],
+        metrics=[
+            {
+                "name": name,
+                "value": values[name],
+                "scope": f"time step {time_step} s",
+            }
+            for time_step, values in results.items()
+            for name in ("segment_recall", "epoch_p95", "epoch_median")
+        ]
+        + [{"name": "beam_spacing_error_median", "value": spacing}],
+        fixture_metrics={
+            "passes_found": 100 * float(found.mean()),
+            "epoch_p95": float(summarize(fixture_differences[found])["p95"]),
         },
     )
     print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")

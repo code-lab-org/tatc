@@ -49,7 +49,6 @@ from validation_io import (
 )
 
 NORAD_ID = 39574
-FIT_DAY = datetime(2026, 10, 3, tzinfo=timezone.utc)
 # the element set of `ValidateConicalGMI` for the day of the fit, and a public element
 # set from CelesTrak, with an epoch after the day of data, for a later held-out day
 ELEMENTS = {
@@ -95,7 +94,6 @@ SETUP = Setup(
     reference="GPM_2ADPR version 08 (beam positions of the full swath)",
     published_reference="Footprints of the TC PRIMED documentation; beam positions "
     "of GPM_2ADPR version 08",
-    fit_day=FIT_DAY,
     time_steps=(10, 30, 120),
     pass_radius=10,
     point_spacing=100e3,

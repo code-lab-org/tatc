@@ -76,7 +76,7 @@ def get_swath(entry, key, orbit, platform, day, start, step, swept):
     """Gets the swath of a configuration over a segment at a time step."""
     satellite = entry.to_satellite(
         orbit,
-        key,
+        configuration=key,
         time_step=step,
         platform=platform,
         start=day,
@@ -95,8 +95,10 @@ def get_swath(entry, key, orbit, platform, day, start, step, swept):
         start + timedelta(seconds=step * (k + 0.5))
         for k in range(int(round(DURATION / step)))
     ]
-    grouping = str(entry.configurations[key].grouping)
-    index = None if grouping.endswith("union") else 0
+    configuration = entry.configurations[key]
+    index = (
+        None if configuration.grouping == "union" else configuration.instrument_index
+    )
     track = compute_ground_track(satellite, times, instrument_index=index)
     return None if track.empty else track.geometry.iloc[0]
 
