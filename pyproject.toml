@@ -123,7 +123,8 @@ validation = [
     "netcdf4",
     "pyhdf",
     "requests",
-    "scipy"
+    "scipy",
+    "xarray"
 ]
 
 [tool.setuptools.dynamic]
