@@ -1,6 +1,6 @@
 """
 Unit tests for summaries of the results of studies: the statistics of each
-design over its replicates (`aggregate` and `summarize`), its judgment by
+design over its replicates and their spreads (`summarize`), its judgment by
 criteria, and the probability that it is efficient (`pareto_probability`).
 
 @author Paul T. Grogan <paul.grogan@asu.edu>
@@ -18,7 +18,7 @@ from tatc.tradespace import (
     Probability,
     Quantile,
     Requirement,
-    aggregate,
+    StandardDeviation,
     pareto_probability,
     summarize,
 )
@@ -101,14 +101,14 @@ def _scenarios(values):
     )
 
 
-class TestAggregate(unittest.TestCase):
+class TestSummary(unittest.TestCase):
     """
-    Unit tests for aggregating results.
+    Unit tests for summaries of the statistics of designs.
     """
 
     def test_statistics(self):
-        """Statistics and design values are aggregated, without violations."""
-        frame = aggregate(
+        """Statistics and design values are summarized, without violations."""
+        frame = summarize(
             _results(),
             statistics={
                 "value": "value",
@@ -121,16 +121,33 @@ class TestAggregate(unittest.TestCase):
         self.assertEqual(frame.loc["c", "size"], "large")
         self.assertTrue((frame.replicates == 4).all())
         self.assertNotIn("violation", frame.columns)
-        self.assertEqual(list(aggregate(_results(), ["value"]).value), [13, 17.5, 1])
+        means = summarize(_results(), statistics=["value"])
+        self.assertEqual(list(means.value), [13, 17.5, 1])
         # a mapping of statistics by name is not one of objectives
         with self.assertRaisesRegex(ValueError, "statistics"):
-            aggregate(_results(), {"value": "value"})
+            summarize(_results(), {"value": "value"})
         with self.assertRaises(ValueError):
-            aggregate(_results())
+            summarize(_results())
+
+    def test_forms(self):
+        """Criteria are criteria or a mapping of directions, and statistics a
+        sequence or a mapping: metrics are given as statistics."""
+        for metrics in (["value"], "value"):
+            with self.subTest(metrics=metrics):
+                with self.assertRaisesRegex(TypeError, "statistics=\\['value'\\]"):
+                    summarize(_results(), metrics)
+        for single in ("value", Quantile("value", 0.5)):
+            with self.subTest(single=single):
+                with self.assertRaisesRegex(TypeError, "sequence"):
+                    summarize(_results(), statistics=single)
+                with self.assertRaisesRegex(TypeError, "sequence"):
+                    Criteria({"value": "max"}, statistics=single)
+        with self.assertRaisesRegex(TypeError, "statistics"):
+            pareto_probability(_results(), ["value"])
 
     def test_objectives(self):
         """A mapping of objectives are criteria of their means, with others."""
-        frame = aggregate(
+        frame = summarize(
             _results(),
             {"value": "max"},
             statistics={"value p25": Quantile("value", 0.25)},
@@ -140,14 +157,14 @@ class TestAggregate(unittest.TestCase):
         self.assertTrue(frame.meets_requirements.all())
         # statistics that the criteria name otherwise
         with self.assertRaisesRegex(ValueError, "otherwise"):
-            aggregate(
+            summarize(
                 _results(), {"value": "max"}, statistics={"value": Quantile("value", 1)}
             )
         # a statistic the criteria name the same way is not a clash
-        same = aggregate(_results(), {"value": "max"}, statistics={"value": "value"})
+        same = summarize(_results(), {"value": "max"}, statistics={"value": "value"})
         self.assertEqual(list(same.value), [13, 17.5, 1])
         # objectives grouped by a column
-        self.assertEqual(len(aggregate(_results(), {"value": "max"}, by="size")), 3)
+        self.assertEqual(len(summarize(_results(), {"value": "max"}, by="size")), 3)
 
     def test_criteria(self):
         """Criteria add the violations of their requirements, relative to them."""
@@ -159,7 +176,7 @@ class TestAggregate(unittest.TestCase):
                 Requirement("cost", "<=", 1.5),
             ],
         )
-        frame = aggregate(_results(), criteria).set_index("design")
+        frame = summarize(_results(), criteria, spread=False).set_index("design")
         self.assertEqual(
             list(frame.columns[-8:]),
             [
@@ -179,28 +196,28 @@ class TestAggregate(unittest.TestCase):
         # none meets the requirements, so that none is efficient
         self.assertEqual(list(frame.pareto), [False, False, False])
         with self.assertRaises(ValueError):
-            aggregate(_results(), criteria, by=["size"])
+            summarize(_results(), criteria, by=["size"])
 
     def test_requirement_on_metric(self):
         """A requirement on a metric is on its mean."""
         criteria = Criteria(
             {"value": "max"}, requirements=[Requirement("cost", "<=", 1)]
         )
-        frame = aggregate(_results(), criteria)
+        frame = summarize(_results(), criteria)
         self.assertIn("cost", frame.columns)
         self.assertEqual(list(frame.meets_requirements), [False, False, True])
         # a requirement on a metric that the results do not have
         missing = Criteria({"value": "max"}, requirements=[Requirement("w", ">=", 1)])
         with self.assertRaises(ValueError):
-            aggregate(_results(), missing)
+            summarize(_results(), missing)
 
     def test_statistics_of_names(self):
         """Statistics given by names are the means of the metrics, and other
         statistics are named by convention."""
-        summary = aggregate(_results(), {"value": "max"}, statistics=["cost"])
+        summary = summarize(_results(), {"value": "max"}, statistics=["cost"])
         self.assertEqual(list(summary.cost), [2.0, 2.0, 1.0])
         self.assertEqual(
-            list(aggregate(_results(), statistics=[Quantile("value", 0.25)]).columns)[
+            list(summarize(_results(), statistics=[Quantile("value", 0.25)]).columns)[
                 -3:
             ],
             ["value p25", "replicates", "feasible"],
@@ -211,20 +228,20 @@ class TestAggregate(unittest.TestCase):
         results = _results().assign(**{"P(value >= 10)": 0.5})
         statistic = Probability("value", ">=", 10)
         criteria = Criteria({"P(value >= 10)": "max"}, statistics=[statistic])
-        for function in (aggregate, summarize, pareto_probability):
+        for function in (summarize, pareto_probability):
             with self.subTest(function=function.__name__):
                 with self.assertRaisesRegex(ValueError, "P\\(value >= 10\\)"):
                     function(results, criteria)
         # the mean of the column, of its name
-        summary = aggregate(results, {"P(value >= 10)": "max"})
+        summary = summarize(results, {"P(value >= 10)": "max"})
         np.testing.assert_allclose(summary["P(value >= 10)"], 0.5)
         renamed = Criteria({"reliable": "max"}, statistics={"reliable": statistic})
         np.testing.assert_allclose(
-            aggregate(results, renamed).reliable, [1.0, 0.5, 0.0]
+            summarize(results, renamed).reliable, [1.0, 0.5, 0.0]
         )
         # nor do the columns that summaries add
         with self.assertRaisesRegex(ValueError, "value se"):
-            summarize(_results().assign(**{"value se": 1.0}), ["value"])
+            summarize(_results().assign(**{"value se": 1.0}), statistics=["value"])
         with self.assertRaisesRegex(ValueError, "value se"):
             pareto_probability(_results().assign(**{"value se": 1.0}), {"value": "max"})
 
@@ -232,15 +249,15 @@ class TestAggregate(unittest.TestCase):
         """Several records of an evaluation need the columns that separate them."""
         results = pd.concat([_results().assign(sensor=s) for s in ("x", "y")])
         with self.assertRaisesRegex(ValueError, r"by.*\['sensor'\]"):
-            aggregate(results, ["value"])
+            summarize(results, statistics=["value"])
         with self.assertRaisesRegex(ValueError, "sensor"):
             pareto_probability(results, {"value": "max"})
-        frame = aggregate(results, Criteria({"value": "max"}, by="sensor"))
+        frame = summarize(results, Criteria({"value": "max"}, by="sensor"))
         self.assertEqual(len(frame), 6)
-        self.assertEqual(len(summarize(results, ["value"], by="sensor")), 6)
+        self.assertEqual(len(summarize(results, statistics=["value"], by="sensor")), 6)
 
 
-class TestSummarize(unittest.TestCase):
+class TestSpreads(unittest.TestCase):
     """
     Unit tests for summaries with the spread of the means of metrics.
     """
@@ -255,10 +272,24 @@ class TestSummarize(unittest.TestCase):
         for column in ("value std", "value se", "pareto"):
             self.assertIn(column, summary.columns)
         self.assertNotIn("value p25 se", summary.columns)
+        # without spreads
+        plain = summarize(_results(), criteria, spread=False)
+        self.assertNotIn("value std", plain.columns)
+        self.assertNotIn("value se", plain.columns)
         grouped = summarize(_results(), {"value": "max"}, by="size")
         self.assertEqual(len(grouped), 3)
         with self.assertRaises(ValueError):
             summarize(_results(), Criteria({"value": "max"}), by="size")
+
+    def test_infinite_values(self):
+        """The spread of a metric with infinite values is missing, without warnings."""
+        results = _results().assign(time=np.inf)
+        results.loc[results.replicate == 0, "time"] = 4.0
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            summary = summarize(results, statistics=["time", StandardDeviation("time")])
+        self.assertTrue(np.isinf(summary["time"]).all())
+        self.assertTrue(summary["time std"].isna().all())
 
     def test_summarize_statistics(self):
         """Summaries take other statistics, with the spread of their means."""
@@ -266,42 +297,43 @@ class TestSummarize(unittest.TestCase):
         summary = summarize(results, {"value": "max"}, statistics=["cost"])
         for column in ("value", "value se", "cost", "cost std", "cost se", "pareto"):
             self.assertIn(column, summary.columns)
-        # each mean followed by its spread, without criteria
-        self.assertEqual(
-            list(summarize(results, ["value", "cost"]).columns[-8:]),
-            [
-                "value",
-                "value std",
-                "value se",
-                "cost",
-                "cost std",
-                "cost se",
-                "replicates",
-                "feasible",
-            ],
-        )
+        # each mean followed by its spread, with criteria or without
+        followed = [
+            "value",
+            "value std",
+            "value se",
+            "cost",
+            "cost std",
+            "cost se",
+            "replicates",
+            "feasible",
+        ]
+        alone = summarize(results, statistics=["value", "cost"])
+        self.assertEqual(list(alone.columns[-8:]), followed)
+        judged = summarize(results, {"value": "max", "cost": "min"})
+        self.assertEqual(list(judged.columns[-11:-3]), followed)
 
     def test_constant_spreads(self):
         """The spreads of metrics that are the same in every replicate of each
         design are left out."""
-        summary = summarize(_results(), ["value", "cost"])
+        summary = summarize(_results(), statistics=["value", "cost"])
         self.assertNotIn("cost std", summary.columns)
         self.assertNotIn("cost se", summary.columns)
         spread = summary.set_index("design")[["value std", "value se"]]
         np.testing.assert_allclose(spread.loc["c"].to_numpy(dtype=float), 0.0)
         # of designs of one replicate, as of summaries without designs
-        single = summarize(_results()[_results().replicate == 0], ["value"])
+        single = summarize(_results()[_results().replicate == 0], statistics=["value"])
         self.assertNotIn("value se", single.columns)
-        empty = summarize(_results().iloc[:0], ["value"])
+        empty = summarize(_results().iloc[:0], statistics=["value"])
         self.assertIn("value se", empty.columns)
-        # as are the standard errors of the bootstrap
+        # as are those of the probabilities of efficiency
         probability = pareto_probability(_results(), {"cost": "min", "value": "max"})
         self.assertNotIn("cost se", probability.columns)
         self.assertIn("value se", probability.columns)
 
     def test_spread_of_worst(self):
         """Across groups, the spread of the worst is that of its group, as
-        is the standard error of the bootstrap."""
+        the probabilities of efficiency give it."""
         results = _scenarios({"a": [10] * 8, "b": [5, 9] * 4})
         worst = Criteria({"v": "max"}, across=Across())
         summary = summarize(results, worst).iloc[0]
@@ -309,11 +341,9 @@ class TestSummarize(unittest.TestCase):
         self.assertEqual(summary.v, 7.0)
         self.assertAlmostEqual(summary["v std"], b.std())
         self.assertAlmostEqual(summary["v se"], b.std() / np.sqrt(8))
-        bootstrap = pareto_probability(results, worst, n_resamples=2000)
-        # the bootstrap's standard deviation, of n rather than n - 1 replicates
-        self.assertAlmostEqual(
-            bootstrap["v se"].iloc[0], b.std(ddof=0) / np.sqrt(8), delta=0.05
-        )
+        probability = pareto_probability(results, worst, n_resamples=50).iloc[0]
+        self.assertAlmostEqual(probability["v std"], b.std())
+        self.assertAlmostEqual(probability["v se"], b.std() / np.sqrt(8))
 
     def test_spread_of_mean(self):
         """Across groups, the spread of a weighted mean is that of the
@@ -331,10 +361,8 @@ class TestSummarize(unittest.TestCase):
         self.assertAlmostEqual(summary.v, combined.mean())
         self.assertAlmostEqual(summary["v std"], combined.std())
         self.assertAlmostEqual(summary["v se"], combined.std() / np.sqrt(30))
-        bootstrap = pareto_probability(paired, mean, n_resamples=2000)
-        self.assertAlmostEqual(
-            bootstrap["v se"].iloc[0] / summary["v se"], 1.0, delta=0.1
-        )
+        probability = pareto_probability(paired, mean, n_resamples=50)
+        self.assertAlmostEqual(probability["v se"].iloc[0], summary["v se"])
         # replicates that no other group shares: independent groups
         independent = paired.assign(
             replicate=paired.replicate + 100 * (paired.scenario == "s2")
@@ -367,7 +395,7 @@ class TestFeasibility(unittest.TestCase):
         """Designs are judged by their feasible replicates, of which
         `replicates` is the number and `feasible` the share; designs without a
         feasible replicate are left out."""
-        summary = aggregate(_partly_infeasible(), {"cost": "min", "value": "max"})
+        summary = summarize(_partly_infeasible(), {"cost": "min", "value": "max"})
         summary = summary.set_index("design")
         self.assertEqual(list(summary.index), ["a", "b"])
         self.assertEqual(summary.loc["b", "value"], 20)
@@ -387,7 +415,7 @@ class TestFeasibility(unittest.TestCase):
             {"cost": "min", "value": "max"},
             requirements=[Requirement("feasible", ">=", 1)],
         )
-        summary = aggregate(_partly_infeasible(), every).set_index("design")
+        summary = summarize(_partly_infeasible(), every).set_index("design")
         self.assertEqual(list(summary.feasible), [1.0, 0.5])
         self.assertEqual(list(summary.meets_requirements), [True, False])
         self.assertAlmostEqual(summary.loc["b", "violation"], 0.5)
@@ -396,7 +424,7 @@ class TestFeasibility(unittest.TestCase):
             {"cost": "min", "value": "max"},
             requirements=[Requirement("feasible", ">=", 0.5)],
         )
-        summary = aggregate(_partly_infeasible(), half)
+        summary = summarize(_partly_infeasible(), half)
         self.assertTrue(summary.meets_requirements.all())
         # its spread is not summarized
         summary = summarize(_partly_infeasible(), every)
@@ -416,7 +444,7 @@ class TestFeasibility(unittest.TestCase):
             ],
             ignore_index=True,
         )
-        summary = aggregate(records, ["value"], by="sensor")
+        summary = summarize(records, statistics=["value"], by="sensor")
         summary = summary.set_index(["sensor", "design"])
         self.assertEqual(summary.loc[("y", "b"), "value"], 21)
         self.assertEqual(summary.loc[("x", "b"), "feasible"], 0.5)
@@ -440,7 +468,7 @@ class TestFeasibility(unittest.TestCase):
                     requirements=[Requirement("feasible", ">=", 0.7)],
                     across=Across(rule=rule),
                 )
-                summary = aggregate(results, criteria).set_index("design")
+                summary = summarize(results, criteria).set_index("design")
                 self.assertEqual(list(summary.index), ["a", "b"])
                 self.assertEqual(summary.loc["b", "feasible"], 0.75)
                 self.assertEqual(summary.loc["b", "replicates"], 2)
@@ -452,9 +480,9 @@ class TestFeasibility(unittest.TestCase):
         infeasible = results[results.design == "c"].drop(columns=["cost", "value"])
         criteria = Criteria({"cost": "min", "value": "max"}, by="size")
         for summary in (
-            aggregate(infeasible, {"cost": "min", "value": "max"}),
-            aggregate(infeasible.assign(size=1), criteria),
-            aggregate(infeasible.iloc[:0], {"cost": "min", "value": "max"}),
+            summarize(infeasible, {"cost": "min", "value": "max"}),
+            summarize(infeasible.assign(size=1), criteria),
+            summarize(infeasible.iloc[:0], {"cost": "min", "value": "max"}),
         ):
             self.assertTrue(summary.empty)
             self.assertEqual(
@@ -464,13 +492,13 @@ class TestFeasibility(unittest.TestCase):
             # of the types of their columns, which select rows
             self.assertEqual(summary.pareto.dtype, bool)
             self.assertTrue(summary[summary.pareto].empty)
-        self.assertTrue(aggregate(infeasible, ["value"]).empty)
+        self.assertTrue(summarize(infeasible, statistics=["value"]).empty)
         across = Criteria({"cost": "min", "value": "max"}, across=Across(rule="mean"))
         scenarios = pd.concat(
             [_partly_infeasible("s1"), _partly_infeasible("s2")], ignore_index=True
         )
-        self.assertEqual(len(aggregate(scenarios, across)), 2)
-        self.assertTrue(aggregate(scenarios.iloc[:0], across).empty)
+        self.assertEqual(len(summarize(scenarios, across)), 2)
+        self.assertTrue(summarize(scenarios.iloc[:0], across).empty)
 
 
 class TestParetoProbability(unittest.TestCase):
@@ -528,10 +556,6 @@ class TestParetoProbability(unittest.TestCase):
         probability = pareto_probability(results, {"cost": "min", "value": "max"})
         self.assertEqual(list(probability["size"]), ["small", "large"])
         self.assertNotIn("seed", probability.columns)
-        bare = pareto_probability(
-            results, {"cost": "min", "value": "max"}, design_columns=[]
-        )
-        self.assertNotIn("size", bare.columns)
 
     def test_quantile_objective(self):
         """A pessimistic objective prefers the design with less spread."""
@@ -581,7 +605,8 @@ class TestParetoProbability(unittest.TestCase):
         )
 
     def test_standard_errors(self):
-        """The bootstrap gives the standard error of each objective."""
+        """The standard error of an objective that is a mean is that of
+        summaries, and that of others that of the bootstrap."""
         rng = np.random.default_rng(0)
         results = pd.DataFrame(
             [
@@ -597,14 +622,28 @@ class TestParetoProbability(unittest.TestCase):
             ]
         )
         probability = pareto_probability(
-            results, {"x": "min", "y": "max"}, n_resamples=2000
+            results, {"x": "min", "y": "max"}, n_resamples=50
         )
         # x is the same in every replicate of each design
         self.assertNotIn("x se", probability.columns)
-        expected = results.groupby("design").y.std(ddof=0) / np.sqrt(40)
-        np.testing.assert_allclose(
-            probability.set_index("design")["y se"], expected, rtol=0.15
+        summary = summarize(results, {"x": "min", "y": "max"})
+        for column in ("y std", "y se"):
+            np.testing.assert_allclose(probability[column], summary[column])
+        # the standard deviation of the 0.2 quantile over the resamples
+        quantile = Criteria(
+            {"x": "min", "y p20": "max"}, statistics=[Quantile("y", 0.2)]
         )
+        probability = pareto_probability(results, quantile, n_resamples=2000)
+        self.assertEqual(
+            list(probability.columns[1:5]), ["x", "y p20", "y p20 se", "replicates"]
+        )
+        # about that of a normal distribution of a standard deviation of 2:
+        # sqrt(q (1 - q) / n) over the density at the quantile (of a sample)
+        z = -0.8416
+        density = np.exp(-(z**2) / 2) / np.sqrt(2 * np.pi) / 2
+        expected = np.sqrt(0.2 * 0.8 / 40) / density
+        ratio = probability["y p20 se"].to_numpy() / expected
+        self.assertTrue(((ratio > 0.4) & (ratio < 2.5)).all(), ratio)
 
     def test_resamples_share_replicates(self):
         """A bootstrap draws each replicate in every scenario at once."""

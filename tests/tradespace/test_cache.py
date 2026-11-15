@@ -217,13 +217,18 @@ class TestSatelliteCache(unittest.TestCase):
                     namespace=namespace,
                     context=context,
                 )
-            contexts = SatelliteCache.contexts(directory)
+            # pylint: disable-next=protected-access
+            contexts = SatelliteCache._contexts(directory)
             self.assertEqual(contexts, {"x": (3, EPOCH), "y": None, "z": {"seed": 1}})
             # a context that cannot be read is none
             for path in Path(directory).rglob("context.json"):
                 path.write_text("{")
-            self.assertEqual(set(SatelliteCache.contexts(directory).values()), {None})
-        self.assertEqual(SatelliteCache.contexts(directory), {})  # removed
+            found = SatelliteCache._contexts(
+                directory
+            )  # pylint: disable=protected-access
+            self.assertEqual(set(found.values()), {None})
+        found = SatelliteCache._contexts(directory)  # pylint: disable=protected-access
+        self.assertEqual(found, {})  # removed
         with self.assertRaises(TypeError):
             SatelliteCache(  # pylint: disable=too-many-function-args
                 self.analysis, directory
@@ -265,7 +270,7 @@ class TestSatelliteCache(unittest.TestCase):
     def test_pickled_cache_is_empty(self):
         """Copies of a cache (as sent to workers) start without results."""
         cache = SatelliteCache(_name)
-        cache.get(_satellite("a"))
+        cache(_satellite("a"))
         copy = pickle.loads(pickle.dumps(cache))
         self.assertEqual(copy._memory, {})  # pylint: disable=protected-access
         cache.clear_memory()

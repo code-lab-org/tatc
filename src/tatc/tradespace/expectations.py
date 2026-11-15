@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .failures import FailureModel
-from .mission import PHASE_COLUMNS, Capability
+from .mission import _PHASE_COLUMNS, Capability, _position_names
 
 if TYPE_CHECKING:
     from .deployment import Deployment
@@ -181,8 +181,8 @@ def exact_expectations(
     of their design life) over its failures: the expectation of the mean of
     each metric over the phases of the mission (`<metric> mission`, as
     `summarize_phases` gives for one history) and of its availability
-    (`availability`), exactly rather than from samples of histories (as
-    `Deployment.expected_metrics` estimates the measures of missions).
+    (`availability`), exactly rather than from samples of histories (see
+    `Deployment.simulate_many`).
 
     Without restoration, the satellites fail independently (but for the
     satellites of a launch, which a failed launch loses together), so that
@@ -238,7 +238,7 @@ def exact_expectations(
             "exact expectations need a deployment whose policy does not restore "
             + "failures (RestorationPolicy(restore=False)): simulate histories instead"
         )
-    names = list(capability.position_names(deployment.planes).values())
+    names = list(_position_names(deployment.planes, capability.names).values())
     count, groups = _launch_groups(deployment, model, _times(deployment, steps))
     levels = _missing_levels(groups, count, tolerance)
     if _sets(count, levels) > max_sets:
@@ -270,7 +270,7 @@ def exact_expectations(
     for weight, members in weights:
         # the metrics of the set, as of a phase in which it operates
         for name, value in capability(names[k] for k in members).items():
-            if name in PHASE_COLUMNS:
+            if name in _PHASE_COLUMNS:
                 continue
             totals[f"{name} mission"] = totals.get(
                 f"{name} mission", 0.0

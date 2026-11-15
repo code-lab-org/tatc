@@ -4,7 +4,7 @@ designs, Pareto ranks, and the hypervolume of a set of designs (and of the
 designs of a search as it proceeds).
 
 Designs are judged by criteria (see `Criteria`): objectives (columns of a
-data frame, such as the statistics of a summary of a study, see `aggregate`)
+data frame, such as the statistics of a summary of a study, see `summarize`)
 to minimize or maximize, requirements that efficient designs meet, the
 tolerances of the objectives, and the groups in which designs are judged
 separately. A mapping of objectives to their directions (`"min"` or
@@ -12,7 +12,7 @@ separately. A mapping of objectives to their directions (`"min"` or
 objective (`NaN`, such as a statistic of a metric that none of its feasible
 replicates gives) is not efficient, and dominates no other. The probability
 that a design is efficient, given the uncertainty of its replicates, is that
-of `pareto_probability` (of the summaries of studies, see `aggregate`).
+of `pareto_probability` (of the summaries of studies, see `summarize`).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -24,21 +24,28 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria
+from .criteria import (
+    Criteria,
+    _as_criteria,
+    _costs,
+    _signs,
+    _tolerances,
+    _violation,
+)
 from .dominance import dominated, efficient
-from .summary import aggregate
+from .summary import _summarize
 from .tables import check_summary, groups
 
 
 def _get_costs(frame: pd.DataFrame, criteria: Criteria) -> np.ndarray:
     """
     Gets the objectives of criteria of a data frame (of their columns) as
-    costs (to minimize, see `Criteria.costs`).
+    costs (to minimize, see `Criteria._costs`).
     """
     missing = [column for column in criteria.objectives if column not in frame]
     if missing:
         raise ValueError(f"no columns of the objectives {missing}")
-    return criteria.costs(frame)
+    return _costs(criteria, frame)
 
 
 def _get_violation(frame: pd.DataFrame, criteria: Criteria) -> np.ndarray:
@@ -50,10 +57,10 @@ def _get_violation(frame: pd.DataFrame, criteria: Criteria) -> np.ndarray:
     missing = [r.name for r in criteria.requirements if r.name not in frame.columns]
     if missing:
         raise ValueError(
-            f"no columns of the statistics {missing} of requirements: aggregate "
-            + "the results with the criteria (see aggregate)"
+            f"no columns of the statistics {missing} of requirements: summarize "
+            + "the results with the criteria (see summarize)"
         )
-    violation = criteria.violation(frame, len(frame))
+    violation = _violation(criteria, frame, len(frame))
     return np.where(np.isnan(violation), np.inf, violation)
 
 
@@ -62,14 +69,14 @@ def pareto_front(
 ) -> pd.Series:
     """
     Finds the Pareto-efficient (non-dominated) rows of a summary of designs
-    (a row per design, such as of `aggregate`, not the results of a study,
+    (a row per design, such as of `summarize`, not the results of a study,
     which have a row per replicate): those that meet
     the requirements of the criteria (by the columns of their statistics)
     and that no other row that meets them dominates, being no worse in every
     objective and better in at least one, in each group of the criteria's
     `by`. Rows with the same objectives are all efficient if any is, and a
     row with a missing objective (`NaN`) is not. Summaries of criteria give
-    whether each design is efficient already (`pareto`, see `aggregate`).
+    whether each design is efficient already (`pareto`, see `summarize`).
 
     With a tolerance of an objective (see `Criteria`), a row dominates
     another only if it would still dominate it if it were worse by the
@@ -94,14 +101,14 @@ def pareto_front(
         ValueError: if the summary has several rows of a design (in a group
             of the criteria's `by`), as the results of a study do.
     """
-    criteria = Criteria.of(criteria)
+    criteria = _as_criteria(criteria)
     check_summary(summary, criteria.by)
     front = np.zeros(len(summary), dtype=bool)
     for _, positions in groups(summary, criteria.by):
         group = summary.iloc[positions]
         meets = _get_violation(group, criteria) == 0
         costs = _get_costs(group, criteria)
-        front[positions] = efficient(costs, meets, criteria.tolerance_array)
+        front[positions] = efficient(costs, meets, _tolerances(criteria))
     return pd.Series(front, index=summary.index, name="pareto")
 
 
@@ -130,9 +137,9 @@ def pareto_ranks(
         ValueError: if the summary has several rows of a design (in a group
             of the criteria's `by`), as the results of a study do.
     """
-    criteria = Criteria.of(criteria)
+    criteria = _as_criteria(criteria)
     check_summary(summary, criteria.by)
-    tolerances = criteria.tolerance_array
+    tolerances = _tolerances(criteria)
     ranks = np.full(len(summary), -1, dtype=int)
     for _, positions in groups(summary, criteria.by):
         group = summary.iloc[positions]
@@ -219,7 +226,7 @@ def hypervolume(
             results of a study do (see `hypervolume_progress` for those of a
             search).
     """
-    criteria = Criteria.of(criteria)
+    criteria = _as_criteria(criteria)
     if criteria.by:
         raise ValueError(
             "a hypervolume is of the rows of one group: give criteria without `by`"
@@ -230,7 +237,7 @@ def hypervolume(
         reference = [reference[column] for column in objectives]
     if len(reference) != len(objectives):
         raise ValueError("the reference point needs a value for each objective")
-    bound = criteria.signs * np.asarray(reference, dtype=float)
+    bound = _signs(criteria) * np.asarray(reference, dtype=float)
     if len(summary) == 0:
         return 0.0
     summary = summary[_get_violation(summary, criteria) == 0]
@@ -251,7 +258,7 @@ def hypervolume_progress(
     optimizer, see `optimize_optuna`) as it proceeds: of the first designs
     evaluated (in the order of their first records in the results of the
     search), judged by their statistics over their replicates (see
-    `aggregate`), in steps of `step` designs (and of all of them).
+    `summarize`), in steps of `step` designs (and of all of them).
 
     Args:
         results (pandas.DataFrame): The results of the search (see
@@ -267,8 +274,9 @@ def hypervolume_progress(
     """
     if step < 1:
         raise ValueError("step must be at least 1")
-    criteria = Criteria.of(criteria)
-    summary = aggregate(results, criteria).set_index("design")
+    criteria = _as_criteria(criteria)
+    summary = _summarize(results, criteria, design_values=False)
+    summary = summary.set_index("design")
     order = results["design"].drop_duplicates().tolist()
     counts = list(range(step, len(order) + 1, step))
     if order and (not counts or counts[-1] != len(order)):

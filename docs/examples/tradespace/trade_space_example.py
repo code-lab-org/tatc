@@ -82,6 +82,11 @@ def count_samples(observations, duration=DURATION):
     return {"sufficient": 100 * (samples >= threshold).sum() / N_POINTS}
 
 
+def describe(d):
+    """A short description of a design: its altitude, field of regard, and layout."""
+    return f"{d.altitude / 1e3:.0f} km, {d.field_of_regard} deg FOR, {layout_of(d.layout).describe()}"
+
+
 CACHE_DIRECTORY = Path(tempfile.gettempdir()) / "tatc-trade-space"
 # the points of each replicate: a lattice in a random orientation, from its seed
 TARGETS = Targets(
@@ -97,13 +102,9 @@ study = ObservationStudy(
     replicates=N_REPLICATES,
     n_jobs=-1,
     store=ResultStore(CACHE_DIRECTORY / "results.sqlite"),
+    describe=describe,  # a description column in the results
 )
 OBJECTIVES = {"satellites": "min", "planes": "min", "sufficient": "max"}
-
-
-def describe(d):
-    """A short description of a design: its altitude, field of regard, and layout."""
-    return f"{d.altitude / 1e3:.0f} km, {d.field_of_regard} deg FOR, {layout_of(d.layout).describe()}"
 
 
 def planes_name(planes):
@@ -164,8 +165,8 @@ SCHEDULE = DeploymentSchedule(
 )
 COST_MODEL = CostModel(
     satellites={
-        30: SatelliteCost(development=40, first_unit=12, learning_rate=0.9, mass=60),
-        60: SatelliteCost(development=60, first_unit=18, learning_rate=0.9, mass=90),
+        30: SatelliteCost(development=40, first_unit=12, learning_rate=0.9),
+        60: SatelliteCost(development=60, first_unit=18, learning_rate=0.9),
     },
     launch=LaunchCost(per_launch=8),
     operations=OperationsCost(per_year=3, per_satellite_year=0.5),

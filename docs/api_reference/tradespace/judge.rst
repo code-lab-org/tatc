@@ -9,13 +9,12 @@ Criteria, Statistics, and Requirements
    :no-members:
 
 .. autoclass:: tatc.tradespace.Criteria
-   :members: names, metrics, statistic, resolved, of, signs, costs, violation, combiners, tolerance_array
+   :members: names, metrics
 
 .. autoclass:: tatc.tradespace.Requirement
    :members: met, violation
 
 .. autoclass:: tatc.tradespace.Across
-   :members: weights_of
 
 .. automodule:: tatc.tradespace.statistics
    :no-members:
@@ -23,8 +22,6 @@ Criteria, Statistics, and Requirements
 .. autoclass:: tatc.tradespace.Mean
 
 .. autoclass:: tatc.tradespace.StandardDeviation
-
-.. autoclass:: tatc.tradespace.StandardError
 
 .. autoclass:: tatc.tradespace.Minimum
 
@@ -35,15 +32,13 @@ Criteria, Statistics, and Requirements
 .. autoclass:: tatc.tradespace.Probability
 
 .. autoclass:: tatc.tradespace.Statistic
-   :members: name, metric, reduce, columns, values_of
+   :members: name, metric, reduce
 
 Summaries
 =========
 
 .. automodule:: tatc.tradespace.summary
    :no-members:
-
-.. autofunction:: tatc.tradespace.aggregate
 
 .. autofunction:: tatc.tradespace.summarize
 

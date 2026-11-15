@@ -83,13 +83,12 @@ class _Context:
     decides a variable, `draw(path, node)` draws an uncertain parameter (or
     `None` for nominal values), `fix(path, node)` gives a fixed value (or
     `None` for its value), and `check` enables constraints. If given,
-    `record(path, domain, value)` is called with every decision, chosen or
-    prescribed, and `normalize(path, domain, value)` gives the value of the
-    domain that a prescribed decision is (such as its level, see
-    `_level_of`). With an `odometer` (of an enumeration), the items of
-    unordered repetitions are only walked in the order of their levels. A
-    walk of the decisions of a design (`canonical`), whose unordered items
-    are in order, does not sort them again.
+    `normalize(path, domain, value)` gives the value of the domain that a
+    prescribed decision is (such as its level, see `_level_of`). With an
+    `odometer` (of an enumeration), the items of unordered repetitions are
+    only walked in the order of their levels. A walk of the decisions of a
+    design (`canonical`), whose unordered items are in order, does not sort
+    them again.
     """
 
     # pylint: disable=too-many-instance-attributes
@@ -99,7 +98,6 @@ class _Context:
         choose: Callable[[str, _Domain], Any] | None = None,
         draw: Callable[[str, Uncertain], Any] | None = None,
         check: bool = True,
-        record: Callable[[str, _Domain, Any], None] | None = None,
         odometer: _Odometer | None = None,
         fix: Callable[[str, Fixed], Any] | None = None,
         normalize: Callable[[str, _Domain, Any], Any] | None = None,
@@ -108,7 +106,7 @@ class _Context:
         # pylint: disable=too-many-arguments,too-many-positional-arguments
         self.choose, self.draw, self.check = choose, draw, check
         self.fix, self.normalize = fix, normalize
-        self.record, self.odometer = record, odometer
+        self.odometer = odometer
         self.canonical = canonical
         self.ranks: list[list[float]] = []
         """The ranks of the decisions of the unordered items being walked
@@ -125,8 +123,6 @@ class _Context:
             value = self.normalize(path, domain, prescribed)
         else:
             value = prescribed
-        if self.record is not None:
-            self.record(path, domain, value)
         if self.ranks:
             rank = _rank(domain, value)
             for ranks in self.ranks:
@@ -168,12 +164,7 @@ def _walk(
     if prescribed is _FIRST:
         ctx, prescribed = ctx.first(), _ABSENT
     if isinstance(node, Variable):
-        if (
-            prescribed is not _ABSENT
-            and ctx.record is None
-            and ctx.normalize is None
-            and not ctx.ranks
-        ):
+        if prescribed is not _ABSENT and ctx.normalize is None and not ctx.ranks:
             return prescribed, prescribed
         value = ctx.decide(path, node.domain(scope), prescribed)
         return value, value
@@ -551,7 +542,7 @@ def _decided(values: Mapping[str, Any], path: str, domain: _Domain) -> Any:
     if _missing(value):
         raise ValueError(
             f"no value of {path}: rebuild designs from the results of a study, or "
-            + "from a summary that keeps the values of designs (see aggregate)"
+            + "from a summary that keeps the values of designs (see summarize)"
         )
     return _level_of(path, domain, value)
 
@@ -563,7 +554,7 @@ def _decided(values: Mapping[str, Any], path: str, domain: _Domain) -> Any:
 
 def _unit_paths(node: Node, path: str) -> list[str]:
     """
-    Gets the paths of the decisions of a node (see `DesignSpace.unit_paths`).
+    Gets the paths of the decisions of a node (see `DesignSpace._unit_paths`).
     """
     if isinstance(node, Variable):
         return [path]

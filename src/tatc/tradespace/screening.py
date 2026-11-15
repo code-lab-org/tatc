@@ -15,11 +15,11 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from .criteria import Criteria
+from .criteria import Criteria, _as_criteria
 from .pareto import pareto_ranks
 from .space import Design, _designs
 from .study import Study
-from .summary import aggregate
+from .summary import _summarize
 
 
 @dataclass
@@ -36,30 +36,28 @@ class Screening:
         refinement = refine(full, criteria, screening.results, screening.designs)
 
     The results and summaries of every stage are kept as well (`history` and
-    `summaries`).
+    `summaries`, with the `stage` of each row).
     """
 
     results: pd.DataFrame
     """pandas.DataFrame: The results of the last stage (see `Study.run`)."""
+    summary: pd.DataFrame
+    """pandas.DataFrame: The summary of the designs of the last stage (a row
+    of `summaries`)."""
+    designs: list[Design]
+    """list[Design]: The designs that survive every stage (those the last
+    stage analyzes), for the next step."""
     criteria: Criteria
     """Criteria: The criteria of the last stage."""
     history: pd.DataFrame = field(default_factory=pd.DataFrame)
     """pandas.DataFrame: The results of every stage, with the `stage` (0 for
     the first), such as for the cost of the screening."""
-    summaries: list[pd.DataFrame] = field(default_factory=list)
-    """list[pandas.DataFrame]: For each stage, the summary of its designs
-    (see `aggregate`, with whether each is efficient by the stage's
-    analysis, `pareto`), with their Pareto rank (`pareto_rank`, see
-    `pareto_ranks`), whether they were `kept` for the next stage, and the
-    `stage`."""
-    designs: list[Design] = field(default_factory=list)
-    """list[Design]: The designs that survive every stage (those the last
-    stage analyzes), for the next step."""
-
-    @property
-    def summary(self) -> pd.DataFrame:
-        """pandas.DataFrame: The summary of the last stage."""
-        return self.summaries[-1]
+    summaries: pd.DataFrame = field(default_factory=pd.DataFrame)
+    """pandas.DataFrame: The summaries of the designs of every stage (see
+    `summarize`, with whether each is efficient by the stage's analysis,
+    `pareto`), with their Pareto rank (`pareto_rank`, see `pareto_ranks`),
+    whether they were `kept` for the next stage, and the `stage` (0 for the
+    first)."""
 
 
 def _per_stage(value, count: int, name: str) -> list:
@@ -158,10 +156,10 @@ def screen(
     for amount in keeps:
         _check_keep(amount)
     if isinstance(criteria, (Criteria, Mapping)):
-        stages = [Criteria.of(criteria)] * len(studies)
+        stages = [_as_criteria(criteria)] * len(studies)
     else:
         stages = [
-            Criteria.of(c) for c in _per_stage(criteria, len(studies), "criteria")
+            _as_criteria(c) for c in _per_stage(criteria, len(studies), "criteria")
         ]
     for criteria in stages:
         if criteria.by:
@@ -175,7 +173,7 @@ def screen(
         criteria = stages[stage]
         results = study.run(current)
         frames.append(results.assign(stage=stage))
-        summary = aggregate(results, criteria)
+        summary = _summarize(results, criteria)
         summary["pareto_rank"] = pareto_ranks(summary, criteria)
         if stage < transitions:
             amount = keeps[stage]
@@ -194,8 +192,9 @@ def screen(
         summaries.append(summary.assign(stage=stage))
     return Screening(
         results=results,
+        summary=summaries[-1],
+        designs=current,
         criteria=criteria,
         history=pd.concat(frames, ignore_index=True),
-        summaries=summaries,
-        designs=current,
+        summaries=pd.concat(summaries, ignore_index=True),
     )

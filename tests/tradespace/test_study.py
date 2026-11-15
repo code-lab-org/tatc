@@ -190,7 +190,7 @@ class TestStudy(unittest.TestCase):
     def test_summarize(self):
         """Summaries give the mean and spread of metrics over replicates."""
         results = self._noise_study().run()
-        summary = summarize(results, ["score"])
+        summary = summarize(results, statistics=["score"])
         self.assertEqual(len(summary), 9)
         self.assertIn("planes", summary.columns)
         self.assertNotIn("noise", summary.columns)
@@ -201,7 +201,7 @@ class TestStudy(unittest.TestCase):
         self.assertAlmostEqual(summary["score se"][0], first.score.std() / np.sqrt(3))
         self.assertNotIn("score sem", summary.columns)
         # a metric may also be a value of the design
-        overlap = summarize(results, ["score", "planes"], design_columns=["planes"])
+        overlap = summarize(results, statistics=["score", "planes"])
         self.assertEqual(list(overlap.columns).count("planes"), 1)
 
     def test_replace_and_frames(self):
@@ -222,7 +222,7 @@ class TestStudy(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "no arguments"):
             study.replace(replicate=3)
         # designs given by a data frame of their values (such as a summary)
-        summary = summarize(results, ["score"])
+        summary = summarize(results, statistics=["score"])
         best = summary.nlargest(2, "score")
         again = study.run(best)
         self.assertEqual(list(again.design.unique()), list(best.design))
@@ -239,7 +239,7 @@ class TestStudy(unittest.TestCase):
             ).set_index("sensor"),
             replicates=2,
         )
-        summary = summarize(study.run(), ["value"], by=["sensor"])
+        summary = summarize(study.run(), statistics=["value"], by=["sensor"])
         self.assertEqual(len(summary), 18)
         b = summary[(summary.sensor == "b") & (summary.planes == 3)]
         self.assertTrue((b.value == 6).all())
@@ -658,3 +658,109 @@ class TestWarningLocation(unittest.TestCase):
         with self.assertWarnsRegex(UserWarning, "none of the 2 designs") as context:
             study.run()
         self.assertEqual(Path(context.filename).resolve(), Path(__file__).resolve())
+
+
+class TestDescriptions(unittest.TestCase):
+    """
+    Unit tests for the descriptions of designs in the results of studies.
+    """
+
+    def setUp(self):
+        self.space = DesignSpace(
+            planes=Integer(1, 2),
+            per_plane=Integer(1, 2),
+            noise=Uncertain.uniform(0, 1),
+        )
+        self.calls = []
+
+        def describe(d):
+            self.calls.append(d.key)
+            return f"{d.planes} x {d.per_plane}"
+
+        self.describe = describe
+
+    def _study(self, **options):
+        return Study(
+            self.space,
+            lambda d: d,
+            lambda d: {"satellites": d.planes * d.per_plane, "score": d.noise},
+            replicates=3,
+            describe=self.describe,
+            **options,
+        )
+
+    def test_column(self):
+        """A description of each design follows its values, given once per design
+        (of the design, not its replicates), and summaries keep it."""
+        results = self._study().run()
+        columns = list(results.columns)
+        self.assertEqual(columns.index("description"), columns.index("feasible") - 1)
+        self.assertEqual(columns.index("description"), columns.index("noise") + 1)
+        labels = [f"{p} x {s}" for p in (1, 2) for s in (1, 2)]
+        self.assertEqual(list(results.description), [x for x in labels for _ in "abc"])
+        self.assertEqual(len(self.calls), 4)
+        summary = summarize(results, {"satellites": "min", "score": "max"})
+        self.assertEqual(list(summary.description), labels)
+        # without a function, no descriptions
+        self.assertNotIn("description", self._study().replace(describe=None).run())
+        with self.assertRaises(TypeError):
+            self._study().replace(describe="planes")
+
+    def test_not_stored(self):
+        """Descriptions are not stored, nor part of the fingerprint, so that
+        another function needs no new evaluations."""
+        with tempfile.TemporaryDirectory() as directory:
+            store = ResultStore(Path(directory) / "results.sqlite")
+            study = self._study(store=store)
+            first = study.run()
+            other = study.replace(describe=lambda d: f"{d.planes} planes")
+            self.assertEqual(other.fingerprint, study.fingerprint)
+            progress = []
+            again = other.run(progress=lambda done, total: progress.append(done))
+            self.assertEqual(progress, [])  # every evaluation from the store
+            self.assertEqual(list(again.description.unique()), ["1 planes", "2 planes"])
+            pd.testing.assert_frame_equal(
+                again.drop(columns="description"), first.drop(columns="description")
+            )
+            records = store._get(  # pylint: disable=protected-access
+                [(key, 0) for key in first.design.unique()], study.fingerprint
+            )
+            self.assertEqual(len(records), 4)
+            self.assertTrue(
+                all("description" not in r for rs in records.values() for r in rs)
+            )
+
+    def test_other_spaces_and_scenarios(self):
+        """Designs of another design space are described as designs of the
+        study's, in each scenario."""
+        extended = self.space.extend(limit=Fixed(1))
+        study = self._study().replace(
+            space=extended, scenarios={"a": {}, "b": {"limit": 2}}
+        )
+        results = study.run(self.space.enumerate()[:2])
+        self.assertEqual(list(results.description.unique()), ["1 x 1", "1 x 2"])
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(list(results.columns[:3]), ["design", "replicate", "scenario"])
+
+    def test_names(self):
+        """Metrics and values may not be named as the descriptions."""
+        study = Study(
+            self.space,
+            lambda d: d,
+            lambda d: {"description": "a metric"},
+            describe=self.describe,
+        )
+        with self.assertRaisesRegex(ValueError, "description"):
+            study.run()
+        # but may without descriptions
+        self.assertIn("description", study.replace(describe=None).run())
+        with self.assertRaisesRegex(ValueError, "named 'description'"):
+            self._study().replace(space=self.space.extend(description=Fixed("x")))
+
+    def test_no_designs(self):
+        """A run of no designs gives the column of descriptions."""
+        results = self._study().run([])
+        self.assertEqual(
+            list(results.columns),
+            ["design", "replicate", "description", "feasible", "error", "seconds"],
+        )

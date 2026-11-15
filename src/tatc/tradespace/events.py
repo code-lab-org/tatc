@@ -18,28 +18,17 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
-    from .deployment import Deployment
+    from .deployment import Deployment, DeploymentSchedule
 
-PerType = float | Mapping[Any, float]
+_PerType = float | Mapping[Any, float]
 """A value for every type of satellite, or for each (a mapping by type)."""
 
 
-def per_type(value: Any, kind: Any, name: str) -> Any:
+def _per_type(value: Any, kind: Any, name: str) -> Any:
     """
     Gets the value of a type of satellite of a value for every type or a
-    mapping of each (see `PerType`).
-
-    Args:
-        value (Any): The value for every type, or a mapping of each type to
-            its value.
-        kind (Any): The type of satellite.
-        name (str): The name of the value, for errors.
-
-    Returns:
-        Any: the value of the type
-
-    Raises:
-        ValueError: if the mapping lacks the type.
+    mapping of each (see `_PerType`), raising a `ValueError` if the mapping
+    lacks the type (`name` names the value in the error).
     """
     if isinstance(value, Mapping):
         if kind not in value:
@@ -48,19 +37,86 @@ def per_type(value: Any, kind: Any, name: str) -> Any:
     return value
 
 
-def per_type_values(value: Any) -> list:
+def _per_type_values(value: Any) -> list:
     """
     Gets the values of every type of satellite of a value for every type or a
-    mapping of each (see `PerType`), such as to validate them.
-
-    Args:
-        value (Any): The value for every type, or a mapping of each type to
-            its value.
-
-    Returns:
-        list: the values of the mapping, or the value
+    mapping of each (see `_PerType`), such as to validate them.
     """
     return list(value.values()) if isinstance(value, Mapping) else [value]
+
+
+def _production_years(schedule: DeploymentSchedule, kind: Any, count: int) -> float:
+    """
+    Gets the time to produce satellites of a type on its line (0 for
+    production that takes no time).
+    """
+    rate = _per_type(schedule.production_rate, kind, "production rate")
+    return 0.0 if rate is None else count / rate
+
+
+def _next_slot(
+    schedule: DeploymentSchedule, booked: Sequence[float], ready: float
+) -> float:
+    """
+    Gets the earliest time of a launch at or after a time that keeps the
+    launch interval from the launches booked before (in order), as plans and
+    simulations book every launch: of deployments, replacements,
+    restorations, and spares.
+    """
+    interval = schedule.launch_interval
+    time = ready
+    if interval > 0:
+        for other in booked:
+            if other - interval < time < other + interval:
+                time = other + interval
+    return time
+
+
+def _per_launch(
+    schedule: DeploymentSchedule,
+    mass: float | None = None,
+    plane: tuple[int, Any] | None = None,
+) -> float:
+    """
+    Gets the most satellites of a launch (to a plane: its index and values,
+    for a capacity in mass that is a function of the plane), by the capacity
+    of launches in number and in mass (of satellites of a mass, kg), infinite
+    if not limited, raising a `ValueError` if a capacity in mass lacks the
+    mass (or the plane) or a satellite exceeds it.
+    """
+    capacity = (
+        math.inf if schedule.launch_capacity is None else schedule.launch_capacity
+    )
+    mass_capacity = schedule.launch_mass_capacity
+    if callable(mass_capacity):
+        if plane is None:
+            raise ValueError("a launch capacity of each plane needs the plane")
+        mass_capacity = float(mass_capacity(*plane))
+    if mass_capacity is not None:
+        if mass is None:
+            raise ValueError("a launch capacity in mass requires masses")
+        fits = math.floor(mass_capacity / mass)
+        if fits < 1:
+            raise ValueError("a satellite exceeds the mass capacity of a launch")
+        capacity = min(capacity, fits)
+    return capacity
+
+
+def _split(
+    schedule: DeploymentSchedule,
+    satellites: int,
+    mass: float | None = None,
+    plane: tuple[int, Any] | None = None,
+) -> list[int]:
+    """
+    Gets the satellites of each launch of a plane: as few launches as carry
+    them (see `_per_launch`, at least one), sharing them evenly.
+    """
+    capacity = _per_launch(schedule, mass, plane)
+    count = max(1, math.ceil(satellites / capacity)) if capacity < math.inf else 1
+    return [
+        satellites // count + (1 if j < satellites % count else 0) for j in range(count)
+    ]
 
 
 class PlannedPlane(NamedTuple):
@@ -127,7 +183,7 @@ class _Manifest:
     plans (see `DeploymentSchedule.plan`) and simulations (of the stages they
     deploy, and of restorations) share: the production line of each type of
     satellite, the launches booked (which later ones keep the launch
-    interval from, see `DeploymentSchedule.next_slot`), and the production
+    interval from, see `_next_slot`), and the production
     added.
 
     Args:
@@ -179,10 +235,10 @@ class _Manifest:
         return plane, values[plane] if plane < len(values) else None
 
     def capacity(self, plane: int) -> float:
-        """The most satellites of a launch to a plane (see `per_launch`)."""
+        """The most satellites of a launch to a plane (see `_per_launch`)."""
         kind = self.deployment.planes[plane].kind
-        return self.schedule.per_launch(
-            self.deployment.masses.get(kind), self.plane(plane)
+        return _per_launch(
+            self.schedule, self.deployment.masses.get(kind), self.plane(plane)
         )
 
     def produce(
@@ -193,7 +249,7 @@ class _Manifest:
         before them), returning when they are ready.
         """
         begin = max(self.lines[kind], earliest)
-        ready = begin + self.schedule.production_years(kind, count)
+        ready = begin + _production_years(self.schedule, kind, count)
         self.lines[kind] = ready
         self.production.append(Production(kind, begin, ready, count, purpose))
         return ready
@@ -201,14 +257,14 @@ class _Manifest:
     def next_slot(self, ready: float) -> float:
         """
         Gets the earliest launch at or after a time that keeps the launch
-        interval (see `DeploymentSchedule.next_slot`), without booking it.
+        interval (see `_next_slot`), without booking it.
         """
-        return self.schedule.next_slot(self.booked, ready)
+        return _next_slot(self.schedule, self.booked, ready)
 
     def slot(self, ready: float) -> float:
         """
         Books the earliest launch at or after a time that keeps the launch
-        interval (see `DeploymentSchedule.next_slot`), returning its time.
+        interval (see `_next_slot`), returning its time.
         """
         time = self.next_slot(ready)
         bisect.insort(self.booked, time)
@@ -218,12 +274,15 @@ class _Manifest:
         """
         Launches the satellites of a plane (and its spares in orbit) when
         they are ready: in as many launches as they need (see
-        `DeploymentSchedule.split`), each at the next launch slot.
+        `_split`), each at the next launch slot.
         """
         kind, size, spares = self.deployment.planes[plane]
         launches, first = [], 0
-        for satellites in self.schedule.split(
-            size + spares, self.deployment.masses.get(kind), self.plane(plane)
+        for satellites in _split(
+            self.schedule,
+            size + spares,
+            self.deployment.masses.get(kind),
+            self.plane(plane),
         ):
             launches.append(Launch(self.slot(ready), plane, kind, first, satellites))
             first += satellites
@@ -271,7 +330,7 @@ class _Manifest:
         queue: list = []
         order = itertools.count()
         for launch in launches:
-            life = schedule.design_life_of(launch.kind)
+            life = _per_type(schedule.design_life, launch.kind, "design life")
             built = self.deployment.planes[launch.plane].satellites
             count = min(launch.first + launch.satellites, built) - launch.first
             if life is not None and count > 0:
@@ -281,10 +340,10 @@ class _Manifest:
         while queue:
             need, _, generation, item = heapq.heappop(queue)
             plane, kind, first, count, life = item
-            begin = need - schedule.production_years(kind, count)
+            begin = need - _production_years(schedule, kind, count)
             time = math.inf
             if need < end - 1e-9:
-                time = schedule.next_slot(self.booked, need)
+                time = _next_slot(schedule, self.booked, need)
             if time < end - 1e-9:
                 bisect.insort(self.booked, time)
                 replacements.append(
@@ -295,7 +354,7 @@ class _Manifest:
                 schedule.sustained
                 and begin
                 < end
-                + float(per_type(schedule.development_years, kind, "development"))
+                + float(_per_type(schedule.development_years, kind, "development"))
                 - 1e-9
             ):
                 following = need + life  # produced after the end, not launched

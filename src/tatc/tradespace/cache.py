@@ -26,7 +26,7 @@ from typing import Any
 import pandas as pd
 
 from ..schemas import Satellite
-from .fingerprint import _fingerprint_of, find_stale, get_definition, warn_stale
+from .fingerprint import _find_stale, _fingerprint_of, get_definition, warn_stale
 from .hashing import canonical, digest
 from .memory import Forgetful
 from .store import _decode, _encode
@@ -99,8 +99,8 @@ class SatelliteCache(Forgetful):
     calls, other than TAT-C's: change it whenever these change), and by the
     satellite, in a folder of each namespace (by a hash of it, with the
     namespace in `namespace.txt`, and a `context` that describes it in
-    `context.json`, see `contexts`), and in it a folder of each fingerprint
-    (with the definition in `definition.json`).
+    `context.json`), and in it a folder of each fingerprint (with the
+    definition in `definition.json`).
 
     A cache warns if its namespace has results only of the same function
     with other code (of the function, of TAT-C, or of Python: the same values
@@ -118,9 +118,10 @@ class SatelliteCache(Forgetful):
         namespace (str): An identifier of the analysis (of what the
             fingerprint of the function cannot see).
         context (Any): A description of the namespace, such as the values
-            from which it is made, kept on disk beside its results (see
-            `contexts`): JSON data, or values that `ResultStore` encodes
-            (such as tuples and datetimes), or `None` for none.
+            from which it is made (as of the caches of `Observations`, which
+            find their namespaces by it), kept on disk beside its results:
+            JSON data, or values that `ResultStore` encodes (such as tuples
+            and datetimes), or `None` for none.
     """
 
     _forgotten = ("_memory", "_unreadable")  # (copies sent to parallel workers)
@@ -136,8 +137,6 @@ class SatelliteCache(Forgetful):
         self.function = function
         self.directory = None if directory is None else Path(directory)
         self.namespace = namespace
-        self.context = context
-        """Any: The description of the namespace, if any."""
         self.fingerprint = ""
         """str: The fingerprint of the function, which keys results on disk."""
         self.hits = 0
@@ -163,18 +162,12 @@ class SatelliteCache(Forgetful):
             self._warn_other_definitions()
 
     @staticmethod
-    def contexts(directory: str | os.PathLike) -> dict[str, Any]:
+    def _contexts(directory: str | os.PathLike) -> dict[str, Any]:
         """
         Gets the namespaces of the results in a directory (of the caches that
-        share it, see `SatelliteCache`) and their contexts, such as to find
-        the caches of a set of observations (see `Observations.prune`).
-
-        Args:
-            directory (str | os.PathLike): The directory.
-
-        Returns:
-            dict[str, Any]: the context of each namespace (`None` if it has
-                none, or if it cannot be read)
+        share it) and their contexts (`None` if one has none, or if it cannot
+        be read), such as to find the caches of a set of observations (see
+        `Observations.prune`).
         """
         directory = Path(directory)
         if not directory.is_dir():
@@ -215,7 +208,7 @@ class SatelliteCache(Forgetful):
     def _stale(self) -> dict[Path, int]:
         """
         Gets the folders of the results of the namespace by the function with
-        other code (the same values but for code, see `find_stale`), the
+        other code (the same values but for code, see `_find_stale`), the
         latest first, and their numbers of results (including folders of
         definitions without results).
         """
@@ -226,7 +219,7 @@ class SatelliteCache(Forgetful):
         ]
         folders.sort(key=lambda folder: folder.stat().st_mtime, reverse=True)
         others = {folder: _read_definition(folder) for folder in folders}
-        return find_stale(
+        return _find_stale(
             self._definition,
             others,
             lambda folder: sum(1 for _ in folder.glob("*.pkl")),
@@ -315,15 +308,9 @@ class SatelliteCache(Forgetful):
         self._unreadable.discard(key)
         _write(path, pickle.dumps(result), replace=True)
 
-    def get(self, satellite: Satellite) -> Any:
+    def _get(self, satellite: Satellite) -> Any:
         """
         Gets the result of a satellite, computing it if it is not cached.
-
-        Args:
-            satellite (Satellite): The satellite.
-
-        Returns:
-            Any: the result
         """
         key = get_satellite_key(satellite)
         try:
@@ -341,9 +328,10 @@ class SatelliteCache(Forgetful):
 
     def __call__(self, satellites: Satellite | Iterable[Satellite]) -> Any:
         """
-        Gets the results of satellites, concatenated if they are data frames
-        (or the list of results otherwise), or an empty data frame if there are
-        no satellites.
+        Gets the results of satellites (or of a satellite), each computed if
+        it is not cached: concatenated if they are data frames (or the list
+        of results otherwise), or an empty data frame if there are no
+        satellites.
 
         Args:
             satellites (Satellite | Iterable[Satellite]): The satellites.
@@ -353,7 +341,7 @@ class SatelliteCache(Forgetful):
         """
         if isinstance(satellites, Satellite):
             satellites = [satellites]
-        results = [self.get(satellite) for satellite in satellites]
+        results = [self._get(satellite) for satellite in satellites]
         if not results:
             # no satellites (such as if all fail): an empty frame
             return pd.DataFrame()

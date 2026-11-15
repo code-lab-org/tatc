@@ -24,13 +24,13 @@ from tatc.tradespace import (
     ResultStore,
     Study,
     Uncertain,
-    aggregate,
     attribute_variance,
     optimize_optuna,
     optimize_pymoo,
     pareto_front,
     pareto_probability,
     robustness,
+    summarize,
 )
 from tatc.tradespace.optimization import Evaluations
 
@@ -85,10 +85,10 @@ class TestStudyScenarios(unittest.TestCase):
         pinned = by.xs("pinned", level="scenario")
         self.assertTrue((pinned.noise == 0.5).all())
         # judged in each scenario
-        summary = aggregate(results, Criteria({"y": "max"}, by="scenario"))
+        summary = summarize(results, Criteria({"y": "max"}, by="scenario"))
         self.assertEqual(len(summary), 3 * 3)
         with self.assertRaises(ValueError):
-            aggregate(results, Criteria({"y": "max"}))
+            summarize(results, Criteria({"y": "max"}))
 
     def test_without_scenarios(self):
         """A study without scenarios has no column of them."""
@@ -306,8 +306,9 @@ class TestRobustness(unittest.TestCase):
         r = self._robustness(results=pd.DataFrame(rows))
         self.assertEqual(list(r.columns[:3]), ["s1 perf", "s2 perf", "cost"])
         np.testing.assert_allclose(r["s1 perf"], r["s2 perf"])
-        # columns given as the values of designs
-        r = self._robustness(results=pd.DataFrame(rows), design_columns=[])
+        # a cost that varies between replicates is not a value of the designs
+        varying = pd.DataFrame(rows).assign(cost=lambda f: f.cost + 0.1 * f.replicate)
+        r = self._robustness(results=varying)
         self.assertEqual(
             list(r.columns[:4]), ["s1 perf", "s2 perf", "s1 cost", "s2 cost"]
         )
@@ -339,7 +340,7 @@ class TestAcross(unittest.TestCase):
     """
 
     def _summary(self, criteria, results=RESULTS):
-        summary = aggregate(results, criteria)
+        summary = summarize(results, criteria)
         summary["pareto"] = pareto_front(summary, criteria)
         return summary.set_index("design")
 
@@ -365,7 +366,7 @@ class TestAcross(unittest.TestCase):
         self.assertEqual(list(summary.pareto), [True, True, False])
         unweighted = Across("scenario", "mean", {"s1": 1})
         with self.assertRaises(ValueError):
-            aggregate(RESULTS, Criteria(OBJECTIVES, across=unweighted))
+            summarize(RESULTS, Criteria(OBJECTIVES, across=unweighted))
 
     def test_requirements(self):
         """A requirement is met by the combined statistic: in every scenario,
@@ -411,11 +412,11 @@ class TestAcross(unittest.TestCase):
             SPACE, lambda d: d, _evaluate, replicates=3, scenarios=SCENARIOS
         ).run()
         objectives = {"y": "max", "cost": "min"}
-        by_scenario = aggregate(results, Criteria(objectives, by="scenario"))
+        by_scenario = summarize(results, Criteria(objectives, by="scenario"))
         y = by_scenario.pivot(index="design", columns="scenario", values="y")
         for rule, expected in (("worst", y.min(axis=1)), ("mean", y.mean(axis=1))):
             criteria = Criteria(objectives, across=Across(rule=rule))
-            summary = aggregate(results, criteria).set_index("design")
+            summary = summarize(results, criteria).set_index("design")
             np.testing.assert_allclose(summary.y, expected.loc[summary.index])
         probability = pareto_probability(
             results, Criteria(objectives, across=Across()), n_resamples=20
@@ -444,8 +445,8 @@ class TestAcross(unittest.TestCase):
         # a statistic without a direction is combined by its mean, unless a
         # rule asks for its worst, which it has none of
         extra = Criteria(OBJECTIVES, statistics={"extra": "perf"}, across=Across())
-        summary = aggregate(RESULTS, extra).set_index("design")
-        means = aggregate(RESULTS, Criteria(OBJECTIVES, by="scenario"))
+        summary = summarize(RESULTS, extra).set_index("design")
+        means = summarize(RESULTS, Criteria(OBJECTIVES, by="scenario"))
         np.testing.assert_allclose(
             summary.extra, means.groupby("design", sort=False).perf.mean()
         )
@@ -463,7 +464,7 @@ class TestAcross(unittest.TestCase):
                 across=Across(),
             )
         with self.assertRaises(ValueError):
-            aggregate(
+            summarize(
                 RESULTS.drop(columns="scenario"), Criteria(OBJECTIVES, across=Across())
             )
 
@@ -478,12 +479,12 @@ class TestSearchAcross(unittest.TestCase):
     """
 
     def test_evaluations(self):
-        """A search judges each design across the scenarios, as aggregate does."""
+        """A search judges each design across the scenarios, as summaries do."""
         criteria = Criteria({"y": "max", "cost": "min"}, across=Across())
         evaluations = Evaluations(_scenario_study(), criteria)
         designs = SPACE.enumerate()
         values = evaluations.evaluate(designs)
-        summary = aggregate(evaluations.results, criteria).set_index("design")
+        summary = summarize(evaluations.results, criteria).set_index("design")
         for design, (y, cost) in zip(designs, values):
             self.assertAlmostEqual(y, summary.loc[design.key, "y"])
             self.assertAlmostEqual(cost, summary.loc[design.key, "cost"])
@@ -506,7 +507,11 @@ class TestSearchAcross(unittest.TestCase):
 
         criteria = Criteria({"y": "max", "cost": "min"}, across=Across(rule="mean"))
         search = optimize_pymoo(
-            _scenario_study(), criteria, NSGA2(pop_size=4), ("n_gen", 2), seed=1
+            _scenario_study(),
+            criteria,
+            algorithm=NSGA2(pop_size=4),
+            termination=("n_gen", 2),
+            seed=1,
         )
         self.assertEqual(set(search.results.scenario), set(SCENARIOS))
         self.assertGreater(len(search.designs), 0)

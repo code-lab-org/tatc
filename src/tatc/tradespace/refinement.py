@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .alerts import _warn
-from .criteria import Criteria
+from .criteria import Criteria, _as_criteria, _tolerances
 from .space import Design, _designs
 from .study import Study
 from .summary import pareto_probability
@@ -36,7 +36,11 @@ class Refinement:
     every replicate after its last round (`pareto` of its `summary`), which a
     confirmation checks with new replicates (see `confirm`, which selects
     them by default): designs whose efficiency is still uncertain may be
-    efficient by more replicates too (see `uncertain`).
+    efficient by more replicates too, those that more replicates would
+    settle::
+
+        summary = refinement.summary
+        unsettled = summary[summary.uncertain & ~summary.indifferent]
     """
 
     results: pd.DataFrame
@@ -45,21 +49,26 @@ class Refinement:
     summary: pd.DataFrame
     """pandas.DataFrame: A row per design (and group of the criteria's `by`):
     the probability that it is efficient after the last round (see
-    `pareto_probability`, with the values of the design), and whether its
-    efficiency is `uncertain` (by the bounds of `refine`, or with fewer than
-    its least replicates) and, if so, whether it is `indifferent` (its
-    objectives are known to within the precision of their tolerances)."""
+    `pareto_probability`, with the values of the design), whether its
+    efficiency is `uncertain` (its probability is strictly between the
+    bounds of `refine`, or it has fewer feasible replicates than the least),
+    and whether an uncertain design is `indifferent` (its objectives are
+    known to within the precision of their tolerances, so that whether it is
+    within the tolerances of the front does not matter, and it is not
+    refined). Designs that more replicates would settle are those uncertain
+    but not indifferent."""
+    designs: list[Design]
+    """list[Design]: The designs efficient after the last round (`pareto` of
+    `summary`, in any group of the criteria's `by`), for the next step."""
     criteria: Criteria
     """Criteria: The criteria of the refinement."""
     rounds: pd.DataFrame = field(default_factory=pd.DataFrame)
     """pandas.DataFrame: A row per round (`round`, from 0): the number of
-    designs whose efficiency is uncertain (`uncertain`), of these, those that
-    are indifferent (`indifferent`), the number to which replicates were
-    added (`refined`), and the evaluations added (`evaluations`, a design in
-    a replicate in each scenario of a study with scenarios)."""
-    designs: list[Design] = field(default_factory=list)
-    """list[Design]: The designs efficient after the last round (`pareto` of
-    `summary`, in any group of the criteria's `by`), for the next step."""
+    designs whose efficiency is uncertain (`uncertain`, in any group), of
+    these, those that are indifferent wherever they are uncertain
+    (`indifferent`), the number to which replicates were added (`refined`),
+    and the evaluations added (`evaluations`, a design in a replicate in
+    each scenario of a study with scenarios)."""
     candidates: list[Design] = field(default_factory=list)
     """list[Design]: The designs that could be refined (those given to
     `refine`)."""
@@ -72,22 +81,6 @@ class Refinement:
         if "evaluations" not in self.rounds:
             return 0
         return int(self.rounds["evaluations"].sum())
-
-    @property
-    def uncertain(self) -> pd.DataFrame:
-        """pandas.DataFrame: The rows of `summary` whose efficiency is still
-        uncertain, and that more replicates would settle (those that are not
-        indifferent)."""
-        summary = self.summary
-        return summary[summary["uncertain"] & ~summary["indifferent"]]
-
-    @property
-    def indifferent(self) -> pd.DataFrame:
-        """pandas.DataFrame: The rows of `summary` whose efficiency is
-        uncertain, but whose objectives are known to within the precision of
-        their tolerances, so that whether they are within the tolerances of
-        the front does not matter."""
-        return self.summary[self.summary["indifferent"]]
 
 
 def _precise(
@@ -105,7 +98,7 @@ def _precise(
     precise = np.zeros(len(probability), dtype=bool)
     if precision is None or not criteria.tolerances:
         return precise
-    tolerances = criteria.tolerance_array
+    tolerances = _tolerances(criteria)
     precise[:] = True
     for i, name in enumerate(criteria.objectives):
         if f"{name} se" not in probability:
@@ -176,7 +169,7 @@ def refine(
     lack a tolerance is never indifferent. A warning is given if designs
     remain uncertain (but not indifferent) without a tolerance.
 
-    Designs are judged by their feasible replicates (see `aggregate`): a
+    Designs are judged by their feasible replicates (see `summarize`): a
     design has fewer than `min_replicates` if fewer of its replicates are
     feasible, and `max_replicates` limits all of its replicates. Designs
     without a feasible replicate are not refined (and a refinement of results
@@ -224,7 +217,7 @@ def refine(
         Refinement: the results, the final probabilities, the rounds, the
             efficient designs, and the candidates
     """
-    criteria = Criteria.of(criteria)
+    criteria = _as_criteria(criteria)
     low, high = bounds
     if not 0 <= low < high <= 1:
         raise ValueError("bounds must satisfy 0 <= low < high <= 1")
@@ -302,9 +295,9 @@ def refine(
     return Refinement(
         results=combined,
         summary=probability,
+        designs=_designs(study.space, selected, combined),
         criteria=criteria,
         rounds=pd.DataFrame(rounds),
-        designs=_designs(study.space, selected, combined),
         candidates=refined,
     )
 

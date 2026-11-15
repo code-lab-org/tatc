@@ -253,8 +253,6 @@ class TestPlan(unittest.TestCase):
         ]
         self.assertEqual(replacements, [("short", 3), ("short", 5)])
         self.assertEqual(deployment.units, {"short": 6, "long": 2})
-        self.assertEqual(schedule.design_life_of("short"), 2)
-        self.assertIsNone(schedule.design_life_of("long"))
         with self.assertRaises(ValueError):
             DeploymentSchedule(design_life={"short": 2}).plan(_walker(), kind="long")
 

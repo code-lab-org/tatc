@@ -107,7 +107,9 @@ class TestRefine(unittest.TestCase):
         uncertain_before = (
             (before.pareto_probability > 0.05) & (before.pareto_probability < 0.95)
         ).sum()
-        self.assertLess(len(refinement.uncertain), uncertain_before)
+        summary = refinement.summary
+        unsettled = summary[summary.uncertain & ~summary.indifferent]
+        self.assertLess(len(unsettled), uncertain_before)
         # far fewer evaluations than uniform replication to the same depth
         uniform = replicates.max() * len(self.designs)
         self.assertLess(len(refinement.results), 0.6 * uniform)
@@ -260,8 +262,9 @@ class TestRefine(unittest.TestCase):
         refinement, precise = refined(0.1)
         self.assertGreaterEqual(precise, 20)
         self.assertLessEqual(precise, 30)
-        self.assertEqual(refinement.indifferent.design.tolist(), [designs[1].key])
-        self.assertEqual(len(refinement.uncertain), 0)
+        summary = refinement.summary
+        self.assertEqual(summary.design[summary.indifferent].tolist(), [designs[1].key])
+        self.assertFalse((summary.uncertain & ~summary.indifferent).any())
         self.assertEqual(refinement.rounds.indifferent.iloc[-1], 1)
         with self.assertRaises(ValueError):
             refine(study, criteria, results, designs, precision=0)

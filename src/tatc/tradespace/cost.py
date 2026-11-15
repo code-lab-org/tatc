@@ -65,7 +65,7 @@ import numpy as np
 import pandas as pd
 
 from .deployment import Deployment
-from .events import per_type
+from .events import _per_type
 from .mission import MissionHistory
 from .nodes import Uncertain
 from .space import DesignSpace
@@ -93,7 +93,9 @@ class Triangular:
     0.904 to 1.708 for modified ones, and 0.981 to 1.140 for existing ones
     (M. W. Maier, K. L. Yeakel, and E. B. Wendoloski, "Cost Variance Analysis
     in Constellation Architecture Studies," IEEE Systems Journal 17(2),
-    2023, Table I).
+    2023, Table I): `Triangular(0.827, 2.274)`. (The mode is given by name,
+    as the bounds of such tables are, unlike the arguments of
+    `Uncertain.triangular`, which are in order of value.)
 
     Args:
         low (float): The lowest growth.
@@ -103,6 +105,7 @@ class Triangular:
 
     low: float
     high: float
+    _: dataclasses.KW_ONLY
     mode: float = 1.0
 
     def __post_init__(self):
@@ -234,9 +237,6 @@ class SatelliteCost:
         first_unit (float): The recurring cost of the first unit (besides
             that of its components).
         learning_rate (float): The learning rate, in (0, 1].
-        mass (float | None): The mass (kg), for launches priced by mass
-            (and of a `MissionPlan`, limited in mass) if the deployment
-            does not give one (see `CostModel.estimate`).
         components (Sequence[Component]): The components, if any, of
             distinct names.
         block_size (int | None): The units of each block of production, or
@@ -249,7 +249,6 @@ class SatelliteCost:
     development: float = 0.0
     first_unit: float = 0.0
     learning_rate: float = 1.0
-    mass: float | None = None
     components: Sequence[Component] = ()
     block_size: int | None = None
     redevelopment: float = 1.0
@@ -448,26 +447,23 @@ class CostEstimate:
         table["total"] = table.sum(axis=1)
         return table
 
-    def metrics(self, prefix: str = "cost") -> dict[str, float]:
+    def metrics(self) -> dict[str, float]:
         """
         Gets the cost as metrics of an evaluation (see `Study`): the total
-        (`<prefix>`), each element (`<prefix> development`, `<prefix>
-        production`, `<prefix> launch`, and `<prefix> operations`), the
-        present value of the total (`<prefix> present`), and the cost of its
-        most expensive year (`<prefix> peak annual`).
-
-        Args:
-            prefix (str): The name of the total, and prefix of the others.
+        (`cost`), each element (`cost development`, `cost production`, `cost
+        launch`, and `cost operations`), the present value of the total
+        (`cost present`), and the cost of its most expensive year (`cost peak
+        annual`).
 
         Returns:
             dict[str, float]: the metrics
         """
         annual = self.annual()
         return {
-            prefix: self.total,
-            **{f"{prefix} {element}": getattr(self, element) for element in ELEMENTS},
-            f"{prefix} present": self.present_value,
-            f"{prefix} peak annual": (
+            "cost": self.total,
+            **{f"cost {element}": getattr(self, element) for element in ELEMENTS},
+            "cost present": self.present_value,
+            "cost peak annual": (
                 float(annual["total"].max()) if len(annual) > 0 else 0.0
             ),
         }
@@ -564,7 +560,7 @@ class CostModel:
             return self.satellites
         if kind is None:
             raise ValueError("a model of several types of satellites needs a type")
-        return per_type(self.satellites, kind, "cost")
+        return _per_type(self.satellites, kind, "cost")
 
     def _types(self) -> list[tuple[Any, SatelliteCost]]:
         """Gets the types of satellites: each type, and its cost."""
@@ -685,8 +681,8 @@ class CostModel:
         never deployed: its development is the cost of the option to deploy
         them. Launches priced by mass (see `LaunchCost.per_kg`) take the
         masses of the satellites of the deployment (see
-        `DeploymentSchedule.plan`), which also limit the satellites of a
-        launch, or else those of the cost model (`SatelliteCost.mass`).
+        `DeploymentSchedule.plan`, and `MissionPlan.masses`), which also
+        limit the satellites of a launch.
 
         The costs of a sustained constellation (see `DeploymentSchedule`),
         such as of an operational program over the period of a study, are
@@ -735,11 +731,11 @@ class CostModel:
         history = (
             deployment.planned() if isinstance(deployment, Deployment) else deployment
         )
-        masses = {kind: self._mass_of(history, kind) for kind in history.development}
+        masses = {kind: history.masses.get(kind) for kind in history.development}
         if self.launch.per_kg > 0 and any(mass is None for mass in masses.values()):
             raise ValueError(
-                "launches priced by mass require masses (of the deployment, see "
-                + "DeploymentSchedule.plan, or of the cost model, see SatelliteCost.mass)"
+                "launches priced by mass require the masses of the deployment "
+                + "(see DeploymentSchedule.plan and MissionPlan.masses)"
             )
         # the costs of a sustained constellation are those incurred by the end
         until = history.end if history.schedule.sustained else math.inf
@@ -846,14 +842,6 @@ class CostModel:
                     )
         return begun
 
-    def _mass_of(self, history: MissionHistory, kind: Any) -> float | None:
-        """
-        Gets the mass of a type of satellite: that of the deployment (see
-        `DeploymentSchedule.plan`), or else of its cost (if any).
-        """
-        mass = history.masses.get(kind)
-        return self.satellite_cost_of(kind).mass if mass is None else mass
-
     def _add_launches(
         self,
         history: MissionHistory,
@@ -915,7 +903,7 @@ def _get_factor(
     factor = factors[element]
     if isinstance(factor, Mapping) and kind is None:
         raise ValueError(f"growth of {element} by type of satellite needs types")
-    return per_type(factor, kind, f"growth of {element}")
+    return _per_type(factor, kind, f"growth of {element}")
 
 
 def risk_space(*models: CostModel) -> DesignSpace:

@@ -46,12 +46,12 @@ Deployment
    :no-members:
 
 .. autoclass:: tatc.tradespace.DeploymentSchedule
-   :members: plan, production_years, next_slot, per_launch, split, launches_of, mass_capacity_of, design_life_of
+   :members: plan, launches_of
 
 .. autoclass:: tatc.tradespace.Stage
 
 .. autoclass:: tatc.tradespace.deployment.Deployment
-   :members: simulate, simulate_many, expected_metrics, planned, phases, begin, end, deployed, units, stages, policy, capability
+   :members: simulate, simulate_many, planned, phases, begin, end, deployed, units, stages, policy, capability
 
 .. automodule:: tatc.tradespace.events
    :no-members:
@@ -61,13 +61,6 @@ Deployment
 .. autoclass:: tatc.tradespace.events.Launch
 
 .. autoclass:: tatc.tradespace.events.Production
-
-.. autodata:: tatc.tradespace.events.PerType
-   :annotation:
-
-.. autofunction:: tatc.tradespace.events.per_type
-
-.. autofunction:: tatc.tradespace.events.per_type_values
 
 .. autoclass:: tatc.tradespace.mission.Decision
    :members: time, since_launch, stage, satellites_operating, history, stages_deployed, capability
@@ -111,27 +104,16 @@ Missions
 
 .. autoclass:: tatc.tradespace.mission.Restoration
 
-.. autodata:: tatc.tradespace.mission.PHASE_COLUMNS
-   :annotation:
-
 .. autofunction:: tatc.tradespace.mission.evaluate_phases
 
 .. autofunction:: tatc.tradespace.mission.summarize_phases
 
 .. autoclass:: tatc.tradespace.mission.PhaseCache
-   :members: evaluate, metrics_of, clear
+   :members: clear
 
 .. autoclass:: tatc.tradespace.mission.Capability
-   :members: evaluate, at, position_names, names
+   :members: evaluate, names
    :special-members: __call__
-
-.. automodule:: tatc.tradespace.simulation
-   :no-members:
-
-.. autofunction:: tatc.tradespace.simulation.simulate_histories
-
-.. autodata:: tatc.tradespace.simulation.SAMPLINGS
-   :annotation:
 
 .. automodule:: tatc.tradespace.histories
    :no-members:

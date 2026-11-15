@@ -9,13 +9,13 @@ must sample, and the robustness of designs across them.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria
-from .summary import aggregate
+from .criteria import Criteria, _as_criteria, _resolved, _signs, _tolerances
+from .summary import _summarize
 from .tables import design_values, value_columns
 
 
@@ -29,7 +29,7 @@ def _scales(criteria: Criteria, scale: Mapping[str, float] | None) -> np.ndarray
     unknown = sorted(set(scale) - set(objectives))
     if unknown:
         raise ValueError(f"scales of names that are not objectives: {unknown}")
-    absolute = criteria.tolerance_array[0]
+    absolute = _tolerances(criteria)[0]
     values = np.array(
         [
             float(scale[name]) if name in scale else (absolute[i] or 1.0)
@@ -46,13 +46,12 @@ def robustness(
     criteria: Criteria | Mapping[str, str],
     *,
     scale: Mapping[str, float] | None = None,
-    design_columns: Sequence[str] | None = None,
 ) -> pd.DataFrame:
     """
     Measures the robustness of designs across scenarios (see `Study`): how
     often each design is efficient, and how far it falls from the front of
     each scenario, from the results of a study in each scenario (judged by
-    the criteria in each scenario, see `aggregate` and `pareto_front`). The
+    the criteria in each scenario, see `summarize` and `pareto_front`). The
     scenarios are the groups of the column of the criteria's `by` (by
     default, `"scenario"`, as of a study with scenarios).
 
@@ -93,25 +92,22 @@ def robustness(
         scale (Mapping[str, float] | None): The units of regret of
             objectives (by name): by default, the absolute tolerance of an
             objective (if it has one), or else 1 (its units).
-        design_columns (Sequence[str] | None): The columns of the values of
-            designs, or `None` for those that are the same in every feasible
-            record of a design (see `aggregate`).
 
     Returns:
         pandas.DataFrame: a row per design (`design`): the values of the
-            design (as a summary keeps them, see `aggregate`), each objective
+            design (as a summary keeps them, see `summarize`), each objective
             in each scenario (`<scenario> <objective>`), or once
-            (`<objective>`) if it is a value of the designs (a column of
-            `design_columns`, such as a number of satellites), its
-            `pareto_trace`, `max_regret`, and regret in each scenario
-            (`<scenario> regret`)
+            (`<objective>`) if it is a value of the designs (the same in
+            every feasible record of a design, such as a number of
+            satellites), its `pareto_trace`, `max_regret`, and regret in each
+            scenario (`<scenario> regret`)
 
     Raises:
         ValueError: if the results have no scenarios, or the criteria group
             records by several columns or combine them across scenarios (see
             `Across`, by which searches find robust designs).
     """
-    criteria = Criteria.of(criteria)
+    criteria = _as_criteria(criteria)
     if criteria.across is not None:
         raise ValueError(
             "robustness judges designs in each scenario: give criteria without "
@@ -131,8 +127,8 @@ def robustness(
     judged = dataclasses.replace(criteria, by=(scenario,))
     objectives = list(criteria.objectives)
     # each objective in units of its scale, larger being better
-    units = -criteria.signs / _scales(criteria, scale)
-    summary = aggregate(results, judged, design_columns=[])
+    units = -_signs(criteria) / _scales(criteria, scale)
+    summary = _summarize(results, judged, design_values=False)
     efficient = summary["pareto"].to_numpy(dtype=bool)
     scenarios = list(pd.unique(results[scenario]))
     designs = list(pd.unique(results["design"]))
@@ -158,8 +154,8 @@ def robustness(
     # the values of the designs (of their first records, as of a summary), and
     # the objectives that are values of the designs, which are the same in
     # every scenario
-    statistics = judged.resolved
-    every = value_columns(results, {}, (scenario,), design_columns)
+    statistics = _resolved(judged)
+    every = value_columns(results, {}, (scenario,), None)
     metrics = {column for s in statistics.values() for column in s.columns}
     columns = [c for c in every if c not in metrics and c not in statistics]
     collapsed = {

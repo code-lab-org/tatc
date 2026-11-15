@@ -94,21 +94,6 @@ class _Domain:
             )
         return float(self.low + u * (self.high - self.low))
 
-    def to_unit(self, value: Any) -> float:
-        """
-        Maps a value of the domain to [0, 1] (the center of a level's part),
-        the inverse of `from_unit`.
-        """
-        if self.levels is not None:
-            return (self.levels.index(value) + 0.5) / len(self.levels)
-        if self.high == self.low:
-            return 0.5
-        if self.log:
-            return (math.log(value) - math.log(self.low)) / (
-                math.log(self.high) - math.log(self.low)
-            )
-        return (value - self.low) / (self.high - self.low)
-
     def suggest(self, trial: Any, name: str) -> Any:
         """
         Suggests a value of the domain with an Optuna trial. Optuna requires

@@ -23,9 +23,8 @@ configured from the values of a design by `configure`.
 
 A function of a study's results (such as the evaluation function of a
 `Study`, or the metrics of an `ObservationStudy`) that takes a keyword named
-`design` is given the realized design as it (see `takes_design` and
-`given_design`), as for a function that depends on values of the design
-other than those it is given.
+`design` is given the realized design as it, as for a function that
+depends on values of the design other than those it is given.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -132,17 +131,11 @@ def configure(base: Any, values: Any = None, **overrides: Any) -> Any:
     return dataclasses.replace(base, **changes, **overrides)
 
 
-def takes_design(function: Callable[..., Any]) -> bool:
+def _takes_design(function: Callable[..., Any]) -> bool:
     """
-    Whether a function takes a keyword named `design`, by which the parts of
-    studies give it the realized design (see `given_design`).
-
-    Args:
-        function (Callable): The function.
-
-    Returns:
-        bool: `True` if the function has a parameter named `design` that
-            may be given by keyword
+    Whether a function takes a keyword named `design` (a parameter named
+    `design` that may be given by keyword), by which the parts of studies
+    give it the realized design (see `_given_design`).
     """
     try:
         parameter = inspect.signature(function).parameters.get("design")
@@ -154,19 +147,12 @@ def takes_design(function: Callable[..., Any]) -> bool:
     )
 
 
-def given_design(function: Callable[..., Any], design: Design) -> Callable[..., Any]:
+def _given_design(function: Callable[..., Any], design: Design) -> Callable[..., Any]:
     """
-    Gets a function of its other arguments: the function given the design
-    as its keyword `design`, if it takes one (see `takes_design`), or the
-    function itself::
+    Gets a function of its other arguments: the function given the
+    (realized) design as its keyword `design`, if it takes one (see
+    `_takes_design`), or the function itself::
 
-        outcome = given_design(evaluate, realized)(built)
-
-    Args:
-        function (Callable): The function.
-        design (Design): The (realized) design.
-
-    Returns:
-        Callable: the function of its other arguments
+        outcome = _given_design(evaluate, realized)(built)
     """
-    return partial(function, design=design) if takes_design(function) else function
+    return partial(function, design=design) if _takes_design(function) else function

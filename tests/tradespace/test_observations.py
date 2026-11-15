@@ -4,6 +4,8 @@ Unit tests for studies of the observations of constellations.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+# pylint: disable=protected-access
+
 import dataclasses
 import importlib.util
 import math
@@ -31,17 +33,21 @@ from tatc.tradespace import (
     Exponential,
     FailureModel,
     Failures,
+    Fixed,
     Integer,
     LaunchCost,
     MissionPlan,
     ObservationStudy,
     Observations,
+    Probability,
+    Quantile,
     Real,
     Requirement,
     RestorationPolicy,
     SatelliteCache,
     SatelliteCost,
     Stage,
+    StandardDeviation,
     Study,
     Targets,
     Triangular,
@@ -112,27 +118,27 @@ class TestTargets(unittest.TestCase):
         """Targets generated from a seed of the design differ by replicate."""
         design = SPACE.enumerate()[0]
         first, second = design.realize(0), design.realize(1)
-        targets = TARGETS.of(first)
+        targets = TARGETS._of(first)
         pd.testing.assert_frame_equal(
             targets,
             generate_points_fibonacci_lattice(
                 count=N_POINTS, rotate=True, seed=first.points_seed
             ),
         )
-        self.assertIs(TARGETS.of(first), targets)  # kept in memory
-        self.assertFalse(TARGETS.of(second).equals(targets))
+        self.assertIs(TARGETS._of(first), targets)  # kept in memory
+        self.assertFalse(TARGETS._of(second).equals(targets))
         self.assertEqual(pickle.loads(pickle.dumps(TARGETS))._memory, {})
         with self.assertRaises(ValueError):
-            TARGETS.of()
+            TARGETS._of()
 
     def test_fixed(self):
         """Fixed targets are the same in every replicate."""
         points = generate_points_fibonacci_lattice(count=5, rotate=True, seed=1)
         targets = Targets(points)
-        self.assertIs(targets.of(), points)
-        self.assertIsNone(targets.seed_of(None))
+        self.assertIs(targets._of(), points)
+        self.assertIsNone(targets._seed_of(None))
         same = Targets(generate_points_fibonacci_lattice, count=5, rotate=True)
-        self.assertTrue(same.of().equals(same.of()))
+        self.assertTrue(same._of().equals(same._of()))
         with self.assertRaises(ValueError):
             Targets(points, seed="points_seed")
         with self.assertRaises(TypeError):
@@ -149,13 +155,13 @@ class TestObservations(unittest.TestCase):
         d = SPACE.enumerate()[3].realize(0)
         satellites = _build(d)
         observations = _observations()(satellites, d)
-        direct = collect_observations(TARGETS.of(d), satellites, START, START + HOURS)
+        direct = collect_observations(TARGETS._of(d), satellites, START, START + HOURS)
         columns = ["target_hash", "satellite", "epoch"]
         pd.testing.assert_frame_equal(
             observations.sort_values(columns, ignore_index=True)[direct.columns],
             direct.sort_values(columns, ignore_index=True),
         )
-        self.assertEqual(_observations().context_of(d), (d.points_seed, START, HOURS))
+        self.assertEqual(_observations()._context_of(d), (d.points_seed, START, HOURS))
 
     def test_disk_cache(self):
         """Observations on disk are kept by the seed of the targets and the period."""
@@ -171,7 +177,7 @@ class TestObservations(unittest.TestCase):
             self.assertTrue(all("targets of seed" in n for n in namespaces))
             again = _observations(directory)
             again(_build(designs[0]), designs[0])
-            self.assertEqual(again.cache_of(designs[0]).misses, 0)
+            self.assertEqual(again._cache_of(designs[0]).misses, 0)
 
     def test_targets_generated_when_needed(self):
         """Caches on disk of generated targets are keyed by their recipe and
@@ -195,7 +201,7 @@ class TestObservations(unittest.TestCase):
             again(_build(designs[0])[:1], designs[0])  # from the results on disk
             generated.assert_not_called()
             self.assertEqual(
-                sorted(SatelliteCache.contexts(directory).values()),
+                sorted(SatelliteCache._contexts(directory).values()),
                 sorted((d.points_seed, START) for d in designs),
             )
         # the fingerprint of a cache follows the recipe of the targets (their
@@ -204,14 +210,14 @@ class TestObservations(unittest.TestCase):
 
         def fingerprint(targets):
             return get_fingerprint(
-                Observations(targets, START, HOURS).cache_of(d).function
+                Observations(targets, START, HOURS)._cache_of(d).function
             )
 
         fresh = Targets(_grid, 5, seed="points_seed")
         recipes = [fresh, Targets(_grid, 6, seed="points_seed"), TARGETS]
         prints = [fingerprint(targets) for targets in recipes]
         self.assertEqual(len(set(prints)), 3)
-        fresh.of(d)
+        fresh._of(d)
         self.assertEqual(fingerprint(fresh), prints[0])
 
     def test_directory_not_in_fingerprint(self):
@@ -241,7 +247,7 @@ class TestObservationStudy(unittest.TestCase):
         def evaluate(satellites, design):
             deployment = SCHEDULE.plan(design.layout)
             observations = collect_observations(
-                TARGETS.of(design), satellites, START, START + HOURS
+                TARGETS._of(design), satellites, START, START + HOURS
             )
             return {
                 "satellites": len(satellites),
@@ -297,17 +303,12 @@ class TestObservationStudy(unittest.TestCase):
             failures=failures,
         ).run(designs)
         self.assertTrue({"observed mission", "availability", "cost"} <= set(degraded))
-        # the policy of each design
+        # the policy of each design: by default, its values `policy`
         trade = DesignSpace(
             **SPACE.children, policy=policy_space(orbit_spares=Integer(0, 1))
         )
         restored = ObservationStudy(
-            trade,
-            _build,
-            _observations(),
-            _metrics,
-            plan=dataclasses.replace(PLAN, policy="policy"),
-            failures=failures,
+            trade, _build, _observations(), _metrics, plan=PLAN, failures=failures
         ).run(trade.enumerate()[:4])
         self.assertTrue(restored.feasible.all())
         spares = restored.groupby("policy.orbit_spares")["cost production"].mean()
@@ -369,7 +370,7 @@ class TestObservationStudy(unittest.TestCase):
         for epoch, d in realized.items():
             self.assertEqual(observations.start_of(d), epoch)
             self.assertEqual(observations.end_of(d), epoch + HOURS)
-            self.assertEqual(observations.context_of(d)[1], epoch)
+            self.assertEqual(observations._context_of(d)[1], epoch)
             satellites = _build(d)
             fixed = Observations(TARGETS, epoch, HOURS)(satellites, d)
             pd.testing.assert_frame_equal(observations(satellites, d), fixed)
@@ -380,10 +381,8 @@ class TestObservationStudy(unittest.TestCase):
             )
         )
         with self.assertRaises(ValueError):
-            _ = observations.end
-        with self.assertRaises(ValueError):
             observations.start_of(None)
-        self.assertEqual(Observations(TARGETS, START, HOURS).end, START + HOURS)
+        self.assertEqual(Observations(TARGETS, START, HOURS).end_of(), START + HOURS)
         # a study with an epoch drawn for each replicate
         results = ObservationStudy(
             space, _build, observations, _metrics, layout="layout", replicates=4
@@ -392,14 +391,14 @@ class TestObservationStudy(unittest.TestCase):
 
     def test_sizing(self):
         """Plans size the schedule and costs of each design by its values, and
-        limit launches by the masses of the cost model."""
+        limit launches by the masses of the plan."""
         designs = [d for d in SPACE.enumerate() if d.layout.per_plane == 2]
 
         def cost_model(d):
             """Satellites that cost more to develop higher (an illustrative relationship)."""
             development = 10 * d.altitude / 600e3
             return CostModel(
-                SatelliteCost(development=development, first_unit=2, mass=100),
+                SatelliteCost(development=development, first_unit=2),
                 launch=LaunchCost(per_launch=1),
             )
 
@@ -413,7 +412,7 @@ class TestObservationStudy(unittest.TestCase):
                 SPACE, _build, _observations(), _metrics, layout="layout", plan=plan
             )
 
-        results = study(MissionPlan(schedule, cost_model)).run(designs)
+        results = study(MissionPlan(schedule, cost_model, masses=100.0)).run(designs)
         by_altitude = results.groupby("altitude")[["cost development", "cost launch"]]
         means = by_altitude.mean()
         self.assertAlmostEqual(
@@ -424,8 +423,9 @@ class TestObservationStudy(unittest.TestCase):
         planes = results.groupby("altitude")["planes"].mean()
         self.assertAlmostEqual(means.loc[600e3, "cost launch"], planes[600e3])
         self.assertAlmostEqual(means.loc[700e3, "cost launch"], 2 * planes[700e3])
-        # given masses take the place of those of the cost model
-        light = study(MissionPlan(schedule, cost_model, masses=50.0)).run(designs)
+        # masses of each design (a reference to its values)
+        light = study(MissionPlan(schedule, cost_model, masses=lambda d: 50.0))
+        light = light.run(designs)
         self.assertAlmostEqual(
             light.groupby("altitude")["cost launch"].mean()[700e3], planes[700e3]
         )
@@ -476,13 +476,13 @@ class TestObservationStudy(unittest.TestCase):
         )
         design = designs[0].realize(0)
         self.assertEqual(
-            plan.growth_of(design), {"development": {"a": design.growth, "b": 2}}
+            plan._growth_of(design), {"development": {"a": design.growth, "b": 2}}
         )
         # scores of a group nested in another
         nested = SPACE.extend(risk=DesignSpace(cost_risk=risk_space(model)))
         design = nested.enumerate()[0].realize(3)
         plan = MissionPlan(SCHEDULE, model, scores="risk.cost_risk")
-        self.assertEqual(plan.cost_model_of(design), model.draw(design.risk.cost_risk))
+        self.assertEqual(plan._cost_model_of(design), model.draw(design.risk.cost_risk))
 
     def test_stages(self):
         """Plans stage the deployments of designs that decide to."""
@@ -516,7 +516,7 @@ class TestObservationStudy(unittest.TestCase):
         self.assertTrue(np.isnan(staged.loc[False, "stages deployed"]))  # no stages
         self.assertLess(staged.loc[True, "deployed"], staged.loc[False, "deployed"])
         # failures without restoration: histories are sampled rather than exact
-        failures = Failures(FAILURES, histories=4, seed="failure_seed")
+        failures = Failures(FAILURES, seed="failure_seed", histories=4)
         options["plan"] = dataclasses.replace(
             plan, policy=RestorationPolicy(restore=False)
         )
@@ -603,6 +603,21 @@ class TestObservationStudy(unittest.TestCase):
         plain = study.replace(metrics=_metrics).evaluate
         self.assertEqual(plain.context_of(first), plain.context_of(other))
 
+    def test_references(self):
+        """Every part of a plan may refer to a value of the design, by name or
+        by a function of the design."""
+        space = SPACE.extend(
+            staging=Fixed((Stage(1, 1.0),)), schedule=Fixed(SCHEDULE), mass=Fixed(5.0)
+        )
+        design = [d for d in space.enumerate() if d.layout.planes == 2][0]
+        plan = MissionPlan("schedule", lambda d: COSTS, stages="staging", masses="mass")
+        study = ObservationStudy(space, _build, _observations(), _metrics, plan=plan)
+        mission = study.mission_of(design)
+        self.assertEqual(mission.deployment.stages, (Stage(1, 1.0),))
+        self.assertEqual(mission.deployment.masses, {None: 5.0})
+        self.assertIs(mission.deployment.schedule, SCHEDULE)
+        self.assertEqual(mission.cost_model, COSTS)
+
     def test_staging_recorded(self):
         """Studies record the stages that rules deploy (without failures), and
         when the first generation is deployed, with them."""
@@ -681,37 +696,45 @@ class TestObservationStudy(unittest.TestCase):
         # a group of values that configures the default policy, or a base one
         space = SPACE.extend(policy=policy_space(restore=True, orbit_spares=1))
         realized = space.enumerate()[0].realize(0)
-        named = dataclasses.replace(PLAN, policy="policy").policy_of(realized)
+        named = dataclasses.replace(PLAN, policy="policy")._policy_of(realized)
         self.assertEqual(named, RestorationPolicy(orbit_spares=1))
         base = RestorationPolicy(drift_years=1.0)
         configured = dataclasses.replace(
             PLAN, policy=lambda d: configure(base, d.policy)
-        ).policy_of(realized)
+        )._policy_of(realized)
         self.assertEqual(configured, RestorationPolicy(orbit_spares=1, drift_years=1.0))
+        # by default, the design's values `policy`, if they configure a policy
+        self.assertEqual(PLAN._policy_of(realized), RestorationPolicy(orbit_spares=1))
+        other = SPACE.extend(policy=Categorical(["a", "b"])).enumerate()[0]
+        self.assertEqual(PLAN._policy_of(other.realize(0)), RestorationPolicy())
+        self.assertEqual(PLAN._policy_of(designs[0].realize(0)), RestorationPolicy())
 
     def test_failure_times(self):
         """Failures give each history the time until it meets requirements on
         its phases, summarized over the histories."""
         failures = Failures(
             FAILURES,
-            histories=6,
             seed="failure_seed",
+            histories=6,
+            statistics=[
+                Quantile("observed time", 0.5),
+                Probability("observed time", "<=", 1),
+            ],
+        )
+        phased = ObservationStudy(
+            SPACE,
+            _build,
+            _observations(),
+            _metrics,
+            plan=PLAN,
             phases=[Requirement("observed", ">=", 50)],
-            quantiles={"observed time": 0.5},
-            requirements=[Requirement("observed time", "<=", 1)],
         )
-        study = ObservationStudy(
-            SPACE, _build, _observations(), _metrics, plan=PLAN, failures=failures
-        )
+        study = phased.replace(failures=failures)  # the requirements of the study
         design = SPACE.enumerate()[3]
         result = study.run([design]).iloc[0]
         histories = study.mission_of(design).histories()
         self.assertIn("observed time", histories)
-        summary = summarize_histories(
-            histories,
-            quantiles=failures.quantiles,
-            requirements=failures.requirements,
-        )
+        summary = summarize_histories(histories, statistics=failures.statistics)
         for column in (
             "observed time",
             "observed time histories p50",
@@ -729,14 +752,23 @@ class TestObservationStudy(unittest.TestCase):
         for invalid in (
             {"sampling": "antithetic"},
             {"stress": 0.0},
-            {"launch_stress": -1.0},
             {"histories": 0},
+            {"control_histories": 0},
+            {"seed": None},
         ):
             with self.subTest(invalid=invalid):
                 with self.assertRaises(ValueError):
-                    Failures(FAILURES, **invalid)
+                    Failures(FAILURES, **{"seed": "failure_seed", **invalid})
         with self.assertRaises(TypeError):
-            Failures(FAILURES, phases=["observed >= 50"])
+            Failures(FAILURES)  # pylint: disable=missing-kwoa
+        with self.assertRaises(TypeError):
+            Failures(
+                FAILURES, seed="failure_seed", statistics=[Requirement("x", ">", 1)]
+            )
+        with self.assertRaises(TypeError):
+            ObservationStudy(
+                SPACE, _build, _observations(), _metrics, plan=PLAN, phases=["x"]
+            )
         with self.assertRaisesRegex(ValueError, "cost model"):
             ObservationStudy(
                 SPACE,
@@ -744,7 +776,9 @@ class TestObservationStudy(unittest.TestCase):
                 _observations(),
                 _metrics,
                 plan=MissionPlan(SCHEDULE),
-                failures=Failures(FAILURES, quantiles={"cost": 0.7}),
+                failures=Failures(
+                    FAILURES, seed="failure_seed", statistics=[Quantile("cost", 0.7)]
+                ),
             )
         # quantiles of other columns that the histories do not have
         study = ObservationStudy(
@@ -753,7 +787,9 @@ class TestObservationStudy(unittest.TestCase):
             _observations(),
             _metrics,
             plan=PLAN,
-            failures=Failures(FAILURES, quantiles={"other": 0.5}),
+            failures=Failures(
+                FAILURES, seed="failure_seed", statistics=[Quantile("other", 0.5)]
+            ),
         )
         with self.assertRaisesRegex(ValueError, "other"):
             study.run(SPACE.enumerate()[:1])
@@ -790,10 +826,7 @@ class TestObservationStudy(unittest.TestCase):
                 _build,
                 observations,
                 _metrics,
-                layout="layout",
-                plan=PLAN,
-                failures=Failures(FAILURES),
-                phases=True,
+                failures=Failures(FAILURES, seed="failure_seed"),
             )
 
     @unittest.skipUnless(HAS_JOBLIB, "requires joblib")
@@ -843,7 +876,7 @@ class TestOneDesign(unittest.TestCase):
         self.assertEqual(mission.design.growth, realized.growth)
         deployment = mission.deployment
         self.assertEqual(deployment.planes, SCHEDULE.plan(realized.layout).planes)
-        self.assertIs(deployment.capability, mission.capability)
+        self.assertIs(mission.capability, deployment.capability)
         phases = mission.phases()
         self.assertAlmostEqual(
             summarize_phases(phases)["observed mission"], result["observed mission"]
@@ -851,7 +884,7 @@ class TestOneDesign(unittest.TestCase):
         self.assertAlmostEqual(mission.estimate().total, result["cost"])
         self.assertEqual(deployment.planned().deployed, result["deployed"])
         self.assertIs(deployment.planned(), deployment.planned())
-        self.assertIs(deployment.policy, PLAN.policy)
+        self.assertEqual(deployment.policy, RestorationPolicy())
         with self.assertRaisesRegex(ValueError, "failures"):
             mission.histories()
         unplanned = self.study.replace(plan=None, phases=None)
@@ -910,7 +943,7 @@ class TestOneDesign(unittest.TestCase):
             others(satellites, realized)
             with self.assertWarnsRegex(UserWarning, "other code"):
                 latest(satellites, realized)
-            stale = first.cache_of(realized).folder
+            stale = first._cache_of(realized).folder
             self.assertEqual(len(list(stale.glob("*.pkl"))), len(satellites))
             # a study removes them too, and counts the evaluations it removes
             study = ObservationStudy(SPACE, _build, latest, _metrics)
@@ -918,13 +951,15 @@ class TestOneDesign(unittest.TestCase):
             self.assertEqual(list(stale.glob("*.pkl")), [])
             self.assertEqual(latest.prune(), 0)
             # the results of the other targets (another definition) are kept
-            kept = others.cache_of(realized).folder
+            kept = others._cache_of(realized).folder
             self.assertEqual(len(list(kept.glob("*.pkl"))), len(satellites))
             self.assertEqual(Observations(TARGETS, START, HOURS).prune(), 0)
 
     def test_failure_options(self):
         """Failures sample stressed histories, with controls and spreads."""
-        self.assertTrue(MissionPlan(SCHEDULE).policy.restore)  # restored by default
+        realized = self.design.realize(0)
+        default = MissionPlan(SCHEDULE)._policy_of(realized)
+        self.assertTrue(default.restore)  # restored by default
         study = ObservationStudy(
             SPACE,
             _build,
@@ -934,12 +969,12 @@ class TestOneDesign(unittest.TestCase):
             plan=PLAN,
             failures=Failures(
                 FAILURES,
-                histories=6,
                 seed="failure_seed",
+                histories=6,
                 stress=2.0,
                 controls=["availability"],
                 control_histories=50,
-                spread=True,
+                statistics=[StandardDeviation("observed mission")],
             ),
         )
         result = study.run([self.design]).iloc[0]
@@ -1001,19 +1036,3 @@ class TestFailureStudies(unittest.TestCase):
             fallback = study.run([design]).iloc[0]
         for column in ("observed mission", "availability"):
             self.assertAlmostEqual(fallback[column], sampled[column].mean())
-
-    def test_exact_without_seed(self):
-        """Without a seed, the one history without failures is not replaced by
-        exact expectations over failures."""
-        design = SPACE.enumerate()[3]
-        study = ObservationStudy(
-            SPACE,
-            _build,
-            _observations(),
-            _metrics,
-            plan=DEGRADE,
-            failures=Failures(FAILURES),
-        )
-        result = study.run([design]).iloc[0]
-        self.assertEqual(result["availability"], 1.0)
-        self.assertEqual(result["failures"], 0.0)

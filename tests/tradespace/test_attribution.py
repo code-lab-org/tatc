@@ -152,7 +152,7 @@ class TestAttributeVariance(unittest.TestCase):
         first = a.summary_of("first")
         self.assertAlmostEqual(first.loc["s", "v"], 1.0)
         self.assertAlmostEqual(first.loc["s", "v se"], 0.0)
-        self.assertEqual(a.samples["total"].shape, (len(a.shares), 200))
+        self.assertEqual(a._samples["total"].shape, (len(a.shares), 200))
         with self.assertRaises(ValueError):
             a.summary_of("second")
 

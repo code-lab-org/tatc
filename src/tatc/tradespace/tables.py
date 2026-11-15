@@ -21,11 +21,11 @@ from .space import STATUS_COLUMNS
 FEASIBLE = "feasible"
 """The column of the results of a study of whether each record is feasible,
 and the statistic (and column of summaries) of the share of a design's
-replicates that are feasible (see `aggregate`)."""
+replicates that are feasible (see `summarize`)."""
 
 JUDGMENT = ("violation", "meets_requirements", "pareto")
 """The columns of the judgment of designs by criteria in their summaries (see
-`aggregate`)."""
+`summarize`)."""
 
 SEPARATE = (
     "give the columns that separate them as `by` (of the criteria), or combine "
@@ -35,7 +35,7 @@ SEPARATE = (
 
 SUMMARIZE = (
     "summarize the results of a study (a row per replicate) first, with a row "
-    + "per design (see aggregate), or select the rows of one group (such as those "
+    + "per design (see summarize), or select the rows of one group (such as those "
     + "of a scenario)"
 )
 """How to give each design one row, rather than the results of a study (a
@@ -331,7 +331,7 @@ def efficient_keys(summary: pd.DataFrame) -> list:
     `pareto` is true, in any group), each once, in order.
 
     Args:
-        summary (pandas.DataFrame): The summary (see `aggregate`).
+        summary (pandas.DataFrame): The summary (see `summarize`).
 
     Returns:
         list: the keys

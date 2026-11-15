@@ -59,7 +59,7 @@ class TestScreen(unittest.TestCase):
 
     def setUp(self):
         self.designs = _space().enumerate()
-        exact = summarize(_study(0, 1).run(self.designs), list(OBJECTIVES))
+        exact = summarize(_study(0, 1).run(self.designs), statistics=list(OBJECTIVES))
         self.front = set(exact.design[pareto_front(exact, OBJECTIVES)])
 
     def test_keeps_whole_fronts(self):
@@ -67,7 +67,7 @@ class TestScreen(unittest.TestCase):
         screening = screen(
             [_study(0.3, 1), _study(0, 1)], OBJECTIVES, self.designs, keep=20
         )
-        first = screening.summaries[0]
+        first = screening.summaries[screening.summaries.stage == 0]
         self.assertGreaterEqual(first.kept.sum(), 20)
         last_rank = first[first.kept].pareto_rank.max()
         self.assertTrue((first[first.pareto_rank <= last_rank].kept).all())
@@ -105,7 +105,7 @@ class TestScreen(unittest.TestCase):
             self.designs,
             keep=[0.5, 10],
         )
-        counts = [len(summary) for summary in screening.summaries]
+        counts = screening.summaries.groupby("stage").size().tolist()
         self.assertEqual(counts[0], len(self.designs))
         self.assertGreaterEqual(counts[1], 0.5 * counts[0])
         self.assertGreaterEqual(counts[2], 10)
@@ -192,7 +192,8 @@ class TestScreenRequirements(unittest.TestCase):
             space.enumerate(),
             keep=4,
         )
-        first = screening.summaries[0].set_index("design")
+        summaries = screening.summaries
+        first = summaries[summaries.stage == 0].set_index("design")
         meets = first[first.meets_requirements]
         misses = first[~first.meets_requirements]
         self.assertGreater(misses.pareto_rank.min(), meets.pareto_rank.max())

@@ -51,23 +51,23 @@ class Attribution:
     errors of the shares (`first se` and `total se`, by a bootstrap). Those
     of differences (see `differences`) are of a pair of designs (`design`
     and `other`)."""
+    designs: list[Design] = field(default_factory=list)
+    """list[Design]: The designs attributed (of differences, those of the
+    pairs)."""
     by: tuple[str, ...] = ()
     """tuple[str, ...]: The columns that separate the records of an
     evaluation (see `attribute_variance`)."""
-    samples: dict[str, np.ndarray] = field(default_factory=dict, repr=False)
+    _samples: dict[str, np.ndarray] = field(default_factory=dict, repr=False)
     """dict[str, numpy.ndarray]: The variances that the parameter of each row
     of `shares` explains (`first` and `total`), and the variance of the
     metric (`variance`), in each resample of the bootstrap (a row per row of
     `shares`, and a column per resample, of the same replicates for every
     design), from which `summary` estimates the standard errors of shares
     over designs."""
-    resamples: np.ndarray | None = field(default=None, repr=False)
+    _resamples: np.ndarray | None = field(default=None, repr=False)
     """numpy.ndarray | None: The rows of A, B, and the mixed replicates in
     each resample of the bootstrap (a row per resample), which `differences`
     resamples too."""
-    designs: list[Design] = field(default_factory=list)
-    """list[Design]: The designs attributed (of differences, those of the
-    pairs)."""
 
     @property
     def summary(self) -> pd.DataFrame:
@@ -107,8 +107,8 @@ class Attribution:
         usable = (frame[share].notna() & frame["variance"].notna()).to_numpy()
         explained = np.where(usable, frame[share] * frame["variance"], 0.0)
         variance = np.where(usable, frame["variance"], 0.0)
-        sampled = np.where(usable[:, None], self.samples[share], np.nan)
-        sampled_variance = np.where(usable[:, None], self.samples["variance"], np.nan)
+        sampled = np.where(usable[:, None], self._samples[share], np.nan)
+        sampled_variance = np.where(usable[:, None], self._samples["variance"], np.nan)
         records = []
         with warnings.catch_warnings():
             # parameters drawn in no design, or without variance
@@ -183,7 +183,7 @@ class Attribution:
             ValueError: if a design of a pair is not attributed, or a pair is
                 of a design with itself.
         """
-        if "other" in self.shares.columns or self.resamples is None:
+        if "other" in self.shares.columns or self._resamples is None:
             raise ValueError("differences need an attribution of designs")
         designs = list(pd.unique(self.results["design"]))
         pairs = list(combinations(designs, 2)) if pairs is None else pairs
@@ -198,7 +198,7 @@ class Attribution:
             raise ValueError(f"pairs of a design with itself: {same}")
         metrics = list(pd.unique(self.shares["metric"]))
         parameters = list(pd.unique(self.shares["parameter"]))
-        n = self.resamples.shape[1]
+        n = self._resamples.shape[1]
         tables = {
             key: _tables(self.results, key, metrics, parameters, self.by)
             for key in dict.fromkeys(key for pair in keyed for key in pair)
@@ -230,16 +230,16 @@ class Attribution:
             parameters,
             metrics,
             self.by,
-            self.resamples,
+            self._resamples,
         )
         paired = {key for pair in keyed for key in pair}
         return Attribution(
             results=differences,
             shares=shares,
-            by=self.by,
-            samples=samples,
-            resamples=self.resamples,
             designs=[design for design in self.designs if design.key in paired],
+            by=self.by,
+            _samples=samples,
+            _resamples=self._resamples,
         )
 
 
@@ -267,7 +267,7 @@ def _groups_of(
     if not groups:
         raise ValueError("no parameters to attribute variance to")
     paths = [path for group in groups.values() for path in group]
-    space.check_uncertain(paths)
+    space._check_uncertain(paths)  # pylint: disable=protected-access
     repeated = sorted({path for path in paths if paths.count(path) > 1})
     if repeated:
         raise ValueError(f"parameters in more than one group: {repeated}")
@@ -422,7 +422,7 @@ def _shares(
     in `keys`, and of each group of `by`) of each group of parameters (see
     `attribute_variance`), with a bootstrap of the resamples of the rows of
     A, B, and the mixed replicates (`resamples x n`), whose samples it also
-    returns (see `Attribution.samples`).
+    returns (see `Attribution._samples`).
     """
     n = resamples.shape[1]
     feasible = feasible_records(results)[0]
@@ -604,8 +604,8 @@ def attribute_variance(
     return Attribution(
         results=results,
         shares=shares,
-        by=by,
-        samples=samples,
-        resamples=drawn,
         designs=unique,
+        by=by,
+        _samples=samples,
+        _resamples=drawn,
     )

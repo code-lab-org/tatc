@@ -3,8 +3,8 @@ The discrete-event simulation of missions (see `Deployment.simulate`): the
 deployment of a constellation with the failures of its satellites and
 launches, the restoration of failed satellites by its policy, and the
 decisions of the rules of its stages, into the history of the mission (see
-`MissionHistory`); and many histories of a replicate, independent or
-stratified (see `Deployment.simulate_many`).
+`MissionHistory`); and the samplers of many histories of a replicate,
+independent or stratified (see `Deployment.simulate_many`).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -139,57 +139,24 @@ class _Sampler:
         )
 
 
-SAMPLINGS = ("random", "stratified")
+_SAMPLINGS = ("random", "stratified")
 """The samplings of the failures of histories (see `Deployment.simulate_many`)."""
 
 
-def simulate_histories(
-    deployment: Deployment,
-    model: FailureModel,
-    seed: int,
-    *,
-    histories: int = 1,
-    sampling: str = "stratified",
-    stress: float = 1.0,
-    launch_stress: float | None = None,
-) -> list[MissionHistory]:
+def _check_sampling(
+    histories: int, sampling: str, stress: float, launch_stress: float | None = None
+) -> None:
     """
-    Simulates the histories of a mission in a replicate (see
-    `Deployment.simulate_many`), history `k` from the seed and `k`.
-
-    Args:
-        deployment (Deployment): The deployment, with its policy.
-        model (FailureModel): The failures.
-        seed (int): The seed of the replicate.
-        histories (int): The number of histories.
-        sampling (str): `"stratified"` or `"random"`.
-        stress (float): The factor of the hazards of stressed failures.
-        launch_stress (float | None): The factor of the probability that a
-            launch fails, or `None` for the stress.
-
-    Returns:
-        list[MissionHistory]: the histories
-
-    Raises:
-        ValueError: if the sampling is unknown or a stress is not positive.
+    Checks the sampling of histories (see `Deployment.simulate_many`),
+    raising a `ValueError` if the histories are fewer than 1, the sampling is
+    unknown, or a stress is not positive.
     """
-    # pylint: disable=too-many-arguments
-    if sampling not in SAMPLINGS:
-        raise ValueError(f"sampling must be one of {SAMPLINGS}, not {sampling!r}")
+    if histories < 1:
+        raise ValueError("histories must be at least 1")
+    if sampling not in _SAMPLINGS:
+        raise ValueError(f"sampling must be one of {_SAMPLINGS}, not {sampling!r}")
     if stress <= 0 or (launch_stress is not None and launch_stress <= 0):
         raise ValueError("stress must be positive")
-    launch_stress = stress if launch_stress is None else launch_stress
-    return [
-        _Simulation(
-            deployment,
-            model,
-            (seed, k),
-            _Sampler(seed, k, histories) if sampling == "stratified" else None,
-            stress,
-            launch_stress,
-        ).run()
-        for k in range(histories)
-    ]
 
 
 class _Simulation:
@@ -333,7 +300,8 @@ class _Simulation:
                 (
                     None
                     if capability is None
-                    else partial(capability.at, self.deployment.planes, operating)
+                    # pylint: disable-next=protected-access
+                    else partial(capability._at, self.deployment.planes, operating)
                 ),
             )
             if not stage.rule(decision):

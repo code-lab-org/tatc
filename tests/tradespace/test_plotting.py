@@ -57,8 +57,7 @@ class TestPlots(unittest.TestCase):
             "satellites",
             "sufficient",
             by="planes",
-            front="pareto",
-            labels="design",
+            annotate="design",
             names=lambda planes: f"{planes} planes",
             jitter=0.2,
         )
@@ -75,10 +74,17 @@ class TestPlots(unittest.TestCase):
         # jitter shifts only the horizontal positions
         offsets = np.concatenate([c.get_offsets() for c in ax.collections[:2]])
         self.assertTrue(np.all(np.abs(offsets[:, 0] - np.round(offsets[:, 0])) <= 0.2))
-        # criteria find the front
-        ax = plot_designs(self.summary, "satellites", "sufficient", front=objectives)
+        # the front of the column `pareto` by default, or given rows
+        rows = pareto_front(self.summary, objectives)
+        plain = self.summary.drop(columns="pareto")
+        ax = plot_designs(plain, "satellites", "sufficient", front=rows)
         self.assertEqual(len(ax.collections[-1].get_offsets()), efficient)
         self.assertEqual(ax.get_xlabel(), "satellites")
+        # without the column, none
+        ax = plot_designs(plain, "satellites", "sufficient")
+        self.assertEqual(len(ax.collections), 1)
+        with self.assertRaisesRegex(ValueError, "efficient"):
+            plot_designs(self.summary, "satellites", "sufficient", front="best")
 
     def test_given_axes(self):
         """Plots draw on given axes."""
@@ -235,7 +241,7 @@ class TestShares(unittest.TestCase):
         self.assertEqual(labels, ["50.0", "60.0", "other", "Pareto-efficient"])
         named = plot_designs(frame, "x", "y", by="inclination", others="sso")
         labels = [text.get_text() for text in named.get_legend().get_texts()]
-        self.assertEqual(labels[-1], "sso")
+        self.assertEqual(labels[-2:], ["sso", "Pareto-efficient"])
         # with highlights, the designs in gray share their name
         both = plot_designs(
             frame,
@@ -244,6 +250,7 @@ class TestShares(unittest.TestCase):
             by="inclination",
             highlight=[True, False, True, False],
             others="the rest",
+            front=None,
         )
         labels = [text.get_text() for text in both.get_legend().get_texts()]
         self.assertEqual(labels, ["the rest", "50.0", "60.0"])

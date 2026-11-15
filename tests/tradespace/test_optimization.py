@@ -23,7 +23,6 @@ from tatc.tradespace import (
     Requirement,
     Study,
     Uncertain,
-    aggregate,
     hypervolume,
     optimize_optuna,
     optimize_pymoo,
@@ -35,12 +34,28 @@ from tatc.tradespace.optimization import (
     _constraint_names,
     make_pymoo_problem,
 )
+from tatc.tradespace.values import Scope
+from tatc.tradespace.walks import _Context, _walk
 
 HAS_OPTUNA = importlib.util.find_spec("optuna") is not None
 HAS_PYMOO = importlib.util.find_spec("pymoo") is not None
 
 OBJECTIVES = {"cost": "min", "value": "max"}
 REFERENCE = {"cost": 30, "value": 0}
+
+
+def _encode(space, design):
+    """The center of each decided level's part of [0, 1], and 0.5 for inactive paths."""
+    paths = space._unit_paths()
+    index = {path: i for i, path in enumerate(paths)}
+    unit = np.full(len(index), 0.5)
+
+    def record(path, domain, value):
+        unit[index[path]] = (domain.levels.index(value) + 0.5) / len(domain.levels)
+        return value
+
+    _walk(space, "", Scope(), _Context(normalize=record), design.decisions)
+    return unit
 
 
 def _space():
@@ -103,7 +118,7 @@ class TestEncoding(unittest.TestCase):
 
     def test_unit_paths(self):
         """Paths cover every decision, with repeated items up to the largest count."""
-        paths = _space().unit_paths()
+        paths = _space()._unit_paths()
         self.assertEqual(
             paths[:3],
             [
@@ -119,7 +134,7 @@ class TestEncoding(unittest.TestCase):
         """Every design decodes from its encoding."""
         space = _space()
         for design in space.enumerate():
-            self.assertEqual(space.decode(space.encode(design)).key, design.key)
+            self.assertEqual(space._decode(_encode(space, design)).key, design.key)
 
     def test_decode_random(self):
         """Random points decode to designs of the space (or infeasible ones)."""
@@ -129,7 +144,7 @@ class TestEncoding(unittest.TestCase):
         decoded = 0
         for _ in range(200):
             try:
-                design = space.decode(rng.random(len(space.unit_paths())))
+                design = space._decode(rng.random(len(space._unit_paths())))
             except Infeasible:
                 continue
             decoded += 1
@@ -143,7 +158,7 @@ class TestEncoding(unittest.TestCase):
             parts=Repeat(Integer(0, 1), count=Integer(1, lambda d: d.n)),
         )
         with self.assertRaises(ValueError):
-            space.unit_paths()
+            space._unit_paths()
 
 
 class TestEvaluations(unittest.TestCase):
@@ -177,9 +192,11 @@ class TestEvaluations(unittest.TestCase):
         self.assertEqual(
             [evaluations.infeasibility[d.key] for d in designs], [0.0, 0.0, 1.0]
         )
-        # the summary of a search is that of its results (see aggregate)
+        # the summary of a search is that of its results (see summarize)
         search = evaluations.search(None)
-        pd.testing.assert_frame_equal(search.summary, aggregate(results, {"f": "max"}))
+        pd.testing.assert_frame_equal(
+            search.summary, summarize(results, {"f": "max"}, spread=False)
+        )
         self.assertEqual([d.key for d in search.designs], [designs[1].key])
         self.assertEqual(len(search.evaluated), 3)
         # a requirement on the share of feasible replicates
@@ -222,7 +239,7 @@ class TestEvaluations(unittest.TestCase):
 
 
 def _exact_hypervolume():
-    summary = summarize(_study().run(), list(OBJECTIVES))
+    summary = summarize(_study().run(), statistics=list(OBJECTIVES))
     return summary, hypervolume(summary, OBJECTIVES, REFERENCE)
 
 
@@ -246,7 +263,7 @@ class TestOptuna(unittest.TestCase):
                 "layout.planes.planes[1].size": 0.5,
             }
         )
-        design = _space().suggest(trial)
+        design = _space()._suggest(trial)
         self.assertEqual(
             [(p.satellites, p.size) for p in design.layout.planes], [(1, 0.5), (3, 1.5)]
         )
@@ -269,7 +286,7 @@ class TestOptuna(unittest.TestCase):
         )
         optuna_study, results = search.state, search.results
         self.assertEqual(len(optuna_study.trials), 150)
-        found = summarize(results, list(OBJECTIVES))
+        found = summarize(results, statistics=list(OBJECTIVES))
         self.assertLessEqual(found.design.nunique(), 150)
         self.assertGreater(hypervolume(found, OBJECTIVES, REFERENCE), 0.9 * exact)
         self.assertTrue(pareto_front(summary, OBJECTIVES).any())
@@ -298,7 +315,7 @@ class TestPymoo(unittest.TestCase):
             list(search.summary.design[search.summary.pareto]),
         )
         self.assertEqual(search.criteria.objectives, OBJECTIVES)
-        found = summarize(results, list(OBJECTIVES))
+        found = summarize(results, statistics=list(OBJECTIVES))
         self.assertGreater(hypervolume(found, OBJECTIVES, REFERENCE), 0.9 * exact)
         self.assertFalse(results.feasible.all())  # some designs were too heavy
         # the summary of the feasible designs, and their front
@@ -318,24 +335,25 @@ class TestPymoo(unittest.TestCase):
         study = _study()
         problem = make_pymoo_problem(study, OBJECTIVES)
         single = study.space.design({"layout": ["single", {"quality": 2}]})
-        x = study.space.encode(single)
+        x = _encode(study.space, single)
         # the same level of each variable, and other values of the branch not chosen
         same = x.copy()
-        same[study.space.unit_paths().index("layout.single.quality")] += 0.1
+        same[study.space._unit_paths().index("layout.single.quality")] += 0.1
         other = x.copy()
-        other[study.space.unit_paths().index("layout.planes.planes.count")] = 0.9
-        too_many = study.space.encode(
+        other[study.space._unit_paths().index("layout.planes.planes.count")] = 0.9
+        too_many = _encode(
+            study.space,
             study.space.design(
                 {"layout": ["planes", {"planes": [{"satellites": 4, "size": 0.5}] * 2}]}
-            )
+            ),
         )
-        too_many[study.space.unit_paths().index("layout.planes.planes.count")] = 0.99
+        too_many[study.space._unit_paths().index("layout.planes.planes.count")] = 0.99
         for k in range(3):
             too_many[
-                study.space.unit_paths().index(f"layout.planes.planes[{k}].satellites")
+                study.space._unit_paths().index(f"layout.planes.planes[{k}].satellites")
             ] = 0.99
         with self.assertRaises(Infeasible):
-            study.space.decode(too_many)
+            study.space._decode(too_many)
         pop = Population.new("X", np.array([x, same, other, too_many, too_many]))
         kept = problem.duplicates.do(pop)
         self.assertEqual(len(kept), 3)  # one of the same design, and both infeasible
@@ -363,11 +381,18 @@ class TestPymoo(unittest.TestCase):
 
         algorithm = NSGA2(pop_size=8)
         own = algorithm.mating.eliminate_duplicates
-        optimize_pymoo(_study(), OBJECTIVES, algorithm, ("n_gen", 2), seed=1)
+        optimize_pymoo(
+            _study(), OBJECTIVES, algorithm=algorithm, termination=("n_gen", 2), seed=1
+        )
         self.assertIs(algorithm.mating.eliminate_duplicates, own)
         self.assertIs(algorithm.initialization.eliminate_duplicates, own)
         plain = optimize_pymoo(
-            _study(), OBJECTIVES, algorithm, ("n_gen", 2), seed=1, distinct=False
+            _study(),
+            OBJECTIVES,
+            algorithm=algorithm,
+            termination=("n_gen", 2),
+            seed=1,
+            distinct=False,
         )
         self.assertGreater(len(plain.evaluated), 0)
 
@@ -381,8 +406,8 @@ class TestPymoo(unittest.TestCase):
         search = optimize_pymoo(
             _study(),
             OBJECTIVES,
-            NSGA2(pop_size=10),
-            ("n_gen", 50),
+            algorithm=NSGA2(pop_size=10),
+            termination=("n_gen", 50),
             seed=1,
             max_designs=25,
         )
@@ -394,8 +419,8 @@ class TestPymoo(unittest.TestCase):
         short = optimize_pymoo(
             _study(),
             OBJECTIVES,
-            NSGA2(pop_size=10),
-            ("n_gen", 2),
+            algorithm=NSGA2(pop_size=10),
+            termination=("n_gen", 2),
             seed=1,
             max_designs=1000,
         )
@@ -473,15 +498,15 @@ class TestPymooConstraints(unittest.TestCase):
         light = space.design({"layout": ["single", {"quality": 2}]})
         # three planes of four satellites: the first branch, the largest count
         # and number of satellites (the last of their levels)
-        paths = space.unit_paths()
+        paths = space._unit_paths()
         heavy = np.full(len(paths), 0.1)
         for i, path in enumerate(paths):
             if path.endswith("count") or path.endswith("satellites"):
                 heavy[i] = 0.99
         with self.assertRaises(Infeasible) as context:
-            space.decode(heavy)
+            space._decode(heavy)
         self.assertEqual(context.exception.violation, 4)
-        x = np.array([space.encode(light), heavy])
+        x = np.array([_encode(space, light), heavy])
         population = Evaluator().eval(problem, Population.new(X=x))
         self.assertEqual(list(population.get("G")[:, 0]), [0, 4])
 

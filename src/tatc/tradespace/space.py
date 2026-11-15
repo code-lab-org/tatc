@@ -39,10 +39,10 @@ from .nodes import (
     Infeasible,
     Uncertain,
     _as_node,
-    _Domain,
 )
 from .values import Scope, Values, generic_path
 from .walks import (
+    _ABSENT,
     _Context,
     _decided,
     _flatten,
@@ -50,9 +50,9 @@ from .walks import (
     _level_of,
     _node_at,
     _Odometer,
-    _unit_paths,
     _walk,
 )
+from .walks import _unit_paths as _paths_of_units
 
 STATUS_COLUMNS = ("design", "replicate", "scenario", "feasible", "error", "seconds")
 """tuple[str, ...]: The columns of the results of a study (see `Study.run`)
@@ -291,9 +291,9 @@ class Design:
         _check_seed(seed)
         replicate = _check_replicate(replicate)
         shift = _check_shift(shift)
-        self.space.check_uncertain(shift)
+        self.space._check_uncertain(shift)  # pylint: disable=protected-access
         overrides = dict(overrides or {})
-        self.space.check_overrides(overrides)
+        self.space._check_overrides(overrides)  # pylint: disable=protected-access
         tail = [] if common_random_numbers else [int(self.key, 16)]
 
         def draw(path: str, node: Uncertain) -> Any:
@@ -431,11 +431,12 @@ class DesignSpace(Group):
     def __repr__(self) -> str:
         return f"DesignSpace({', '.join(self.children)})"
 
-    def _design(self, ctx: _Context) -> Design:
+    def _design(self, ctx: _Context, prescribed: Any = _ABSENT) -> Design:
         """
-        Decides a design (with nominal uncertain parameters).
+        Decides a design (with nominal uncertain parameters), following the
+        prescribed decisions, if any.
         """
-        values, decisions = _walk(self, "", Scope(), ctx)
+        values, decisions = _walk(self, "", Scope(), ctx, prescribed)
         return Design(self, decisions, values)
 
     def design(
@@ -528,16 +529,15 @@ class DesignSpace(Group):
         """
         Rebuilds designs from the rows of a data frame of their values by path
         (see `Design.flat`): the results of a study (see `Study.run`), or a
-        summary that keeps the values of the designs (see `aggregate`). The
+        summary that keeps the values of the designs (see `summarize`). The
         designs are those of the rows, aligned with them (with the frame's
         index), so that functions of designs map over the rows, or those of
         `keys` (indexed by them). Each design is rebuilt once, from the first
         row of its key (`design`, a column or the name of the index), whose
         key it must have, if the frame has keys::
 
-            summary["description"] = space.designs_of(summary).map(describe)
             front = space.designs_of(summary[summary.pareto])
-            confirmation = confirm(study, criteria, results, front)
+            realized = [study.realize(design) for design in front]
 
         Args:
             frame (pandas.DataFrame): The rows.
@@ -587,32 +587,59 @@ class DesignSpace(Group):
             )
         return design
 
-    def enumerate(self) -> list[Design]:
+    def enumerate(self, designs: Iterable[Design] | None = None) -> list[Design]:
         """
         Enumerates every feasible design (a full factorial design over the
         levels of the design variables, including those that exist only in
-        some designs), without duplicates.
+        some designs), without duplicates, or every feasible design that
+        extends given designs: designs of a design space that this one
+        extends (see `extend`), each with every combination of the levels of
+        the decisions it lacks, such as each policy for each of the efficient
+        designs of the space without policies::
+
+            failure_space = cost_space.extend(policy=POLICY)
+            with_policies = failure_space.enumerate(cost_space.designs_of(efficient))
+
+        Args:
+            designs (Iterable[Design] | None): The designs to extend, or
+                `None` for every design.
 
         Returns:
-            list[Design]: the designs, in the order of their decisions
+            list[Design]: the designs, in the order of their decisions (and of
+                the given designs)
 
         Raises:
-            ValueError: if a design variable is continuous.
+            ValueError: if a design variable is continuous, or the decisions
+                of a given design are not those of a design of this design
+                space (see `design`).
         """
-        return list(self._iterate())
+        if designs is None:
+            return list(self._iterate())
+        found: dict[str, Design] = {}
+        for given in designs:
+            if not isinstance(given, Design):
+                raise TypeError(f"designs to extend, not {given!r}")
+            for design in self._iterate(given.decisions):
+                found.setdefault(design.key, design)
+        return list(found.values())
 
-    def _iterate(self) -> Iterator[Design]:
+    def _iterate(self, prescribed: Any = _ABSENT) -> Iterator[Design]:
         """
-        Iterates over every feasible design (see `enumerate`). The items of
-        unordered repetitions are walked in only one of their orders, so
-        that their permutations are not walked.
+        Iterates over every feasible design (see `enumerate`), or every one
+        with the prescribed decisions (of some of its nodes). The items of
+        unordered repetitions are walked in only one of their orders, so that
+        their permutations are not walked.
         """
         odometer = _Odometer()
-        ctx = _Context(choose=odometer.choose, odometer=odometer)
+        ctx = _Context(
+            choose=odometer.choose,
+            odometer=odometer,
+            normalize=None if prescribed is _ABSENT else _level_of,
+        )
         keys: set[str] = set()
         while True:
             try:
-                design = self._design(ctx)
+                design = self._design(ctx, prescribed)
                 if design.key not in keys:
                     keys.add(design.key)
                     yield design
@@ -688,23 +715,6 @@ class DesignSpace(Group):
                 raise Infeasible(f"no feasible design in {max_tries} draws")
         return designs
 
-    def unit_paths(self) -> list[str]:
-        """
-        Gets the paths of every decision of the design space, in the order
-        they are decided: its design variables, its choices, and the counts
-        of its repetitions, with the items of each repetition up to its
-        largest count. These are the dimensions of the unit hypercube that
-        encodes its designs (see `encode` and `decode`).
-
-        Returns:
-            list[str]: the paths
-
-        Raises:
-            ValueError: if the count of a repetition has an upper bound that
-                is not fixed.
-        """
-        return _unit_paths(self, "")
-
     def uncertain_paths(self) -> list[str]:
         """
         Gets the paths of the uncertain parameters of the design space (see
@@ -712,24 +722,21 @@ class DesignSpace(Group):
         of any item of a repetition (so that the phases of every plane of a
         constellation are one path, such as `planes[*].phase`), and with
         the branches of choices (such as `layout.walker.phase_fraction`),
-        whether a design chooses them or not.
+        whether a design chooses them or not. These name the parameters of a
+        shift (see `Design.realize`) and the overrides of a scenario (see
+        `Study`).
 
         Returns:
             list[str]: the paths
         """
         return _leaf_paths(self, "", Uncertain)
 
-    def check_uncertain(self, paths: Iterable[str]) -> None:
+    def _check_uncertain(self, paths: Iterable[str]) -> None:
         """
         Checks that paths are of uncertain parameters of the design space (as
         of `uncertain_paths`, with `[*]` for the index of any item of a
-        repetition), such as those of a shift (see `Design.realize`).
-
-        Args:
-            paths (Iterable[str]): The paths.
-
-        Raises:
-            ValueError: if a path is not of an uncertain parameter.
+        repetition), such as those of a shift (see `Design.realize`), raising
+        a `ValueError` if one is not.
         """
         unknown = [p for p in paths if not isinstance(_node_at(self, p), Uncertain)]
         if unknown:
@@ -738,19 +745,12 @@ class DesignSpace(Group):
                 + f"{sorted(unknown, key=str)} (it has {self.uncertain_paths()})"
             )
 
-    def check_overrides(self, overrides: Iterable[str]) -> None:
+    def _check_overrides(self, overrides: Iterable[str]) -> None:
         """
-        Checks that the paths of the overrides of a scenario (see
-        `Design.realize`) are of fixed values or uncertain parameters of the
-        design space (with `[*]` for the index of any item of a repetition).
-
-        Args:
-            overrides (Iterable[str]): The overrides (a mapping by path), or
-                their paths.
-
-        Raises:
-            ValueError: if a path is not of a fixed value or an uncertain
-                parameter.
+        Checks that the paths of the overrides of a scenario (a mapping by
+        path, or the paths, see `Design.realize`) are of fixed values or
+        uncertain parameters of the design space (with `[*]` for the index of
+        any item of a repetition), raising a `ValueError` if one is not.
         """
         unknown = [
             p
@@ -764,70 +764,44 @@ class DesignSpace(Group):
                 + f"{sorted(unknown, key=str)} (it has {known})"
             )
 
-    def decode(self, unit: Sequence[float]) -> Design:
+    def _unit_paths(self) -> list[str]:
+        """
+        Gets the paths of every decision of the design space, in the order
+        they are decided: its design variables, its choices, and the counts
+        of its repetitions, with the items of each repetition up to its
+        largest count. These are the dimensions of the unit hypercube that
+        encodes its designs for optimizers of fixed numbers of continuous
+        variables (see `_decode` and `make_pymoo_problem`), raising a
+        `ValueError` if the count of a repetition has an upper bound that is
+        not fixed.
+        """
+        return _paths_of_units(self, "")
+
+    def _decode(self, unit: Sequence[float]) -> Design:
         """
         Decodes a design from a point of the unit hypercube (a value in
-        [0, 1] for each of `unit_paths`): each decision maps the value of its
-        path to a level (each level spans an equal part of [0, 1]) or to a
-        point of its interval. Values of the paths of inactive nodes (such as
-        the branches not chosen) are ignored. This encodes the design space
-        for optimizers of fixed numbers of continuous variables, such as
-        pymoo's.
-
-        Args:
-            unit (Sequence[float]): The values, in the order of `unit_paths`.
-
-        Returns:
-            Design: the design
-
-        Raises:
-            Infeasible: if the design violates a constraint.
+        [0, 1] for each of `_unit_paths`): each decision maps the value of
+        its path to a level (each level spans an equal part of [0, 1]) or to
+        a point of its interval. Values of the paths of inactive nodes (such
+        as the branches not chosen) are ignored. Raises `Infeasible` if the
+        design violates a constraint.
         """
-        index = {path: i for i, path in enumerate(self.unit_paths())}
+        index = {path: i for i, path in enumerate(self._unit_paths())}
         if len(unit) != len(index):
             raise ValueError(f"expected {len(index)} values, not {len(unit)}")
         return self._design(
             _Context(choose=lambda path, domain: domain.from_unit(unit[index[path]]))
         )
 
-    def encode(self, design: Design) -> np.ndarray:
+    def _suggest(self, trial: Any) -> Design:
         """
-        Encodes a design as a point of the unit hypercube (see `decode`): the
-        center of the part of [0, 1] of each decided level, and 0.5 for the
-        paths of inactive nodes.
-
-        Args:
-            design (Design): The design.
-
-        Returns:
-            numpy.ndarray: the values, in the order of `unit_paths`
-        """
-        index = {path: i for i, path in enumerate(self.unit_paths())}
-        unit = np.full(len(index), 0.5)
-
-        def record(path: str, domain: _Domain, value: Any) -> None:
-            unit[index[path]] = domain.to_unit(value)
-
-        ctx = _Context(record=record, canonical=True)
-        _walk(self, "", Scope(), ctx, design.decisions)
-        return unit
-
-    def suggest(self, trial: Any) -> Design:
-        """
-        Decides a design with an Optuna trial (define-by-run): each decision
-        is suggested by the trial, named by its path, with the kind of its
-        variable (`suggest_float`, with the step of a discrete `Real`;
-        `suggest_int`; or `suggest_categorical`, also for choices), so that
-        Optuna's samplers search the hierarchical design space directly.
-
-        Args:
-            trial (optuna.trial.Trial): The trial.
-
-        Returns:
-            Design: the design
-
-        Raises:
-            Infeasible: if the design violates a constraint.
+        Decides a design with an Optuna trial (define-by-run, see
+        `optimize_optuna`): each decision is suggested by the trial, named by
+        its path, with the kind of its variable (`suggest_float`, with the
+        step of a discrete `Real`; `suggest_int`; or `suggest_categorical`,
+        also for choices), so that Optuna's samplers search the hierarchical
+        design space directly. Raises `Infeasible` if the design violates a
+        constraint.
         """
         return self._design(
             _Context(choose=lambda path, domain: domain.suggest(trial, path))
@@ -921,6 +895,6 @@ def _designs(
         raise ValueError(
             f"the values of designs {missing[:5]} are not given: give the designs, "
             + "or their keys with the results of a study (or a summary that keeps "
-            + "the values of designs, see aggregate)"
+            + "the values of designs, see summarize)"
         ) from error
     return [design for design in found.values() if design is not None]

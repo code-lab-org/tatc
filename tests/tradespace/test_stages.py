@@ -203,8 +203,11 @@ class TestStages(unittest.TestCase):
             )
             return decision.capability["observing"] < 4
 
-        deployment = SCHEDULE.plan(_layout(), stages=[Stage(2, [0.0, 0.5], rule)])
-        deployment.capability = Capability(NAMES, OBSERVATIONS, _count)
+        capability = Capability(NAMES, OBSERVATIONS, _count)
+        deployment = SCHEDULE.plan(
+            _layout(), stages=[Stage(2, [0.0, 0.5], rule)], capability=capability
+        )
+        self.assertIs(deployment.capability, capability)
         history = deployment.simulate()
         # the first plane alone at the first launch (the second is launched later)
         self.assertEqual(seen, [(0.0, 2, {"observing": 2.0})])
@@ -212,8 +215,9 @@ class TestStages(unittest.TestCase):
         # the planned history reads it too
         self.assertEqual(history.metrics()["stages deployed"], 1.0)
         self.assertEqual(deployment.planned().decided, [deployment.begin])
-        later = SCHEDULE.plan(_layout(), stages=[Stage(2, 0.5, rule)])
-        later.capability = deployment.capability
+        later = SCHEDULE.plan(
+            _layout(), stages=[Stage(2, 0.5, rule)], capability=capability
+        )
         self.assertEqual(later.simulate().decided, [None])
         # without a capability, a rule cannot read it
         unmeasured = SCHEDULE.plan(_layout(), stages=[Stage(2, 0.0, rule)])
@@ -231,6 +235,7 @@ class TestStages(unittest.TestCase):
                 Stage(2, [0.5, 1.0, 1.5, 2.0], lambda d: d.satellites_operating < 4)
             ],
         )
+        cache = PhaseCache(_count)
         measured = SCHEDULE.plan(
             _layout(),
             policy=policy,
@@ -241,10 +246,7 @@ class TestStages(unittest.TestCase):
                     lambda d: d.capability["observing"] < 4,
                 )
             ],
-        )
-        cache = PhaseCache(_count)
-        measured.capability = Capability(
-            NAMES, OBSERVATIONS, cache, context="replicate"
+            capability=Capability(NAMES, OBSERVATIONS, cache, context="replicate"),
         )
         expected = by_count.simulate_many(failures, seed=1, histories=20)
         histories = measured.simulate_many(failures, seed=1, histories=20)
@@ -256,6 +258,7 @@ class TestStages(unittest.TestCase):
     def test_capability_reads(self):
         """A capability evaluates sets of satellites by name, or by position, only
         when read."""
+        # pylint: disable=protected-access
         calls = []
 
         def metric(observations):
@@ -265,18 +268,19 @@ class TestStages(unittest.TestCase):
         capability = Capability(NAMES, OBSERVATIONS, metric)
         self.assertEqual(capability(["s0", "s3"]), {"observing": 2.0})
         planes = SCHEDULE.plan(_layout()).planes
-        self.assertEqual(capability.at(planes, [(1, 0), (2, 1)]), {"observing": 2.0})
+        self.assertEqual(capability._at(planes, [(1, 0), (2, 1)]), {"observing": 2.0})
         self.assertEqual(capability(set()), {"observing": 0.0})
         self.assertEqual(calls, [2, 2, 0])
         # a rule that does not read it does not evaluate it
-        deployment = SCHEDULE.plan(_layout(), stages=[Stage(2, 0.0, lambda d: True)])
-        deployment.capability = capability
+        deployment = SCHEDULE.plan(
+            _layout(), stages=[Stage(2, 0.0, lambda d: True)], capability=capability
+        )
         deployment.simulate()
         self.assertEqual(len(calls), 3)
         with self.assertRaises(ValueError):
             capability(["s9"])
         with self.assertRaises(ValueError):
-            Capability(NAMES[:4], OBSERVATIONS, metric).at(planes, [(0, 0)])
+            Capability(NAMES[:4], OBSERVATIONS, metric)._at(planes, [(0, 0)])
         # a cache keys satellites given by name by their names
         cache = PhaseCache(_count)
         cached = Capability(NAMES, OBSERVATIONS, cache)
@@ -285,9 +289,9 @@ class TestStages(unittest.TestCase):
         self.assertEqual((cache.hits, cache.misses), (1, 1))
         # which the cache gives by their keys (and the context)
         keys = {"s0": "s0", "s1": "s1"}
-        self.assertEqual(cache.metrics_of(keys, OBSERVATIONS), {"observing": 2.0})
+        self.assertEqual(cache._metrics_of(keys, OBSERVATIONS), {"observing": 2.0})
         self.assertEqual((cache.hits, cache.misses), (2, 1))
-        cache.metrics_of(keys, OBSERVATIONS, context="other")
+        cache._metrics_of(keys, OBSERVATIONS, context="other")
         self.assertEqual((cache.hits, cache.misses), (2, 2))
 
     def test_lead_and_launches(self):

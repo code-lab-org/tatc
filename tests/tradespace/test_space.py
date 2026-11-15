@@ -523,6 +523,42 @@ class TestDesignsOf(unittest.TestCase):
         with self.assertRaises(Infeasible):
             extended.design({"a": 3, "b": 0, "c": "x"})
 
+    def test_enumerate_extensions(self):
+        """The extensions of designs are those of every combination of the
+        decisions they lack, in their order, without the infeasible ones."""
+        space = DesignSpace(a=Integer(1, 3))
+        extended = space.extend(
+            c=Categorical(["x", "y"]),
+            d=Repeat(Integer(0, 1), count=Integer(1, 2), ordered=False),
+            constraints=[lambda d: not (d.a == 3 and d.c == "y")],
+        )
+        bases = space.enumerate()
+        extensions = extended.enumerate(bases[::-1])
+        expected = [
+            extended.design(base, c=c, d=d)
+            for base in bases[::-1]
+            for c in ("x", "y")
+            for d in ([0], [1], [0, 0], [0, 1], [1, 1])
+            if not (base.a == 3 and c == "y")
+        ]
+        self.assertEqual([d.key for d in extensions], [d.key for d in expected])
+        self.assertTrue(all(d.space is extended for d in extensions))
+        # every design of the space, from the designs of its unextended space
+        self.assertEqual(
+            {d.key for d in extended.enumerate(bases)},
+            {d.key for d in extended.enumerate()},
+        )
+        # a design of the space itself, and repeated designs, once
+        self.assertEqual(extended.enumerate([expected[0]] * 2), [expected[0]])
+        self.assertEqual(extended.enumerate([]), [])
+        # decisions of other children, or of other levels
+        with self.assertRaisesRegex(ValueError, "no children"):
+            space.enumerate([expected[0]])
+        with self.assertRaisesRegex(ValueError, "not a level"):
+            DesignSpace(a=Integer(5, 6)).enumerate(bases)
+        with self.assertRaises(TypeError):
+            extended.enumerate([{"a": 1}])
+
 
 def _layouts_space():
     """A choice of a group of planes (a number) or a repetition of planes."""
@@ -645,7 +681,7 @@ class TestCounts(unittest.TestCase):
         designs = categorical.enumerate()
         self.assertEqual(len(designs), 2 + 8)
         self.assertEqual(
-            categorical.unit_paths(),
+            categorical._unit_paths(),  # pylint: disable=protected-access
             ["parts.count", "parts[0]", "parts[1]", "parts[2]"],
         )
         rebuilt = categorical.designs_of(
@@ -659,7 +695,7 @@ class TestCounts(unittest.TestCase):
         )
         self.assertEqual(len(derived.enumerate()), 2 + 4)
         with self.assertRaisesRegex(ValueError, "upper bound"):
-            derived.unit_paths()
+            derived._unit_paths()  # pylint: disable=protected-access
 
     def test_invalid(self):
         """Counts of other nodes, or negative, are rejected at once."""
@@ -891,16 +927,17 @@ class TestScenarioOverrides(unittest.TestCase):
 
     def test_checks(self):
         """Paths of shifts and overrides are checked by the design space."""
+        # pylint: disable=protected-access
         space = _planes_space()
-        space.check_uncertain(["planes[*].phase"])
-        space.check_overrides({"planes[*].phase": 1.0})
-        self.space.check_overrides({"limit": 1, "u": 0.5})
+        space._check_uncertain(["planes[*].phase"])
+        space._check_overrides({"planes[*].phase": 1.0})
+        self.space._check_overrides({"limit": 1, "u": 0.5})
         for paths in (["planes[0].phase"], ["per_plane"], ["planes[*]"], [1]):
             with self.subTest(paths=paths):
                 with self.assertRaisesRegex(ValueError, "not uncertain"):
-                    space.check_uncertain(paths)
+                    space._check_uncertain(paths)
         with self.assertRaisesRegex(ValueError, "not fixed values"):
-            self.space.check_overrides({"n": 2})
+            self.space._check_overrides({"n": 2})
 
     def test_seed(self):
         """Seeds are non-negative integers."""

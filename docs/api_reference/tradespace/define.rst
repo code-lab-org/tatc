@@ -9,7 +9,7 @@ Design Spaces and Designs
 =========================
 
 .. autoclass:: tatc.tradespace.DesignSpace
-   :members: enumerate, size, sample, design, designs_of, extend, suggest, unit_paths, uncertain_paths, check_uncertain, check_overrides, encode, decode
+   :members: enumerate, size, sample, design, designs_of, extend, uncertain_paths
 
 .. autoclass:: tatc.tradespace.Design
    :members: flat, uncertain_values, realize, values, decisions, scenario
@@ -34,7 +34,7 @@ Variables and Values
 .. autoclass:: tatc.tradespace.Derived
 
 .. autoclass:: tatc.tradespace.Uncertain
-   :members: uniform, normal, choice, seed
+   :members: uniform, normal, triangular, choice, seed
 
 .. autoclass:: tatc.tradespace.Choice
 
@@ -100,7 +100,3 @@ Reading Designs
 .. autofunction:: tatc.tradespace.value_of
 
 .. autofunction:: tatc.tradespace.configure
-
-.. autofunction:: tatc.tradespace.references.takes_design
-
-.. autofunction:: tatc.tradespace.references.given_design

@@ -18,10 +18,9 @@ Observation Studies
    :members: satellites_of, targets_of, observations_of, mission_of, prune
 
 .. autoclass:: tatc.tradespace.Observations
-   :members: end, start_of, end_of, cache_of, context_of, prune, __call__
+   :members: start_of, end_of, prune, __call__
 
 .. autoclass:: tatc.tradespace.Targets
-   :members: of, seed_of
 
 The parts of observation studies read the values of designs by references
 (see :doc:`define` for :py:data:`tatc.tradespace.references.Reference` and
@@ -34,19 +33,18 @@ Missions of Designs
    :no-members:
 
 .. autoclass:: tatc.tradespace.MissionPlan
-   :members: schedule_of, cost_model_of, masses_of, growth_of, stages_of, policy_of, plan_mission
+   :members: plan_mission
 
 .. autoclass:: tatc.tradespace.Failures
-   :members: seed_of, simulate, evaluate, summarize
 
 .. autoclass:: tatc.tradespace.mission.Mission
-   :members: phases, estimate, histories, metrics, summarize
+   :members: phases, estimate, histories, capability, requirements
 
 Stores of Results
 =================
 
 .. autoclass:: tatc.tradespace.ResultStore
-   :members: get, put, define, definition, contexts, remove, clear
+   :members: clear
 
 Caches of Satellites
 ====================
@@ -55,7 +53,7 @@ Caches of Satellites
    :no-members:
 
 .. autoclass:: tatc.tradespace.SatelliteCache
-   :members: get, prune, clear_memory, folder, context, contexts, __call__
+   :members: __call__, prune, clear_memory, folder, fingerprint, hits, misses
 
 .. autofunction:: tatc.tradespace.cache.get_satellite_key
 

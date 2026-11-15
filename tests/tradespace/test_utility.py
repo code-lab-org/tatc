@@ -20,9 +20,7 @@ from tatc.tradespace import (
     Quantile,
     Requirement,
     StandardDeviation,
-    StandardError,
     Utility,
-    aggregate,
     pareto_front,
     summarize,
 )
@@ -166,14 +164,14 @@ class TestStatistics(unittest.TestCase):
         which penalizes the spread of a risk-averse utility."""
         criteria = Criteria({"utility": "max"}, statistics={"utility": self.utility})
         self.assertEqual(criteria.metrics, ["a"])
-        summary = aggregate(_results(), criteria).set_index("design")
+        summary = summarize(_results(), criteria).set_index("design")
         expected = (0 + 1) / 2
         self.assertAlmostEqual(summary.loc["x", "utility"], expected)
         self.assertAlmostEqual(
             summary.loc["y", "utility"], float(ExponentialUtility(0, 1, 2)(0.5))
         )
         # the utility of the means is the same for both
-        means = aggregate(_results(), ["a"]).set_index("design")
+        means = summarize(_results(), statistics=["a"]).set_index("design")
         np.testing.assert_allclose(self.utility(means), self.utility(means).iloc[0])
 
     def test_statistics(self):
@@ -183,7 +181,7 @@ class TestStatistics(unittest.TestCase):
             "reliable": Probability(self.utility, ">=", 0.5),
             "expected": Mean(self.utility),
         }
-        summary = aggregate(_results(), statistics=statistics).set_index("design")
+        summary = summarize(_results(), statistics=statistics).set_index("design")
         self.assertEqual(summary.loc["x", "worst"], 0.0)
         self.assertEqual(summary.loc["x", "reliable"], 0.5)
         self.assertEqual(summary.loc["y", "reliable"], 1.0)
@@ -201,15 +199,14 @@ class TestStatistics(unittest.TestCase):
         # the cost of each design is the same in every replicate
         for column in ("cost std", "cost se"):
             self.assertNotIn(column, summary.columns)
-        spread = aggregate(
+        # as of the statistic
+        spread = summarize(
             _results(),
             criteria,
-            statistics={
-                "utility std": StandardDeviation(self.utility),
-                "utility se": StandardError(self.utility),
-            },
+            statistics={"utility std": StandardDeviation(self.utility)},
+            spread=False,
         ).set_index("design")
-        pd.testing.assert_series_equal(summary["utility se"], spread["utility se"])
+        pd.testing.assert_series_equal(summary["utility std"], spread["utility std"])
         self.assertEqual(summary.loc["y", "utility std"], 0.0)
 
     def test_utility_against_cost(self):
@@ -221,13 +218,13 @@ class TestStatistics(unittest.TestCase):
         )
         # a requirement on a statistic that the criteria do not name
         with self.assertRaises(ValueError):
-            aggregate(_results(), criteria)
+            summarize(_results(), criteria)
         criteria = Criteria(
             {"utility": "max", "cost": "min"},
             statistics={"utility": self.utility, "worst": Quantile(self.utility, 0)},
             requirements=[Requirement("worst", ">=", 0.1)],
         )
-        summary = aggregate(_results(), criteria)
+        summary = summarize(_results(), criteria)
         front = summary[pareto_front(summary, criteria)]
         # x is cheaper, but misses the requirement on its worst replicate
         self.assertEqual(list(front.design), ["y"])

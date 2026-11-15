@@ -341,36 +341,12 @@ class _Describer:
         self.note(type(value).__module__)
         return _type(value)
 
-    # the rules of descriptions (see `_RULES`)
+    def noted(self, module: Any, description: Any) -> Any:
+        """Notes a module (see `note`), and gives a description."""
+        self.note(module)
+        return description
 
-    def plain(self, value: Any, depth: int, seen: set) -> Any:
-        """Describes `None`, a boolean, an integer, or a string as itself."""
-        del depth, seen
-        return value
-
-    def number(self, value: float, depth: int, seen: set) -> str:
-        """Describes a float by its representation (exactly)."""
-        del depth, seen
-        return repr(value)
-
-    def scalar(self, value: np.generic, depth: int, seen: set) -> Any:
-        """Describes a numpy scalar as Python's."""
-        return self.describe(value.item(), depth, seen)
-
-    def binary(self, value: bytes, depth: int, seen: set) -> str:
-        """Describes bytes by their hash."""
-        del depth, seen
-        return hashlib.sha1(value).hexdigest()
-
-    def moment(self, value: date | time, depth: int, seen: set) -> str:
-        """Describes a date or time by its ISO format."""
-        del depth, seen
-        return value.isoformat()
-
-    def duration(self, value: timedelta, depth: int, seen: set) -> dict:
-        """Describes a duration by its seconds."""
-        del depth, seen
-        return {"timedelta": value.total_seconds()}
+    # the rules of descriptions that are more than one expression (see `_RULES`)
 
     def dataclass(self, value: Any, depth: int, seen: set) -> dict:
         """
@@ -404,33 +380,6 @@ class _Describer:
             **_type(value),
             "fingerprint": self.describe(value.__fingerprint__(), depth + 1, seen),
         }
-
-    def model(self, value: BaseModel, depth: int, seen: set) -> dict:
-        """Describes a pydantic model by its data."""
-        del depth, seen
-        self.note(type(value).__module__)
-        return {**_type(value), **value.model_dump(mode="json")}
-
-    def array(self, value: np.ndarray, depth: int, seen: set) -> dict:
-        """Describes an array by its type, shape, and a hash of its data."""
-        del depth, seen
-        if value.dtype == object:
-            return {**_type(value), "shape": list(value.shape)}
-        return {
-            "array": str(value.dtype),
-            "shape": list(value.shape),
-            "data": hashlib.sha1(np.ascontiguousarray(value).tobytes()).hexdigest(),
-        }
-
-    def frame(self, value: pd.DataFrame | pd.Series, depth: int, seen: set) -> dict:
-        """Describes a data frame or series (see `_frame`)."""
-        del depth, seen
-        return _frame(value)
-
-    def geometry(self, value: shapely.Geometry, depth: int, seen: set) -> dict:
-        """Describes a geometry by a hash of its well-known binary."""
-        del depth, seen
-        return {**_type(value), "data": hashlib.sha1(value.wkb).hexdigest()}
 
     def sequence(self, value: list | tuple, depth: int, seen: set) -> Any:
         """Describes a list or tuple by its items (or its length, if long)."""
@@ -623,18 +572,6 @@ class _Describer:
             "members": members,
         }
 
-    def named(self, value: Any, depth: int, seen: set) -> dict:
-        """Describes a class or built-in function by its name."""
-        del depth, seen
-        self.note(getattr(value, "__module__", None))
-        return {"name": _name(value)}
-
-    def module(self, value: types.ModuleType, depth: int, seen: set) -> dict:
-        """Describes a module by its name."""
-        del depth, seen
-        self.note(value.__name__)
-        return {"module": value.__name__}
-
     def instance(self, value: Any, depth: int, seen: set) -> dict:
         """
         Describes an object of a class of the study's own: its class (see
@@ -663,20 +600,50 @@ class _Describer:
         }
 
 
+def _array(value: np.ndarray) -> dict:
+    """Describes an array by its type, shape, and a hash of its data."""
+    if value.dtype == object:
+        return {**_type(value), "shape": list(value.shape)}
+    return {
+        "array": str(value.dtype),
+        "shape": list(value.shape),
+        "data": hashlib.sha1(np.ascontiguousarray(value).tobytes()).hexdigest(),
+    }
+
+
 _RULES: tuple[tuple[tuple[type, ...] | Callable[[Any], bool], Callable], ...] = (
-    # by content
-    ((type(None), bool, int, str), _Describer.plain),
-    ((float,), _Describer.number),
-    ((np.generic,), _Describer.scalar),
-    ((bytes,), _Describer.binary),
-    ((datetime, date, time), _Describer.moment),
-    ((timedelta,), _Describer.duration),
+    # by content: plain values as themselves (floats by their representation,
+    # exactly, and numpy scalars as Python's), bytes by their hash, dates and
+    # times by their ISO format, and durations by their seconds
+    ((type(None), bool, int, str), lambda _, value, *__: value),
+    ((float,), lambda _, value, *__: repr(value)),
+    (
+        (np.generic,),
+        lambda describer, value, *rest: describer.describe(value.item(), *rest),
+    ),
+    ((bytes,), lambda _, value, *__: hashlib.sha1(value).hexdigest()),
+    ((datetime, date, time), lambda _, value, *__: value.isoformat()),
+    ((timedelta,), lambda _, value, *__: {"timedelta": value.total_seconds()}),
     (_has_fingerprint, _Describer.fingerprinted),
     (_is_dataclass, _Describer.dataclass),
-    ((BaseModel,), _Describer.model),
-    ((np.ndarray,), _Describer.array),
-    ((pd.DataFrame, pd.Series), _Describer.frame),
-    ((shapely.Geometry,), _Describer.geometry),
+    # pydantic models by their data, arrays and data frames by hashes of their
+    # data (see `_array` and `_frame`), and geometries by a hash of their
+    # well-known binary
+    (
+        (BaseModel,),
+        lambda describer, value, *_: describer.noted(
+            type(value).__module__, {**_type(value), **value.model_dump(mode="json")}
+        ),
+    ),
+    ((np.ndarray,), lambda _, value, *__: _array(value)),
+    ((pd.DataFrame, pd.Series), lambda _, value, *__: _frame(value)),
+    (
+        (shapely.Geometry,),
+        lambda _, value, *__: {
+            **_type(value),
+            "data": hashlib.sha1(value.wkb).hexdigest(),
+        },
+    ),
     ((list, tuple), _Describer.sequence),
     ((set, frozenset), _Describer.collection),
     ((dict,), _Describer.mapping),
@@ -689,9 +656,19 @@ _RULES: tuple[tuple[tuple[type, ...] | Callable[[Any], bool], Callable], ...] = 
     ((types.FunctionType,), _Describer.function),
     (_is_own_class, _Describer.klass),
     (_is_own_object, _Describer.instance),
-    # by name
-    ((types.BuiltinFunctionType, type), _Describer.named),
-    ((types.ModuleType,), _Describer.module),
+    # by name: classes and built-in functions, and modules
+    (
+        (types.BuiltinFunctionType, type),
+        lambda describer, value, *_: describer.noted(
+            getattr(value, "__module__", None), {"name": _name(value)}
+        ),
+    ),
+    (
+        (types.ModuleType,),
+        lambda describer, value, *_: describer.noted(
+            value.__name__, {"module": value.__name__}
+        ),
+    ),
 )
 """What values are described by (see the module): the first rule whose test
 (types, or a predicate) a value matches describes it, and a value that
@@ -1070,25 +1047,7 @@ def _without_code(description: Any) -> Any:
     return description
 
 
-def _with_other_code(definition: dict, others: Mapping[Any, dict | None]) -> list:
-    """
-    Gets the keys of other definitions (such as of the contexts of a store
-    or the folders of a cache) that have the same values as a definition but
-    other code (of its functions, of TAT-C, or of Python, see
-    `_without_code`), in their order: results of the same study with other
-    code, which are not reused, as opposed to those of other studies (such
-    as variants of other settings), which share stores and caches freely.
-    Definitions that are `None` (unknown) are of no study.
-    """
-    values = _without_code(definition.get("values", {}))
-    return [
-        key
-        for key, other in others.items()
-        if other is not None and _without_code(other.get("values", {})) == values
-    ]
-
-
-def find_stale(
+def _find_stale(
     definition: dict,
     others: Mapping[Any, dict | None],
     count: Callable[[Any], int],
@@ -1098,22 +1057,18 @@ def find_stale(
     other code (of its functions, of TAT-C, or of Python), which are not
     reused: the keys of the other definitions (such as the contexts of a
     store, or the folders of a cache) that have the same values but other
-    code (see `_with_other_code`), in their order, with their numbers of
-    results. The results of other studies (such as variants of other
-    settings) are not stale, as studies share stores and caches freely.
-
-    Args:
-        definition (dict): The definition (see `get_definition`).
-        others (Mapping[Any, dict | None]): The other definitions, by key
-            (`None` for a definition that is unknown, of no study).
-        count (Callable[[Any], int]): A function of a key that counts its
-            results (0 for a definition kept without results).
-
-    Returns:
-        dict[Any, int]: the numbers of results, by key (in the order of
-            `others`)
+    code (see `_without_code`), in their order, with their numbers of
+    results (by `count`, a function of a key, 0 for a definition kept
+    without results). The results of other studies (such as variants of
+    other settings) are not stale, as studies share stores and caches
+    freely, and definitions that are `None` (unknown) are of no study.
     """
-    return {key: count(key) for key in _with_other_code(definition, others)}
+    values = _without_code(definition.get("values", {}))
+    return {
+        key: count(key)
+        for key, other in others.items()
+        if other is not None and _without_code(other.get("values", {})) == values
+    }
 
 
 def warn_stale(
@@ -1126,13 +1081,13 @@ def warn_stale(
 ) -> bool:
     """
     Warns (at the user's call) that the results of the same study (or
-    function) as a definition with other code (see `find_stale`) are not
+    function) as a definition with other code (see `_find_stale`) are not
     reused, if any are found, with the differences of the latest of their
     definitions from the definition (see `compare_definitions`).
 
     Args:
         found (Mapping[Any, int]): The numbers of stale results, by the key
-            of their definition, the latest first (see `find_stale`).
+            of their definition, the latest first (see `_find_stale`).
         definition (dict): The definition (see `get_definition`).
         definition_of (Callable[[Any], dict | None]): A function of a key
             that gives its definition.

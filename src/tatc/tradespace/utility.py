@@ -178,7 +178,7 @@ class Utility:
     a sample of points, see `attribute_variance`), the expected utility
     penalizes the noise rather than the design: judge the utility of the
     means instead (`utility(summary)`, of a summary of the means of the
-    metrics, see `aggregate`).
+    metrics, see `summarize`).
 
     Args:
         attributes (Mapping[str, Callable]): The single-attribute utility of

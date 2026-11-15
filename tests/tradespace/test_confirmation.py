@@ -50,7 +50,7 @@ class TestConfirm(unittest.TestCase):
         self.study = _study()
         self.designs = self.study.space.enumerate()
         self.results = self.study.run(self.designs)
-        summary = summarize(self.results, list(OBJECTIVES), design_columns=[])
+        summary = summarize(self.results, statistics=list(OBJECTIVES))
         # the best looking designs of each cost
         best = summary.sort_values("value", ascending=False).groupby(
             summary.design.map({d.key: d.cost for d in self.designs})
@@ -90,7 +90,7 @@ class TestConfirm(unittest.TestCase):
     def test_default_front(self):
         """Without designs, the front of the results is confirmed; designs may
         also be given by their keys or a data frame of them."""
-        summary = summarize(self.results, list(OBJECTIVES), design_columns=[])
+        summary = summarize(self.results, statistics=list(OBJECTIVES))
         front = summary[pareto_front(summary, OBJECTIVES)]
         confirmation = confirm(self.study, OBJECTIVES, self.results)
         self.assertEqual(set(confirmation.summary.design), set(front.design))
@@ -134,6 +134,7 @@ class TestConfirm(unittest.TestCase):
         empty = Confirmation(
             results=pd.DataFrame(),
             summary=pd.DataFrame({"cost optimism": [], "value optimism": []}),
+            designs=[],
             criteria=Criteria(OBJECTIVES),
         )
         with warnings.catch_warnings():

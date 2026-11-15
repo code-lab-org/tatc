@@ -43,7 +43,6 @@ from tatc.tradespace.fingerprint import (
     describe,
     get_definition,
     get_fingerprint,
-    find_stale,
     warn_stale,
 )
 
@@ -369,11 +368,12 @@ class TestFingerprint(unittest.TestCase):
         # of definitions
         definition = {"values": {"f": newer}}
         self.assertEqual(
-            fingerprint._with_other_code(
+            fingerprint._find_stale(
                 definition,
                 {"a": {"values": {"f": older}}, "b": None, "c": {"values": {}}},
+                lambda key: 1,
             ),
-            ["a"],
+            {"a": 1},
         )
 
     def test_dataclasses(self):
@@ -744,7 +744,8 @@ class TestStale(unittest.TestCase):
         with their numbers of results."""
         others = {"b": self.older, "c": self.other, "d": None, "a": self.older}
         counts = {"a": 0, "b": 3, "c": 5, "d": 1}
-        found = find_stale(self.newer, others, counts.__getitem__)
+        # pylint: disable-next=protected-access
+        found = fingerprint._find_stale(self.newer, others, counts.__getitem__)
         self.assertEqual(list(found.items()), [("b", 3), ("a", 0)])
 
     def test_warn_stale(self):

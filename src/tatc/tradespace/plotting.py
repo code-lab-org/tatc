@@ -22,8 +22,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria
-from .pareto import pareto_front
 from .tables import feasible_records
 
 COLORS = (
@@ -121,6 +119,9 @@ def style_axes(ax: Any, grid: str | None = "y") -> Any:
     return ax
 
 
+_JITTER_SEED = 0
+"""The seed of the random shifts of `plot_designs` (see its `jitter`)."""
+
 _OTHERS = object()
 """The group of the rows without a value of the column that groups them."""
 
@@ -151,6 +152,21 @@ def _name(names: Mapping[Any, str] | Callable[[Any], str] | None, value: Any) ->
     return names.get(value, str(value))
 
 
+def _front(frame: pd.DataFrame, front: str | Sequence[bool] | None) -> Any:
+    """
+    Gets the efficient rows of a frame to ring (a boolean column, or values),
+    or `None` for none: without the column `"pareto"` (of a summary of
+    criteria), none.
+    """
+    if front is None:
+        return None
+    if isinstance(front, str) and front not in frame.columns:
+        if front == "pareto":
+            return None
+        raise ValueError(f"the frame has no column {front!r} of efficient designs")
+    return _mask(frame, front, "front")
+
+
 def _distinct(values: pd.Series) -> list:
     """Gets the distinct values (of a column), sorted if they can be."""
     distinct = list(pd.unique(values.dropna()))
@@ -176,8 +192,8 @@ def plot_designs(
     y: str,
     *,
     by: str | Sequence | None = None,
-    front: str | Sequence[bool] | Criteria | Mapping[str, str] | None = None,
-    labels: str | Callable[[pd.Series], str] | None = None,
+    front: str | Sequence[bool] | None = "pareto",
+    annotate: str | Callable[[pd.Series], str] | None = None,
     names: Mapping[Any, str] | Callable[[Any], str] | None = None,
     highlight: str | Sequence[bool] | None = None,
     label: str | None = None,
@@ -187,22 +203,22 @@ def plot_designs(
     colors: Sequence[str] | Mapping[Any, str] = COLORS,
     legend: str | None = "best",
     ax: Any = None,
-    seed: int = 0,
 ) -> Any:
     """
-    Plots designs (such as a summary of a study, see `aggregate`) by two
+    Plots designs (such as a summary of a study, see `summarize`) by two
     metrics: a point per row, colored by the value of a column `by` (if
-    any), with the efficient designs (`front`) ringed and labeled. Rows
+    any), with the efficient designs (`front`, by default those of the
+    column `pareto` of a summary of criteria, if it has one) ringed. Rows
     without a value of `by` (`NaN`, such as of a variable of a branch that a
     design does not choose) are drawn in gray, named `others` (or "other")
     in the legend. With `highlight`, only some designs are colored, over the
     others in gray (such as the designs a search evaluated, over every
     design)::
 
-        plot_designs(summary, "satellites", "sufficient", front="pareto")
+        plot_designs(summary, "satellites", "sufficient", by="layout")
         plot_designs(
             summary, "cost", "accurate", highlight=summary.policy == "degrade",
-            label="degrade", others="other policies", front="pareto",
+            label="degrade", others="other policies",
         )
 
     Args:
@@ -212,12 +228,13 @@ def plot_designs(
         by (str | Sequence | None): A column whose values color the designs,
             values for the rows (such as of a column grouped, as
             `summary.planes.clip(upper=3)`), or `None`.
-        front (str | Sequence[bool] | Criteria | Mapping | None): The
-            efficient designs: a boolean column (such as `"pareto"` of a
-            summary of criteria) or values (one per row), criteria (see
-            `pareto_front`), or `None`.
-        labels (str | Callable | None): The labels of the efficient designs:
-            a column, a function of a row, or `None`.
+        front (str | Sequence[bool] | None): The efficient designs: a boolean
+            column (by default `"pareto"`, of a summary of criteria, which a
+            frame without the column does not ring) or values (one per row,
+            such as of `pareto_front`), or `None`.
+        annotate (str | Callable | None): The labels of the efficient
+            designs, written next to them: a column, a function of a row, or
+            `None`.
         names (Mapping | Callable | None): The names of the values of `by` in
             the legend (by default, the values).
         highlight (str | Sequence[bool] | None): The designs to color (a
@@ -236,13 +253,16 @@ def plot_designs(
             in order (or by value).
         legend (str | None): The location of the legend, or `None` for none.
         ax (matplotlib.axes.Axes | None): The axes, or `None` for a new figure.
-        seed (int): The seed of the jitter.
 
     Returns:
         matplotlib.axes.Axes: the axes
+
+    Raises:
+        ValueError: if `front` is a column (other than `"pareto"`) that the
+            frame lacks, or values of a length other than the frame's.
     """
     ax = _axes(ax, (9, 4.5))
-    shift = np.random.default_rng(seed).uniform(-jitter, jitter, len(frame))
+    shift = np.random.default_rng(_JITTER_SEED).uniform(-jitter, jitter, len(frame))
     xs = frame[x].to_numpy(dtype=float) + (shift if jitter else 0.0)
     ys = frame[y].to_numpy(dtype=float)
     shown = np.ones(len(frame), dtype=bool)
@@ -287,27 +307,22 @@ def plot_designs(
                 lw=0,
                 label=None if named else (others or "other"),
             )
-    if front is not None:
-        if isinstance(front, (Criteria, Mapping)):
-            efficient = np.asarray(pareto_front(frame, front), dtype=bool)
-        else:
-            efficient = _mask(frame, front, "front")
+    ringed = _front(frame, front)
+    if ringed is not None:
         ax.scatter(
-            xs[efficient],
-            ys[efficient],
+            xs[ringed],
+            ys[ringed],
             s=70,
             facecolor="none",
             edgecolor=INK,
             lw=1.5,
             label=front_label,
         )
-        if labels is not None:
-            rows = frame[efficient]
-            for (_, row), point in zip(
-                rows.iterrows(), zip(xs[efficient], ys[efficient])
-            ):
+        if annotate is not None:
+            rows = frame[ringed]
+            for (_, row), point in zip(rows.iterrows(), zip(xs[ringed], ys[ringed])):
                 ax.annotate(
-                    labels(row) if callable(labels) else str(row[labels]),
+                    annotate(row) if callable(annotate) else str(row[annotate]),
                     point,
                     xytext=(8, -3),
                     textcoords="offset points",
@@ -316,7 +331,7 @@ def plot_designs(
                 )
     ax.set(xlabel=x, ylabel=y)
     style_axes(ax)
-    named = by is not None or front is not None or label is not None
+    named = by is not None or ringed is not None or label is not None
     if legend is not None and (named or others is not None):
         ax.legend(loc=legend, fontsize=8, frameon=False, markerscale=1.6)
     return ax

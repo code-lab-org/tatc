@@ -1,8 +1,8 @@
 """
 Searches of design spaces for Pareto-efficient designs with optimizers:
-Optuna (which searches the hierarchical design space directly, see
-`DesignSpace.suggest`) and pymoo (which searches the unit hypercube that
-encodes it, see `DesignSpace.decode`). Both are optional dependencies.
+Optuna (which searches the hierarchical design space directly, suggesting
+each decision in turn) and pymoo (which searches the unit hypercube that
+encodes it, a dimension per decision). Both are optional dependencies.
 
 Designs are judged by criteria (see `Criteria`, without `by`): their
 objectives are statistics over their replicates of the metrics of their
@@ -23,7 +23,7 @@ designs proposed together are evaluated together, in parallel if the study
 is (see `Study`).
 
 Designs are judged by their feasible replicates, as summaries judge them
-(see `aggregate`): a design infeasible in some replicates is judged by the
+(see `summarize`): a design infeasible in some replicates is judged by the
 others (a requirement on `feasible`, the share of its replicates that are
 feasible, such as `Requirement("feasible", ">=", 1)`, rejects it), and a
 design without a feasible replicate is infeasible, which the optimizers'
@@ -47,10 +47,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria, Requirement
+from .criteria import Criteria, Requirement, _as_criteria, _signs
 from .space import Design, Infeasible
 from .study import Study
-from .summary import aggregate
+from .summary import _summarize
 from .tables import FEASIBLE, check_records, efficient_keys
 
 
@@ -70,18 +70,18 @@ class Search:
 
     results: pd.DataFrame
     """pandas.DataFrame: The results of every evaluation (see `Study.run`)."""
-    criteria: Criteria
-    """Criteria: The criteria of the search."""
-    summary: pd.DataFrame = field(default_factory=pd.DataFrame)
+    summary: pd.DataFrame
     """pandas.DataFrame: A row per design that the search found feasible
     (with a feasible replicate, in every scenario with criteria `across`
     scenarios, as designs are judged by their feasible replicates, see
-    `aggregate`): the summary of the criteria over its replicates, with
+    `summarize`): the summary of the criteria over its replicates, with
     whether it is efficient among these designs (`pareto`, with the
     tolerances of the criteria)."""
-    designs: list[Design] = field(default_factory=list)
+    designs: list[Design]
     """list[Design]: The efficient designs that the search found (`pareto` of
     `summary`), for the next step."""
+    criteria: Criteria
+    """Criteria: The criteria of the search."""
     evaluated: list[Design] = field(default_factory=list)
     """list[Design]: The designs evaluated, in the order of their evaluation."""
     state: Any = None
@@ -94,7 +94,7 @@ class Evaluations:
     The evaluations of designs for a search: the objectives of each design
     (by its key), the violations of its requirements, and the records of the
     study's evaluations. Designs are judged by their feasible replicates (see
-    `aggregate`), and a design without a feasible replicate is infeasible.
+    `summarize`), and a design without a feasible replicate is infeasible.
 
     Args:
         study (Study): The study that evaluates designs.
@@ -104,7 +104,7 @@ class Evaluations:
     """
 
     def __init__(self, study: Study, criteria: Criteria | Mapping[str, str]):
-        self.study, self.criteria = study, Criteria.of(criteria)
+        self.study, self.criteria = study, _as_criteria(criteria)
         if self.criteria.by:
             raise ValueError(
                 "searches need one record per evaluation: give criteria without `by`"
@@ -162,7 +162,7 @@ class Evaluations:
     def _run(self, designs: list[Design]) -> None:
         """
         Evaluates designs, recording their objectives and violations (of
-        their summary, see `aggregate`).
+        their summary, see `summarize`).
         """
         self.designs.update((design.key, design) for design in designs)
         records = self.study.run(designs)
@@ -182,7 +182,7 @@ class Evaluations:
             )
         check_records(records, keys, hint, self.criteria.metrics)
         self._checked = self._checked or bool(records[FEASIBLE].any())
-        summary = aggregate(records, self.criteria, design_columns=[])
+        summary = _summarize(records, self.criteria, design_values=False)
         summary = summary.set_index("design")
         shares = records.groupby("design")[FEASIBLE].mean()
         for design in designs:
@@ -212,7 +212,7 @@ class Evaluations:
             Search: the search
         """
         results = self.results
-        summary = aggregate(results, self.criteria)
+        summary = _summarize(results, self.criteria)
         return Search(
             results=results,
             criteria=self.criteria,
@@ -247,8 +247,8 @@ class Evaluations:
 def optimize_optuna(
     study: Study,
     criteria: Criteria | Mapping[str, str],
-    n_trials: int,
     *,
+    n_trials: int = 100,
     seed: int | None = 0,
     sampler: Any = None,
     optuna_study: Any = None,
@@ -258,13 +258,13 @@ def optimize_optuna(
 ) -> Search:
     """
     Searches a study's design space with Optuna: each trial suggests a design
-    (see `DesignSpace.suggest`) and is told the objectives of the criteria:
+    (each of its decisions in turn) and is told the objectives of the criteria:
     statistics (such as means) of its metrics over its replicates.
 
     With `constraints`, each trial records the violation of the constraints
     of its design (`trial.set_constraint`, under the name `"feasibility"`):
     0 for a design with feasible replicates (by which it is judged, see
-    `aggregate`), the amount by which it violates a constraint of the design
+    `summarize`), the amount by which it violates a constraint of the design
     space (see `DesignSpace`), or, for a design without a feasible replicate,
     the share of its evaluations that the study finds infeasible (see
     `Evaluations.infeasibility`). Optuna's constraint-aware samplers (such
@@ -373,7 +373,7 @@ def optimize_optuna(
         for _ in range(size):
             trial = optuna_study.ask()
             try:
-                design = study.space.suggest(trial)
+                design = study.space._suggest(trial)  # pylint: disable=protected-access
             except Infeasible as error:
                 trial.set_user_attr("error", str(error))
                 infeasible(trial, error.violation)
@@ -418,8 +418,8 @@ def _constraint_names(requirements: Sequence[Requirement]) -> list[str]:
 def make_pymoo_problem(study: Study, criteria: Criteria | Mapping[str, str]) -> Any:
     """
     Makes a pymoo problem of a study's design space: its variables are the
-    unit hypercube that encodes the design space (see `DesignSpace.decode`
-    and `DesignSpace.unit_paths`), its objectives are minimized (maximized
+    unit hypercube that encodes the design space (a dimension per decision,
+    whose levels divide it equally), its objectives are minimized (maximized
     objectives are negated), and its constraint (`G <= 0`) is violated by
     designs that violate a constraint of the design space (by the amount of
     the violation, see `DesignSpace`) or that have no feasible replicate (by
@@ -461,14 +461,16 @@ def make_pymoo_problem(study: Study, criteria: Criteria | Mapping[str, str]) -> 
 
     evaluations = Evaluations(study, criteria)
     n_requirements = len(evaluations.criteria.requirements)
-    signs = evaluations.criteria.signs
-    n_var = len(study.space.unit_paths())
+    signs = _signs(evaluations.criteria)
+    space = study.space
+    decode = space._decode  # pylint: disable=protected-access
+    n_var = len(space._unit_paths())  # pylint: disable=protected-access
 
     def key_of(individual: Any) -> str | None:
         """The key of the design of a proposal, or `None` if it violates a
         constraint of the design space."""
         try:
-            return study.space.decode(individual.X).key
+            return decode(individual.X).key
         except Infeasible:
             return None
 
@@ -513,7 +515,7 @@ def make_pymoo_problem(study: Study, criteria: Criteria | Mapping[str, str]) -> 
             violation = np.ones(len(np.atleast_2d(x)))
             for i, row in enumerate(np.atleast_2d(x)):
                 try:
-                    designs.append(study.space.decode(row))
+                    designs.append(decode(row))
                 except Infeasible as error:
                     designs.append(None)
                     violation[i] = max(error.violation, 1e-9)
@@ -593,9 +595,9 @@ def _designs_termination(
 def optimize_pymoo(
     study: Study,
     criteria: Criteria | Mapping[str, str],
+    *,
     algorithm: Any = None,
     termination: Any = ("n_gen", 10),
-    *,
     seed: int | None = 0,
     distinct: bool = True,
     max_designs: int | None = None,

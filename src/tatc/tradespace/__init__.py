@@ -5,7 +5,7 @@ A trade study declares a design space (`DesignSpace`), evaluates its designs
 in replicates that draw its uncertain parameters (`Study`, or
 `ObservationStudy` for the observations, deployment, costs, and failures of
 constellations) into results (a row per replicate), judges designs by
-criteria (`Criteria`) on summaries of the results (`aggregate`, a row per
+criteria (`Criteria`) on summaries of the results (`summarize`, a row per
 design) and their Pareto efficiency (`pareto_front`), and settles the
 uncertainty of its replicates (`refine`, `confirm`), or finds efficient
 designs of spaces too large to enumerate (`screen`, `optimize_optuna`,
@@ -94,12 +94,11 @@ from .statistics import (
     Probability,
     Quantile,
     StandardDeviation,
-    StandardError,
     Statistic,
 )
 from .store import ResultStore
 from .study import Study
-from .summary import aggregate, pareto_probability, summarize
+from .summary import pareto_probability, summarize
 from .utility import ExponentialUtility, LinearUtility, PiecewiseUtility, Utility
 
 __all__ = [
@@ -164,10 +163,8 @@ __all__ = [
     "Quantile",
     "Requirement",
     "StandardDeviation",
-    "StandardError",
     "Statistic",
     "Utility",
-    "aggregate",
     "exceedance",
     "hypervolume",
     "hypervolume_progress",

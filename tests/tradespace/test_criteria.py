@@ -19,6 +19,16 @@ from tatc.tradespace import (
     Requirement,
     pareto_front,
 )
+from tatc.tradespace.criteria import (
+    _as_criteria,
+    _combiners,
+    _costs,
+    _resolved,
+    _signs,
+    _statistic,
+    _tolerances,
+    _violation,
+)
 
 
 class TestRequirement(unittest.TestCase):
@@ -83,10 +93,10 @@ class TestCriteria(unittest.TestCase):
         )
         self.assertEqual(criteria.names, ["a", "b", "c"])
         self.assertEqual(criteria.metrics, ["a", "x", "y"])
-        self.assertEqual(criteria.statistic("a"), Mean("a"))
-        self.assertEqual(criteria.statistic("b"), Mean("y"))
+        self.assertEqual(_statistic(criteria, "a"), Mean("a"))
+        self.assertEqual(_statistic(criteria, "b"), Mean("y"))
         self.assertEqual(
-            criteria.resolved, {"a": Mean("a"), "b": Mean("y"), "c": Mean("x")}
+            _resolved(criteria), {"a": Mean("a"), "b": Mean("y"), "c": Mean("x")}
         )
         self.assertEqual(criteria.by, ("sensor",))
 
@@ -124,10 +134,10 @@ class TestCriteria(unittest.TestCase):
             pareto_front(frame, objectives), pareto_front(frame, Criteria(objectives))
         )
         criteria = Criteria(objectives)
-        self.assertIs(Criteria.of(criteria), criteria)
-        self.assertEqual(Criteria.of(objectives), criteria)
+        self.assertIs(_as_criteria(criteria), criteria)
+        self.assertEqual(_as_criteria(objectives), criteria)
         with self.assertRaises(TypeError):
-            Criteria.of(["cost"])
+            _as_criteria(["cost"])
 
     def test_costs_and_violation(self):
         """Objectives are costs (maximized ones negated), and the violations
@@ -136,17 +146,17 @@ class TestCriteria(unittest.TestCase):
             {"cost": "min", "value": "max"},
             requirements=[Requirement("cost", "<=", 2), Requirement("value", ">=", 4)],
         )
-        np.testing.assert_array_equal(criteria.signs, [1.0, -1.0])
+        np.testing.assert_array_equal(_signs(criteria), [1.0, -1.0])
         values = {"cost": np.array([1.0, 3.0]), "value": np.array([5.0, np.nan])}
         np.testing.assert_array_equal(
-            criteria.costs(values), [[1.0, -5.0], [3.0, np.nan]]
+            _costs(criteria, values), [[1.0, -5.0], [3.0, np.nan]]
         )
-        np.testing.assert_allclose(criteria.violation(values, 2), [0.0, np.nan])
+        np.testing.assert_allclose(_violation(criteria, values, 2), [0.0, np.nan])
         np.testing.assert_allclose(
-            criteria.violation({"cost": [3.0], "value": [2.0]}, 1), [0.5 + 0.5]
+            _violation(criteria, {"cost": [3.0], "value": [2.0]}, 1), [0.5 + 0.5]
         )
-        self.assertEqual(criteria.costs({"cost": [], "value": []}).shape, (0, 2))
-        np.testing.assert_array_equal(Criteria({"a": "min"}).violation({}, 3), 0.0)
+        self.assertEqual(_costs(criteria, {"cost": [], "value": []}).shape, (0, 2))
+        np.testing.assert_array_equal(_violation(Criteria({"a": "min"}), {}, 3), 0.0)
 
     def test_tolerance_array(self):
         """Tolerances are values in the units of objectives, or shares of
@@ -155,12 +165,12 @@ class TestCriteria(unittest.TestCase):
             {"a": "min", "b": "max", "c": "min"}, tolerances={"c": "5%", "a": 2}
         )
         np.testing.assert_array_equal(
-            criteria.tolerance_array, [[2.0, 0.0, 0.0], [0.0, 0.0, 0.05]]
+            _tolerances(criteria), [[2.0, 0.0, 0.0], [0.0, 0.0, 0.05]]
         )
         # derived from the tolerances, which compare criteria
         changed = dataclasses.replace(criteria, tolerances={"b": 1})
         np.testing.assert_array_equal(
-            changed.tolerance_array, [[0.0, 1.0, 0.0], [0.0, 0.0, 0.0]]
+            _tolerances(changed), [[0.0, 1.0, 0.0], [0.0, 0.0, 0.0]]
         )
         self.assertEqual(criteria, dataclasses.replace(criteria))
         self.assertNotEqual(criteria, changed)
@@ -168,7 +178,7 @@ class TestCriteria(unittest.TestCase):
     def test_combiners(self):
         """Statistics across groups are combined by their worst, or their
         mean."""
-        self.assertEqual(Criteria({"a": "min"}).combiners, {})
+        self.assertEqual(_combiners(Criteria({"a": "min"})), {})
         criteria = Criteria(
             {"a": "min", "b": "max"},
             statistics={"c": "x", "d": "y"},
@@ -176,7 +186,7 @@ class TestCriteria(unittest.TestCase):
             across=Across(rules={"b": "mean"}),
         )
         self.assertEqual(
-            criteria.combiners, {"a": "max", "b": "mean", "c": "min", "d": "mean"}
+            _combiners(criteria), {"a": "max", "b": "mean", "c": "min", "d": "mean"}
         )
         with self.assertRaisesRegex(ValueError, "no worst"):
             Criteria(

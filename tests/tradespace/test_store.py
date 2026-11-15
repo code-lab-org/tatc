@@ -4,6 +4,8 @@ Unit tests for persistent stores of results.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+# pylint: disable=protected-access
+
 import importlib.util
 import json
 import math
@@ -73,14 +75,16 @@ class TestResultStore(unittest.TestCase):
     def test_store_and_get(self):
         """Records are stored and retrieved by design and replicate."""
         store = ResultStore(self.path, namespace="x")
-        store.put([("d1", 0, [{"value": 1}]), ("d1", 1, [{"value": 2}])])
+        store._put([("d1", 0, [{"value": 1}]), ("d1", 1, [{"value": 2}])])
         self.assertEqual(len(store), 2)
-        self.assertEqual(store.get([("d1", 1), ("d2", 0)]), {("d1", 1): [{"value": 2}]})
+        self.assertEqual(
+            store._get([("d1", 1), ("d2", 0)]), {("d1", 1): [{"value": 2}]}
+        )
         # records of another context are separate
-        store.put([("d1", 1, [{"value": 3}])], context="c")
-        self.assertEqual(store.get([("d1", 1)], "c"), {("d1", 1): [{"value": 3}]})
-        self.assertEqual(store.get([("d1", 1)])[("d1", 1)], [{"value": 2}])
-        self.assertEqual(store.contexts(), {"": 2, "c": 1})
+        store._put([("d1", 1, [{"value": 3}])], context="c")
+        self.assertEqual(store._get([("d1", 1)], "c"), {("d1", 1): [{"value": 3}]})
+        self.assertEqual(store._get([("d1", 1)])[("d1", 1)], [{"value": 2}])
+        self.assertEqual(store._contexts(), {"": 2, "c": 1})
         other = ResultStore(self.path, namespace="y")
         self.assertEqual(len(other), 0)
         store.clear()
@@ -199,7 +203,7 @@ class TestResultStore(unittest.TestCase):
         current = study(lambda d: {"value": d.a * d.a})
         self.assertEqual(current.prune(), 8)
         self.assertEqual(
-            store.contexts(),
+            store._contexts(),
             {current.fingerprint: 8, other.fingerprint: 8, constant.fingerprint: 8},
         )
         self.assertEqual(current.prune(), 0)
@@ -230,7 +234,7 @@ class TestResultStore(unittest.TestCase):
         broken = study(lambda d: {"value": d.a / 0}, errors="record")
         with self.assertWarnsRegex(UserWarning, "none of the 4 designs"):
             broken.run()
-        self.assertEqual(store.contexts(), {broken.fingerprint: 0})
+        self.assertEqual(store._contexts(), {broken.fingerprint: 0})
         self.assertEqual(len(store), 0)
         # the same study with other code (of the same constants)
         fixed = study(lambda d: {"value": d.a * 0})
@@ -238,8 +242,8 @@ class TestResultStore(unittest.TestCase):
             warnings.simplefilter("error")  # no evaluations to warn of
             fixed.run()
         self.assertEqual(fixed.prune(), 0)
-        self.assertEqual(store.contexts(), {fixed.fingerprint: 4})
-        self.assertIsNone(store.definition(broken.fingerprint))
+        self.assertEqual(store._contexts(), {fixed.fingerprint: 4})
+        self.assertIsNone(store._definition(broken.fingerprint))
 
     def test_records_as_json(self):
         """Records are kept as JSON, and read as they were written."""
@@ -264,8 +268,8 @@ class TestResultStore(unittest.TestCase):
             "array": np.arange(3),
         }
         store = ResultStore(self.path, namespace="x")
-        store.put([("d1", 0, [record])])
-        read = store.get([("d1", 0)])[("d1", 0)][0]
+        store._put([("d1", 0, [record])])
+        read = store._get([("d1", 0)])[("d1", 0)][0]
         self.assertEqual(set(read), set(record))
         self.assertTrue(math.isnan(read.pop("nan")))
         np.testing.assert_array_equal(read.pop("array"), record["array"])
@@ -288,8 +292,8 @@ class TestResultStore(unittest.TestCase):
         store = ResultStore(self.path, namespace="study")
         study = self._study(store)
         study.run()
-        self.assertEqual(store.definition(study.fingerprint), study.definition)
-        self.assertIsNone(store.definition("other"))
+        self.assertEqual(store._definition(study.fingerprint), study.definition)
+        self.assertIsNone(store._definition("other"))
         reseeded = self._study(store, seed=1)
         reseeded.run()
         self.assertEqual(
@@ -298,14 +302,14 @@ class TestResultStore(unittest.TestCase):
         )
         # contexts in the order they were defined, the latest last
         self.assertEqual(
-            list(store.contexts()), [study.fingerprint, reseeded.fingerprint]
+            list(store._contexts()), [study.fingerprint, reseeded.fingerprint]
         )
         # the records of a context are removed
-        self.assertEqual(store.remove(study.fingerprint), 12)
-        self.assertEqual(store.contexts(), {reseeded.fingerprint: 12})
-        self.assertIsNone(store.definition(study.fingerprint))
+        self.assertEqual(store._remove(study.fingerprint), 12)
+        self.assertEqual(store._contexts(), {reseeded.fingerprint: 12})
+        self.assertIsNone(store._definition(study.fingerprint))
         store.clear()
-        self.assertIsNone(store.definition(reseeded.fingerprint))
+        self.assertIsNone(store._definition(reseeded.fingerprint))
 
     def test_parallel_interruption(self):
         """Workers store each evaluation as it completes, before an error."""
@@ -324,7 +328,7 @@ class TestResultStore(unittest.TestCase):
                 study.run()
         # the designs evaluated before the error in its chunk (1 to 4) are kept
         designs = study.space.enumerate()
-        stored = store.get(((d.key, 0) for d in designs), study.fingerprint)
+        stored = store._get(((d.key, 0) for d in designs), study.fingerprint)
         values = sorted(records[0]["value"] for records in stored.values())
         self.assertEqual(values[:3], [1, 2, 3])
         self.assertNotIn(4, values)
@@ -332,13 +336,13 @@ class TestResultStore(unittest.TestCase):
     def test_variants(self):
         """Variants of replicates are kept apart from plain replicates."""
         store = ResultStore(self.path, namespace="x")
-        store.put([("d1", 0, [{"value": 1}])])
-        store.put([("d1", 0, [{"value": 2}])], variant='{"u": 5}')
-        self.assertEqual(store.get([("d1", 0)]), {("d1", 0): [{"value": 1}]})
+        store._put([("d1", 0, [{"value": 1}])])
+        store._put([("d1", 0, [{"value": 2}])], variant='{"u": 5}')
+        self.assertEqual(store._get([("d1", 0)]), {("d1", 0): [{"value": 1}]})
         self.assertEqual(
-            store.get([("d1", 0)], variant='{"u": 5}'), {("d1", 0): [{"value": 2}]}
+            store._get([("d1", 0)], variant='{"u": 5}'), {("d1", 0): [{"value": 2}]}
         )
-        self.assertEqual(store.get([("d1", 0)], variant='{"u": 6}'), {})
+        self.assertEqual(store._get([("d1", 0)], variant='{"u": 6}'), {})
         self.assertEqual(len(store), 2)
 
     def test_shifted_runs(self):
@@ -377,8 +381,8 @@ class TestResultStore(unittest.TestCase):
                     "INSERT INTO results VALUES ('x', '', 'd1', 0, '[{\"value\": 1}]')"
                 )
         store = ResultStore(self.path, namespace="x")
-        self.assertEqual(store.get([("d1", 0)]), {("d1", 0): [{"value": 1}]})
-        store.put([("d1", 0, [{"value": 2}])], variant="v")
+        self.assertEqual(store._get([("d1", 0)]), {("d1", 0): [{"value": 1}]})
+        store._put([("d1", 0, [{"value": 2}])], variant="v")
         self.assertEqual(len(store), 2)
         self.assertEqual(len(ResultStore(self.path, namespace="x")), 2)
 
@@ -395,5 +399,5 @@ class TestResultStore(unittest.TestCase):
                 )
         store = ResultStore(self.path, namespace="x")
         self.assertEqual(len(store), 0)
-        store.put([("d1", 0, [{"value": 1}])])
-        self.assertEqual(store.get([("d1", 0)]), {("d1", 0): [{"value": 1}]})
+        store._put([("d1", 0, [{"value": 1}])])
+        self.assertEqual(store._get([("d1", 0)]), {("d1", 0): [{"value": 1}]})

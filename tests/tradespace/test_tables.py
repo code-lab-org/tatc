@@ -70,7 +70,7 @@ class TestTables(unittest.TestCase):
             )
         # columns of the evaluation, and metrics, do not separate them
         check_records(doubled, ["design", "replicate", "sensor"])
-        with self.assertRaisesRegex(ValueError, "aggregate"):
+        with self.assertRaisesRegex(ValueError, "summarize"):
             check_summary(results)
         check_summary(results, by=["replicate"])
 

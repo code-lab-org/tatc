@@ -27,7 +27,7 @@ from typing import Any
 
 import numpy as np
 
-from .events import per_type, per_type_values
+from .events import _per_type, _per_type_values
 from .nodes import Categorical
 from .space import DesignSpace
 from .values import Scope
@@ -349,7 +349,7 @@ class FailureModel:
         Returns:
             Lifetime | None: the life, or `None` if it does not fail
         """
-        return per_type(self.life, kind, "life")
+        return _per_type(self.life, kind, "life")
 
 
 @dataclass(frozen=True)
@@ -423,7 +423,7 @@ class RestorationPolicy:
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must not be negative")
         for name in ("orbit_spares", "ground_spares"):
-            if any(value < 0 for value in per_type_values(getattr(self, name))):
+            if any(value < 0 for value in _per_type_values(getattr(self, name))):
                 raise ValueError(f"{name} must not be negative")
 
     def orbit_spares_of(self, kind: Any) -> int:
@@ -436,7 +436,7 @@ class RestorationPolicy:
         Returns:
             int: the number of spares
         """
-        return int(per_type(self.orbit_spares, kind, "orbit spares"))
+        return int(_per_type(self.orbit_spares, kind, "orbit spares"))
 
     def ground_spares_of(self, kind: Any) -> int:
         """
@@ -448,7 +448,7 @@ class RestorationPolicy:
         Returns:
             int: the number of spares
         """
-        return int(per_type(self.ground_spares, kind, "ground spares"))
+        return int(_per_type(self.ground_spares, kind, "ground spares"))
 
 
 def _spares_restore(d: Scope) -> bool:
@@ -484,12 +484,12 @@ def policy_space(
         deployment = SCHEDULE.plan(d.layout, policy=policy)
         history = deployment.simulate(FAILURE_MODEL, d.failure_seed)
 
-    as an `ObservationStudy` does with a mission plan that names the
-    fragment (see `MissionPlan.policy`), whose values configure the default
-    policy (give the fields of a base policy to the fragment, or a function
-    of the design that configures it)::
+    as an `ObservationStudy` with a mission plan does for a fragment named
+    `policy` (see `MissionPlan.policy`), whose values configure the default
+    policy (give the fields of a base policy to the fragment, or give the
+    plan a function of the design that configures it)::
 
-        PLAN = MissionPlan(SCHEDULE, COST_MODEL, policy="policy")
+        space = space.extend(policy=policy_space(orbit_spares=Integer(0, 1)))
 
     Spares without restoration would never be used, so a constraint excludes
     them (unless `require_restoration` is `False`).

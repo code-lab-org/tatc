@@ -8,15 +8,15 @@ which removes the optimism of selection (the winner's curse).
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria
+from .criteria import Criteria, _as_criteria
 from .space import Design, _designs
 from .study import Study
-from .summary import aggregate
+from .summary import _summarize
 from .tables import FEASIBLE, JUDGMENT, efficient_keys
 
 
@@ -46,11 +46,11 @@ class Confirmation:
     `feasible`, the `violation` of the requirements, and whether the design
     meets them (`meets_requirements`) and is efficient among the confirmed
     designs that do (`pareto`), by the new replicates."""
-    criteria: Criteria
-    """Criteria: The criteria of the confirmation."""
-    designs: list[Design] = field(default_factory=list)
+    designs: list[Design]
     """list[Design]: The confirmed designs (every design evaluated with new
     replicates)."""
+    criteria: Criteria
+    """Criteria: The criteria of the confirmation."""
 
     @property
     def optimism(self) -> pd.Series:
@@ -112,7 +112,7 @@ def confirm(
             such as rows of a summary, or the `designs` of another step),
             or `None` for those efficient by
             the criteria over every replicate of the results (see
-            `aggregate` and `pareto_front`).
+            `summarize` and `pareto_front`).
         replicates (int | None): The number of new replicates, or `None` for
             the study's number.
 
@@ -120,21 +120,21 @@ def confirm(
         Confirmation: the new results, the summary of each design, and the
             designs
     """
-    criteria = Criteria.of(criteria)
+    criteria = _as_criteria(criteria)
     count = study.replicates if replicates is None else replicates
     if count < 1:
         raise ValueError("replicates must be at least 1")
     if designs is None:
-        designs = efficient_keys(aggregate(results, criteria, design_columns=[]))
+        designs = efficient_keys(_summarize(results, criteria, design_values=False))
     designs = _designs(study.space, designs, results)
     keys = {design.key for design in designs}
     start = int(results["replicate"].max()) + 1 if len(results) > 0 else 0
     fresh = study.run(designs, replicate_indices=range(start, start + count))
     names = [name for name in criteria.names if name != FEASIBLE]
     columns = ["design", *criteria.by]
-    confirmed = aggregate(fresh, criteria)
-    selected = aggregate(
-        results[results["design"].isin(keys)], criteria, design_columns=[]
+    confirmed = _summarize(fresh, criteria)
+    selected = _summarize(
+        results[results["design"].isin(keys)], criteria, design_values=False
     )[[*columns, *names]]
     summary = confirmed.merge(
         selected.rename(columns={name: f"{name} selected" for name in names}),
@@ -158,5 +158,5 @@ def confirm(
         ]
     ]
     return Confirmation(
-        results=fresh, summary=summary, criteria=criteria, designs=designs
+        results=fresh, summary=summary, designs=designs, criteria=criteria
     )

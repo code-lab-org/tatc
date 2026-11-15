@@ -110,7 +110,7 @@ class ResultStore:
     Records are also keyed by a `context`: a study gives its fingerprint,
     which changes with its definition (see `Study.fingerprint` for what it
     describes), so that records computed with other definitions are not
-    reused. The store keeps the definition of each context (see `define`),
+    reused. The store keeps the definition of each context,
     from which a study explains why it does not reuse records (see
     `compare_definitions`). What a fingerprint cannot describe (such as data
     that the functions read from files, and the code of modules other than
@@ -125,6 +125,12 @@ class ResultStore:
     values (such as infinite numbers, dates and times, and tuples) tagged,
     as `{"$tag": data}`, so that they are read exactly as they were written
     (or pickled, as `{"$pickle": data}`, if JSON cannot hold them).
+
+    A study reads and writes the store (see `Study.run`), and removes the
+    records of its definitions with other code (see `Study.prune`); `len`
+    counts the records of the namespace, and `clear` removes them::
+
+        study = Study(space, build, evaluate, store=ResultStore("results.sqlite"))
 
     Args:
         path (str | os.PathLike): The database file (created if needed).
@@ -166,7 +172,7 @@ class ResultStore:
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.path, timeout=60)
 
-    def get(
+    def _get(
         self, keys: Iterable[tuple[str, int]], context: str = "", variant: str = ""
     ) -> dict[tuple[str, int], list[dict]]:
         """
@@ -202,7 +208,7 @@ class ResultStore:
                         found[design, replicate] = _decode(json.loads(text))
         return found
 
-    def put(
+    def _put(
         self,
         items: Iterable[tuple[str, int, list[dict]]],
         context: str = "",
@@ -238,7 +244,7 @@ class ResultStore:
                         rows,
                     )
 
-    def define(self, context: str, definition: dict) -> None:
+    def _define(self, context: str, definition: dict) -> None:
         """
         Keeps the definition of a context (such as that of a study, see
         `Study.definition`), if it is not kept already.
@@ -260,9 +266,9 @@ class ResultStore:
                     ],
                 )
 
-    def definition(self, context: str) -> dict | None:
+    def _definition(self, context: str) -> dict | None:
         """
-        Gets the definition of a context (see `define`).
+        Gets the definition of a context (see `_define`).
 
         Args:
             context (str): The context.
@@ -277,10 +283,10 @@ class ResultStore:
             ).fetchone()
         return None if row is None else json.loads(row[0])
 
-    def contexts(self) -> dict[str, int]:
+    def _contexts(self) -> dict[str, int]:
         """
         Gets the contexts of the namespace: those of its stored evaluations
-        and of its kept definitions (see `define`, such as of a study whose
+        and of its kept definitions (see `_define`, such as of a study whose
         evaluations all failed), in the order they were defined (those not
         defined first).
 
@@ -303,9 +309,9 @@ class ResultStore:
         return dict(rows)
 
     def __len__(self) -> int:
-        return sum(self.contexts().values())
+        return sum(self._contexts().values())
 
-    def remove(self, contexts: str | Iterable[str]) -> int:
+    def _remove(self, contexts: str | Iterable[str]) -> int:
         """
         Removes the stored records (and definitions) of contexts of the
         namespace, such as those of earlier definitions of a study (see

@@ -1,8 +1,8 @@
 """
 Summaries of the results of trade studies: the statistics of each design over
-its replicates (see `Statistic`), its judgment by criteria (see `Criteria`),
-and the probability that it is efficient, given the uncertainty of its
-replicates (by a bootstrap).
+its replicates (see `Statistic`) and their spreads, its judgment by criteria
+(see `Criteria`), and the probability that it is efficient, given the
+uncertainty of its replicates (by a bootstrap).
 
 Designs are judged by their feasible replicates: the statistics of a metric
 are over the replicates in which a design is feasible, and the share of its
@@ -22,14 +22,25 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .criteria import Across, Criteria
+from .criteria import (
+    Across,
+    Criteria,
+    _as_criteria,
+    _combiners,
+    _costs,
+    _resolved,
+    _statistic,
+    _tolerances,
+    _violation,
+    _weights_of,
+)
 from .dominance import efficient
 from .statistics import (
     Mean,
-    StandardDeviation,
-    StandardError,
     Statistic,
     _named_statistics,
+    _standard_deviation,
+    _standard_error,
 )
 from .tables import (
     FEASIBLE,
@@ -167,6 +178,9 @@ def _spread_of_mean(
     weighted sum of the values of a replicate, and the standard error of the
     weighted mean of the groups' means.
     """
+    if len(parts) == 1:
+        # the spread of the replicates of one group
+        return _standard_deviation(parts[0]), _standard_error(parts[0])
     # the variance of the weighted sum, and the squared standard error, from
     # terms whose magnitudes tell rounding from a variance
     totals = np.zeros((2, len(parts[0])))
@@ -190,11 +204,12 @@ class _Statistics:
     The statistics of the designs of the feasible results of a group (of the
     criteria's `by`), over every replicate or some of them (see `evaluate`),
     from the values of their metrics in each replicate: in each group of a
-    column, combined across the groups (see `Across`), if any. Designs
-    without feasible results in every group are left out.
+    column, combined across the groups (see `Across`), or, without criteria
+    across a column, in one group of every result. Designs without feasible
+    results in every group are left out.
 
     The statistics of the feasibility of replicates (`feasible`, see
-    `aggregate`) are over the replicates of the feasible and infeasible
+    `summarize`) are over the replicates of the feasible and infeasible
     records of the designs, and, across groups, over those of every group
     together (they are not combined).
 
@@ -219,7 +234,6 @@ class _Statistics:
     ):
         self.statistics, self.criteria = statistics, criteria
         across = None if criteria is None else criteria.across
-        self.combiners = None if across is None else criteria.combiners
         infeasible = results.iloc[:0] if infeasible is None else infeasible
         columns = {c for statistic in statistics.values() for c in statistic.columns}
         metrics = sorted(columns - {FEASIBLE})
@@ -230,49 +244,37 @@ class _Statistics:
             if set(statistic.columns) == {FEASIBLE}
         }
         if across is None:
-            self.designs = pd.Index(results["design"].drop_duplicates())
-            infeasible = infeasible[infeasible["design"].isin(self.designs)]
-            self.replicates = _replicates_of(results, infeasible)
-            values = matrices(results, metrics, self.designs, self.replicates)[2]
-            values[FEASIBLE] = _feasibility(
-                results, infeasible, self.designs, self.replicates
-            )
-            self.matrices = [values]
-            self.counts = (
-                results.groupby("design")["replicate"]
-                .nunique()
-                .reindex(self.designs)
-                .to_numpy()
-            )
-            return
-        combined = [name for name in statistics if name not in self.pooled]
-        self.weights = (
-            across.weights_of(levels)
-            if any(self.combiners.get(name, "mean") == "mean" for name in combined)
-            else None
-        )
-        parts = [
-            results[(results[across.column] == group).to_numpy()] for group in levels
-        ]
-        complete = set.intersection(*(set(part["design"]) for part in parts))
+            # one group of every result, whose statistics are its own
+            column, self.combiners = None, {}
+            parts, failures = [results], [infeasible]
+            self.weights = np.ones(1)
+        else:
+            column, self.combiners = across.column, _combiners(criteria)
+            parts = [results[(results[column] == group).to_numpy()] for group in levels]
+            failures = [
+                infeasible[(infeasible[column] == group).to_numpy()] for group in levels
+            ]
+            self.weights = _weights_of(across, levels)
         designs = results["design"].drop_duplicates()
-        self.designs = pd.Index(designs[designs.isin(complete)])
-        infeasible = infeasible[infeasible["design"].isin(self.designs)]
-        self.replicates = _replicates_of(results, infeasible)
+        if len(parts) > 1:
+            # the designs with feasible results in every group
+            complete = set.intersection(*(set(part["design"]) for part in parts))
+            designs = designs[designs.isin(complete)]
+        self.designs = pd.Index(designs)
+        failures = [failed[failed["design"].isin(self.designs)] for failed in failures]
+        self.replicates = _replicates_of(results, pd.concat(failures))
         self.matrices = []
-        for group, part in zip(levels, parts):
+        for part, failed in zip(parts, failures):
             values = matrices(part, metrics, self.designs, self.replicates)[2]
-            failed = infeasible[(infeasible[across.column] == group).to_numpy()]
             values[FEASIBLE] = _feasibility(part, failed, self.designs, self.replicates)
             self.matrices.append(values)
-        self.counts = (
-            results.groupby(["design", across.column])["replicate"]
-            .nunique()
-            .groupby(level="design")
-            .min()
-            .reindex(self.designs)
-            .to_numpy()
-        )
+        # the fewest replicates of a design in any group
+        counts = results.groupby(["design", *([] if column is None else [column])])[
+            "replicate"
+        ].nunique()
+        if column is not None:
+            counts = counts.groupby(level="design").min()
+        self.counts = counts.reindex(self.designs).to_numpy()
 
     def _pooled(self, statistic: Statistic, columns: np.ndarray | None) -> np.ndarray:
         """
@@ -287,11 +289,11 @@ class _Statistics:
             ]
         return statistic.reduce(matrix)
 
-    def _violation(self, values: Mapping[str, np.ndarray]) -> np.ndarray:
+    def violation(self, values: Mapping[str, np.ndarray]) -> np.ndarray:
         """Gets the total violation of the requirements of the criteria."""
         if self.criteria is None:
             return np.zeros(len(self.designs))
-        return self.criteria.violation(values, len(self.designs))
+        return _violation(self.criteria, values, len(self.designs))
 
     def evaluate(
         self, columns: np.ndarray | None = None
@@ -300,9 +302,6 @@ class _Statistics:
         Computes the statistics of each design (of the replicates `columns`
         of the matrices, or all) and the total violation of the requirements.
         """
-        if self.combiners is None:
-            values = _evaluate(self.statistics, self.matrices[0], columns)
-            return values, self._violation(values)
         combined = {
             name: statistic
             for name, statistic in self.statistics.items()
@@ -314,6 +313,9 @@ class _Statistics:
             if name in self.pooled:
                 values[name] = self._pooled(statistic, columns)
                 continue
+            if len(parts) == 1:
+                values[name] = parts[0][name]
+                continue
             stacked = np.vstack([part[name] for part in parts])
             how = self.combiners.get(name, "mean")
             if how == "max":
@@ -322,7 +324,7 @@ class _Statistics:
                 values[name] = stacked.min(axis=0)
             else:
                 values[name] = self.weights @ stacked
-        return values, self._violation(values)
+        return values, self.violation(values)
 
     def judged(self, columns: np.ndarray) -> np.ndarray:
         """
@@ -351,18 +353,13 @@ class _Statistics:
         (see `summarize`), and, across groups, those of the statistic of the
         groups that it combines into.
         """
-        deviation = StandardDeviation(statistic.column)
-        error = StandardError(statistic.column)
-        if self.combiners is None:
-            values = statistic.values_of(self.matrices[0])
-            return deviation.reduce(values), error.reduce(values)
         parts = [statistic.values_of(m) for m in self.matrices]
         how = self.combiners.get(name, "mean")
         if how in ("max", "min"):
             # the spread of the group of the worst value
             means = np.vstack([statistic.reduce(part) for part in parts])
-            deviations = np.vstack([deviation.reduce(part) for part in parts])
-            errors = np.vstack([error.reduce(part) for part in parts])
+            deviations = np.vstack([_standard_deviation(part) for part in parts])
+            errors = np.vstack([_standard_error(part) for part in parts])
             filled = np.where(
                 np.isnan(means), -np.inf if how == "max" else np.inf, means
             )
@@ -387,8 +384,9 @@ def _summary_groups(
     Iterates over the groups (of the columns `by`) of the feasible results of
     a study, for summaries of their designs: a data frame of the designs of
     each group (`design`, the values of `by`, and the values of the designs,
-    see `aggregate`), and their statistics (see `_Statistics`). Results
-    without a feasible record have no groups.
+    see `summarize`: those of `design_columns`, or, if `None`, those that are
+    the same in every feasible record of a design), and their statistics
+    (see `_Statistics`). Results without a feasible record have no groups.
     """
     feasible, infeasible = feasible_records(results)
     if feasible.empty:
@@ -409,49 +407,45 @@ def _summary_groups(
 
 
 def _criteria_of(
-    criteria: Criteria | Mapping[str, str] | Sequence[str] | str,
-    statistics: Mapping[str, Statistic | str] | Sequence[str] | None,
+    criteria: Criteria | Mapping[str, str] | None,
+    statistics: Mapping[str, Statistic | str] | Sequence | None,
     by: Sequence[str] | str,
 ) -> tuple[Criteria | None, dict[str, Statistic], tuple[str, ...]]:
     """
-    Gets the criteria (if any) of the arguments of `aggregate`, the
+    Gets the criteria (if any) of the arguments of `summarize`, the
     statistics to compute (by name), and the columns that group records.
     """
     by = tuple(names(by))
     extra = _named_statistics(statistics)
+    if criteria is None:
+        if not extra:
+            raise ValueError(
+                "give criteria, or the statistics (or metrics, whose means they "
+                + "are) to summarize as `statistics`"
+            )
+        return None, extra, by
     if isinstance(criteria, Mapping) and not set(criteria.values()) <= {"min", "max"}:
         raise ValueError(
             "a mapping of criteria gives the directions of objectives ('min' or "
             + "'max'): give statistics by name as `statistics`"
         )
-    if isinstance(criteria, (Criteria, Mapping)):
-        if by and isinstance(criteria, Criteria):
+    judged = _as_criteria(criteria)
+    if by:
+        if isinstance(criteria, Criteria):
             raise ValueError(
                 "criteria group records by their own `by`: give it to the criteria"
             )
-        judged = Criteria.of(criteria)
-        if by:
-            judged = replace(judged, by=by)
-        if extra:
-            clashes = sorted(
-                name
-                for name in extra
-                if name in judged.names and judged.statistic(name) != extra[name]
-            )
-            if clashes:
-                raise ValueError(
-                    f"statistics that the criteria name otherwise: {clashes}"
-                )
-            judged = replace(judged, statistics={**judged.statistics, **extra})
-        return judged, judged.resolved, judged.by
-    metrics = names(criteria)
-    resolved: dict[str, Statistic] = {name: Mean(name) for name in metrics}
-    resolved.update(extra)
-    if not resolved:
-        raise ValueError(
-            "give criteria, the metrics whose means to compute, or statistics"
+        judged = replace(judged, by=by)
+    if extra:
+        clashes = sorted(
+            name
+            for name in extra
+            if name in judged.names and _statistic(judged, name) != extra[name]
         )
-    return None, resolved, by
+        if clashes:
+            raise ValueError(f"statistics that the criteria name otherwise: {clashes}")
+        judged = replace(judged, statistics={**judged.statistics, **extra})
+    return judged, _resolved(judged), judged.by
 
 
 def _with_feasibility(statistics: Mapping[str, Statistic]) -> dict[str, Statistic]:
@@ -462,6 +456,46 @@ def _with_feasibility(statistics: Mapping[str, Statistic]) -> dict[str, Statisti
     if FEASIBLE in statistics:
         return dict(statistics)
     return {**statistics, FEASIBLE: Mean(FEASIBLE)}
+
+
+def _spreads(statistics: Mapping[str, Statistic]) -> dict[str, list[str]]:
+    """
+    Gets the columns of the spreads of the means of metrics (a column, or a
+    metric computed from others, such as a `Utility`) among statistics (by
+    name): their standard deviations and standard errors (`<name> std` and
+    `<name> se`), but those that statistics name.
+    """
+    return {
+        name: [
+            column
+            for column in (f"{name} std", f"{name} se")
+            if column not in statistics
+        ]
+        for name, statistic in statistics.items()
+        if type(statistic) is Mean and FEASIBLE not in statistic.columns
+    }
+
+
+def _ordered(
+    statistics: Mapping[str, Statistic], added: Mapping[str, Sequence[str]]
+) -> list[str]:
+    """Gets the columns of statistics, each followed by those `added` to it
+    (such as its spreads)."""
+    return [column for name in statistics for column in (name, *added.get(name, ()))]
+
+
+def _with_spreads(
+    values: dict[str, np.ndarray],
+    table: _Statistics,
+    statistics: Mapping[str, Statistic],
+    spreads: Mapping[str, Sequence[str]],
+) -> None:
+    """Adds the spreads of means (see `_spreads`) to the values of a group."""
+    for name, columns in spreads.items():
+        deviation, error = table.spread(name, statistics[name])
+        for column, value in ((f"{name} std", deviation), (f"{name} se", error)):
+            if column in columns:
+                values[column] = value
 
 
 def _check_names(
@@ -510,7 +544,7 @@ def _judge(
     violations, requirements, front = JUDGMENT
     frame[violations] = violation
     frame[requirements] = meets
-    frame[front] = efficient(criteria.costs(values), meets, criteria.tolerance_array)
+    frame[front] = efficient(_costs(criteria, values), meets, _tolerances(criteria))
 
 
 def _assemble(
@@ -519,19 +553,17 @@ def _assemble(
     values: Mapping[str, np.ndarray],
     violation: np.ndarray,
     criteria: Criteria | None,
-    extra: Mapping[str, np.ndarray] | None = None,
 ) -> pd.DataFrame:
     """
     Adds to the rows of the designs of a group (of `_summary_groups`) their
-    statistics, `extra` columns (if any), the number of their feasible
-    `replicates`, the share of their replicates that are feasible
-    (`feasible`), and their judgment by criteria (if any, see `_judge`).
+    statistics (and the other columns of `values`, in order), the number of
+    their feasible `replicates`, the share of their replicates that are
+    feasible (`feasible`), and their judgment by criteria (if any, see
+    `_judge`).
     """
     for name, value in values.items():
         if name != FEASIBLE:
             frame[name] = value
-    for name, value in (extra or {}).items():
-        frame[name] = value
     frame["replicates"] = table.counts
     frame[FEASIBLE] = values[FEASIBLE]
     if criteria is not None:
@@ -590,97 +622,100 @@ def _without_constant(summary: pd.DataFrame, columns: Sequence[str]) -> pd.DataF
 
 def _summarize(
     results: pd.DataFrame,
-    judged: Criteria | None,
-    resolved: Mapping[str, Statistic],
-    by: Sequence[str],
-    design_columns: Sequence[str] | None,
-    spread: Sequence[str] = (),
-) -> pd.DataFrame:
-    """
-    Summarizes results by the statistics of their designs (see `aggregate`),
-    with the spread of the means of metrics (by name) of `spread` (see
-    `summarize`): after each mean without criteria, and after the
-    statistics with criteria.
-    """
-    statistics = _with_feasibility(resolved)
-    spreads = [
-        f"{name} {suffix}"
-        for name in spread
-        for suffix in ("std", "se")
-        if f"{name} {suffix}" not in statistics
-    ]
-    _check_names(statistics, results, spreads)
-    order: list[str] = []
-    for name in statistics:
-        order.append(name)
-        if judged is None:
-            order.extend(c for c in (f"{name} std", f"{name} se") if c in spreads)
-    if judged is not None:
-        order.extend(spreads)
-    frames = []
-    for frame, table in _summary_groups(
-        results, statistics, by, judged, design_columns
-    ):
-        values, violation = table.evaluate()
-        for name in spread:
-            deviation, error = table.spread(name, statistics[name])
-            values.update(
-                {
-                    column: value
-                    for column, value in (
-                        (f"{name} std", deviation),
-                        (f"{name} se", error),
-                    )
-                    if column in spreads
-                }
-            )
-        ordered = {name: values[name] for name in order}
-        frames.append(_assemble(frame, table, ordered, violation, judged))
-    summary = _summaries(frames, by, order, judged)
-    return _without_constant(summary, spreads)
-
-
-def aggregate(
-    results: pd.DataFrame,
-    criteria: Criteria | Mapping[str, str] | Sequence[str] | str = (),
+    criteria: Criteria | Mapping[str, str] | None = None,
     *,
     statistics: Mapping[str, Statistic | str] | Sequence | None = None,
     by: Sequence[str] | str = (),
-    design_columns: Sequence[str] | None = None,
+    spread: bool = False,
+    design_values: bool = True,
 ) -> pd.DataFrame:
     """
-    Aggregates the results of a study (see `Study.run`, a row per replicate)
-    into a summary of its designs (a row per design, and per group of the
-    columns `by`, such as a sensor): statistics over the feasible replicates
-    of each design, the number of these `replicates`, the share of its
-    replicates that are feasible (`feasible`), and the values of the design
-    (see `Design.flat`), from which `DesignSpace.designs_of` rebuilds the
-    designs.
+    Summarizes results by the statistics of their designs (see `summarize`),
+    as the steps of trade studies do: without spreads by default, and,
+    without `design_values`, without the values of the designs (only their
+    keys, `design`), which saves finding them.
+    """
+    judged, resolved, by = _criteria_of(criteria, statistics, by)
+    statistics = _with_feasibility(resolved)
+    spreads = _spreads(statistics) if spread else {}
+    added = [column for columns in spreads.values() for column in columns]
+    _check_names(statistics, results, added)
+    order = _ordered(statistics, spreads)
+    frames = []
+    for frame, table in _summary_groups(
+        results, statistics, by, judged, None if design_values else []
+    ):
+        values, violation = table.evaluate()
+        _with_spreads(values, table, statistics, spreads)
+        ordered = {name: values[name] for name in order}
+        frames.append(_assemble(frame, table, ordered, violation, judged))
+    summary = _summaries(frames, by, order, judged)
+    return _without_constant(summary, added)
+
+
+def summarize(
+    results: pd.DataFrame,
+    criteria: Criteria | Mapping[str, str] | None = None,
+    *,
+    statistics: Mapping[str, Statistic | str] | Sequence | None = None,
+    by: Sequence[str] | str = (),
+    spread: bool = True,
+) -> pd.DataFrame:
+    """
+    Summarizes the results of a study (see `Study.run`, a row per replicate)
+    with a row per design (and per group of the columns `by`, such as a
+    sensor): statistics over the feasible replicates of each design, the
+    spread of each that is the mean of a metric (with `spread`), the number
+    of these `replicates`, the share of its replicates that are feasible
+    (`feasible`), and the values of the design (see `Design.flat`), from
+    which `DesignSpace.designs_of` rebuilds the designs.
 
     The statistics are those of criteria (see `Criteria`, or a mapping of
     objectives to their directions, which are the means of the metrics of
-    their names), or the means of metrics (a list of their names), and other
-    `statistics`, by name (a statistic, or a metric given as a string, whose
-    mean it is), or a list of statistics (or metrics), named by their
-    conventional names (see `Statistic.name`)::
+    their names), and other `statistics`: a sequence of statistics or
+    metrics (a metric given as a string, or a `Utility`, is its mean),
+    named by their conventional names (see `Statistic.name`), or a mapping
+    of names to them::
 
-        aggregate(results, {"satellites": "min", "sufficient": "max"})
-        aggregate(results, ["sufficient", "accurate"])
-        aggregate(results, statistics=[Quantile("cost", 0.7)])  # cost p70
-        aggregate(results, COST, statistics=["cost development"])
+        summarize(results, {"satellites": "min", "sufficient": "max"})
+        summarize(results, statistics=["sufficient", "accurate"])
+        summarize(results, statistics=[Quantile("cost", 0.7)])  # cost p70
+        summarize(results, COST, statistics=["cost development"])
 
     A statistic of the name of a column of the results is the mean of the
     column: any other statistic of the name raises an error, as its values
     would be taken for those of the column.
+
+    The spread of a mean of a metric (a column, or a metric computed from
+    others, such as a `Utility`) follows it: the standard deviation
+    (`<name> std`) and the standard error (`<name> se`) between the
+    replicates. A spread that is zero for every design (of a metric that is
+    the same in every replicate of each design, such as a number of
+    satellites, or of designs with one replicate) is left out (but those of
+    a summary without designs).
 
     With criteria, the summary also gives the `violation` of their
     requirements (the sum of the violations, see `Requirement`, 0 if the
     design meets them all), whether the design meets them
     (`meets_requirements`), and whether it is efficient among the designs
     that do (`pareto`, see `pareto_front`, in each group of the criteria's
-    `by`; a design with a missing objective, `NaN`, is not). Criteria
-    `across` a column combine the statistics of each design across its
-    groups (see `Across`), of which `replicates` is the fewest of any group.
+    `by`; a design with a missing objective, `NaN`, is not)::
+
+        summary = summarize(results, criteria)
+        front = summary[summary.pareto]
+
+    Criteria `across` the groups of a column (such as scenarios, see
+    `Across`) combine the statistics of each design across its groups, of
+    which `replicates` is the fewest of any group. The spread of a combined
+    statistic is that of the worst group's value (of the worst), or, of a
+    weighted mean, the standard deviation of the weighted sum of the values
+    of a replicate in each group and the standard error of the weighted mean
+    of the groups' means, from the covariances of the groups over the
+    replicates they share (the same replicate in every group, in which it
+    has the same uncertain parameters, see `Study`), so that what the groups
+    share cancels. Groups without shared replicates are independent: the
+    standard error is then the square root of the weighted sum of the
+    squared standard errors of the groups (by the squared weights).
 
     Designs are judged by their feasible replicates. `feasible` is a
     statistic over every replicate of a design (the mean of the feasibility
@@ -699,98 +734,28 @@ def aggregate(
 
     Args:
         results (pandas.DataFrame): The results.
-        criteria (Criteria | Mapping[str, str] | Sequence[str] | str): The
-            criteria (or objectives and their directions), or the metrics
-            whose means to compute.
+        criteria (Criteria | Mapping[str, str] | None): The criteria, or the
+            objectives (metrics whose means they are) and their directions
+            (`"min"` or `"max"`), if any.
         statistics (Mapping[str, Statistic | str] | Sequence | None): Other
-            statistics, by name, or a sequence of statistics (or metrics,
-            whose means they are), named by their conventional names.
+            statistics: a sequence of statistics (or metrics, whose means
+            they are), named by their conventional names, or a mapping of
+            names to them.
         by (Sequence[str] | str): The columns that group records of an
             evaluation (those of the criteria, if they have any).
-        design_columns (Sequence[str] | None): The columns of the values of
-            designs, or `None` for those that are the same in every
-            replicate of a design (except the metrics).
+        spread (bool): `True` to give the spreads of means.
 
     Returns:
         pandas.DataFrame: a row per feasible design (and group)
 
     Raises:
+        TypeError: if the criteria are neither criteria nor a mapping of
+            directions (give metrics as `statistics`).
         ValueError: if a statistic other than the mean of a column has the
             column's name, or the results have several records of an
             evaluation (in a group).
     """
-    judged, resolved, by = _criteria_of(criteria, statistics, by)
-    return _summarize(results, judged, resolved, by, design_columns)
-
-
-def summarize(
-    results: pd.DataFrame,
-    criteria: Criteria | Mapping[str, str] | Sequence[str] | str = (),
-    *,
-    statistics: Mapping[str, Statistic | str] | Sequence | None = None,
-    by: Sequence[str] | str = (),
-    design_columns: Sequence[str] | None = None,
-) -> pd.DataFrame:
-    """
-    Summarizes the feasible results of a study over their replicates (see
-    `aggregate`), with the spread of the means of metrics: for each design
-    (and each group of the columns `by`, such as a sensor), the statistics
-    of criteria (or the means of a list of metrics) and of other
-    `statistics`, the standard deviation (`<name> std`) and standard error
-    (`<name> se`) between replicates of each that is the mean of a metric
-    (a column, or a metric computed from others, such as a `Utility`), the
-    number of feasible replicates (`replicates`), the share of the replicates
-    that are feasible (`feasible`), and the values of the design. Of criteria
-    (or a mapping of objectives to their directions), the summary is theirs
-    (see `aggregate`: the violation of their requirements, and whether each
-    design is efficient, `pareto`)::
-
-        summary = summarize(results, {"satellites": "min", "sufficient": "max"})
-        front = summary[summary.pareto]
-        summarize(results, ACCURACY, statistics=["sufficient"])  # and its mean
-
-    The spread of a mean that is zero for every design (of a metric that is
-    the same in every replicate of each design, such as a number of
-    satellites, or a design with one replicate) is left out of the summary
-    (but that of a summary without designs).
-
-    With criteria `across` the groups of a column (such as scenarios, see
-    `Across`), the spread is that of the statistic combined from the groups:
-    of the worst, the spread in the group of the worst value; of a weighted
-    mean, the standard deviation of the weighted sum of the values of a
-    replicate in each group, and the standard error of the weighted mean of
-    the groups' means, from the covariances of the groups over the
-    replicates they share (the same replicate in every group, in which it
-    has the same uncertain parameters, see `Study`), so that what the groups
-    share cancels. Groups without shared replicates are independent: the
-    standard error is then the square root of the weighted sum of the
-    squared standard errors of the groups (by the squared weights). These
-    are of the same kind as the standard errors of the bootstrap of
-    `pareto_probability`, of the combined statistic.
-
-    Args:
-        results (pandas.DataFrame): The results (see `Study.run`).
-        criteria (Criteria | Mapping[str, str] | Sequence[str] | str): The
-            criteria (or objectives and their directions), or the metrics
-            whose means to summarize.
-        statistics (Mapping[str, Statistic | str] | Sequence | None): Other
-            statistics (see `aggregate`).
-        by (Sequence[str] | str): Other columns that group records of an
-            evaluation (those of criteria, if they have any).
-        design_columns (Sequence[str] | None): The columns of the values of
-            designs, or `None` for those that are the same in every
-            replicate of a design (except the metrics).
-
-    Returns:
-        pandas.DataFrame: the summary, a row per feasible design (and group)
-    """
-    judged, resolved, by = _criteria_of(criteria, statistics, by)
-    spread = [
-        name
-        for name, statistic in resolved.items()
-        if type(statistic) is Mean and FEASIBLE not in statistic.columns
-    ]
-    return _summarize(results, judged, resolved, by, design_columns, spread)
+    return _summarize(results, criteria, statistics=statistics, by=by, spread=spread)
 
 
 def pareto_probability(
@@ -799,7 +764,6 @@ def pareto_probability(
     *,
     n_resamples: int = 500,
     seed: int = 0,
-    design_columns: Sequence[str] | None = None,
 ) -> pd.DataFrame:
     """
     Estimates the probability that each design is Pareto-efficient by
@@ -829,7 +793,7 @@ def pareto_probability(
     which a design is infeasible are drawn too: the statistics of a resample
     are those of the drawn replicates in which the design is feasible, and
     the share of its replicates that are feasible (`feasible`, see
-    `aggregate`) is that of the drawn replicates. A design whose drawn
+    `summarize`) is that of the drawn replicates. A design whose drawn
     replicates are all infeasible (in a scenario, with criteria `across`
     scenarios) is not judged in the resample: it neither meets the
     requirements nor is efficient.
@@ -843,22 +807,16 @@ def pareto_probability(
             (`"min"` or `"max"`).
         n_resamples (int): The number of resamples (at least 2).
         seed (int): The seed of the resamples.
-        design_columns (Sequence[str] | None): The columns of the values of
-            designs, or `None` for those that are the same in every
-            replicate of a design (see `aggregate`).
 
     Returns:
         pandas.DataFrame: a row per feasible design (and group), empty
             without one: the summary of the criteria over every replicate
-            (see `aggregate`: the values of the design, the statistics, the
-            standard error of each objective, `<objective> se`, its standard
-            deviation over the resamples, left out if it is zero for every
-            design, as `summarize` leaves out spreads, the number of feasible
-            `replicates`, the share of the replicates that are `feasible`,
-            the `violation` of the requirements, whether the design meets
-            them, `meets_requirements`, and whether it is efficient among
-            those that do, `pareto`), the probability that it is efficient
-            (`pareto_probability`), and the probability that it meets the
+            (see `summarize`, with the spreads of means), in which each
+            objective that is not a mean (such as a quantile) is followed by
+            its standard error, its standard deviation over the resamples
+            (`<objective> se`, left out if it is zero for every design, as
+            `summarize` leaves out spreads), and the probability that the
+            design is efficient (`pareto_probability`) and that it meets the
             requirements (`requirements_probability`)
 
     Raises:
@@ -866,22 +824,29 @@ def pareto_probability(
             column's name, or the results have several records of an
             evaluation (in a group).
     """
-    criteria = Criteria.of(criteria)
-    statistics = _with_feasibility(criteria.resolved)
-    errors = [f"{name} se" for name in criteria.objectives]
-    _check_names(statistics, results, errors)
-    tolerances = criteria.tolerance_array
+    criteria = _as_criteria(criteria)
+    statistics = _with_feasibility(_resolved(criteria))
+    spreads = _spreads(statistics)
+    # the standard errors of the objectives that are not means, by the bootstrap
+    booted = [
+        name
+        for name in criteria.objectives
+        if name not in spreads and f"{name} se" not in statistics
+    ]
+    added = {**spreads, **{name: [f"{name} se"] for name in booted}}
+    columns = [column for spread in added.values() for column in spread]
+    _check_names(statistics, results, columns)
+    order = _ordered(statistics, added)
+    tolerances = _tolerances(criteria)
     rng = np.random.default_rng(seed)
     frames = []
-    for frame, table in _summary_groups(
-        results, statistics, criteria.by, criteria, design_columns
-    ):
+    for frame, table in _summary_groups(results, statistics, criteria.by, criteria):
         values, violation = table.evaluate()
         counts = np.zeros(len(table.designs))
         met = np.zeros(len(table.designs))
         # the sums of the objectives (and of their squares) over the resamples
-        sums = {name: np.zeros(len(table.designs)) for name in criteria.objectives}
-        squares = {name: np.zeros(len(table.designs)) for name in criteria.objectives}
+        sums = {name: np.zeros(len(table.designs)) for name in booted}
+        squares = {name: np.zeros(len(table.designs)) for name in booted}
         for drawn in draw_resamples(len(table.replicates), n_resamples, rng):
             sample, sample_violation = table.evaluate(drawn)
             # designs without a drawn replicate keep the statistics of all of
@@ -892,24 +857,27 @@ def pareto_probability(
             sample_violation[undrawn] = violation[undrawn]
             judged = table.judged(drawn) | undrawn
             meets = (sample_violation == 0) & judged
-            counts += efficient(criteria.costs(sample), meets, tolerances)
+            counts += efficient(_costs(criteria, sample), meets, tolerances)
             met += meets
-            for name in criteria.objectives:
+            for name in booted:
                 sums[name] += sample[name]
                 squares[name] += sample[name] ** 2
-        bootstrap = {
-            error: _bootstrap_error(sums[name], squares[name], n_resamples)
-            for name, error in zip(criteria.objectives, errors)
-        }
-        _assemble(frame, table, values, violation, criteria, bootstrap)
+        computed = dict(values)
+        _with_spreads(computed, table, statistics, spreads)
+        for name in booted:
+            computed[f"{name} se"] = _bootstrap_error(
+                sums[name], squares[name], n_resamples
+            )
+        ordered = {name: computed[name] for name in order}
+        _assemble(frame, table, ordered, violation, criteria)
         frame["pareto_probability"] = counts / n_resamples
         frame["requirements_probability"] = met / n_resamples
         frames.append(frame)
     summary = _summaries(
         frames,
         criteria.by,
-        [*statistics, *errors],
+        order,
         criteria,
         after=["pareto_probability", "requirements_probability"],
     )
-    return _without_constant(summary, errors)
+    return _without_constant(summary, columns)

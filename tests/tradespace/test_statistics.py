@@ -16,9 +16,9 @@ from tatc.tradespace import (
     Probability,
     Quantile,
     StandardDeviation,
-    StandardError,
     Statistic,
 )
+from tatc.tradespace.statistics import _standard_error
 
 VALUES = np.array(
     [[1.0, 2.0, 3.0, np.nan], [4.0, np.nan, np.nan, np.nan], [np.nan] * 4]
@@ -39,8 +39,9 @@ class TestStatistics(unittest.TestCase):
         np.testing.assert_allclose(
             StandardDeviation("x").reduce(VALUES), [1, np.nan, np.nan]
         )
+        # the standard error of the mean, of the spreads of summaries
         np.testing.assert_allclose(
-            StandardError("x").reduce(VALUES), [1 / np.sqrt(3), np.nan, np.nan]
+            _standard_error(VALUES), [1 / np.sqrt(3), np.nan, np.nan]
         )
         np.testing.assert_allclose(
             Probability("x", ">=", 2).reduce(VALUES), [2 / 3, 1, np.nan]
@@ -87,7 +88,6 @@ class TestNames(unittest.TestCase):
         """Statistics are named by convention."""
         self.assertEqual(Mean("cost").name, "cost")
         self.assertEqual(StandardDeviation("cost").name, "cost std")
-        self.assertEqual(StandardError("cost").name, "cost se")
         self.assertEqual(Minimum("cost").name, "cost min")
         self.assertEqual(Maximum("cost").name, "cost max")
         self.assertEqual(Quantile("cost", 0.7).name, "cost p70")

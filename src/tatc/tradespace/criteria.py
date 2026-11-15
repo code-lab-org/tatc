@@ -34,13 +34,13 @@ class Requirement:
     example, `Requirement("sufficient p10", ">=", 80)`, or
     `Requirement("feasible", ">=", 1)`, which requires every replicate of a
     design to be feasible (`feasible` is the share of its replicates that
-    are, see `aggregate`).
+    are, see `summarize`).
 
     A design that does not meet it violates it by the difference between the
     statistic and the value, relative to a `scale`: by default the magnitude
     of the value (or 1 if the value is 0), so that the violations of
     requirements in different units are comparable. Summaries add them (the
-    `violation` of a design, see `aggregate`), by which the designs that miss
+    `violation` of a design, see `summarize`), by which the designs that miss
     requirements are ranked (see `pareto_ranks` and `screen`), and the
     constraint-aware optimizers of `optimize_optuna` and `optimize_pymoo`
     keep each as a constraint of its own.
@@ -146,7 +146,7 @@ class Across:
     statistics. A design is judged only if it has feasible results in every
     group of the results (in each group of the criteria's `by`). Statistics
     of the feasibility of replicates (such as `feasible`, the share of a
-    design's replicates that are feasible, see `aggregate`) are not
+    design's replicates that are feasible, see `summarize`) are not
     combined: they are over the evaluations of every group together.
 
     Combining the statistics of the groups (such as the worst of the means)
@@ -184,23 +184,19 @@ class Across:
         object.__setattr__(self, "rules", rules)
         object.__setattr__(self, "weights", weights)
 
-    def weights_of(self, groups: Sequence[Any]) -> np.ndarray:
-        """
-        Gets the weights of the mean of groups, normalized.
 
-        Args:
-            groups (Sequence[Any]): The groups (values of the column).
-
-        Returns:
-            numpy.ndarray: the weight of each group, which sum to 1
-        """
-        if self.weights is None:
-            return np.full(len(groups), 1.0 / max(len(groups), 1))
-        missing = [group for group in groups if group not in self.weights]
-        if missing:
-            raise ValueError(f"groups of {self.column!r} without weights: {missing}")
-        weights = np.array([float(self.weights[group]) for group in groups])
-        return weights / weights.sum()
+def _weights_of(across: Across, groups: Sequence[Any]) -> np.ndarray:
+    """
+    Gets the weights of the mean of groups (values of the column of a rule
+    across them), normalized to sum to 1.
+    """
+    if across.weights is None:
+        return np.full(len(groups), 1.0 / max(len(groups), 1))
+    missing = [group for group in groups if group not in across.weights]
+    if missing:
+        raise ValueError(f"groups of {across.column!r} without weights: {missing}")
+    weights = np.array([float(across.weights[group]) for group in groups])
+    return weights / weights.sum()
 
 
 Tolerance = float | str
@@ -252,7 +248,7 @@ class Criteria:
             requirements=[Requirement("cost p70", "<=", 150)],
             tolerances={"coverage": 1.0},
         )
-        summary = aggregate(results, criteria)
+        summary = summarize(results, criteria)
         front = summary[summary.pareto]
 
     Objectives and requirements name statistics: those of `statistics`, or
@@ -263,7 +259,7 @@ class Criteria:
 
     Designs are judged by their feasible replicates. The share of a design's
     replicates that are feasible is the statistic `feasible` (see
-    `aggregate`), which requirements may name, such as
+    `summarize`), which requirements may name, such as
     `Requirement("feasible", ">=", 1)` of designs feasible in every
     replicate. Designs without a feasible replicate are not judged.
 
@@ -272,8 +268,8 @@ class Criteria:
     column, or once with criteria `across` it (see `Across`), which combine
     their statistics across the groups: their worst, or their mean.
 
-    The functions that judge designs (`aggregate`, `summarize`,
-    `pareto_front`, `pareto_ranks`, `hypervolume`, `hypervolume_progress`,
+    The functions that judge designs (`summarize`, `pareto_front`,
+    `pareto_ranks`, `hypervolume`, `hypervolume_progress`,
     `pareto_probability`, `robustness`, `refine`, `confirm`, `screen`, and the
     searches of `optimize_optuna` and `optimize_pymoo`) take criteria, or a
     mapping of objectives to their directions, which are criteria of the
@@ -286,7 +282,7 @@ class Criteria:
             by name, of objectives and requirements that are not means of
             the metrics of their names (a metric given as a string, or a
             `Utility`, is its mean), and others to compute with them (see
-            `aggregate`), or a sequence of them, named by their conventional
+            `summarize`), or a sequence of them, named by their conventional
             names (see `Statistic.name`, such as `cost p70` of
             `Quantile("cost", 0.7)`).
         requirements (Sequence[Requirement]): Requirements on statistics.
@@ -309,12 +305,6 @@ class Criteria:
     tolerances: Mapping[str, Tolerance] = field(default_factory=dict)
     by: Sequence[str] | str = ()
     across: Across | None = None
-    tolerance_array: np.ndarray = field(
-        init=False, repr=False, compare=False, metadata={"fingerprint": False}
-    )
-    """numpy.ndarray: The tolerances of the objectives (zero if not given), in
-    their order: their values in their units (first row), and their shares
-    of the values of the objectives (second row)."""
 
     def __post_init__(self):
         if not isinstance(self.objectives, Mapping):
@@ -333,13 +323,12 @@ class Criteria:
             if not isinstance(requirement, Requirement):
                 raise TypeError(f"{requirement!r} is not a Requirement")
         tolerances = dict(self.tolerances)
-        tolerance_array = _tolerance_array(objectives, tolerances)
+        _tolerance_array(objectives, tolerances)  # checks them
         by = tuple(tables.names(self.by))
         object.__setattr__(self, "objectives", objectives)
         object.__setattr__(self, "statistics", statistics)
         object.__setattr__(self, "requirements", requirements)
         object.__setattr__(self, "tolerances", tolerances)
-        object.__setattr__(self, "tolerance_array", tolerance_array)
         object.__setattr__(self, "by", by)
         if self.across is not None:
             if not isinstance(self.across, Across):
@@ -351,7 +340,7 @@ class Criteria:
             unknown = sorted(set(self.across.rules) - set(self.names))
             if unknown:
                 raise ValueError(f"rules of names that are not statistics: {unknown}")
-            _ = self.combiners  # checks that each statistic has a worst, if needed
+            _combiners(self)  # checks that each statistic has a worst, if needed
 
     @property
     def names(self) -> list[str]:
@@ -367,144 +356,143 @@ class Criteria:
             )
         )
 
-    def statistic(self, name: str) -> Statistic:
-        """
-        Gets the statistic of a name: that of `statistics`, or the mean of
-        the metric of the name.
-
-        Args:
-            name (str): The name.
-
-        Returns:
-            Statistic: the statistic
-        """
-        return self.statistics[name] if name in self.statistics else Mean(name)
-
     @property
     def metrics(self) -> list[str]:
         """list[str]: The metrics (columns of the results of a study) of
         the statistics."""
         return sorted(
-            {column for name in self.names for column in self.statistic(name).columns}
+            {column for name in self.names for column in _statistic(self, name).columns}
         )
 
-    @classmethod
-    def of(cls, criteria: Criteria | Mapping[str, str]) -> Criteria:
-        """
-        Gets criteria given as criteria, or as a mapping of objectives to their
-        directions (the criteria of the means of the metrics of their names).
 
-        Args:
-            criteria (Criteria | Mapping[str, str]): The criteria, or the
-                objectives and their directions (`"min"` or `"max"`).
+def _as_criteria(criteria: Criteria | Mapping[str, str]) -> Criteria:
+    """
+    Gets criteria given as criteria, or as a mapping of objectives to their
+    directions (the criteria of the means of the metrics of their names).
 
-        Returns:
-            Criteria: the criteria
-
-        Raises:
-            TypeError: if the criteria are neither.
-        """
-        if isinstance(criteria, Criteria):
-            return criteria
-        if isinstance(criteria, Mapping):
-            return cls(criteria)
-        raise TypeError(
-            "criteria must be Criteria or a mapping of objectives to their directions"
+    Raises:
+        TypeError: if the criteria are neither (with a hint, for metrics,
+            to give them as the `statistics` of `summarize`).
+    """
+    if isinstance(criteria, Criteria):
+        return criteria
+    if isinstance(criteria, Mapping):
+        return Criteria(criteria)
+    hint = ""
+    if isinstance(criteria, (str, Sequence)):
+        hint = (
+            ": give the metrics (or statistics) to summarize as `statistics`, "
+            + f"such as summarize(results, statistics={tables.names(criteria)!r})"
         )
+    raise TypeError(
+        "criteria must be Criteria or a mapping of objectives to their "
+        + f"directions, not {criteria!r}{hint}"
+    )
 
-    @property
-    def resolved(self) -> dict[str, Statistic]:
-        """dict[str, Statistic]: The statistic of each name (see `names` and
-        `statistic`)."""
-        return {name: self.statistic(name) for name in self.names}
 
-    @property
-    def signs(self) -> np.ndarray:
-        """numpy.ndarray: The sign of each objective that makes it a cost (to
-        minimize): 1 for an objective to minimize, and -1 for one to
-        maximize."""
-        return np.array(
-            [
-                1.0 if direction == "min" else -1.0
-                for direction in self.objectives.values()
-            ]
-        )
+def _statistic(criteria: Criteria, name: str) -> Statistic:
+    """
+    Gets the statistic of a name of criteria: that of their `statistics`, or
+    the mean of the metric of the name.
+    """
+    return criteria.statistics[name] if name in criteria.statistics else Mean(name)
 
-    def costs(self, values: Mapping[str, Any]) -> np.ndarray:
-        """
-        Gets the objectives as costs (to minimize, see `signs`), from the
-        values of their statistics (by name, such as the columns of a
-        summary): maximized objectives are negated.
 
-        Args:
-            values (Mapping[str, Any]): The values of the statistics of
-                designs, by name.
+def _resolved(criteria: Criteria) -> dict[str, Statistic]:
+    """Gets the statistic of each name of criteria (see `Criteria.names`)."""
+    return {name: _statistic(criteria, name) for name in criteria.names}
 
-        Returns:
-            numpy.ndarray: the costs (a row per design, and a column per
-                objective, `NaN` where a value is missing)
-        """
-        columns = [
-            np.asarray(values[name], dtype=float) * sign
-            for name, sign in zip(self.objectives, self.signs)
+
+def _signs(criteria: Criteria) -> np.ndarray:
+    """
+    Gets the sign of each objective of criteria that makes it a cost (to
+    minimize): 1 for an objective to minimize, and -1 for one to maximize.
+    """
+    return np.array(
+        [
+            1.0 if direction == "min" else -1.0
+            for direction in criteria.objectives.values()
         ]
-        count = len(columns[0]) if columns else 0
-        return np.column_stack(columns) if count else np.empty((0, len(columns)))
+    )
 
-    def violation(self, values: Mapping[str, Any], count: int) -> np.ndarray:
-        """
-        Gets the total violation of the requirements by designs (the sum of
-        their violations, see `Requirement.violation`), from the values of
-        their statistics (by name, such as the columns of a summary).
 
-        Args:
-            values (Mapping[str, Any]): The values of the statistics of
-                designs, by name.
-            count (int): The number of designs.
+def _tolerances(criteria: Criteria) -> np.ndarray:
+    """
+    Gets the tolerances of the objectives of criteria (zero if not given), in
+    their order: their values in their units (first row), and their shares
+    of the values of the objectives (second row).
+    """
+    return _tolerance_array(criteria.objectives, criteria.tolerances)
 
-        Returns:
-            numpy.ndarray: the violation of each design (0 if it meets every
-                requirement, and `NaN` where a statistic of a requirement is)
-        """
-        total = np.zeros(count)
-        for requirement in self.requirements:
-            statistic = np.asarray(values[requirement.name], dtype=float)
-            total = total + requirement.violation(statistic)
-        return total
 
-    @property
-    def combiners(self) -> dict[str, str]:
-        """dict[str, str]: How each statistic is combined across the groups of
-        `across` (see `Across`), by name: by its largest (`"max"`) or smallest
-        (`"min"`) value, its worst, or by its `"mean"` (empty without
-        `across`)."""
-        across = self.across
-        if across is None:
-            return {}
-        worst: dict[str, set[str]] = {}
-        for name, direction in self.objectives.items():
-            worst.setdefault(name, set()).add("max" if direction == "min" else "min")
-        for requirement in self.requirements:
-            sense = "min" if requirement.operator in (">=", ">") else "max"
-            worst.setdefault(requirement.name, set()).add(sense)
-        combiners = {}
-        for name in self.names:
-            rule = across.rules.get(name, across.rule)
-            if rule == "mean" or (name not in worst and name not in across.rules):
-                # statistics that are neither objectives nor required (such as
-                # others to compute with them) have no worst: their means
-                combiners[name] = "mean"
-            elif name not in worst:
-                raise ValueError(
-                    f"statistic {name!r} has no worst across {across.column!r}: it "
-                    + "is neither an objective nor required (combine it by its "
-                    + "mean, see Across)"
-                )
-            elif len(worst[name]) > 1:
-                raise ValueError(
-                    f"the objective and requirements of statistic {name!r} disagree "
-                    + "on its worst: give it another name (in the statistics) for each"
-                )
-            else:
-                combiners[name] = next(iter(worst[name]))
-        return combiners
+def _costs(criteria: Criteria, values: Mapping[str, Any]) -> np.ndarray:
+    """
+    Gets the objectives of criteria as costs (to minimize, see `_signs`),
+    from the values of their statistics (by name, such as the columns of a
+    summary): maximized objectives are negated. The costs have a row per
+    design, and a column per objective (`NaN` where a value is missing).
+    """
+    columns = [
+        np.asarray(values[name], dtype=float) * sign
+        for name, sign in zip(criteria.objectives, _signs(criteria))
+    ]
+    count = len(columns[0]) if columns else 0
+    return np.column_stack(columns) if count else np.empty((0, len(columns)))
+
+
+def _violation(criteria: Criteria, values: Mapping[str, Any], count: int) -> np.ndarray:
+    """
+    Gets the total violation of the requirements of criteria by `count`
+    designs (the sum of their violations, see `Requirement.violation`), from
+    the values of their statistics (by name, such as the columns of a
+    summary): 0 if a design meets every requirement, and `NaN` where a
+    statistic of a requirement is.
+    """
+    total = np.zeros(count)
+    for requirement in criteria.requirements:
+        statistic = np.asarray(values[requirement.name], dtype=float)
+        total = total + requirement.violation(statistic)
+    return total
+
+
+def _combiners(criteria: Criteria) -> dict[str, str]:
+    """
+    Gets how each statistic of criteria is combined across the groups of
+    their `across` (see `Across`), by name: by its largest (`"max"`) or
+    smallest (`"min"`) value, its worst, or by its `"mean"` (empty without
+    `across`).
+
+    Raises:
+        ValueError: if the worst of a statistic is asked for but it has none,
+            or its objective and requirements disagree on it.
+    """
+    across = criteria.across
+    if across is None:
+        return {}
+    worst: dict[str, set[str]] = {}
+    for name, direction in criteria.objectives.items():
+        worst.setdefault(name, set()).add("max" if direction == "min" else "min")
+    for requirement in criteria.requirements:
+        sense = "min" if requirement.operator in (">=", ">") else "max"
+        worst.setdefault(requirement.name, set()).add(sense)
+    combiners = {}
+    for name in criteria.names:
+        rule = across.rules.get(name, across.rule)
+        if rule == "mean" or (name not in worst and name not in across.rules):
+            # statistics that are neither objectives nor required (such as
+            # others to compute with them) have no worst: their means
+            combiners[name] = "mean"
+        elif name not in worst:
+            raise ValueError(
+                f"statistic {name!r} has no worst across {across.column!r}: it "
+                + "is neither an objective nor required (combine it by its "
+                + "mean, see Across)"
+            )
+        elif len(worst[name]) > 1:
+            raise ValueError(
+                f"the objective and requirements of statistic {name!r} disagree "
+                + "on its worst: give it another name (in the statistics) for each"
+            )
+        else:
+            combiners[name] = next(iter(worst[name]))
+    return combiners

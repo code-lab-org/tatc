@@ -27,7 +27,7 @@ from .cache import get_satellite_key
 from .criteria import Requirement
 from .events import Launch, PlannedPlane, Production
 from .memory import Forgetful
-from .references import given_design
+from .references import _given_design
 
 if TYPE_CHECKING:
     from .cost import CostEstimate, CostModel
@@ -56,7 +56,7 @@ class Phase:
         return self.end - self.start
 
 
-PHASE_COLUMNS = ("start", "end", "duration", "satellites")
+_PHASE_COLUMNS = ("start", "end", "duration", "satellites")
 """The columns of the evaluations of phases that are not metrics (see
 `evaluate_phases`)."""
 
@@ -87,16 +87,12 @@ def _position_names(
     return dict(zip(positions, names))
 
 
-def _satellite_keys(
-    satellites: Sequence[Satellite | str] | Mapping[str, str],
-) -> dict[str, str]:
+def _satellite_keys(satellites: Sequence[Satellite | str]) -> dict[str, str]:
     """
     Gets the keys of satellites in a cache of their metrics (see
     `PhaseCache`), by name: of their content (see `get_satellite_key`), or
-    their names, if given as names (or the keys given, by name).
+    their names, if given as names.
     """
-    if isinstance(satellites, Mapping):
-        return dict(satellites)
     return {
         name: get_satellite_key(s) if isinstance(s, Satellite) else name
         for name, s in zip(_names(satellites), satellites)
@@ -433,7 +429,7 @@ def evaluate_phases(
         pandas.DataFrame: a row per phase: its `start`, `end`, `duration`,
             number of `satellites`, and metrics
     """
-    given = given_design(metric, design)
+    given = _given_design(metric, design)
     return _evaluate_phases(phases, observations, lambda subset, _: given(subset()))
 
 
@@ -455,14 +451,15 @@ def summarize_phases(
         phases (pandas.DataFrame): The metrics of each phase (see
             `evaluate_phases`).
         metrics (Sequence[str] | None): The metrics, or `None` for every
-            column other than those of the phases (see `PHASE_COLUMNS`).
+            column other than those of the phases (`start`, `end`,
+            `duration`, and `satellites`).
         requirements (Sequence[Requirement]): Requirements on metrics.
 
     Returns:
         dict[str, float]: the summary, as metrics of an evaluation
     """
     if metrics is None:
-        metrics = [column for column in phases.columns if column not in PHASE_COLUMNS]
+        metrics = [column for column in phases.columns if column not in _PHASE_COLUMNS]
     weights = phases["duration"].to_numpy(dtype=float)
     summary = {}
     for name in metrics:
@@ -524,12 +521,13 @@ class PhaseCache(Forgetful):
     a replicate's sample of targets and the analysis period) and by the
     content of the satellites that operate (see `get_satellite_key`), so that
     the phases of missions with the same satellites (of other histories,
-    policies, or designs, in the same replicate) are evaluated once.
+    policies, or designs, in the same replicate) are evaluated once. The
+    capabilities of the satellites of missions share it (see `Capability`).
 
     The metric must depend only on the observations (of the one window of
     the observations, see `evaluate_phases`), not on the names of the
     satellites. A metric with a parameter named `design` is given the design
-    of the mission (see `evaluate`), on which it must depend only through
+    of the mission (see `Capability`), on which it must depend only through
     what the context identifies (such as a scenario). Copies sent to the
     parallel workers of a study start with an empty memory, which the
     evaluations of a chunk share (consecutive evaluations of the same
@@ -550,51 +548,7 @@ class PhaseCache(Forgetful):
         """int: The phases evaluated."""
         self._memory: dict = {}
 
-    def evaluate(
-        self,
-        phases: Sequence[Phase],
-        satellites: Sequence[Satellite | str] | Mapping[str, str],
-        observations: pd.DataFrame,
-        *,
-        context: Any = None,
-        design: Any = None,
-    ) -> pd.DataFrame:
-        """
-        Evaluates the phases of a mission (see `evaluate_phases`), taking
-        the metrics of the satellites of a phase from the cache if they are
-        in it.
-
-        Args:
-            phases (Sequence[Phase]): The phases.
-            satellites (Sequence[Satellite | str] | Mapping[str, str]): The
-                satellites, which key the cache by their content (or by
-                their names, if given as names, or by the keys given of their
-                names, see `get_satellite_key`).
-            observations (pandas.DataFrame): The observations of every
-                satellite, with their names (`satellite`).
-            context (Any): A hashable identifier of the observations (such
-                as the seed of their targets and their period).
-            design (Design | None): The (realized) design of the mission,
-                for a metric with a parameter named `design`.
-
-        Returns:
-            pandas.DataFrame: a row per phase: its `start`, `end`,
-                `duration`, number of `satellites`, and metrics
-        """
-        keys = _satellite_keys(satellites)
-
-        def cached(subset: Callable[[], pd.DataFrame], names: frozenset) -> dict:
-            del subset  # the cache filters the observations, if needed
-            return self.metrics_of(
-                {name: keys[name] for name in names},
-                observations,
-                context=context,
-                design=design,
-            )
-
-        return _evaluate_phases(phases, observations, cached)
-
-    def metrics_of(
+    def _metrics_of(
         self,
         keys: Mapping[str, str],
         observations: pd.DataFrame,
@@ -603,31 +557,17 @@ class PhaseCache(Forgetful):
         design: Any = None,
     ) -> dict[str, float]:
         """
-        Gets the metrics of satellites that operate together, from the cache
-        if they are in it (keyed by the context and the keys of the
-        satellites), or else of their observations (and kept).
-
-        Args:
-            keys (Mapping[str, str]): The keys of the satellites in the cache
-                (such as of their content, see `get_satellite_key`), by
-                their names in the observations.
-            observations (pandas.DataFrame): The observations of every
-                satellite, with their names (`satellite`), filtered to those
-                of the satellites only if they are not in the cache.
-            context (Any): A hashable identifier of the observations (such
-                as the seed of their targets and their period).
-            design (Design | None): The (realized) design of the mission,
-                for a metric with a parameter named `design`.
-
-        Returns:
-            dict[str, float]: the metrics
+        Gets the metrics of satellites that operate together, by their keys
+        in the cache (by their names in the observations), from the cache if
+        they are in it (keyed by the context and the keys), or else of their
+        observations (and kept), given the design if the metric takes one.
         """
         key = (context, frozenset(keys.values()))
         if key in self._memory:
             self.hits += 1
         else:
             self.misses += 1
-            metric = given_design(self.metric, design)
+            metric = _given_design(self.metric, design)
             self._memory[key] = dict(metric(_subset(observations, frozenset(keys))))
         return dict(self._memory[key])
 
@@ -714,22 +654,17 @@ class Capability:
         Evaluates the phases of a mission of the satellites (see
         `evaluate_phases`): the metrics of the satellites that operate in
         each, each set evaluated once (by the cache, with the context and the
-        design, see `PhaseCache.evaluate`).
+        design, see `PhaseCache`).
 
         Args:
-            phases (Sequence[Phase]): The phases.
+            phases (Sequence[Phase]): The phases (of the satellites, see
+                `MissionHistory.phases`).
 
         Returns:
             pandas.DataFrame: a row per phase: its `start`, `end`,
                 `duration`, number of `satellites`, and metrics
         """
-        return self._cache.evaluate(
-            phases,
-            self._keys,
-            self.observations,
-            context=self.context,
-            design=self.design,
-        )
+        return _evaluate_phases(phases, self.observations, lambda _, names: self(names))
 
     def __call__(self, names: Iterable[str]) -> dict[str, float]:
         """
@@ -745,50 +680,25 @@ class Capability:
         unknown = names - set(self.names)
         if unknown:
             raise ValueError(f"satellites that are not given: {sorted(unknown)}")
-        return self._cache.metrics_of(
+        # pylint: disable-next=protected-access
+        return self._cache._metrics_of(
             {name: self._keys[name] for name in names},
             self.observations,
             context=self.context,
             design=self.design,
         )
 
-    def position_names(
-        self, planes: Sequence[PlannedPlane]
-    ) -> dict[tuple[int, int], str]:
-        """
-        Gets the name of the satellite at each position of each plane of a
-        deployment (see `Deployment.planes`), without spares, as the phases of
-        its missions name them (see `MissionHistory.phases`).
-
-        Args:
-            planes (Sequence[PlannedPlane]): The planes.
-
-        Returns:
-            dict[tuple[int, int], str]: the names, by plane and position
-
-        Raises:
-            ValueError: if the planes have other numbers of satellites.
-        """
-        return _position_names(planes, self.names)
-
-    def at(
+    def _at(
         self,
         planes: Sequence[PlannedPlane],
         positions: Iterable[tuple[int, int]],
     ) -> dict[str, float]:
         """
-        Gets the metrics of the satellites at positions of the planes of a
-        deployment (see `Deployment.planes`).
-
-        Args:
-            planes (Sequence[PlannedPlane]): The planes.
-            positions (Iterable[tuple[int, int]]): The plane and position of
-                each satellite.
-
-        Returns:
-            dict[str, float]: the metrics
+        Gets the metrics of the satellites at positions (by plane and
+        position) of the planes of a deployment (see `Deployment.planes`), as
+        the phases of its missions name them (see `MissionHistory.phases`).
         """
-        named = self.position_names(planes)
+        named = _position_names(planes, self.names)
         return self(named[plane, position] for plane, position in positions)
 
 
@@ -799,12 +709,12 @@ class Mission:
     observation study plans it (see `MissionPlan.plan_mission` and
     `ObservationStudy.mission_of`): its planned deployment (with the policy
     that restores the failures of its satellites, and the capability of its
-    satellites), its cost model and growth, and the capability of its
-    satellites (their observations, and the cache of the metrics of their
-    phases), from which follow the metrics of its phases (`phases`, of the
-    history of the mission without failures, see `Deployment.planned`), its
-    cost estimate (`estimate`), and the histories of its failures
-    (`histories`, with `failures`).
+    satellites: their observations, and the cache of the metrics of their
+    phases), its cost model and growth, the failures of its satellites, and
+    the study's requirements on its phases, from which follow the metrics of
+    its phases (`phases`, of the history of the mission without failures,
+    see `Deployment.planned`), its cost estimate (`estimate`), and the
+    histories of its failures (`histories`).
     """
 
     design: Design
@@ -818,10 +728,19 @@ class Mission:
     drawn), if any."""
     growth: Any
     """Any: The growth of the costs (see `CostModel.estimate`)."""
-    capability: Capability
-    """Capability: The capability of the satellites."""
     failures: Failures | None = None
     """Failures | None: The failures of the satellites, if any."""
+    requirements: tuple[Requirement, ...] | None = None
+    """tuple[Requirement, ...] | None: The requirements on the metrics of
+    its phases, whose times its evaluation and histories give (see
+    `summarize_phases`), or `None` if the phases of a mission without
+    failures are not summarized (with failures, they always are)."""
+
+    @property
+    def capability(self) -> Capability:
+        """Capability: The capability of the satellites (that of the
+        deployment)."""
+        return self.deployment.capability
 
     def phases(self) -> pd.DataFrame:
         """
@@ -856,10 +775,10 @@ class Mission:
     def histories(self) -> pd.DataFrame:
         """
         Gets the histories of the failures of the mission, which the
-        evaluation of a study with failures summarizes (see
-        `Failures.evaluate` and `evaluate_histories`): a row per history,
-        with the mean of each metric over its phases, the measures of its
-        mission, and its costs.
+        evaluation of a study with failures summarizes (see `Failures` and
+        `evaluate_histories`): a row per history, with the mean of each
+        metric over its phases, the times until they meet the requirements
+        (see `requirements`), the measures of its mission, and its costs.
 
         Returns:
             pandas.DataFrame: a row per history
@@ -869,45 +788,31 @@ class Mission:
         """
         if self.failures is None:
             raise ValueError("the study has no failures")
-        return self.failures.evaluate(self)
+        # pylint: disable-next=protected-access
+        return self.failures._evaluate(self)
 
-    def metrics(self) -> dict[str, float]:
+    def _record(self) -> dict[str, float]:
         """
-        Gets the metrics of the planned mission that its evaluation records:
+        Gets the metrics of the mission that its evaluation records:
         `deployed` (see `Deployment.deployed`, of the history without
-        failures), `stages deployed` (of a staged deployment, the stages that
-        its rules deploy without failures), and, without failures, its costs
-        (see `estimate` and `CostEstimate.metrics`).
-
-        Returns:
-            dict[str, float]: the metrics
+        failures) and `stages deployed` (of a staged deployment, the stages
+        that its rules deploy without failures); and the summary of the
+        histories of its failures (see `Failures`), or else its costs (see
+        `estimate` and `CostEstimate.metrics`) and, with requirements (or
+        none, `()`), the summary of its phases (see `summarize_phases`).
         """
         planned = self.deployment.planned()
         record = {"deployed": planned.deployed}
         if self.deployment.stages:
             record["stages deployed"] = planned.metrics()["stages deployed"]
-        if self.cost_model is not None and self.failures is None:
-            record.update(self.estimate().metrics())
-        return record
-
-    def summarize(
-        self, phases: Sequence[Requirement] | None = None
-    ) -> dict[str, float]:
-        """
-        Summarizes the mission as metrics of its evaluation: the histories of
-        its failures (see `Failures.summarize`), or else, with requirements
-        on its phases (or none, `()`), the phases of the mission without
-        failures (see `phases` and `summarize_phases`).
-
-        Args:
-            phases (Sequence[Requirement] | None): The requirements on the
-                phases, or `None` not to summarize them.
-
-        Returns:
-            dict[str, float]: the summary (empty without failures or phases)
-        """
         if self.failures is not None:
-            return self.failures.summarize(self)
-        if phases is not None:
-            return summarize_phases(self.phases(), requirements=phases)
-        return {}
+            # pylint: disable-next=protected-access
+            record.update(self.failures._summarize(self))
+            return record
+        if self.cost_model is not None:
+            record.update(self.estimate().metrics())
+        if self.requirements is not None:
+            record.update(
+                summarize_phases(self.phases(), requirements=self.requirements)
+            )
+        return record

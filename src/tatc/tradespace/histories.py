@@ -21,6 +21,7 @@ import pandas as pd
 
 from .criteria import Requirement
 from .mission import Capability, MissionHistory, summarize_phases
+from .statistics import Probability, Quantile, StandardDeviation, Statistic
 
 
 def evaluate_histories(
@@ -75,42 +76,42 @@ def evaluate_histories(
 def summarize_histories(
     histories: pd.DataFrame,
     *,
-    quantiles: Mapping[str, float | Sequence[float]] | None = None,
-    requirements: Sequence[Requirement] = (),
+    statistics: Sequence[Statistic] = (),
     controls: Mapping[str, float] | None = None,
-    spread: bool = False,
 ) -> dict[str, float]:
     """
     Summarizes histories of a mission (see `evaluate_histories`) as the
     metrics of an evaluation: the mean of each column over the histories
-    (by the same name), quantiles of columns over the histories (`<column>
-    histories p<percent>`, such as `"accurate mission histories p10"` for the
-    0.1 quantile, the risk of the mission), and the share of the histories
-    that meet each requirement on a column (`P(<column> <operator> <value>)
-    histories`, such as `"P(accurate time <= 4) histories"`). The statistics
-    over the histories of a replicate (quantiles, probabilities, and
-    standard deviations) end in `histories`, apart from the statistics over
-    the replicates (such as a `Quantile` or a `Probability`, see
-    `Criteria`), which are taken of these.
+    (by the same name), and `statistics` of columns over the histories, as
+    those of `Criteria` are over the replicates, named after the histories:
+    a `Quantile` (`<column> histories
+    p<percent>`, such as `"accurate mission histories p10"` for the 0.1
+    quantile, the risk of the mission), a `Probability` (`P(<column>
+    <operator> <value>) histories`, such as `"P(accurate time <= 4)
+    histories"`, the share of the histories that meet it), or a
+    `StandardDeviation` (`<column> histories std`, as `allocate_histories`
+    needs of a pilot study). The statistics over the histories of a
+    replicate end in `histories`, apart from the statistics over the
+    replicates (see `Criteria`), which are taken of these.
 
     Missing values (`NaN`, such as the `restoration years` of a history
     without restorations) are left out of the statistics of their column,
     but infinite ones are not: the mean of the time until a history meets a
     requirement (`<metric> time`, see `evaluate_histories`) is infinite if a
     history never meets it, and its quantiles, or the share of the
-    histories that meet it by a time (a requirement on it, such as
-    `Requirement("accurate time", "<=", 4)`), summarize it.
+    histories that meet it by a time (such as `Probability("accurate time",
+    "<=", 4)`), summarize it.
 
     With `controls`, the means are estimated with control variates: columns
     whose expected values are known (such as the `availability` of a
-    mission, which simulations alone estimate precisely and cheaply, see
-    `Deployment.expected_metrics`), and which vary with the other columns
-    from history to history. The mean of each other column is corrected by
-    the deviation of the controls' means from their expected values, times
-    the regression of the column on the controls over the histories,
-    which removes the share of its variance that the controls explain (a
-    share of `rho ** 2` for a correlation `rho`): fewer histories give the
-    same precision. The quantiles and probabilities are not corrected.
+    mission, which simulations alone estimate precisely and cheaply), and
+    which vary with the other columns from history to history. The mean of
+    each other column is corrected by the deviation of the controls' means
+    from their expected values, times the regression of the column on the
+    controls over the histories, which removes the share of its variance
+    that the controls explain (a share of `rho ** 2` for a correlation
+    `rho`): fewer histories give the same precision. The other statistics
+    are not corrected.
 
     Histories of stressed failures (see `Deployment.simulate_many`) are
     weighted by their likelihood ratios (`weight`), for every statistic, and
@@ -118,34 +119,33 @@ def summarize_histories(
     the sum of the weights over the sum of their squares) measures how much
     a few weights dominate.
 
-    The quantiles and probabilities are over the histories of a replicate,
-    whose statistics over the replicates (such as their mean, see
-    `aggregate`) combine the risk of the mission with the uncertainty of the
-    replicates' other parameters (such as their targets).
+    The statistics are over the histories of a replicate, whose statistics
+    over the replicates (such as their mean, see `summarize`) combine the
+    risk of the mission with the uncertainty of the replicates' other
+    parameters (such as their targets).
 
     Args:
         histories (pandas.DataFrame): A row per history.
-        quantiles (Mapping | None): The quantiles of columns, by column.
-        requirements (Sequence[Requirement]): Requirements on columns.
+        statistics (Sequence[Statistic]): Statistics of columns over the
+            histories: `Quantile`, `Probability`, or `StandardDeviation`.
         controls (Mapping[str, float] | None): The expected values of
             columns that are control variates, if any.
-        spread (bool): `True` to add the standard deviation of each column
-            over the histories (`<column> histories std`), as for
-            `allocate_histories`.
 
     Returns:
         dict[str, float]: the summary
 
     Raises:
-        ValueError: if a quantile or requirement is of a column that the
-            histories do not have.
+        TypeError: if a statistic is not one of these.
+        ValueError: if a statistic is of a column that the histories do not
+            have.
     """
+    statistics = _history_statistics(statistics)
     numeric = histories.select_dtypes("number")
-    named = [*(quantiles or {}), *(requirement.name for requirement in requirements)]
+    named = [statistic.column for statistic in statistics]
     unknown = sorted(set(named) - set(numeric.columns))
     if unknown:
         raise ValueError(
-            "quantiles or requirements of columns that the histories do not have: "
+            "statistics of columns that the histories do not have: "
             + f"{unknown} (they have {sorted(numeric.columns)})"
         )
     weights = np.ones(len(numeric))
@@ -159,29 +159,74 @@ def summarize_histories(
         summary["effective histories"] = float(weights.sum() ** 2 / np.sum(weights**2))
     if controls:
         summary.update(_controlled_means(numeric, controls, weights))
-    if spread:
-        for column in numeric.columns:
-            values = numeric[column].to_numpy(dtype=float)
-            known = np.isfinite(values)
-            mean = _weighted_mean(values, weights)
-            variance = _weighted_mean((values - mean) ** 2, weights)
-            count = known.sum()
-            summary[f"{column} histories std"] = (
-                float(np.sqrt(variance * count / (count - 1)))
-                if count > 1
-                else math.nan
-            )
-    for column, values in (quantiles or {}).items():
-        for q in [values] if isinstance(values, (int, float)) else values:
-            summary[f"{column} histories p{100 * q:g}"] = _weighted_quantile(
-                numeric[column].to_numpy(dtype=float), weights, q
-            )
-    for requirement in requirements:
-        met = requirement.met(histories[requirement.name].to_numpy(dtype=float))
-        summary[f"P({requirement}) histories"] = float(
-            np.sum(weights * met) / np.sum(weights)
+    for statistic in statistics:
+        values = numeric[statistic.column].to_numpy(dtype=float)
+        summary[_history_name(statistic)] = _weighted_statistic(
+            statistic, values, weights
         )
     return summary
+
+
+_HISTORY_STATISTICS = (Quantile, Probability, StandardDeviation)
+"""The statistics of columns over histories (see `summarize_histories`)."""
+
+
+def _history_statistics(statistics: Sequence[Statistic]) -> tuple[Statistic, ...]:
+    """
+    Gets statistics over histories (see `summarize_histories`), raising a
+    `TypeError` if one is not a statistic of a column of a kind that
+    summarizes histories.
+    """
+    if isinstance(statistics, Statistic):
+        statistics = [statistics]
+    statistics = tuple(statistics)
+    for statistic in statistics:
+        if type(statistic) not in _HISTORY_STATISTICS or not isinstance(
+            statistic.column, str
+        ):
+            raise TypeError(
+                "statistics over histories are a Quantile, Probability, or "
+                + f"StandardDeviation of a column, not {statistic!r}"
+            )
+    return statistics
+
+
+def _history_name(statistic: Statistic) -> str:
+    """
+    Gets the name of a statistic of a column over the histories of a
+    mission (see `summarize_histories`): `<column> histories p<percent>` of a
+    `Quantile`, `P(<column> <operator> <value>) histories` of a
+    `Probability`, and `<column> histories std` of a `StandardDeviation`.
+    """
+    if isinstance(statistic, Quantile):
+        return f"{statistic.column} histories p{100 * statistic.q:g}"
+    if isinstance(statistic, Probability):
+        return f"{statistic.name} histories"
+    return f"{statistic.column} histories std"
+
+
+def _weighted_statistic(
+    statistic: Statistic, values: np.ndarray, weights: np.ndarray
+) -> float:
+    """
+    Computes a statistic over histories (see `summarize_histories`) of their
+    values, by their weights, leaving out missing values (`NaN`).
+    """
+    if isinstance(statistic, Quantile):
+        return _weighted_quantile(values, weights, statistic.q)
+    known = ~np.isnan(values)
+    if isinstance(statistic, Probability):
+        if not known.any() or weights[known].sum() <= 0:
+            return math.nan
+        requirement = Requirement(
+            statistic.column, statistic.operator, statistic.threshold
+        )
+        met = requirement.met(values[known])
+        return float(np.sum(weights[known] * met) / np.sum(weights[known]))
+    mean = _weighted_mean(values, weights)
+    variance = _weighted_mean((values - mean) ** 2, weights)
+    count = known.sum()
+    return float(np.sqrt(variance * count / (count - 1))) if count > 1 else math.nan
 
 
 def _weighted_mean(values: np.ndarray, weights: np.ndarray) -> float:
@@ -266,9 +311,10 @@ def allocate_histories(
     (each a sample of its uncertain parameters other than failures, such as
     its targets, whose observations are expensive to compute) and histories
     of the failures of its mission in each replicate (cheap, with a
-    `PhaseCache`), from a pilot study: the records of its replicates (see
-    `summarize_histories`, with `spread`), each the mean (`<metric>`) and
-    standard deviation (`<metric> histories std`) of a metric over `histories`
+    `PhaseCache`), from a pilot study: the records of its replicates (with
+    the statistic `StandardDeviation(metric)` of `Failures`, see
+    `summarize_histories`), each the mean (`<metric>`) and standard
+    deviation (`<metric> histories std`) of a metric over `histories`
     histories.
 
     The variance of a replicate's mean is `between + within / K` for `K`

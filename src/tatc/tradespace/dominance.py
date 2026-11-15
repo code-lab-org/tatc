@@ -92,7 +92,7 @@ def dominated(costs: np.ndarray, tolerances: np.ndarray | None = None) -> np.nda
     is penalized by the tolerances: no worse in every cost, and better in at
     least one, by at least its tolerance (absolute, plus a share of the
     magnitude of the cost of the point it would dominate: the rows of
-    `tolerances`, see `Criteria.tolerance_array`).
+    `tolerances`, see `criteria._tolerances`).
 
     A point that is dominated with tolerances is also dominated by a point
     that is efficient without them: the penalty depends only on the point

@@ -81,9 +81,9 @@ class TestSensitivity(unittest.TestCase):
         results = pd.DataFrame(
             {"design": ["x", "x", "y", "y"], "a": [1, 1, 2, 2], "metric": [1, 2, 3, 4]}
         )
-        with self.assertRaisesRegex(ValueError, "aggregate"):
+        with self.assertRaisesRegex(ValueError, "summarize"):
             sensitivity(results, ["a"], ["metric"])
-        with self.assertRaisesRegex(ValueError, "aggregate") as context:
+        with self.assertRaisesRegex(ValueError, "summarize") as context:
             main_effects(results, "a", "metric")
         # summaries of designs in groups give a row of each design per group
         self.assertNotIn("Criteria", str(context.exception))

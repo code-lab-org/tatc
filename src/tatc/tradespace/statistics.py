@@ -58,7 +58,10 @@ def _named_statistics(statistics: Any) -> dict[str, Statistic]:
     if isinstance(statistics, Mapping):
         return {name: _as_statistic(name, value) for name, value in statistics.items()}
     if isinstance(statistics, (str, Statistic)) or _is_derived(statistics):
-        statistics = [statistics]
+        raise TypeError(
+            "statistics must be a sequence of statistics (or metrics) or a mapping "
+            + f"of names to them, not {statistics!r}: give [{statistics!r}]"
+        )
     named: dict[str, Statistic] = {}
     for item in statistics:
         statistic = _as_statistic(str(item), item)
@@ -77,7 +80,7 @@ class Statistic:
     The column `feasible` of the results is the feasibility of each replicate
     (1 if it is feasible, 0 if not), whose statistics are over every
     replicate of a design, feasible or not (its mean is the share of its
-    replicates that are feasible, see `aggregate`); the statistics of other
+    replicates that are feasible, see `summarize`); the statistics of other
     metrics are over the feasible replicates.
 
     Args:
@@ -97,13 +100,13 @@ class Statistic:
     def name(self) -> str:
         """str: The conventional name of the statistic, by which criteria name
         the statistics given without names: such as `cost` (a mean), `cost
-        std`, `cost se` (as of `summarize`), `cost min`, `cost max`, `cost
-        p70` (a quantile), or `P(cost <= 150)`. The statistics within a
+        std`, `cost min`, `cost max`, `cost p70` (a quantile), or `P(cost <=
+        150)`. The statistics within a
         replicate over the histories of a mission (see `summarize_histories`)
         are named apart from these, as `<column> histories p10`, `<column>
         histories std`, and `P(<requirement>) histories`, and a statistic
         other than the mean of a metric must not have the name of a column of
-        the results (see `aggregate`)."""
+        the results (see `summarize`)."""
         return self.metric
 
     @property
@@ -180,6 +183,33 @@ class Mean(Statistic):
         return _nan_reduce(np.nanmean, values)
 
 
+def _standard_deviation(values: np.ndarray) -> np.ndarray:
+    """
+    Computes the sample standard deviation of each design (row) over its
+    values in its replicates (columns), ignoring missing values (`NaN` with
+    fewer than two, or with an infinite value, such as of a time that is
+    never met).
+    """
+    counts = np.sum(~np.isnan(values), axis=1)
+    result = np.full(values.shape[0], np.nan)
+    valid = counts > 1
+    if np.any(valid):
+        with np.errstate(invalid="ignore"):  # inf - inf, of infinite values
+            result[valid] = np.nanstd(values[valid], axis=1, ddof=1)
+    return result
+
+
+def _standard_error(values: np.ndarray) -> np.ndarray:
+    """
+    Computes the standard error of the mean of each design (row) from its
+    values in its replicates (columns): their standard deviation over the
+    square root of their number (`NaN` with fewer than two), as the spreads
+    of summaries give it (`<metric> se`, see `summarize`).
+    """
+    counts = np.sum(~np.isnan(values), axis=1)
+    return _standard_deviation(values) / np.sqrt(np.maximum(counts, 1))
+
+
 class StandardDeviation(Statistic):
     """
     The (sample) standard deviation of a metric over the replicates, a
@@ -192,30 +222,7 @@ class StandardDeviation(Statistic):
         return f"{self.metric} std"
 
     def reduce(self, values: np.ndarray) -> np.ndarray:
-        counts = np.sum(~np.isnan(values), axis=1)
-        result = np.full(values.shape[0], np.nan)
-        valid = counts > 1
-        if np.any(valid):
-            result[valid] = np.nanstd(values[valid], axis=1, ddof=1)
-        return result
-
-
-class StandardError(Statistic):
-    """
-    The standard error of the mean of a metric over the replicates: its
-    standard deviation over the square root of the number of replicates, a
-    measure of the uncertainty of the mean (`NaN` with fewer than two
-    replicates).
-    """
-
-    @property
-    def name(self) -> str:
-        return f"{self.metric} se"
-
-    def reduce(self, values: np.ndarray) -> np.ndarray:
-        counts = np.sum(~np.isnan(values), axis=1)
-        deviation = StandardDeviation(self.column).reduce(values)
-        return deviation / np.sqrt(np.maximum(counts, 1))
+        return _standard_deviation(values)
 
 
 class Minimum(Statistic):

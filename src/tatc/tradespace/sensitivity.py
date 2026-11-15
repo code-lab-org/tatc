@@ -39,7 +39,7 @@ def main_effects(
     Args:
         summary (pandas.DataFrame): The designs, a row each, with their
             values (see `Design.flat`) and metrics (such as a summary of a
-            study, see `aggregate`).
+            study, see `summarize`).
         variable (str): The column of the variable.
         metric (str): The column of the metric.
         max_levels (int): The most levels of a numeric variable, beyond which
@@ -94,7 +94,7 @@ def sensitivity(
     Args:
         summary (pandas.DataFrame): The designs, a row each, with their
             values (see `Design.flat`) and metrics (such as a summary of a
-            study, see `aggregate`, which keeps the values of the designs).
+            study, see `summarize`, which keeps the values of the designs).
         variables (str | Sequence[str]): The column (or columns) of the
             variables.
         metrics (str | Sequence[str]): The column (or columns) of the metrics.

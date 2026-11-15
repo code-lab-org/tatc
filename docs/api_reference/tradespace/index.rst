@@ -16,7 +16,7 @@ before::
 
     from tatc.tradespace import (
         Criteria, DesignSpace, Integer, ResultStore, Study, Uncertain,
-        aggregate, confirm, refine,
+        confirm, refine, summarize,
     )
 
     space = DesignSpace(planes=Integer(1, 4), per_plane=Integer(1, 4), seed=Uncertain.seed())
@@ -24,7 +24,7 @@ before::
     results = study.run()  # a row per design and replicate
 
     criteria = Criteria({"satellites": "min", "coverage": "max"})
-    summary = aggregate(results, criteria)  # a row per design, with `pareto`
+    summary = summarize(results, criteria)  # a row per design, with `pareto`
     front = summary[summary.pareto]
 
     refinement = refine(study, criteria, results)  # replicates where efficiency is uncertain
@@ -66,9 +66,8 @@ take one or the other:
 
    * - Take results (a row per replicate)
      - Take summaries (a row per design)
-   * - `aggregate`, `summarize`, `pareto_probability`,
-       `hypervolume_progress`, `robustness`, `exceedance`, `refine`,
-       `confirm`, `plot_means`
+   * - `summarize`, `pareto_probability`, `hypervolume_progress`,
+       `robustness`, `exceedance`, `refine`, `confirm`, `plot_means`
      - `pareto_front`, `pareto_ranks`, `hypervolume`, `sensitivity`,
        `main_effects`, `plot_designs`
 
@@ -86,11 +85,12 @@ and columns that TAT-C defines are named in snake case:
 * statistics over the replicates of a design: named by the criteria, or by
   convention if given without names (see `Statistic.name`, such as
   `"cost p70"` for `Quantile("cost", 0.7)`), the means of metrics by
-  their names, and `<metric> std` and `<metric> se` (by `summarize`, and the
-  standard error of each objective by `pareto_probability`, left out where
-  they are zero for every design), and of confirmed designs, `<statistic>
-  selected` (by the replicates that selected them) and `<objective>
-  optimism`. A statistic other than the mean of a metric must not have the
+  their names, each mean followed by its spread, `<metric> std` and
+  `<metric> se` (by `summarize`, and by `pareto_probability`, which gives
+  the standard error of an objective that is not a mean by its bootstrap,
+  left out where they are zero for every design), and of confirmed designs,
+  `<statistic> selected` (by the replicates that selected them) and
+  `<objective> optimism`. A statistic other than the mean of a metric must not have the
   name of a column of the results.
 * statistics within a replicate, over the mission of a design (see
   `ObservationStudy`): `<metric> mission` (the mean over the phases of the

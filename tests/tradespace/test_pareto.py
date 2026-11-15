@@ -15,11 +15,11 @@ import pandas as pd
 from tatc.tradespace import (
     Criteria,
     Requirement,
-    aggregate,
     hypervolume,
     hypervolume_progress,
     pareto_front,
     pareto_ranks,
+    summarize,
 )
 from tatc.tradespace.dominance import dominated
 
@@ -193,7 +193,7 @@ class TestSummaries(unittest.TestCase):
             ignore_index=True,
         )
         criteria = Criteria(self.objectives, by="size")
-        summary = aggregate(results, criteria)
+        summary = summarize(results, criteria)
         self.assertEqual(
             list(summary.pareto),
             list(pareto_front(summary.drop(columns="pareto"), criteria)),
@@ -207,12 +207,12 @@ class TestSummaries(unittest.TestCase):
     def test_results_raise(self):
         """Results with a row per replicate are not summaries of designs."""
         for function in (pareto_front, pareto_ranks):
-            with self.assertRaisesRegex(ValueError, "aggregate"):
+            with self.assertRaisesRegex(ValueError, "summarize"):
                 function(self.results, self.objectives)
-        with self.assertRaisesRegex(ValueError, "aggregate"):
+        with self.assertRaisesRegex(ValueError, "summarize"):
             hypervolume(self.results, self.objectives, [2, 0])
         indexed = self.results.set_index("design")
-        with self.assertRaisesRegex(ValueError, "aggregate"):
+        with self.assertRaisesRegex(ValueError, "summarize"):
             pareto_front(indexed, self.objectives)
 
     def test_groups_of_designs(self):

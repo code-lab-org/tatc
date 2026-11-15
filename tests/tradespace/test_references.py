@@ -5,6 +5,8 @@ configured from them, and functions given them.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+# pylint: disable=protected-access
+
 import dataclasses
 import unittest
 
@@ -17,7 +19,7 @@ from tatc.tradespace import (
     configure,
     value_of,
 )
-from tatc.tradespace.references import given_design, takes_design
+from tatc.tradespace.references import _given_design, _takes_design
 
 SPACE = DesignSpace(
     altitude=Real(600e3, 700e3, step=100e3),
@@ -108,22 +110,22 @@ class TestGivenDesign(unittest.TestCase):
         def only_position(x, design, /):
             return x, design
 
-        self.assertTrue(takes_design(positional))
-        self.assertTrue(takes_design(keyword))
-        self.assertFalse(takes_design(only_position))
-        self.assertFalse(takes_design(lambda x: x))
-        self.assertFalse(takes_design(lambda x, **kwargs: x))
-        self.assertFalse(takes_design(len))
+        self.assertTrue(_takes_design(positional))
+        self.assertTrue(_takes_design(keyword))
+        self.assertFalse(_takes_design(only_position))
+        self.assertFalse(_takes_design(lambda x: x))
+        self.assertFalse(_takes_design(lambda x, **kwargs: x))
+        self.assertFalse(_takes_design(len))
 
     def test_given_design(self):
         """A function that takes the design is given it; others are not."""
         design = SPACE.enumerate()[0]
         self.assertEqual(
-            given_design(lambda x, design: (x, design.key), design)(1),
+            _given_design(lambda x, design: (x, design.key), design)(1),
             (1, design.key),
         )
 
         def alone(x):
             return x
 
-        self.assertIs(given_design(alone, design), alone)
+        self.assertIs(_given_design(alone, design), alone)

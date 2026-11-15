@@ -22,19 +22,22 @@ from tatc.tradespace import (
     FailureModel,
     Integer,
     LaunchCost,
+    Mean,
     OperationsCost,
     Piecewise,
-    Requirement,
+    Probability,
+    Quantile,
     RestorationPolicy,
     SatelliteCost,
     Stage,
+    StandardDeviation,
     Study,
     Uncertain,
     Weibull,
-    aggregate,
     build_constellation,
     pareto_front,
     policy_space,
+    summarize,
     walker_space,
 )
 from tatc.tradespace import expectations as expectations_module
@@ -490,7 +493,7 @@ class TestPolicySpace(unittest.TestCase):
         designs = space.enumerate()
         self.assertEqual(len(designs), 2 * 5)
         results = Study(space, lambda d: d, evaluate, replicates=30).run(designs)
-        summary = aggregate(results, ["cost", "availability"])
+        summary = summarize(results, statistics=["cost", "availability"])
         front = summary[pareto_front(summary, {"cost": "min", "availability": "max"})]
         policies = {
             (
@@ -556,27 +559,29 @@ class TestManyMissions(unittest.TestCase):
             self.failures, 7, histories=10, sampling="random"
         )
         self.assertEqual(degraded[3].failures[0], histories[3].failures[0])
-        self.assertEqual(
-            len(deployment.simulate_many(self.failures, None, histories=10)), 1
-        )
+        # without a seed, the one history without failures
+        (unseeded,) = deployment.simulate_many(self.failures, None)
+        self.assertEqual(unseeded.failures, [])
+        with self.assertRaisesRegex(ValueError, "seed"):
+            deployment.simulate_many(self.failures, None, histories=10)
         self.assertIs(deployment.planned(), deployment.planned())
         with self.assertRaises(ValueError):
             deployment.simulate_many(self.failures, 7, histories=0)
         # without a model of failures, as simulate, nothing fails
         unfailing = deployment.simulate_many(seed=7, histories=3)
         self.assertEqual([h.failures for h in unfailing], [[], [], []])
-        self.assertEqual(deployment.expected_metrics(histories=3)["availability"], 1)
+        # pylint: disable-next=protected-access
+        self.assertEqual(deployment._expected_metrics(histories=3)["availability"], 1)
 
     def test_phase_cache(self):
         """A cache evaluates each set of satellites once, as without it."""
         deployment = self.schedule.plan(self.layout)
         histories = deployment.simulate_many(self.failures, 7, histories=20)
         cache = PhaseCache(self._metric)
+        capability = Capability(self.satellites, self.observations, cache, context="r0")
         for history in histories:
             phases = history.phases(self.satellites)
-            cached = cache.evaluate(
-                phases, self.satellites, self.observations, context="r0"
-            )
+            cached = capability.evaluate(phases)
             direct = evaluate_phases(phases, self.observations, self._metric)
             pd.testing.assert_frame_equal(cached, direct)
         self.assertGreater(cache.hits, cache.misses)
@@ -589,16 +594,13 @@ class TestManyMissions(unittest.TestCase):
             {s.name: r.name for s, r in zip(self.satellites, renamed)}
         )
         misses = cache.misses
-        cache.evaluate(
-            histories[0].phases(renamed), renamed, observations, context="r0"
+        Capability(renamed, observations, cache, context="r0").evaluate(
+            histories[0].phases(renamed)
         )
         self.assertEqual(cache.misses, misses)
         # other observations (another context) are evaluated again
-        cache.evaluate(
-            histories[0].phases(self.satellites),
-            self.satellites,
-            self.observations,
-            context="r1",
+        Capability(self.satellites, self.observations, cache, context="r1").evaluate(
+            histories[0].phases(self.satellites)
         )
         self.assertGreater(cache.misses, misses)
         cache.clear()
@@ -626,8 +628,12 @@ class TestManyMissions(unittest.TestCase):
             self.assertIn(column, missions.columns)
         summary = summarize_histories(
             missions,
-            quantiles={"share mission": [0.1, 0.5], "cost": 0.7},
-            requirements=[Requirement("share mission", ">=", 60)],
+            statistics=[
+                Quantile("share mission", 0.1),
+                Quantile("share mission", 0.5),
+                Quantile("cost", 0.7),
+                Probability("share mission", ">=", 60),
+            ],
         )
         self.assertAlmostEqual(
             summary["share mission"], missions["share mission"].mean()
@@ -727,10 +733,11 @@ class TestVarianceReduction(unittest.TestCase):
     def test_expected_metrics(self):
         """Expected measures of a mission from many histories."""
         deployment = self.schedule.plan(self.layout)
-        expected = deployment.expected_metrics(self.failures, histories=200)
+        # pylint: disable=protected-access
+        expected = deployment._expected_metrics(self.failures, histories=200)
         self.assertTrue(0 < expected["availability"] < 1)
         self.assertEqual(
-            deployment.expected_metrics(FailureModel(), histories=10)["availability"],
+            deployment._expected_metrics(FailureModel(), histories=10)["availability"],
             1.0,
         )
 
@@ -784,7 +791,9 @@ class TestAllocateHistories(unittest.TestCase):
         for _ in range(replicates):
             expected = rng.normal(50, between)
             missions = pd.DataFrame({"share": rng.normal(expected, within, histories)})
-            rows.append(summarize_histories(missions, spread=True))
+            rows.append(
+                summarize_histories(missions, statistics=[StandardDeviation("share")])
+            )
         return pd.DataFrame(rows)
 
     def test_recommendation(self):
@@ -1027,7 +1036,7 @@ class TestImportanceSampling(unittest.TestCase):
                     [{**h.metrics(), "weight": h.weight} for h in histories]
                 )
                 summary = summarize_histories(
-                    rows, requirements=[Requirement("failures", ">=", 2)]
+                    rows, statistics=[Probability("failures", ">=", 2)]
                 )
                 values.append(summary["P(failures >= 2) histories"])
                 if stress > 1:
@@ -1054,22 +1063,28 @@ class TestImportanceSampling(unittest.TestCase):
         )
 
     def test_times_and_columns(self):
-        """Times that a history never meets are infinite in the summaries, and
-        quantiles and requirements need columns of the histories."""
+        """Times that a history never meets are infinite in the summaries,
+        missing values are left out, and statistics need columns of the
+        histories, of the kinds that summarize histories."""
         histories = pd.DataFrame({"accurate time": [2.0, 3.0, math.inf, np.nan]})
         summary = summarize_histories(
             histories,
-            quantiles={"accurate time": [0.3, 0.9]},
-            requirements=[Requirement("accurate time", "<=", 3)],
+            statistics=[
+                Quantile("accurate time", 0.3),
+                Quantile("accurate time", 0.9),
+                Probability("accurate time", "<=", 3),
+            ],
         )
         self.assertEqual(summary["accurate time"], math.inf)
         self.assertEqual(summary["accurate time histories p30"], 2.0)
         self.assertEqual(summary["accurate time histories p90"], math.inf)
-        self.assertEqual(summary["P(accurate time <= 3) histories"], 0.5)
+        self.assertEqual(summary["P(accurate time <= 3) histories"], 2 / 3)
         with self.assertRaisesRegex(ValueError, "other"):
-            summarize_histories(histories, quantiles={"other": 0.5})
+            summarize_histories(histories, statistics=[Quantile("other", 0.5)])
         with self.assertRaisesRegex(ValueError, "other"):
-            summarize_histories(histories, requirements=[Requirement("other", ">", 1)])
+            summarize_histories(histories, statistics=[Probability("other", ">", 1)])
+        with self.assertRaises(TypeError):
+            summarize_histories(histories, statistics=[Mean("accurate time")])
 
     def test_weighted_summaries(self):
         """Weighted histories give weighted statistics."""
@@ -1078,9 +1093,11 @@ class TestImportanceSampling(unittest.TestCase):
         )
         summary = summarize_histories(
             missions,
-            quantiles={"value": 0.5},
-            requirements=[Requirement("value", ">=", 3)],
-            spread=True,
+            statistics=[
+                Quantile("value", 0.5),
+                Probability("value", ">=", 3),
+                StandardDeviation("value"),
+            ],
         )
         self.assertAlmostEqual(summary["value"], (4 + 2 + 3 + 8) / 8)
         self.assertEqual(summary["value histories p50"], 1.0)  # half the weight is at 1

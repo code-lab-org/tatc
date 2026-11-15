@@ -18,16 +18,11 @@ import pandas as pd
 from pydantic import ValidationError
 
 from .alerts import _warn
-from .fingerprint import (
-    _fingerprint_of,
-    describe,
-    find_stale,
-    get_definition,
-    warn_stale,
-)
+from .fingerprint import _find_stale, _fingerprint_of, get_definition, warn_stale
+from .fingerprint import describe as describe_value
 from .hashing import canonical, digest
 from .nodes import Infeasible
-from .references import given_design
+from .references import _given_design
 from .space import (
     STATUS_COLUMNS,
     Design,
@@ -38,6 +33,9 @@ from .space import (
     _designs,
 )
 from .store import ResultStore
+
+_DESCRIPTION = "description"
+"""The column of the results of a study that describes designs (see `Study`)."""
 
 _UNSTORED = "_unstored"
 """A key of the records of evaluations that are not stored: those that failed
@@ -158,6 +156,15 @@ class Study:
     evaluated alone, and one without values shares the evaluations of the
     study without scenarios.
 
+    A study may `describe` its designs with a function of a design (not of
+    a replicate) that labels it for tables and plots, as the value
+    `description` of each design in the results (after its other values),
+    which summaries keep (see `summarize`). Labels are given by every run,
+    not stored, nor part of the fingerprint: a new function needs no new
+    evaluations::
+
+        study = Study(space, build, evaluate, describe=lambda d: str(layout_of(d.layout)))
+
     Evaluations run in parallel with `n_jobs` worker processes (or an
     `executor` with the interface of `concurrent.futures.Executor`). They are
     sent to the workers in chunks of consecutive evaluations of the same
@@ -207,6 +214,9 @@ class Study:
         scenarios (Mapping[str, Mapping[str, Any]] | None): The scenarios
             in which to evaluate designs, if any: the overrides of fixed
             values and uncertain parameters of each (by path), by name.
+        describe (Callable | None): A function of a design that gives a label
+            of it (`description`), if any, which a value of the design space
+            (or a metric) may then not be named as (a `ValueError`).
     """
 
     def __init__(
@@ -224,7 +234,9 @@ class Study:
         store: ResultStore | None = None,
         errors: str = "raise",
         scenarios: Mapping[str, Mapping[str, Any]] | None = None,
+        describe: Callable[[Design], Any] | None = None,
     ):
+        # pylint: disable=too-many-arguments
         if errors not in ("raise", "record"):
             raise ValueError(f"errors must be 'raise' or 'record', not {errors!r}")
         if replicates < 1:
@@ -234,6 +246,10 @@ class Study:
         if chunks_per_job < 1:
             raise ValueError("chunks_per_job must be at least 1")
         _check_seed(seed)
+        if describe is not None and not callable(describe):
+            raise TypeError(f"describe is a function of a design, not {describe!r}")
+        if describe is not None and _DESCRIPTION in space.children:
+            raise ValueError(f"a value of the design space named {_DESCRIPTION!r}")
         self.space, self.build, self.evaluate = space, build, evaluate
         self.replicates, self.seed = replicates, seed
         self.common_random_numbers = common_random_numbers
@@ -242,6 +258,7 @@ class Study:
         self.store = store
         self.errors = errors
         self.scenarios = _check_scenarios(space, scenarios)
+        self.describe = describe
 
     def __getstate__(self) -> dict:
         # an executor is not sent to workers (which add evaluations to the store)
@@ -288,7 +305,7 @@ class Study:
                 raise
             return [self._failure(base, error)]
         try:
-            outcome = given_design(self.evaluate, realized)(built)
+            outcome = _given_design(self.evaluate, realized)(built)
         except Infeasible as error:
             return [{**base, "feasible": False, "error": str(error)}]
         except Exception as error:  # pylint: disable=broad-exception-caught
@@ -309,7 +326,7 @@ class Study:
         else:
             records = [dict(outcome)]
         for record in records:
-            _check_metrics(record, base)
+            _check_metrics(record, base, self.describe is not None)
         return [{**base, **record} for record in records]
 
     @staticmethod
@@ -344,7 +361,8 @@ class Study:
                 ]
             else:
                 kept = records
-            self.store.put([(design.key, replicate, kept)], context, variant)
+            # pylint: disable-next=protected-access
+            self.store._put([(design.key, replicate, kept)], context, variant)
         return records
 
     def _run_chunk(
@@ -430,6 +448,7 @@ class Study:
             "store": self.store,
             "errors": self.errors,
             "scenarios": self.scenarios,
+            "describe": self.describe,
         }
 
     def realize(
@@ -560,7 +579,8 @@ class Study:
             return 0
         definition = self.definition
         context = _fingerprint_of(definition)
-        return self.store.remove(_stale_contexts(self.store, context, definition))
+        stale = _stale_contexts(self.store, context, definition)
+        return self.store._remove(stale)  # pylint: disable=protected-access
 
     @property
     def workers(self) -> int:
@@ -616,18 +636,19 @@ class Study:
                 record of an evaluation), in the order of the designs (and
                 scenarios) and replicates, with the design's key (`design`),
                 the `replicate` (and the `scenario`, with scenarios), the
-                values of the design by path (see `Design.flat`), whether it
+                values of the design by path (see `Design.flat`), its
+                `description` (if the study describes its designs), whether it
                 is `feasible` (and the `error` if not), the time to build and
                 evaluate it (`seconds`), and the metrics (the status columns
                 alone, without evaluations, see `STATUS_COLUMNS`).
 
         Raises:
             ValueError: if a replicate index or an offset of `shift` is not
-                a non-negative integer, or `shift` names a path that is not of
-                an uncertain parameter of the design space.
+                a non-negative integer, `shift` names a path that is not of
+                an uncertain parameter, or a metric names another column.
         """
         shift = {name: offset for name, offset in _check_shift(shift).items() if offset}
-        self.space.check_uncertain(shift)
+        self.space._check_uncertain(shift)  # pylint: disable=protected-access
         replicates = (
             range(self.replicates)
             if replicate_indices is None
@@ -664,15 +685,18 @@ class Study:
             for record in records
         ]
         if not records:
-            return pd.DataFrame(
+            frame = pd.DataFrame(
                 columns=[
                     column
                     for column in STATUS_COLUMNS
                     if column != "scenario" or self.scenarios
                 ]
             )
-        frame = pd.DataFrame.from_records(records)
-        _check_feasible(frame)
+        else:
+            frame = pd.DataFrame.from_records(records)
+            _check_feasible(frame)
+        if self.describe is not None:
+            _add_descriptions(frame, self.describe, unique)
         return frame
 
     def _stored(
@@ -691,13 +715,13 @@ class Study:
         context = _fingerprint_of(definition)
         stored = {}
         for k, case in enumerate(cases):
-            found = self.store.get(
+            found = self.store._get(  # pylint: disable=protected-access
                 ((d.key, r) for _, d, r, c in tasks if c == k), context, case.variant
             )
             stored.update({(key, r, k): records for (key, r), records in found.items()})
         if tasks and not stored:
             _warn_other_definitions(self.store, context, definition)
-        self.store.define(context, definition)
+        self.store._define(context, definition)  # pylint: disable=protected-access
         outcomes = [
             _Outcome(i, case, replicate, stored[design.key, replicate, case])
             for i, design, replicate, case in tasks
@@ -827,7 +851,7 @@ def _check_scenarios(
             raise TypeError(f"the name of a scenario must be a string, not {name!r}")
         if not isinstance(values, Mapping):
             raise TypeError(f"the values of scenario {name!r} must be a mapping")
-        space.check_overrides(values)
+        space._check_overrides(values)  # pylint: disable=protected-access
         checked[name] = dict(values)
     return checked
 
@@ -839,7 +863,7 @@ def _describe_overrides(values: Mapping[str, Any]) -> str:
     """
     if not values:
         return ""
-    return canonical(describe(dict(values)))
+    return canonical(describe_value(dict(values)))
 
 
 def _variant_of(shift: Mapping[str, int], scenario: str = "") -> str:
@@ -863,16 +887,16 @@ def _stale_contexts(
     """
     Gets the contexts of a store's namespace (and their numbers of
     evaluations) of the same study with other code (its functions', TAT-C's,
-    or Python's, see `find_stale`), the latest first, including those whose
+    or Python's, see `_find_stale`), the latest first, including those whose
     definitions are kept without evaluations.
     """
-    contexts = store.contexts()
+    contexts = store._contexts()  # pylint: disable=protected-access
     others = {
-        other: store.definition(other)
+        other: store._definition(other)  # pylint: disable=protected-access
         for other in reversed(contexts)
         if other != context
     }
-    return find_stale(definition, others, contexts.__getitem__)
+    return _find_stale(definition, others, contexts.__getitem__)
 
 
 def _warn_other_definitions(store: ResultStore, context: str, definition: dict) -> None:
@@ -886,7 +910,7 @@ def _warn_other_definitions(store: ResultStore, context: str, definition: dict) 
     warn_stale(
         _stale_contexts(store, context, definition),
         definition,
-        store.definition,
+        store._definition,  # pylint: disable=protected-access
         lambda count: f"the store has {count} evaluations of namespace "
         + f"{store.namespace!r} by this study",
         "see Study.fingerprint; Study.prune removes them",
@@ -912,28 +936,50 @@ def _same(value: Any, other: Any) -> bool:
         return False
 
 
-def _check_metrics(metrics: dict, base: dict) -> None:
+def _check_metrics(metrics: dict, base: dict, described: bool = False) -> None:
     """
     Checks that the metrics of a record do not replace the columns of the
     results of a study: they must not be named as its status columns (see
-    `STATUS_COLUMNS`, also `scenario` in a study without scenarios) nor as
-    the marker of unstored records (see `_UNSTORED`), and a metric named as
-    a value of the design (a key of `base`) must equal it.
+    `STATUS_COLUMNS`, also `scenario` in a study without scenarios), as its
+    descriptions of designs (`description`, if `described`, see `Study`), nor
+    as the marker of unstored records (see `_UNSTORED`), and a metric named
+    as a value of the design (a key of `base`) must equal it.
     """
+    columns = [*STATUS_COLUMNS, *([_DESCRIPTION] if described else [])]
     clashes = [
         str(name)
         for name, value in metrics.items()
-        if name in STATUS_COLUMNS
+        if name in columns
         or name == _UNSTORED
         or (name in base and not _same(value, base[name]))
     ]
     if clashes:
         raise ValueError(
             f"metrics named as columns of the results of a study: {sorted(clashes)}; "
-            + f"rename them (the results have the columns {list(STATUS_COLUMNS)}, "
+            + f"rename them (the results have the columns {columns}, "
             + "and the values of each design, see Design.flat, which a metric of "
             + "the same name must equal)"
         )
+
+
+def _add_descriptions(
+    results: pd.DataFrame, describe: Callable[[Design], Any], designs: list[Design]
+) -> None:
+    """
+    Adds the descriptions of designs (see `Study`) to the results of a run,
+    before `feasible`, raising a `ValueError` if the results have a column of
+    their name (a metric stored by a study that did not describe designs).
+    """
+    if _DESCRIPTION in results.columns:
+        raise ValueError(
+            f"metrics named {_DESCRIPTION!r}, as descriptions: rename them"
+        )
+    labels = {design.key: describe(design) for design in designs}
+    results.insert(
+        results.columns.get_loc("feasible"),
+        _DESCRIPTION,
+        [labels[key] for key in results["design"]],
+    )
 
 
 def _check_feasible(results: pd.DataFrame) -> None:

@@ -31,7 +31,7 @@ from .criteria import Requirement
 from .memory import Forgetful
 from .mission import Capability, Mission, PhaseCache
 from .plans import Failures, MissionPlan
-from .references import Reference, given_design, takes_design, value_of
+from .references import Reference, _given_design, _takes_design, value_of
 from .space import Design, DesignSpace
 from .study import Study, _Case
 
@@ -85,15 +85,10 @@ class Targets(Forgetful):
         object.__setattr__(self, "seed", seed)
         object.__setattr__(self, "_memory", {})
 
-    def seed_of(self, design: Design | None) -> Any:
+    def _seed_of(self, design: Design | None) -> Any:
         """
-        Gets the seed of the targets of a design (`None` if they are fixed).
-
-        Args:
-            design (Design | None): The (realized) design.
-
-        Returns:
-            Any: the seed
+        Gets the seed of the targets of a (realized) design (`None` if they
+        are fixed).
         """
         if self.seed is None:
             return None
@@ -103,20 +98,14 @@ class Targets(Forgetful):
             )
         return value_of(design, self.seed)
 
-    def of(self, design: Design | None = None) -> pd.DataFrame:
+    def _of(self, design: Design | None = None) -> pd.DataFrame:
         """
-        Gets the targets of a design (of its replicate).
-
-        Args:
-            design (Design | None): The (realized) design, or `None` for fixed
-                targets.
-
-        Returns:
-            pandas.DataFrame: the targets
+        Gets the targets of a (realized) design, of its replicate (or `None`
+        for fixed targets, see `ObservationStudy.targets_of`).
         """
         if isinstance(self.source, pd.DataFrame):
             return self.source
-        return self._of_seed(self.seed_of(design))
+        return self._of_seed(self._seed_of(design))
 
     def _of_seed(self, seed: Any) -> pd.DataFrame:
         """Gets the targets of a seed (generated, or kept in memory)."""
@@ -208,13 +197,6 @@ class Observations(Forgetful):
             object.__setattr__(self, "targets", Targets(self.targets))
         object.__setattr__(self, "_caches", {})
 
-    @property
-    def end(self) -> datetime:
-        """datetime: The end of the period (of a fixed start, see `end_of`)."""
-        if not isinstance(self.start, datetime):
-            raise ValueError("the start is a value of the design: see end_of")
-        return self.start + self.duration
-
     def start_of(self, design: Design | None = None) -> datetime:
         """
         Gets the start of the period of a design (of its replicate).
@@ -248,34 +230,24 @@ class Observations(Forgetful):
         """
         return self.start_of(design) + self.duration
 
-    def context_of(self, design: Design | None = None) -> tuple:
+    def _context_of(self, design: Design | None = None) -> tuple:
         """
-        Gets a key of the observations of a design: the seed of its targets
-        and the period (such as the context of a `PhaseCache`).
-
-        Args:
-            design (Design | None): The (realized) design.
-
-        Returns:
-            tuple: the key
+        Gets a key of the observations of a (realized) design: the seed of
+        its targets and the period (such as the context of a `PhaseCache`).
         """
-        return (self.targets.seed_of(design), self.start_of(design), self.duration)
+        # pylint: disable-next=protected-access
+        return (self.targets._seed_of(design), self.start_of(design), self.duration)
 
-    def cache_of(self, design: Design | None = None) -> SatelliteCache:
+    def _cache_of(self, design: Design | None = None) -> SatelliteCache:
         """
-        Gets the cache of the observations of the targets of a design (by the
-        seed of its targets and its period), in a namespace of the targets'
-        seed and the period (and the `namespace`), so that the cache warns of
-        results of the analysis with other code (see `SatelliteCache`) of the
-        same targets and period.
-
-        Args:
-            design (Design | None): The (realized) design.
-
-        Returns:
-            SatelliteCache: the cache
+        Gets the cache of the observations of the targets of a (realized)
+        design (by the seed of its targets and its period), in a namespace
+        of the targets' seed and the period (and the `namespace`), so that
+        the cache warns of results of the analysis with other code (see
+        `SatelliteCache`) of the same targets and period.
         """
-        return self._cache(self.targets.seed_of(design), self.start_of(design))
+        # pylint: disable-next=protected-access
+        return self._cache(self.targets._seed_of(design), self.start_of(design))
 
     def _namespace(self, seed: Any, start: datetime) -> str:
         """Gets the namespace of the cache of the targets of a seed and a start."""
@@ -287,8 +259,8 @@ class Observations(Forgetful):
     def _cache(self, seed: Any, start: datetime) -> SatelliteCache:
         """
         Gets the cache of the observations of the targets of a seed from a
-        start (see `cache_of`), with the seed and start as the context of its
-        namespace (see `SatelliteCache.contexts`), from which `prune` finds
+        start (see `_cache_of`), with the seed and start as the context of its
+        namespace (see `SatelliteCache._contexts`), from which `prune` finds
         it. Its function generates the targets only if it computes a result.
         """
         if (seed, start) not in self._caches:
@@ -324,7 +296,8 @@ class Observations(Forgetful):
         if self.directory is None:
             return 0
         removed = 0
-        for namespace, context in SatelliteCache.contexts(self.directory).items():
+        contexts = SatelliteCache._contexts  # pylint: disable=protected-access
+        for namespace, context in contexts(self.directory).items():
             if not isinstance(context, (tuple, list)) or len(context) != 2:
                 continue  # of other caches
             seed, start = context
@@ -350,7 +323,7 @@ class Observations(Forgetful):
         Returns:
             pandas.DataFrame: the observations (empty without satellites)
         """
-        return self.cache_of(design)(satellites)
+        return self._cache_of(design)(satellites)
 
 
 def _hashable(value: Any) -> Any:
@@ -377,8 +350,9 @@ class _Evaluation:
     """
     The evaluation of the satellites of a design (see `ObservationStudy`):
     the metrics of the observations of every satellite and, with a plan, of
-    the mission (see `Mission`): its deployment and costs, and either the
-    phases of its deployment or the histories of its failures.
+    the mission (see `Mission`): its deployment and costs, and the phases of
+    its deployment or the histories of its failures (with the requirements
+    on their phases).
     """
 
     observations: Observations
@@ -401,31 +375,32 @@ class _Evaluation:
         if layout is not None:
             record["planes"] = count_planes(layout)
         if self.plan is None:
-            record.update(given_design(self.metrics, design)(observations))
+            record.update(_given_design(self.metrics, design)(observations))
             return record
         mission = self.mission_from(satellites, observations, design)
-        record.update(mission.metrics())
         if "satellite" in observations.columns:
             # those of every satellite by the capability, whose cache the
             # phases of the mission (such as its last) share
             capability = mission.capability
             record.update(capability(capability.names))
         else:
-            record.update(given_design(self.metrics, design)(observations))
-        record.update(mission.summarize(self.phases))
+            record.update(_given_design(self.metrics, design)(observations))
+        # pylint: disable-next=protected-access
+        record.update(mission._record())
         return record
 
     def context_of(self, design: Design) -> tuple:
         """
         Gets the context of the metrics of the phases of a design in the
-        cache (see `PhaseCache`): its observations (see
-        `Observations.context_of`) and, if the metrics are given the design,
+        cache (see `PhaseCache`): its observations (the seed of its targets
+        and its period) and, if the metrics are given the design,
         its scenario and the values of its uncertain parameters, which such
         metrics may read (designs of a replicate share them, with common
         random numbers).
         """
-        context = self.observations.context_of(design)
-        if takes_design(self.metrics):
+        # pylint: disable-next=protected-access
+        context = self.observations._context_of(design)
+        if _takes_design(self.metrics):
             context = (context, design.scenario, _uncertain_values(design))
         return context
 
@@ -448,7 +423,11 @@ class _Evaluation:
             design=design,
         )
         return self.plan.plan_mission(
-            design, value_of(design, self.layout), capability, self.failures
+            design,
+            value_of(design, self.layout),
+            capability,
+            failures=self.failures,
+            requirements=self.phases,
         )
 
 
@@ -457,10 +436,8 @@ class ObservationStudy(Study):
     A trade study of the observations of constellations: each replicate of a
     design builds its satellites, observes the targets of the replicate (see
     `Observations`), and records the metrics of the observations and, with a
-    mission `plan`, of the mission (see `Mission`): its deployment and costs,
-    and either the `phases` of its deployment (see `evaluate_phases` and
-    `summarize_phases`, with requirements, if any) or the histories of its
-    `failures` (see `Failures`)::
+    mission `plan`, of its mission (see `Mission`): its deployment and costs,
+    the `phases` of its deployment, and the histories of its `failures`::
 
         study = ObservationStudy(
             space,
@@ -471,64 +448,20 @@ class ObservationStudy(Study):
             phases=True,
         )
 
-    Its results have the columns of every study (see `Study.run`) and:
-
-    * `satellites`, and `planes` (with a `layout`, by default the value
-      `layout` of a design space that has one): their numbers.
-    * the metrics of the observations of every satellite (by their names).
-    * with a plan: `deployed`, the years from the start of development to the
-      last launch of the first generation of the satellites in the history
-      of the mission without failures (see `Deployment.planned`), including
-      the stages that their rules deploy then (see `Stage`), infinite if the
-      deployment does not finish within the mission; with stages, `stages
-      deployed`, the number of stages that their rules deploy then (with
-      failures, the mean over the histories); and, with a cost model, the
-      costs of the deployment (`cost`, `cost development`, and so on, see
-      `CostEstimate.metrics`; with failures, the means of the costs of the
-      histories).
-    * with phases: `<metric> mission`, the mean of each metric over the
-      phases of the mission as its satellites are deployed (from the first
-      launch), and `<metric> time`, the time at which a phase first meets
-      each requirement on a metric (see `summarize_phases`), in years from
-      the start of development, as `deployed` (infinite if none does).
-    * with failures: the means over the histories of the failures of each
-      replicate of `<metric> mission` (the mean over the phases of each
-      history), of the measures of the missions (`availability`, `failures`,
-      `restorations`, and so on, see `MissionHistory.metrics`), of their
-      costs, and of the times of each history that meets the requirements of
-      the `phases` of the failures (`<metric> time`); and the `quantiles` of
-      columns over the histories (`<column> histories p<percent>`) and the
-      shares of the histories that meet `requirements` (`P(<requirement>)
-      histories`), see `summarize_histories`.
-
-    Statistics over the replicates of these columns (see `Criteria`) judge
-    designs: such as the mean over the replicates of `accurate mission`, or a
-    quantile over them of `cost histories p70`.
+    Its results have the columns of every study (see `Study.run`), the
+    numbers of `satellites` and `planes`, the metrics of every satellite,
+    and those of the mission (see `Mission`): `deployed`, `stages deployed`,
+    and costs (see `CostEstimate.metrics`), the summary of its phases (see
+    `summarize_phases`), and that of the histories of its failures (see
+    `summarize_histories`), whose means replace the costs without failures.
 
     The metrics are a function of the observations of any set of satellites
-    (which may be empty), so that failures and phases evaluate them for the
-    satellites that operate in each phase, over the one window of the
-    observations (see `evaluate_phases` for what this assumes, and
-    `Observations` for an epoch drawn for each replicate). A metrics function
-    with a parameter named `design` is also given the realized design, such
-    as for the window of an epoch drawn for each replicate or for values that
-    scenarios set (see `Study`): the metrics of phases are cached by the
-    satellites that operate, the targets and window of the observations, the
-    scenario, and the values of the uncertain parameters of the replicate
-    (which the designs of a replicate share, with common random numbers), so
-    such a function must depend on the design only through these. As a
-    `Study`, it runs as any other (see `Study.run`), such as in parallel,
-    with a store of its records, and in searches (such as `refine`,
-    `confirm`, `screen`, and the optimizers). Its fingerprint (see
-    `Study.fingerprint`) describes its parts, including targets by their
-    content (or the recipe of generated targets), so that its store needs no
-    namespace but for what the fingerprint cannot see.
-
-    The parts of the evaluation of a design are also given apart, for
-    analyses other than its metrics: its satellites, targets, and
-    observations (`satellites_of`, `targets_of`, and `observations_of`), and
-    its mission (`mission_of`): its planned deployment, the metrics of its
-    phases, its cost estimate, and the histories of its failures.
+    (which may be empty), evaluated for those of each phase over the one
+    window of the observations (see `evaluate_phases`). One that takes the
+    realized `design` must depend on it only through the scenario and the
+    uncertain values of the replicate, by which phases are cached. The parts
+    of an evaluation are also given apart (`satellites_of`, `targets_of`,
+    `observations_of`, and `mission_of`).
 
     Args:
         space (DesignSpace): The design space.
@@ -539,23 +472,23 @@ class ObservationStudy(Study):
             design, if it has a parameter named `design`) that gives their
             metrics (a mapping).
         layout (Reference | None): The value of the design that is its
-            layout (see `value_of` and `layout_of`), which a `plan`
-            requires, or `None` for the value `layout` of a design space
-            that has one (and none otherwise).
+            layout (see `layout_of`), which a `plan` requires, or `None` for
+            the value `layout` of a design space that has one.
         plan (MissionPlan | None): The deployment, policy, and costs, if any.
         failures (Failures | None): The failures, if any, which require a
             plan.
         phases (Sequence[Requirement] | bool | None): `True` (or requirements
-            on the metrics) to summarize the phases of the deployment, which
-            require a plan (with failures, the requirements on the phases of
-            the histories are those of `Failures`).
+            on the metrics) to summarize the phases of the mission, which
+            require a plan: of the deployment, or of each history of the
+            failures (whose phases are always summarized).
         **options (Any): The settings of the study (see `Study`), such as
             `replicates`, `seed`, `n_jobs`, and `store`.
 
     Raises:
+        TypeError: if the requirements on phases are not Requirements.
         ValueError: if failures or phases are given without a plan, a plan
-            without a layout, failures with phases, or the quantiles or
-            requirements of failures are of costs without a cost model.
+            without a layout, or statistics of failures of costs without a
+            cost model.
     """
 
     def __init__(
@@ -574,28 +507,22 @@ class ObservationStudy(Study):
         # the requirements on the phases, if they are summarized
         phases = None if phases is None or phases is False else phases
         phases = () if phases is True else None if phases is None else tuple(phases)
+        if phases is not None and not all(isinstance(r, Requirement) for r in phases):
+            raise TypeError("the requirements on phases are Requirements")
         if layout is None and "layout" in space.children:
             layout = "layout"
         if plan is None and (failures is not None or phases is not None):
             raise ValueError("failures and phases require a mission plan")
         if plan is not None and layout is None:
             raise ValueError("a mission plan requires a layout")
-        if failures is not None and phases is not None:
-            raise ValueError(
-                "failures summarize the phases of their histories: give the "
-                + "requirements on them to Failures (phases), not to the study"
-            )
         if failures is not None and plan.cost_model is None:
-            named = [
-                *(failures.quantiles or {}),
-                *(r.name for r in failures.requirements),
-            ]
+            named = [statistic.column for statistic in failures.statistics]
             costs = [
                 name for name in named if name == "cost" or name.startswith("cost ")
             ]
             if costs:
                 raise ValueError(
-                    f"quantiles or requirements of costs without a cost model: {costs}"
+                    f"statistics of failures of costs without a cost model: {costs}"
                 )
         self.observations, self.metrics, self.layout = observations, metrics, layout
         self.plan, self.failures, self.phases = plan, failures, phases
@@ -626,7 +553,7 @@ class ObservationStudy(Study):
         # process, so that it warns of results of other code here (once, see
         # `SatelliteCache`), rather than in a worker process
         realized = self._realized(design, replicate, shift, case)
-        self.observations.cache_of(realized)
+        self.observations._cache_of(realized)  # pylint: disable=protected-access
 
     def satellites_of(
         self, design: Design, replicate: int = 0, scenario: str | None = None
@@ -658,7 +585,9 @@ class ObservationStudy(Study):
         Returns:
             pandas.DataFrame: the targets
         """
-        return self.observations.targets.of(self.realize(design, replicate, scenario))
+        realized = self.realize(design, replicate, scenario)
+        # pylint: disable-next=protected-access
+        return self.observations.targets._of(realized)
 
     def observations_of(
         self, design: Design, replicate: int = 0, scenario: str | None = None
@@ -691,7 +620,8 @@ class ObservationStudy(Study):
         metrics of its phases (`Mission.phases`, which a study with `phases`
         summarizes), its cost estimate (`Mission.estimate`, the costs of a
         study without failures), and the histories of its failures
-        (`Mission.histories`, a row per history, which a study with failures
+        (`Mission.histories`, a row per history, with the times until they
+        meet the study's requirements on phases, which a study with failures
         summarizes). The design is realized, built, and observed once for
         all of them.
 

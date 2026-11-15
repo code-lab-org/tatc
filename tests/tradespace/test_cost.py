@@ -25,12 +25,12 @@ from tatc.tradespace import (
     Study,
     Triangular,
     Uncertain,
-    aggregate,
     count_satellites,
     exceedance,
     planes_space,
     risk_space,
     sso_planes_space,
+    summarize,
     walker_space,
 )
 from tatc.tradespace.constellations import plane_sizes
@@ -108,7 +108,7 @@ class TestCostModel(unittest.TestCase):
 
     def setUp(self):
         self.satellite = SatelliteCost(
-            development=100, first_unit=10, learning_rate=0.9, mass=50
+            development=100, first_unit=10, learning_rate=0.9
         )
 
     def test_elements(self):
@@ -152,7 +152,7 @@ class TestCostModel(unittest.TestCase):
         model = CostModel(
             self.satellite, launch=LaunchCost(per_satellite=2, per_kg=0.1)
         )
-        estimate = model.estimate(DeploymentSchedule().plan(_walker(1, 4)))
+        estimate = model.estimate(DeploymentSchedule().plan(_walker(1, 4), masses=50))
         self.assertEqual(estimate.launches, 1)  # counted, though not priced per launch
         self.assertAlmostEqual(estimate.launch, 4 * (2 + 0.1 * 50))
         with self.assertRaises(ValueError):
@@ -186,24 +186,17 @@ class TestCostModel(unittest.TestCase):
         self.assertEqual(estimate.total, model.estimate(deployment.planned()).total)
 
     def test_masses_of_the_deployment(self):
-        """Launches are priced by the masses that size them: those of the
-        deployment, or else of the cost model."""
+        """Launches are priced by the masses of the deployment, which size
+        them."""
         schedule = DeploymentSchedule(years=3, launch_mass_capacity=250)
         deployment = schedule.plan(_walker(1, 4), masses=100)
         self.assertEqual(len(deployment.launches), 2)
         by_kg = LaunchCost(per_kg=0.01)
-        # without masses of the cost model
-        priced = CostModel(SatelliteCost(first_unit=1), launch=by_kg).estimate(
-            deployment
-        )
-        self.assertAlmostEqual(priced.launch, 4 * 100 * 0.01)
-        # the masses of the deployment take the place of the cost model's
-        other = CostModel(SatelliteCost(first_unit=1, mass=60), launch=by_kg)
-        self.assertAlmostEqual(other.estimate(deployment).launch, 4 * 100 * 0.01)
+        model = CostModel(SatelliteCost(first_unit=1), launch=by_kg)
+        self.assertAlmostEqual(model.estimate(deployment).launch, 4 * 100 * 0.01)
         unsized = DeploymentSchedule(years=3).plan(_walker(1, 4))
-        self.assertAlmostEqual(other.estimate(unsized).launch, 4 * 60 * 0.01)
         with self.assertRaisesRegex(ValueError, "masses"):
-            CostModel(SatelliteCost(), launch=by_kg).estimate(unsized)
+            model.estimate(unsized)
 
     def test_types(self):
         """Types of satellites are developed once each, with their own curves."""
@@ -284,7 +277,7 @@ class TestCostModel(unittest.TestCase):
             return {**cost.metrics(), "satellites": count_satellites(d.layout)}
 
         results = Study(space, lambda d: d, evaluate, replicates=20).run(designs)
-        summary = aggregate(
+        summary = summarize(
             results, statistics={"cost": "cost", "cost p70": Quantile("cost", 0.7)}
         )
         # the 0.7 quantile of a growth skewed upward exceeds the mean
@@ -452,6 +445,10 @@ class TestTriangular(unittest.TestCase):
             Triangular(1.2, 1.5)  # mode below the lowest growth
         with self.assertRaises(ValueError):
             Triangular(1.0, 1.0)
+        # the mode by name, unlike the order of Uncertain.triangular
+        self.assertAlmostEqual(Triangular(0.9, 1.6, mode=1.2).ppf(3 / 7), 1.2)
+        with self.assertRaises(TypeError):
+            Triangular(0.9, 1.0, 1.6)  # pylint: disable=too-many-function-args
 
 
 class TestComponents(unittest.TestCase):
