@@ -720,7 +720,6 @@ class Setup:
     beams: str
     size_instrument: str
     published_footprints: tuple
-    record_path: pathlib.Path
     fixture_path: pathlib.Path
     source: str
     reference: str
@@ -772,11 +771,11 @@ def validate_beams(
         return
     if platform != setup.platform:
         write_transfer(
-            setup.record_path,
+            entry,
             setup.beams,
             platform,
-            f"{day:%Y-%m-%d}",
-            {
+            period=f"{day:%Y-%m-%d}",
+            metrics={
                 "pixel_position_median": median,
                 "pixel_position_p95": p95,
                 "spacing_along_ratio_median": along,
@@ -799,7 +798,6 @@ def validate_beams(
         spacing_seconds=(times[picks] - pd.Timestamp(day)).total_seconds().to_numpy(),
     )
     write_record(
-        setup.record_path,
         entry,
         setup.beams,
         source=setup.source,
@@ -869,11 +867,11 @@ def validate_swath(
         return
     if platform != setup.platform:
         write_transfer(
-            setup.record_path,
+            entry,
             setup.swath,
             platform,
-            f"{day:%Y-%m-%d}",
-            {name: float(results[name]) for name in GATED},
+            period=f"{day:%Y-%m-%d}",
+            metrics={name: float(results[name]) for name in GATED},
         )
         return
     rng = np.random.default_rng(1)
@@ -895,7 +893,6 @@ def validate_swath(
         passes=passes,
     )
     write_record(
-        setup.record_path,
         entry,
         setup.swath,
         source=setup.source,

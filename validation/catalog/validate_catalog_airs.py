@@ -43,7 +43,6 @@ from gesdisc_scanner import (
 )
 from validation_io import (
     RemoteFile,
-    RECORDS,
     FIXTURES,
     source_of,
 )
@@ -94,7 +93,6 @@ SETUP = Setup(
     beams="footprints",
     size_instrument="AIRS",
     published_footprints=PUBLISHED_FOOTPRINTS,
-    record_path=RECORDS / "airs.json",
     fixture_path=FIXTURES / "airs.npz",
     source=source_of(__file__),
     reference="AIRSAQIRL1B version 8.0 (footprint positions and times)",
@@ -140,7 +138,7 @@ def main() -> None:
     if not arguments.sample_sizes_only:
         validate_swath(SETUP, day, tle, entry, orbit, reference, arguments.write)
     if arguments.write:
-        print(f"wrote {SETUP.record_path} and {SETUP.fixture_path}")
+        print(f"wrote {SETUP.fixture_path}")
 
 
 if __name__ == "__main__":

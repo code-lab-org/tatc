@@ -58,14 +58,12 @@ from validation_io import (
     up,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
     login_earthdata,
 )
 
-RECORD_PATH = RECORDS / "gedi.json"
 FIXTURE_PATH = FIXTURES / "gedi.npz"
 ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "iss_2026-04-01.3le"
 NORAD_ID = 25544
@@ -408,7 +406,6 @@ def main() -> None:
     )
     found = np.isfinite(fixture_differences)
     write_record(
-        RECORD_PATH,
         entry,
         CONFIGURATION,
         source=source_of(__file__),
@@ -431,7 +428,7 @@ def main() -> None:
             "epoch_p95": float(summarize(fixture_differences[found])["p95"]),
         },
     )
-    print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
+    print(f"wrote {FIXTURE_PATH}")
 
 
 if __name__ == "__main__":

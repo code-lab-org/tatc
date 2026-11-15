@@ -332,7 +332,6 @@ def validate_profiler(
     orbit,
     tle,
     day: datetime,
-    record_path: pathlib.Path,
     fixture_path: pathlib.Path,
     source: str,
     reference: str,
@@ -403,7 +402,6 @@ def validate_profiler(
         orbit, configuration=configuration, time_step=TIME_STEPS[0], platform=platform
     )
     write_record(
-        record_path,
         entry,
         configuration,
         source=source,
@@ -421,7 +419,7 @@ def validate_profiler(
         ],
         fixture_metrics=recompute_passes(satellite, 0, day, passes),
     )
-    print(f"wrote {record_path} and {fixture_path}")
+    print(f"wrote {fixture_path}")
     return results
 
 

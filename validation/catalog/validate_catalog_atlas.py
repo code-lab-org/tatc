@@ -55,14 +55,12 @@ from validation_io import (
     read_element_set_file,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
     login_earthdata,
 )
 
-RECORD_PATH = RECORDS / "atlas.json"
 FIXTURE_PATH = FIXTURES / "atlas.npz"
 
 # public element sets from CelesTrak, with epochs a few days after each day of data;
@@ -366,7 +364,6 @@ def main() -> None:
     )
     found = np.isfinite(fixture_differences)
     write_record(
-        RECORD_PATH,
         entry,
         CONFIGURATION,
         source=source_of(__file__),
@@ -388,7 +385,7 @@ def main() -> None:
             "epoch_p95": float(summarize(fixture_differences[found])["p95"]),
         },
     )
-    print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
+    print(f"wrote {FIXTURE_PATH}")
 
 
 if __name__ == "__main__":

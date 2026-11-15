@@ -39,13 +39,11 @@ from earthcare_io import (
 )
 from validation_io import (
     read_element_set_file,
-    RECORDS,
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
 )
 
-RECORD_PATH = RECORDS / "cpr.json"
 FIXTURE_PATH = FIXTURES / "cpr.npz"
 NORAD_ID = 59908
 ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "earthcare_2026-09-27.3le"
@@ -98,7 +96,6 @@ def main() -> None:
         orbit,
         tle,
         day,
-        RECORD_PATH,
         FIXTURE_PATH,
         source_of(__file__),
         "CPR_NOM_1B (profile positions and times)",

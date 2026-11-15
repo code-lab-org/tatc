@@ -43,7 +43,6 @@ from gesdisc_scanner import (
 )
 from validation_io import (
     read_element_set_file,
-    RECORDS,
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
@@ -101,7 +100,6 @@ SETUP = Setup(
     beams="beams",
     size_instrument="MHS",
     published_footprints=PUBLISHED_FOOTPRINTS,
-    record_path=RECORDS / "mhs.json",
     fixture_path=FIXTURES / "mhs.npz",
     source=source_of(__file__),
     reference="GPM_1CMETOPCMHS version 08 (beam positions)",
@@ -169,7 +167,7 @@ def main() -> None:
             arguments.platform,
         )
     if arguments.write:
-        print(f"wrote {SETUP.record_path} and {SETUP.fixture_path}")
+        print(f"wrote {SETUP.fixture_path}")
 
 
 if __name__ == "__main__":

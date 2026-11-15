@@ -42,7 +42,6 @@ from gesdisc_scanner import (
 )
 from validation_io import (
     read_element_set_file,
-    RECORDS,
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
@@ -88,7 +87,6 @@ SETUP = Setup(
     beams="beams",
     size_instrument="DPR",
     published_footprints=PUBLISHED_FOOTPRINTS,
-    record_path=RECORDS / "dpr.json",
     fixture_path=FIXTURES / "dpr.npz",
     source=source_of(__file__),
     reference="GPM_2ADPR version 08 (beam positions of the full swath)",
@@ -136,7 +134,7 @@ def main() -> None:
     if not arguments.sample_sizes_only:
         validate_swath(SETUP, day, tle, entry, orbit, reference, arguments.write)
     if arguments.write:
-        print(f"wrote {SETUP.record_path} and {SETUP.fixture_path}")
+        print(f"wrote {SETUP.fixture_path}")
 
 
 if __name__ == "__main__":

@@ -66,13 +66,11 @@ from validation_io import (
     up,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
 )
 
-RECORD_PATH = RECORDS / "csar.json"
 FIXTURE_PATH = FIXTURES / "csar.npz"
 ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "sentinel_2026-08-12.3le"
 
@@ -690,21 +688,12 @@ def validate_mode(key, day, tle, entry, orbit, products, write) -> None:
         return
     if PLATFORM != FIT_PLATFORM:
         write_transfer(
-            RECORD_PATH,
+            entry,
             key,
             PLATFORM,
-            f"{day:%Y-%m-%d}",
-            {
-                metric["name"]
-                + (
-                    "_" + metric["scope"].replace(" ", "_").replace(".", "_")
-                    if "scope" in metric
-                    else ""
-                ): metric["value"]
-                for metric in metrics
-            },
+            period=f"{day:%Y-%m-%d}",
+            metrics=metrics,
         )
-        print(f"added {key} transfer metrics to {RECORD_PATH}")
         return
     rng = np.random.default_rng(1)
     fixture = points[found][
@@ -721,7 +710,6 @@ def validate_mode(key, day, tle, entry, orbit, products, write) -> None:
         },
     )
     write_record(
-        RECORD_PATH,
         entry,
         key,
         source=source_of(__file__),
@@ -732,7 +720,6 @@ def validate_mode(key, day, tle, entry, orbit, products, write) -> None:
         metrics=metrics,
         fixture_metrics=recompute_passes(satellite, 0, day, fixture),
     )
-    print(f"wrote {key} to {RECORD_PATH}")
 
 
 def main() -> None:

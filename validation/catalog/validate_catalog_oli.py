@@ -64,12 +64,10 @@ from validation_io import (
     up,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
 )
 
-RECORD_PATH = RECORDS / "oli.json"
 FIXTURE_PATH = FIXTURES / "oli.npz"
 
 SCENES_URL = "https://landsatlook.usgs.gov/stac-server/search"
@@ -716,11 +714,11 @@ def validate(
     )
     if platform != FIT_PLATFORM:
         write_transfer(
-            RECORD_PATH,
+            entry,
             KEY,
             platform,
-            f"{day:%Y-%m-%d}",
-            {name: results[name] for name in names},
+            period=f"{day:%Y-%m-%d}",
+            metrics={name: results[name] for name in names},
         )
         return
     rng = np.random.default_rng(1)
@@ -739,7 +737,6 @@ def validate(
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=fixture
     )
     write_record(
-        RECORD_PATH,
         entry,
         KEY,
         source=source_of(__file__),
@@ -750,7 +747,6 @@ def validate(
         metrics=[{"name": name, "value": float(results[name])} for name in names],
         fixture_metrics=recompute_passes(satellite, 0, day, fixture),
     )
-    print(f"wrote {RECORD_PATH}")
 
 
 def main() -> None:

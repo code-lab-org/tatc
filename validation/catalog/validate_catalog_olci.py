@@ -53,7 +53,6 @@ from validation_io import (
     ecef,
     normalize,
     up,
-    RECORDS,
     FIXTURES,
     source_of,
 )
@@ -157,7 +156,6 @@ SETUP = Setup(
     beams="",
     size_instrument="OLCI",
     published_footprints=(),
-    record_path=RECORDS / "olci.json",
     fixture_path=FIXTURES / "olci.npz",
     source=source_of(__file__),
     reference="S3A_OL_1_EFR (tie point positions and times)",
@@ -220,7 +218,7 @@ def main() -> None:
     entry = get_entry("olci")
     validate_swath(SETUP, day, tle, entry, orbit, reference, arguments.write)
     if arguments.write:
-        print(f"wrote {SETUP.record_path} and {SETUP.fixture_path}")
+        print(f"wrote {SETUP.fixture_path}")
 
 
 if __name__ == "__main__":

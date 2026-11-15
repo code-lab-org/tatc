@@ -49,7 +49,6 @@ from gesdisc_scanner import (
 from validation_io import (
     TO_GEODETIC,
     RemoteFile,
-    RECORDS,
     FIXTURES,
     source_of,
     login_earthdata,
@@ -116,7 +115,6 @@ SETUP = Setup(
     beams="",
     size_instrument="SPEXone",
     published_footprints=(),
-    record_path=RECORDS / "spexone.json",
     fixture_path=FIXTURES / "spexone.npz",
     source=source_of(__file__),
     reference="PACE_SPEXONE_L1C_SCI version 4 (positions of bins and times of the "
@@ -194,7 +192,7 @@ def main() -> None:
         SETUP, day, tle, get_entry("spexone"), orbit, reference, arguments.write
     )
     if arguments.write:
-        print(f"wrote {SETUP.record_path} and {SETUP.fixture_path}")
+        print(f"wrote {SETUP.fixture_path}")
 
 
 if __name__ == "__main__":

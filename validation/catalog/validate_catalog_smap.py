@@ -71,14 +71,12 @@ from validation_io import (
     up,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
     login_earthdata,
 )
 
-RECORD_PATH = RECORDS / "smap_radiometer.json"
 FIXTURE_PATH = FIXTURES / "smap_radiometer.npz"
 ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "smap_2026-09-20.3le"
 
@@ -610,7 +608,6 @@ def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> Non
         spacing=picks,
     )
     write_record(
-        RECORD_PATH,
         entry,
         SAMPLE_CONFIGURATION,
         source=source_of(__file__),
@@ -761,7 +758,6 @@ def main() -> None:
         )
     ]
     write_record(
-        RECORD_PATH,
         entry,
         CONFIGURATION,
         source=source_of(__file__),
@@ -771,7 +767,7 @@ def main() -> None:
         metrics=metrics,
         fixture_metrics=recompute_passes(satellite, 0, day, fixture),
     )
-    print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
+    print(f"wrote {FIXTURE_PATH}")
 
 
 if __name__ == "__main__":

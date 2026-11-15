@@ -197,6 +197,24 @@ class TestFrozenGates(unittest.TestCase):
             is_compatible(InstrumentClass.CROSS_TRACK, STANDARD_VERSION + 1)
         )
 
+    def test_every_class_is_defined(self):
+        """
+        Test that every class has the version of the standard that added it and
+        gates at its required grades, so that adding a class misses neither.
+        """
+        for instrument_class in InstrumentClass:
+            with self.subTest(instrument_class.value):
+                self.assertTrue(
+                    any(
+                        is_compatible(instrument_class, version)
+                        for version in COMPATIBLE_VERSIONS
+                    )
+                )
+                grades = get_required_grades(instrument_class)
+                self.assertIn(Grade.COVERAGE, grades)
+                for grade in grades:
+                    self.assertTrue(get_gates(instrument_class, grade))
+
     def test_tier_rank(self):
         """
         Test that tiers rank from weakest to strongest.
@@ -350,6 +368,10 @@ class TestTiers(unittest.TestCase):
         self.assertEqual(validation.tier, Tier.PARTIAL)
         self.assertIs(validation.configurations["c"].gates[0].passed, False)
         self.assertIn("0.6", validation.configurations["c"].gaps[0])
+        self.assertEqual(validation.configurations["c"].evidence_gaps, ())
+        self.assertEqual(
+            validation.gaps, ("c: " + validation.configurations["c"].gaps[0],)
+        )
 
     def test_gate_limit_inclusive(self):
         """

@@ -664,7 +664,10 @@ class TestStrictFiles(unittest.TestCase):
         """
         Test that one instrument cannot be a group, nor several ungrouped.
         """
-        self.feeds["grouping"] = "single"
+        del self.feeds["grouping"]
+        self._assert_invalid()
+        self.feeds["grouping"] = "union"
+        self.feeds["instruments"] = self.feeds["instruments"][:1]
         self._assert_invalid()
 
 
@@ -689,6 +692,10 @@ class TestBuild(unittest.TestCase):
         self.assertEqual(payload.references, ("gmi:feeds",))
         self.assertFalse(payload.transferred)
         self.assertTrue(any("flies backward" in l for l in payload.limitations))
+        satellite = payload.to_satellite("GPM", self.orbit)
+        self.assertEqual(satellite.name, "GPM")
+        self.assertEqual(satellite.instruments, payload.instruments)
+        self.assertEqual(satellite.attitude, payload.attitude)
 
     def test_tailored_field_of_view(self):
         """
@@ -873,7 +880,13 @@ class TestEntryStatus(unittest.TestCase):
             with self.subTest(entry_id):
                 validation = get_entry(entry_id).validation
                 self.assertEqual(validation.tier.value, tier)
-                self.assertEqual(list(validation.gaps), gaps)
+                self.assertEqual(
+                    [
+                        f"no configuration at the {grade.value} grade"
+                        for grade in validation.missing_grades
+                    ],
+                    gaps,
+                )
                 self.assertEqual(set(validation.configurations), set(configurations))
                 for key, (c_tier, holdout, c_gaps) in configurations.items():
                     configuration = validation.configurations[key]
@@ -896,13 +909,31 @@ class TestEntryStatus(unittest.TestCase):
         for key in ("swath_noaa_20", "beams_noaa_20"):
             self.assertEqual(entry.configurations[key].attitude, {}, key)
 
+    def test_entry_lists_every_gap(self):
+        """
+        Test that an entry's gaps include those of its configurations, after their
+        identifiers, so that a partial entry states why.
+        """
+        validation = get_entry("lsar").validation
+        self.assertEqual(validation.tier.value, "partial")
+        self.assertEqual(validation.missing_grades, ())
+        self.assertEqual(
+            list(validation.gaps),
+            [
+                f"{key}: {gap}"
+                for key, configuration in validation.configurations.items()
+                for gap in configuration.gaps
+            ],
+        )
+        self.assertTrue(validation.gaps)
+
     def test_mhs_has_no_fitted_values(self):
         """
         Test that the MHS entry, whose values are all published, needs no holdout.
         """
         entry = get_entry("mhs")
         for configuration in entry.configurations.values():
-            self.assertFalse(configuration.is_fitted)
+            self.assertIsNone(configuration.get_holdout_gap("2000-01-01"))
 
     def test_oco2_glint_builds_glint_attitude(self):
         """

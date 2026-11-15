@@ -42,7 +42,6 @@ from validation_io import (
     ARCHIVES,
     TO_GEODETIC,
     get_with_retries,
-    RECORDS,
     FIXTURES,
     source_of,
     login_earthdata,
@@ -189,7 +188,6 @@ SETUP = Setup(
     beams="",
     size_instrument="CERES",
     published_footprints=(),
-    record_path=RECORDS / "ceres.json",
     fixture_path=FIXTURES / "ceres.npz",
     source=source_of(__file__),
     reference="CER_ES8_NOAA20-FM6 Edition1 (footprint positions, projected to the "
@@ -234,7 +232,7 @@ def main() -> None:
         SETUP, day, tle, get_entry("ceres"), orbit, reference, arguments.write
     )
     if arguments.write:
-        print(f"wrote {SETUP.record_path} and {SETUP.fixture_path}")
+        print(f"wrote {SETUP.fixture_path}")
 
 
 if __name__ == "__main__":

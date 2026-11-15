@@ -19,6 +19,7 @@ Entries
 .. autopydantic_model:: tatc.catalog.InstrumentEntry
 
 .. autoclass:: tatc.catalog.InstrumentPayload
+   :members:
 
 Validation Status
 -----------------
@@ -26,10 +27,13 @@ Validation Status
 See :doc:`/validation/standard`.
 
 .. autoclass:: tatc.catalog.EntryValidation
+   :members:
 
 .. autoclass:: tatc.catalog.ConfigurationValidation
+   :members:
 
 .. autoclass:: tatc.catalog.GateResult
+   :members:
 
 .. autoclass:: tatc.catalog.Tier
    :members:

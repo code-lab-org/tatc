@@ -503,11 +503,11 @@ class Configuration(_CatalogModel):
         description="The index of the instrument to analyze by default, of "
         + "`alternatives`.",
     )
-    grouping: Literal["single", "union", "alternatives"] = Field(
-        default="single",
+    grouping: Literal["union", "alternatives"] | None = Field(
+        default=None,
         description="How multiple instruments relate: `union`, parts of one "
         + "view that are analyzed together; or `alternatives`, separately valid "
-        + "views that are analyzed one at a time.",
+        + "views that are analyzed one at a time. Only for multiple instruments.",
     )
     limitations: tuple[str, ...] = Field(
         default=(), description="What this configuration does not represent."
@@ -523,8 +523,8 @@ class Configuration(_CatalogModel):
             raise ValueError("instrument_index is out of range")
         if self.instrument_index and self.grouping != "alternatives":
             raise ValueError("only alternatives have an instrument_index")
-        if (self.grouping == "single") != (len(self.instruments) == 1):
-            raise ValueError("grouping is `single` only for one instrument")
+        if (self.grouping is None) != (len(self.instruments) == 1):
+            raise ValueError("multiple instruments, and only they, need a grouping")
         self.make_attitude()
         if self.tilt_schedule is not None and {
             "pitch_angle",
@@ -562,13 +562,6 @@ class Configuration(_CatalogModel):
         return [
             provenance for provenance in provenances if provenance.kind == "measured"
         ]
-
-    @property
-    def is_fitted(self) -> bool:
-        """
-        Whether any parameter was fitted to reference data.
-        """
-        return bool(self._get_measured())
 
     def get_holdout_gap(self, period: str) -> int | None:
         """
@@ -740,31 +733,75 @@ class GateResult:
         """
         return None if self.value is None else self.gate.is_met(self.value)
 
+    @property
+    def gap(self) -> str | None:
+        """
+        The gap, if the gate failed or was not tested.
+        """
+        if self.value is None:
+            return f"{self.gate.metric}: not tested"
+        if not self.passed:
+            return (
+                f"{self.gate.metric}: {self.value} fails the limit of "
+                f"{self.gate.limit}"
+            )
+        return None
+
 
 @dataclass(frozen=True)
 class ConfigurationValidation:
     """
-    The validation status of a configuration. Its `holdout_gap_days` are the
-    days between the data to which its values were fitted and the data of its
-    test, or `None` if it has no fitted values or no test.
+    The validation status of a configuration: the results of its gates, and its
+    `evidence_gaps`, of its test rather than of a gate (such as a configuration
+    that changed after it was tested). Its `holdout_gap_days` are the days
+    between the data to which its values were fitted and the data of its test,
+    or `None` if it has no fitted values or no test.
     """
 
     tier: Tier
     gates: tuple[GateResult, ...]
-    gaps: tuple[str, ...]
+    evidence_gaps: tuple[str, ...]
     record: ConfigurationRecord | None
     holdout_gap_days: int | None = None
+
+    @property
+    def gaps(self) -> tuple[str, ...]:
+        """
+        Every gap: of failed gates, then of untested gates, then of evidence.
+        """
+        return (
+            *(r.gap for r in self.gates if r.passed is False),
+            *(r.gap for r in self.gates if r.passed is None),
+            *self.evidence_gaps,
+        )
 
 
 @dataclass(frozen=True)
 class EntryValidation:
     """
-    The validation status of an entry, computed from its records and the standard.
+    The validation status of an entry, computed from its records and the
+    standard: of each configuration, and the grades of its class that no
+    configuration serves (`missing_grades`).
     """
 
     tier: Tier
     configurations: dict[str, ConfigurationValidation]
-    gaps: tuple[str, ...]
+    missing_grades: tuple[Grade, ...]
+
+    @property
+    def gaps(self) -> tuple[str, ...]:
+        """
+        Every gap: of missing grades, then of each configuration, after its
+        identifier (such as `"swath: epoch_p95: not tested"`).
+        """
+        return (
+            *(f"no configuration at the {g.value} grade" for g in self.missing_grades),
+            *(
+                f"{key}: {gap}"
+                for key, validation in self.configurations.items()
+                for gap in validation.gaps
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -784,6 +821,22 @@ class InstrumentPayload:
     transferred: bool
     """Whether a configuration was not tested on the platform modeled."""
     limitations: tuple[str, ...]
+
+    def to_satellite(self, name: str, orbit: AllOrbits) -> Satellite:
+        """
+        Builds a satellite that carries the instruments with their attitude.
+        Analyze it with the `instrument_index` of this payload.
+
+        Args:
+            name (str): The satellite's name.
+            orbit (AllOrbits): The orbit.
+
+        Returns:
+            Satellite: The satellite.
+        """
+        return Satellite(
+            name=name, orbit=orbit, instruments=self.instruments, attitude=self.attitude
+        )
 
 
 class InstrumentEntry(_CatalogModel):
@@ -872,17 +925,7 @@ class InstrumentEntry(_CatalogModel):
             values = [m.value for m in record.metrics if m.name == gate.metric]
             worst = (max if gate.at_most else min)(values) if values else None
             results.append(GateResult(gate, worst))
-        gaps = [
-            f"{result.gate.metric}: {result.value} fails the limit of "
-            f"{result.gate.limit}"
-            for result in results
-            if result.passed is False
-        ]
-        gaps += [
-            f"{result.gate.metric}: not tested"
-            for result in results
-            if result.passed is None
-        ]
+        gaps = []
         if record.digest != configuration.digest:
             gaps.append("the configuration changed after it was tested")
         if not is_compatible(self.instrument_class, record.standard_version):
@@ -896,8 +939,9 @@ class InstrumentEntry(_CatalogModel):
                 "fitted values are not tested on data at least "
                 f"{MIN_HOLDOUT_GAP_DAYS} days from their fitting data"
             )
+        passed = not gaps and all(result.passed for result in results)
         return ConfigurationValidation(
-            Tier.PARTIAL if gaps else Tier.VALIDATED,
+            Tier.VALIDATED if passed else Tier.PARTIAL,
             tuple(results),
             tuple(gaps),
             record,
@@ -914,19 +958,19 @@ class InstrumentEntry(_CatalogModel):
         configurations = {
             key: self._evaluate_configuration(key) for key in self.configurations
         }
-        gaps = [
-            f"no configuration at the {grade.value} grade"
+        missing = tuple(
+            grade
             for grade in get_required_grades(self.instrument_class)
             if not any(c.serves(grade) for c in self.configurations.values())
-        ]
+        )
         tier = min((c.tier for c in configurations.values()), key=lambda t: t.rank)
-        if tier == Tier.VALIDATED and gaps:
+        if tier == Tier.VALIDATED and missing:
             tier = Tier.PARTIAL
         if tier == Tier.NOMINAL and any(
             c.tier != Tier.NOMINAL for c in configurations.values()
         ):
             tier = Tier.PARTIAL
-        return EntryValidation(tier, configurations, tuple(gaps))
+        return EntryValidation(tier, configurations, missing)
 
     def select_configuration(
         self,
@@ -1137,8 +1181,9 @@ class InstrumentEntry(_CatalogModel):
     ) -> Satellite:
         """
         Builds a satellite that carries the instruments of a configuration (see
-        `build`). Analyze it with the `instrument_index` of `build`, which is 0
-        for a configuration of one instrument.
+        `build`). For several instruments, `build(...).to_satellite(name, orbit)`
+        also gives the `instrument_index` to analyze them with, which is 0 for
+        one instrument.
 
         Args:
             orbit (AllOrbits): The orbit.
@@ -1160,7 +1205,7 @@ class InstrumentEntry(_CatalogModel):
         Returns:
             Satellite: The satellite.
         """
-        payload = self.build(
+        return self.build(
             configuration=configuration,
             grade=grade,
             orbit=orbit,
@@ -1169,10 +1214,4 @@ class InstrumentEntry(_CatalogModel):
             platform=platform,
             start=start,
             end=end,
-        )
-        return Satellite(
-            name=self.name if name is None else name,
-            orbit=orbit,
-            instruments=payload.instruments,
-            attitude=payload.attitude,
-        )
+        ).to_satellite(self.name if name is None else name, orbit)

@@ -1177,12 +1177,9 @@ def _make_satellite(
     # pylint: disable=import-outside-toplevel
     from ..catalog import build_payload
 
-    built = build_payload(
+    return build_payload(
         payloads, orbit=orbit, time_step=time_step, start=start, end=end
-    )
-    return Satellite(
-        name=name, orbit=orbit, instruments=built.instruments, attitude=built.attitude
-    )
+    ).to_satellite(name, orbit)
 
 
 def _plane_orbits(

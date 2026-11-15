@@ -53,7 +53,6 @@ from validation_io import (
     RemoteFile,
     ecef,
     read_element_set_file,
-    RECORDS,
     FIXTURES,
     source_of,
 )
@@ -110,7 +109,6 @@ SETUP = Setup(
     beams="pixels",
     size_instrument="VIRS",
     published_footprints=PUBLISHED_FOOTPRINTS,
-    record_path=RECORDS / "virs.json",
     fixture_path=FIXTURES / "virs.npz",
     source=source_of(__file__),
     reference="GPM_1BVIRS version 08 (sample positions), with spacecraft positions of "
@@ -204,7 +202,7 @@ def main() -> None:
     if not arguments.sample_sizes_only:
         validate_swath(SETUP, day, tle, entry, orbit, reference, arguments.write)
     if arguments.write:
-        print(f"wrote {SETUP.record_path} and {SETUP.fixture_path}")
+        print(f"wrote {SETUP.fixture_path}")
 
 
 if __name__ == "__main__":

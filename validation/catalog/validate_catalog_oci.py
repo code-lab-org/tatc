@@ -53,7 +53,6 @@ from validation_io import (
     get_with_retries,
     normalize,
     up,
-    RECORDS,
     FIXTURES,
     source_of,
     login_earthdata,
@@ -134,7 +133,6 @@ SETUP = Setup(
     beams="",
     size_instrument="OCI",
     published_footprints=(),
-    record_path=RECORDS / "oci.json",
     fixture_path=FIXTURES / "oci.npz",
     source=source_of(__file__),
     reference="PACE_OCI_L1B_SCI version 3 (sample positions and times)",
@@ -437,7 +435,7 @@ def main() -> None:
     entry = get_entry("oci")
     validate_swath(SETUP, day, tle, entry, orbit, reference, arguments.write)
     if arguments.write:
-        print(f"wrote {SETUP.record_path} and {SETUP.fixture_path}")
+        print(f"wrote {SETUP.fixture_path}")
 
 
 if __name__ == "__main__":

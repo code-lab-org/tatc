@@ -54,7 +54,6 @@ from gesdisc_scanner import (
 from validation_io import (
     TO_GEODETIC,
     RemoteFile,
-    RECORDS,
     FIXTURES,
     source_of,
     login_earthdata,
@@ -166,7 +165,6 @@ SETUP = Setup(
     beams="",
     size_instrument="ECOSTRESS",
     published_footprints=(),
-    record_path=RECORDS / "ecostress.json",
     fixture_path=FIXTURES / "ecostress.npz",
     source=source_of(__file__),
     reference="ECO_L1B_GEO version 002 (sample positions and times of every fourth "
@@ -217,7 +215,7 @@ def main() -> None:
         SETUP, day, tle, get_entry("ecostress"), orbit, reference, arguments.write
     )
     if arguments.write:
-        print(f"wrote {SETUP.record_path} and {SETUP.fixture_path}")
+        print(f"wrote {SETUP.fixture_path}")
 
 
 if __name__ == "__main__":

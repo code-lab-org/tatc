@@ -39,7 +39,6 @@ from gesdisc_scanner import Reference, Setup, fit, fit_view, fit_yaw, validate_s
 from validation_io import (
     TO_GEODETIC,
     read_element_set_file,
-    RECORDS,
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
@@ -70,7 +69,6 @@ SETUP = Setup(
     beams="",
     size_instrument="",
     published_footprints=(),
-    record_path=RECORDS / "earthcare_msi.json",
     fixture_path=FIXTURES / "earthcare_msi.npz",
     source=source_of(__file__),
     reference=f"{PRODUCT} (pixel positions of every fourth orbit, every eighth line), "
@@ -163,7 +161,7 @@ def main() -> None:
     entry = get_entry("earthcare_msi")
     validate_swath(SETUP, day, tle, entry, orbit, reference, arguments.write)
     if arguments.write:
-        print(f"wrote {SETUP.record_path} and {SETUP.fixture_path}")
+        print(f"wrote {SETUP.fixture_path}")
 
 
 if __name__ == "__main__":

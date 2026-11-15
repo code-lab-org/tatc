@@ -39,7 +39,6 @@ from validation_io import (
     Archive,
     TO_GEODETIC,
     iet_to_utc,
-    RECORDS,
     FIXTURES,
     source_of,
 )
@@ -131,7 +130,6 @@ def make_setup(platform: str) -> Setup:
         beams="",
         size_instrument="OMPS Nadir Mapper",
         published_footprints=(),
-        record_path=RECORDS / "omps_nm.json",
         fixture_path=fixture,
         source=source_of(__file__),
         reference="OMPS-TC-GEO (sample positions and times), NOAA Open Data "
@@ -175,7 +173,7 @@ def main() -> None:
         setup, day, tle, get_entry("omps_nm"), orbit, reference, arguments.write
     )
     if arguments.write:
-        print(f"wrote {setup.record_path} and {setup.fixture_path}")
+        print(f"wrote {setup.fixture_path}")
 
 
 if __name__ == "__main__":

@@ -74,14 +74,15 @@ def get_fixture(
 
 def get_swath(entry, key, orbit, platform, day, start, step, swept):
     """Gets the swath of a configuration over a segment at a time step."""
-    satellite = entry.to_satellite(
-        orbit,
+    payload = entry.build(
         configuration=key,
+        orbit=orbit,
         time_step=step,
         platform=platform,
         start=day,
         end=day + timedelta(days=1),
     )
+    satellite = payload.to_satellite(entry.name, orbit)
     if not swept:
         satellite = satellite.model_copy(
             update={
@@ -95,11 +96,9 @@ def get_swath(entry, key, orbit, platform, day, start, step, swept):
         start + timedelta(seconds=step * (k + 0.5))
         for k in range(int(round(DURATION / step)))
     ]
-    configuration = entry.configurations[key]
-    index = (
-        None if configuration.grouping == "union" else configuration.instrument_index
+    track = compute_ground_track(
+        satellite, times, instrument_index=payload.instrument_index
     )
-    track = compute_ground_track(satellite, times, instrument_index=index)
     return None if track.empty else track.geometry.iloc[0]
 
 

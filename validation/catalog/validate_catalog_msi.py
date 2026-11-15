@@ -62,13 +62,11 @@ from validation_io import (
     up,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
 )
 
-RECORD_PATH = RECORDS / "msi.json"
 FIXTURE_PATH = FIXTURES / "msi.npz"
 ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "sentinel_2026-08-12.3le"
 
@@ -905,7 +903,6 @@ def validate(day, tles, entry, orbits, tiles, datatakes, sections, reference, wr
         passes=fixture,
     )
     write_record(
-        RECORD_PATH,
         entry,
         KEY,
         source=source_of(__file__),
@@ -918,7 +915,6 @@ def validate(day, tles, entry, orbits, tiles, datatakes, sections, reference, wr
             satellite_for(FIXTURE_PLATFORM, TIME_STEPS[0]), 0, day, fixture
         ),
     )
-    print(f"wrote {RECORD_PATH}")
 
 
 def main() -> None:

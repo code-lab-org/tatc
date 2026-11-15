@@ -59,12 +59,10 @@ from validation_io import (
     up,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
 )
 
-RECORD_PATH = RECORDS / "tropomi.json"
 FIXTURE_PATH = FIXTURES / "tropomi.npz"
 
 BUCKET = "https://meeo-s5p.s3.amazonaws.com/"
@@ -516,7 +514,6 @@ def validate(day, tle, entry, orbit, reference, write) -> None:
         "footprint_iou_median",
     )
     write_record(
-        RECORD_PATH,
         entry,
         KEY,
         source=source_of(__file__),
@@ -526,7 +523,6 @@ def validate(day, tle, entry, orbit, reference, write) -> None:
         metrics=[{"name": name, "value": float(results[name])} for name in names],
         fixture_metrics=recompute_passes(satellite, None, day, passes),
     )
-    print(f"wrote {RECORD_PATH}")
 
 
 def main() -> None:

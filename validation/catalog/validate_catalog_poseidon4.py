@@ -45,13 +45,11 @@ from validation_io import (
     recompute_passes,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
     login_earthdata,
 )
 
-RECORD_PATH = RECORDS / "poseidon4.json"
 FIXTURE_PATH = FIXTURES / "poseidon4.npz"
 SHORT_NAMES = {
     "sentinel-6a": "JASON_CS_S6A_L2_ALT_LR_RED_OST_NRT_F",
@@ -229,16 +227,15 @@ def main() -> None:
         return
     if platform != "sentinel-6a":
         write_transfer(
-            RECORD_PATH,
+            entry,
             "nadir",
             platform,
-            f"{day:%Y-%m-%d}",
-            {
+            period=f"{day:%Y-%m-%d}",
+            metrics={
                 name: results[name]
                 for name in ("segment_recall", "track_offset_median", "epoch_p95")
             },
         )
-        print(f"wrote transfer metrics to {RECORD_PATH}")
         return
     picks = sample.iloc[rng.choice(len(sample), FIXTURE_PASSES, replace=False)]
     passes = np.stack(
@@ -256,7 +253,6 @@ def main() -> None:
         orbit, time_step=TIME_STEPS[0], platform="sentinel-6a"
     )
     write_record(
-        RECORD_PATH,
         entry,
         "nadir",
         source=source_of(__file__),
@@ -274,7 +270,7 @@ def main() -> None:
         ],
         fixture_metrics=recompute_passes(satellite, 0, day, passes),
     )
-    print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
+    print(f"wrote {FIXTURE_PATH}")
 
 
 if __name__ == "__main__":

@@ -72,13 +72,11 @@ from validation_io import (
     up,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
     login_earthdata,
 )
 
-RECORD_PATH = RECORDS / "iasi.json"
 FIXTURE_PATH = FIXTURES / "iasi.npz"
 
 PRODUCT = "IASI_SST_METOP_B-OSISAF-L2P-v1.0"
@@ -538,7 +536,6 @@ def validate_pixels(day, tle, entry, orbit, reference, write) -> None:
         spacing_seconds=(times[picks] - pd.Timestamp(day)).total_seconds().to_numpy(),
     )
     write_record(
-        RECORD_PATH,
         entry,
         PIXELS,
         source=source_of(__file__),
@@ -613,7 +610,6 @@ def validate_swath(day, tle, entry, orbit, reference, write) -> None:
         "footprint_iou_median",
     )
     write_record(
-        RECORD_PATH,
         entry,
         SWATH,
         source=source_of(__file__),
@@ -651,8 +647,6 @@ def main() -> None:
     entry = get_entry("iasi")
     validate_pixels(day, ELEMENT_SET, entry, orbit, reference, arguments.write)
     validate_swath(day, ELEMENT_SET, entry, orbit, reference, arguments.write)
-    if arguments.write:
-        print(f"wrote {RECORD_PATH}")
 
 
 if __name__ == "__main__":

@@ -665,21 +665,35 @@ def update_fixture(path: pathlib.Path, **arrays) -> None:
     np.savez_compressed(path, **add_earth_orientation({**existing, **arrays}, arrays))
 
 
-def _read_record(path: pathlib.Path, entry_id: str) -> dict:
-    """Reads a record, or starts one."""
+def _to_metrics(metrics: list[dict] | dict[str, float]) -> list[dict]:
+    """Gets metrics as records state them, from a mapping of names to values."""
+    if isinstance(metrics, dict):
+        return [{"name": name, "value": float(v)} for name, v in metrics.items()]
+    return metrics
+
+
+def _record_path(entry: InstrumentEntry) -> pathlib.Path:
+    """Gets the path of an entry's record."""
+    return RECORDS / f"{entry.id}.json"
+
+
+def _read_record(entry: InstrumentEntry) -> dict:
+    """Reads an entry's record, or starts one."""
+    path = _record_path(entry)
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
-    return {"entry_id": entry_id, "configurations": {}}
+    return {"entry_id": entry.id, "configurations": {}}
 
 
-def _write_record(path: pathlib.Path, record: dict) -> None:
-    """Checks a record against its schema and writes it."""
+def _write_record(entry: InstrumentEntry, record: dict) -> None:
+    """Checks an entry's record against its schema and writes it."""
+    path = _record_path(entry)
     checked = ValidationRecord(**record).model_dump(mode="json", exclude_none=True)
     path.write_text(json.dumps(checked, indent=2) + "\n", encoding="utf-8")
+    print(f"wrote {path}")
 
 
 def write_record(
-    path: pathlib.Path,
     entry: InstrumentEntry,
     key: str,
     *,
@@ -687,15 +701,17 @@ def write_record(
     reference: str,
     period: str,
     platforms: list[str],
-    metrics: list[dict],
+    metrics: list[dict] | dict[str, float],
     fixture_metrics: dict[str, float] | None = None,
 ) -> None:
     """
     Writes the results of a configuration to its entry's record, keeping those of
     the others, with the configuration's digest and the versions of TAT-C and of
     the standard. Its transfers are kept if the configuration is unchanged.
+    Metrics are records of `name`, `value`, and optionally `scope`, or a mapping
+    of names to values.
     """
-    record = _read_record(path, entry.id)
+    record = _read_record(entry)
     digest = entry.configurations[key].digest
     previous = record["configurations"].get(key, {})
     record["configurations"][key] = ConfigurationRecord(
@@ -706,29 +722,40 @@ def write_record(
         reference=reference,
         period=period,
         platforms=platforms,
-        metrics=metrics,
+        metrics=_to_metrics(metrics),
         transfers=(
             previous.get("transfers", {}) if previous.get("digest") == digest else {}
         ),
         fixture_metrics=fixture_metrics or {},
     ).model_dump(mode="json", exclude_none=True)
-    _write_record(path, record)
+    _write_record(entry, record)
 
 
 def write_transfer(
-    path: pathlib.Path,
+    entry: InstrumentEntry,
     key: str,
     platform: str,
+    *,
     period: str,
-    values: dict[str, float],
+    metrics: list[dict] | dict[str, float],
 ) -> None:
     """
     Writes the results of a configuration on a platform on which it was not
-    tested, which do not count toward its validation, to its record.
+    tested, which do not count toward its validation, to its record (with
+    metrics as for `write_record`).
+
+    Raises:
+        ValueError: If the configuration has no record, or changed after it was
+            tested, as its next record would discard the transfer.
     """
-    record = json.loads(path.read_text(encoding="utf-8"))
-    record["configurations"][key]["transfers"][platform] = Transfer(
-        period=period,
-        metrics=[{"name": name, "value": float(v)} for name, v in values.items()],
+    record = _read_record(entry)
+    tested = record["configurations"].get(key)
+    if tested is None or tested["digest"] != entry.configurations[key].digest:
+        raise ValueError(
+            f"{entry.id}:{key} has no record of the configuration as cataloged; "
+            "write its record before its transfers"
+        )
+    tested.setdefault("transfers", {})[platform] = Transfer(
+        period=period, metrics=_to_metrics(metrics)
     ).model_dump(mode="json", exclude_none=True)
-    _write_record(path, record)
+    _write_record(entry, record)

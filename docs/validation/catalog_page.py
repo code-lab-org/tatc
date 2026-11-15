@@ -221,15 +221,11 @@ def render_configuration(entry, key: str) -> str:
             f"Every result, including those not gated, is in the record "
             f"`{entry.id}.json <{REPOSITORY}{path}>`_.\n"
         )
-    gated = {result.gate.metric for result in validation.gates}
-    gaps = [
-        text
-        for text in validation.gaps
-        if not any(text.startswith(f"{metric}:") for metric in gated)
-    ]
-    if gaps:
+    if validation.evidence_gaps:
         parts.append("Other gaps:\n")
-        parts.append("\n".join(f"* {escape(text)}" for text in gaps) + "\n")
+        parts.append(
+            "\n".join(f"* {escape(text)}" for text in validation.evidence_gaps) + "\n"
+        )
     if configuration.limitations:
         parts.append("Limitations:\n")
         parts.append(
@@ -281,10 +277,13 @@ def render_entry(entry) -> str:
             )
             + ".\n"
         )
-    if validation.gaps:
+    if validation.missing_grades:
         parts.append(
             "Gaps of the entry:\n\n"
-            + "\n".join(f"* {escape(text)}" for text in validation.gaps)
+            + "\n".join(
+                f"* no configuration at the {grade.value} grade"
+                for grade in validation.missing_grades
+            )
             + "\n"
         )
     if entry.limitations:

@@ -281,7 +281,7 @@ class TestOciSchedule(unittest.TestCase):
         that changing a value of the schedule changes the digest.
         """
         configuration = self.entry.configurations["swath"]
-        self.assertTrue(configuration.is_fitted)
+        self.assertIsNotNone(configuration.get_holdout_gap("2000-01-01"))
         changed = configuration.model_copy(
             update={
                 "tilt_schedule": configuration.tilt_schedule.model_copy(

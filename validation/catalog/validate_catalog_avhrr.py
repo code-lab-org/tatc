@@ -56,7 +56,6 @@ from gesdisc_scanner import (
 from validation_io import (
     RemoteFile,
     read_element_set_file,
-    RECORDS,
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
@@ -153,7 +152,6 @@ SETUP = Setup(
     beams="pixels",
     size_instrument="AVHRR",
     published_footprints=PUBLISHED_FOOTPRINTS,
-    record_path=RECORDS / "avhrr.json",
     fixture_path=FIXTURES / "avhrr.npz",
     source=source_of(__file__),
     reference="AVHRRF_MC-STAR-L2P version 2.80 (sample positions and times)",
@@ -241,7 +239,7 @@ def main() -> None:
             arguments.platform,
         )
     if arguments.write:
-        print(f"wrote {SETUP.record_path} and {SETUP.fixture_path}")
+        print(f"wrote {SETUP.fixture_path}")
 
 
 if __name__ == "__main__":

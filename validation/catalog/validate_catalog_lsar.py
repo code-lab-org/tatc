@@ -76,14 +76,12 @@ from validation_io import (
     up,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
     login_earthdata,
 )
 
-RECORD_PATH = RECORDS / "lsar.json"
 FIXTURE_PATH = FIXTURES / "lsar.npz"
 SEARCH_URL = "https://api.daac.asf.alaska.edu/services/search/param"
 
@@ -649,7 +647,6 @@ def write_results(key, results, tles, entry, metrics) -> None:
         },
     )
     write_record(
-        RECORD_PATH,
         entry,
         key,
         source=source_of(__file__),
@@ -662,7 +659,6 @@ def write_results(key, results, tles, entry, metrics) -> None:
             results[days[0]]["satellite"], 0, fixture_day, fixture
         ),
     )
-    print(f"wrote {key} to {RECORD_PATH}")
 
 
 def main() -> None:

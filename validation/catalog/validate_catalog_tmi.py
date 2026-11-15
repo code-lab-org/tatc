@@ -65,13 +65,11 @@ from validation_io import (
     up,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
 )
 from validate_catalog_trmm_pr import ELEMENT_SET_FILE, NORAD_ID
 
-RECORD_PATH = RECORDS / "tmi.json"
 FIXTURE_PATH = FIXTURES / "tmi.npz"
 PLATFORM = "trmm"
 CONFIGURATION = "feeds"
@@ -414,7 +412,6 @@ def validate_sample_sizes(day, tle, entry, orbit, references, write: bool) -> No
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), **reduced
     )
     write_record(
-        RECORD_PATH,
         entry,
         SAMPLE_CONFIGURATION,
         source=source_of(__file__),
@@ -495,7 +492,6 @@ def validate_swath(day, tle, entry, orbit, references, write: bool) -> None:
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
     )
     write_record(
-        RECORD_PATH,
         entry,
         CONFIGURATION,
         source=source_of(__file__),
@@ -538,7 +534,7 @@ def main() -> None:
     if not arguments.sample_sizes_only:
         validate_swath(day, tle, entry, orbit, references, arguments.write)
     if arguments.write:
-        print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
+        print(f"wrote {FIXTURE_PATH}")
 
 
 if __name__ == "__main__":

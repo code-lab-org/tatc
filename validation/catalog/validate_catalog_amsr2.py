@@ -61,7 +61,6 @@ from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
 import validation_io
 from validation_io import TO_GEODETIC, ecef, normalize, up
 
-RECORD_PATH = validation_io.RECORDS / "amsr2.json"
 FIXTURE_PATH = validation_io.FIXTURES / "amsr2.npz"
 
 # public element sets from CelesTrak, with epochs after each day of data
@@ -575,7 +574,6 @@ def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> Non
         spacing_instruments=np.concatenate(indices),
     )
     validation_io.write_record(
-        RECORD_PATH,
         entry,
         SAMPLE_CONFIGURATION,
         source=validation_io.source_of(__file__),
@@ -626,7 +624,6 @@ def write_fixture_and_record(day, tle, entry, orbit, results, table) -> None:
         )
     ]
     validation_io.write_record(
-        RECORD_PATH,
         entry,
         "swath",
         source=validation_io.source_of(__file__),
@@ -740,7 +737,7 @@ def main() -> None:
 
     if arguments.write:
         write_fixture_and_record(day, tle, entry, orbit, results, table)
-        print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
+        print(f"wrote {FIXTURE_PATH}")
 
 
 if __name__ == "__main__":

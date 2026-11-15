@@ -54,14 +54,12 @@ from validation_io import (
     ecef,
     get_with_retries,
     up,
-    RECORDS,
     FIXTURES,
     source_of,
     login_earthdata,
     write_record,
 )
 
-RECORD_PATH = RECORDS / "tempo.json"
 FIXTURE_PATH = FIXTURES / "tempo.npz"
 SHORT_NAME, VERSION = "TEMPO_RAD_L1", "V04"
 PLATFORM = "intelsat-40e"
@@ -394,7 +392,6 @@ def validate(day, tle, scan, write) -> None:
     )
     fixture_predicted = predict_grid(satellite, track, lon[sample], lat[sample])
     write_record(
-        RECORD_PATH,
         entry,
         CONFIGURATION,
         source=source_of(__file__),
@@ -419,7 +416,7 @@ def validate(day, tle, scan, write) -> None:
             * float(np.mean(fixture_predicted == fixture[:, 2].astype(bool)))
         },
     )
-    print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
+    print(f"wrote {FIXTURE_PATH}")
 
 
 def main() -> None:

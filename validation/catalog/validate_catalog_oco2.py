@@ -58,7 +58,6 @@ from validation_io import (
     up,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
 )
@@ -100,7 +99,6 @@ def read_oco2(_product, url: str, session, day: datetime, _directory) -> dict:
 
 
 PRODUCT = Product(short_name="OCO2_L1B_Science", version="11.2", read=read_oco2)
-RECORD_PATH = RECORDS / "oco2.json"
 TIME_STEPS = (10, 30, 120)
 SAMPLE = 1000
 FIXTURE_PASSES = 60
@@ -294,7 +292,6 @@ def validate_mode(day, tle, orbit, mode: int, reference: Reference, write: bool)
         fixture, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
     )
     write_record(
-        RECORD_PATH,
         entry,
         key,
         source=source_of(__file__),
@@ -314,7 +311,7 @@ def validate_mode(day, tle, orbit, mode: int, reference: Reference, write: bool)
         ],
         fixture_metrics=recompute_passes(satellite_for(TIME_STEPS[0]), 0, day, passes),
     )
-    print(f"wrote {RECORD_PATH} and {fixture}")
+    print(f"wrote {fixture}")
 
 
 def load_reference(day: datetime, directory: pathlib.Path, mode: int) -> Reference:

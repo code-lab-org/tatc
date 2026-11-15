@@ -66,7 +66,6 @@ from validation_io import (
     up,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
 )
@@ -79,7 +78,6 @@ GATED = (
     "swath_width_median",
     "footprint_iou_median",
 )
-RECORD_PATH = RECORDS / "cris.json"
 FIXTURE_PATH = FIXTURES / "cris.npz"
 
 FIELDS = (
@@ -373,11 +371,11 @@ def validate_pixels(
         return
     if platform != FIT_PLATFORM:
         write_transfer(
-            RECORD_PATH,
+            entry,
             PIXELS,
             platform,
-            f"{day:%Y-%m-%d}",
-            {
+            period=f"{day:%Y-%m-%d}",
+            metrics={
                 "pixel_position_median": median,
                 "pixel_position_p95": p95,
             },
@@ -389,7 +387,6 @@ def validate_pixels(
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), pixels=reduced
     )
     write_record(
-        RECORD_PATH,
         entry,
         PIXELS,
         source=source_of(__file__),
@@ -444,11 +441,11 @@ def validate_swath(
         return
     if platform != FIT_PLATFORM:
         write_transfer(
-            RECORD_PATH,
+            entry,
             SWATH,
             platform,
-            f"{day:%Y-%m-%d}",
-            {name: results[name] for name in GATED},
+            period=f"{day:%Y-%m-%d}",
+            metrics={name: results[name] for name in GATED},
         )
         return
     rng = np.random.default_rng(1)
@@ -465,7 +462,6 @@ def validate_swath(
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
     )
     write_record(
-        RECORD_PATH,
         entry,
         SWATH,
         source=source_of(__file__),
@@ -641,7 +637,7 @@ def main() -> None:
             day, tle, entry, orbit, reference, arguments.write, arguments.platform
         )
     if arguments.write:
-        print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
+        print(f"wrote {FIXTURE_PATH}")
 
 
 if __name__ == "__main__":

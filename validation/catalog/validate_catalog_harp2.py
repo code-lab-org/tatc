@@ -46,7 +46,6 @@ from gesdisc_scanner import (
 )
 from validation_io import (
     RemoteFile,
-    RECORDS,
     FIXTURES,
     source_of,
 )
@@ -106,7 +105,6 @@ SETUP = Setup(
     beams="",
     size_instrument="HARP2",
     published_footprints=(),
-    record_path=RECORDS / "harp2.json",
     fixture_path=FIXTURES / "harp2.npz",
     source=source_of(__file__),
     reference="PACE_HARP2_L1B_SCI version 4 (positions and times of the near-nadir "
@@ -156,7 +154,7 @@ def main() -> None:
         SETUP, day, tle, get_entry("harp2"), orbit, reference, arguments.write
     )
     if arguments.write:
-        print(f"wrote {SETUP.record_path} and {SETUP.fixture_path}")
+        print(f"wrote {SETUP.fixture_path}")
 
 
 if __name__ == "__main__":

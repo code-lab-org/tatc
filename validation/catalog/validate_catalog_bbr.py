@@ -55,13 +55,11 @@ from validation_io import (
     score_swath_area,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
 )
 
-RECORD_PATH = RECORDS / "bbr.json"
 FIXTURE_PATH = FIXTURES / "bbr.npz"
 NORAD_ID = 59908
 ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "earthcare_2026-09-27.3le"
@@ -193,7 +191,6 @@ def validate(day, tle, entry, orbit, references, write: bool) -> None:
     )
     nadir = list(VIEWS).index("NADIR")
     write_record(
-        RECORD_PATH,
         entry,
         CONFIGURATION,
         source=source_of(__file__),
@@ -204,7 +201,7 @@ def validate(day, tle, entry, orbit, references, write: bool) -> None:
         metrics=metrics,
         fixture_metrics=recompute_passes(satellite, nadir, day, passes),
     )
-    print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
+    print(f"wrote {FIXTURE_PATH}")
 
 
 def main() -> None:

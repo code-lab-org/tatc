@@ -32,13 +32,11 @@ from tatc.schemas import GeneralPerturbationsOrbit, Point
 from tatc.utils import compute_field_of_regard
 from validation_io import (
     add_earth_orientation,
-    RECORDS,
     FIXTURES,
     source_of,
     write_record,
 )
 
-RECORD_PATH = RECORDS / "abi.json"
 FIXTURE_PATH = FIXTURES / "abi.npz"
 
 BUCKET = "https://noaa-goes19.s3.amazonaws.com/"
@@ -251,7 +249,7 @@ def main(directory: pathlib.Path) -> None:
     FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(FIXTURE_PATH, **add_earth_orientation(fixture))
     for key, results in records.items():
-        write_record(RECORD_PATH, entry, key, **results)
+        write_record(entry, key, **results)
 
 
 if __name__ == "__main__":

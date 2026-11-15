@@ -53,13 +53,11 @@ from validation_io import (
     recompute_passes,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
     login_earthdata,
 )
 
-RECORD_PATH = RECORDS / "emit.json"
 FIXTURE_PATH = FIXTURES / "emit.npz"
 PLATFORM = "iss"
 CONFIGURATION = "swath"
@@ -273,7 +271,6 @@ def validate(day, tle, orbit, reference: Reference, write: bool) -> None:
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
     )
     write_record(
-        RECORD_PATH,
         entry,
         CONFIGURATION,
         source=source_of(__file__),
@@ -293,7 +290,7 @@ def validate(day, tle, orbit, reference: Reference, write: bool) -> None:
         ],
         fixture_metrics=recompute_passes(satellite_for(TIME_STEPS[0]), 0, day, passes),
     )
-    print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
+    print(f"wrote {FIXTURE_PATH}")
 
 
 def main() -> None:

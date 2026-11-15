@@ -71,14 +71,12 @@ from validation_io import (
     up,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
     login_earthdata,
 )
 
-RECORD_PATH = RECORDS / "ascat.json"
 FIXTURE_PATH = FIXTURES / "ascat.npz"
 
 SHORT_NAME = "ASCATC-L2-25km"
@@ -501,7 +499,6 @@ def validate(day, tle, entry, orbit, data, write) -> None:
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=fixture
     )
     write_record(
-        RECORD_PATH,
         entry,
         CONFIGURATION,
         source=source_of(__file__),
@@ -511,7 +508,7 @@ def validate(day, tle, entry, orbit, data, write) -> None:
         metrics=metrics,
         fixture_metrics=recompute_passes(satellite, None, day, fixture),
     )
-    print(f"wrote {RECORD_PATH} and {FIXTURE_PATH}")
+    print(f"wrote {FIXTURE_PATH}")
 
 
 def main() -> None:

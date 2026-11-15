@@ -80,13 +80,11 @@ from validation_io import (
     up,
     update_fixture,
     write_record,
-    RECORDS,
     FIXTURES,
     source_of,
     login_earthdata,
 )
 
-RECORD_PATH = RECORDS / "modis.json"
 FIXTURE_PATH = FIXTURES / "modis.npz"
 
 FIT_PLATFORM = "terra"
@@ -444,11 +442,11 @@ def validate_pixels(day, tle, entry, orbit, reference, platform, write) -> None:
         return
     if platform != FIT_PLATFORM:
         write_transfer(
-            RECORD_PATH,
+            entry,
             PIXELS,
             platform,
-            f"{day:%Y-%m-%d}",
-            {
+            period=f"{day:%Y-%m-%d}",
+            metrics={
                 "pixel_position_median": median,
                 "pixel_position_p95": p95,
                 "spacing_along_ratio_median": along,
@@ -471,7 +469,6 @@ def validate_pixels(day, tle, entry, orbit, reference, platform, write) -> None:
         spacing_seconds=(times[picks] - pd.Timestamp(day)).total_seconds().to_numpy(),
     )
     write_record(
-        RECORD_PATH,
         entry,
         PIXELS,
         source=source_of(__file__),
@@ -543,11 +540,11 @@ def validate_swath(day, tle, entry, orbit, reference, platform, write) -> None:
     )
     if platform != FIT_PLATFORM:
         write_transfer(
-            RECORD_PATH,
+            entry,
             SWATH,
             platform,
-            f"{day:%Y-%m-%d}",
-            {name: results[name] for name in gated},
+            period=f"{day:%Y-%m-%d}",
+            metrics={name: results[name] for name in gated},
         )
         return
     rng = np.random.default_rng(1)
@@ -564,7 +561,6 @@ def validate_swath(day, tle, entry, orbit, reference, platform, write) -> None:
         FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
     )
     write_record(
-        RECORD_PATH,
         entry,
         SWATH,
         source=source_of(__file__),
@@ -684,8 +680,6 @@ def main() -> None:
         validate_swath(
             day, tle, entry, orbit, reference, arguments.platform, arguments.write
         )
-    if arguments.write:
-        print(f"wrote {RECORD_PATH}")
 
 
 if __name__ == "__main__":

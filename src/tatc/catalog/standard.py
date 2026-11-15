@@ -17,26 +17,11 @@ STANDARD_VERSION = 6
 """The version of the thresholds in `get_gates`."""
 
 _LAST_THRESHOLD_CHANGE = 1
-# the version of the standard that added each class's gates
-_CLASS_VERSIONS = {
-    "cross_track": 1,
-    "pushbroom": 1,
-    "conical": 1,
-    "sar": 1,
-    "geostationary": 1,
-    "lidar": 2,
-    "altimeter": 3,
-    "scatterometer": 4,
-    "geostationary_regional": 5,
-    "profiler": 6,
-}
 
 COMPATIBLE_VERSIONS = tuple(range(_LAST_THRESHOLD_CHANGE, STANDARD_VERSION + 1))
 """
 Versions whose results still apply, as no threshold changed after the first:
-version 2 only added the lidar class, version 3 the altimeter class, version 4
-the scatterometer class, version 5 the regional geostationary class, and
-version 6 the profiler class.
+later versions only added classes (see `is_compatible`).
 """
 
 MIN_HOLDOUT_GAP_DAYS = 30
@@ -58,6 +43,21 @@ class InstrumentClass(str, Enum):
     ALTIMETER = "altimeter"
     SCATTEROMETER = "scatterometer"
     PROFILER = "profiler"
+
+
+# the version of the standard that added each class's gates
+_CLASS_VERSIONS: dict[InstrumentClass, int] = {
+    InstrumentClass.CROSS_TRACK: 1,
+    InstrumentClass.PUSHBROOM: 1,
+    InstrumentClass.CONICAL: 1,
+    InstrumentClass.SAR: 1,
+    InstrumentClass.GEOSTATIONARY: 1,
+    InstrumentClass.LIDAR: 2,
+    InstrumentClass.ALTIMETER: 3,
+    InstrumentClass.SCATTEROMETER: 4,
+    InstrumentClass.GEOSTATIONARY_REGIONAL: 5,
+    InstrumentClass.PROFILER: 6,
+}
 
 
 class Grade(str, Enum):
@@ -231,7 +231,9 @@ def get_required_grades(instrument_class: InstrumentClass) -> tuple[Grade, ...]:
 def is_compatible(instrument_class: InstrumentClass, version: int) -> bool:
     """
     Checks whether results tested under a version of the standard apply to a
-    class: the version is compatible and has the class's gates.
+    class: the version is compatible and has the class's gates. Version 2 added
+    the lidar class, 3 the altimeter class, 4 the scatterometer class, 5 the
+    regional geostationary class, and 6 the profiler class.
 
     Args:
         instrument_class (InstrumentClass): The class of the instrument.
@@ -242,5 +244,5 @@ def is_compatible(instrument_class: InstrumentClass, version: int) -> bool:
     """
     return (
         version in COMPATIBLE_VERSIONS
-        and version >= _CLASS_VERSIONS[InstrumentClass(instrument_class).value]
+        and version >= _CLASS_VERSIONS[InstrumentClass(instrument_class)]
     )
