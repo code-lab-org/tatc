@@ -31,7 +31,7 @@ from tatc.analysis import (
 )
 from tatc.catalog import STANDARD_VERSION
 from tatc.catalog.metrics import compute_mask_iou, compute_pass_scores, summarize
-from tatc.constants import timescale
+from tatc.constants import EARTH_ROTATION_RATE, timescale
 from tatc.schemas import CircularOrbit, Point
 from tatc.utils import VelocityFrame, compute_projected_ray_position
 
@@ -57,6 +57,27 @@ TO_ECEF = Transformer.from_crs("EPSG:4979", "EPSG:4978", always_xy=True)
 TO_GEODETIC = Transformer.from_crs("EPSG:4978", "EPSG:4979", always_xy=True)
 
 _SESSION = requests.Session()
+
+
+def login_earthdata():
+    """
+    Logs in to NASA Earthdata with a token in `EARTHDATA_TOKEN` (or a username and
+    password in `EARTHDATA_USERNAME` and `EARTHDATA_PASSWORD`), or else with the
+    credentials of urs.earthdata.nasa.gov in `~/.netrc`.
+    """
+    import earthaccess  # pylint: disable=import-outside-toplevel
+
+    for strategy in ("environment", "netrc"):
+        try:
+            auth = earthaccess.login(strategy=strategy)
+        except Exception:  # pylint: disable=broad-exception-caught
+            continue
+        if auth is not None and auth.authenticated:
+            return auth
+    raise RuntimeError(
+        "Earthdata login failed: set EARTHDATA_TOKEN, or add urs.earthdata.nasa.gov "
+        "to ~/.netrc"
+    )
 
 
 def source_of(script):
@@ -271,6 +292,64 @@ def up(lon, lat) -> np.ndarray:
 def normalize(x: np.ndarray) -> np.ndarray:
     """Gets unit vectors along the last axis."""
     return x / np.linalg.norm(x, axis=-1, keepdims=True)
+
+
+def inertial_velocity(position: np.ndarray, velocity: np.ndarray) -> np.ndarray:
+    """Gets the inertial velocity (m/s) of Earth-fixed positions and velocities."""
+    return velocity + EARTH_ROTATION_RATE * np.stack(
+        [-position[..., 1], position[..., 0], np.zeros(position.shape[:-1])], axis=-1
+    )
+
+
+def fit_cone(position, velocity, lon, lat) -> dict[str, float]:
+    """
+    Measures the cone of a conical scanner from the Earth-fixed positions (m) and
+    velocities (m/s) of its scans and the geodetic positions of their footprints
+    (scans by samples): the median angle of the lines of sight from geodetic nadir,
+    and the scan azimuths (deg, positive to the left) of the first and last samples
+    from the horizontal direction of the inertial velocity, with the center and half
+    width of the sector they span (medians over scans), and the median azimuth step
+    between samples. The center from the Earth-fixed velocity is also given, for
+    comparison.
+    """
+    lines = normalize(ecef(lon, lat) - position[:, np.newaxis])
+    sub_lon, sub_lat, _ = TO_GEODETIC.transform(*position.T)
+    nadir = -up(sub_lon, sub_lat)
+    horizontal = (
+        lines
+        - np.sum(lines * nadir[:, np.newaxis], axis=-1, keepdims=True)
+        * nadir[:, np.newaxis]
+    )
+
+    def azimuth(v):
+        forward = normalize(v - np.sum(v * nadir, axis=-1, keepdims=True) * nadir)
+        left = np.cross(forward, nadir)
+        return np.degrees(
+            np.arctan2(
+                np.sum(horizontal * left[:, np.newaxis], axis=-1),
+                np.sum(horizontal * forward[:, np.newaxis], axis=-1),
+            )
+        )
+
+    inertial = azimuth(inertial_velocity(position, velocity))
+    earth = azimuth(velocity)
+    return {
+        "cone_angle": float(
+            np.median(
+                np.degrees(np.arccos(np.sum(lines * nadir[:, np.newaxis], axis=-1)))
+            )
+        ),
+        "first_azimuth": float(np.median(inertial[:, 0])),
+        "last_azimuth": float(np.median(inertial[:, -1])),
+        "scan_center_azimuth": float(np.median(inertial[:, -1] + inertial[:, 0]) / 2),
+        "scan_half_width": float(
+            np.median(np.abs(inertial[:, -1] - inertial[:, 0])) / 2
+        ),
+        "scan_sample_spacing": float(np.median(np.diff(inertial, axis=1))),
+        "scan_center_azimuth_earth_fixed": float(
+            np.median(earth[:, -1] + earth[:, 0]) / 2
+        ),
+    }
 
 
 def in_lattice_cells(cells, is_next_contiguous, points, neighbors=2) -> np.ndarray:

@@ -1,26 +1,37 @@
 """
 Validates the MODIS catalog entry against the 1 km geolocation products of Terra and
 Aqua, using the exact values of the entry through public TAT-C methods. The tests of
-passes and pixels follow `ValidateDriftMODIS`, whose day of Terra data the entry's
-angles were fitted to, and those of sizes and spacing follow `ValidateSampleSizes`:
-running on that day checks this script against the notebooks, while running on a day
-at least 30 days from it tests the fitted angles on data held out from the fit.
+pixels follow `ValidateDriftMODIS`, on whose day of Terra data the entry's angles were
+fitted, and those of sizes and spacing follow `ValidateSampleSizes`; the tests of
+passes are this script's own, following an earlier version of `ValidateDriftMODIS`.
+Running on that day checks the shared tests against the notebooks, while running on a
+day at least 30 days from it tests the fitted angles on data held out from the fit.
 
 The notebooks do not test the swath's width or area, which the standard requires. The
 observed width is the length through the frames of a scan, midway between its first
 and last detectors, and the observed area is the union of the cells between those
-lines over one orbit. Unlike the notebook, the reference time of a pass includes the
+lines over one orbit. Unlike the earlier notebook, the reference time of a pass includes the
 time within a scan of its frame, since MODIS sweeps the Earth in about 0.45 s.
 
 The entry is fitted on Terra. On Aqua, results are reported as a transfer to a sibling
 platform, under metric names that do not count toward the entry's validation.
 
-Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`:
+Needs the `validation` extra and a NASA Earthdata login:
 
+    python validation/catalog/validate_catalog_modis.py <data directory> 2026-10-04 --fit
     python validation/catalog/validate_catalog_modis.py <data directory> 2026-10-04
     python validation/catalog/validate_catalog_modis.py <data directory> 2026-11-05
     python validation/catalog/validate_catalog_modis.py <data directory> 2026-11-05 \
         --platform aqua
+
+With `--fit`, it measures the angles of the entry's configurations instead, as
+`ValidateDriftMODIS` did, on Terra's day of the fit: the roll and pitch of the first
+and last detectors (inertial frame) at every fourth sampled frame of every 40th scan
+of every sixth granule, from the reported position and velocity of the spacecraft.
+The scan angle is fitted as a line in the frame, whose slope is the spacing of the
+frames and whose value at the scan's center is the roll; the along-track extent is
+the median difference of the detectors' pitch. It prints them, with the values derived
+from them, without writing.
 
 With `--write`, it writes the entry's validation record and, on Terra, the reduced
 fixture from which unit tests recompute the results.
@@ -40,12 +51,18 @@ import numpy as np
 import pandas as pd
 import requests
 from scipy.spatial import cKDTree
+from skyfield.api import wgs84
+from skyfield.framelib import itrs
+from skyfield.positionlib import Geocentric
+from skyfield.units import Distance, Velocity
 
 import tatc
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.generation import generate_points_fibonacci_lattice
+from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit
+from tatc.utils import VelocityFrame, compute_view_angles
 from validation_io import (
     TO_GEODETIC,
     RemoteFile,
@@ -68,6 +85,7 @@ from validation_io import (
     RECORDS,
     FIXTURES,
     source_of,
+    login_earthdata,
 )
 
 RECORD_PATH = RECORDS / "modis.json"
@@ -92,7 +110,8 @@ ELEMENT_SETS = {
     ],
 }
 GEO = "HDFEOS/SWATHS/MODIS_Swath_Type_GEO/"
-FRAMES = np.r_[np.arange(0, 1354, 8), 1353]
+N_FRAMES = 1354
+FRAMES = np.r_[np.arange(0, N_FRAMES, 8), N_FRAMES - 1]
 N_DETECTORS = 10
 FRAME_PERIOD = 0.45 / 1354
 CENTER_FRAME = 676.5
@@ -139,6 +158,7 @@ def reduce_granule(url: str, session, directory: pathlib.Path) -> pathlib.Path:
         arrays = {
             "time": f["EV center time"][:],
             "position": f["orb_pos"][:],
+            "velocity": f["orb_vel"][:],
             "latitude": grid("Geolocation Fields/Latitude"),
             "longitude": grid("Geolocation Fields/Longitude"),
             "height": grid("Data Fields/Height"),
@@ -155,8 +175,7 @@ def load_day(platform: str, day: datetime, directory: pathlib.Path) -> dict:
     product = PRODUCTS[platform]
     path = directory / f"{product}_{day:%Y%m%d}.npz"
     if not path.exists():
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        login_earthdata()
         session = earthaccess.get_requests_https_session()
         items = requests.get(
             "https://cmr.earthdata.nasa.gov/search/granules.umm_json",
@@ -228,7 +247,7 @@ class Reference:
 
     def observe_passes(self, points) -> pd.DataFrame:
         """
-        Finds the passes on which MODIS observed points, as `ValidateDriftMODIS` does:
+        Finds the passes on which MODIS observed points, as an earlier version of `ValidateDriftMODIS` did:
         the nearest sampled pixel of the first detectors, excluding the outermost
         frames, within a distance. Gets their times, and those at the scan's center.
         """
@@ -505,7 +524,7 @@ def validate_swath(day, tle, entry, orbit, reference, platform, write) -> None:
         predicted, observed.drop(columns="time").rename(columns={"center_time": "time"})
     )
     print(
-        "at scan centers, as in the notebook: "
+        "at scan centers, as in the earlier notebook: "
         f"median {at_center['epoch_median']:.3f} s, p95 {at_center['epoch_p95']:.3f} s",
         flush=True,
     )
@@ -570,12 +589,82 @@ def validate_swath(day, tle, entry, orbit, reference, platform, write) -> None:
     )
 
 
+def fit(platform: str, day: datetime, directory: pathlib.Path) -> None:
+    """
+    Prints the scan angles and along-track extent of the detectors, measured from the
+    reduced granules of a day as `ValidateDriftMODIS` measured them.
+    """
+    paths = sorted((directory / f"{PRODUCTS[platform]}_{day:%Y%m%d}").glob("*.npz"))
+    rows = []
+    for path in paths[::6]:
+        with np.load(path) as granule:
+            if "velocity" not in granule.files:
+                raise SystemExit(
+                    f"{path} has no velocity: remove the day's reduced granules and "
+                    "download them again"
+                )
+            position = granule["position"].astype(float)
+            valid = np.all(np.isfinite(position), axis=1) & (
+                np.linalg.norm(position, axis=1) > 6e6
+            )
+            for scan in np.nonzero(valid)[0][5::40]:
+                # the reported position and velocity at the scan's time, as a track
+                track = Geocentric.from_time_and_frame_vectors(
+                    timescale.tai(1993, 1, 1, 0, 0, 27 + float(granule["time"][scan])),
+                    itrs,
+                    Distance(m=position[scan]),
+                    Velocity(km_per_s=granule["velocity"][scan].astype(float) / 1e3),
+                )
+                for column in range(0, len(FRAMES), 4):
+                    (roll_1, pitch_1), (roll_10, pitch_10) = (
+                        compute_view_angles(
+                            track,
+                            wgs84.latlon(
+                                *(
+                                    float(granule[k][scan, detector, column])
+                                    for k in ("latitude", "longitude", "height")
+                                )
+                            ),
+                            velocity_frame=VelocityFrame.INERTIAL,
+                        )
+                        for detector in (0, 1)
+                    )
+                    rows.append(
+                        (FRAMES[column], (roll_1 + roll_10) / 2, pitch_10 - pitch_1)
+                    )
+    frame, roll, extent = np.array(rows, dtype=float).T
+    finite = np.isfinite(roll) & np.isfinite(extent)
+    frame, roll, extent = frame[finite], roll[finite], extent[finite]
+    spacing, offset = np.polyfit(frame - CENTER_FRAME, roll, 1)
+    residual = roll - (spacing * (frame - CENTER_FRAME) + offset)
+    detectors = float(np.median(extent))
+    print(
+        f"{len(paths[::6])} of {len(paths)} granules, {len(roll)} samples; scan angle = "
+        f"{spacing:.5f} deg x (frame - {CENTER_FRAME}) {offset:+.3f} deg, residual "
+        f"95th percentile {np.percentile(np.abs(residual), 95):.3f} deg"
+    )
+    print(
+        f"scan angles {spacing * -CENTER_FRAME + offset:.2f} to "
+        f"{spacing * CENTER_FRAME + offset:.2f} deg"
+    )
+    print(
+        f"swath: field_of_regard {(N_FRAMES - 1) * round(spacing, 5):.3f} "
+        f"({N_FRAMES - 1} frame spacings); pixels: cross_track_field_of_view "
+        f"{N_FRAMES * round(spacing, 5):.3f}, roll_angle {offset:.3f}"
+    )
+    print(
+        f"along-track extent of detectors 1 to 10: {detectors:.4f} deg; "
+        f"along_track_field_of_view {round(detectors, 4) * N_DETECTORS / (N_DETECTORS - 1):.4f}"
+    )
+
+
 def main() -> None:
     """Validates the entry on a day of data."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=pathlib.Path)
     parser.add_argument("day")
     parser.add_argument("--platform", choices=sorted(PRODUCTS), default=FIT_PLATFORM)
+    parser.add_argument("--fit", action="store_true")
     parser.add_argument("--sample-sizes-only", action="store_true")
     parser.add_argument("--download-only", action="store_true")
     parser.add_argument("--write", action="store_true")
@@ -583,6 +672,10 @@ def main() -> None:
     arguments.directory.mkdir(parents=True, exist_ok=True)
 
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
+    if arguments.fit:
+        load_day(arguments.platform, day, arguments.directory)
+        fit(arguments.platform, day, arguments.directory)
+        return
     tle = ELEMENT_SETS[(arguments.platform, arguments.day)]
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     entry = get_entry("modis")

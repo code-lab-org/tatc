@@ -339,8 +339,8 @@ class TestBuild(unittest.TestCase):
 
     def test_tailored_field_of_view(self):
         """
-        Test that tailored fields of view match those of the GMI notebook, whose
-        tests reported these values for this orbit.
+        Test that tailored fields of view match the values of 1.78, 9.45, and 27.85
+        deg reported for this orbit when the configuration was validated.
         """
         for time_step, expected in ((1.875, 1.78), (10, 9.45), (30, 27.85)):
             payload = self.entry.build(orbit=self.orbit, time_step=time_step)

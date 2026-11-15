@@ -33,7 +33,7 @@ Without `--write`, a script prints its results. The exception is `validate_catal
 ## Accounts
 
 - NOAA Open Data Dissemination (JPSS, GOES, Himawari) and Microsoft Planetary Computer: anonymous.
-- NASA DAACs: an Earthdata token in `EARTHDATA_TOKEN` ([NASA Earthdata Login](https://urs.earthdata.nasa.gov/)).
+- NASA DAACs: a [NASA Earthdata Login](https://urs.earthdata.nasa.gov/) account, as a token in `EARTHDATA_TOKEN` or, failing that, the credentials of `urs.earthdata.nasa.gov` in `~/.netrc`.
 - EarthCARE (ATLID, BBR, CPR, MSI): an ESA MAAP offline token in `ESA_MAAP_KEY`.
 
 Each script's docstring states what it needs.

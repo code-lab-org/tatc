@@ -13,13 +13,20 @@ pass of a sector scanner is for AMSR2 and GMI:
   90 deg to either side.
 * The swath area over an orbit is compared with the union of the cells of both halves.
 
-The cone angle was derived in `ValidateGridSMAP` from the incidence angles of a day of
-data, so running on a day at least 30 days from it tests it on data held out from it.
+The cone angle is derived from the incidence angles of a day of data, so running on
+a day at least 30 days from it tests it on data held out from it.
 
-Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`:
+Needs the `validation` extra and a NASA Earthdata login:
 
+    python validation/catalog/validate_catalog_smap.py <data directory> 2026-10-24 --fit
     python validation/catalog/validate_catalog_smap.py <data directory> 2026-10-24
     python validation/catalog/validate_catalog_smap.py <data directory> 2026-09-20
+
+With `--fit`, it derives the cone angle instead, as `ValidateGridSMAP` did, from the
+gridded brightness temperatures of the day (`SPL1CTB`, the half orbits from two hours
+before the day to two hours after it): the angle from nadir of a boresight at the
+median incidence angle of the forward looks, at the mean altitude of the day's element
+set, on a spherical Earth. It prints it, without writing.
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
@@ -70,6 +77,7 @@ from validation_io import (
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
+    login_earthdata,
 )
 
 RECORD_PATH = RECORDS / "smap_radiometer.json"
@@ -111,6 +119,10 @@ SPACING_SCAN_STRIDE = 25
 FIXTURE_SPACING_SAMPLES = 150
 
 
+# the mean radius (m) of the spherical Earth on which the cone angle is derived
+FIT_EARTH_RADIUS = 6371.0088e3
+
+
 def get_element_set(day: datetime) -> list[str]:
     """Gets the element set of a day."""
     key = f"{day:%Y-%m-%d}"
@@ -134,8 +146,7 @@ def load_day(day: datetime, directory: pathlib.Path) -> dict[str, np.ndarray]:
     """Downloads and reduces the half orbits that overlap a day, or loads them."""
     path = directory / f"smap_l1b_{day:%Y%m%d}.npz"
     if not path.exists():
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        login_earthdata()
         granules = earthaccess.search_data(
             short_name="SPL1BTB",
             temporal=(
@@ -624,17 +635,76 @@ def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> Non
     )
 
 
+def load_fit_incidence(day: datetime, directory: pathlib.Path) -> np.ndarray:
+    """
+    Downloads the incidence angles (deg) of the forward looks of the gridded brightness
+    temperatures of the half orbits around a day, or loads them from a cache.
+    """
+    path = directory / f"smap_l1c_incidence_{day:%Y%m%d}.npy"
+    if not path.exists():
+        login_earthdata()
+        granules = earthaccess.search_data(
+            short_name="SPL1CTB",
+            temporal=(
+                f"{day - timedelta(hours=2):%Y-%m-%dT%H:%M:%S}",
+                f"{day + timedelta(hours=26):%Y-%m-%dT%H:%M:%S}",
+            ),
+        )
+        # the latest version of each half orbit
+        latest = {}
+        for granule in sorted(granules, key=lambda g: g["umm"]["GranuleUR"]):
+            name = granule["umm"]["GranuleUR"]
+            latest[re.search(r"_TB_(\d+_[AD])_", name).group(1)] = granule
+        files = earthaccess.download(
+            list(latest.values()), str(directory / f"raw_l1c_{day:%Y%m%d}")
+        )
+        parts = []
+        for file in sorted(files):
+            with h5py.File(file) as f:
+                parts.append(f["Global_Projection/cell_boresight_incidence_fore"][:])
+            pathlib.Path(file).unlink()
+        np.save(path, np.concatenate(parts))
+    return np.load(path)
+
+
+def fit(day: datetime, directory: pathlib.Path) -> None:
+    """
+    Prints the cone angle of a boresight at the median incidence angle of a day's
+    forward looks, at the mean altitude of its element set, on a spherical Earth.
+    """
+    incidence = float(np.nanmedian(load_fit_incidence(day, directory)))
+    altitude = GeneralPerturbationsOrbit.from_tle(
+        get_element_set(day)
+    ).get_mean_altitude()
+    cone = np.degrees(
+        np.arcsin(
+            FIT_EARTH_RADIUS
+            * np.sin(np.radians(incidence))
+            / (FIT_EARTH_RADIUS + altitude)
+        )
+    )
+    print(
+        f"median incidence angle {incidence:.2f} deg, mean altitude "
+        f"{altitude / 1e3:.1f} km"
+    )
+    print(f"cone_angle: {cone:.3f}")
+
+
 def main() -> None:
     """Validates the entry on a day of data."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=pathlib.Path)
     parser.add_argument("day")
+    parser.add_argument("--fit", action="store_true")
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--download-only", action="store_true")
     parser.add_argument("--sample-sizes-only", action="store_true")
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
+    if arguments.fit:
+        fit(day, arguments.directory)
+        return
     data = load_day(day, arguments.directory)
     if arguments.download_only:
         return

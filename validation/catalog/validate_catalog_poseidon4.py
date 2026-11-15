@@ -49,6 +49,7 @@ from validation_io import (
     RECORDS,
     FIXTURES,
     source_of,
+    login_earthdata,
 )
 
 RECORD_PATH = RECORDS / "poseidon4.json"
@@ -115,8 +116,7 @@ def load_day(day: datetime, directory: pathlib.Path, platform: str) -> pd.DataFr
             )
             for item in items
         ]
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        login_earthdata()
         session = earthaccess.get_requests_https_session()
         with concurrent.futures.ThreadPoolExecutor(4) as pool:
             parts = list(pool.map(lambda url: read_granule(url, session), urls))

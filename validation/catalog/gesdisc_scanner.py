@@ -54,6 +54,7 @@ from validation_io import (
     up,
     update_fixture,
     update_record,
+    login_earthdata,
 )
 
 EARTH_ROTATION = 7.2921150e-5  # rad/s
@@ -164,8 +165,7 @@ def load_day(product: Product, day: datetime, directory: pathlib.Path) -> dict:
     cache = directory / f"{product.short_name.lower()}_{day:%Y%m%d}.npz"
     if cache.exists():
         return dict(np.load(cache))
-    if earthaccess.login(strategy="environment") is None:
-        raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+    login_earthdata()
     session = earthaccess.get_requests_https_session()
     urls = find_granules(product, day)
     read = product.read or read_gpm

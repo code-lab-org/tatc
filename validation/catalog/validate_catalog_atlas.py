@@ -61,6 +61,7 @@ from validation_io import (
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
+    login_earthdata,
 )
 
 RECORD_PATH = RECORDS / "atlas.json"
@@ -104,8 +105,7 @@ def load_day(day: datetime, directory: pathlib.Path) -> pd.DataFrame:
     """
     cache = directory / f"atl08ql_{day:%Y%m%d}.csv"
     if not cache.exists():
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        login_earthdata()
         session = earthaccess.get_requests_https_session()
         results = earthaccess.search_data(
             short_name="ATL08QL",

@@ -1,18 +1,25 @@
 """
 Validates the GMI catalog entry against the GPM Level 1C GMI product, using the
-exact values of the entry through public TAT-C methods. The tests follow
-`ValidateConicalGMI`, whose day of data the entry's angles were fitted to:
-running on that day checks this script against the notebook, while running on a
-day at least 30 days from it tests the fitted angles on data held out from the
-fit. The day must be one on which GPM flew forward, as it does for about 40 days
+exact values of the entry through public TAT-C methods. The test of swath width
+follows `ValidateConicalGMI`, on whose day of data the entry's angles were fitted;
+the tests of passes, epochs, and swath area are this script's own. Running on that day
+checks the shared test against the notebook, while running on a day at least 30 days
+from it tests the fitted angles on data held out from the fit. The day must be one on which GPM flew forward, as it does for about 40 days
 at a time, because the configuration represents forward flight. Element sets for
 other days can be given in a file of the history of GPM's element sets.
 
-Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`:
+Needs the `validation` extra and a NASA Earthdata login:
 
+    python validation/catalog/validate_catalog_gmi.py <data directory> 2026-10-03 --fit
     python validation/catalog/validate_catalog_gmi.py <data directory> 2026-10-03
     python validation/catalog/validate_catalog_gmi.py <data directory> 2026-07-20 \
         --elements <file>
+
+With `--fit`, it measures the angles of the entry's configurations instead, on the
+day of the fit, as `ValidateConicalGMI` did: for each feed, the cone angle of the
+lines of sight from geodetic nadir and the center and half width of the scan sector
+in azimuth from the inertial velocity (medians over every 20th scan with contiguous
+neighbors). It prints them, without writing.
 
 It also validates the entry's sample size configuration, following
 `ValidateSampleSizes`. The gated metric compares sizes with footprints published
@@ -111,8 +118,7 @@ def load_day(day: datetime, directory: pathlib.Path) -> dict[str, np.ndarray]:
     """Downloads and reduces all orbits of a day, or loads them from a cache."""
     cache = directory / f"gmi_l1c_{day:%Y%m%d}.npz"
     if not cache.exists():
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        validation_io.login_earthdata()
         session = earthaccess.get_requests_https_session()
         granules = requests.get(
             "https://cmr.earthdata.nasa.gov/search/granules.umm_json",
@@ -708,18 +714,46 @@ def read_elements(path: pathlib.Path, day: datetime) -> list[str]:
     return [line for epoch in sorted(pairs) for line in pairs[epoch]]
 
 
+def fit(reference: Reference) -> None:
+    """
+    Prints the cone and scan sector of each feed, measured on every 20th scan with
+    contiguous neighbors, as `ValidateConicalGMI` measured them.
+    """
+    scans = np.nonzero(reference.contiguous)[0][::20]
+    print(f"{len(reference.time)} scans, {len(scans)} measured")
+    for feed in FEEDS:
+        lon, lat = reference.foot[feed]
+        values = validation_io.fit_cone(
+            reference.position[scans],
+            reference.velocity[scans],
+            lon[scans],
+            lat[scans],
+        )
+        print(
+            f"{feed}: cone_angle {values['cone_angle']:.3f}, "
+            f"scan_center_azimuth {values['scan_center_azimuth']:.3f}, "
+            f"scan_half_width {values['scan_half_width']:.3f} "
+            f"(azimuth step {values['scan_sample_spacing']:.4f}; center from the "
+            f"Earth-fixed velocity {values['scan_center_azimuth_earth_fixed']:.3f})"
+        )
+
+
 def main() -> None:
     """Validates the entry on a day of data."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=pathlib.Path)
     parser.add_argument("day")
     parser.add_argument("--elements", type=pathlib.Path)
+    parser.add_argument("--fit", action="store_true")
     parser.add_argument("--sample-sizes-only", action="store_true")
     parser.add_argument("--write", action="store_true")
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
 
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
+    if arguments.fit:
+        fit(Reference(day, load_day(day, arguments.directory)))
+        return
     if arguments.elements is not None:
         tle = read_elements(arguments.elements, day)
     elif arguments.day in ELEMENTS:

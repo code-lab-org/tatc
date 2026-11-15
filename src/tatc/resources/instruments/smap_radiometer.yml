@@ -32,7 +32,7 @@ configurations:
         provenance:
           cone_angle:
             kind: measured
-            source: ValidateGridSMAP, the angle from nadir of a boresight at the median incidence angle of a day of looks (39.97 deg), at the mean altitude, on a spherical Earth (printed to 3 decimals)
+            source: validate_catalog_smap.py --fit, the angle from nadir of a boresight at the median incidence angle of a day of forward looks of SPL1CTB (39.97 deg), at the mean altitude, on a spherical Earth (printed to 3 decimals)
             platform: smap
             period: "2026-10-24"
           scan_center_azimuth:
@@ -64,7 +64,7 @@ configurations:
         provenance:
           cone_angle:
             kind: measured
-            source: ValidateGridSMAP, as for the looks configuration
+            source: validate_catalog_smap.py --fit, as for the looks configuration
             platform: smap
             period: "2026-10-24"
           scan_center_azimuth:

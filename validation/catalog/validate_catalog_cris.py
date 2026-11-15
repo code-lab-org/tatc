@@ -1,15 +1,26 @@
 """
 Validates the CrIS catalog entry against the NOAA-20 CrIS geolocation product, using
-the exact values of the entry through public TAT-C methods. The tests follow
-`ValidateImagerCrIS`, whose day of data the entry's angles were fitted to, and
-`ValidateSampleSizes`: running on that day checks this script against the notebooks,
-while running on a day at least 30 days from it tests the fitted angles on data held
-out from the fit.
+the exact values of the entry through public TAT-C methods. The tests of pixels
+follow `ValidateImagerCrIS`, on whose day of data the entry's angles were fitted, and
+those of sizes and spacing follow `ValidateSampleSizes`; the tests of passes, epochs,
+and swath width and area are this script's own. Running on that day checks the shared
+tests against the notebooks, while running on a day at least 30 days from it tests the
+fitted angles on data held out from the fit.
 
 Reads anonymous public data, and needs the `validation` extra:
 
+    python validation/catalog/validate_catalog_cris.py <data directory> 2026-10-02 --fit
     python validation/catalog/validate_catalog_cris.py <data directory> 2026-10-02
     python validation/catalog/validate_catalog_cris.py <data directory> 2026-08-12
+
+With `--fit`, it measures the values of the entry's configurations instead, as
+`ValidateImagerCrIS` did, on the scans of the day of the fit from 12:00 to 14:00 UTC:
+the scan plane of each scan (normal to the lines of sight to the centers of its fields
+of regard, from the spacecraft at each field of regard's time), the spacing and roll
+of a line fitted to the median scan angles of the fields of regard in that plane, the
+outermost of those angles, the pitch of the three by three fields of view, and the
+forward tilt of the scan plane from nadir. It prints them, with the values derived
+from them, without writing.
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
@@ -34,6 +45,7 @@ from scipy.spatial import cKDTree
 from skyfield.api import wgs84
 
 import tatc
+import validation_io
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.generation import generate_points_fibonacci_lattice
@@ -98,6 +110,20 @@ PUBLISHED_FOOTPRINTS = (
 PIXEL_SCAN_STRIDE, WIDTH_SCAN_STRIDE = 100, 5
 FIXTURE_PASSES, FIXTURE_PIXELS = 60, 200
 NADIR_FORS = (14, 15)
+# the hours (UTC) of the day of the fit whose scans the fit measures, the fields it
+# reads, and the published diameter of a field of view (deg)
+FIT_HOURS = (12, 14)
+FIT_FIELDS = (
+    "MidTime",
+    "FORTime",
+    "SCPosition",
+    "SCVelocity",
+    "Latitude",
+    "Longitude",
+    "Height",
+    "QF1_CRISSDRGEO",
+)
+FOV_DIAMETER = 0.963
 
 
 def load_day(day: datetime, directory: pathlib.Path) -> dict[str, np.ndarray]:
@@ -471,11 +497,125 @@ def validate_swath(
     )
 
 
+def load_fit_hours(day: datetime, directory: pathlib.Path) -> dict[str, np.ndarray]:
+    """
+    Downloads the geolocation, with the spacecraft's position and velocity, of the
+    hours of a day that the fit measures, or loads it from a cache.
+    """
+    first, last = FIT_HOURS
+    path = directory / f"cris_gcrso_{day:%Y%m%d}_{first:02d}-{last:02d}h.npz"
+    if not path.exists():
+
+        def read(key):
+            with h5py.File(io.BytesIO(fetch(key))) as f:
+                return {k: f["All_Data/CrIS-SDR-GEO_All/" + k][:] for k in FIT_FIELDS}
+
+        keys = [
+            k
+            for k in list_keys(f"CrIS-SDR-GEO/{day:%Y/%m/%d}/")
+            if first <= int(k.split("_t")[1][:2]) < last
+        ]
+        with concurrent.futures.ThreadPoolExecutor(16) as pool:
+            granules = list(pool.map(read, keys))
+        np.savez_compressed(
+            path, **{k: np.concatenate([g[k] for g in granules]) for k in FIT_FIELDS}
+        )
+    return dict(np.load(path))
+
+
+def fit(data: dict[str, np.ndarray]) -> None:
+    """
+    Prints the values of the entry's configurations measured from scans with their
+    spacecraft's position and velocity, as `ValidateImagerCrIS` measured them.
+    """
+    good = (data["QF1_CRISSDRGEO"] == 0) & np.all(
+        np.abs(data["Latitude"]) <= 90, axis=(1, 2)
+    )
+    seconds = (data["FORTime"][good] - data["MidTime"][good][:, np.newaxis]) / 1e6
+    position = data["SCPosition"][good].astype(float)
+    velocity = data["SCVelocity"][good].astype(float)
+    # the spacecraft at each field of regard's time, extrapolated from the middle time
+    spacecraft = position[:, None] + velocity[:, None] * seconds[..., None]
+    sub_lon, sub_lat, _ = validation_io.TO_GEODETIC.transform(
+        *np.moveaxis(spacecraft, -1, 0)
+    )
+    nadir = -up(sub_lon, sub_lat)
+    lines = normalize(
+        ecef(
+            data["Longitude"][good].astype(float),
+            data["Latitude"][good].astype(float),
+            data["Height"][good].astype(float),
+        )
+        - spacecraft[:, :, None]
+    )
+    # the scan plane of each scan, normal to the lines of sight to the centers of its
+    # fields of regard, facing forward
+    centers = normalize(lines.mean(axis=2))
+    normal = np.array([np.linalg.svd(c)[2][-1] for c in centers])
+    normal *= np.sign(np.sum(normal * velocity, axis=-1))[:, None]
+    n = normal[:, None]
+    # scan angles in the plane, positive to the left, and angles out of it, forward
+    nadir_plane = normalize(nadir - np.sum(nadir * n, axis=-1, keepdims=True) * n)
+    left_plane = np.cross(n, nadir_plane)
+    in_plane = (
+        lines - np.sum(lines * n[:, :, None], axis=-1, keepdims=True) * n[:, :, None]
+    )
+    cross = np.degrees(
+        np.arctan2(
+            np.sum(in_plane * left_plane[:, :, None], axis=-1),
+            np.sum(in_plane * nadir_plane[:, :, None], axis=-1),
+        )
+    )
+    along = np.degrees(np.arcsin(np.einsum("kjic,kc->kji", lines, normal)))
+    scan_angles = cross.mean(axis=2)
+    measured = np.median(scan_angles, axis=0)
+    # a line in the index of fields of regard: roll + spacing * (14.5 - index), with
+    # the sign of the side of field of regard 0
+    orientation = np.sign(measured[0] - measured[-1])
+    spacing, roll = np.polyfit(
+        orientation * ((N_FOR - 1) / 2 - np.arange(N_FOR)), measured, 1
+    )
+    # the pitch of the fields of view: the mean distance of the central view's four
+    # nearest neighbors, from the median offsets of the fields of regard nearest nadir
+    offsets = np.stack(
+        [
+            np.median(cross - scan_angles[..., None], axis=0),
+            np.median(along - along.mean(axis=2, keepdims=True), axis=0),
+        ],
+        axis=-1,
+    )[list(NADIR_FORS)].mean(axis=0)
+    pitch = float(np.sort(np.hypot(*offsets.T))[1:5].mean())
+    # the forward tilt of the scan plane from nadir, at every field of regard
+    tilt = -np.degrees(np.arcsin(np.sum(nadir * n, axis=-1)))
+    cross_track_field_of_view = N_FOR * round(spacing, 5)
+    print(f"{good.sum()} scans from {FIT_HOURS[0]:02d}:00 to {FIT_HOURS[1]:02d}:00 UTC")
+    print(f"spacing of fields of regard: {spacing:.5f} deg")
+    print(f"roll_angle: {roll:.6f}")
+    print(
+        f"outermost scan angles: {measured.max():.6f} (left), {measured.min():.6f} "
+        f"(right); field_of_regard (swath): {measured.max() - measured.min():.6f}"
+    )
+    print(f"pitch of fields of view: {pitch:.4f} deg")
+    print(
+        "pitch_angle (median over every 5th scan of each scan's median tilt): "
+        f"{np.median(np.median(tilt[::5], axis=1)):.3f}; median over all fields of "
+        f"regard: {np.median(tilt):.6f}"
+    )
+    print(
+        f"pixels: cross_track_field_of_view {cross_track_field_of_view:.4f}, "
+        f"along_track_field_of_view {3 * round(pitch, 4):.4f}, "
+        "cross_track_oversampling "
+        f"{1 - cross_track_field_of_view / (3 * N_FOR) / FOV_DIAMETER:.6f}, "
+        f"along_track_oversampling {1 - round(pitch, 4) / FOV_DIAMETER:.6f}"
+    )
+
+
 def main() -> None:
     """Validates the entry on a day of data."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=pathlib.Path)
     parser.add_argument("day")
+    parser.add_argument("--fit", action="store_true")
     parser.add_argument("--sample-sizes-only", action="store_true")
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--platform", default=FIT_PLATFORM)
@@ -483,6 +623,10 @@ def main() -> None:
     arguments.directory.mkdir(parents=True, exist_ok=True)
 
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
+    if arguments.fit:
+        use_archive(arguments.platform)
+        fit(load_fit_hours(day, arguments.directory))
+        return
     prefix = use_archive(arguments.platform)
     directory = (
         arguments.directory

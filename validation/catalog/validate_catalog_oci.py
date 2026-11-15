@@ -55,6 +55,7 @@ from validation_io import (
     RECORDS,
     FIXTURES,
     source_of,
+    login_earthdata,
 )
 
 # the angles are fitted to 2026-10-04, and the schedule of the tilt's change to
@@ -310,8 +311,7 @@ def fit_blind(days: list[datetime]) -> None:
     no valid scans, over days, at full resolution: from the end of the last valid
     scan (its start plus a scan period) to the start of the first.
     """
-    if earthaccess.login(strategy="environment") is None:
-        raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+    login_earthdata()
     session = earthaccess.get_requests_https_session()
     changes = []
     for day in days:
@@ -357,8 +357,7 @@ def fit_switches(first: datetime, last: datetime, directory: pathlib.Path) -> No
     subsolar latitude at noon (UTC) of each day, by the parity of the day of the year,
     over a period of days, and the changes far from their day's median.
     """
-    if earthaccess.login(strategy="environment") is None:
-        raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+    login_earthdata()
     session = earthaccess.get_requests_https_session()
     rows = []
     for i in range((last - first).days + 1):

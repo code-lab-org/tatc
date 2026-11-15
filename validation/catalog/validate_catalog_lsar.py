@@ -82,6 +82,7 @@ from validation_io import (
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
+    login_earthdata,
 )
 
 RECORD_PATH = RECORDS / "lsar.json"
@@ -311,8 +312,7 @@ def load_day(day: datetime, directory: pathlib.Path) -> tuple[pd.DataFrame, list
     bounds_path = directory / f"lsar_bounds_{day:%Y%m%d}.csv"
     grids_path = directory / f"lsar_grids_{day:%Y%m%d}.npz"
     if not (bounds_path.exists() and grids_path.exists()):
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        login_earthdata()
         session = earthaccess.get_requests_https_session()
         catalog = search(day)
         print(f"reading {len(catalog)} products", flush=True)

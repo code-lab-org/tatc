@@ -42,7 +42,7 @@ configurations:
         provenance:
           field_of_regard: &measured_extent
             kind: measured
-            source: ValidateDriftMODIS, Test 3, 1,353 frame spacings of a fitted 0.08124 deg
+            source: validate_catalog_modis.py --fit, 1,353 frame spacings of a fitted 0.08124 deg
             platform: terra
             period: "2026-10-04"
           cross_track_field_of_view: *measured_extent
@@ -80,12 +80,12 @@ configurations:
             source: Wider than the field of view, so that it does not clip the scan
           cross_track_field_of_view:
             kind: measured
-            source: ValidateDriftMODIS, Test 3, 1,354 frames of a fitted 0.08124 deg
+            source: validate_catalog_modis.py --fit, 1,354 frames of a fitted 0.08124 deg
             platform: terra
             period: "2026-10-04"
           along_track_field_of_view:
             kind: measured
-            source: ValidateDriftMODIS, Test 3, 10 detectors, from 0.7311 deg over the 9 spacings between the first and last
+            source: validate_catalog_modis.py --fit, 10 detectors, from 0.7311 deg over the 9 spacings between the first and last
             platform: terra
             period: "2026-10-04"
           cross_track_pixels:
@@ -96,7 +96,7 @@ configurations:
             source: The 1 km bands have 10 detectors
           roll_angle:
             kind: measured
-            source: ValidateDriftMODIS, Test 3, the fitted offset of the scan angle
+            source: validate_catalog_modis.py --fit, the fitted offset of the scan angle
             platform: terra
             period: "2026-10-04"
           view_geometry:

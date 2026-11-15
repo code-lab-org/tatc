@@ -77,6 +77,7 @@ from validation_io import (
     RECORDS,
     FIXTURES,
     source_of,
+    login_earthdata,
 )
 
 RECORD_PATH = RECORDS / "iasi.json"
@@ -145,8 +146,7 @@ def load_day(day: datetime, directory: pathlib.Path) -> dict:
     """Downloads and reduces the pixel positions of a day, or loads them from a cache."""
     path = directory / f"iasi_{day:%Y%m%d}.npz"
     if not path.exists():
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        login_earthdata()
         session = earthaccess.get_requests_https_session()
         entries = requests.get(
             "https://cmr.earthdata.nasa.gov/search/granules.json",

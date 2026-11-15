@@ -52,6 +52,7 @@ from validation_io import (
     RECORDS,
     FIXTURES,
     source_of,
+    login_earthdata,
 )
 
 FIT_DAY = datetime(2026, 10, 4, tzinfo=timezone.utc)
@@ -133,8 +134,7 @@ def load_navigation(day: datetime, directory: pathlib.Path):
     """Reads the spacecraft positions of a day, or loads them from a cache."""
     cache = directory / f"spexone_navigation_{day:%Y%m%d}.npz"
     if not cache.exists():
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        login_earthdata()
         session = earthaccess.get_requests_https_session()
         with concurrent.futures.ThreadPoolExecutor(4) as pool:
             parts = list(

@@ -1,10 +1,11 @@
 """
 Validates the ATMS catalog entry against the NOAA-20 ATMS geolocation product, using
-the exact values of the entry through public TAT-C methods. The tests follow
-`ValidateImagerATMS`, whose day of data the entry's angles were fitted to, and
-`ValidateSampleSizes`: running on that day checks this script against the notebooks,
-while running on a day at least 30 days from it tests the fitted angles on data held
-out from the fit.
+the exact values of the entry through public TAT-C methods. The tests of pixels and
+swath width follow `ValidateImagerATMS`, on whose day of data the entry's angles were
+fitted, and those of sizes and spacing follow `ValidateSampleSizes`; the tests of
+passes, epochs, and swath area are this script's own. Running on that day checks the
+shared tests against the notebooks, while running on a day at least 30 days from it
+tests the fitted angles on data held out from the fit.
 
 Reads anonymous public data, and needs the `validation` extra:
 

@@ -238,8 +238,10 @@ Back-Test
 =========
 
 Results from :doc:`summary` against the thresholds. These come from each notebook
-as it was run, generally with fitted values and without holdout, so passing here
-does not make an instrument `validated`. Failures are listed, not explained away:
+as it was run when this standard was drafted, generally with fitted values and
+without holdout, so passing here does not make an instrument `validated`. Some of
+these tests have since moved from the notebooks to the catalog's validation
+scripts, whose results are on the :doc:`catalog` page. Failures are listed, not explained away:
 no threshold was loosened to pass one of them.
 
 .. list-table::

@@ -1,16 +1,23 @@
 """
 Validates the AMSR2 catalog entry against the GPM Level 1C AMSR2 product, using
-the exact values of the entry through public TAT-C methods. The tests follow
-`ValidateConicalAMSR2`, whose day of data the entry's angles were fitted to:
-running on that day checks this script against the notebook, while running on a
-day at least 30 days from it tests the fitted angles on data held out from the
-fit. Element sets for other days can be given in a file of the history of
+the exact values of the entry through public TAT-C methods. The tests of passes,
+epochs, and swath width follow `ValidateConicalAMSR2`, on whose day of data the
+entry's angles were fitted; the test of swath area is this script's own. Running on
+that day checks the shared tests against the notebook, while running on a day at
+least 30 days from it tests the fitted angles on data held out from the fit. Element sets for other days can be given in a file of the history of
 GCOM-W's element sets.
 
-Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`:
+Needs the `validation` extra and a NASA Earthdata login:
 
+    python validation/catalog/validate_catalog_amsr2.py <data directory> 2026-09-26 --fit
     python validation/catalog/validate_catalog_amsr2.py <data directory> 2026-09-26
     python validation/catalog/validate_catalog_amsr2.py <data directory> 2026-11-01
+
+With `--fit`, it measures the angles of the entry's configurations instead, on the
+day of the fit, as `ValidateConicalAMSR2` did: the cone angle of the lines of sight
+from geodetic nadir and the center and half width of the scan sector in azimuth
+from the inertial velocity (medians over every 20th scan with contiguous
+neighbors), of the 10.65 GHz group (S1), with the azimuth step between its samples. It prints them, without writing.
 
 It also validates the entry's sample size configuration, following
 `ValidateSampleSizes`. The gated metric compares sizes with footprints published
@@ -104,8 +111,7 @@ def load_day(day: datetime, directory: pathlib.Path) -> dict[str, np.ndarray]:
     """Downloads and reduces all orbits of a day, or loads them from a cache."""
     cache = directory / f"amsr2_l1c_{day:%Y%m%d}.npz"
     if not cache.exists():
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        validation_io.login_earthdata()
         session = earthaccess.get_requests_https_session()
         granules = requests.get(
             "https://cmr.earthdata.nasa.gov/search/granules.umm_json",
@@ -363,7 +369,7 @@ def score_passes(reference, points, satellite, observed) -> dict[str, float]:
 def get_orbit_scans(reference: Reference, period: float) -> np.ndarray:
     """
     Gets the scans of the first orbit from 12:00 UTC without a gap in the data, as
-    `ValidateConicalAMSR2` used an orbit after the gap of its day.
+    an earlier version of `ValidateConicalAMSR2` used an orbit after the gap of its day.
     """
     time = reference.time
     start = 12 * 3600
@@ -695,18 +701,44 @@ def read_elements(path: pathlib.Path, day: datetime) -> list[str]:
     return [line for epoch in sorted(pairs) for line in pairs[epoch]]
 
 
+def fit(reference: Reference) -> None:
+    """
+    Prints the cone and scan sector of the 10.65 GHz group (S1), measured on every
+    20th scan with contiguous neighbors, as `ValidateConicalAMSR2` measured them.
+    """
+    velocity = np.gradient(reference.position, reference.time, axis=0)
+    scans = np.nonzero(reference.contiguous)[0][::20]
+    lon, lat = reference.foot["S1"]
+    values = validation_io.fit_cone(
+        reference.position[scans], velocity[scans], lon[scans], lat[scans]
+    )
+    print(f"{len(reference.time)} scans, {len(scans)} measured")
+    for key in ("cone_angle", "scan_center_azimuth", "scan_half_width"):
+        print(f"{key}: {values[key]:.3f}")
+    print(f"scan_sample_spacing: {values['scan_sample_spacing']:.4f}")
+    print(
+        f"azimuths of the first and last samples: {values['first_azimuth']:.2f}, "
+        f"{values['last_azimuth']:.2f}; center from the Earth-fixed velocity: "
+        f"{values['scan_center_azimuth_earth_fixed']:.3f}"
+    )
+
+
 def main() -> None:
     """Validates the entry on a day of data."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=pathlib.Path)
     parser.add_argument("day")
     parser.add_argument("--elements", type=pathlib.Path)
+    parser.add_argument("--fit", action="store_true")
     parser.add_argument("--sample-sizes-only", action="store_true")
     parser.add_argument("--write", action="store_true")
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
 
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
+    if arguments.fit:
+        fit(Reference(day, load_day(day, arguments.directory)))
+        return
     if arguments.elements is not None:
         tle = read_elements(arguments.elements, day)
     elif arguments.day in ELEMENTS:

@@ -65,6 +65,7 @@ from validation_io import (
     RECORDS,
     FIXTURES,
     source_of,
+    login_earthdata,
 )
 
 RECORD_PATH = RECORDS / "karin.json"
@@ -103,8 +104,7 @@ def load_day(day: datetime, directory: pathlib.Path) -> list[dict]:
     """Downloads and reduces the passes that start on a day, or loads them."""
     path = directory / f"swot_karin_{day:%Y%m%d}.npz"
     if not path.exists():
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        login_earthdata()
         results = earthaccess.search_data(
             short_name="SWOT_L2_LR_SSH_BASIC_D",
             temporal=(f"{day:%Y-%m-%d}T00:00:00Z", f"{day:%Y-%m-%d}T23:59:59Z"),

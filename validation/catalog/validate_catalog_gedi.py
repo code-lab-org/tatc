@@ -64,6 +64,7 @@ from validation_io import (
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
+    login_earthdata,
 )
 
 RECORD_PATH = RECORDS / "gedi.json"
@@ -179,8 +180,7 @@ def load_day(day: datetime, directory: pathlib.Path) -> pd.DataFrame:
             )
             for item in items
         ]
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        login_earthdata()
         session = earthaccess.get_requests_https_session()
         with concurrent.futures.ThreadPoolExecutor(8) as pool:
             parts = [

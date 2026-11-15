@@ -57,6 +57,7 @@ from validation_io import (
     RECORDS,
     FIXTURES,
     source_of,
+    login_earthdata,
 )
 
 FIT_DAY = datetime(2026, 10, 4, tzinfo=timezone.utc)
@@ -116,8 +117,7 @@ def load_day(day: datetime, directory: pathlib.Path) -> dict:
     """Reads and reduces the scenes of a day, or loads them from a cache."""
     cache = directory / f"ecostress_{day:%Y%m%d}.npz"
     if not cache.exists():
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        login_earthdata()
         session = earthaccess.get_requests_https_session()
         scenes = [
             url

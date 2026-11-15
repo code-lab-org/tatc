@@ -122,10 +122,12 @@ Instruments and Pointing
        set, swath IoU 0.963 to 0.978, but still 97.5 to 98.6% of passes predicted (:doc:`catalog`)
    * - Conical scanners (`ConicalInstrument`)
      - GCOM-W AMSR2, GPM GMI, SMAP radiometer, DMSP F18 SSMIS, TRMM TMI
-     - 99.95 to 100% of passes, epochs within 0.27 s (AMSR2) and 0.69 s (GMI) at the 95th percentile; swath IoU 0.998
-       to 0.999; SMAP's forward and aft looks within 0.2 s (median) (:doc:`ValidateConicalAMSR2`,
-       :doc:`ValidateConicalGMI`, :doc:`ValidateGridSMAP`). On held-out AMSR2 data, 99.98% of passes predicted,
-       epochs within 0.79 s (95th percentile), swath width within 2.8 km, and swath IoU 0.998; on held-out SMAP Level
+     - AMSR2: 99.95% of passes, epochs within 0.27 s (95th percentile) (:doc:`ValidateConicalAMSR2`); GMI: swath
+       width within 0.4 km (95th percentile) (:doc:`ValidateConicalGMI`); SMAP's forward and aft looks within 0.2 s
+       (median) (:doc:`ValidateGridSMAP`). On held-out AMSR2 data, 99.98% of passes predicted,
+       epochs within 0.79 s (95th percentile), swath width within 2.8 km, and swath IoU 0.998; on held-out GMI data,
+       99.93 to 100% of passes predicted with both feeds, epochs within 0.63 s (95th percentile), swath width within
+       0.25 km, and swath IoU 0.999; on held-out SMAP Level
        1B footprints, 100% of passes predicted with both looks, epochs within 0.14 s (95th percentile), swath width
        within 2.1 km, and swath IoU 0.998; on held-out SSMIS data, 99.7% of passes predicted, epochs within 0.51 s
        (95th percentile), swath width within 2.6 km, and swath IoU 0.992 (:doc:`catalog`). TMI's three feeds, on
@@ -133,11 +135,12 @@ Instruments and Pointing
        2.9 km, and swath IoU 0.995 or more (:doc:`catalog`)
    * - Side-looking SAR (`PointedInstrument` with roll, `roll_angle_profile`)
      - NISAR, Sentinel-1C
-     - Epochs within 0.3 and 0.44 s (95th percentile) of zero-Doppler times; footprint IoU 0.93 to 0.96 (median); roll
-       steering profiles bring swath edges within 6 to 7 km (:doc:`ValidateSARNISAR`, :doc:`ValidateSARSentinel1`).
-       On held-out Sentinel-1C data, IW's swath edges within 6.7 to 6.9 km (95th percentile) and swath IoU 0.974, but
-       98.98% of its passes predicted, the misses at the swath edges; EW, on a later held-out day, predicted 99.16% of
-       passes, with edges within 7.6 to 9.5 km and swath IoU 0.989 (:doc:`catalog`). On held-out NISAR data of its modes with a 20 or 40 MHz band,
+     - NISAR's swath edges within 5 to 7 km across track (95th percentile) (:doc:`ValidateSARNISAR`); roll
+       steering profiles bring Sentinel-1C's within 6 to 7 km (:doc:`ValidateSARSentinel1`).
+       On held-out Sentinel-1C data, IW's swath edges within 6.7 to 6.9 km (95th percentile), epochs within 0.43 s
+       of zero-Doppler times, and swath IoU 0.974, but 98.98% of its passes predicted, the misses at the swath edges;
+       EW, on a later held-out day, predicted 99.16% of passes, with edges within 7.6 to 9.5 km, epochs within
+       0.34 s, and swath IoU 0.989 (:doc:`catalog`). On held-out NISAR data of its modes with a 20 or 40 MHz band,
        99.27% of passes predicted, epochs within 0.92 s, and far-range edges within 6.8 km, but near-range edges
        within 12.1 km (95th percentile) with a fixed field of view, and swath IoU 0.974 (:doc:`catalog`). NISAR's 77 MHz mode, on four held-out days with an element set of each day:
        99.01% of passes predicted, edges within 3.1 km and epochs within 0.13 s (95th percentile); with an element set

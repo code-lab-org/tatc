@@ -59,6 +59,7 @@ from validation_io import (
     RECORDS,
     FIXTURES,
     source_of,
+    login_earthdata,
 )
 
 RECORD_PATH = RECORDS / "tempo.json"
@@ -154,8 +155,7 @@ def load_scan(day: datetime, directory: pathlib.Path) -> dict:
     cache = directory / f"tempo_{day:%Y%m%d}.npz"
     if not cache.exists():
         urls = find_scan(day)
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        login_earthdata()
         session = earthaccess.get_requests_https_session()
         with concurrent.futures.ThreadPoolExecutor(GRANULES) as pool:
             parts = list(

@@ -46,6 +46,7 @@ from validation_io import (
     RECORDS,
     FIXTURES,
     source_of,
+    login_earthdata,
 )
 
 FIT_DAY = datetime(2026, 8, 25, tzinfo=timezone.utc)
@@ -81,8 +82,7 @@ def download(day: datetime, directory: pathlib.Path) -> pathlib.Path:
     )
     path = directory / url.split("/")[-1]
     if not path.exists():
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        login_earthdata()
         session = earthaccess.get_requests_https_session()
         with session.get(url, stream=True, timeout=600) as response:
             response.raise_for_status()

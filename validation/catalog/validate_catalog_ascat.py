@@ -77,6 +77,7 @@ from validation_io import (
     FIXTURES,
     source_of,
     ELEMENT_SET_FOLDER,
+    login_earthdata,
 )
 
 RECORD_PATH = RECORDS / "ascat.json"
@@ -176,8 +177,7 @@ def load_day(day: datetime, directory: pathlib.Path) -> dict:
             if u["URL"].startswith("https://archive.podaac")
             and u["URL"].endswith(".nc")
         )
-        if earthaccess.login(strategy="environment") is None:
-            raise RuntimeError("Earthdata login failed: is EARTHDATA_TOKEN set?")
+        login_earthdata()
         session = earthaccess.get_requests_https_session()
         folder = directory / f"ascat_{day:%Y%m%d}"
         folder.mkdir(exist_ok=True)
