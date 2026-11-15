@@ -73,7 +73,7 @@ docs/_build/
 
 # Reference data downloaded by example and validation notebooks
 docs/validation/data/
-docs/examples/data/
+docs/examples/osse/data/
 
 # PyBuilder
 .pybuilder/

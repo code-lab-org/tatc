@@ -1,0 +1,164 @@
+"""
+Unit tests for the confirmation of selected designs.
+
+@author Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
+import unittest
+import warnings
+
+import numpy as np
+import pandas as pd
+
+from tatc.tradespace import (
+    Confirmation,
+    Criteria,
+    DesignSpace,
+    Integer,
+    Probability,
+    Requirement,
+    Study,
+    Uncertain,
+    confirm,
+    pareto_front,
+    summarize,
+)
+
+OBJECTIVES = {"cost": "min", "value": "max"}
+
+
+def _study(replicates=3):
+    """Designs of equal true values (but for the cost), with independent noise."""
+    space = DesignSpace(
+        cost=Integer(1, 2), variant=Integer(0, 49), noise=Uncertain.normal(0, 1)
+    )
+    return Study(
+        space,
+        lambda d: d,
+        lambda d: {"cost": d.cost, "value": d.cost + d.noise},
+        replicates=replicates,
+        common_random_numbers=False,
+    )
+
+
+class TestConfirm(unittest.TestCase):
+    """
+    Unit tests for confirmation.
+    """
+
+    def setUp(self):
+        self.study = _study()
+        self.designs = self.study.space.enumerate()
+        self.results = self.study.run(self.designs)
+        summary = summarize(self.results, statistics=list(OBJECTIVES))
+        # the best looking designs of each cost
+        best = summary.sort_values("value", ascending=False).groupby(
+            summary.design.map({d.key: d.cost for d in self.designs})
+        )
+        self.selected_keys = set(best.head(5).design)
+        self.selected = [d for d in self.designs if d.key in self.selected_keys]
+
+    def test_removes_optimism(self):
+        """New replicates remove the optimism of selection."""
+        confirmation = confirm(
+            self.study, OBJECTIVES, self.results, self.selected, replicates=20
+        )
+        self.assertEqual(set(confirmation.summary.design), self.selected_keys)
+        self.assertTrue((confirmation.summary.replicates == 20).all())
+        # the new replicates follow every replicate of the results
+        self.assertEqual(set(confirmation.results.replicate), set(range(3, 23)))
+        optimism = confirmation.optimism
+        self.assertAlmostEqual(optimism["cost"], 0)
+        # the optimism of each design, signed by the direction of the objective
+        summary = confirmation.summary
+        np.testing.assert_allclose(
+            summary["value optimism"], summary["value selected"] - summary["value"]
+        )
+        np.testing.assert_allclose(
+            summary["cost optimism"], summary["cost"] - summary["cost selected"]
+        )
+        self.assertAlmostEqual(optimism["value"], summary["value optimism"].mean())
+        # the 5 best of 50 designs of 3 replicates look better by about a
+        # standard deviation of their means (0.58), which the new ones remove
+        self.assertGreater(optimism["value"], 0.6)
+        # the confirmed values are unbiased (their true values are the costs)
+        errors = confirmation.summary.value - confirmation.summary.design.map(
+            {d.key: d.cost for d in self.designs}
+        )
+        self.assertLess(abs(errors.mean()), 0.15)
+
+    def test_spreads(self):
+        """The summary gives the spreads of the means by the new replicates,
+        after each statistic, as summarize does."""
+        confirmation = confirm(
+            self.study, OBJECTIVES, self.results, self.selected, replicates=20
+        )
+        summary = confirmation.summary
+        new = summarize(confirmation.results, OBJECTIVES).set_index("design")
+        np.testing.assert_allclose(
+            summary.set_index("design").loc[new.index, "value se"], new["value se"]
+        )
+        # the cost, the same in every replicate, has no spread
+        self.assertNotIn("cost se", summary.columns)
+        columns = list(summary.columns)
+        self.assertEqual(
+            columns[columns.index("value") : columns.index("value") + 4],
+            ["value", "value std", "value se", "value selected"],
+        )
+        self.assertLess(columns.index("variant"), columns.index("cost"))
+
+    def test_default_front(self):
+        """Without designs, the front of the results is confirmed; designs may
+        also be given by their keys or a data frame of them."""
+        summary = summarize(self.results, statistics=list(OBJECTIVES))
+        front = summary[pareto_front(summary, OBJECTIVES)]
+        confirmation = confirm(self.study, OBJECTIVES, self.results)
+        self.assertEqual(set(confirmation.summary.design), set(front.design))
+        self.assertEqual({d.key for d in confirmation.designs}, set(front.design))
+        by_frame = confirm(self.study, OBJECTIVES, self.results, front)
+        pd.testing.assert_frame_equal(by_frame.summary, confirmation.summary)
+        by_keys = confirm(self.study, OBJECTIVES, self.results, list(front.design))
+        pd.testing.assert_frame_equal(by_keys.summary, confirmation.summary)
+
+    def test_front(self):
+        """The front is found among the confirmed designs by the new replicates."""
+        confirmation = confirm(self.study, OBJECTIVES, self.results, self.selected)
+        summary = confirmation.summary
+        np.testing.assert_array_equal(
+            summary.pareto, pareto_front(summary, OBJECTIVES).to_numpy()
+        )
+
+    def test_requirements(self):
+        """Requirements are judged by the new replicates."""
+        confirmation = confirm(
+            self.study,
+            Criteria(
+                OBJECTIVES,
+                statistics={"reliability": Probability("value", ">=", 1.5)},
+                requirements=[Requirement("reliability", ">=", 0.5)],
+            ),
+            self.results,
+            self.selected,
+        )
+        summary = confirmation.summary
+        self.assertIn("reliability selected", summary.columns)
+        np.testing.assert_array_equal(
+            summary.meets_requirements, summary.reliability >= 0.5
+        )
+        self.assertFalse((summary.pareto & ~summary.meets_requirements).any())
+        with self.assertRaises(ValueError):
+            confirm(self.study, OBJECTIVES, self.results, self.selected, replicates=0)
+
+    def test_optimism_without_designs(self):
+        """The optimism of a confirmation without designs is unknown."""
+        empty = Confirmation(
+            results=pd.DataFrame(),
+            summary=pd.DataFrame({"cost optimism": [], "value optimism": []}),
+            designs=[],
+            criteria=Criteria(OBJECTIVES),
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            optimism = empty.optimism
+        self.assertTrue(optimism.isna().all())
+        self.assertEqual(list(optimism.index), list(OBJECTIVES))
