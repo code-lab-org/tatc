@@ -8,8 +8,11 @@ from reduced fixtures, written by `docs/validation/validate_catalog_atms.py`,
 `docs/validation/validate_catalog_dpr.py`,
 `docs/validation/validate_catalog_mhs.py`,
 `docs/validation/validate_catalog_airs.py`,
-`docs/validation/validate_catalog_amsua.py`, and
-`docs/validation/validate_catalog_avhrr.py`.
+`docs/validation/validate_catalog_amsua.py`,
+`docs/validation/validate_catalog_avhrr.py`,
+`docs/validation/validate_catalog_trmm_pr.py`, and
+`docs/validation/validate_catalog_virs.py`, and of other swaths and narrow views
+written by their validation scripts.
 
 These detect changes in TAT-C's results without network access. They do not themselves
 establish agreement with the reference data, which the scripts do.
@@ -66,6 +69,7 @@ class _SwathFixture:
     fixture_name: str | None = None
     swath_key = "swath"
     platform = "noaa-20"
+    instrument_index = 0
 
     @classmethod
     def setUpClass(cls):
@@ -109,6 +113,7 @@ class _SwathFixture:
                 satellite,
                 time - timedelta(minutes=10),
                 time + timedelta(minutes=10),
+                self.instrument_index,
             )
             differences.append(
                 min(
@@ -535,6 +540,41 @@ class TestAvhrrFixture(_BeamScannerFixture, unittest.TestCase):
         return 10
 
 
+class TestTrmmPrFixture(_BeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the TRMM PR entry, whose published footprint at the scan's edge
+    does not meet the gate.
+    """
+
+    entry_id = "trmm_pr"
+    sizes_key = "beams"
+    size_instrument = "PR"
+    platform = "trmm"
+    meets_published_gate = False
+    footprints = (
+        ("PR", 403, 35, 0, 5.0, 5.0),
+        ("PR", 403, 35, 17.0, 5.0, 5.0),
+    )
+
+    def time_step(self) -> float:
+        return 10
+
+
+class TestVirsFixture(_BeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the TRMM VIRS entry.
+    """
+
+    entry_id = "virs"
+    sizes_key = "pixels"
+    size_instrument = "VIRS"
+    platform = "trmm"
+    footprints = (("VIRS", 403, 35, 0, 2.4, 2.4),)
+
+    def time_step(self) -> float:
+        return 10
+
+
 class TestCrisFixture(_ScannerFixture, unittest.TestCase):
     """
     Regression tests of the CrIS entry, whose pixels do not meet the gates, so that
@@ -684,6 +724,46 @@ class TestPoseidon4Fixture(_StepSwathFixture, unittest.TestCase):
     entry_id = "poseidon4"
     swath_key = "nadir"
     platform = "sentinel-6a"
+
+
+class TestEarthcareMsiFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the EarthCARE MSI entry's swath, rolled away from the sun.
+    """
+
+    entry_id = "earthcare_msi"
+    platform = "earthcare"
+
+
+class TestAtlidFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the ATLID entry's view, pointed behind nadir.
+    """
+
+    entry_id = "atlid"
+    swath_key = "profile"
+    platform = "earthcare"
+
+
+class TestCprFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the CPR entry's nadir view.
+    """
+
+    entry_id = "cpr"
+    swath_key = "nadir"
+    platform = "earthcare"
+
+
+class TestBbrFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the BBR entry's nadir view (instrument index 1).
+    """
+
+    entry_id = "bbr"
+    swath_key = "views"
+    platform = "earthcare"
+    instrument_index = 1
 
 
 if __name__ == "__main__":

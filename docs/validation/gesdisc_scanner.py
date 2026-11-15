@@ -194,8 +194,12 @@ class Reference:
     (`line_stride`).
     """
 
-    def __init__(self, day: datetime, data: dict, scan_period: float):
+    def __init__(
+        self, day: datetime, data: dict, scan_period: float, gap_threshold: float = 60
+    ):
+        # breaks longer than the threshold (s) are periods without data
         self.day = day
+        self.gap_threshold = gap_threshold
         valid = np.all(np.abs(data["lat"]) <= 90, axis=1) & np.all(
             np.abs(data["lon"]) <= 180, axis=1
         )
@@ -230,7 +234,7 @@ class Reference:
         self.is_next_contiguous = period < 1.5 * scan_period
         self.gaps = [
             (self.time[i].to_pydatetime(), self.time[i + 1].to_pydatetime())
-            for i in np.nonzero(period > 60)[0]
+            for i in np.nonzero(period > gap_threshold)[0]
         ]
 
     def velocity(self, frame: str) -> np.ndarray:
@@ -399,6 +403,7 @@ def fit_view(
     pitch_angle: float,
     lines: int = 3000,
     iterations: int = 8,
+    instrument_pitch: bool = False,
 ) -> None:
     """
     Prints the view that TAT-C centers on the outermost beams: given the body's yaw
@@ -407,6 +412,8 @@ def fit_view(
     of view between the first and last beams, from TAT-C's view tangents, with the
     spacecraft's position and velocity of the product. A roll measured from the
     geodetic nadir (`fit`) does not center a view that is also pitched and yawed.
+    With `instrument_pitch`, the pitch is the instrument's (applied after its roll),
+    starting from `pitch_angle`, and the body is only yawed.
     """
     contiguous = (
         np.r_[False, reference.is_next_contiguous]
@@ -431,29 +438,34 @@ def fit_view(
         for k in (0, middle, reference.beams - 1)
     ]
     roll, pitch = 0.0, pitch_angle
-    for _ in range(iterations):
+
+    def tangents(roll, pitch):
+        body = 0.0 if instrument_pitch else pitch
         attitude = Attitude(
-            velocity_frame=velocity_frame, yaw_angle=yaw_angle, pitch_angle=pitch
+            velocity_frame=velocity_frame, yaw_angle=yaw_angle, pitch_angle=body
         )
-        (a0, c0), (am, _), (a1, c1) = (
+        return [
             compute_view_tangents(
-                track, target, velocity_frame, roll, 0, attitude=attitude
+                track,
+                target,
+                velocity_frame,
+                roll,
+                pitch if instrument_pitch else 0,
+                attitude=attitude,
             )
             for target in targets
-        )
+        ]
+
+    for _ in range(iterations):
+        (a0, c0), (am, _), (a1, c1) = tangents(roll, pitch)
         roll += float(np.degrees(np.arctan(np.median((c0 + c1) / 2))))
         pitch += float(np.degrees(np.arctan(np.median(am))))
-    attitude = Attitude(
-        velocity_frame=velocity_frame, yaw_angle=yaw_angle, pitch_angle=pitch
-    )
-    (a0, c0), (am, cm), (a1, c1) = (
-        compute_view_tangents(track, target, velocity_frame, roll, 0, attitude=attitude)
-        for target in targets
-    )
+    (a0, c0), (am, cm), (a1, c1) = tangents(roll, pitch)
     width = 2 * np.degrees(np.arctan(np.median(np.abs(c0 - c1)) / 2))
     slope = np.degrees(np.arctan(np.median((a0 - a1) / (c0 - c1))))
     print(
-        f"{frame} view, with yaw {yaw_angle:.4f} deg: roll {roll:.4f} deg, pitch "
+        f"{frame} view, with yaw {yaw_angle:.4f} deg: roll {roll:.4f} deg, "
+        f"{'instrument' if instrument_pitch else 'body'} pitch "
         f"{pitch:.4f} deg, cross-track field of view {width:.4f} deg; remaining "
         f"across tangents of the ends p5..p95 {np.percentile(c0, 5):+.5f}..."
         f"{np.percentile(c0, 95):+.5f} and {np.percentile(c1, 5):+.5f}..."
@@ -547,8 +559,8 @@ def score_swath_width(
 
 def longest_span(reference: Reference, period: float) -> np.ndarray:
     """
-    Gets the scans of the longest span of data, of at most an orbit's period (s),
-    without a gap of more than a minute, for products that do not cover whole orbits.
+    Gets the scans of the longest span of data, of at most a period (s), without a gap
+    of more than a minute.
     """
     breaks = np.nonzero(np.diff(reference.seconds) >= 60)[0] + 1
     spans = np.split(np.arange(len(reference.seconds)), breaks)
@@ -557,12 +569,19 @@ def longest_span(reference: Reference, period: float) -> np.ndarray:
 
 
 def observe_orbit(reference: Reference, orbit, grid, radius: float):
-    """Gets the cells compared over one orbit, and which of them were observed."""
+    """
+    Gets the cells compared over a span of the day's data, and which of them were
+    observed. The span is not one orbit but the rest of the data from noon (or from
+    the first later start, in steps of 10 minutes until 22:00, after which no gap of a
+    minute or more remains), or else the longest span without such a gap.
+    """
     lon, lat, _ = grid
     unit = up(lon, lat)
     begin = pd.Timestamp(reference.day) + pd.Timedelta(hours=12)
+    # the span is bounded by 1 / mean motion days; TAT-C's mean motion is in deg/s,
+    # so this bound (about 15 days) exceeds the data, and every record scored with
+    # this function compares the span described above, rather than one orbit
     period = pd.Timedelta(days=1 / orbit.elements[0].mean_motion)
-    # the first orbit from noon without a gap of more than a minute
     while True:
         scans = np.nonzero(
             (reference.time >= begin) & (reference.time < begin + period)
@@ -573,22 +592,39 @@ def observe_orbit(reference: Reference, orbit, grid, radius: float):
         if begin > pd.Timestamp(reference.day) + pd.Timedelta(hours=22):
             scans = longest_span(reference, period.total_seconds())
             print(
-                "no orbit without a gap; the longest span without one lasts "
-                f"{np.ptp(reference.seconds[scans]) / 60:.1f} min",
+                "no span from noon without a gap; the longest span without one "
+                f"lasts {np.ptp(reference.seconds[scans]) / 60:.1f} min",
                 flush=True,
             )
             break
     first, last = reference.time[scans[0]], reference.time[scans[-1]]
-    distance, nearest = cKDTree(reference.unit[scans].reshape(-1, 3)).query(
-        unit, workers=-1
+    chord = 2 * np.sin(radius / 6371 / 2)
+    # bounding the search keeps it fast for cells far from the span's thin swath,
+    # which are not compared (their distance is infinite, their index out of range)
+    vertices = reference.unit[scans].reshape(-1, 3)
+    distance, nearest = cKDTree(vertices).query(
+        unit, distance_upper_bound=chord, workers=-1
     )
     elapsed = reference.seconds[scans] - reference.seconds[scans[0]]
-    nearest_time = elapsed[nearest // reference.beams]
+    nearest_scan = np.minimum(nearest, len(vertices) - 1) // reference.beams
+    nearest_time = elapsed[nearest_scan]
     compared = (
-        (distance < 2 * np.sin(radius / 6371 / 2))
+        (distance < chord)
         & (nearest_time > ORBIT_MARGIN)
         & (nearest_time < (last - first).total_seconds() - ORBIT_MARGIN)
     )
+    if reference.gap_threshold < 60:
+        # cells nearest the scans on either side of a shorter period without data
+        # (as the strip it leaves unimaged) are not compared
+        breaks = np.nonzero(np.diff(elapsed) > reference.gap_threshold)[0]
+        bordering = np.zeros(len(scans), dtype=bool)
+        bordering[breaks] = bordering[breaks + 1] = True
+        compared &= ~bordering[nearest_scan]
+        print(
+            f"{len(breaks)} periods without data over {reference.gap_threshold} s in "
+            "the span compared",
+            flush=True,
+        )
     observed = np.zeros(len(unit), dtype=bool)
     observed[compared] = reference.in_cells(unit[compared], scans[0], scans[-1])
     return first.to_pydatetime(), last.to_pydatetime(), compared, observed

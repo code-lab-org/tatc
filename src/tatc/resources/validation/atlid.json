@@ -1,0 +1,38 @@
+{
+  "entry_id": "atlid",
+  "configurations": {
+    "profile": {
+      "digest": "e5519e6a3649052d584f93a14cd30790cceb1d49489a3d023983e02f5d6ee636",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_atlid.py",
+      "reference": "ATL_NOM_1B (profile positions and times)",
+      "period": "2026-11-07",
+      "platform": "earthcare",
+      "holdout_gap_days": 41,
+      "metrics": [
+        {
+          "name": "segment_recall",
+          "value": 100.0
+        },
+        {
+          "name": "track_offset_median",
+          "value": 0.7199765593224472
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.4611468649
+        },
+        {
+          "name": "epoch_median",
+          "value": 0.176493774
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.4253327837999999
+      }
+    }
+  },
+  "standard_version": 6
+}

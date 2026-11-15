@@ -20,8 +20,20 @@ from tatc.catalog import (
 # (metric, limit, at most) by class and grade. These thresholds are frozen: they
 # must test new instruments rather than follow their results. A change needs a
 # new STANDARD_VERSION, with its reason, in docs/validation/standard.rst.
-FROZEN_VERSION = 5
+FROZEN_VERSION = 6
 FROZEN_GATES = {
+    # version 6 added the profiler class, with the gates of the altimeter class,
+    # and changed no other gate
+    ("profiler", "coverage"): [
+        ("segment_recall", 99, False),
+        ("track_offset_median", 0.5, True),
+        ("epoch_p95", 3, True),
+    ],
+    ("profiler", "timing"): [
+        ("segment_recall", 99, False),
+        ("track_offset_median", 0.5, True),
+        ("epoch_p95", 1, True),
+    ],
     # version 5 added the regional geostationary class, and changed no other gate
     ("geostationary_regional", "coverage"): [("field_of_regard_iou", 0.95, False)],
     # version 4 added the scatterometer class, with the gates of the sar class, and

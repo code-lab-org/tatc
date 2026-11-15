@@ -13,14 +13,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-STANDARD_VERSION = 5
+STANDARD_VERSION = 6
 """The version of the thresholds in `get_gates`."""
 
-COMPATIBLE_VERSIONS = (1, 2, 3, 4, 5)
+COMPATIBLE_VERSIONS = (1, 2, 3, 4, 5, 6)
 """
 Versions whose results still apply: version 2 only added the lidar class, version 3
-the altimeter class, version 4 the scatterometer class, and version 5 the regional
-geostationary class.
+the altimeter class, version 4 the scatterometer class, version 5 the regional
+geostationary class, and version 6 the profiler class.
 """
 
 MIN_HOLDOUT_GAP_DAYS = 30
@@ -41,6 +41,7 @@ class InstrumentClass(str, Enum):
     LIDAR = "lidar"
     ALTIMETER = "altimeter"
     SCATTEROMETER = "scatterometer"
+    PROFILER = "profiler"
 
 
 class Grade(str, Enum):
@@ -130,6 +131,10 @@ _SWEEP_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
     # products of nadir altimeters omit measurements by surface and quality, so
     # predicted measurements that were not made are not errors (no precision gate)
     InstrumentClass.ALTIMETER: (_SEGMENT_RECALL, _TRACK_OFFSET),
+    # version 6: single-beam atmospheric profilers (lidar or radar), near nadir,
+    # with the altimeter's gates; products omit profiles by quality and mode, so
+    # predicted profiles that were not measured are not errors (no precision gate)
+    InstrumentClass.PROFILER: (_SEGMENT_RECALL, _TRACK_OFFSET),
     # version 4: side-looking swaths, as for SAR; wind products omit land and sea
     # ice, so predicted passes that were not measured are not errors (no precision)
     InstrumentClass.SCATTEROMETER: (

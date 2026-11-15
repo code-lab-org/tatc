@@ -65,7 +65,7 @@ Instruments and Pointing
      - Result
    * - Cross-track scanners (`PointedInstrument`, `ViewGeometry.SCAN`)
      - NOAA-20 ATMS, CrIS, and VIIRS; Terra and Aqua MODIS; Metop-B IASI; GPM DPR; Metop-C MHS and AVHRR; Aqua
-       AIRS and AMSU-A; PACE OCI; NOAA-20 CERES; ISS ECOSTRESS
+       AIRS and AMSU-A; PACE OCI; NOAA-20 CERES; ISS ECOSTRESS; TRMM PR and VIRS
      - On held-out data, 99.8 to 100% of passes predicted (ATMS, CrIS, VIIRS, MODIS, IASI, DPR); epochs within 0.25 s
        (ATMS), 0.40 s (CrIS), 0.44 s (MODIS), 0.60 s (DPR), and 2.0 s (VIIRS) at the 95th percentile; swath width
        within 0.20 to 3.3 km (median) with measured fields of regard; pixel centers within 1.4 to 2.9 km (median;
@@ -91,10 +91,13 @@ Instruments and Pointing
        percentile), and swath IoU 0.999, but swath width within 7.9 km (median), its edges 60 deg from nadir; ECOSTRESS,
        with fitted yaw and pitch and its view centered in TAT-C's frame, had 98.4% of predicted passes observed,
        epochs within 0.72 s, swath width within 0.62 km, and swath IoU 0.988, but predicted 98.9% of observed passes
-       (:doc:`catalog`)
+       (:doc:`catalog`). On data of TRMM held out 39 days from the fit, PR and VIRS predicted 99.89 and 99.81% of
+       passes, with epochs within 0.48 and 0.59 s (95th percentile), swath width within 0.07 and 0.24 km, swath IoU
+       0.997 and 0.994, and pixel centers within 1.4 and 2.2 km (median); PR's published footprint of 5.0 km at the
+       scan's edge lies 7.9% below the size its beam width gives (:doc:`catalog`)
    * - Pushbroom imagers (`PointedInstrument`)
      - Sentinel-2 MSI, Landsat 9 OLI, Sentinel-5P TROPOMI, Sentinel-3A OLCI, PACE HARP2 and SPEXone, NOAA-20 and
-       NOAA-21 OMPS Nadir Mapper, OCO-2, ISS EMIT
+       NOAA-21 OMPS Nadir Mapper, OCO-2, ISS EMIT, EarthCARE MSI and BBR
      - On held-out data, 99.8% or more of passes predicted; swath width within 0.1 to 2.0 km and swath IoU 0.99 or
        more (median); epochs within 1.3 s (OLI), 2.1 s (TROPOMI), and 2.6 s (MSI, one view) at the 95th percentile
        (:doc:`catalog`). MSI's epochs within
@@ -109,16 +112,25 @@ Instruments and Pointing
        (:doc:`catalog`). EMIT, with fitted yaw and pitch and its view centered in TAT-C's frame, observed 94.6%
        of sampled pixels on held-out data, with epochs within 0.25 s and swath width within 0.05 km, but missed pixels
        within about 1.5 km of one edge of its 75 km swath, and swath IoU was 0.925; with its roll measured from
-       the geodetic nadir instead, its view had lain 4.0 to 4.5 km to one side (:doc:`catalog`)
+       the geodetic nadir instead, its view had lain 4.0 to 4.5 km to one side (:doc:`catalog`). On EarthCARE data
+       held out 41 days from the fit, MSI (rolled 5.6 deg away from the sun) predicted 99.55% of passes, with epochs
+       within 0.50 s (95th percentile), swath width within 0.22 km, and swath IoU 0.989. BBR's three views (about
+       50 deg aft, nadir, and 50 deg fore), with breaks in its data over 1 s as periods without data, predicted 95.5
+       to 97.9% of passes, with epochs within 0.52 s (95th percentile), swath width within 0.04 km, and swath IoU
+       0.921 to 0.954, against 99.2 to 99.5% and 0.983 to 0.990 on the day of the fit, with the element set nearest
+       the day's middle that put ATLID's and CPR's profiles 0.72 km from their track; with the day's other element
+       set, swath IoU 0.963 to 0.978, but still 97.5 to 98.6% of passes predicted (:doc:`catalog`)
    * - Conical scanners (`ConicalInstrument`)
-     - GCOM-W AMSR2, GPM GMI, SMAP radiometer, DMSP F18 SSMIS
+     - GCOM-W AMSR2, GPM GMI, SMAP radiometer, DMSP F18 SSMIS, TRMM TMI
      - 99.95 to 100% of passes, epochs within 0.27 s (AMSR2) and 0.69 s (GMI) at the 95th percentile; swath IoU 0.998
        to 0.999; SMAP's forward and aft looks within 0.2 s (median) (:doc:`ValidateConicalAMSR2`,
        :doc:`ValidateConicalGMI`, :doc:`ValidateGridSMAP`). On held-out AMSR2 data, 99.98% of passes predicted,
        epochs within 0.79 s (95th percentile), swath width within 2.8 km, and swath IoU 0.998; on held-out SMAP Level
        1B footprints, 100% of passes predicted with both looks, epochs within 0.14 s (95th percentile), swath width
        within 2.1 km, and swath IoU 0.998; on held-out SSMIS data, 99.7% of passes predicted, epochs within 0.51 s
-       (95th percentile), swath width within 2.6 km, and swath IoU 0.992 (:doc:`catalog`)
+       (95th percentile), swath width within 2.6 km, and swath IoU 0.992 (:doc:`catalog`). TMI's three feeds, on
+       held-out data: 99.66 to 99.80% of passes predicted, epochs within 0.75 s (95th percentile), swath width within
+       2.9 km, and swath IoU 0.995 or more (:doc:`catalog`)
    * - Side-looking SAR (`PointedInstrument` with roll, `roll_angle_profile`)
      - NISAR, Sentinel-1C
      - Epochs within 0.3 and 0.44 s (95th percentile) of zero-Doppler times; footprint IoU 0.93 to 0.96 (median); roll
@@ -158,6 +170,12 @@ Instruments and Pointing
      - With a view 0.43 deg wide, every sampled segment of the ground track observed, the track within 0.14 km
        (median) and epochs within 0.12 s (95th percentile); on Sentinel-6B, as a transfer, the track within 0.11 km
        and epochs within 0.11 s (:doc:`catalog`)
+   * - Profilers
+     - EarthCARE ATLID and CPR
+     - With views about 10 km wide (ATLID's pitched 3.05 deg behind nadir), on held-out data every sampled profile
+       within its view, and epochs within 0.46 and 0.48 s (95th percentile), but profiles 0.72 km (median) from the
+       predicted track with the element set nearest the day's middle, whose inclination differed by 0.01 deg from
+       those of the sets around it; with the day's other element set, 0.33 km (:doc:`catalog`)
    * - Geostationary imagers
      - GOES-19 ABI, Himawari-9 AHI, TEMPO
      - A 17.4 deg field of regard observes the full disk; elevation angles within 0.0004 deg; product coverage limits

@@ -1,0 +1,97 @@
+{
+  "entry_id": "bbr",
+  "configurations": {
+    "views": {
+      "digest": "6287376998a9ec6e1230e2850df062d2266f5336b5e7d8c4d2601a4d98de31e5",
+      "evidence": "rerun",
+      "tatc_version": "3.6.0",
+      "source": "docs/validation/validate_catalog_bbr.py",
+      "reference": "BBR_SNG_1B (pixel positions of the shortwave band, every second line)",
+      "period": "2026-11-07",
+      "platform": "earthcare",
+      "holdout_gap_days": 41,
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 97.33395696913003,
+          "scope": "AFT"
+        },
+        {
+          "name": "pass_precision",
+          "value": 97.06156716417911,
+          "scope": "AFT"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.517491556,
+          "scope": "AFT"
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.0399950705478841,
+          "scope": "AFT"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.954000722926982,
+          "scope": "AFT"
+        },
+        {
+          "name": "pass_recall",
+          "value": 95.46153846153847,
+          "scope": "NADIR"
+        },
+        {
+          "name": "pass_precision",
+          "value": 95.09578544061303,
+          "scope": "NADIR"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.485210016,
+          "scope": "NADIR"
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.022892851818534836,
+          "scope": "NADIR"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9211915996174782,
+          "scope": "NADIR"
+        },
+        {
+          "name": "pass_recall",
+          "value": 97.88732394366197,
+          "scope": "FORE"
+        },
+        {
+          "name": "pass_precision",
+          "value": 97.06703910614524,
+          "scope": "FORE"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.5146054552,
+          "scope": "FORE"
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.03932505477282029,
+          "scope": "FORE"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9518515080382464,
+          "scope": "FORE"
+        }
+      ],
+      "fixture_metrics": {
+        "passes_found": 96.66666666666667,
+        "epoch_p95": 0.501839136
+      }
+    }
+  },
+  "standard_version": 6
+}
