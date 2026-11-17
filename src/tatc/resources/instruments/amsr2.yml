@@ -32,14 +32,11 @@ configurations:
         provenance:
           cone_angle: &measured
             kind: measured
-            source: ValidateConicalAMSR2, Test 2 (printed to 3 decimals)
-            platform: gcom-w
+            source: validate_catalog_amsr2.py --fit, medians over every 20th scan of the 10.65 GHz group (printed to 3 decimals), first measured in ValidateConicalAMSR2 on the 49,695 scans then archived; the 57,606 scans archived since give a half width of 75.333
+            platforms: [gcom-w]
             period: "2026-09-26"
           scan_center_azimuth: *measured
           scan_half_width: *measured
-          along_track_field_of_view: &tailored
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
     limitations:
       - The 89 GHz samples (groups S5 and S6) were not used to fit the scan, which assumes they share the cone and sector of the 10.65 GHz samples.
   sample_size:
@@ -62,14 +59,13 @@ configurations:
           cone_angle: *measured
           scan_center_azimuth: *measured
           scan_half_width: *measured
-          along_track_field_of_view: *tailored
           beam_width: &beam_width
             kind: nominal
             source: JAXA AMSR2 channel set (beam width)
           scan_sample_spacing:
             kind: measured
-            source: ValidateSampleSizes, Test 3 (243 samples of the 10.65 GHz group)
-            platform: gcom-w
+            source: validate_catalog_amsr2.py --fit, the median azimuth step between the 243 samples of the 10.65 GHz group
+            platforms: [gcom-w]
             period: "2026-09-26"
       - type: conical
         parameters:
@@ -105,7 +101,6 @@ configurations:
           cone_angle: *measured
           scan_center_azimuth: *measured
           scan_half_width: *measured
-          along_track_field_of_view: *tailored
           beam_width: *beam_width
           scan_sample_spacing:
             kind: derived

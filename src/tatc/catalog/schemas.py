@@ -12,13 +12,11 @@ import json
 import warnings
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from skyfield.framelib import itrs
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
-from .. import constants
 from ..schemas import (
     Attitude,
     AttitudeSchedule,
@@ -29,8 +27,14 @@ from ..schemas import (
     Satellite,
     TargetAttitude,
 )
+from ..schemas.orbit import AllOrbits
 from ..schemas.space.base import AllAttitudes
-from ..utils import VelocityFrame, compute_along_track_field_of_view
+from ..utils import (
+    VelocityFrame,
+    compute_along_track_field_of_view,
+    compute_ascending_argument_of_latitude,
+    compute_subsolar_latitude,
+)
 from .standard import (
     MIN_HOLDOUT_GAP_DAYS,
     Gate,
@@ -39,21 +43,97 @@ from .standard import (
     Tier,
     get_gates,
     get_required_grades,
+    is_compatible,
 )
 
+# the instrument schemas, by their `type`
 _INSTRUMENT_CLASSES: dict[str, type[Instrument]] = {
-    "instrument": Instrument,
-    "pointed": PointedInstrument,
-    "conical": ConicalInstrument,
+    cls.model_fields["type"].default: cls  # pylint: disable=unsubscriptable-object
+    for cls in (Instrument, PointedInstrument, ConicalInstrument)
 }
 _TAILORED = {"tailor": "time_step"}
 _TAILORED_FIELD = "along_track_field_of_view"
+# the provenance of parameters whose origin is the same in every configuration
+_DEFAULT_PROVENANCE = {
+    _TAILORED_FIELD: {
+        "kind": "derived",
+        "source": "compute_along_track_field_of_view, from the orbit and time step",
+    },
+    "is_swept": {
+        "kind": "derived",
+        "source": "Models the view as sweeping along track, so that its swaths are "
+        "the strips its cross-track line sweeps, as observations of points do",
+    },
+}
 # the attitudes that a configuration may give, by their `type`
 _ATTITUDE_TYPES = {
     "attitude": Attitude,
     "glint": GlintAttitude,
     "target": TargetAttitude,
 }
+
+
+def _parse_day(text: str) -> date:
+    """
+    Parses an ISO 8601 date, or the UTC date of an ISO 8601 time with a zone.
+    """
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if moment.tzinfo is None:
+            raise ValueError(f"the time {text!r} needs a time zone") from None
+        return moment.astimezone(timezone.utc).date()
+
+
+def get_period_days(period: str) -> tuple[tuple[date, date], ...]:
+    """
+    Gets the days of a period: one or more items separated by commas, each a
+    date or a time with a zone in ISO 8601 (such as `2026-10-02` or
+    `2026-10-03T12:00Z`), or a range of dates (`2026-08-15 to 2026-10-08`).
+
+    Args:
+        period (str): The period.
+
+    Returns:
+        tuple[tuple[datetime.date, datetime.date], ...]: The first and last day
+        (UTC) of each item.
+
+    Raises:
+        ValueError: If the period is not of this form.
+    """
+    intervals = []
+    for item in period.split(","):
+        first, separator, last = item.strip().partition(" to ")
+        start = _parse_day(first)
+        end = _parse_day(last) if separator else start
+        if end < start:
+            raise ValueError(f"the range {item.strip()!r} ends before it starts")
+        intervals.append((start, end))
+    return tuple(intervals)
+
+
+def _check_period(period: str) -> str:
+    get_period_days(period)
+    return period
+
+
+Period = Annotated[str, AfterValidator(_check_period)]
+"""
+A period of dates (see `get_period_days`), such as `2026-10-02`,
+`2026-10-03T12:00Z`, `2026-08-15 to 2026-10-08`, or `2026-11-01, 2026-11-03`.
+"""
+
+
+def _get_days_apart(first: str, second: str) -> int:
+    """
+    Gets the days between the nearest days of two periods (0 if they share one).
+    """
+    return min(
+        max(0, (b_start - a_end).days, (a_start - b_end).days)
+        for a_start, a_end in get_period_days(first)
+        for b_start, b_end in get_period_days(second)
+    )
 
 
 class _CatalogModel(BaseModel):
@@ -76,27 +156,46 @@ class Provenance(_CatalogModel):
         + "values; or `placeholder`, without physical meaning.",
     )
     source: str = Field(..., description="Where the value comes from.")
-    platform: str | None = Field(
-        default=None, description="The platform to which a measured value was fitted."
+    platforms: tuple[str, ...] | None = Field(
+        default=None,
+        min_length=1,
+        description="The platforms to whose data a measured value was fitted.",
     )
-    period: str | None = Field(
-        default=None, description="The period to which a measured value was fitted."
+    period: Period | None = Field(
+        default=None,
+        description="The period of the data to which a measured value was fitted, "
+        + "from which the gap to the data of its tests is computed.",
     )
 
     @model_validator(mode="after")
     def _check_measured(self) -> "Provenance":
-        if self.kind == "measured" and (self.platform is None or self.period is None):
-            raise ValueError("a measured value needs its platform and period")
+        if self.kind == "measured" and (self.platforms is None or self.period is None):
+            raise ValueError("a measured value needs its platforms and period")
         return self
+
+
+def _check_provenance(described: set[str], provenance: dict[str, Any]) -> None:
+    """
+    Checks that each value has a provenance.
+    """
+    if described != set(provenance):
+        raise ValueError(
+            "each value needs provenance: "
+            f"{sorted(described.symmetric_difference(provenance))}"
+        )
 
 
 class InstrumentSpecification(_CatalogModel):
     """
     The class and parameters of an instrument, from which objects are constructed.
+    The provenance of an along-track field of view tailored to the time step and
+    of `is_swept` may be omitted, as it is the same in every configuration.
     """
 
-    type: Literal["instrument", "pointed", "conical"] = Field(
-        ..., description="The instrument class."
+    type: str = Field(
+        ...,
+        description="The instrument class: `instrument`, `pointed`, or `conical` "
+        + "(the `type` of its schema).",
     )
     parameters: dict[str, Any] = Field(..., description="The instrument's fields.")
     provenance: dict[str, Provenance] = Field(
@@ -104,8 +203,28 @@ class InstrumentSpecification(_CatalogModel):
         description="The origin of each parameter, except for its name.",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _add_default_provenance(cls, data: Any) -> Any:
+        if not isinstance(data, dict) or not isinstance(data.get("parameters"), dict):
+            return data
+        parameters, provenance = data["parameters"], dict(data.get("provenance", {}))
+        for field, default in _DEFAULT_PROVENANCE.items():
+            applies = (
+                parameters.get(field) == _TAILORED
+                if field == _TAILORED_FIELD
+                else field in parameters
+            )
+            if applies and field not in provenance:
+                provenance[field] = default
+        return {**data, "provenance": provenance}
+
     @model_validator(mode="after")
     def _check_parameters(self) -> "InstrumentSpecification":
+        if self.type not in _INSTRUMENT_CLASSES:
+            raise ValueError(
+                f"unknown instrument type {self.type!r}: {sorted(_INSTRUMENT_CLASSES)}"
+            )
         fields = set(_INSTRUMENT_CLASSES[self.type].model_fields) - {"type"}
         if "velocity_frame" in self.parameters:
             raise ValueError(
@@ -115,12 +234,7 @@ class InstrumentSpecification(_CatalogModel):
         unknown = set(self.parameters) - fields
         if unknown:
             raise ValueError(f"unknown {self.type} parameters: {sorted(unknown)}")
-        described = set(self.parameters) - {"name"}
-        if described != set(self.provenance):
-            raise ValueError(
-                "each parameter needs provenance: "
-                f"{sorted(described.symmetric_difference(self.provenance))}"
-            )
+        _check_provenance(set(self.parameters) - {"name"}, self.provenance)
         if "name" not in self.parameters:
             raise ValueError("an instrument specification needs a name")
         if (
@@ -160,58 +274,6 @@ class InstrumentSpecification(_CatalogModel):
         if self.is_tailored:
             parameters[_TAILORED_FIELD] = tailored_field_of_view
         return _INSTRUMENT_CLASSES[self.type](**parameters)
-
-
-def get_subsolar_latitude(at: datetime) -> float:
-    """
-    Gets the subsolar latitude (degrees): the geocentric latitude of the Sun's
-    apparent direction, or its declination of date.
-
-    Args:
-        at (datetime.datetime): The time (timezone-aware).
-
-    Returns:
-        float: The subsolar latitude (degrees).
-    """
-    t = constants.timescale.from_datetime(at)
-    x, y, z = (
-        constants.de421["earth"]
-        .at(t)
-        .observe(constants.de421["sun"])
-        .apparent()
-        .frame_xyz(itrs)
-        .m
-    )
-    return float(np.degrees(np.arctan2(z, np.hypot(x, y))))
-
-
-def _get_ascending_argument_of_latitude(
-    latitude: float, altitude: float, inclination: float
-) -> float:
-    """
-    Gets the argument of latitude (degrees) at which a circular orbit, ascending,
-    passes over a geodetic latitude.
-
-    Args:
-        latitude (float): The geodetic latitude (degrees) of the satellite.
-        altitude (float): The satellite's altitude (meters).
-        inclination (float): The orbit's inclination (degrees).
-
-    Returns:
-        float: The argument of latitude (degrees, from 0 to 360).
-    """
-    phi = np.radians(latitude)
-    e2 = constants.EARTH_ECCENTRICITY**2
-    normal = constants.EARTH_EQUATORIAL_RADIUS / np.sqrt(1 - e2 * np.sin(phi) ** 2)
-    geocentric = np.arctan2(
-        (normal * (1 - e2) + altitude) * np.sin(phi), (normal + altitude) * np.cos(phi)
-    )
-    ratio = np.sin(geocentric) / np.sin(np.radians(inclination))
-    if abs(ratio) > 1:
-        raise ValueError(
-            f"an orbit inclined by {inclination} deg does not reach latitude {latitude}"
-        )
-    return float(np.mod(np.degrees(np.arcsin(ratio)), 360))
 
 
 class TiltSchedule(_CatalogModel):
@@ -279,12 +341,9 @@ class TiltSchedule(_CatalogModel):
 
     @model_validator(mode="after")
     def _check_provenance(self) -> "TiltSchedule":
-        described = set(type(self).model_fields) - {"provenance"}
-        if described != set(self.provenance):
-            raise ValueError(
-                "each value needs provenance: "
-                f"{sorted(described.symmetric_difference(self.provenance))}"
-            )
+        _check_provenance(
+            set(type(self).model_fields) - {"provenance"}, self.provenance
+        )
         return self
 
     def get_switch_latitude(self, day: date) -> float:
@@ -304,10 +363,10 @@ class TiltSchedule(_CatalogModel):
             if day.timetuple().tm_yday % 2 == 1
             else self.even_day_offset
         )
-        return get_subsolar_latitude(noon) + offset
+        return compute_subsolar_latitude(noon) + offset
 
     def get_pitch_angle_profile(
-        self, day: date, orbit: Any
+        self, day: date, orbit: AllOrbits
     ) -> list[tuple[float, float]]:
         """
         Gets the pitch angle profile of a day, as (argument of latitude, pitch angle)
@@ -315,7 +374,7 @@ class TiltSchedule(_CatalogModel):
 
         Args:
             day (datetime.date): The day (UTC).
-            orbit (Any): The orbit.
+            orbit (AllOrbits): The orbit.
 
         Returns:
             list[tuple[float, float]]: The profile.
@@ -334,7 +393,7 @@ class TiltSchedule(_CatalogModel):
         )
 
     def get_blind_intervals(
-        self, day: date, orbit: Any
+        self, day: date, orbit: AllOrbits
     ) -> list[tuple[float, float]] | None:
         """
         Gets the intervals of argument of latitude (degrees) of a day in which the
@@ -342,7 +401,7 @@ class TiltSchedule(_CatalogModel):
 
         Args:
             day (datetime.date): The day (UTC).
-            orbit (Any): The orbit.
+            orbit (AllOrbits): The orbit.
 
         Returns:
             list[tuple[float, float]] | None: The (start, end) pairs, or `None` if
@@ -362,12 +421,12 @@ class TiltSchedule(_CatalogModel):
             )
         )
 
-    def _get_switch_argument_of_latitude(self, day: date, orbit: Any) -> float:
+    def _get_switch_argument_of_latitude(self, day: date, orbit: AllOrbits) -> float:
         """
         Gets the argument of latitude (degrees) of the middle of the change from aft
         to fore on a day.
         """
-        return _get_ascending_argument_of_latitude(
+        return compute_ascending_argument_of_latitude(
             self.get_switch_latitude(day),
             orbit.get_mean_altitude(),
             orbit.get_inclination(),
@@ -375,7 +434,7 @@ class TiltSchedule(_CatalogModel):
 
     def build_schedule(
         self,
-        orbit: Any,
+        orbit: AllOrbits,
         start: datetime,
         end: datetime,
         velocity_frame: VelocityFrame,
@@ -386,7 +445,7 @@ class TiltSchedule(_CatalogModel):
         end of an analysis.
 
         Args:
-            orbit (Any): The orbit.
+            orbit (AllOrbits): The orbit.
             start (datetime.datetime): The start of the analysis (timezone-aware).
             end (datetime.datetime): The end of the analysis (timezone-aware).
             velocity_frame (VelocityFrame): The velocity frame of the attitude.
@@ -430,7 +489,7 @@ class Configuration(_CatalogModel):
         default_factory=dict,
         description="Other fields of the attitude of the space system.",
     )
-    attitude_schedule: TiltSchedule | None = Field(
+    tilt_schedule: TiltSchedule | None = Field(
         default=None,
         description="A pitch of the body that changes by day, from which a "
         + "schedule of attitudes is built for the period of an analysis.",
@@ -441,13 +500,14 @@ class Configuration(_CatalogModel):
     instrument_index: int = Field(
         default=0,
         ge=0,
-        description="The index of the instrument to analyze by default.",
+        description="The index of the instrument to analyze by default, of "
+        + "`alternatives`.",
     )
-    grouping: Literal["single", "union", "alternatives"] = Field(
-        default="single",
+    grouping: Literal["union", "alternatives"] | None = Field(
+        default=None,
         description="How multiple instruments relate: `union`, parts of one "
         + "view that are analyzed together; or `alternatives`, separately valid "
-        + "views that are analyzed one at a time.",
+        + "views that are analyzed one at a time. Only for multiple instruments.",
     )
     limitations: tuple[str, ...] = Field(
         default=(), description="What this configuration does not represent."
@@ -461,17 +521,18 @@ class Configuration(_CatalogModel):
             raise ValueError(f"instrument names must be unique: {names}")
         if self.instrument_index >= len(self.instruments):
             raise ValueError("instrument_index is out of range")
-        if (self.grouping == "single") != (len(self.instruments) == 1):
-            raise ValueError("grouping is `single` only for one instrument")
+        if self.instrument_index and self.grouping != "alternatives":
+            raise ValueError("only alternatives have an instrument_index")
+        if (self.grouping is None) != (len(self.instruments) == 1):
+            raise ValueError("multiple instruments, and only they, need a grouping")
         self.make_attitude()
-        if self.attitude_schedule is not None and {
+        if self.tilt_schedule is not None and {
             "pitch_angle",
             "pitch_angle_profile",
             "blind_intervals",
         } & set(self.attitude):
             raise ValueError(
-                "an attitude schedule sets the pitch and blind intervals of the "
-                "attitude"
+                "a tilt schedule sets the pitch and blind intervals of the attitude"
             )
         return self
 
@@ -487,19 +548,36 @@ class Configuration(_CatalogModel):
         kind = _ATTITUDE_TYPES[fields.pop("type", "attitude")]
         return kind(velocity_frame=self.velocity_frame, **fields)
 
-    @property
-    def is_fitted(self) -> bool:
+    def _get_measured(self) -> list[Provenance]:
         """
-        Whether any parameter was fitted to reference data.
+        Gets the provenance of the values fitted to reference data.
         """
         provenances = [
             provenance
             for instrument in self.instruments
             for provenance in instrument.provenance.values()
         ]
-        if self.attitude_schedule is not None:
-            provenances += list(self.attitude_schedule.provenance.values())
-        return any(provenance.kind == "measured" for provenance in provenances)
+        if self.tilt_schedule is not None:
+            provenances += list(self.tilt_schedule.provenance.values())
+        return [
+            provenance for provenance in provenances if provenance.kind == "measured"
+        ]
+
+    def get_holdout_gap(self, period: str) -> int | None:
+        """
+        Gets the days between the data to which values were fitted and the data
+        of a test: between the nearest days of the periods.
+
+        Args:
+            period (str): The period of the data of the test (see `Period`).
+
+        Returns:
+            int | None: The days, or `None` if no value was fitted.
+        """
+        measured = self._get_measured()
+        if not measured:
+            return None
+        return min(_get_days_apart(p.period, period) for p in measured)
 
     @property
     def digest(self) -> str:
@@ -514,12 +592,31 @@ class Configuration(_CatalogModel):
                 {"type": i.type, "parameters": i.parameters} for i in self.instruments
             ],
         }
-        if self.attitude_schedule is not None:
-            content["attitude_schedule"] = self.attitude_schedule.model_dump(
+        if self.tilt_schedule is not None:
+            # keyed as when the field was named `attitude_schedule`, so that the
+            # digests of the records stay those of the configurations they tested
+            content["attitude_schedule"] = self.tilt_schedule.model_dump(
                 mode="json", exclude={"provenance"}
             )
         encoded = json.dumps(content, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    def serves(self, grade: Grade | str) -> bool:
+        """
+        Checks whether this configuration serves a use: its grade, or the
+        coverage grade for a configuration at the timing grade, which also tests
+        coverage.
+
+        Args:
+            grade (Grade | str): The grade of the use.
+
+        Returns:
+            bool: `True`, if it serves the use.
+        """
+        grade = Grade(grade)
+        return self.grade == grade or (
+            grade == Grade.COVERAGE and self.grade == Grade.TIMING
+        )
 
 
 class Platform(_CatalogModel):
@@ -562,8 +659,21 @@ class Metric(_CatalogModel):
     name: str = Field(..., description="The metric (see `get_gates`).")
     value: float = Field(..., description="The value.")
     scope: str | None = Field(
-        default=None, description="What it applies to, if not the whole configuration."
+        default=None,
+        description="The part or condition of the test it applies to (such as an "
+        + "instrument or a time step), if not all of it. A gate takes the worst "
+        + "value of its metric over scopes.",
     )
+
+
+class Transfer(_CatalogModel):
+    """
+    The results of a configuration on a platform on which it was not tested,
+    which do not count toward its validation.
+    """
+
+    period: Period = Field(..., description="The period of the reference data.")
+    metrics: tuple[Metric, ...] = Field(..., min_length=1, description="The results.")
 
 
 class ConfigurationRecord(_CatalogModel):
@@ -572,24 +682,22 @@ class ConfigurationRecord(_CatalogModel):
     """
 
     digest: str = Field(..., description="The `Configuration.digest` tested.")
-    evidence: Literal["rerun", "reported"] = Field(
-        ...,
-        description="`rerun`, computed with the configuration's exact values "
-        + "through public methods; or `reported`, taken from the outputs of a "
-        + "notebook that did not use them exactly.",
+    standard_version: int = Field(
+        ..., description="The `STANDARD_VERSION` of the test."
     )
     tatc_version: str = Field(..., description="The version of TAT-C tested.")
-    source: str = Field(..., description="The notebook or script of the results.")
+    source: str = Field(..., description="The script of the results.")
     reference: str = Field(..., description="The reference data.")
-    period: str = Field(..., description="The period of the reference data.")
-    platform: str = Field(..., description="The platform of the reference data.")
-    holdout_gap_days: float | None = Field(
-        default=None,
-        description="For fitted values, the days between their fitting data and "
-        + "the reference data of these metrics, or `None` if tested on the "
-        + "fitting data.",
+    period: Period = Field(..., description="The period of the reference data.")
+    platforms: tuple[str, ...] = Field(
+        ..., min_length=1, description="The platforms of the reference data."
     )
     metrics: tuple[Metric, ...] = Field(..., description="The results.")
+    transfers: dict[str, Transfer] = Field(
+        default_factory=dict,
+        description="Results on platforms on which the configuration was not "
+        + "tested, by platform.",
+    )
     fixture_metrics: dict[str, float] = Field(
         default_factory=dict,
         description="Results from the reduced test fixture, which detect "
@@ -604,7 +712,6 @@ class ValidationRecord(_CatalogModel):
     """
 
     entry_id: str = Field(..., description="The identifier of the entry.")
-    standard_version: int = Field(..., description="The `STANDARD_VERSION` applied.")
     configurations: dict[str, ConfigurationRecord] = Field(
         ..., description="The results of each configuration."
     )
@@ -626,43 +733,110 @@ class GateResult:
         """
         return None if self.value is None else self.gate.is_met(self.value)
 
+    @property
+    def gap(self) -> str | None:
+        """
+        The gap, if the gate failed or was not tested.
+        """
+        if self.value is None:
+            return f"{self.gate.metric}: not tested"
+        if not self.passed:
+            return (
+                f"{self.gate.metric}: {self.value} fails the limit of "
+                f"{self.gate.limit}"
+            )
+        return None
+
 
 @dataclass(frozen=True)
 class ConfigurationValidation:
     """
-    The validation status of a configuration.
+    The validation status of a configuration: the results of its gates, and its
+    `evidence_gaps`, of its test rather than of a gate (such as a configuration
+    that changed after it was tested). Its `holdout_gap_days` are the days
+    between the data to which its values were fitted and the data of its test,
+    or `None` if it has no fitted values or no test.
     """
 
     tier: Tier
     gates: tuple[GateResult, ...]
-    gaps: tuple[str, ...]
+    evidence_gaps: tuple[str, ...]
     record: ConfigurationRecord | None
+    holdout_gap_days: int | None = None
+
+    @property
+    def gaps(self) -> tuple[str, ...]:
+        """
+        Every gap: of failed gates, then of untested gates, then of evidence.
+        """
+        return (
+            *(r.gap for r in self.gates if r.passed is False),
+            *(r.gap for r in self.gates if r.passed is None),
+            *self.evidence_gaps,
+        )
 
 
 @dataclass(frozen=True)
 class EntryValidation:
     """
-    The validation status of an entry, computed from its records and the standard.
+    The validation status of an entry, computed from its records and the
+    standard: of each configuration, and the grades of its class that no
+    configuration serves (`missing_grades`).
     """
 
     tier: Tier
     configurations: dict[str, ConfigurationValidation]
-    gaps: tuple[str, ...]
+    missing_grades: tuple[Grade, ...]
+
+    @property
+    def gaps(self) -> tuple[str, ...]:
+        """
+        Every gap: of missing grades, then of each configuration, after its
+        identifier (such as `"swath: epoch_p95: not tested"`).
+        """
+        return (
+            *(f"no configuration at the {g.value} grade" for g in self.missing_grades),
+            *(
+                f"{key}: {gap}"
+                for key, validation in self.configurations.items()
+                for gap in validation.gaps
+            ),
+        )
 
 
 @dataclass(frozen=True)
 class InstrumentPayload:
     """
-    Instruments with the attitude and analysis settings that they were validated
-    with, which must be used together.
+    Instruments with the attitude that they were validated with, which must be
+    used together. Analyze them with the `instrument_index`: of the instrument
+    to analyze, or `None` to analyze the instruments together (as the parts of
+    one view).
     """
 
     instruments: list[Instrument]
-    attitude: Any
-    instrument_index: int
-    grouping: str
+    attitude: AllAttitudes | AttitudeSchedule | None
+    instrument_index: int | None
+    references: tuple[str, ...]
+    """The configurations, as `entry:configuration`."""
     transferred: bool
+    """Whether a configuration was not tested on the platform modeled."""
     limitations: tuple[str, ...]
+
+    def to_satellite(self, name: str, orbit: AllOrbits) -> Satellite:
+        """
+        Builds a satellite that carries the instruments with their attitude.
+        Analyze it with the `instrument_index` of this payload.
+
+        Args:
+            name (str): The satellite's name.
+            orbit (AllOrbits): The orbit.
+
+        Returns:
+            Satellite: The satellite.
+        """
+        return Satellite(
+            name=name, orbit=orbit, instruments=self.instruments, attitude=self.attitude
+        )
 
 
 class InstrumentEntry(_CatalogModel):
@@ -712,6 +886,18 @@ class InstrumentEntry(_CatalogModel):
             unknown = set(self.record.configurations) - set(self.configurations)
             if unknown:
                 raise ValueError(f"records of unknown {sorted(unknown)}")
+            for key, record in self.record.configurations.items():
+                tested = set(self.configurations[key].platforms)
+                if not set(record.platforms) <= tested:
+                    raise ValueError(
+                        f"{key}: the record's platforms {list(record.platforms)} "
+                        f"are not those tested, {sorted(tested)}"
+                    )
+                transferred = set(record.transfers)
+                if transferred & tested or not transferred <= platforms:
+                    raise ValueError(
+                        f"{key}: transfers must be to other platforms of the entry"
+                    )
         return self
 
     def _evaluate_configuration(self, key: str) -> ConfigurationValidation:
@@ -739,34 +925,27 @@ class InstrumentEntry(_CatalogModel):
             values = [m.value for m in record.metrics if m.name == gate.metric]
             worst = (max if gate.at_most else min)(values) if values else None
             results.append(GateResult(gate, worst))
-        gaps = [
-            f"{result.gate.metric}: {result.value} fails the limit of "
-            f"{result.gate.limit}"
-            for result in results
-            if result.passed is False
-        ]
-        gaps += [
-            f"{result.gate.metric}: not tested"
-            for result in results
-            if result.passed is None
-        ]
+        gaps = []
         if record.digest != configuration.digest:
             gaps.append("the configuration changed after it was tested")
-        if record.evidence != "rerun":
-            gaps.append("results are not reproduced with its exact values")
-        if configuration.is_fitted and (
-            record.holdout_gap_days is None
-            or record.holdout_gap_days < MIN_HOLDOUT_GAP_DAYS
-        ):
+        if not is_compatible(self.instrument_class, record.standard_version):
+            gaps.append(
+                f"version {record.standard_version} of the standard, of the test, "
+                f"does not apply to the {self.instrument_class.value} class"
+            )
+        holdout = configuration.get_holdout_gap(record.period)
+        if holdout is not None and holdout < MIN_HOLDOUT_GAP_DAYS:
             gaps.append(
                 "fitted values are not tested on data at least "
                 f"{MIN_HOLDOUT_GAP_DAYS} days from their fitting data"
             )
+        passed = not gaps and all(result.passed for result in results)
         return ConfigurationValidation(
-            Tier.PARTIAL if gaps else Tier.VALIDATED,
+            Tier.VALIDATED if passed else Tier.PARTIAL,
             tuple(results),
             tuple(gaps),
             record,
+            holdout,
         )
 
     @property
@@ -779,31 +958,89 @@ class InstrumentEntry(_CatalogModel):
         configurations = {
             key: self._evaluate_configuration(key) for key in self.configurations
         }
-        grades = {configuration.grade for configuration in self.configurations.values()}
-        if Grade.TIMING in grades:
-            grades.add(Grade.COVERAGE)
-        gaps = [
-            f"no configuration at the {grade.value} grade"
+        missing = tuple(
+            grade
             for grade in get_required_grades(self.instrument_class)
-            if grade not in grades
-        ]
-        order = [Tier.NOMINAL, Tier.PARTIAL, Tier.VALIDATED]
-        tier = min((c.tier for c in configurations.values()), key=order.index)
-        if tier == Tier.VALIDATED and gaps:
+            if not any(c.serves(grade) for c in self.configurations.values())
+        )
+        tier = min((c.tier for c in configurations.values()), key=lambda t: t.rank)
+        if tier == Tier.VALIDATED and missing:
             tier = Tier.PARTIAL
         if tier == Tier.NOMINAL and any(
             c.tier != Tier.NOMINAL for c in configurations.values()
         ):
             tier = Tier.PARTIAL
-        return EntryValidation(tier, configurations, tuple(gaps))
+        return EntryValidation(tier, configurations, missing)
 
-    def build(
+    def select_configuration(
         self,
         configuration: str | None = None,
         *,
-        orbit: Any = None,
+        grade: Grade | str | None = None,
+        platform: str | None = None,
+    ) -> str:
+        """
+        Selects a configuration: the one named, or else one that serves a use
+        (see `Configuration.serves`) and was tested on a platform, preferring
+        the default configuration and then those at the grade of the default.
+        Without a configuration tested on the platform, it selects among the
+        others (a transfer, on which `build` warns).
+
+        Args:
+            configuration (str | None): The identifier of the configuration, or
+                `None` to select one.
+            grade (Grade | str | None): The grade of the use, if any.
+            platform (str | None): The identifier of the platform modeled, if
+                any.
+
+        Returns:
+            str: The identifier of the configuration.
+
+        Raises:
+            ValueError: If the configuration is unknown, or none serves the use.
+        """
+        if configuration is not None:
+            if configuration not in self.configurations:
+                raise ValueError(
+                    f"unknown configuration {configuration!r} of {self.id!r}: "
+                    f"{sorted(self.configurations)}"
+                )
+            if grade is not None and not self.configurations[configuration].serves(
+                grade
+            ):
+                raise ValueError(
+                    f"configuration {configuration!r} of {self.id!r} is at the "
+                    f"{self.configurations[configuration].grade.value} grade"
+                )
+            return configuration
+        candidates = [
+            key
+            for key, c in self.configurations.items()
+            if grade is None or c.serves(grade)
+        ]
+        if not candidates:
+            raise ValueError(
+                f"{self.id!r} has no configuration at the {Grade(grade).value} grade"
+            )
+        tested = [k for k in candidates if platform in self.configurations[k].platforms]
+        candidates = tested or candidates
+        default = self.configurations[self.default_configuration]
+        return min(
+            candidates,
+            key=lambda k: (
+                k != self.default_configuration,
+                self.configurations[k].grade != default.grade,
+            ),
+        )
+
+    def build(
+        self,
+        *,
+        configuration: str | None = None,
+        grade: Grade | str | None = None,
+        orbit: AllOrbits | None = None,
         time_step: float | None = None,
-        attitude: Any = None,
+        attitude: AllAttitudes | AttitudeSchedule | None = None,
         platform: str | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
@@ -814,37 +1051,37 @@ class InstrumentEntry(_CatalogModel):
 
         Args:
             configuration (str | None): The identifier of the configuration, or
-                `None` for the default.
-            orbit (Any): The orbit, if the configuration tailors a field of view
-                to a time step or schedules its attitude.
+                `None` to select one by grade and platform (see
+                `select_configuration`), by default the default configuration.
+            grade (Grade | str | None): The grade of the use, if any.
+            orbit (AllOrbits | None): The orbit, if the configuration tailors a
+                field of view to a time step or schedules its tilt.
             time_step (float | None): The analysis time step (seconds), if the
                 configuration tailors a field of view to it.
-            attitude (Any): An attitude to use instead of the validated one (for
-                example, a schedule of yaw flips), in the same velocity frame.
-            platform (str | None): The identifier of the platform being modeled,
-                if any. Using a configuration on a platform on which it was not
-                tested gives a warning.
+            attitude (AllAttitudes | AttitudeSchedule | None): An attitude to use
+                instead of the validated one (for example, a schedule of yaw
+                flips), in the same velocity frame.
+            platform (str | None): The identifier of the platform modeled, if
+                any, which selects the configuration tested on it. Using a
+                configuration on a platform on which it was not tested gives a
+                warning.
             start (datetime.datetime | None): The start of the analysis
-                (timezone-aware), if the configuration schedules its attitude
-                by day.
+                (timezone-aware), if the configuration schedules its tilt by
+                day.
             end (datetime.datetime | None): The end of the analysis
-                (timezone-aware), if the configuration schedules its attitude
-                by day.
+                (timezone-aware), if the configuration schedules its tilt by
+                day.
 
         Returns:
             InstrumentPayload: The instruments, attitude, and analysis settings.
 
         Raises:
-            ValueError: If the configuration is unknown, tailoring lacks an
-                orbit or time step, a schedule lacks an orbit or the period of
-                the analysis, or an attitude has another velocity frame.
+            ValueError: If the configuration is unknown or does not serve the
+                grade, tailoring lacks an orbit or time step, a schedule lacks
+                an orbit or the period of the analysis, or an attitude has
+                another velocity frame.
         """
-        key = self.default_configuration if configuration is None else configuration
-        if key not in self.configurations:
-            raise ValueError(
-                f"unknown configuration {key!r} of {self.id!r}: "
-                f"{sorted(self.configurations)}"
-            )
+        key = self.select_configuration(configuration, grade=grade, platform=platform)
         selected = self.configurations[key]
         tailored = None
         if any(instrument.is_tailored for instrument in selected.instruments):
@@ -866,17 +1103,13 @@ class InstrumentEntry(_CatalogModel):
                 f"{list(selected.platforms)}, not on {platform!r}",
                 stacklevel=2,
             )
-        if (
-            selected.attitude_schedule is not None
-            and attitude is None
-            and (orbit is None or start is None or end is None)
-        ):
-            raise ValueError(
-                f"configuration {key!r} of {self.id!r} schedules its attitude by "
-                "day, which needs an orbit and the start and end of the analysis"
-            )
-        if attitude is None and selected.attitude_schedule is not None:
-            attitude = selected.attitude_schedule.build_schedule(
+        if attitude is None and selected.tilt_schedule is not None:
+            if orbit is None or start is None or end is None:
+                raise ValueError(
+                    f"configuration {key!r} of {self.id!r} schedules its tilt by "
+                    "day, which needs an orbit and the start and end of the analysis"
+                )
+            attitude = selected.tilt_schedule.build_schedule(
                 orbit, start, end, selected.velocity_frame, selected.attitude
             )
         return InstrumentPayload(
@@ -885,24 +1118,30 @@ class InstrumentEntry(_CatalogModel):
                 for instrument in selected.instruments
             ],
             attitude=self._build_attitude(selected, attitude),
-            instrument_index=selected.instrument_index,
-            grouping=selected.grouping,
+            instrument_index=(
+                None if selected.grouping == "union" else selected.instrument_index
+            ),
+            references=(f"{self.id}:{key}",),
             transferred=transferred,
             limitations=(*self.limitations, *selected.limitations),
         )
 
     @staticmethod
-    def _build_attitude(selected: Configuration, attitude: Any) -> AllAttitudes | None:
+    def _build_attitude(
+        selected: Configuration, attitude: AllAttitudes | AttitudeSchedule | None
+    ) -> AllAttitudes | AttitudeSchedule | None:
         """
         Gets the attitude of a configuration, or checks one that replaces it.
 
         Args:
             selected (Configuration): The configuration.
-            attitude (Any): The replacement, or `None`.
+            attitude (AllAttitudes | AttitudeSchedule | None): The replacement,
+                or `None`.
 
         Returns:
-            AllAttitudes | None: The attitude, or `None` for a body aligned with
-            the nadir frame (as for an Earth-fixed frame without other fields).
+            AllAttitudes | AttitudeSchedule | None: The attitude, or `None` for a
+            body aligned with the nadir frame (as for an Earth-fixed frame
+            without other fields).
 
         Raises:
             ValueError: If the replacement has another velocity frame.
@@ -929,51 +1168,50 @@ class InstrumentEntry(_CatalogModel):
 
     def to_satellite(
         self,
-        orbit: Any,
-        configuration: str | None = None,
+        orbit: AllOrbits,
         *,
+        configuration: str | None = None,
+        grade: Grade | str | None = None,
         time_step: float | None = None,
-        attitude: Any = None,
+        attitude: AllAttitudes | AttitudeSchedule | None = None,
         platform: str | None = None,
         name: str | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
     ) -> Satellite:
         """
-        Builds a satellite that carries the instruments of a configuration. To
-        analyze an instrument other than the first, use the `instrument_index`
-        of `build` in analysis methods.
+        Builds a satellite that carries the instruments of a configuration (see
+        `build`). For several instruments, `build(...).to_satellite(name, orbit)`
+        also gives the `instrument_index` to analyze them with, which is 0 for
+        one instrument.
 
         Args:
-            orbit (Any): The orbit.
+            orbit (AllOrbits): The orbit.
             configuration (str | None): The identifier of the configuration, or
-                `None` for the default.
+                `None` to select one by grade and platform.
+            grade (Grade | str | None): The grade of the use, if any.
             time_step (float | None): The analysis time step (seconds), if the
                 configuration tailors a field of view to it.
-            attitude (Any): An attitude to use instead of the validated one.
-            platform (str | None): The identifier of the platform being modeled.
+            attitude (AllAttitudes | AttitudeSchedule | None): An attitude to use
+                instead of the validated one.
+            platform (str | None): The identifier of the platform modeled.
             name (str | None): The satellite's name, or `None` for the
                 instrument's.
             start (datetime.datetime | None): The start of the analysis, if the
-                configuration schedules its attitude by day.
+                configuration schedules its tilt by day.
             end (datetime.datetime | None): The end of the analysis, if the
-                configuration schedules its attitude by day.
+                configuration schedules its tilt by day.
 
         Returns:
             Satellite: The satellite.
         """
-        payload = self.build(
-            configuration,
+        return self.build(
+            configuration=configuration,
+            grade=grade,
             orbit=orbit,
             time_step=time_step,
             attitude=attitude,
             platform=platform,
             start=start,
             end=end,
-        )
-        return Satellite(
-            name=self.name if name is None else name,
-            orbit=orbit,
-            instruments=payload.instruments,
-            attitude=payload.attitude,
-        )
+        ).to_satellite(self.name if name is None else name, orbit)

@@ -3,13 +3,14 @@
   "configurations": {
     "sample_size": {
       "digest": "d3202819e316ccb7d2d81f515f2e37255dee46024cd2ba668b0e046bcc138a36",
-      "evidence": "rerun",
+      "standard_version": 6,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_tmi.py",
+      "source": "validation/catalog/validate_catalog_tmi.py",
       "reference": "Footprints of the TC PRIMED documentation; spacing of GPM_1CTRMMTMI version 08",
       "period": "2013-07-10",
-      "platform": "trmm",
-      "holdout_gap_days": 39,
+      "platforms": [
+        "trmm"
+      ],
       "metrics": [
         {
           "name": "sample_size_within_3pct",
@@ -50,6 +51,7 @@
           "scope": "S3"
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "sample_size_within_3pct": 90.0,
         "spacing_arc_ratio_median_S1": 1.0063197849779906,
@@ -62,13 +64,14 @@
     },
     "feeds": {
       "digest": "06706e6a6316ae9b6c8492e66e39647c96d8019283648a55f030b901a44bce48",
-      "evidence": "rerun",
+      "standard_version": 6,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_tmi.py",
+      "source": "validation/catalog/validate_catalog_tmi.py",
       "reference": "GPM_1CTRMMTMI version 08 (positions of the S1, S2, and S3 samples)",
       "period": "2013-07-10",
-      "platform": "trmm",
-      "holdout_gap_days": 39,
+      "platforms": [
+        "trmm"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -146,11 +149,11 @@
           "scope": "S3"
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.7493399012999999
       }
     }
-  },
-  "standard_version": 6
+  }
 }

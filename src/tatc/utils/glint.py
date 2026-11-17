@@ -1,11 +1,14 @@
 """
-Methods to compute the geometry of sun glint: the specular reflection of the
-Sun on the WGS 84 ellipsoid (as on a calm water surface) toward a satellite.
+Methods to compute the geometry of the Sun and of sun glint: the specular
+reflection of the Sun on the WGS 84 ellipsoid (as on a calm water surface)
+toward a satellite.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from __future__ import annotations
+
+from datetime import datetime
 
 import numpy as np
 import numpy.typing as npt
@@ -15,7 +18,7 @@ from skyfield.positionlib import Geocentric
 from skyfield.timelib import Time
 from skyfield.toposlib import GeographicPosition
 
-from ..constants import de421
+from ..constants import de421, timescale
 from .ellipsoid import geodetic_to_rectangular, rectangular_to_geodetic
 
 
@@ -182,3 +185,19 @@ def compute_glint_angle(
     if np.ndim(orbit_track.t.tt) == 0 and np.ndim(target.latitude.degrees) == 0:
         return angle[0]
     return angle
+
+
+def compute_subsolar_latitude(at: datetime) -> float:
+    """
+    Computes the subsolar latitude (degrees): the geocentric latitude of the
+    Sun's apparent direction, or its declination of date.
+
+    Args:
+        at (datetime.datetime): The time (timezone-aware).
+
+    Returns:
+        float: The subsolar latitude (degrees).
+    """
+    t = timescale.from_datetime(at)
+    x, y, z = de421["earth"].at(t).observe(de421["sun"]).apparent().frame_xyz(itrs).m
+    return float(np.degrees(np.arctan2(z, np.hypot(x, y))))

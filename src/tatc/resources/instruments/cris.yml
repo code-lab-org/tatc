@@ -39,18 +39,14 @@ configurations:
         provenance:
           field_of_regard: &measured_extent
             kind: measured
-            source: ValidateImagerCrIS, between the outermost centers of fields of regard (printed to 6 decimals)
-            platform: noaa-20
+            source: validate_catalog_cris.py --fit, between the outermost centers of fields of regard (printed to 6 decimals)
+            platforms: [noaa-20]
             period: "2026-10-02"
           cross_track_field_of_view: *measured_extent
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           pitch_angle: &measured_tilt
             kind: measured
-            source: ValidateImagerCrIS, the median forward tilt of the scan plane (printed to 3 decimals)
-            platform: noaa-20
+            source: validate_catalog_cris.py --fit, the median forward tilt of the scan plane (the median over every 5th scan of each scan's median, printed to 3 decimals)
+            platforms: [noaa-20]
             period: "2026-10-02"
           is_rectangular:
             kind: derived
@@ -85,13 +81,13 @@ configurations:
             source: Wider than the field of view, so that it does not clip the scan
           cross_track_field_of_view:
             kind: measured
-            source: ValidateImagerCrIS, 30 fields of regard at a fitted spacing of 3.33399 deg
-            platform: noaa-20
+            source: validate_catalog_cris.py --fit, 30 fields of regard at a fitted spacing of 3.33399 deg
+            platforms: [noaa-20]
             period: "2026-10-02"
           along_track_field_of_view: &measured_pitch
             kind: measured
-            source: ValidateImagerCrIS, three fields of view at a fitted pitch of 1.0918 deg
-            platform: noaa-20
+            source: validate_catalog_cris.py --fit, three fields of view at a fitted pitch of 1.0918 deg
+            platforms: [noaa-20]
             period: "2026-10-02"
           cross_track_pixels:
             kind: nominal
@@ -101,8 +97,8 @@ configurations:
             source: CrIS has three rows of fields of view in a field of regard
           roll_angle:
             kind: measured
-            source: ValidateImagerCrIS, the fitted roll
-            platform: noaa-20
+            source: validate_catalog_cris.py --fit, the fitted roll
+            platforms: [noaa-20]
             period: "2026-10-02"
           pitch_angle: *measured_tilt
           is_rectangular:

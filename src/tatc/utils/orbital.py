@@ -400,6 +400,38 @@ def compute_argument_of_latitude(
     return float(u) if np.ndim(u) == 0 else u
 
 
+def compute_ascending_argument_of_latitude(
+    latitude: float, altitude: float, inclination: float
+) -> float:
+    """
+    Computes the argument of latitude (degrees, from 0 to 360) at which a
+    circular orbit, ascending, passes over a geodetic latitude.
+
+    Args:
+        latitude (float): The geodetic latitude (degrees) of the satellite.
+        altitude (float): The satellite's altitude (meters).
+        inclination (float): The orbit's inclination (degrees).
+
+    Returns:
+        float: The argument of latitude (degrees, from 0 to 360).
+
+    Raises:
+        ValueError: If the orbit does not reach the latitude.
+    """
+    phi = np.radians(latitude)
+    e2 = constants.EARTH_ECCENTRICITY**2
+    normal = constants.EARTH_EQUATORIAL_RADIUS / np.sqrt(1 - e2 * np.sin(phi) ** 2)
+    geocentric = np.arctan2(
+        (normal * (1 - e2) + altitude) * np.sin(phi), (normal + altitude) * np.cos(phi)
+    )
+    ratio = np.sin(geocentric) / np.sin(np.radians(inclination))
+    if abs(ratio) > 1:
+        raise ValueError(
+            f"an orbit inclined by {inclination} deg does not reach latitude {latitude}"
+        )
+    return float(np.mod(np.degrees(np.arcsin(ratio)), 360))
+
+
 def compute_vnb_frame(
     orbit_track: Geocentric,
 ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:

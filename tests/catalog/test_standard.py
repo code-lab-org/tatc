@@ -5,16 +5,18 @@ Unit tests for the validation standard, and how it determines validation tiers.
 """
 
 import unittest
+from datetime import date, timedelta
 
-from tatc.catalog import (
+from pydantic import ValidationError
+
+from tatc.catalog import STANDARD_VERSION, Grade, InstrumentClass, InstrumentEntry, Tier
+from tatc.catalog.schemas import get_period_days
+from tatc.catalog.standard import (
+    COMPATIBLE_VERSIONS,
     MIN_HOLDOUT_GAP_DAYS,
-    STANDARD_VERSION,
-    Grade,
-    InstrumentClass,
-    InstrumentEntry,
-    Tier,
     get_gates,
     get_required_grades,
+    is_compatible,
 )
 
 # (metric, limit, at most) by class and grade. These thresholds are frozen: they
@@ -181,13 +183,92 @@ class TestFrozenGates(unittest.TestCase):
             get_required_grades(InstrumentClass.GEOSTATIONARY), (Grade.COVERAGE,)
         )
 
+    def test_compatible_versions(self):
+        """
+        Test that results apply under the compatible versions that have their
+        class's gates, as each version after the first only added a class.
+        """
+        self.assertEqual(COMPATIBLE_VERSIONS, tuple(range(1, STANDARD_VERSION + 1)))
+        self.assertTrue(is_compatible(InstrumentClass.CROSS_TRACK, 1))
+        self.assertFalse(is_compatible(InstrumentClass.LIDAR, 1))
+        self.assertTrue(is_compatible(InstrumentClass.LIDAR, 2))
+        self.assertFalse(is_compatible(InstrumentClass.PROFILER, 5))
+        self.assertFalse(
+            is_compatible(InstrumentClass.CROSS_TRACK, STANDARD_VERSION + 1)
+        )
+
+    def test_every_class_is_defined(self):
+        """
+        Test that every class has the version of the standard that added it and
+        gates at its required grades, so that adding a class misses neither.
+        """
+        for instrument_class in InstrumentClass:
+            with self.subTest(instrument_class.value):
+                self.assertTrue(
+                    any(
+                        is_compatible(instrument_class, version)
+                        for version in COMPATIBLE_VERSIONS
+                    )
+                )
+                grades = get_required_grades(instrument_class)
+                self.assertIn(Grade.COVERAGE, grades)
+                for grade in grades:
+                    self.assertTrue(get_gates(instrument_class, grade))
+
+    def test_tier_rank(self):
+        """
+        Test that tiers rank from weakest to strongest.
+        """
+        self.assertEqual(
+            sorted(Tier, key=lambda tier: tier.rank),
+            [Tier.NOMINAL, Tier.PARTIAL, Tier.VALIDATED],
+        )
+
+
+class TestPeriods(unittest.TestCase):
+    """
+    Unit tests for the periods of fitting and test data.
+    """
+
+    def test_forms(self):
+        """
+        Test a date, a time with a zone, a range, and a list.
+        """
+        day = date(2026, 10, 2)
+        self.assertEqual(get_period_days("2026-10-02"), ((day, day),))
+        self.assertEqual(get_period_days("2026-10-02T23:30Z"), ((day, day),))
+        self.assertEqual(
+            get_period_days("2026-10-02T23:30-02:00"),
+            ((day + timedelta(days=1), day + timedelta(days=1)),),
+        )
+        self.assertEqual(
+            get_period_days("2026-08-15 to 2026-10-02"), ((date(2026, 8, 15), day),)
+        )
+        self.assertEqual(
+            get_period_days("2026-10-01, 2026-10-02"),
+            ((day - timedelta(days=1),) * 2, (day, day)),
+        )
+
+    def test_invalid(self):
+        """
+        Test that periods of other forms are rejected.
+        """
+        for period in (
+            "October 2026",
+            "2026-10-02 and 2026-10-03",
+            "2026-10-02T12:00",
+            "2026-10-03 to 2026-10-02",
+        ):
+            with self.assertRaises(ValueError, msg=period):
+                get_period_days(period)
+
 
 def _measured():
     return {
         "kind": "measured",
         "source": "test",
-        "platform": "test",
-        "period": "2026-01-01",
+        "platforms": ["test"],
+        "period": "2025-12-01 to 2026-01-01",
     }
 
 
@@ -205,12 +286,13 @@ def _entry(
         "selection": "test",
         "platforms": [
             {
-                "id": "test",
-                "name": "Test",
+                "id": platform,
+                "name": platform,
                 "norad_id": 1,
                 "status": "operational",
                 "as_of": "2026-01-01",
             }
+            for platform in ("test", "other")
         ],
         "data_products": [
             {"name": "T", "provider": "T", "url": "http://t", "access": "open"}
@@ -237,16 +319,15 @@ def _entry(
     digest = InstrumentEntry(**data).configurations["c"].digest
     data["record"] = {
         "entry_id": "test",
-        "standard_version": 1,
         "configurations": {
             "c": {
                 "digest": digest,
-                "evidence": "rerun",
+                "standard_version": 1,
                 "tatc_version": "0",
                 "source": "test",
                 "reference": "test",
-                "period": "2026-01-01",
-                "platform": "test",
+                "period": "2026-03-01",
+                "platforms": ["test"],
                 "metrics": metrics,
                 **(record or {}),
             }
@@ -287,6 +368,10 @@ class TestTiers(unittest.TestCase):
         self.assertEqual(validation.tier, Tier.PARTIAL)
         self.assertIs(validation.configurations["c"].gates[0].passed, False)
         self.assertIn("0.6", validation.configurations["c"].gaps[0])
+        self.assertEqual(validation.configurations["c"].evidence_gaps, ())
+        self.assertEqual(
+            validation.gaps, ("c: " + validation.configurations["c"].gaps[0],)
+        )
 
     def test_gate_limit_inclusive(self):
         """
@@ -317,14 +402,32 @@ class TestTiers(unittest.TestCase):
         self.assertEqual(result.value, 0.9)
         self.assertIs(result.passed, False)
 
-    def test_reported_evidence_is_partial(self):
+    def test_incompatible_version_is_partial(self):
         """
-        Test that results not reproduced with exact values are not validated.
+        Test that results under a version of the standard that does not apply are
+        not validated.
         """
         validation = _entry(
-            metrics=self.good, record={"evidence": "reported"}
+            metrics=self.good, record={"standard_version": STANDARD_VERSION + 1}
         ).validation
         self.assertEqual(validation.tier, Tier.PARTIAL)
+        self.assertIn("does not apply", validation.configurations["c"].gaps[0])
+
+    def test_record_of_untested_platform_invalid(self):
+        """
+        Test that a record is of the platforms on which its configuration is
+        tested, and its transfers of other platforms of the entry.
+        """
+        with self.assertRaisesRegex(ValidationError, "not those tested"):
+            _entry(metrics=self.good, record={"platforms": ["other"]})
+        transfer = {"period": "2026-03-02", "metrics": self.good}
+        validation = _entry(
+            metrics=self.good, record={"transfers": {"other": transfer}}
+        ).validation
+        self.assertEqual(validation.tier, Tier.VALIDATED)
+        for platform in ("test", "unknown"):
+            with self.assertRaisesRegex(ValidationError, "transfers", msg=platform):
+                _entry(metrics=self.good, record={"transfers": {platform: transfer}})
 
     def test_changed_configuration_is_partial(self):
         """
@@ -335,17 +438,28 @@ class TestTiers(unittest.TestCase):
 
     def test_fitted_values_need_holdout(self):
         """
-        Test the holdout rule for fitted values, at the limit of its gap.
+        Test the holdout rule for fitted values, at the limit of its gap, which is
+        computed from the periods of the fitting data and the test, before or
+        after the fit.
         """
-        for gap, expected in (
-            (None, Tier.PARTIAL),
-            (MIN_HOLDOUT_GAP_DAYS - 1, Tier.PARTIAL),
-            (MIN_HOLDOUT_GAP_DAYS, Tier.VALIDATED),
+        fit_first, fit_last = date(2025, 12, 1), date(2026, 1, 1)
+        for period, gap, expected in (
+            ("2025-12-15", 0, Tier.PARTIAL),
+            (
+                str(fit_last + timedelta(days=MIN_HOLDOUT_GAP_DAYS - 1)),
+                29,
+                Tier.PARTIAL,
+            ),
+            (str(fit_last + timedelta(days=MIN_HOLDOUT_GAP_DAYS)), 30, Tier.VALIDATED),
+            (str(fit_first - timedelta(days=MIN_HOLDOUT_GAP_DAYS)), 30, Tier.VALIDATED),
+            # the nearest day of a test of several days decides
+            ("2025-12-31, 2026-03-01", 0, Tier.PARTIAL),
         ):
             validation = _entry(
-                kind="measured", metrics=self.good, record={"holdout_gap_days": gap}
+                kind="measured", metrics=self.good, record={"period": period}
             ).validation
-            self.assertEqual(validation.tier, expected, gap)
+            self.assertEqual(validation.configurations["c"].holdout_gap_days, gap)
+            self.assertEqual(validation.tier, expected, period)
 
     def test_derived_values_need_no_holdout(self):
         """
@@ -353,6 +467,7 @@ class TestTiers(unittest.TestCase):
         """
         validation = _entry(kind="derived", metrics=self.good).validation
         self.assertEqual(validation.tier, Tier.VALIDATED)
+        self.assertIsNone(validation.configurations["c"].holdout_gap_days)
 
     def test_missing_required_grade_limits_entry(self):
         """
@@ -372,6 +487,24 @@ class TestTiers(unittest.TestCase):
         self.assertEqual(
             validation.gaps, ("no configuration at the sample_size grade",)
         )
+
+    def test_class_added_after_version_is_partial(self):
+        """
+        Test that results under a version before a class's gates are not
+        validated.
+        """
+        metrics = [
+            {"name": "segment_recall", "value": 100},
+            {"name": "track_offset_median", "value": 0},
+            {"name": "epoch_p95", "value": 0},
+        ]
+        for version, expected in ((5, Tier.PARTIAL), (6, Tier.VALIDATED)):
+            validation = _entry(
+                metrics=metrics,
+                cls="profiler",
+                record={"standard_version": version},
+            ).validation
+            self.assertEqual(validation.tier, expected, version)
 
     def test_grade_without_gates_invalid(self):
         """

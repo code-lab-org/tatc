@@ -40,6 +40,8 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_glint_angle
 
+.. autofunction:: tatc.utils.compute_subsolar_latitude
+
 .. autoclass:: tatc.utils.VelocityFrame
   :members:
 
@@ -74,6 +76,8 @@ Utility Functions
 .. autofunction:: tatc.utils.compute_vnb_frame
 
 .. autofunction:: tatc.utils.compute_argument_of_latitude
+
+.. autofunction:: tatc.utils.compute_ascending_argument_of_latitude
 
 .. autofunction:: tatc.utils.compute_j2_raan_rate
 

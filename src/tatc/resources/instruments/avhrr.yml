@@ -41,13 +41,9 @@ configurations:
           field_of_regard: &measured_extent
             kind: measured
             source: validate_catalog_avhrr.py --fit, between the outermost samples (printed to 4 decimals)
-            platform: metop-c
+            platforms: [metop-c]
             period: "2026-11-05"
           cross_track_field_of_view: *measured_extent
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular:
             kind: derived
             source: Models a scanned swath as a rectangular view
@@ -80,7 +76,7 @@ configurations:
           cross_track_field_of_view:
             kind: measured
             source: validate_catalog_avhrr.py --fit, a fitted spacing of 0.0539816 deg over 2048 samples
-            platform: metop-c
+            platforms: [metop-c]
             period: "2026-11-05"
           along_track_field_of_view:
             kind: nominal
@@ -91,7 +87,7 @@ configurations:
           roll_angle:
             kind: measured
             source: validate_catalog_avhrr.py --fit, the offset of the fitted sample angles
-            platform: metop-c
+            platforms: [metop-c]
             period: "2026-11-05"
           is_rectangular:
             kind: derived

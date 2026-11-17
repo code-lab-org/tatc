@@ -3,13 +3,14 @@
   "configurations": {
     "nadir": {
       "digest": "c449b1266d6a9d23c6f2a3f31c5c29627153d562b2fd4e8802a6bea6b16551fb",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_oco2.py",
+      "source": "validation/catalog/validate_catalog_oco2.py",
       "reference": "OCO2_L1B_Science version 11.2 (sounding positions and times, nadir orbits)",
       "period": "2026-11-07",
-      "platform": "oco-2",
-      "holdout_gap_days": 34,
+      "platforms": [
+        "oco-2"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -32,6 +33,7 @@
           "value": 0.448221500705728
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 96.66666666666667,
         "epoch_p95": 0.8599056667499999
@@ -39,13 +41,14 @@
     },
     "glint": {
       "digest": "5e5e2514972d07b5ca4809fe207647ffce5e74c174837b9fe02d2717dc872f37",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_oco2.py",
+      "source": "validation/catalog/validate_catalog_oco2.py",
       "reference": "OCO2_L1B_Science version 11.2 (sounding positions and times, glint orbits)",
       "period": "2026-11-07",
-      "platform": "oco-2",
-      "holdout_gap_days": 34,
+      "platforms": [
+        "oco-2"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -68,11 +71,11 @@
           "value": 0.4077767374507504
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 91.66666666666666,
         "epoch_p95": 1.2700150375999997
       }
     }
-  },
-  "standard_version": 5
+  }
 }

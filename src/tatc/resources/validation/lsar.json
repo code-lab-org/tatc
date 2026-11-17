@@ -3,13 +3,14 @@
   "configurations": {
     "swath_20_40mhz": {
       "digest": "e67e1e5d49acea59d3d35bca921f519a83dd3d31f98c548fb6e2ba0baf85407f",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_lsar.py",
+      "source": "validation/catalog/validate_catalog_lsar.py",
       "reference": "Geolocation grids, orbits, and bounding polygons of NISAR Level 1 RSLC products",
       "period": "2026-11-04",
-      "platform": "nisar",
-      "holdout_gap_days": 33,
+      "platforms": [
+        "nisar"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -64,6 +65,7 @@
           "value": -0.678647302
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.9402862115499999
@@ -71,13 +73,14 @@
     },
     "swath_5mhz": {
       "digest": "f8b48d01faf157ff78d710527be59e46478af30b6b114a004d996af433de4874",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_lsar.py",
+      "source": "validation/catalog/validate_catalog_lsar.py",
       "reference": "Geolocation grids, orbits, and bounding polygons of NISAR Level 1 RSLC products",
       "period": "2026-11-04",
-      "platform": "nisar",
-      "holdout_gap_days": 33,
+      "platforms": [
+        "nisar"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -132,6 +135,7 @@
           "value": -0.352374686
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.36542056
@@ -139,13 +143,14 @@
     },
     "swath_77mhz": {
       "digest": "487fa95b160e4567932ce285f6396f7222da083e56cc66a112cab00f0f4bf6f2",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_lsar.py",
+      "source": "validation/catalog/validate_catalog_lsar.py",
       "reference": "Geolocation grids, orbits, and bounding polygons of NISAR Level 1 RSLC products",
       "period": "2026-11-01, 2026-11-02, 2026-11-03, 2026-11-05",
-      "platform": "nisar",
-      "holdout_gap_days": 30,
+      "platforms": [
+        "nisar"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -170,11 +175,11 @@
           "value": -0.02563027200000001
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.1304822434
       }
     }
-  },
-  "standard_version": 5
+  }
 }

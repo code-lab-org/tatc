@@ -9,13 +9,8 @@ it on each build.
 import pathlib
 import re
 
-from tatc.catalog import (
-    MIN_HOLDOUT_GAP_DAYS,
-    STANDARD_VERSION,
-    Tier,
-    get_entry,
-    get_entry_ids,
-)
+from tatc.catalog import STANDARD_VERSION, get_entry, get_entry_ids
+from tatc.catalog.standard import MIN_HOLDOUT_GAP_DAYS
 
 REPOSITORY = "https://github.com/code-lab-org/tatc/blob/main/"
 METRIC_LABELS = {
@@ -31,7 +26,6 @@ METRIC_LABELS = {
     "product_limit": "Product limit of local zenith angle",
 }
 DECIMALS = {"%": 2, "s": 2, "km": 2, "deg": 2, "": 4}
-ORDER = {Tier.VALIDATED: 0, Tier.PARTIAL: 1, Tier.NOMINAL: 2}
 
 
 def escape(text: str) -> str:
@@ -161,24 +155,25 @@ def render_configuration(entry, key: str) -> str:
             f"``instrument_index={configuration.instrument_index}`` unless "
             "another is given.\n"
         )
-    if configuration.attitude_schedule is not None:
+    if configuration.tilt_schedule is not None:
         parts.append(
-            "Its attitude is scheduled by day: build it with the start and end of "
-            "the analysis (``start`` and ``end``).\n"
+            "Its tilt is scheduled by day: build it with the start and end of the "
+            "analysis (``start`` and ``end``).\n"
         )
     if record is not None:
-        gap = (
-            "no holdout"
-            if record.holdout_gap_days is None
-            else f"{record.holdout_gap_days:g} days from the fitting data"
-        )
-        if not configuration.is_fitted:
+        if validation.holdout_gap_days is None:
             gap = "no fitted values"
+        elif validation.holdout_gap_days == 0:
+            gap = "no holdout"
+        else:
+            gap = f"{validation.holdout_gap_days} days from the fitting data"
         source = f"`{record.source} <{REPOSITORY}{record.source}>`_"
+        tested = ", ".join(names.get(p, p) for p in record.platforms)
         parts.append(
             f"**Reference:** {escape(record.reference)}, {record.period} "
-            f"({escape(record.platform)}; {gap}). **Results:** {source}, "
-            f"TAT-C {record.tatc_version}.\n"
+            f"({escape(tested)}; {gap}). **Results:** {source}, "
+            f"TAT-C {record.tatc_version}, version {record.standard_version} of "
+            "the standard.\n"
         )
     rows = []
     for result in validation.gates:
@@ -204,27 +199,33 @@ def render_configuration(entry, key: str) -> str:
             ]
         )
     parts.append(
-        "Gates, with the worst result over the scopes tested (such as platforms "
-        "and time steps):\n"
+        "Gates, with the worst result over the scopes tested (such as "
+        "instruments and time steps):\n"
     )
     parts.append(
         list_table(["Metric", "Result", "Limit", "Outcome"], rows, [34, 36, 15, 15])
     )
+    if record is not None and record.transfers:
+        parts.append(
+            "**Transfers**, results on other platforms, which do not count toward "
+            "its tier: "
+            + ", ".join(
+                f"{escape(names.get(p, p))} ({transfer.period})"
+                for p, transfer in record.transfers.items()
+            )
+            + ".\n"
+        )
     if record is not None:
         path = f"src/tatc/resources/validation/{entry.id}.json"
         parts.append(
             f"Every result, including those not gated, is in the record "
             f"`{entry.id}.json <{REPOSITORY}{path}>`_.\n"
         )
-    gated = {result.gate.metric for result in validation.gates}
-    gaps = [
-        text
-        for text in validation.gaps
-        if not any(text.startswith(f"{metric}:") for metric in gated)
-    ]
-    if gaps:
+    if validation.evidence_gaps:
         parts.append("Other gaps:\n")
-        parts.append("\n".join(f"* {escape(text)}" for text in gaps) + "\n")
+        parts.append(
+            "\n".join(f"* {escape(text)}" for text in validation.evidence_gaps) + "\n"
+        )
     if configuration.limitations:
         parts.append("Limitations:\n")
         parts.append(
@@ -276,10 +277,13 @@ def render_entry(entry) -> str:
             )
             + ".\n"
         )
-    if validation.gaps:
+    if validation.missing_grades:
         parts.append(
             "Gaps of the entry:\n\n"
-            + "\n".join(f"* {escape(text)}" for text in validation.gaps)
+            + "\n".join(
+                f"* no configuration at the {grade.value} grade"
+                for grade in validation.missing_grades
+            )
             + "\n"
         )
     if entry.limitations:
@@ -302,7 +306,7 @@ def render() -> str:
     """
     entries = sorted(
         (get_entry(entry_id) for entry_id in get_entry_ids()),
-        key=lambda e: (ORDER[e.validation.tier], e.name.lower()),
+        key=lambda e: (-e.validation.tier.rank, e.name.lower()),
     )
     summary = list_table(
         ["Instrument", "Class", "Tier", "Configurations", "Platforms"],
@@ -347,19 +351,23 @@ limitations.
     from tatc.catalog import get_entry, list_entries
 
     list_entries(tier="validated")
-    entry = get_entry("viirs")
+    entry = get_entry("atms")
     entry.validation  # tier, gate results, and gaps of each configuration
-    satellite = entry.to_satellite(orbit, time_step=10, platform="noaa-20")
+    satellite = entry.to_satellite(orbit, time_step=10, platform="noaa-21")
+    pixels = entry.to_satellite(orbit, grade="sample_size", platform="noaa-21")
 
-Pass the analysis time step to configurations whose along-track field of view
-is tailored to it, and keep the attitude of the configuration: a scanner modeled
-in another velocity frame can misplace its swath edges by tens of kilometers.
-Pass the start and end of the analysis to configurations whose attitude is
-scheduled by day, such as OCI's tilt. Where an entry has configurations fitted
-on more than one platform (ATMS, VIIRS, and the OMPS Nadir Mapper), each
-configuration's name ends with its platform, such as ``swath_noaa_21``; use
-those of the platform analyzed. The entries hold no element sets, as they age;
-supply a recent one for the analysis period.
+Name the platform analyzed: it selects the configuration tested on it, and
+using a configuration on a platform on which it was not tested gives a
+warning. Where an entry has configurations fitted on more than one platform
+(ATMS, VIIRS, and the OMPS Nadir Mapper), each configuration's name ends with
+its platform, such as ``swath_noaa_21``. A grade (``coverage``, ``timing``, or
+``sample_size``) selects a configuration for that use. Pass the analysis time
+step to configurations whose along-track field of view is tailored to it, and
+keep the attitude of the configuration: a scanner modeled in another velocity
+frame can misplace its swath edges by tens of kilometers. Pass the start and
+end of the analysis to configurations whose tilt is scheduled by day, such as
+OCI's. The entries hold no element sets, as they age; supply a recent one for
+the analysis period.
 
 """
     body = "\n".join(render_entry(entry) for entry in entries)

@@ -3,13 +3,14 @@
   "configurations": {
     "swaths": {
       "digest": "59e40263c6b54b186c1ce9b1e424f117c7b8adb14ed319fff9d15b8ddf7ab67d",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_karin.py",
+      "source": "validation/catalog/validate_catalog_karin.py",
       "reference": "SWOT_L2_LR_SSH_BASIC_D (good-quality pixels and line times)",
       "period": "2026-11-04",
-      "platform": "swot",
-      "holdout_gap_days": 34,
+      "platforms": [
+        "swot"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -74,11 +75,11 @@
           "value": -0.335281265
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.5138719532999999
       }
     }
-  },
-  "standard_version": 5
+  }
 }

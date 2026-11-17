@@ -42,14 +42,10 @@ configurations:
         provenance:
           field_of_regard: &measured_extent
             kind: measured
-            source: ValidateDriftMODIS, Test 3, 1,353 frame spacings of a fitted 0.08124 deg
-            platform: terra
+            source: validate_catalog_modis.py --fit, 1,353 frame spacings of a fitted 0.08124 deg
+            platforms: [terra]
             period: "2026-10-04"
           cross_track_field_of_view: *measured_extent
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular:
             kind: derived
             source: Models a scanned swath as a rectangular view
@@ -80,13 +76,13 @@ configurations:
             source: Wider than the field of view, so that it does not clip the scan
           cross_track_field_of_view:
             kind: measured
-            source: ValidateDriftMODIS, Test 3, 1,354 frames of a fitted 0.08124 deg
-            platform: terra
+            source: validate_catalog_modis.py --fit, 1,354 frames of a fitted 0.08124 deg
+            platforms: [terra]
             period: "2026-10-04"
           along_track_field_of_view:
             kind: measured
-            source: ValidateDriftMODIS, Test 3, 10 detectors, from 0.7311 deg over the 9 spacings between the first and last
-            platform: terra
+            source: validate_catalog_modis.py --fit, 10 detectors, from 0.7311 deg over the 9 spacings between the first and last
+            platforms: [terra]
             period: "2026-10-04"
           cross_track_pixels:
             kind: nominal
@@ -96,8 +92,8 @@ configurations:
             source: The 1 km bands have 10 detectors
           roll_angle:
             kind: measured
-            source: ValidateDriftMODIS, Test 3, the fitted offset of the scan angle
-            platform: terra
+            source: validate_catalog_modis.py --fit, the fitted offset of the scan angle
+            platforms: [terra]
             period: "2026-10-04"
           view_geometry:
             kind: derived

@@ -34,13 +34,10 @@ configurations:
           cone_angle: &measured
             kind: measured
             source: validate_catalog_tmi.py --fit, from each group's samples and the recorded spacecraft positions (printed to 3 decimals)
-            platform: trmm
+            platforms: [trmm]
             period: "2013-06-01"
           scan_center_azimuth: *measured
           scan_half_width: *measured
-          along_track_field_of_view: &tailored
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
       - type: conical
         parameters:
           name: TMI S2
@@ -52,7 +49,6 @@ configurations:
           cone_angle: *measured
           scan_center_azimuth: *measured
           scan_half_width: *measured
-          along_track_field_of_view: *tailored
       - type: conical
         parameters:
           name: TMI S3
@@ -64,7 +60,6 @@ configurations:
           cone_angle: *measured
           scan_center_azimuth: *measured
           scan_half_width: *measured
-          along_track_field_of_view: *tailored
     limitations:
       - TRMM periodically flew backward (yaw maneuvers every two to four weeks, as on 2013-06-15 and 2013-06-28), when TMI scanned behind the satellite. These configurations represent forward flight (the products' SCorientation of 0); supply an attitude schedule for backward flight.
   sample_size:
@@ -87,7 +82,6 @@ configurations:
           cone_angle: *measured
           scan_center_azimuth: *measured
           scan_half_width: *measured
-          along_track_field_of_view: *tailored
           beam_width: &beam_width
             kind: nominal
             source: Kummerow et al. (1998), TMI characteristics (vertical polarization), as reproduced by NOAA MiRS
@@ -107,7 +101,6 @@ configurations:
           cone_angle: *measured
           scan_center_azimuth: *measured
           scan_half_width: *measured
-          along_track_field_of_view: *tailored
           beam_width: *beam_width
           scan_sample_spacing: *sample_spacing
       - type: conical
@@ -135,7 +128,6 @@ configurations:
           cone_angle: *measured
           scan_center_azimuth: *measured
           scan_half_width: *measured
-          along_track_field_of_view: *tailored
           beam_width: *beam_width
           scan_sample_spacing: *sample_spacing
     limitations:

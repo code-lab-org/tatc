@@ -42,13 +42,9 @@ configurations:
           roll_angle: &measured
             kind: measured
             source: validate_catalog_atlid.py --fit, the median angles of the profiles from the geodetic nadir across and along the ground track (Earth-fixed frame), from the recorded sensor positions
-            platform: earthcare
+            platforms: [earthcare]
             period: "2026-09-27"
           pitch_angle: *measured
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular:
             kind: derived
             source: Models the band along the track as a rectangular view

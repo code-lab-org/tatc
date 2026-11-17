@@ -3,13 +3,14 @@
   "configurations": {
     "beams": {
       "digest": "c91a076745f0c7ae78527f94f525be947c12960c33fa2cac0922f8782de7bfd9",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_gedi.py",
+      "source": "validation/catalog/validate_catalog_gedi.py",
       "reference": "GEDI01_B version 003 (every 200th shot, where the beams' center lies within 1 deg of nadir)",
       "period": "2026-06-08",
-      "platform": "iss",
-      "holdout_gap_days": 38,
+      "platforms": [
+        "iss"
+      ],
       "metrics": [
         {
           "name": "segment_recall",
@@ -61,11 +62,11 @@
           "value": 0.026380082429530827
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 1.5583851070999999
       }
     }
-  },
-  "standard_version": 5
+  }
 }

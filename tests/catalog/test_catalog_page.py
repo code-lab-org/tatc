@@ -10,7 +10,8 @@ import importlib.util
 import pathlib
 import unittest
 
-from tatc.catalog import Gate, get_entry, get_entry_ids
+from tatc.catalog import get_entry, get_entry_ids
+from tatc.catalog.standard import Gate
 
 SCRIPT = pathlib.Path(__file__).parents[2] / "docs" / "validation" / "catalog_page.py"
 

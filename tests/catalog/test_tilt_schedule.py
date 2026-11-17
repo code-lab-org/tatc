@@ -11,7 +11,9 @@ from datetime import date, datetime, timedelta, timezone
 import numpy as np
 from pydantic import ValidationError
 
-from tatc.catalog import TiltSchedule, get_entry, get_subsolar_latitude
+from tatc.catalog import get_entry
+from tatc.catalog.schemas import TiltSchedule
+from tatc.utils import compute_subsolar_latitude
 from tatc.schemas import Attitude, AttitudeSchedule, GeneralPerturbationsOrbit
 from tatc.utils import VelocityFrame
 from tatc.utils.orbital import compute_argument_of_latitude
@@ -23,7 +25,7 @@ PACE_TLE = [
 MEASURED = {
     "kind": "measured",
     "source": "a test",
-    "platform": "pace",
+    "platforms": ["pace"],
     "period": "2026-10-04",
 }
 
@@ -53,11 +55,13 @@ class TestSubsolarLatitude(unittest.TestCase):
         Test that the subsolar latitude is the obliquity at the solstices and near
         zero at an equinox.
         """
-        june = get_subsolar_latitude(datetime(2026, 6, 21, 12, tzinfo=timezone.utc))
-        december = get_subsolar_latitude(
+        june = compute_subsolar_latitude(datetime(2026, 6, 21, 12, tzinfo=timezone.utc))
+        december = compute_subsolar_latitude(
             datetime(2026, 12, 21, 12, tzinfo=timezone.utc)
         )
-        march = get_subsolar_latitude(datetime(2026, 3, 20, 15, tzinfo=timezone.utc))
+        march = compute_subsolar_latitude(
+            datetime(2026, 3, 20, 15, tzinfo=timezone.utc)
+        )
         self.assertAlmostEqual(june, 23.44, delta=0.01)
         self.assertAlmostEqual(december, -23.44, delta=0.01)
         self.assertAlmostEqual(march, 0, delta=0.01)
@@ -98,7 +102,7 @@ class TestTiltSchedule(unittest.TestCase):
             noon = datetime(day.year, day.month, day.day, 12, tzinfo=timezone.utc)
             self.assertAlmostEqual(
                 self.schedule.get_switch_latitude(day),
-                get_subsolar_latitude(noon) + offset,
+                compute_subsolar_latitude(noon) + offset,
             )
 
     def test_profile_changes_after_ascending_node(self):
@@ -277,10 +281,10 @@ class TestOciSchedule(unittest.TestCase):
         that changing a value of the schedule changes the digest.
         """
         configuration = self.entry.configurations["swath"]
-        self.assertTrue(configuration.is_fitted)
+        self.assertIsNotNone(configuration.get_holdout_gap("2000-01-01"))
         changed = configuration.model_copy(
             update={
-                "attitude_schedule": configuration.attitude_schedule.model_copy(
+                "tilt_schedule": configuration.tilt_schedule.model_copy(
                     update={"odd_day_offset": 5.0}
                 )
             }

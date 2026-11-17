@@ -154,7 +154,7 @@ class TestSunSynchronousOrbit(unittest.TestCase):
         """
         Test get_right_ascension_ascending_node against a real NOAA-20
         two-line element set (the same TLE used in
-        docs/examples/ComputeCoverage.ipynb), rather than only a
+        docs/examples/getting_started/ComputeCoverage.ipynb), rather than only a
         synthetic/derived example. NOAA-20's documented local time of
         ascending node is 13:30 +/- 10 minutes (see eoPortal), which
         corresponds to a RAAN tolerance of about +/- 2.5 degrees (15

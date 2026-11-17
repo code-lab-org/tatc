@@ -16,11 +16,12 @@ from enum import Enum
 STANDARD_VERSION = 6
 """The version of the thresholds in `get_gates`."""
 
-COMPATIBLE_VERSIONS = (1, 2, 3, 4, 5, 6)
+_LAST_THRESHOLD_CHANGE = 1
+
+COMPATIBLE_VERSIONS = tuple(range(_LAST_THRESHOLD_CHANGE, STANDARD_VERSION + 1))
 """
-Versions whose results still apply: version 2 only added the lidar class, version 3
-the altimeter class, version 4 the scatterometer class, version 5 the regional
-geostationary class, and version 6 the profiler class.
+Versions whose results still apply, as no threshold changed after the first:
+later versions only added classes (see `is_compatible`).
 """
 
 MIN_HOLDOUT_GAP_DAYS = 30
@@ -42,6 +43,21 @@ class InstrumentClass(str, Enum):
     ALTIMETER = "altimeter"
     SCATTEROMETER = "scatterometer"
     PROFILER = "profiler"
+
+
+# the version of the standard that added each class's gates
+_CLASS_VERSIONS: dict[InstrumentClass, int] = {
+    InstrumentClass.CROSS_TRACK: 1,
+    InstrumentClass.PUSHBROOM: 1,
+    InstrumentClass.CONICAL: 1,
+    InstrumentClass.SAR: 1,
+    InstrumentClass.GEOSTATIONARY: 1,
+    InstrumentClass.LIDAR: 2,
+    InstrumentClass.ALTIMETER: 3,
+    InstrumentClass.SCATTEROMETER: 4,
+    InstrumentClass.GEOSTATIONARY_REGIONAL: 5,
+    InstrumentClass.PROFILER: 6,
+}
 
 
 class Grade(str, Enum):
@@ -67,7 +83,14 @@ class Tier(str, Enum):
     PARTIAL = "partial"
     """Some gates are unmet or untested, or the evidence is incomplete."""
     VALIDATED = "validated"
-    """All applicable gates pass, with evidence reproduced with exact parameters."""
+    """All applicable gates pass, with results of the configuration as cataloged."""
+
+    @property
+    def rank(self) -> int:
+        """
+        The strength of the tier, from 0 (`nominal`) to 2 (`validated`).
+        """
+        return list(Tier).index(self)
 
 
 @dataclass(frozen=True)
@@ -117,7 +140,7 @@ _TRACK_OFFSET = Gate("track_offset_median", 0.5, True, "km")
 # field of regard with the area imaged in a scan of a region
 _FIELD_OF_REGARD_IOU = Gate("field_of_regard_iou", 0.95, False, "")
 
-# gates that do not depend on the epoch accuracy of a grade
+# gates of the coverage and timing grades that do not depend on epoch accuracy
 _SWEEP_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
     InstrumentClass.CROSS_TRACK: (_PASS_RECALL, _PASS_PRECISION, _SWATH_WIDTH, _IOU),
     # the acquisitions of pushbroom imagers and SAR follow plans, so predicted
@@ -144,9 +167,22 @@ _SWEEP_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
         _IOU_SAR_LOW,
     ),
 }
-_SAMPLE_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
-    InstrumentClass.CROSS_TRACK: (_SAMPLE_SIZE, _PIXEL_POSITION),
-    InstrumentClass.CONICAL: (_SAMPLE_SIZE,),
+
+# the gates of each class at each of its grades
+_GATES: dict[tuple[InstrumentClass, Grade], tuple[Gate, ...]] = {
+    **{
+        (instrument_class, grade): (*gates, epoch)
+        for instrument_class, gates in _SWEEP_GATES.items()
+        for grade, epoch in (
+            (Grade.COVERAGE, _EPOCH_COVERAGE),
+            (Grade.TIMING, _EPOCH_TIMING),
+        )
+    },
+    # geostationary instruments have only a coverage grade
+    (InstrumentClass.GEOSTATIONARY, Grade.COVERAGE): (_PRODUCT_LIMIT,),
+    (InstrumentClass.GEOSTATIONARY_REGIONAL, Grade.COVERAGE): (_FIELD_OF_REGARD_IOU,),
+    (InstrumentClass.CROSS_TRACK, Grade.SAMPLE_SIZE): (_SAMPLE_SIZE, _PIXEL_POSITION),
+    (InstrumentClass.CONICAL, Grade.SAMPLE_SIZE): (_SAMPLE_SIZE,),
 }
 
 
@@ -164,28 +200,20 @@ def get_gates(instrument_class: InstrumentClass, grade: Grade) -> tuple[Gate, ..
     Raises:
         ValueError: If the class is not validated at the grade.
     """
-    if instrument_class == InstrumentClass.GEOSTATIONARY:
-        if grade != Grade.COVERAGE:
-            raise ValueError("geostationary instruments have only a coverage grade")
-        return (_PRODUCT_LIMIT,)
-    if instrument_class == InstrumentClass.GEOSTATIONARY_REGIONAL:
-        if grade != Grade.COVERAGE:
-            raise ValueError(
-                "regional geostationary instruments have only a coverage grade"
-            )
-        return (_FIELD_OF_REGARD_IOU,)
-    if grade == Grade.SAMPLE_SIZE:
-        if instrument_class not in _SAMPLE_GATES:
-            raise ValueError(f"{instrument_class.value} has no sample_size grade")
-        return _SAMPLE_GATES[instrument_class]
-    epoch = _EPOCH_TIMING if grade == Grade.TIMING else _EPOCH_COVERAGE
-    return (*_SWEEP_GATES[instrument_class], epoch)
+    instrument_class, grade = InstrumentClass(instrument_class), Grade(grade)
+    if (instrument_class, grade) not in _GATES:
+        grades = [g.value for c, g in _GATES if c == instrument_class]
+        raise ValueError(
+            f"{instrument_class.value} has no {grade.value} grade, only {grades}"
+        )
+    return _GATES[instrument_class, grade]
 
 
 def get_required_grades(instrument_class: InstrumentClass) -> tuple[Grade, ...]:
     """
-    Gets the grades that an entry needs to be validated. Any one of the coverage
-    and timing grades suffices, as timing also tests coverage.
+    Gets the grades that an entry needs to be validated: the coverage grade, and
+    the sample size grade if its class has one. A configuration at the timing
+    grade also meets the coverage grade, as timing also tests coverage.
 
     Args:
         instrument_class (InstrumentClass): The class of the instrument.
@@ -193,6 +221,28 @@ def get_required_grades(instrument_class: InstrumentClass) -> tuple[Grade, ...]:
     Returns:
         tuple[Grade, ...]: The required grades.
     """
-    if instrument_class in _SAMPLE_GATES:
-        return (Grade.COVERAGE, Grade.SAMPLE_SIZE)
-    return (Grade.COVERAGE,)
+    return tuple(
+        grade
+        for grade in (Grade.COVERAGE, Grade.SAMPLE_SIZE)
+        if (InstrumentClass(instrument_class), grade) in _GATES
+    )
+
+
+def is_compatible(instrument_class: InstrumentClass, version: int) -> bool:
+    """
+    Checks whether results tested under a version of the standard apply to a
+    class: the version is compatible and has the class's gates. Version 2 added
+    the lidar class, 3 the altimeter class, 4 the scatterometer class, 5 the
+    regional geostationary class, and 6 the profiler class.
+
+    Args:
+        instrument_class (InstrumentClass): The class of the instrument.
+        version (int): The version of the standard.
+
+    Returns:
+        bool: `True`, if the results apply.
+    """
+    return (
+        version in COMPATIBLE_VERSIONS
+        and version >= _CLASS_VERSIONS[InstrumentClass(instrument_class)]
+    )

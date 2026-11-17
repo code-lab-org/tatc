@@ -35,13 +35,9 @@ configurations:
           roll_angle: &left
             kind: measured
             source: validate_catalog_ascat.py --fit, the mean of the median look angles of the inner and outer bounds of the cells of 2,304 rows (23.4862 and 44.8449 deg)
-            platform: metop-c
+            platforms: [metop-c]
             period: "2026-10-05"
           cross_track_field_of_view: *left
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: &tailored
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular: &rectangular
             kind: derived
             source: Models the swath of each row of cells as a rectangular view
@@ -57,11 +53,9 @@ configurations:
           roll_angle: &right
             kind: measured
             source: validate_catalog_ascat.py --fit, the mean of the median look angles of the inner and outer bounds of the cells of 2,304 rows (-23.4851 and -44.8447 deg)
-            platform: metop-c
+            platforms: [metop-c]
             period: "2026-10-05"
           cross_track_field_of_view: *right
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
     limitations:
       - The swaths are those of the 25 km wind vector cells, each of which ASCAT's fore, mid, and aft beams observe at different times, the fore and aft beams (45 deg ahead of and behind the mid beam) about one to two minutes before and after, by the swaths' distance from the ground track (about 370 to 850 km); a cell's epoch is that of its row.

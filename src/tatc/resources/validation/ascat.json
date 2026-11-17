@@ -3,13 +3,14 @@
   "configurations": {
     "swaths": {
       "digest": "5d9d3f2ba6c6b2a59be1a0fb383cd836acbd56df2a78be1dc5251ce092f002b9",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_ascat.py",
+      "source": "validation/catalog/validate_catalog_ascat.py",
       "reference": "ASCATC-L2-25km (wind vector cell positions and row times)",
       "period": "2026-11-08",
-      "platform": "metop-c",
-      "holdout_gap_days": 34,
+      "platforms": [
+        "metop-c"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -74,11 +75,11 @@
           "value": 0.371873582
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 1.8460118375499996
       }
     }
-  },
-  "standard_version": 5
+  }
 }

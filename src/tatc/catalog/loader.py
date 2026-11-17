@@ -12,10 +12,13 @@ from __future__ import annotations
 import functools
 import json
 import pathlib
+from collections.abc import Sequence
+from datetime import datetime
 
 import yaml
 
-from .schemas import InstrumentEntry
+from ..schemas.orbit import AllOrbits
+from .schemas import InstrumentEntry, InstrumentPayload
 from .standard import InstrumentClass, Tier
 
 _RESOURCES = pathlib.Path(__file__).parents[1] / "resources"
@@ -104,3 +107,85 @@ def list_entries(
         if (wanted_class is None or entry.instrument_class == wanted_class)
         and (wanted_tier is None or entry.validation.tier == wanted_tier)
     ]
+
+
+def build_payload(
+    references: str | Sequence[str],
+    *,
+    orbit: AllOrbits,
+    time_step: float | None = None,
+    platform: str | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> InstrumentPayload:
+    """
+    Builds the instruments of one or more catalog configurations for a
+    satellite that carries them together, with the attitude they share, to be
+    analyzed together. Each reference is the identifier of an entry (or of one
+    of its aliases), optionally with a configuration after a colon (such as
+    `"atms:swath_noaa_20"`), whose configuration is otherwise selected for the
+    platform (see `InstrumentEntry.select_configuration`). A configuration of
+    `alternatives` gives only the instrument it analyzes by default.
+
+    Args:
+        references (str | Sequence[str]): The references.
+        orbit (AllOrbits): The orbit.
+        time_step (float | None): The analysis time step (seconds), for
+            configurations that tailor a field of view to it.
+        platform (str | None): The identifier of the platform modeled, if any.
+        start (datetime.datetime | None): The start of the analysis, for
+            configurations that schedule their tilt by day.
+        end (datetime.datetime | None): The end of the analysis, for
+            configurations that schedule their tilt by day.
+
+    Returns:
+        InstrumentPayload: The instruments, with an `instrument_index` of 0 for
+        one instrument and `None` (analyzed together) for several.
+
+    Raises:
+        KeyError: If an entry is unknown.
+        ValueError: If there are no references, or the configurations have
+            different attitudes.
+    """
+    references = [references] if isinstance(references, str) else list(references)
+    if not references:
+        raise ValueError("a payload needs at least one catalog reference")
+    payloads = []
+    for reference in references:
+        entry_id, _, configuration = reference.partition(":")
+        payloads.append(
+            get_entry(entry_id).build(
+                configuration=configuration or None,
+                orbit=orbit,
+                time_step=time_step,
+                platform=platform,
+                start=start,
+                end=end,
+            )
+        )
+    attitude = payloads[0].attitude
+    for payload in payloads[1:]:
+        if payload.attitude != attitude:
+            raise ValueError(
+                "the configurations have different attitudes, so they cannot be "
+                f"carried together: {references}"
+            )
+    instruments = [
+        instrument
+        for payload in payloads
+        for instrument in (
+            payload.instruments
+            if payload.instrument_index is None
+            else payload.instruments[payload.instrument_index :][:1]
+        )
+    ]
+    return InstrumentPayload(
+        instruments=instruments,
+        attitude=attitude,
+        instrument_index=0 if len(instruments) == 1 else None,
+        references=tuple(r for payload in payloads for r in payload.references),
+        transferred=any(payload.transferred for payload in payloads),
+        limitations=tuple(
+            dict.fromkeys(text for payload in payloads for text in payload.limitations)
+        ),
+    )

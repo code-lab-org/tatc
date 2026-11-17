@@ -46,7 +46,7 @@ configurations:
           field_of_regard:
             kind: measured
             source: validate_catalog_ahi.py --fit, compute_field_of_regard(35785863, 90 - 79.3798), from the greatest local zenith angle at which the cloud top height is retrieved at full resolution, with the fixed grid's nominal position
-            platform: himawari-9
+            platforms: [himawari-9]
             period: "2026-10-01T12:00Z"
     limitations:
       - The product declares no bound of local zenith angle; the bound is measured as the greatest angle at which it retrieves a height, which it does only for cloudy pixels.

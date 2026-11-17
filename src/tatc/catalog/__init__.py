@@ -4,67 +4,34 @@ with their data products.
 
 An entry's `validation` states how far each configuration has been validated:
 not every entry is fully `validated`, and only `validated` configurations have
-passed every test of the standard (see `tatc.catalog.standard`).
+passed every test of the standard (see `tatc.catalog.standard`). The schemas of
+entries and their records are in `tatc.catalog.schemas`.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from .loader import get_entry, get_entry_ids, list_entries
+from .loader import build_payload, get_entry, get_entry_ids, list_entries
 from .schemas import (
-    Configuration,
-    ConfigurationRecord,
     ConfigurationValidation,
-    DataProduct,
     EntryValidation,
     GateResult,
     InstrumentEntry,
     InstrumentPayload,
-    InstrumentSpecification,
-    Metric,
-    Platform,
-    Provenance,
-    TiltSchedule,
-    ValidationRecord,
-    get_subsolar_latitude,
 )
-from .standard import (
-    COMPATIBLE_VERSIONS,
-    MIN_HOLDOUT_GAP_DAYS,
-    STANDARD_VERSION,
-    Gate,
-    Grade,
-    InstrumentClass,
-    Tier,
-    get_gates,
-    get_required_grades,
-)
+from .standard import STANDARD_VERSION, Grade, InstrumentClass, Tier
 
 __all__ = [
-    "COMPATIBLE_VERSIONS",
-    "Configuration",
-    "ConfigurationRecord",
     "ConfigurationValidation",
-    "DataProduct",
     "EntryValidation",
-    "Gate",
     "GateResult",
     "Grade",
     "InstrumentClass",
     "InstrumentEntry",
     "InstrumentPayload",
-    "InstrumentSpecification",
-    "MIN_HOLDOUT_GAP_DAYS",
-    "Metric",
-    "Platform",
-    "Provenance",
     "STANDARD_VERSION",
     "Tier",
-    "TiltSchedule",
-    "ValidationRecord",
+    "build_payload",
     "get_entry",
     "get_entry_ids",
-    "get_gates",
-    "get_required_grades",
-    "get_subsolar_latitude",
     "list_entries",
 ]

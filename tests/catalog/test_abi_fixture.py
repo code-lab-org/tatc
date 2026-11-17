@@ -1,8 +1,8 @@
 """
 Regression tests that recompute the results of the geostationary entries from
 reduced fixtures of pixels: GOES-19 ABI pixels, written by
-`docs/validation/validate_catalog_abi.py`, and Himawari-9 AHI pixels, written by
-`docs/validation/validate_catalog_ahi.py`.
+`validation/catalog/validate_catalog_abi.py`, and Himawari-9 AHI pixels, written by
+`validation/catalog/validate_catalog_ahi.py`.
 
 These detect changes in TAT-C's results without network access. They do not
 themselves establish agreement with the reference data, which the scripts do.
@@ -17,7 +17,8 @@ from datetime import datetime, timedelta
 import numpy as np
 
 from tatc.analysis import collect_observations
-from tatc.catalog import get_entry, get_gates
+from tatc.catalog import get_entry
+from tatc.catalog.standard import get_gates
 from tatc.catalog.metrics import compute_product_limit_error
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 
@@ -50,7 +51,9 @@ class _GeostationaryFixture:
 
     def _predict(self, key):
         rows = self.data[key]
-        satellite = self.entry.to_satellite(self.orbit, key, platform=self.platform)
+        satellite = self.entry.to_satellite(
+            self.orbit, configuration=key, platform=self.platform
+        )
         results = [
             collect_observations(
                 Point(latitude=float(latitude), longitude=float(longitude)),

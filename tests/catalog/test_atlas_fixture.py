@@ -1,7 +1,7 @@
 """
 Regression tests that recompute the results of the lidar entries (ICESat-2 ATLAS and
-GEDI) from reduced fixtures, written by `docs/validation/validate_catalog_atlas.py`
-and `docs/validation/validate_catalog_gedi.py`.
+GEDI) from reduced fixtures, written by `validation/catalog/validate_catalog_atlas.py`
+and `validation/catalog/validate_catalog_gedi.py`.
 
 These detect changes in TAT-C's results without network access. They do not themselves
 establish agreement with the reference data, which the script does.
@@ -59,7 +59,10 @@ class _LidarFixture:
         recorded epochs.
         """
         satellite = self.entry.to_satellite(
-            self.orbit, self.configuration, time_step=1, platform=self.platform
+            self.orbit,
+            configuration=self.configuration,
+            time_step=1,
+            platform=self.platform,
         )
         differences = []
         for latitude, longitude, seconds, pair in self.data["passes"]:
@@ -94,7 +97,10 @@ class _LidarFixture:
         Test that the views are ordered from left to right, without gaps between them.
         """
         satellite = self.entry.to_satellite(
-            self.orbit, self.configuration, time_step=1, platform=self.platform
+            self.orbit,
+            configuration=self.configuration,
+            time_step=1,
+            platform=self.platform,
         )
         rolls = [i.roll_angle for i in satellite.instruments]
         self.assertEqual(rolls, sorted(rolls, reverse=True))

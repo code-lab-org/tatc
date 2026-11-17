@@ -35,10 +35,6 @@ configurations:
             kind: derived
             source: 2 atan(5 km / 400 km), a view about 10 km wide at the orbit's altitude, which contains the footprint (about 0.8 km wide) at nadir given the error of an element set near the day
           cross_track_field_of_view: *width
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular:
             kind: derived
             source: Models the band along the ground track as a rectangular view

@@ -3,13 +3,14 @@
   "configurations": {
     "sample_size": {
       "digest": "f583bcf1c5cd9b1f756f7881c40a6722b24fc50a1998fb984b0c0492192b9d21",
-      "evidence": "rerun",
+      "standard_version": 1,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_amsr2.py",
+      "source": "validation/catalog/validate_catalog_amsr2.py",
       "reference": "Footprints of JAXA's AMSR2 channel set; spacing of GPM_1CGCOMW1AMSR2 version 08",
       "period": "2026-11-01",
-      "platform": "gcom-w",
-      "holdout_gap_days": 36,
+      "platforms": [
+        "gcom-w"
+      ],
       "metrics": [
         {
           "name": "sample_size_within_3pct",
@@ -40,6 +41,7 @@
           "scope": "S5"
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "sample_size_within_3pct": 83.33333333333334,
         "spacing_arc_ratio_median_S1": 1.0015214046175638,
@@ -50,13 +52,14 @@
     },
     "swath": {
       "digest": "3b318e73416bf7866fd7ecf2eabf1bd5bca4a5df50ac8783d9a7dc981d08b737",
-      "evidence": "rerun",
+      "standard_version": 1,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_amsr2.py",
+      "source": "validation/catalog/validate_catalog_amsr2.py",
       "reference": "GPM_1CGCOMW1AMSR2 version 08",
       "period": "2026-11-01",
-      "platform": "gcom-w",
-      "holdout_gap_days": 36,
+      "platforms": [
+        "gcom-w"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -79,11 +82,11 @@
           "value": 0.9976790180773127
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.7200056528
       }
     }
-  },
-  "standard_version": 1
+  }
 }

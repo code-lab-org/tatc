@@ -32,8 +32,8 @@ configurations:
         provenance:
           cone_angle:
             kind: measured
-            source: ValidateGridSMAP, the angle from nadir of a boresight at the median incidence angle of a day of looks (39.97 deg), at the mean altitude, on a spherical Earth (printed to 3 decimals)
-            platform: smap
+            source: validate_catalog_smap.py --fit, the angle from nadir of a boresight at the median incidence angle of a day of forward looks of SPL1CTB (39.97 deg), at the mean altitude, on a spherical Earth (printed to 3 decimals)
+            platforms: [smap]
             period: "2026-10-24"
           scan_center_azimuth:
             kind: nominal
@@ -41,9 +41,6 @@ configurations:
           scan_half_width:
             kind: nominal
             source: The antenna rotates through a full circle
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
     limitations:
       - A pass observes each point twice, about two minutes apart; `collect_observations` reports each look as an observation.
   footprints:
@@ -64,8 +61,8 @@ configurations:
         provenance:
           cone_angle:
             kind: measured
-            source: ValidateGridSMAP, as for the looks configuration
-            platform: smap
+            source: validate_catalog_smap.py --fit, as for the looks configuration
+            platforms: [smap]
             period: "2026-10-24"
           scan_center_azimuth:
             kind: nominal
@@ -73,9 +70,6 @@ configurations:
           scan_half_width:
             kind: nominal
             source: The antenna rotates through a full circle
-          along_track_field_of_view:
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           beam_width:
             kind: nominal
             source: The radiometer's 3 dB beamwidth of 2.4 deg (Piepmeier et al., IEEE Transactions on Geoscience and Remote Sensing, 2017)

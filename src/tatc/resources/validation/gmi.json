@@ -1,16 +1,16 @@
 {
   "entry_id": "gmi",
-  "standard_version": 1,
   "configurations": {
     "feeds": {
       "digest": "7a88b43962de1f39c462f46e95dc206ac99e019a77f2be98e888feb45e7bf499",
-      "evidence": "rerun",
+      "standard_version": 1,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_gmi.py",
+      "source": "validation/catalog/validate_catalog_gmi.py",
       "reference": "GPM_1CGPMGMI version 08",
       "period": "2026-07-20",
-      "platform": "gpm",
-      "holdout_gap_days": 75,
+      "platforms": [
+        "gpm"
+      ],
       "metrics": [
         {
           "name": "pass_recall",
@@ -63,6 +63,7 @@
           "scope": "S2"
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.637898751
@@ -70,13 +71,14 @@
     },
     "sample_size": {
       "digest": "5ea1adca77c77a9d04b7cb4f546c8c456c1ab0ce5a14d041277a7e0d4fe23a6f",
-      "evidence": "rerun",
+      "standard_version": 1,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_gmi.py",
+      "source": "validation/catalog/validate_catalog_gmi.py",
       "reference": "Footprints of the GMI L1B ATBD and TC PRIMED; spacing of GPM_1CGPMGMI version 08",
       "period": "2026-07-20",
-      "platform": "gpm",
-      "holdout_gap_days": 75,
+      "platforms": [
+        "gpm"
+      ],
       "metrics": [
         {
           "name": "sample_size_within_3pct",
@@ -107,6 +109,7 @@
           "scope": "S2"
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "sample_size_within_3pct": 100.0,
         "spacing_arc_ratio_median_S1": 1.0071002751057956,

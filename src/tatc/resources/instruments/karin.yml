@@ -35,13 +35,9 @@ configurations:
           roll_angle: &left
             kind: measured
             source: validate_catalog_karin.py --fit, the mean of the median look angles of the inner and outer edges of the good-quality heights of 13,474 lines over the open ocean
-            platform: swot
+            platforms: [swot]
             period: "2026-10-01"
           cross_track_field_of_view: *left
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: &tailored
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular: &rectangular
             kind: derived
             source: Models the swath of each zero-Doppler line as a rectangular view
@@ -57,11 +53,9 @@ configurations:
           roll_angle: &right
             kind: measured
             source: validate_catalog_karin.py --fit, the mean of the median look angles of the inner and outer edges of the good-quality heights of 13,444 lines over the open ocean
-            platform: swot
+            platforms: [swot]
             period: "2026-10-01"
           cross_track_field_of_view: *right
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
     limitations:
       - The edges are those of good-quality sea surface heights over the open ocean, which extend from about 7.5 to 61 km from the ground track, beyond the nominal 10 to 60 km. Heights over land, ice, and inland water were not tested.

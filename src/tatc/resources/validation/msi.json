@@ -3,13 +3,16 @@
   "configurations": {
     "swath": {
       "digest": "1c2ee659e3483a7f968250f7d5304b6ebaa8318bf52a34f599f927c2e69cf4d5",
-      "evidence": "rerun",
+      "standard_version": 5,
       "tatc_version": "3.6.0",
-      "source": "docs/validation/validate_catalog_msi.py",
+      "source": "validation/catalog/validate_catalog_msi.py",
       "reference": "Valid data footprints of Sentinel-2 Level-2A tiles; viewing angle grids and GPS ephemerides of their metadata",
       "period": "2026-11-10",
-      "platform": "sentinel-2a, sentinel-2b, sentinel-2c",
-      "holdout_gap_days": 38,
+      "platforms": [
+        "sentinel-2a",
+        "sentinel-2b",
+        "sentinel-2c"
+      ],
       "metrics": [
         {
           "name": "swath_width_median",
@@ -162,11 +165,11 @@
           "scope": "sentinel-2c, time step 120 s"
         }
       ],
+      "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 2.40976103835
       }
     }
-  },
-  "standard_version": 5
+  }
 }

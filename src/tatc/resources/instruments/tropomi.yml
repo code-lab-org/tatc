@@ -40,14 +40,10 @@ configurations:
           cross_track_field_of_view: &fitted
             kind: measured
             source: validate_catalog_tropomi.py --fit, the median directions of the ends of pixels of 6,188 lines, from recorded satellite positions
-            platform: sentinel-5p
+            platforms: [sentinel-5p]
             period: "2026-10-05"
           roll_angle: *fitted
           pitch_angle: *fitted
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: &tailored
-            kind: derived
-            source: compute_along_track_field_of_view, from the orbit and time step
           is_rectangular: &rectangular
             kind: derived
             source: Models part of a line of a pushbroom swath as a rectangular view
@@ -66,8 +62,6 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -84,8 +78,6 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -102,8 +94,6 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -120,8 +110,6 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -138,8 +126,6 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -156,8 +142,6 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -174,8 +158,6 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -192,8 +174,6 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
       - type: pointed
         parameters:
@@ -210,8 +190,6 @@ configurations:
           cross_track_field_of_view: *fitted
           roll_angle: *fitted
           pitch_angle: *fitted
-          is_swept: {kind: derived, source: "Models the view as sweeping along track, so that its swaths are the strips its cross-track line sweeps, as observations of points do"}
-          along_track_field_of_view: *tailored
           is_rectangular: *rectangular
     limitations:
       - The views are a union, so analyze them with instrument_index=None. The default analyzes only the first view, at one edge of the swath.
