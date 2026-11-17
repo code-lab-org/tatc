@@ -212,6 +212,88 @@
         "passes_found": 100.0,
         "epoch_p95": 0.2672554863499998
       }
+    },
+    "beams_suomi_npp": {
+      "digest": "f03be908d38cc2b0e3bd1822392e3cd956e48d6457ca9c872569054941719f19",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_atms.py",
+      "reference": "Footprints of the TC PRIMED documentation; beam centers of the ATMS SDR geolocation",
+      "period": "2026-08-25",
+      "platforms": [
+        "suomi-npp"
+      ],
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 1.3508718077116066
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 3.2813397904606196
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 6.306344571399305
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.000019273676143
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9995340821934351
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 3.0334231732100183,
+        "spacing_along_ratio_median": 1.0000870516906368,
+        "spacing_cross_ratio_median": 0.9995557873893834
+      }
+    },
+    "swath_suomi_npp": {
+      "digest": "fcbec395dd729b9f25fcc6bed58aa52b24dd5f612d5c7a4d6fbb5c777349551d",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_atms.py",
+      "reference": "ATMS SDR geolocation",
+      "period": "2026-08-25",
+      "platforms": [
+        "suomi-npp"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.82120753678998
+        },
+        {
+          "name": "pass_precision",
+          "value": 98.8020691532807
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.2930060774
+        },
+        {
+          "name": "swath_width_median",
+          "value": 1.385480741286883
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9792744094129643
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.3330154753
+      }
     }
   }
 }

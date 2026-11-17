@@ -15,12 +15,14 @@ Reads anonymous public data, and needs the `validation` extra:
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
 
-NOAA-21's ATMS has its own configurations, whose angles are fitted with `--fit` to
-2026-11-05 (the notebooks' angles are NOAA-20's), and tested on a day at least 30 days
-from it:
+NOAA-21's and Suomi NPP's ATMS have their own configurations, whose angles are fitted
+with `--fit` (the notebooks' angles are NOAA-20's), and tested on a day at least 30
+days from the fit:
 
     python validation/catalog/validate_catalog_atms.py <data directory> 2026-11-05 --platform noaa-21 --fit
     python validation/catalog/validate_catalog_atms.py <data directory> 2026-10-02 --platform noaa-21
+    python validation/catalog/validate_catalog_atms.py <data directory> 2026-10-02 --platform suomi-npp --fit
+    python validation/catalog/validate_catalog_atms.py <data directory> 2026-08-25 --platform suomi-npp
 
 With `--transfer`, it tests NOAA-20's configurations on another platform instead, and
 adds the results to the record as a transfer, which does not count toward the tier.
@@ -83,6 +85,11 @@ GATED = (
 CONFIGURATIONS = {
     "noaa-20": ("swath_noaa_20", "beams_noaa_20", FIXTURES / "atms_noaa_20.npz"),
     "noaa-21": ("swath_noaa_21", "beams_noaa_21", FIXTURES / "atms_noaa_21.npz"),
+    "suomi-npp": (
+        "swath_suomi_npp",
+        "beams_suomi_npp",
+        FIXTURES / "atms_suomi_npp.npz",
+    ),
 }
 FIELDS = (
     "StartTime",

@@ -1,6 +1,7 @@
 """
 Validates the OMPS Nadir Mapper catalog entry against the geolocation of the OMPS
-total column product (`OMPS-TC-GEO`) of NOAA-20 and NOAA-21, using the exact values
+total column product (`OMPS-TC-GEO`) of NOAA-20, NOAA-21, and Suomi NPP (retired on
+2026-11-02, whose archive ends that day), using the exact values
 of the entry through public TAT-C methods. Each platform's scan angles are fitted to
 the positions of the samples on one day (run with `--fit`), which needs no element
 set: running on a day at least 30 days from it tests the entry on data held out from
@@ -10,8 +11,11 @@ Reads anonymous public data, and needs the `validation` extra:
 
     python validation/catalog/validate_catalog_omps.py <data directory> 2026-10-01 --platform noaa-21 --fit
     python validation/catalog/validate_catalog_omps.py <data directory> 2026-11-05 --platform noaa-21
+    python validation/catalog/validate_catalog_omps.py <data directory> 2026-10-01 --platform suomi-npp --fit
+    python validation/catalog/validate_catalog_omps.py <data directory> 2026-08-25 --platform suomi-npp
 
-A day is reduced to every second line (2.5 s on NOAA-21, 5 s on NOAA-20) and every
+A day is reduced to every second line (2.5 s on NOAA-21, 5 s on NOAA-20, 15 s on
+Suomi NPP) and every
 fourth sample (and the last). The Nadir Mapper images the sunlit part of each orbit, whose dark part is a
 gap.
 
@@ -49,6 +53,7 @@ LINE_STRIDE, SAMPLE_STRIDE = 2, 4
 CONFIGURATIONS = {
     "noaa-21": ("swath_noaa_21", FIXTURES / "omps_nm_noaa_21.npz"),
     "noaa-20": ("swath_noaa_20", FIXTURES / "omps_nm_noaa_20.npz"),
+    "suomi-npp": ("swath_suomi_npp", FIXTURES / "omps_nm_suomi_npp.npz"),
 }
 
 
@@ -116,7 +121,8 @@ def load_reference(
         "pixels": samples,
         "line_stride": LINE_STRIDE,
     }
-    # the reporting period differs by platform (1.25 s on NOAA-21, 2.5 s on NOAA-20)
+    # the reporting period differs by platform (1.25 s on NOAA-21, 2.5 s on NOAA-20,
+    # 7.5 s on Suomi NPP)
     return Reference(day, data, float(np.median(np.diff(data["time"]))))
 
 

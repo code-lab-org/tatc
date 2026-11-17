@@ -193,11 +193,14 @@ class Archive:
     """
     The archive of a JPSS satellite on NOAA Open Data Dissemination, from which
     objects and element sets are read, with the prefix that distinguishes its
-    cached files.
+    cached files, and a file of the history of its element sets (and its NORAD
+    identifier) for days on which the archive has none.
     """
 
     url: str
     prefix: str
+    norad_id: int | None = None
+    element_set_file: pathlib.Path | None = None
 
     def list_keys(self, prefix: str) -> list[str]:
         """Lists the keys of all objects in the archive with a prefix."""
@@ -220,14 +223,27 @@ class Archive:
         return get_with_retries(self.url + key).content
 
     def load_element_set(self, day: datetime, directory: pathlib.Path) -> list[str]:
-        """Gets the operational element set with an epoch at the start of a day."""
+        """
+        Gets the operational element set with an epoch at the start of a day, or else
+        the element set of the archive's file whose epoch is nearest the middle of
+        the day.
+        """
         path = directory / f"{self.prefix}_tle_{day:%Y%m%d}.txt"
         if not path.exists():
             key = next(
-                k
-                for k in self.list_keys(f"TLE-AUX/{day:%Y/%m/%d}/")
-                if f"Z_{day:%Y%m%d}000000Z_" in k
+                (
+                    k
+                    for k in self.list_keys(f"TLE-AUX/{day:%Y/%m/%d}/")
+                    if f"Z_{day:%Y%m%d}000000Z_" in k
+                ),
+                None,
             )
+            if key is None:
+                if self.element_set_file is None:
+                    raise FileNotFoundError(
+                        f"{self.url} has no element set for {day:%Y-%m-%d}"
+                    )
+                return read_element_set_file(self.element_set_file, self.norad_id, day)
             with h5py.File(io.BytesIO(self.fetch(key))) as f:
                 text = bytes(f["All_Data/TLE-AUX_All/Dataset_Array_0"][:]).decode()
             path.write_text(text.strip() + "\n", encoding="utf-8")
@@ -238,6 +254,13 @@ class Archive:
 ARCHIVES = {
     "noaa-20": Archive("https://noaa-nesdis-n20-pds.s3.amazonaws.com/", "n20"),
     "noaa-21": Archive("https://noaa-nesdis-n21-pds.s3.amazonaws.com/", "n21"),
+    # NOAA's archive has Suomi NPP's operational element sets only from 2026-08-19
+    "suomi-npp": Archive(
+        "https://noaa-nesdis-snpp-pds.s3.amazonaws.com/",
+        "npp",
+        37849,
+        ELEMENT_SET_FOLDER / "suomi_npp.3le",
+    ),
 }
 
 

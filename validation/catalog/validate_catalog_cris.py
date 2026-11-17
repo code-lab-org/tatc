@@ -25,7 +25,20 @@ from them, without writing.
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
 
-With `--platform noaa-21`, it tests the same values on a sibling satellite, and
+NOAA-21's CrIS has its own configurations, fitted with `--fit` to 2026-11-05 and
+tested on a day at least 30 days from it:
+
+    python validation/catalog/validate_catalog_cris.py <data directory> 2026-11-05 --platform noaa-21 --fit
+    python validation/catalog/validate_catalog_cris.py <data directory> 2026-10-02 --platform noaa-21
+
+So has Suomi NPP's, fitted to 2025-10-02, before its CrIS ended operational use on
+2025-12-23. NOAA's archive has Suomi NPP's element sets only from 2026-08-19, so the
+test reads them from a file of the history of its element sets:
+
+    python validation/catalog/validate_catalog_cris.py <data directory> 2025-10-02 --platform suomi-npp --fit
+    python validation/catalog/validate_catalog_cris.py <data directory> 2025-08-26 --platform suomi-npp
+
+With `--transfer`, it tests NOAA-20's configurations on another platform instead, and
 adds the results to the record as a transfer, which does not count toward the tier.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
@@ -36,6 +49,7 @@ import concurrent.futures
 import io
 import json
 import pathlib
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import h5py
@@ -78,7 +92,16 @@ GATED = (
     "swath_width_median",
     "footprint_iou_median",
 )
-FIXTURE_PATH = FIXTURES / "cris.npz"
+# the configurations of each platform's fit and its fixture
+CONFIGURATIONS = {
+    "noaa-20": ("swath_noaa_20", "pixels_noaa_20", FIXTURES / "cris.npz"),
+    "noaa-21": ("swath_noaa_21", "pixels_noaa_21", FIXTURES / "cris_noaa_21.npz"),
+    "suomi-npp": (
+        "swath_suomi_npp",
+        "pixels_suomi_npp",
+        FIXTURES / "cris_suomi_npp.npz",
+    ),
+}
 
 FIELDS = (
     "StartTime",
@@ -92,7 +115,6 @@ FIELDS = (
 N_FOR, N_FOV, SCAN_PERIOD = 30, 9, 8
 TIME_STEPS = (SCAN_PERIOD, 32, 128)
 ORBIT_MARGIN = 128
-SWATH, PIXELS = "swath", "pixels"
 # published footprints: instrument, altitude (km), inclination (deg), scan angle
 # (deg), and sizes along and across track (km), from the NWP SAF, as used by
 # ValidateSampleSizes (the edge is the outermost field of view, at 48.33 + 1.1 deg)
@@ -117,6 +139,21 @@ FIT_FIELDS = (
     "QF1_CRISSDRGEO",
 )
 FOV_DIAMETER = 0.963
+
+
+@dataclass(frozen=True)
+class Run:
+    """
+    What a run tests: the configurations of the swath and pixels, the platform whose
+    data they are tested on, the fixture, and whether the results are a transfer to
+    a platform on which the configurations were not fitted.
+    """
+
+    platform: str
+    swath: str
+    pixels: str
+    fixture_path: pathlib.Path
+    transfer: bool
 
 
 def load_day(
@@ -347,17 +384,17 @@ def measure_pixels(reference: Reference, satellite) -> np.ndarray:
     return np.concatenate(rows)
 
 
-def validate_pixels(
-    day, tle, entry, orbit, reference, write: bool, platform: str = FIT_PLATFORM
-) -> None:
+def validate_pixels(day, tle, entry, orbit, reference, write: bool, run: Run) -> None:
     """Scores the sample size configuration, and writes its results if requested."""
     within, largest = score_published(
-        compute_published_errors(entry, PIXELS, PUBLISHED_FOOTPRINTS)
+        compute_published_errors(entry, run.pixels, PUBLISHED_FOOTPRINTS)
     )
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
-    satellite = entry.to_satellite(orbit, configuration=PIXELS, platform=platform)
+    satellite = entry.to_satellite(
+        orbit, configuration=run.pixels, platform=run.platform
+    )
     pixels = measure_pixels(reference, satellite)
     median = summarize(pixels[:, 3])["median"]
     p95 = summarize(pixels[:, 3])["p95"]
@@ -369,11 +406,11 @@ def validate_pixels(
     )
     if not write:
         return
-    if platform != FIT_PLATFORM:
+    if run.transfer:
         write_transfer(
             entry,
-            PIXELS,
-            platform,
+            run.pixels,
+            run.platform,
             period=f"{day:%Y-%m-%d}",
             metrics={
                 "pixel_position_median": median,
@@ -384,16 +421,19 @@ def validate_pixels(
     rng = np.random.default_rng(3)
     reduced = pixels[rng.choice(len(pixels), FIXTURE_PIXELS, replace=False)]
     update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), pixels=reduced
+        run.fixture_path,
+        tle=np.array(tle),
+        day=np.array(day.isoformat()),
+        pixels=reduced,
     )
     write_record(
         entry,
-        PIXELS,
+        run.pixels,
         source=source_of(__file__),
         reference="Footprints published by the NWP SAF; fields of view of the "
         "CrIS SDR geolocation",
         period=f"{day:%Y-%m-%d}",
-        platforms=["noaa-20"],
+        platforms=[run.platform],
         metrics=[
             {"name": "sample_size_within_3pct", "value": within},
             {"name": "sample_size_largest_error", "value": largest},
@@ -411,14 +451,12 @@ def validate_pixels(
     )
 
 
-def validate_swath(
-    day, tle, entry, orbit, reference, write: bool, platform: str = FIT_PLATFORM
-) -> None:
+def validate_swath(day, tle, entry, orbit, reference, write: bool, run: Run) -> None:
     """Scores the swath configuration, and writes its results if requested."""
 
     def satellite_for(time_step: float):
         return entry.to_satellite(
-            orbit, configuration=SWATH, time_step=time_step, platform=platform
+            orbit, configuration=run.swath, time_step=time_step, platform=run.platform
         )
 
     satellite = satellite_for(SCAN_PERIOD)
@@ -439,11 +477,11 @@ def validate_swath(
     print(json.dumps(results), flush=True)
     if not write:
         return
-    if platform != FIT_PLATFORM:
+    if run.transfer:
         write_transfer(
             entry,
-            SWATH,
-            platform,
+            run.swath,
+            run.platform,
             period=f"{day:%Y-%m-%d}",
             metrics={name: results[name] for name in GATED},
         )
@@ -459,15 +497,18 @@ def validate_swath(
         axis=-1,
     )
     update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
+        run.fixture_path,
+        tle=np.array(tle),
+        day=np.array(day.isoformat()),
+        passes=passes,
     )
     write_record(
         entry,
-        SWATH,
+        run.swath,
         source=source_of(__file__),
         reference="CrIS SDR geolocation",
         period=f"{day:%Y-%m-%d}",
-        platforms=["noaa-20"],
+        platforms=[run.platform],
         metrics=[
             {"name": name, "value": float(results[name])}
             for name in (
@@ -606,13 +647,11 @@ def main() -> None:
     parser.add_argument("--sample-sizes-only", action="store_true")
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--platform", default=FIT_PLATFORM)
+    parser.add_argument("--transfer", action="store_true")
     arguments = parser.parse_args()
     arguments.directory.mkdir(parents=True, exist_ok=True)
 
     day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    if arguments.fit:
-        fit(load_fit_hours(day, arguments.directory, ARCHIVES[arguments.platform]))
-        return
     archive = ARCHIVES[arguments.platform]
     directory = (
         arguments.directory
@@ -620,24 +659,26 @@ def main() -> None:
         else arguments.directory / archive.prefix
     )
     directory.mkdir(parents=True, exist_ok=True)
+    if arguments.fit:
+        fit(load_fit_hours(day, directory, archive))
+        return
+    fitted = FIT_PLATFORM if arguments.transfer else arguments.platform
+    run = Run(arguments.platform, *CONFIGURATIONS[fitted], fitted != arguments.platform)
     tle = archive.load_element_set(day, directory)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
     entry = get_entry("cris")
     reference = Reference(load_day(day, directory, archive))
     print(
         f"{arguments.day}: {tle[0][:32]}; {len(reference.time)} scans, "
-        f"{len(reference.gaps)} gaps over a minute",
+        f"{len(reference.gaps)} gaps over a minute; configurations {run.swath} and "
+        f"{run.pixels}",
         flush=True,
     )
-    validate_pixels(
-        day, tle, entry, orbit, reference, arguments.write, arguments.platform
-    )
+    validate_pixels(day, tle, entry, orbit, reference, arguments.write, run)
     if not arguments.sample_sizes_only:
-        validate_swath(
-            day, tle, entry, orbit, reference, arguments.write, arguments.platform
-        )
+        validate_swath(day, tle, entry, orbit, reference, arguments.write, run)
     if arguments.write:
-        print(f"wrote {FIXTURE_PATH}")
+        print(f"wrote {run.fixture_path}")
 
 
 if __name__ == "__main__":

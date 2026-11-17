@@ -20,12 +20,17 @@ Reads anonymous public data, and needs the `validation` extra:
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
 
-NOAA-21's VIIRS has its own swath configuration, whose extent is fitted with `--fit`
-to 2026-11-05 (the notebooks' angles are NOAA-20's), and tested on a day at least 30
-days from it:
+NOAA-21's and Suomi NPP's VIIRS have their own configurations, whose values are
+fitted with `--fit` (the notebooks' are NOAA-20's): the swath's extent, and the zones
+as `ValidateSampleSizes` measured them, which the fit reproduces on NOAA-20's day.
+They are tested on a day at least 30 days from the fit:
 
     python validation/catalog/validate_catalog_viirs.py <data directory> 2026-11-05 --platform noaa-21 --fit
     python validation/catalog/validate_catalog_viirs.py <data directory> 2026-10-02 --platform noaa-21
+    python validation/catalog/validate_catalog_viirs.py <data directory> 2026-10-02 --platform suomi-npp --fit
+    python validation/catalog/validate_catalog_viirs.py <data directory> 2026-08-25 --platform suomi-npp
+
+With `--sample-sizes-only`, it tests only the zones.
 
 With `--transfer`, it tests NOAA-20's configurations on another platform instead, and
 adds the results to the record as a transfer, which does not count toward the tier.
@@ -61,6 +66,7 @@ from validation_io import (
     compute_spacing_ratios,
     ecef,
     iet_to_utc,
+    inertial_velocity,
     normalize,
     recompute_passes,
     score_passes,
@@ -85,7 +91,12 @@ GATED = (
 # the configurations of each platform's fit and its fixture
 CONFIGURATIONS = {
     "noaa-20": ("swath_noaa_20", "zones_noaa_20", FIXTURES / "viirs_noaa_20.npz"),
-    "noaa-21": ("swath_noaa_21", None, FIXTURES / "viirs_noaa_21.npz"),
+    "noaa-21": ("swath_noaa_21", "zones_noaa_21", FIXTURES / "viirs_noaa_21.npz"),
+    "suomi-npp": (
+        "swath_suomi_npp",
+        "zones_suomi_npp",
+        FIXTURES / "viirs_suomi_npp.npz",
+    ),
 }
 GEO = "All_Data/VIIRS-MOD-GEO-TC_All/"
 GRANULE = "Data_Products/VIIRS-MOD-GEO-TC/VIIRS-MOD-GEO-TC_Gran_0"
@@ -471,6 +482,78 @@ def fit(day: datetime, reference: Reference) -> None:
     )
     gesdisc_scanner.fit(sampled, "inertial")
     gesdisc_scanner.fit_yaw(sampled, "inertial")
+    fit_zones(reference)
+
+
+def fit_zones(reference: Reference) -> None:
+    """
+    Prints the values of the zones configuration measured as `ValidateSampleSizes`
+    measured them, from every sample of the middle scans of a sample of granules
+    (between their two middle detectors), with the median scan angles (positive left
+    of the inertial velocity, from the geodetic nadir): each zone of `ZONE_BOUNDS`,
+    by which the tests assign samples to zones, has its pixels, a field of view of
+    its pixels times its median spacing, and a roll angle at the middle of its
+    outermost samples. The bounds of runs of constant spacing are printed for
+    comparison, as a step across two zones can place one a sample to either side.
+    """
+    center = N_SCANS // 2
+    pixels = reference.pixels
+    ok = np.all(np.abs(pixels["lat_full"]) <= 90, axis=(1, 2)) & (
+        center < reference.scans["n_scans"][reference.granules]
+    )
+    observed = (
+        ecef(pixels["lon_full"][ok, 0], pixels["lat_full"][ok, 0])
+        + ecef(pixels["lon_full"][ok, 1], pixels["lat_full"][ok, 1])
+    ) / 2
+    position = reference.scans["SCPosition"][reference.granules[ok], center].astype(
+        float
+    )
+    velocity = inertial_velocity(
+        position,
+        reference.scans["SCVelocity"][reference.granules[ok], center].astype(float),
+    )
+    lon, lat, _ = TO_GEODETIC.transform(*position.T)
+    nadir = -up(lon, lat)
+    left = normalize(np.cross(velocity, nadir))
+    sight = normalize(observed - position[:, np.newaxis])
+    angle = np.median(
+        np.degrees(
+            np.arctan2(
+                np.sum(sight * left[:, np.newaxis], axis=-1),
+                np.sum(sight * nadir[:, np.newaxis], axis=-1),
+            )
+        ),
+        axis=0,
+    )
+    step = np.abs(np.diff(angle))
+    aggregation = np.round(step / np.median(step[:100])).astype(int)
+    runs = np.r_[0, np.nonzero(np.diff(aggregation))[0] + 1, N_SAMPLES]
+    # the detector pitch: the angle between the first and last detectors (rows 0 and
+    # 3 of those kept) of the middle scans, over 15 pitches, within 10 deg of nadir
+    near = np.abs(angle[COLUMNS]) < 10
+    first, last = (
+        normalize(
+            ecef(pixels["lon"][ok, center, row], pixels["lat"][ok, center, row])
+            - position[:, np.newaxis]
+        )[:, near]
+        for row in (0, 3)
+    )
+    pitch = np.degrees(np.arccos(np.clip(np.sum(first * last, axis=-1), -1, 1))) / 15
+    print(
+        f"zones from {ok.sum()} scans; bounds {ZONE_BOUNDS.tolist()} (runs of "
+        f"constant spacing: {runs.tolist()}); detector pitch {np.median(pitch):.5f} "
+        f"deg, along_track_field_of_view {16 * np.median(pitch):.5f}; outermost "
+        f"zone edges {angle[-1] + step[-1] / 2:.4f} deg left, "
+        f"{-angle[0] + step[0] / 2:.4f} deg right"
+    )
+    for k, (a, b) in enumerate(zip(ZONE_BOUNDS[:-1], ZONE_BOUNDS[1:])):
+        spacing = float(np.median(step[a : min(b, N_SAMPLES - 1)]))
+        print(
+            f"  zone {k}: {b - a} pixels, cross_track_field_of_view "
+            f"{(b - a) * spacing:.6f} (spacing {spacing:.7f} deg), roll_angle "
+            f"{(angle[a] + angle[b - 1]) / 2:.3f}; scan angles {angle[a]:.4f} to "
+            f"{angle[b - 1]:.4f}"
+        )
 
 
 def validate_zones(day, tle, entry, orbit, reference, write: bool, run: Run) -> None:

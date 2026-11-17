@@ -301,6 +301,17 @@ class TestAtmsNoaa21Fixture(TestAtmsFixture):
     platform = "noaa-21"
 
 
+class TestAtmsSuomiNppFixture(TestAtmsFixture):
+    """
+    Regression tests of the ATMS entry's configurations of Suomi NPP.
+    """
+
+    fixture_name = "atms_suomi_npp"
+    swath_key = "swath_suomi_npp"
+    sizes_key = "beams_suomi_npp"
+    platform = "suomi-npp"
+
+
 class TestViirsFixture(_ScannerFixture, unittest.TestCase):
     """
     Regression tests of the VIIRS entry's configurations of NOAA-20.
@@ -339,18 +350,26 @@ class TestViirsFixture(_ScannerFixture, unittest.TestCase):
         return np.array(differences)
 
 
-class TestViirsNoaa21Fixture(_SwathFixture, unittest.TestCase):
+class TestViirsNoaa21Fixture(TestViirsFixture):
     """
-    Regression tests of the VIIRS entry's swath configuration of NOAA-21.
+    Regression tests of the VIIRS entry's configurations of NOAA-21.
     """
 
-    entry_id = "viirs"
     fixture_name = "viirs_noaa_21"
     swath_key = "swath_noaa_21"
+    sizes_key = "zones_noaa_21"
     platform = "noaa-21"
 
-    def time_step(self) -> float:
-        return float(self.data["scan_period"])
+
+class TestViirsSuomiNppFixture(TestViirsFixture):
+    """
+    Regression tests of the VIIRS entry's configurations of Suomi NPP.
+    """
+
+    fixture_name = "viirs_suomi_npp"
+    swath_key = "swath_suomi_npp"
+    sizes_key = "zones_suomi_npp"
+    platform = "suomi-npp"
 
 
 class TestModisFixture(_ScannerFixture, unittest.TestCase):
@@ -583,7 +602,8 @@ class TestCrisFixture(_ScannerFixture, unittest.TestCase):
     """
 
     entry_id = "cris"
-    sizes_key = "pixels"
+    swath_key = "swath_noaa_20"
+    sizes_key = "pixels_noaa_20"
     meets_published_gate = False
     meets_pixel_gate = False
     footprints = (
@@ -613,6 +633,17 @@ class TestCrisFixture(_ScannerFixture, unittest.TestCase):
         The spacing of CrIS's samples is not measured.
         """
         self.skipTest("the spacing of CrIS's samples is not measured")
+
+
+class TestCrisNoaa21Fixture(TestCrisFixture):
+    """
+    Regression tests of the CrIS entry's configurations of NOAA-21.
+    """
+
+    fixture_name = "cris_noaa_21"
+    swath_key = "swath_noaa_21"
+    sizes_key = "pixels_noaa_21"
+    platform = "noaa-21"
 
 
 class _StepSwathFixture(_SwathFixture):
@@ -649,12 +680,24 @@ class TestOmpsNmNoaa20Fixture(_StepSwathFixture, unittest.TestCase):
     platform = "noaa-20"
 
 
+class TestOmpsNmSuomiNppFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the OMPS Nadir Mapper entry's configuration of Suomi NPP.
+    """
+
+    entry_id = "omps_nm"
+    fixture_name = "omps_nm_suomi_npp"
+    swath_key = "swath_suomi_npp"
+    platform = "suomi-npp"
+
+
 class TestCeresFixture(_StepSwathFixture, unittest.TestCase):
     """
     Regression tests of the CERES entry, at the period of its records (6.6 s).
     """
 
     entry_id = "ceres"
+    swath_key = "swath_noaa_20"
     step = 6.6
 
 

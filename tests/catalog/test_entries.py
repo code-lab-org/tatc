@@ -118,6 +118,8 @@ EXPECTED_STATUS = {
             "beams_noaa_20": ("validated", 51, []),
             "swath_noaa_21": ("validated", 34, []),
             "beams_noaa_21": ("validated", 34, []),
+            "swath_suomi_npp": ("validated", 38, []),
+            "beams_suomi_npp": ("validated", 38, []),
         },
         [],
     ),
@@ -139,7 +141,19 @@ EXPECTED_STATUS = {
     "ceres": (
         "partial",
         {
-            "swath": ("partial", 36, ["swath_width_median"]),
+            "swath_noaa_20": ("partial", 36, ["swath_width_median"]),
+            "swath_suomi_npp": (
+                "nominal",
+                None,
+                [
+                    "pass_recall",
+                    "pass_precision",
+                    "swath_width_median",
+                    "footprint_iou_median",
+                    "epoch_p95",
+                    "no comparison with reference data",
+                ],
+            ),
         },
         ["no configuration at the sample_size grade"],
     ),
@@ -153,11 +167,38 @@ EXPECTED_STATUS = {
     "cris": (
         "partial",
         {
-            "swath": ("validated", 51, []),
-            "pixels": (
+            "swath_noaa_20": ("validated", 51, []),
+            "pixels_noaa_20": (
                 "partial",
                 51,
                 ["sample_size_within_3pct", "pixel_position_median"],
+            ),
+            "swath_noaa_21": ("validated", 34, []),
+            "pixels_noaa_21": (
+                "partial",
+                34,
+                ["sample_size_within_3pct", "pixel_position_median"],
+            ),
+            "swath_suomi_npp": (
+                "nominal",
+                None,
+                [
+                    "pass_recall",
+                    "pass_precision",
+                    "swath_width_median",
+                    "footprint_iou_median",
+                    "epoch_p95",
+                    "no comparison with reference data",
+                ],
+            ),
+            "pixels_suomi_npp": (
+                "nominal",
+                None,
+                [
+                    "sample_size_within_3pct",
+                    "pixel_position_median",
+                    "no comparison with reference data",
+                ],
             ),
         },
         [],
@@ -310,6 +351,11 @@ EXPECTED_STATUS = {
         {
             "swath_noaa_21": ("partial", 35, ["swath_width_median", "epoch_p95"]),
             "swath_noaa_20": ("partial", 35, ["swath_width_median", "epoch_p95"]),
+            "swath_suomi_npp": (
+                "partial",
+                37,
+                ["pass_recall", "swath_width_median", "epoch_p95"],
+            ),
         },
         [],
     ),
@@ -377,7 +423,10 @@ EXPECTED_STATUS = {
         {
             "swath_noaa_20": ("validated", 51, []),
             "swath_noaa_21": ("validated", 34, []),
+            "swath_suomi_npp": ("validated", 38, []),
             "zones_noaa_20": ("validated", 51, []),
+            "zones_noaa_21": ("validated", 34, []),
+            "zones_suomi_npp": ("validated", 38, []),
         },
         [],
     ),
@@ -436,7 +485,7 @@ class TestLoading(unittest.TestCase):
                     suffix = "_" + platform.replace("-", "_")
                     self.assertTrue(key.endswith(suffix), (entry.id, key))
                 named.append(entry.id)
-        self.assertEqual(named, ["atms", "omps_nm", "viirs"])
+        self.assertEqual(named, ["atms", "ceres", "cris", "omps_nm", "viirs"])
 
     def test_alias_lookup(self):
         """
@@ -1077,10 +1126,10 @@ class TestSelection(unittest.TestCase):
         Test that, without a configuration of the grade tested on the platform, one
         tested on another is selected, with a warning.
         """
-        viirs = get_entry("viirs")
-        with self.assertWarnsRegex(UserWarning, "noaa-21"):
-            payload = viirs.build(grade="sample_size", platform="noaa-21")
-        self.assertEqual(payload.references, ("viirs:zones_noaa_20",))
+        modis = get_entry("modis")
+        with self.assertWarnsRegex(UserWarning, "aqua"):
+            payload = modis.build(grade="sample_size", platform="aqua")
+        self.assertEqual(payload.references, ("modis:pixels",))
         self.assertTrue(payload.transferred)
 
     def test_grade_errors(self):
@@ -1128,7 +1177,7 @@ class TestBuildPayload(unittest.TestCase):
         )
         self.assertEqual(
             payload.references,
-            ("viirs:swath_noaa_20", "cris:swath", "atms:beams_noaa_20"),
+            ("viirs:swath_noaa_20", "cris:swath_noaa_20", "atms:beams_noaa_20"),
         )
         beams = get_entry("atms").configurations["beams_noaa_20"]
         self.assertEqual(

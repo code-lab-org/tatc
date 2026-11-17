@@ -1,7 +1,7 @@
 {
   "entry_id": "ceres",
   "configurations": {
-    "swath": {
+    "swath_noaa_20": {
       "digest": "502da50334b599f443ad05a8fe9238e13cb97975974b8987353f1a5a7567bbb0",
       "standard_version": 5,
       "tatc_version": "3.6.0",
