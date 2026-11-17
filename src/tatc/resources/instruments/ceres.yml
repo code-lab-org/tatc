@@ -88,6 +88,7 @@ configurations:
       - The yaw of -0.2725 deg is measured with validate_catalog_ceres.py --fit on 2026-07-25, from the slope of the footprints' along-track on their cross-track tangents (the same within 0.015 deg at every latitude, ascending and descending), in the inertial frame. The along-track angle at nadir, -0.0006 deg, is not modeled.
       - TAT-C observes all footprints of a view at one instant, whereas CERES sweeps the Earth in about 1.9 s, as on NOAA-20.
       - The product places footprints at the top of the atmosphere (30 km); they are compared on the ellipsoid, projected along the line of sight from the spacecraft.
+      - On data held out on 2026-06-20, with an element set from a file of the history of Suomi NPP's element sets (NOAA's archive has none before 2026-08-19), 99.996% of observed passes were predicted and 99.8% of predicted passes observed, with epochs within 1.49 s (95th percentile), the swath width within 0.70 km (median), and the swath's intersection over union 0.9999.
       - The product ends on 2026-07-31, and Suomi NPP was retired on 2026-11-02.
 limitations:
   - NOAA-20 and Suomi NPP do not steer their yaw, so the configurations use the inertial frame.

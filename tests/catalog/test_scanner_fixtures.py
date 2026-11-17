@@ -646,6 +646,17 @@ class TestCrisNoaa21Fixture(TestCrisFixture):
     platform = "noaa-21"
 
 
+class TestCrisSuomiNppFixture(TestCrisFixture):
+    """
+    Regression tests of the CrIS entry's configurations of Suomi NPP.
+    """
+
+    fixture_name = "cris_suomi_npp"
+    swath_key = "swath_suomi_npp"
+    sizes_key = "pixels_suomi_npp"
+    platform = "suomi-npp"
+
+
 class _StepSwathFixture(_SwathFixture):
     """
     Tests of swath configurations whose fixture passes were recomputed at a fixed
@@ -699,6 +710,16 @@ class TestCeresFixture(_StepSwathFixture, unittest.TestCase):
     entry_id = "ceres"
     swath_key = "swath_noaa_20"
     step = 6.6
+
+
+class TestCeresSuomiNppFixture(TestCeresFixture):
+    """
+    Regression tests of the CERES entry's configuration of Suomi NPP (FM5).
+    """
+
+    fixture_name = "ceres_suomi_npp"
+    swath_key = "swath_suomi_npp"
+    platform = "suomi-npp"
 
 
 class TestHarp2Fixture(_StepSwathFixture, unittest.TestCase):

@@ -259,7 +259,7 @@ ARCHIVES = {
         "https://noaa-nesdis-snpp-pds.s3.amazonaws.com/",
         "npp",
         37849,
-        ELEMENT_SET_FOLDER / "suomi_npp.3le",
+        ELEMENT_SET_FOLDER / "suomi_npp_2025-08-26.3le",
     ),
 }
 

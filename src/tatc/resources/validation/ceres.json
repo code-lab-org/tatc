@@ -38,6 +38,44 @@
         "passes_found": 100.0,
         "epoch_p95": 0.23780964599999993
       }
+    },
+    "swath_suomi_npp": {
+      "digest": "b68bd5d0775060233b89b61782cb3aefd66ab600ea7447f26d516ccb20a0a2b0",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_ceres.py",
+      "reference": "CER_ES8_NPP-FM5 Edition2 (footprint positions, projected to the ellipsoid, and times)",
+      "period": "2026-06-20",
+      "platforms": [
+        "suomi-npp"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.99591964419298
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.84382426835064
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.4854451193
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.6960977679314092
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9999067771756913
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 1.49206610005
+      }
     }
   }
 }
