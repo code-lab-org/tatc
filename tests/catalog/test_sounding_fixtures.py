@@ -163,6 +163,15 @@ class TestSABERFixture(_LimbFixture, unittest.TestCase):
     configuration = "south_viewing"
 
 
+class TestSABERNorthFixture(_LimbFixture, unittest.TestCase):
+    """
+    Regression tests of SABER's north-viewing scans on TIMED.
+    """
+
+    entry_id = "saber"
+    configuration = "north_viewing"
+
+
 class TestTGRSFixture(unittest.TestCase):
     """
     Regression tests of COSMIC-2's occultations: each sampled occultation is

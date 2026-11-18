@@ -56,6 +56,62 @@
         "scan_period_error": 0.011581589069742318,
         "latitude_extent_error": 0.3815634114987887
       }
+    },
+    "north_viewing": {
+      "digest": "bfb5976009643509ccedfa1c90fa4014763732c63c4602eb2278fb700ead0884",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_saber.py",
+      "reference": "SABER Level 2A version 2.0 (tangent points of the events)",
+      "period": "2026-08-18",
+      "platforms": [
+        "timed"
+      ],
+      "metrics": [
+        {
+          "name": "tangent_position_median",
+          "value": 34.42247616450511
+        },
+        {
+          "name": "tangent_position_p95",
+          "value": 48.96521409394769
+        },
+        {
+          "name": "epoch_median",
+          "value": 0.2660485773691015
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.6284234504775207
+        },
+        {
+          "name": "scan_period_error",
+          "value": 0.7425343900083097
+        },
+        {
+          "name": "latitude_extent_error",
+          "value": 0.23540405219821992
+        },
+        {
+          "name": "scans_compared",
+          "value": 1260.0
+        },
+        {
+          "name": "reference_scans",
+          "value": 1260.0
+        },
+        {
+          "name": "scans_per_day",
+          "value": 1335.0
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "tangent_position_median": 34.4482077475034,
+        "epoch_p95": 0.5996128721679712,
+        "scan_period_error": 0.7425343900083097,
+        "latitude_extent_error": 0.23540405219821992
+      }
     }
   }
 }

@@ -321,7 +321,7 @@ limitations.
 Name the platform analyzed: it selects the configuration tested on it, and
 using a configuration on a platform on which it was not tested gives a
 warning. Where an entry has configurations fitted on more than one platform
-(ATMS, CrIS, VIIRS, the OMPS Nadir Mapper, and CERES), each configuration's
+(ATMS, CrIS, VIIRS, the OMPS Nadir Mapper, CERES, and TROPICS), each configuration's
 name ends with its platform, such as ``swath_noaa_21``, and the name without
 it (``swath``) selects the one tested on the platform. A grade (``coverage``,
 ``timing``, or ``sample_size``) selects a configuration for that use. Analyze

@@ -835,3 +835,36 @@ class TestBbrFixture(_StepSwathFixture, unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTropics03Fixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the TROPICS entry's configuration of TROPICS-03, at the
+    period of its scans.
+    """
+
+    entry_id = "tropics"
+    fixture_name = "tropics_03"
+    swath_key = "swath_tropics_03"
+    platform = "tropics-03"
+    step = 2.0
+
+
+class TestTropics05Fixture(TestTropics03Fixture):
+    """
+    Regression tests of the TROPICS entry's configuration of TROPICS-05.
+    """
+
+    fixture_name = "tropics_05"
+    swath_key = "swath_tropics_05"
+    platform = "tropics-05"
+
+
+class TestTropics06Fixture(TestTropics03Fixture):
+    """
+    Regression tests of the TROPICS entry's configuration of TROPICS-06.
+    """
+
+    fixture_name = "tropics_06"
+    swath_key = "swath_tropics_06"
+    platform = "tropics-06"

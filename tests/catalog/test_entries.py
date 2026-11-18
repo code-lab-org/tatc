@@ -350,17 +350,7 @@ EXPECTED_STATUS = {
     "saber": (
         "partial",
         {
-            "north_viewing": (
-                "nominal",
-                None,
-                [
-                    "tangent_position_median",
-                    "scan_period_error",
-                    "latitude_extent_error",
-                    "epoch_p95",
-                    "no comparison with reference data",
-                ],
-            ),
+            "north_viewing": ("partial", 34, ["tangent_position_median"]),
             "south_viewing": ("partial", 53, ["tangent_position_median"]),
         },
         [],
@@ -416,6 +406,19 @@ EXPECTED_STATUS = {
             "beams": ("partial", 39, ["sample_size_within_3pct"]),
         },
         [],
+    ),
+    "tropics": (
+        "partial",
+        {
+            "swath_tropics_03": ("partial", 47, ["swath_width_median"]),
+            "swath_tropics_05": ("partial", 47, ["swath_width_median"]),
+            "swath_tropics_06": (
+                "partial",
+                47,
+                ["pass_recall", "pass_precision", "swath_width_median", "epoch_p95"],
+            ),
+        },
+        ["no configuration at the sample_size grade"],
     ),
     "tropomi": (
         "validated",
@@ -493,7 +496,9 @@ class TestLoading(unittest.TestCase):
                         entry.select_configuration(name, platform=platform), key
                     )
                 named.append(entry.id)
-        self.assertEqual(named, ["atms", "ceres", "cris", "omps_nm", "viirs"])
+        self.assertEqual(
+            named, ["atms", "ceres", "cris", "omps_nm", "tropics", "viirs"]
+        )
 
     def test_alias_lookup(self):
         """
