@@ -76,6 +76,44 @@
         "passes_found": 100.0,
         "epoch_p95": 19.3603290015
       }
+    },
+    "swath_suomi_npp": {
+      "digest": "0ab6d674c6ba371a37bfb74a18c7a02b6cfc2238e0f78c7d80c29756fd15f8f6",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_omps.py",
+      "reference": "OMPS-TC-GEO (sample positions and times), NOAA Open Data Dissemination",
+      "period": "2026-08-25",
+      "platforms": [
+        "suomi-npp"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 98.20388349514563
+        },
+        {
+          "name": "pass_precision",
+          "value": 16.69210776022113
+        },
+        {
+          "name": "epoch_p95",
+          "value": 20.239496825499998
+        },
+        {
+          "name": "swath_width_median",
+          "value": 5.518520541843958
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9895424074298295
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 98.33333333333333,
+        "epoch_p95": 22.200544366099997
+      }
     }
   }
 }

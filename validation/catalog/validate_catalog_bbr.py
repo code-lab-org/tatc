@@ -21,25 +21,26 @@ line), with range requests:
     python validation/catalog/validate_catalog_bbr.py <data directory> 2026-09-27 --fit-view
     python validation/catalog/validate_catalog_bbr.py <data directory> 2026-11-07
 
-With `--write`, it writes the entry's validation record and the reduced fixture from
-which unit tests recompute the results.
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit;
+`--fit-view` needs its day). The element set is the one nearest the middle of the day
+in `elements/earthcare_2026-09-27.3le` (or in a file given with `--elements`). With
+`--write`, it writes the entry's validation record and the reduced fixture from which
+unit tests recompute the results.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import json
 import pathlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import numpy as np
-import pandas as pd
 
-from tatc.catalog import get_entry
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
 from earthcare_io import check_time_scale, load_day, to_seconds
-from gesdisc_scanner import (
+from scanner import (
+    GATED,
     Reference,
     fit,
     fit_view,
@@ -49,21 +50,14 @@ from gesdisc_scanner import (
 )
 from validation_io import (
     build_grid,
-    read_element_set_file,
+    parse_run,
+    pick_passes,
     recompute_passes,
     score_passes,
     score_swath_area,
-    update_fixture,
-    write_record,
-    FIXTURES,
-    source_of,
-    ELEMENT_SET_FOLDER,
+    write_results,
 )
 
-FIXTURE_PATH = FIXTURES / "bbr.npz"
-NORAD_ID = 59908
-ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "earthcare_2026-09-27.3le"
-PLATFORM = "earthcare"
 CONFIGURATION = "views"
 PRODUCT = "BBR_SNG_1B"
 # the product's order of views, and the nominal pitch (deg) from which each is fitted
@@ -119,15 +113,18 @@ def load_references(day: datetime, directory: pathlib.Path) -> dict[str, Referen
     return references
 
 
-def validate(day, tle, entry, orbit, references, write: bool) -> None:
+def validate(run, orbit, tle, references) -> None:
     """
     Scores each view of the configuration on its pixels, and writes the results if
-    requested, with the fixture of the nadir view's passes.
+    the run writes, with the fixture of the nadir view's passes.
     """
 
     def satellite_for(time_step: float):
-        return entry.to_satellite(
-            orbit, configuration=CONFIGURATION, time_step=time_step, platform=PLATFORM
+        return run.entry.to_satellite(
+            orbit,
+            configuration=CONFIGURATION,
+            time_step=time_step,
+            platform=run.platform,
         )
 
     satellite = satellite_for(TIME_STEPS[0])
@@ -160,91 +157,66 @@ def validate(day, tle, entry, orbit, references, write: bool) -> None:
         print(view, json.dumps(results), flush=True)
         metrics += [
             {"name": name, "value": float(results[name]), "scope": view}
-            for name in (
-                "pass_recall",
-                "pass_precision",
-                "epoch_p95",
-                "swath_width_median",
-                "footprint_iou_median",
-            )
+            for name in GATED
         ]
         if view == "NADIR":
             nadir_observed = observed
-    if not write:
+    if not run.write:
         return
-    rng = np.random.default_rng(1)
-    picks = nadir_observed.iloc[
-        rng.choice(len(nadir_observed), FIXTURE_PASSES, replace=False)
-    ]
-    points_lat = points.geometry.y.to_numpy()
-    points_lon = points.geometry.x.to_numpy()
-    passes = np.stack(
-        [
-            points_lat[picks.point_id],
-            points_lon[picks.point_id],
-            (picks.time - pd.Timestamp(day)).dt.total_seconds().to_numpy(),
-        ],
-        axis=-1,
-    )
-    update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
-    )
+    passes = pick_passes(points, nadir_observed, run.day, FIXTURE_PASSES)
     nadir = list(VIEWS).index("NADIR")
-    write_record(
-        entry,
+    write_results(
+        run,
         CONFIGURATION,
-        source=source_of(__file__),
         reference=f"{PRODUCT} (pixel positions of the shortwave band, every "
         "second line)",
-        period=f"{day:%Y-%m-%d}",
-        platforms=[PLATFORM],
         metrics=metrics,
-        fixture_metrics=recompute_passes(satellite, nadir, day, passes),
+        fixture={
+            "tle": np.array(tle),
+            "day": np.array(run.day.isoformat()),
+            "passes": passes,
+        },
+        fixture_metrics=recompute_passes(satellite, nadir, run.day, passes),
     )
-    print(f"wrote {FIXTURE_PATH}")
 
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its views."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument(
-        "--fit-view",
-        action="store_true",
-        help="center each view in TAT-C's frame, with the instrument's pitch",
+    run = parse_run(
+        "bbr",
+        __doc__,
+        add_arguments=lambda parser: parser.add_argument(
+            "--fit-view",
+            action="store_true",
+            help="center each view in TAT-C's frame, with the instrument's pitch",
+        ),
     )
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    references = load_references(day, arguments.directory)
+    references = load_references(run.day, run.directory)
     for view, reference in references.items():
         print(
-            f"{arguments.day} {view}: {len(reference.time)} lines (every "
+            f"{run.day:%Y-%m-%d} {view}: {len(reference.time)} lines (every "
             f"{LINE_STRIDE}), {len(reference.gaps)} gaps over {GAP_THRESHOLD:g} s, "
             f"line period {reference.scan_period:.4f} s",
             flush=True,
         )
-    if arguments.fit:
-        check_time_scale(PRODUCT, day, "ScienceData/time")
+    if run.fit:
+        check_time_scale(PRODUCT, run.day, "ScienceData/time")
         for view, reference in references.items():
             print(f"== {view}")
             for frame in ("inertial", "earth_fixed"):
                 fit(reference, frame)
                 fit_yaw(reference, frame)
         return
-    if arguments.fit_view:
+    if run.fit_view:
         for view, reference in references.items():
             for frame in ("inertial", "earth_fixed"):
                 print(f"== {view}")
                 fit_view(reference, frame, 0.0, VIEWS[view], instrument_pitch=True)
         return
-    tle = read_element_set_file(ELEMENT_SET_FILE, NORAD_ID, day)
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    validate(day, tle, get_entry("bbr"), orbit, references, arguments.write)
+    validate(run, orbit, tle, references)
 
 
 if __name__ == "__main__":

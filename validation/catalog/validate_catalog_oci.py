@@ -7,11 +7,11 @@ schedule of daily pitch profiles over the argument of latitude (`TiltSchedule`).
 entry's angles are fitted to the positions of the samples on one day (run with
 `--fit`), from the spacecraft positions the product records, so the fit needs no
 element set. The schedule of the change is fitted with `--switches` to the days of a
-period, read with range requests of only the tilts and spacecraft positions, and the
-interval around each change in which the product has no valid scans with `--blind`,
-at full resolution, on the days given. Running
-on a day at least 30 days from the fitting data tests the fitted values on data held
-out from the fit.
+period (from the day given to LAST_DAY), read with range requests of only the tilts
+and spacecraft positions, and the interval around each change in which the product
+has no valid scans with `--blind`, at full resolution, on the day given and the
+OTHER_DAYs. Running on a day at least 30 days from the fitting data tests the fitted
+values on data held out from the fit.
 
 Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`. Only the
 positions, times, and tilts are read, with range requests (about 1.2 GB a day):
@@ -22,7 +22,9 @@ positions, times, and tilts are read, with range requests (about 1.2 GB a day):
     python validation/catalog/validate_catalog_oci.py <data directory> 2026-11-09
     python validation/catalog/validate_catalog_oci.py <data directory> 2026-11-10
 
-A day is reduced to every sixth scan (about 1 s) and every 16th sample (and the last).
+Without a day, it takes that of the entry's record. The values are fitted to several
+periods, so the fits (`--fit`, `--switches`, and `--blind`) need the day given. A day
+is reduced to every sixth scan (about 1 s) and every 16th sample (and the last).
 The product covers the sunlit part of each orbit, whose dark part is a gap.
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
@@ -31,7 +33,6 @@ which unit tests recompute the results.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import json
 import pathlib
@@ -42,47 +43,24 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from tatc.catalog import get_entry
 from tatc.utils import compute_subsolar_latitude
 from tatc.schemas import GeneralPerturbationsOrbit
-from gesdisc_scanner import Product, Reference, Setup, load_day, validate_swath
+from scanner import Product, Reference, Setup, load_day, validate_swath
 from validation_io import (
     TO_GEODETIC,
     RemoteFile,
     ecef,
     get_with_retries,
     normalize,
+    parse_day,
+    parse_run,
     up,
     FIXTURES,
-    source_of,
     login_earthdata,
 )
 
 # the angles are fitted to 2026-10-04, and the schedule of the tilt's change to
 # 2026-08-15 through 2026-10-08, the last day of fitting data
-# public element sets from CelesTrak, with epochs after each day of data
-ELEMENTS = {
-    "2026-11-04": (
-        "1 58928U 24025A   26312.25077802  .00000543  00000+0  10874-3 0  9994",
-        "2 58928  98.1039 241.4756 0002580 132.8558 227.2862 14.65643827147030",
-    ),
-    "2026-11-07": (
-        "1 58928U 24025A   26313.27483190  .00000501  00000+0  10091-3 0  9993",
-        "2 58928  98.1040 242.4857 0002666 129.8006 230.3433 14.65644467147180",
-    ),
-    "2026-11-08": (
-        "1 58928U 24025A   26313.27483190  .00000501  00000+0  10091-3 0  9993",
-        "2 58928  98.1040 242.4857 0002666 129.8006 230.3433 14.65644467147180",
-    ),
-    "2026-11-09": (
-        "1 58928U 24025A   26314.09407429  .00000495  00000+0  99766-4 0  9994",
-        "2 58928  98.1042 243.2937 0002701 128.3012 231.8434 14.65645200147308",
-    ),
-    "2026-11-10": (
-        "1 58928U 24025A   26315.52774695  .00000494  00000+0  99709-4 0  9991",
-        "2 58928  98.1045 244.7079 0002770 125.5620 234.5842 14.65646728147516",
-    ),
-}
 SAMPLES = 1272
 SCAN_STRIDE = 6
 SCAN_PERIOD = 0.17547  # s
@@ -127,14 +105,11 @@ PRODUCT = Product(
     host="https://obdaac-tea",
 )
 SETUP = Setup(
-    entry_id="oci",
-    platform="pace",
     swath="swath",
-    beams="",
-    size_instrument="OCI",
+    beams=None,
+    size_instrument=None,
     published_footprints=(),
     fixture_path=FIXTURES / "oci.npz",
-    source=source_of(__file__),
     reference="PACE_OCI_L1B_SCI version 3 (sample positions and times)",
     published_reference="",
     time_steps=(10, 30, 120),
@@ -395,47 +370,46 @@ def fit_switches(first: datetime, last: datetime, directory: pathlib.Path) -> No
         print(f"  a change {row.from_median:+.3f} deg from its day's at {row.time}")
 
 
+def add_arguments(parser) -> None:
+    """Adds the options of the fits of the schedule of the tilt's change."""
+    parser.add_argument(
+        "--switches",
+        metavar="LAST_DAY",
+        type=parse_day,
+        help="fit the schedule of the tilt's change to the days from DAY to LAST_DAY",
+    )
+    parser.add_argument(
+        "--blind",
+        nargs="*",
+        metavar="OTHER_DAY",
+        type=parse_day,
+        help="fit the interval without valid scans around the tilt's change, on DAY "
+        "and the other days",
+    )
+
+
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles or schedule."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--switches", metavar="LAST_DAY")
-    parser.add_argument("--blind", nargs="*", metavar="OTHER_DAY")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    if arguments.blind is not None:
-        fit_blind(
-            [day]
-            + [
-                datetime.fromisoformat(d).replace(tzinfo=timezone.utc)
-                for d in arguments.blind
-            ]
-        )
+    run = parse_run("oci", __doc__, add_arguments=add_arguments)
+    if run.blind is not None:
+        fit_blind([run.day] + run.blind)
         return
-    if arguments.switches:
-        last = datetime.fromisoformat(arguments.switches).replace(tzinfo=timezone.utc)
-        fit_switches(day, last, arguments.directory)
+    if run.switches:
+        fit_switches(run.day, run.switches, run.directory)
         return
-    reference = load_reference(day, arguments.directory)
+    reference = load_reference(run.day, run.directory)
     print(
-        f"{arguments.day}: {len(reference.time)} scans from {reference.time[0]}, "
+        f"{run.day:%Y-%m-%d}: {len(reference.time)} scans from {reference.time[0]}, "
         f"{len(reference.gaps)} gaps over a minute",
         flush=True,
     )
-    if arguments.fit:
+    if run.fit:
         fit(reference)
         return
-    tle = list(ELEMENTS[arguments.day])
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    entry = get_entry("oci")
-    validate_swath(SETUP, day, tle, entry, orbit, reference, arguments.write)
-    if arguments.write:
-        print(f"wrote {SETUP.fixture_path}")
+    validate_swath(SETUP, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

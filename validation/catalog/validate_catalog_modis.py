@@ -14,7 +14,7 @@ lines over one orbit. Unlike the earlier notebook, the reference time of a pass 
 time within a scan of its frame, since MODIS sweeps the Earth in about 0.45 s.
 
 The entry is fitted on Terra. On Aqua, results are reported as a transfer to a sibling
-platform, under metric names that do not count toward the entry's validation.
+platform, which does not count toward the entry's validation.
 
 Needs the `validation` extra and a NASA Earthdata login:
 
@@ -33,17 +33,20 @@ frames and whose value at the scan's center is the roll; the along-track extent 
 the median difference of the detectors' pitch. It prints them, with the values derived
 from them, without writing.
 
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit),
+and `--configuration` tests one configuration. The element sets, with epochs about
+two days after the days of data, are registered in `elements/element_sets.yml`.
+
 With `--write`, it writes the entry's validation record and, on Terra, the reduced
 fixture from which unit tests recompute the results.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import json
 import pathlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import earthaccess
 import h5py
@@ -56,54 +59,36 @@ from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 from skyfield.units import Distance, Velocity
 
-from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit
 from tatc.utils import VelocityFrame, compute_view_angles
 from validation_io import (
+    FIXTURES,
     TO_GEODETIC,
     RemoteFile,
-    write_transfer,
+    ScanLattice,
     build_grid,
     compute_published_errors,
     compute_spacing_ratios,
     ecef,
-    in_lattice_cells,
+    login_earthdata,
     match_passes,
     normalize,
+    parse_run,
+    pick_passes,
     predict_passes,
     recompute_passes,
     score_published,
     score_swath_area,
     up,
-    update_fixture,
-    write_record,
-    FIXTURES,
-    source_of,
-    login_earthdata,
+    write_results,
 )
 
 FIXTURE_PATH = FIXTURES / "modis.npz"
 
-FIT_PLATFORM = "terra"
 PRODUCTS = {"terra": "MOD03", "aqua": "MYD03"}
-# element sets with epochs about two days after the day of data
-ELEMENT_SETS = {
-    ("terra", "2026-10-04"): [
-        "1 25994U 99068A   26279.29978334  .00000220  00000+0  53719-4 0  9994",
-        "2 25994  97.9333 324.3740 0001348 204.7527 222.4948 14.61170513425833",
-    ],
-    ("terra", "2026-11-05"): [
-        "1 25994U 99068A   26311.28017572  .00000398  00000+0  89808-4 0  9992",
-        "2 25994  97.9278 355.0236 0003362 122.2605 309.2823 14.61191265430504",
-    ],
-    ("aqua", "2026-11-05"): [
-        "1 27424U 02022A   26311.28865478  .00000831  00000+0  17465-3 0  9993",
-        "2 27424  98.4481 283.5818 0000983 104.9545   2.1913 14.62267061304185",
-    ],
-}
 GEO = "HDFEOS/SWATHS/MODIS_Swath_Type_GEO/"
 N_FRAMES = 1354
 FRAMES = np.r_[np.arange(0, N_FRAMES, 8), N_FRAMES - 1]
@@ -118,6 +103,13 @@ TIME_STEPS = (SCAN_PERIOD, 30, 120)
 ORBIT_MARGIN = 120
 PASS_RADIUS = 30e3
 SWATH, PIXELS = "swath", "pixels"
+GATED = (
+    "pass_recall",
+    "pass_precision",
+    "epoch_p95",
+    "swath_width_median",
+    "footprint_iou_median",
+)
 # published footprints: instrument, altitude (km), inclination (deg), scan angle
 # (deg), and sizes along and across track (km), from NASA LAADS
 PUBLISHED_FOOTPRINTS = (
@@ -206,8 +198,12 @@ def load_day(platform: str, day: datetime, directory: pathlib.Path) -> dict:
     return dict(np.load(path))
 
 
-class Reference:
-    """A day of MODIS scans, with what is derived from them."""
+class Reference(ScanLattice):
+    """
+    A day of MODIS scans, with what is derived from them: a lattice of the frames
+    midway between the first and last detectors, in which the observed area is
+    found (passes are found otherwise).
+    """
 
     def __init__(self, data: dict[str, np.ndarray]):
         position = data["position"].astype(float)
@@ -234,24 +230,19 @@ class Reference:
         ]
         self.scan_period = float(np.median(period))
 
-    def in_cells(self, points: np.ndarray, first: int, last: int) -> np.ndarray:
-        """Gets whether unit vectors lie in cells on a range of scans."""
-        return in_lattice_cells(
-            self.unit[first : last + 1], self.is_next_contiguous[first:last], points
-        )
-
-    def observe_passes(self, points) -> pd.DataFrame:
+    def observe_passes(self, points, radius: float = PASS_RADIUS) -> pd.DataFrame:
         """
-        Finds the passes on which MODIS observed points, as an earlier version of `ValidateDriftMODIS` did:
-        the nearest sampled pixel of the first detectors, excluding the outermost
-        frames, within a distance. Gets their times, and those at the scan's center.
+        Finds the passes on which MODIS observed points, as an earlier version of
+        `ValidateDriftMODIS` did: the nearest sampled pixel of the first detectors,
+        excluding the outermost frames, within a distance (m). Gets their times, and
+        those at the scan's center.
         """
         n_scans, n_frames = self.lat.shape[0], len(FRAMES)
         xyz = ecef(self.lon[:, 0], self.lat[:, 0], self.height[:, 0]).reshape(-1, 3)
         point_xyz = ecef(points.geometry.x.to_numpy(), points.geometry.y.to_numpy())
         rows = []
         tree = cKDTree(xyz)
-        hits_of_points = tree.query_ball_point(point_xyz, PASS_RADIUS, workers=-1)
+        hits_of_points = tree.query_ball_point(point_xyz, radius, workers=-1)
         for p, hits in enumerate(hits_of_points):
             if not hits:
                 continue
@@ -288,6 +279,20 @@ class Reference:
         regular = np.abs(period - self.scan_period) < 0.01
         return np.nonzero(regular[:-1] & regular[1:])[0] + 1
 
+    def observe_area(self, orbit, grid):
+        """
+        Gets the cells compared over one orbit from noon of the day of the middle
+        scan (as a day's granules can begin on the previous day), and which of them
+        MODIS observed.
+        """
+        return self.observe_orbit(
+            orbit,
+            grid,
+            ORBIT_MARGIN,
+            begin=self.time[len(self.time) // 2].floor("D") + pd.Timedelta(hours=12),
+            floor=True,
+        )
+
 
 def score_swath_width(reference: Reference, instrument) -> float:
     """Gets the median absolute difference (km) from the width through the frames."""
@@ -302,35 +307,6 @@ def score_swath_width(reference: Reference, instrument) -> float:
         flush=True,
     )
     return float(np.median(np.abs(predicted - observed))) / 1e3
-
-
-def observe_orbit(reference: Reference, orbit, grid):
-    """Gets the cells compared over one orbit, and which of them MODIS observed."""
-    lon, lat, _ = grid
-    unit = up(lon, lat)
-    # a day's granules can begin on the previous day
-    begin = reference.time[len(reference.time) // 2].floor("D") + pd.Timedelta(hours=12)
-    period = pd.Timedelta(days=1 / orbit.elements[0].mean_motion * 360 / 86400)
-    scans = np.nonzero((reference.time >= begin) & (reference.time < begin + period))[0]
-    first, last = reference.time[scans[0]], reference.time[scans[-1]]
-    distance, nearest = cKDTree(reference.unit[scans].reshape(-1, 3)).query(
-        unit, workers=-1
-    )
-    elapsed = (reference.time[scans] - first).total_seconds().to_numpy()
-    nearest_time = elapsed[nearest // len(FRAMES)]
-    compared = (
-        (distance < 2 * np.sin(300 / 6371 / 2))
-        & (nearest_time > ORBIT_MARGIN)
-        & (nearest_time < (last - first).total_seconds() - ORBIT_MARGIN)
-    )
-    observed = np.zeros(len(unit), dtype=bool)
-    observed[compared] = reference.in_cells(unit[compared], scans[0], scans[-1])
-    return (
-        first.floor("us").to_pydatetime(),
-        last.floor("us").to_pydatetime(),
-        compared,
-        observed,
-    )
 
 
 def measure_pixels(reference: Reference, satellite, day: datetime) -> np.ndarray:
@@ -418,15 +394,19 @@ def measure_spacing(reference: Reference) -> tuple[pd.DatetimeIndex, np.ndarray]
     return times[keep], rows[keep]
 
 
-def validate_pixels(day, tle, entry, orbit, reference, platform, write) -> None:
-    """Scores the sample size configuration, and writes its results if requested."""
+def validate_pixels(run, reference: Reference, orbit, tle) -> None:
+    """
+    Scores the sample size configuration, and writes its results if the run writes:
+    as a transfer, on a platform on which the configuration was not tested.
+    """
+    entry, day = run.entry, run.day
     within, largest = score_published(
         compute_published_errors(entry, PIXELS, PUBLISHED_FOOTPRINTS)
     )
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
-    satellite = entry.to_satellite(orbit, configuration=PIXELS, platform=platform)
+    satellite = entry.to_satellite(orbit, configuration=PIXELS, platform=run.platform)
     pixels = measure_pixels(reference, satellite, day)
     median = summarize(pixels[:, 4])["median"]
     p95 = summarize(pixels[:, 4])["p95"]
@@ -438,43 +418,35 @@ def validate_pixels(day, tle, entry, orbit, reference, platform, write) -> None:
     names = ["MODIS"] * len(rows)
     along, cross = compute_spacing_ratios(satellite, names, times, rows)
     print(f"spacing, predicted / measured: {along:.4f} along, {cross:.4f} across")
-    if not write:
+    if not run.write:
         return
-    if platform != FIT_PLATFORM:
-        write_transfer(
-            entry,
-            PIXELS,
-            platform,
-            period=f"{day:%Y-%m-%d}",
-            metrics={
-                "pixel_position_median": median,
-                "pixel_position_p95": p95,
-                "spacing_along_ratio_median": along,
-                "spacing_cross_ratio_median": cross,
-            },
+    fixture = fixture_metrics = None
+    if not run.transfer:
+        rng = np.random.default_rng(3)
+        picks = rng.choice(len(rows), FIXTURE_SPACING, replace=False)
+        fixture_along, fixture_cross = compute_spacing_ratios(
+            satellite, ["MODIS"] * len(picks), times[picks], rows[picks]
         )
-        return
-    rng = np.random.default_rng(3)
-    picks = rng.choice(len(rows), FIXTURE_SPACING, replace=False)
-    fixture_along, fixture_cross = compute_spacing_ratios(
-        satellite, ["MODIS"] * len(picks), times[picks], rows[picks]
-    )
-    reduced = pixels[rng.choice(len(pixels), FIXTURE_PIXELS, replace=False)]
-    update_fixture(
-        FIXTURE_PATH,
-        tle=np.array(tle),
-        day=np.array(day.isoformat()),
-        pixels=reduced,
-        spacing=rows[picks],
-        spacing_seconds=(times[picks] - pd.Timestamp(day)).total_seconds().to_numpy(),
-    )
-    write_record(
-        entry,
+        reduced = pixels[rng.choice(len(pixels), FIXTURE_PIXELS, replace=False)]
+        fixture = {
+            "tle": np.array(tle),
+            "day": np.array(day.isoformat()),
+            "pixels": reduced,
+            "spacing": rows[picks],
+            "spacing_seconds": (times[picks] - pd.Timestamp(day))
+            .total_seconds()
+            .to_numpy(),
+        }
+        fixture_metrics = {
+            "sample_size_within_3pct": within,
+            "pixel_position_median": summarize(reduced[:, 4])["median"],
+            "spacing_along_ratio_median": fixture_along,
+            "spacing_cross_ratio_median": fixture_cross,
+        }
+    write_results(
+        run,
         PIXELS,
-        source=source_of(__file__),
         reference="Footprints published by NASA LAADS; MOD03 geolocation",
-        period=f"{day:%Y-%m-%d}",
-        platforms=[platform],
         metrics=[
             {"name": "sample_size_within_3pct", "value": within},
             {"name": "sample_size_largest_error", "value": largest},
@@ -483,21 +455,28 @@ def validate_pixels(day, tle, entry, orbit, reference, platform, write) -> None:
             {"name": "spacing_along_ratio_median", "value": along},
             {"name": "spacing_cross_ratio_median", "value": cross},
         ],
-        fixture_metrics={
-            "sample_size_within_3pct": within,
-            "pixel_position_median": summarize(reduced[:, 4])["median"],
-            "spacing_along_ratio_median": fixture_along,
-            "spacing_cross_ratio_median": fixture_cross,
+        transfer_metrics={
+            "pixel_position_median": median,
+            "pixel_position_p95": p95,
+            "spacing_along_ratio_median": along,
+            "spacing_cross_ratio_median": cross,
         },
+        fixture=fixture,
+        fixture_path=FIXTURE_PATH,
+        fixture_metrics=fixture_metrics,
     )
 
 
-def validate_swath(day, tle, entry, orbit, reference, platform, write) -> None:
-    """Scores the swath configuration, and writes its results if requested."""
+def validate_swath(run, reference: Reference, orbit, tle) -> None:
+    """
+    Scores the swath configuration, and writes its results if the run writes: as a
+    transfer, on a platform on which the configuration was not tested.
+    """
+    entry, day = run.entry, run.day
 
     def satellite_for(time_step: float):
         return entry.to_satellite(
-            orbit, configuration=SWATH, time_step=time_step, platform=platform
+            orbit, configuration=SWATH, time_step=time_step, platform=run.platform
         )
 
     satellite = satellite_for(SCAN_PERIOD)
@@ -524,51 +503,31 @@ def validate_swath(day, tle, entry, orbit, reference, platform, write) -> None:
     )
     print(json.dumps(results), flush=True)
     grid = build_grid()
-    first, last, compared, covered = observe_orbit(reference, orbit, grid)
+    first, last, compared, covered = reference.observe_area(orbit, grid)
     results["footprint_iou_median"] = score_swath_area(
         satellite_for, 0, first, last, TIME_STEPS, grid, compared, covered
     )
     print(json.dumps(results), flush=True)
-    if not write:
+    if not run.write:
         return
-    gated = (
-        "pass_recall",
-        "pass_precision",
-        "epoch_p95",
-        "swath_width_median",
-        "footprint_iou_median",
-    )
-    if platform != FIT_PLATFORM:
-        write_transfer(
-            entry,
-            SWATH,
-            platform,
-            period=f"{day:%Y-%m-%d}",
-            metrics={name: results[name] for name in gated},
-        )
-        return
-    rng = np.random.default_rng(1)
-    picks = observed.iloc[rng.choice(len(observed), FIXTURE_PASSES, replace=False)]
-    passes = np.stack(
-        [
-            points.geometry.y.to_numpy()[picks.point_id],
-            points.geometry.x.to_numpy()[picks.point_id],
-            (picks.time - pd.Timestamp(day)).dt.total_seconds().to_numpy(),
-        ],
-        axis=-1,
-    )
-    update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
-    )
-    write_record(
-        entry,
+    fixture = fixture_metrics = None
+    if not run.transfer:
+        passes = pick_passes(points, observed, day, FIXTURE_PASSES)
+        fixture = {
+            "tle": np.array(tle),
+            "day": np.array(day.isoformat()),
+            "passes": passes,
+        }
+        fixture_metrics = recompute_passes(satellite, 0, day, passes)
+    write_results(
+        run,
         SWATH,
-        source=source_of(__file__),
         reference="MOD03 geolocation",
-        period=f"{day:%Y-%m-%d}",
-        platforms=[platform],
-        metrics=[{"name": name, "value": float(results[name])} for name in gated],
-        fixture_metrics=recompute_passes(satellite, 0, day, passes),
+        metrics=[{"name": name, "value": float(results[name])} for name in GATED],
+        transfer_metrics={name: results[name] for name in GATED},
+        fixture=fixture,
+        fixture_path=FIXTURE_PATH,
+        fixture_metrics=fixture_metrics,
     )
 
 
@@ -642,44 +601,37 @@ def fit(platform: str, day: datetime, directory: pathlib.Path) -> None:
 
 
 def main() -> None:
-    """Validates the entry on a day of data."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--platform", choices=sorted(PRODUCTS), default=FIT_PLATFORM)
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--sample-sizes-only", action="store_true")
-    parser.add_argument("--download-only", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    if arguments.fit:
-        load_day(arguments.platform, day, arguments.directory)
-        fit(arguments.platform, day, arguments.directory)
+    """Validates the entry on a day of data, or fits its angles."""
+    run = parse_run(
+        "modis",
+        __doc__,
+        add_arguments=lambda parser: parser.add_argument(
+            "--download-only",
+            action="store_true",
+            help="download and reduce the day's data, without validating",
+        ),
+    )
+    if run.fit:
+        load_day(run.platform, run.day, run.directory)
+        fit(run.platform, run.day, run.directory)
         return
-    tle = ELEMENT_SETS[(arguments.platform, arguments.day)]
+    tle = run.element_set()
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    entry = get_entry("modis")
-    data = load_day(arguments.platform, day, arguments.directory)
-    if arguments.download_only:
+    data = load_day(run.platform, run.day, run.directory)
+    if run.download_only:
         return
     reference = Reference(data)
     print(
-        f"{arguments.platform}, {arguments.day}: {tle[0][:32]}; "
+        f"{run.platform}, {run.day:%Y-%m-%d}: {tle[0][:32]}; "
         f"{len(reference.time)} scans, {reference.n_dropped} dropped, "
         f"{len(reference.gaps)} gaps over a minute, "
         f"median scan period {reference.scan_period:.4f} s",
         flush=True,
     )
-    validate_pixels(
-        day, tle, entry, orbit, reference, arguments.platform, arguments.write
-    )
-    if not arguments.sample_sizes_only:
-        validate_swath(
-            day, tle, entry, orbit, reference, arguments.platform, arguments.write
-        )
+    if PIXELS in run.configurations:
+        validate_pixels(run, reference, orbit, tle)
+    if SWATH in run.configurations:
+        validate_swath(run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

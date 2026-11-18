@@ -118,6 +118,8 @@ EXPECTED_STATUS = {
             "beams_noaa_20": ("validated", 51, []),
             "swath_noaa_21": ("validated", 34, []),
             "beams_noaa_21": ("validated", 34, []),
+            "swath_suomi_npp": ("validated", 38, []),
+            "beams_suomi_npp": ("validated", 38, []),
         },
         [],
     ),
@@ -139,7 +141,8 @@ EXPECTED_STATUS = {
     "ceres": (
         "partial",
         {
-            "swath": ("partial", 36, ["swath_width_median"]),
+            "swath_noaa_20": ("partial", 36, ["swath_width_median"]),
+            "swath_suomi_npp": ("validated", 35, []),
         },
         ["no configuration at the sample_size grade"],
     ),
@@ -153,10 +156,22 @@ EXPECTED_STATUS = {
     "cris": (
         "partial",
         {
-            "swath": ("validated", 51, []),
-            "pixels": (
+            "swath_noaa_20": ("validated", 51, []),
+            "pixels_noaa_20": (
                 "partial",
                 51,
+                ["sample_size_within_3pct", "pixel_position_median"],
+            ),
+            "swath_noaa_21": ("validated", 34, []),
+            "pixels_noaa_21": (
+                "partial",
+                34,
+                ["sample_size_within_3pct", "pixel_position_median"],
+            ),
+            "swath_suomi_npp": ("validated", 37, []),
+            "pixels_suomi_npp": (
+                "partial",
+                37,
                 ["sample_size_within_3pct", "pixel_position_median"],
             ),
         },
@@ -310,6 +325,11 @@ EXPECTED_STATUS = {
         {
             "swath_noaa_21": ("partial", 35, ["swath_width_median", "epoch_p95"]),
             "swath_noaa_20": ("partial", 35, ["swath_width_median", "epoch_p95"]),
+            "swath_suomi_npp": (
+                "partial",
+                37,
+                ["pass_recall", "swath_width_median", "epoch_p95"],
+            ),
         },
         [],
     ),
@@ -377,7 +397,10 @@ EXPECTED_STATUS = {
         {
             "swath_noaa_20": ("validated", 51, []),
             "swath_noaa_21": ("validated", 34, []),
+            "swath_suomi_npp": ("validated", 38, []),
             "zones_noaa_20": ("validated", 51, []),
+            "zones_noaa_21": ("validated", 34, []),
+            "zones_suomi_npp": ("validated", 38, []),
         },
         [],
     ),
@@ -425,7 +448,7 @@ class TestLoading(unittest.TestCase):
     def test_platform_names(self):
         """
         Test that, in an entry with configurations fitted on more than one platform,
-        each configuration's name ends with its platform.
+        each configuration's name without its platform selects it for its platform.
         """
         named = []
         for entry in list_entries():
@@ -433,10 +456,12 @@ class TestLoading(unittest.TestCase):
             if len({c.platforms for c in configurations.values()}) > 1:
                 for key, configuration in configurations.items():
                     (platform,) = configuration.platforms
-                    suffix = "_" + platform.replace("-", "_")
-                    self.assertTrue(key.endswith(suffix), (entry.id, key))
+                    name = key.removesuffix("_" + platform.replace("-", "_"))
+                    self.assertEqual(
+                        entry.select_configuration(name, platform=platform), key
+                    )
                 named.append(entry.id)
-        self.assertEqual(named, ["atms", "omps_nm", "viirs"])
+        self.assertEqual(named, ["atms", "ceres", "cris", "omps_nm", "viirs"])
 
     def test_alias_lookup(self):
         """
@@ -590,6 +615,23 @@ class TestStrictFiles(unittest.TestCase):
         self.data["tier"] = "validated"
         self._assert_invalid()
 
+    def test_platform_variant_names(self):
+        """
+        Test that, in an entry with configurations tested on different
+        platforms, each configuration's name ends with its platform.
+        """
+        with open(
+            loader._ENTRIES / "cris.yml",  # pylint: disable=protected-access
+            "r",
+            encoding="utf-8",
+        ) as f:
+            data = yaml.safe_load(f)
+        InstrumentEntry(**data)
+        configurations = data["configurations"]
+        configurations["swath_21"] = configurations.pop("swath_noaa_21")
+        with self.assertRaisesRegex(ValidationError, "ends with"):
+            InstrumentEntry(**data)
+
     def test_unknown_platform(self):
         """
         Test that configurations refer to the entry's platforms.
@@ -692,7 +734,7 @@ class TestBuild(unittest.TestCase):
         self.assertEqual(payload.references, ("gmi:feeds",))
         self.assertFalse(payload.transferred)
         self.assertTrue(any("flies backward" in l for l in payload.limitations))
-        satellite = payload.to_satellite("GPM", self.orbit)
+        satellite = payload.to_satellite(self.orbit, name="GPM")
         self.assertEqual(satellite.name, "GPM")
         self.assertEqual(satellite.instruments, payload.instruments)
         self.assertEqual(satellite.attitude, payload.attitude)
@@ -927,6 +969,26 @@ class TestEntryStatus(unittest.TestCase):
         )
         self.assertTrue(validation.gaps)
 
+    def test_gate_table(self):
+        """
+        Test that the table of gates has a row for each gate of each
+        configuration, with untested gates neither passed nor failed.
+        """
+        for entry_id in ("viirs", "airs"):
+            entry = get_entry(entry_id)
+            table = entry.validation.to_frame()
+            rows = [
+                (key, result)
+                for key, validation in entry.validation.configurations.items()
+                for result in validation.gates
+            ]
+            self.assertEqual(len(table), len(rows))
+            for (_, row), (key, result) in zip(table.iterrows(), rows):
+                self.assertEqual(row["configuration"], key)
+                self.assertEqual(row["grade"], entry.configurations[key].grade.value)
+                self.assertEqual(row["metric"], result.gate.label)
+                self.assertEqual(row["passed"], result.passed)
+
     def test_mhs_has_no_fitted_values(self):
         """
         Test that the MHS entry, whose values are all published, needs no holdout.
@@ -1051,6 +1113,38 @@ class TestSelection(unittest.TestCase):
         self.assertEqual(payload.references, ("viirs:swath_noaa_21",))
         self.assertFalse(payload.transferred)
 
+    def test_name_selects_platform_variant(self):
+        """
+        Test that a configuration named without its platform selects the variant
+        tested on the platform, and otherwise the one of the default's platform.
+        """
+        cris = get_entry("cris")
+        self.assertEqual(
+            cris.get_variants("swath"),
+            ["swath_noaa_20", "swath_noaa_21", "swath_suomi_npp"],
+        )
+        self.assertEqual(cris.get_variants("swath_noaa_21"), ["swath_noaa_21"])
+        self.assertEqual(get_entry("modis").get_variants("swath_terra"), [])
+        self.assertEqual(
+            cris.select_configuration("swath", platform="noaa-21"), "swath_noaa_21"
+        )
+        self.assertEqual(cris.select_configuration("pixels"), "pixels_noaa_20")
+        self.assertEqual(
+            get_entry("omps_nm").select_configuration("swath"), "swath_noaa_21"
+        )
+        with self.assertWarnsRegex(UserWarning, "metop-c"):
+            payload = cris.build(
+                configuration="swath",
+                orbit=self.orbit,
+                time_step=10,
+                platform="metop-c",
+            )
+        self.assertEqual(payload.references, ("cris:swath_noaa_20",))
+        with self.assertRaisesRegex(ValueError, "unknown configuration"):
+            cris.select_configuration("beams")
+        with self.assertRaisesRegex(ValueError, "timing"):
+            cris.select_configuration("swath", grade="sample_size")
+
     def test_grade_selects_a_configuration(self):
         """
         Test that a grade selects a configuration for its use, preferring the
@@ -1077,10 +1171,10 @@ class TestSelection(unittest.TestCase):
         Test that, without a configuration of the grade tested on the platform, one
         tested on another is selected, with a warning.
         """
-        viirs = get_entry("viirs")
-        with self.assertWarnsRegex(UserWarning, "noaa-21"):
-            payload = viirs.build(grade="sample_size", platform="noaa-21")
-        self.assertEqual(payload.references, ("viirs:zones_noaa_20",))
+        modis = get_entry("modis")
+        with self.assertWarnsRegex(UserWarning, "aqua"):
+            payload = modis.build(grade="sample_size", platform="aqua")
+        self.assertEqual(payload.references, ("modis:pixels",))
         self.assertTrue(payload.transferred)
 
     def test_grade_errors(self):
@@ -1109,6 +1203,24 @@ class TestSelection(unittest.TestCase):
             get_entry("msi").build(orbit=orbit, time_step=10).instrument_index, 0
         )
 
+    def test_to_satellite_needs_default_index(self):
+        """
+        Test that a satellite is built only of a configuration analyzed with the
+        default index of 0, which a satellite of the payload gives otherwise.
+        """
+        orbit = self.orbit
+        with self.assertRaisesRegex(ValueError, "instrument_index=None"):
+            get_entry("tropomi").to_satellite(orbit, time_step=10)
+        with self.assertRaisesRegex(ValueError, "instrument_index=1"):
+            get_entry("atms").to_satellite(orbit, grade="sample_size")
+        payload = get_entry("tropomi").build(orbit=orbit, time_step=10)
+        satellite = payload.to_satellite(orbit, name="Sentinel-5P")
+        self.assertEqual(len(satellite.instruments), 10)
+        self.assertEqual(satellite.name, "Sentinel-5P")
+        self.assertEqual(
+            len(get_entry("gmi").to_satellite(orbit, time_step=10).instruments), 2
+        )
+
 
 class TestBuildPayload(unittest.TestCase):
     """
@@ -1128,7 +1240,7 @@ class TestBuildPayload(unittest.TestCase):
         )
         self.assertEqual(
             payload.references,
-            ("viirs:swath_noaa_20", "cris:swath", "atms:beams_noaa_20"),
+            ("viirs:swath_noaa_20", "cris:swath_noaa_20", "atms:beams_noaa_20"),
         )
         beams = get_entry("atms").configurations["beams_noaa_20"]
         self.assertEqual(
@@ -1157,6 +1269,40 @@ class TestBuildPayload(unittest.TestCase):
             build_payload(["viirs", "oco2:glint"], orbit=self.orbit, time_step=10)
         with self.assertRaises(ValueError):
             build_payload([], orbit=self.orbit)
+
+    def test_names_grade_and_attitude(self):
+        """
+        Test that references may name configurations without their platform,
+        that a grade selects the configurations, and that an attitude replaces
+        the validated one of every configuration.
+        """
+        payload = build_payload(
+            ["atms:swath", "cris:swath"],
+            orbit=self.orbit,
+            time_step=10,
+            platform="suomi-npp",
+        )
+        self.assertEqual(
+            payload.references, ("atms:swath_suomi_npp", "cris:swath_suomi_npp")
+        )
+        payload = build_payload(
+            ["atms", "cris"],
+            orbit=self.orbit,
+            grade="sample_size",
+            platform="suomi-npp",
+        )
+        self.assertEqual(
+            payload.references, ("atms:beams_suomi_npp", "cris:pixels_suomi_npp")
+        )
+        with self.assertRaisesRegex(ValueError, "timing"):
+            build_payload("cris:swath", orbit=self.orbit, grade="sample_size")
+        attitude = Attitude(velocity_frame=VelocityFrame.INERTIAL, roll_angle=1)
+        payload = build_payload(
+            ["viirs", "cris"], orbit=self.orbit, time_step=10, attitude=attitude
+        )
+        self.assertEqual(payload.attitude, attitude)
+        with self.assertRaisesRegex(ValueError, "velocity frame"):
+            build_payload("viirs", orbit=self.orbit, time_step=10, attitude=Attitude())
 
     def test_tilt_schedule_needs_period(self):
         """

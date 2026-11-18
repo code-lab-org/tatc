@@ -16,6 +16,7 @@ points and times are read from each product's archive, with range requests (abou
     python validation/catalog/validate_catalog_olci.py <data directory> 2026-10-04 --fit
     python validation/catalog/validate_catalog_olci.py <data directory> 2026-11-04
 
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
 A day is reduced to one image line in 23 (about 1 s), at the 77 tie points of each
 line (every 64th of 4865 columns). The products cover the sunlit part of each orbit,
 and only some of its products are distributed, whose gaps are left out.
@@ -26,19 +27,17 @@ which unit tests recompute the results.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import io
 import pathlib
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime
 
 import h5py
 import numpy as np
 import pandas as pd
 
-from tatc.catalog import get_entry
 from tatc.schemas import GeneralPerturbationsOrbit
-from gesdisc_scanner import (
+from scanner import (
     Product,
     Reference,
     Setup,
@@ -54,16 +53,9 @@ from validation_io import (
     normalize,
     up,
     FIXTURES,
-    source_of,
+    parse_run,
 )
 
-# public element sets from CelesTrak, with epochs after each day of data
-ELEMENTS = {
-    "2026-11-04": (
-        "1 41335U 16011A   26312.33341724  .00000144  00000+0  77522-4 0  9991",
-        "2 41335  98.6306  17.6324 0001215  89.3094 270.8226 14.26734893558614",
-    ),
-}
 EPOCH_2000 = pd.Timestamp("2000-01-01", tz="UTC")
 GPS_UTC_OFFSET = 18  # s
 LINE_STRIDE = 23
@@ -150,14 +142,11 @@ PRODUCT = Product(
     host="https://data.laadsdaac",
 )
 SETUP = Setup(
-    entry_id="olci",
-    platform="sentinel-3a",
     swath="swath",
-    beams="",
-    size_instrument="OLCI",
+    beams=None,
+    size_instrument=None,
     published_footprints=(),
     fixture_path=FIXTURES / "olci.npz",
-    source=source_of(__file__),
     reference="S3A_OL_1_EFR (tie point positions and times)",
     published_reference="",
     time_steps=(10, 30, 120),
@@ -173,23 +162,16 @@ def load_reference(day: datetime, directory: pathlib.Path) -> Reference:
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    reference = load_reference(day, arguments.directory)
+    run = parse_run("olci", __doc__)
+    reference = load_reference(run.day, run.directory)
     print(
-        f"{arguments.day}: {len(reference.time)} lines from {reference.time[0]}, "
+        f"{run.day:%Y-%m-%d}: {len(reference.time)} lines from {reference.time[0]}, "
         f"{len(reference.gaps)} gaps over a minute, median altitude "
         f"{np.median(reference.altitude) / 1e3:.1f} km, line period "
         f"{np.median(np.diff(reference.seconds)) / LINE_STRIDE:.5f} s",
         flush=True,
     )
-    if arguments.fit:
+    if run.fit:
         for frame in ("earth_fixed", "inertial"):
             fit(reference, frame)
             fit_yaw(reference, frame)
@@ -212,13 +194,10 @@ def main() -> None:
             + " ".join(f"{a:+.3f}" for a in np.median(along, axis=0)[::4])
         )
         return
-    tle = list(ELEMENTS[arguments.day])
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    entry = get_entry("olci")
-    validate_swath(SETUP, day, tle, entry, orbit, reference, arguments.write)
-    if arguments.write:
-        print(f"wrote {SETUP.fixture_path}")
+    validate_swath(SETUP, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

@@ -19,15 +19,26 @@ Each day's file (about 280 MB, HDF4) is downloaded whole:
 The product is released about six weeks after the data are taken. A day is reduced
 to the first sweep of each record.
 
+With `--platform suomi-npp`, it validates the configuration of Suomi NPP's CERES
+(FM5) with the CER_ES8_NPP-FM5 Edition2 product, which ends on 2026-07-31, before
+the satellite was retired. NOAA's archive has Suomi NPP's element sets only from
+2026-08-19, so earlier days read them from a file of the history of its element sets:
+
+    python validation/catalog/validate_catalog_ceres.py <data directory> 2026-07-25 --platform suomi-npp --fit
+    python validation/catalog/validate_catalog_ceres.py <data directory> 2026-06-20 --platform suomi-npp
+
+Without a day, it takes that of the platform's record (or, with `--fit`, of the
+fit).
+
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import pathlib
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime
 
 import earthaccess
 import numpy as np
@@ -35,19 +46,47 @@ import pyhdf.VS  # pylint: disable=unused-import
 from pyhdf.HDF import HDF
 from pyhdf.SD import SD, SDC
 
-from tatc.catalog import get_entry
 from tatc.schemas import GeneralPerturbationsOrbit
-from gesdisc_scanner import Reference, Setup, fit, fit_yaw, validate_swath
+from scanner import Reference, Setup, fit, fit_yaw, validate_swath
 from validation_io import (
-    ARCHIVES,
+    FIXTURES,
     TO_GEODETIC,
     get_with_retries,
-    FIXTURES,
-    source_of,
     login_earthdata,
+    parse_run,
 )
 
-SHORT_NAME, VERSION = "CER_ES8_NOAA20-FM6", "Edition1"
+
+@dataclass(frozen=True)
+class Product:
+    """
+    The ES-8 product of a platform's CERES, the configuration it validates, its
+    fixture, and the prefix of its cached files.
+    """
+
+    short_name: str
+    version: str
+    configuration: str
+    fixture_path: pathlib.Path
+    prefix: str
+
+
+PRODUCTS = {
+    "noaa-20": Product(
+        "CER_ES8_NOAA20-FM6",
+        "Edition1",
+        "swath_noaa_20",
+        FIXTURES / "ceres.npz",
+        "",
+    ),
+    "suomi-npp": Product(
+        "CER_ES8_NPP-FM5",
+        "Edition2",
+        "swath_suomi_npp",
+        FIXTURES / "ceres_suomi_npp.npz",
+        "npp_",
+    ),
+}
 RECORD_SAMPLES, SAMPLE_PERIOD, RECORD_PERIOD = 660, 0.01, 6.6
 # the samples of the first Earth sweep of each record; the second sweeps in the
 # opposite direction, so that its footprints and the first's, taken as consecutive
@@ -59,13 +98,13 @@ WGS84_A, WGS84_F = 6378137.0, 1 / 298.257223563
 JULIAN_UNIX_EPOCH = 2440587.5
 
 
-def download(day: datetime, directory: pathlib.Path) -> pathlib.Path:
+def download(day: datetime, directory: pathlib.Path, product: Product) -> pathlib.Path:
     """Downloads the product's file of a day, if it is not already."""
     items = get_with_retries(
         "https://cmr.earthdata.nasa.gov/search/granules.umm_json",
         params={
-            "short_name": SHORT_NAME,
-            "version": VERSION,
+            "short_name": product.short_name,
+            "version": product.version,
             "temporal": f"{day:%Y-%m-%dT00:00:00Z},{day:%Y-%m-%dT23:59:59Z}",
             "page_size": 10,
         },
@@ -117,11 +156,11 @@ def project_to_ellipsoid(satellite: np.ndarray, colatitude, longitude) -> np.nda
     return satellite + root[..., np.newaxis] * direction
 
 
-def load_day(day: datetime, directory: pathlib.Path) -> dict:
+def load_day(day: datetime, directory: pathlib.Path, product: Product) -> dict:
     """Reads and reduces the sweeps of a day, or loads them from a cache."""
-    cache = directory / f"ceres_es8_{day:%Y%m%d}.npz"
+    cache = directory / f"{product.prefix}ceres_es8_{day:%Y%m%d}.npz"
     if not cache.exists():
-        path = download(day, directory)
+        path = download(day, directory, product)
         vs = HDF(str(path)).vstart()
 
         def table(name: str) -> np.ndarray:
@@ -181,58 +220,52 @@ def load_day(day: datetime, directory: pathlib.Path) -> dict:
     return dict(np.load(cache))
 
 
-SETUP = Setup(
-    entry_id="ceres",
-    platform="noaa-20",
-    swath="swath",
-    beams="",
-    size_instrument="CERES",
-    published_footprints=(),
-    fixture_path=FIXTURES / "ceres.npz",
-    source=source_of(__file__),
-    reference="CER_ES8_NOAA20-FM6 Edition1 (footprint positions, projected to the "
-    "ellipsoid, and times)",
-    published_reference="",
-    time_steps=(RECORD_PERIOD, 30, 120),
-    pass_radius=60,
-    point_spacing=200e3,
-)
+def make_setup(platform: str) -> Setup:
+    """Gets what a run on a platform validates, and where it writes its results."""
+    product = PRODUCTS[platform]
+    return Setup(
+        swath=product.configuration,
+        beams=None,
+        size_instrument=None,
+        published_footprints=(),
+        fixture_path=product.fixture_path,
+        reference=f"{product.short_name} {product.version} (footprint positions, "
+        "projected to the ellipsoid, and times)",
+        published_reference="",
+        time_steps=(RECORD_PERIOD, 30, 120),
+        pass_radius=60,
+        point_spacing=200e3,
+    )
 
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    data = load_day(day, arguments.directory)
+    run = parse_run("ceres", __doc__)
+    data = load_day(run.day, run.directory, PRODUCTS[run.platform])
     stride = np.unique(np.r_[0 : len(SWEEPS[0]) : SAMPLE_STRIDE, len(SWEEPS[0]) - 1])
     data.update(pixel=stride, pixels=len(SWEEPS[0]))
-    reference = Reference(day, data, RECORD_PERIOD)
+    reference = Reference(run.day, data, RECORD_PERIOD)
     print(
-        f"{arguments.day}: {len(reference.time)} sweeps from {reference.time[0]}, "
+        f"{run.day:%Y-%m-%d}: {len(reference.time)} sweeps from {reference.time[0]}, "
         f"{len(reference.gaps)} gaps over a minute",
         flush=True,
     )
-    if arguments.fit:
+    if run.fit:
         for frame in ("inertial", "earth_fixed"):
             fit(reference, frame)
             fit_yaw(reference, frame)
         offsets = reference.beam_seconds - reference.seconds[:, np.newaxis]
         print(f"footprint times from the sweep's middle: {offsets[0, [0, -1]]}")
         return
-    tle = ARCHIVES["noaa-20"].load_element_set(day, arguments.directory)
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    validate_swath(
-        SETUP, day, tle, get_entry("ceres"), orbit, reference, arguments.write
-    )
-    if arguments.write:
-        print(f"wrote {SETUP.fixture_path}")
+    # a transfer tests the configuration of the default platform
+    entry = run.entry
+    default = entry.configurations[entry.default_configuration].platforms[0]
+    setup = make_setup(default if run.transfer else run.platform)
+    if setup.swath in run.configurations:
+        validate_swath(setup, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

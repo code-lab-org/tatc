@@ -47,7 +47,7 @@ See :doc:`/validation/standard`.
 Schemas
 -------
 
-The schemas of the files of entries and of their validation records.
+The schemas of the files of entries.
 
 .. autopydantic_model:: tatc.catalog.schemas.Configuration
 
@@ -57,17 +57,22 @@ The schemas of the files of entries and of their validation records.
 
 .. autopydantic_model:: tatc.catalog.schemas.TiltSchedule
 
-.. autopydantic_model:: tatc.catalog.schemas.ConfigurationRecord
+Records
+-------
 
-.. autopydantic_model:: tatc.catalog.schemas.Transfer
+The schemas of the validation records of entries.
 
-.. autofunction:: tatc.catalog.schemas.get_period_days
+.. autopydantic_model:: tatc.catalog.records.ConfigurationRecord
+
+.. autopydantic_model:: tatc.catalog.records.Transfer
+
+.. autofunction:: tatc.catalog.records.get_period_days
 
 Standard
 --------
 
 .. automodule:: tatc.catalog.standard
-   :members: STANDARD_VERSION, COMPATIBLE_VERSIONS, MIN_HOLDOUT_GAP_DAYS, Gate, get_gates, get_required_grades, is_compatible
+   :members: STANDARD_VERSION, COMPATIBLE_VERSIONS, MIN_HOLDOUT_GAP_DAYS, Gate, get_gates, get_required_grades, is_compatible, serves, evaluate_entry
 
 Metrics
 -------

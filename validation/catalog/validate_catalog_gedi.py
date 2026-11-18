@@ -19,21 +19,20 @@ middle of the day), so they hold for element sets of a similar age. Running on a
 at least 30 days from the fit tests the fitted values on data held out from the fit.
 
 Needs the `validation` extra, an Earthdata token in `EARTHDATA_TOKEN`, and the ISS's
-element sets of the days in `iss_2026-04-01.3le`. Every 200th shot (about 12 km
-apart) is read, with range requests:
+element sets of the days in `elements/iss_2026-04-01.3le` (or in a file given with
+`--elements`). Every 200th shot (about 12 km apart) is read, with range requests:
 
     python validation/catalog/validate_catalog_gedi.py <data directory> 2026-05-01 --fit
     python validation/catalog/validate_catalog_gedi.py <data directory> 2026-06-08
 
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
-import json
 import pathlib
 from datetime import datetime, timedelta, timezone
 
@@ -41,33 +40,18 @@ import earthaccess
 import h5py
 import numpy as np
 import pandas as pd
-from pyproj import Geod
-from skyfield.api import wgs84
 
-from tatc.analysis import collect_observations
-from tatc.catalog import get_entry
-from tatc.catalog.metrics import summarize
-from tatc.constants import timescale
-from tatc.schemas import GeneralPerturbationsOrbit, Point
-from validate_catalog_atlas import add_offsets
+from tatc.schemas import GeneralPerturbationsOrbit
+from validate_catalog_atlas import add_offsets, score_views, track_bearings, write_views
 from validation_io import (
     RemoteFile,
     ecef,
     get_with_retries,
-    read_element_set_file,
-    up,
-    update_fixture,
-    write_record,
-    FIXTURES,
-    source_of,
-    ELEMENT_SET_FOLDER,
     login_earthdata,
+    parse_run,
+    up,
 )
 
-FIXTURE_PATH = FIXTURES / "gedi.npz"
-ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "iss_2026-04-01.3le"
-NORAD_ID = 25544
-PLATFORM = "iss"
 CONFIGURATION = "beams"
 SHORT_NAME, VERSION = "GEDI01_B", "003"
 # the beams, as the product names them, from left to right of the ground track (as
@@ -88,10 +72,7 @@ SHOT_STRIDE = 200
 NADIR_LIMIT = 1.0  # deg, of the beams' center
 CENTER_BIN = 10  # s
 SAMPLE_PER_BEAM = 250
-TIME_STEPS = (1, 10, 30)
 FIT_PERCENTILE = 99.5
-FIXTURE_SHOTS = 60
-GEOD = Geod(ellps="WGS84")
 
 
 def read_granule(url: str, session) -> list[pd.DataFrame]:
@@ -216,23 +197,8 @@ def angle(distance_m: np.ndarray, altitude: float) -> np.ndarray:
 
 def along_offsets(shots: pd.DataFrame, orbit) -> np.ndarray:
     """Gets the shots' offsets (km, positive ahead) along the ground track."""
-    satellite = orbit.elements[0].to_skyfield()
-    times = timescale.from_datetimes(list(shots.time.dt.floor("us")))
-    now = wgs84.subpoint_of(satellite.at(times))
-    later = wgs84.subpoint_of(satellite.at(timescale.tt_jd(times.tt + 1 / 86400)))
-    heading = GEOD.inv(
-        now.longitude.degrees,
-        now.latitude.degrees,
-        later.longitude.degrees,
-        later.latitude.degrees,
-    )[0]
-    azimuth, _, length = GEOD.inv(
-        now.longitude.degrees,
-        now.latitude.degrees,
-        shots.longitude.to_numpy(),
-        shots.latitude.to_numpy(),
-    )
-    return length * np.cos(np.radians(azimuth - heading)) / 1e3
+    bearing, length = track_bearings(shots, orbit)
+    return length * np.cos(np.radians(bearing)) / 1e3
 
 
 def fit(shots: pd.DataFrame, orbit) -> None:
@@ -260,73 +226,6 @@ def fit(shots: pd.DataFrame, orbit) -> None:
             f"{half:.3f} km; roll {(near + far) / 2:.4f} deg, cross-track field of "
             f"view {far - near:.4f} deg"
         )
-
-
-def find_epochs(satellite, sample: pd.DataFrame) -> np.ndarray:
-    """
-    Gets the difference (s) of each shot's nearest predicted epoch by its beam's view,
-    within two minutes of its time, or NaN.
-    """
-
-    def find(row):
-        time = row.time.floor("us").to_pydatetime()
-        found = collect_observations(
-            Point(latitude=row.latitude, longitude=row.longitude),
-            satellite,
-            time - timedelta(minutes=2),
-            time + timedelta(minutes=2),
-            BEAMS.index(row.pair),
-        )
-        if found.empty:
-            return np.nan
-        return min(
-            ((e - pd.Timestamp(time)).total_seconds() for e in found.epoch), key=abs
-        )
-
-    with concurrent.futures.ThreadPoolExecutor(8) as pool:
-        return np.array(list(pool.map(find, sample.itertuples())), dtype=float)
-
-
-def score_shots(entry, orbit, shots: pd.DataFrame, day: datetime):
-    """
-    Scores a sample of each beam's shots: whether its view observes them within two
-    minutes of their times, and the epochs' differences, at each time step.
-    """
-    rng = np.random.default_rng(1)
-    sample = pd.concat(
-        [
-            group.iloc[
-                rng.choice(len(group), min(SAMPLE_PER_BEAM, len(group)), replace=False)
-            ]
-            for _, group in shots.groupby("beam")
-        ],
-        ignore_index=True,
-    )
-    results = {}
-    for time_step in TIME_STEPS:
-        satellite = entry.to_satellite(
-            orbit, configuration=CONFIGURATION, time_step=time_step, platform=PLATFORM
-        )
-        differences = find_epochs(satellite, sample)
-        found = np.isfinite(differences)
-        results[time_step] = {
-            "segment_recall": 100 * float(found.mean()),
-            "epoch_p95": float(summarize(differences[found])["p95"]),
-            "epoch_median": float(summarize(differences[found])["median"]),
-        }
-        print(
-            f"  time step {time_step} s: {json.dumps(results[time_step])}", flush=True
-        )
-    passes = np.stack(
-        [
-            sample.latitude.to_numpy(),
-            sample.longitude.to_numpy(),
-            (sample.time - pd.Timestamp(day)).dt.total_seconds().to_numpy(),
-            sample.beam.map(BEAMS.index).to_numpy(),
-        ],
-        axis=-1,
-    )
-    return results, passes
 
 
 def score_spacing(entry, shots: pd.DataFrame) -> float:
@@ -361,74 +260,32 @@ def score_spacing(entry, shots: pd.DataFrame) -> float:
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its views."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    tle = read_element_set_file(ELEMENT_SET_FILE, NORAD_ID, day)
+    run = parse_run("gedi", __doc__)
+    tle = run.element_set()
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    shots = add_offsets(load_day(day, arguments.directory), orbit)
+    shots = add_offsets(load_day(run.day, run.directory), orbit)
     print(
-        f"{arguments.day}: {tle[0][:32]}; {len(shots)} shots in "
+        f"{run.day:%Y-%m-%d}: {tle[0][:32]}; {len(shots)} shots in "
         f"{shots.file.nunique()} files",
         flush=True,
     )
-    if arguments.fit:
+    if run.fit:
         fit(shots, orbit)
         return
-    entry = get_entry("gedi")
-    results, passes = score_shots(entry, orbit, shots, day)
-    spacing = score_spacing(entry, shots)
-    if not arguments.write:
-        return
-    satellite = entry.to_satellite(
-        orbit, configuration=CONFIGURATION, time_step=TIME_STEPS[0], platform=PLATFORM
-    )
-    rng = np.random.default_rng(2)
-    reduced = passes[rng.choice(len(passes), FIXTURE_SHOTS, replace=False)]
-    fixture_differences = find_epochs(
-        satellite,
-        pd.DataFrame(
-            {
-                "latitude": reduced[:, 0],
-                "longitude": reduced[:, 1],
-                "time": pd.Timestamp(day) + pd.to_timedelta(reduced[:, 2], unit="s"),
-                "pair": [BEAMS[int(i)] for i in reduced[:, 3]],
-            }
-        ),
-    )
-    update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=reduced
-    )
-    found = np.isfinite(fixture_differences)
-    write_record(
-        entry,
-        CONFIGURATION,
-        source=source_of(__file__),
-        reference=f"{SHORT_NAME} version {VERSION} (every 200th shot, where "
-        "the beams' center lies within 1 deg of nadir)",
-        period=f"{day:%Y-%m-%d}",
-        platforms=[PLATFORM],
-        metrics=[
-            {
-                "name": name,
-                "value": values[name],
-                "scope": f"time step {time_step} s",
-            }
-            for time_step, values in results.items()
-            for name in ("segment_recall", "epoch_p95", "epoch_median")
-        ]
-        + [{"name": "beam_spacing_error_median", "value": spacing}],
-        fixture_metrics={
-            "passes_found": 100 * float(found.mean()),
-            "epoch_p95": float(summarize(fixture_differences[found])["p95"]),
-        },
-    )
-    print(f"wrote {FIXTURE_PATH}")
+    scored = score_views(run, CONFIGURATION, orbit, shots, BEAMS, SAMPLE_PER_BEAM)
+    spacing = score_spacing(run.entry, shots)
+    if run.write:
+        write_views(
+            run,
+            CONFIGURATION,
+            orbit,
+            tle,
+            scored,
+            spacing,
+            BEAMS,
+            f"{SHORT_NAME} version {VERSION} (every 200th shot, where the beams' "
+            "center lies within 1 deg of nadir)",
+        )
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 {
   "entry_id": "cris",
   "configurations": {
-    "pixels": {
+    "pixels_noaa_20": {
       "digest": "14a2de8b4b2b0fc73bbbd5b728623007b4ecbb20458ddd89c86d64d29dfc9f1c",
       "standard_version": 5,
       "tatc_version": "3.6.0",
@@ -53,7 +53,7 @@
         "pixel_position_median": 10.13770124804699
       }
     },
-    "swath": {
+    "swath_noaa_20": {
       "digest": "fc32ce15a3780ef5596decc7d4a8c2f7bd27c888973cfe6adeec5e19d98ad616",
       "standard_version": 5,
       "tatc_version": "3.6.0",
@@ -115,6 +115,158 @@
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.28104180079999985
+      }
+    },
+    "pixels_noaa_21": {
+      "digest": "64412e8899a75bdfbedab7d28bba40d983af427bf89b402bfcd842a35db00389",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_cris.py",
+      "reference": "Footprints published by the NWP SAF; fields of view of the CrIS SDR geolocation",
+      "period": "2026-10-02",
+      "platforms": [
+        "noaa-21"
+      ],
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 75.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 4.689636257489127
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 11.443912885849798
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 43.350693144990444
+        },
+        {
+          "name": "pixel_position_central_median",
+          "value": 10.246739205574547
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 75.0,
+        "pixel_position_median": 10.243232519138253
+      }
+    },
+    "swath_noaa_21": {
+      "digest": "6ded9c5c4985e9f7022c6d8ba497a1aa4d89a0b21af462d9f31933607e548764",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_cris.py",
+      "reference": "CrIS SDR geolocation",
+      "period": "2026-10-02",
+      "platforms": [
+        "noaa-21"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.85109199205824
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.91721854304636
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.4266412327000001
+        },
+        {
+          "name": "swath_width_median",
+          "value": 1.9786613056811038
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9983710458471522
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.4176890259999998
+      }
+    },
+    "pixels_suomi_npp": {
+      "digest": "3a025be4b079a4362ee6904f5be92d274457bfcea1fe93d9e8aabed294473819",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_cris.py",
+      "reference": "Footprints published by the NWP SAF; fields of view of the CrIS SDR geolocation",
+      "period": "2025-08-26",
+      "platforms": [
+        "suomi-npp"
+      ],
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 75.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 4.689655963562556
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 11.533671604424837
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 43.52473412401029
+        },
+        {
+          "name": "pixel_position_central_median",
+          "value": 10.389272719112085
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 75.0,
+        "pixel_position_median": 10.80773124001334
+      }
+    },
+    "swath_suomi_npp": {
+      "digest": "ac0e69ef7afe07af3150cb441873a0cf9ef9f165d2ad2f49db3a477baa2368ba",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_cris.py",
+      "reference": "CrIS SDR geolocation",
+      "period": "2025-08-26",
+      "platforms": [
+        "suomi-npp"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.9288256227758
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.96440014239943
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.44907435149999997
+        },
+        {
+          "name": "swath_width_median",
+          "value": 1.9202629858125002
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9986364639164232
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.4434925635999999
       }
     }
   }

@@ -23,7 +23,9 @@ monsoon OSSE, so read that one first:
 
 The notebook :doc:`VisualizeSensingGeometry` draws the sensing geometry of
 the sounders of these OSSEs: their scans, the size and spacing of their
-footprints from nadir to the edge of the swath, and a day of their swaths.
+footprints from nadir to the edge of the swath, a day of their swaths, and
+animations of the swaths of NOAA-20 and NOAA-21 on a map and on globes of the
+day and night sides of the Earth.
 
 Each OSSE downloads the part of its nature run that it needs once, to a
 ``data`` directory beside it. The notebooks require::
