@@ -966,9 +966,7 @@ class TestEntryStatus(unittest.TestCase):
             self.assertEqual(len(table), len(rows))
             for (_, row), (key, result) in zip(table.iterrows(), rows):
                 self.assertEqual(row["configuration"], key)
-                self.assertEqual(
-                    row["grade"], entry.configurations[key].grade.value
-                )
+                self.assertEqual(row["grade"], entry.configurations[key].grade.value)
                 self.assertEqual(row["metric"], result.gate.label)
                 self.assertEqual(row["passed"], result.passed)
 
