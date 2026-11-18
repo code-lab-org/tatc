@@ -315,9 +315,11 @@ def fit_yaw(reference: Reference, frame: str) -> None:
     """
     Prints the yaw of the scan line: the angle whose tangent is the slope of the beams'
     along-track tangents on their cross-track tangents (positive if the left of the
-    scan lies ahead of the right, as a yaw of the body to the right, a negative
+    scan lies ahead of the right, as a yaw of the view to the right, a negative
     `yaw_angle`, gives), with the along-track angle at nadir, overall and by latitude
-    and direction.
+    and direction. Measured from one instrument, they are its own angles (the
+    instrument's `yaw_angle` and `pitch_angle`), unless the body is known to turn
+    every instrument it carries alike.
     """
     lon, lat, _ = TO_GEODETIC.transform(*reference.position.T)
     zenith = up(lon, lat)
@@ -436,11 +438,13 @@ def score_swath_width(
     nadir, so that of a rolled or pitched view is found instead from the projections
     of its edges, and compared with the distance along the surface between the
     outermost beams. A view is pitched by the instrument or by the body (the
-    satellite's attitude, whose yaw and roll are taken as zero here).
+    satellite's attitude, whose yaw and roll are taken as zero here), and
+    yawed by the instrument.
     """
     scans = np.arange(0, len(reference.time), stride)
     track = orbit.get_orbit_track(list(reference.time[scans].to_pydatetime()))
     roll = getattr(instrument, "roll_angle", 0)
+    yaw = getattr(instrument, "yaw_angle", 0)
     pitch = np.zeros(len(scans))
     if hasattr(instrument, "get_pitch_angle"):
         pitch = pitch + instrument.get_pitch_angle(track)
@@ -459,6 +463,7 @@ def score_swath_width(
                     is_rectangular=True,
                     angle=angle,
                     velocity_frame=instrument.velocity_frame,
+                    yaw_angle=yaw,
                 )
                 for angle in (0, 180)
             ]
@@ -486,6 +491,7 @@ def score_swath_width(
                 0,
                 roll_angle=roll + side * half,
                 velocity_frame=instrument.velocity_frame,
+                yaw_angle=yaw,
             )
             for side in (-1, 1)
         ]

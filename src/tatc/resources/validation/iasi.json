@@ -2,8 +2,8 @@
   "entry_id": "iasi",
   "configurations": {
     "pixels": {
-      "digest": "dd12e9608ac7a89c6963aaa4f142712a52e4bd9926747a972cb2e3b0e1d199fd",
-      "standard_version": 5,
+      "digest": "3a835e4320bbcb81a5f072d3b1d2ed12d14b3c1f63908ac5e5d64dbd16e97762",
+      "standard_version": 6,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_iasi.py",
       "reference": "Published footprints; pixel positions of the OSI SAF IASI sea surface temperature product",
@@ -41,7 +41,7 @@
       "fixture_metrics": {
         "sample_size_within_3pct": 75.0,
         "pixel_position_median": 1.8465413045951906,
-        "spacing_along_ratio_median": 1.0001151908598096,
+        "spacing_along_ratio_median": 1.0001151908598103,
         "spacing_cross_ratio_median": 0.9977292206571903
       }
     },

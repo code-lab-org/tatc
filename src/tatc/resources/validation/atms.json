@@ -132,8 +132,8 @@
       }
     },
     "beams_noaa_21": {
-      "digest": "1d3bd90a9b9d472ec640d20deec56627cd4f3ff0cfadb71b6fc55188f7b29b31",
-      "standard_version": 5,
+      "digest": "795fd72ce756fc695cdcf3676630fa89415a2994092fe410e5b00b2531896ba6",
+      "standard_version": 6,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_atms.py",
       "reference": "Footprints of the TC PRIMED documentation; beam centers of the ATMS SDR geolocation",
@@ -148,36 +148,36 @@
         },
         {
           "name": "sample_size_largest_error",
-          "value": 1.3203690828231585
+          "value": 1.3203691110387883
         },
         {
           "name": "pixel_position_median",
-          "value": 3.158313472100375
+          "value": 3.1583143744123907
         },
         {
           "name": "pixel_position_p95",
-          "value": 6.291568197896196
+          "value": 6.291581188982623
         },
         {
           "name": "spacing_along_ratio_median",
-          "value": 0.9999748086574383
+          "value": 0.9999748086574439
         },
         {
           "name": "spacing_cross_ratio_median",
-          "value": 0.9994635130399332
+          "value": 0.9994635130437314
         }
       ],
       "transfers": {},
       "fixture_metrics": {
         "sample_size_within_3pct": 100.0,
-        "pixel_position_median": 3.0711510048337605,
-        "spacing_along_ratio_median": 0.9999415250211267,
-        "spacing_cross_ratio_median": 0.9989961809645305
+        "pixel_position_median": 3.0711541327468845,
+        "spacing_along_ratio_median": 0.9999415250211152,
+        "spacing_cross_ratio_median": 0.9989961809769521
       }
     },
     "swath_noaa_21": {
-      "digest": "a688ecbd6aa004f86243d81cd600f88b7c6666c27710bbafbcf847afd43c9aaf",
-      "standard_version": 5,
+      "digest": "39505e3ab2a97d53ea853cba60a5365dfcabf51972661c15e22665486bf2d49a",
+      "standard_version": 6,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_atms.py",
       "reference": "ATMS SDR geolocation",

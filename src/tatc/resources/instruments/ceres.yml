@@ -60,8 +60,6 @@ configurations:
     description: The swath of CERES's cross-track scan on Suomi NPP, between the outermost footprint centers, with a view tailored to the analysis time step.
     platforms: [suomi-npp]
     velocity_frame: inertial
-    attitude:
-      yaw_angle: -0.2725
     instruments:
       - type: pointed
         parameters:
@@ -70,6 +68,7 @@ configurations:
           cross_track_field_of_view: 119.9645
           along_track_field_of_view: {tailor: time_step}
           is_swept: true
+          yaw_angle: -0.2725
           roll_angle: 0.1317
           is_rectangular: true
         provenance:
@@ -82,14 +81,19 @@ configurations:
             platforms: [suomi-npp]
             period: "2026-07-25"
           roll_angle: *measured_suomi_npp
+          yaw_angle:
+            kind: measured
+            source: validate_catalog_ceres.py --fit, the slope of the footprints' along-track on their cross-track tangents (inertial frame)
+            platforms: [suomi-npp]
+            period: "2026-07-25"
           is_rectangular:
             kind: derived
             source: Models a scanned swath as a rectangular view
     limitations:
-      - The yaw of -0.2725 deg is measured with validate_catalog_ceres.py --fit on 2026-07-25, from the slope of the footprints' along-track on their cross-track tangents (the same within 0.015 deg at every latitude, ascending and descending), in the inertial frame. The along-track angle at nadir, -0.0006 deg, is not modeled.
+      - The instrument's yaw of -0.2725 deg (first given to the body's attitude, then to the instrument, which gives the same view, so that the configuration shares the body's attitude of Suomi NPP's other instruments) is measured with validate_catalog_ceres.py --fit on 2026-07-25, from the slope of the footprints' along-track on their cross-track tangents (the same within 0.015 deg at every latitude, ascending and descending), in the inertial frame. The along-track angle at nadir, -0.0006 deg, is not modeled.
       - TAT-C observes all footprints of a view at one instant, whereas CERES sweeps the Earth in about 1.9 s, as on NOAA-20.
       - The product places footprints at the top of the atmosphere (30 km); they are compared on the ellipsoid, projected along the line of sight from the spacecraft.
-      - On data held out on 2026-06-20, with an element set from a file of the history of Suomi NPP's element sets (NOAA's archive has none before 2026-08-19), 99.996% of observed passes were predicted and 99.8% of predicted passes observed, with epochs within 1.49 s (95th percentile), the swath width within 0.70 km (median), and the swath's intersection over union 0.9999.
+      - On data held out on 2026-06-20, with an element set from a file of the history of Suomi NPP's element sets (NOAA's archive has none before 2026-08-19), 99.996% of observed passes were predicted and 99.8% of predicted passes observed, with epochs within 1.49 s (95th percentile), the swath width within 0.71 km (median), and the swath's intersection over union 0.9999. The yaw was given to the body's attitude when tested, and then to the instrument, which gives the same views; the record was rescored on the same held-out data, with the swath width, now measured with the instrument's yaw, 15 m wider than 0.70 km, and every other result unchanged.
       - The product ends on 2026-07-31, and Suomi NPP was retired on 2026-11-02.
 limitations:
   - NOAA-20 and Suomi NPP do not steer their yaw, so the configurations use the inertial frame.
