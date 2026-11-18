@@ -985,17 +985,38 @@ class TestEntryStatus(unittest.TestCase):
     def test_atms_noaa21_models_yaw(self):
         """
         Test that NOAA-21's ATMS configurations model the measured rotation of the
-        scan line in their attitude, and that NOAA-20's do not.
+        scan line with their instruments' angles, not the body's attitude, and that
+        NOAA-20's do not model one.
         """
         entry = get_entry("atms")
-        for key in ("swath_noaa_21", "beams_noaa_21"):
-            self.assertEqual(
-                entry.configurations[key].attitude,
-                {"yaw_angle": 0.9341, "pitch_angle": -0.1362},
-                key,
-            )
+        for key, yaw in (("swath_noaa_21", 0.9341), ("beams_noaa_21", 0.934304)):
+            configuration = entry.configurations[key]
+            self.assertEqual(configuration.attitude, {}, key)
+            for instrument in configuration.instruments:
+                self.assertEqual(instrument.parameters["yaw_angle"], yaw, key)
+                self.assertEqual(instrument.parameters["pitch_angle"], -0.1362, key)
         for key in ("swath_noaa_20", "beams_noaa_20"):
-            self.assertEqual(entry.configurations[key].attitude, {}, key)
+            configuration = entry.configurations[key]
+            self.assertEqual(configuration.attitude, {}, key)
+            for instrument in configuration.instruments:
+                self.assertNotIn("yaw_angle", instrument.parameters, key)
+
+    def test_body_attitudes(self):
+        """
+        Test that only configurations whose body is known to turn its instruments
+        (the ISS's, and OCO-2's glint mode) give the body an attitude, so that
+        angles fitted to one instrument are its own.
+        """
+        with_attitude = {
+            f"{entry_id}:{key}"
+            for entry_id in get_entry_ids()
+            for key, configuration in get_entry(entry_id).configurations.items()
+            if configuration.attitude
+        }
+        self.assertEqual(
+            with_attitude,
+            {"ecostress:swath", "emit:swath", "gedi:beams", "oco2:glint"},
+        )
 
     def test_entry_lists_every_gap(self):
         """
@@ -1317,6 +1338,46 @@ class TestBuildPayload(unittest.TestCase):
             build_payload(["viirs", "oco2:glint"], orbit=self.orbit, time_step=10)
         with self.assertRaises(ValueError):
             build_payload([], orbit=self.orbit)
+
+    def test_jpss_payloads(self):
+        """
+        Test that the configurations of the instruments of each JPSS satellite
+        share the body's attitude, so that the satellite carries them together,
+        each with its own angles.
+        """
+        for platform, references in (
+            (
+                "noaa-20",
+                ["atms:swath", "cris:swath", "viirs:swath", "omps_nm:swath", "ceres"],
+            ),
+            ("noaa-21", ["atms:swath", "cris:swath", "viirs:swath", "omps_nm:swath"]),
+            (
+                "suomi-npp",
+                ["atms:swath", "cris:swath", "viirs:swath", "omps_nm:swath", "ceres"],
+            ),
+        ):
+            payload = build_payload(
+                references, orbit=self.orbit, time_step=10, platform=platform
+            )
+            self.assertEqual(len(payload.instruments), len(references), platform)
+            self.assertEqual(
+                payload.attitude.velocity_frame, VelocityFrame.INERTIAL, platform
+            )
+            self.assertEqual(
+                (payload.attitude.yaw_angle, payload.attitude.pitch_angle),
+                (0, 0),
+                platform,
+            )
+        omps = build_payload(
+            ["atms:swath", "omps_nm:swath"],
+            orbit=self.orbit,
+            time_step=10,
+            platform="noaa-20",
+        ).instruments[1]
+        self.assertEqual(
+            (omps.yaw_angle, omps.roll_angle, omps.pitch_angle),
+            (-0.295144, -0.2294, 0.1859),
+        )
 
     def test_names_grade_and_attitude(self):
         """

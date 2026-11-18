@@ -338,6 +338,15 @@ numerical error in TAT-C:
 * **Measured instrument parameters.** Nominal fields of regard gave swaths 11 km
   too narrow (ATMS) and 47 km too wide (VIIRS); parameters fitted to geolocated
   samples close the gap.
+* **Instrument and body angles.** A fit to one instrument's samples measures
+  that instrument's line of sight, not the spacecraft's attitude: on NOAA-20,
+  the OMPS Nadir Mapper's scan line is rotated by 0.29 deg and ATMS's by
+  0.06 deg, and CrIS's scan plane tilts 0.22 deg forward. The catalog gives
+  such angles to the instrument (`yaw_angle`, `roll_angle`, and `pitch_angle`
+  of a `PointedInstrument`), so that the instruments of one satellite share
+  its body's attitude and can be carried together. Only the ISS's
+  configurations (EMIT, ECOSTRESS, GEDI), PACE's tilt (OCI), and OCO-2's glint
+  mode give the body an attitude.
 * **Time step.** A view tailored to the analysis time step stretches along
   track, and its rigid footprint departs from the swath as the time step grows,
   most for views far from nadir, tilted, or yawed. Swept instruments

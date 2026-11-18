@@ -40,7 +40,7 @@
       }
     },
     "swath_suomi_npp": {
-      "digest": "b68bd5d0775060233b89b61782cb3aefd66ab600ea7447f26d516ccb20a0a2b0",
+      "digest": "2e1615e6216ca611139f2c41e63cb17a841724820560c455b637a9efa786279b",
       "standard_version": 6,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_ceres.py",
@@ -64,7 +64,7 @@
         },
         {
           "name": "swath_width_median",
-          "value": 0.6960977679314092
+          "value": 0.7106796863735654
         },
         {
           "name": "footprint_iou_median",

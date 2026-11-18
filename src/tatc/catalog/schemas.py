@@ -652,7 +652,12 @@ class Configuration(_CatalogModel):
     )
     attitude: dict[str, Any] = Field(
         default_factory=dict,
-        description="Other fields of the attitude of the space system.",
+        description="Other fields of the attitude of the space system: that of "
+        + "its body, which every instrument it carries shares, so that "
+        + "configurations carried together (see `build_payload`) must have the "
+        + "same. Angles that orient one instrument on the body, such as the yaw "
+        + "of its scan line, are its instrument's parameters (`yaw_angle`, "
+        + "`roll_angle`, and `pitch_angle` of a pointed instrument).",
     )
     tilt_schedule: TiltSchedule | None = Field(
         default=None,

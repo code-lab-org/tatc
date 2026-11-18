@@ -204,15 +204,18 @@ def _compute_view_frame(
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     tilt_angle: float = 0,
     attitude: Any = None,
+    yaw_angle: float = 0,
 ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
     """
     Compute the Earth-fixed position and the orthonormal unit vectors that
     orient a pointed instrument's view: the boresight (view center), the
     along-track axis, and the cross-track axis (to the left of the direction
-    of motion). The view is rotated rigidly from nadir: first by the tilt
-    angle about the cross-track axis (positive forward), then by the roll
-    angle about the (tilted) along-track axis (positive to the left), then
-    by the pitch angle about the rolled cross-track axis (positive forward).
+    of motion). The view is rotated rigidly from nadir (the body's axes,
+    with an attitude): first by the yaw angle about the nadir axis (positive
+    turning the along-track axis to the left), then by the tilt angle about
+    the (yawed) cross-track axis (positive forward), then by the roll angle
+    about the (tilted) along-track axis (positive to the left), then by the
+    pitch angle about the rolled cross-track axis (positive forward).
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
@@ -229,6 +232,8 @@ def _compute_view_frame(
             `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
             which the view is rotated, or `None` for a body aligned with the
             nadir frame (in `velocity_frame`).
+        yaw_angle (float): the instrument yaw angle (degrees) about the
+            nadir axis, applied before the tilt angle.
 
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
@@ -239,7 +244,10 @@ def _compute_view_frame(
     p_m, n, a, c = _compute_nadir_axes(
         orbit_track, velocity_frame, nadir_reference, attitude
     )
-    return (p_m, *_rotate_view_axes(n, a, c, roll_angle, pitch_angle, tilt_angle))
+    return (
+        p_m,
+        *_rotate_view_axes(n, a, c, roll_angle, pitch_angle, tilt_angle, yaw_angle),
+    )
 
 
 def _compute_nadir_axes(
@@ -304,10 +312,11 @@ def _rotate_view_axes(
     roll_angle: npt.ArrayLike = 0,
     pitch_angle: npt.ArrayLike = 0,
     tilt_angle: npt.ArrayLike = 0,
+    yaw_angle: npt.ArrayLike = 0,
 ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
     """
     Rotate the axes of an unrotated view (see `_compute_nadir_axes`) by the
-    tilt, roll, and pitch angles (see `_compute_view_frame`). The angles
+    yaw, tilt, roll, and pitch angles (see `_compute_view_frame`). The angles
     broadcast against the axes without their first (vector) dimension.
 
     Args:
@@ -317,11 +326,17 @@ def _rotate_view_axes(
         roll_angle (numpy.typing.ArrayLike): the roll angle(s) (degrees).
         pitch_angle (numpy.typing.ArrayLike): the pitch angle(s) (degrees).
         tilt_angle (numpy.typing.ArrayLike): the tilt angle(s) (degrees).
+        yaw_angle (numpy.typing.ArrayLike): the yaw angle(s) (degrees).
 
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
             the boresight, along-track, and cross-track unit vectors.
     """
+    # yaw about the nadir axis, turning the along-track axis to the left (as
+    # the body's yaw, see `_compute_nadir_axes`)
+    if np.any(np.asarray(yaw_angle) != 0):
+        yaw = np.radians(yaw_angle)
+        a, c = np.cos(yaw) * a + np.sin(yaw) * c, np.cos(yaw) * c - np.sin(yaw) * a
     # tilt about the cross-track axis
     tilt = np.radians(tilt_angle)
     n, a = np.cos(tilt) * n + np.sin(tilt) * a, np.cos(tilt) * a - np.sin(tilt) * n
@@ -345,6 +360,7 @@ def compute_view_tangents(
     pitch_angle: float = 0,
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     attitude: Any = None,
+    yaw_angle: float = 0,
 ) -> tuple[npt.NDArray, npt.NDArray]:
     """
     Compute the tangents of the along-track and cross-track view angles of a
@@ -352,7 +368,7 @@ def compute_view_tangents(
     frame as `compute_projected_ray_position`: the line of sight to the
     target is parallel to `boresight + along * along_axis + cross *
     cross_axis`, where the boresight and axes are rotated from nadir by the
-    roll and pitch angles. With zero roll and pitch, a target with tangents
+    yaw, roll, and pitch angles. With zero roll and pitch, a target with tangents
     `(along, cross)` lies at the center of a view with roll angle
     `arctan(cross)` and pitch angle `arctan(along / sqrt(1 + cross**2))`.
     Does not check whether the target is above the satellite's horizon.
@@ -372,6 +388,8 @@ def compute_view_tangents(
             `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
             which the view is rotated, or `None` for a body aligned with the
             nadir frame (in `velocity_frame`).
+        yaw_angle (float): the instrument yaw angle (degrees) about the
+            nadir axis, applied before the roll angle.
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track and
             cross-track (positive left) view angle tangents (`NaN` if the
@@ -384,6 +402,7 @@ def compute_view_tangents(
         velocity_frame,
         nadir_reference,
         attitude=attitude,
+        yaw_angle=yaw_angle,
     )
     # line of sight from the satellite to the target
     los = _compute_line_of_sight(target, p_m)
@@ -404,6 +423,7 @@ def compute_ground_sample_size(
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     tilt_angle: npt.ArrayLike = 0,
     attitude: Any = None,
+    yaw_angle: npt.ArrayLike = 0,
 ) -> tuple[npt.NDArray, npt.NDArray]:
     """
     Compute the size on the ground of an angular extent centered on the line
@@ -413,7 +433,7 @@ def compute_ground_sample_size(
     side of the line of sight meet the WGS 84 ellipsoid (raised to the
     target's elevation), along track and across track. The extents lie
     along the view's along-track and cross-track axes (rotated from nadir by
-    the tilt, roll, and pitch angles, see `_compute_view_frame`), each made
+    the yaw, tilt, roll, and pitch angles, see `_compute_view_frame`), each made
     perpendicular to the line of sight, so the sizes include the
     lengthening of a view off nadir and the curvature of the Earth. Rays
     that miss the Earth (beyond its limb) give `NaN`.
@@ -437,6 +457,8 @@ def compute_ground_sample_size(
             `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
             which the view is rotated, or `None` for a body aligned with the
             nadir frame (in `velocity_frame`).
+        yaw_angle (numpy.typing.ArrayLike): the view's yaw angle (degrees)
+            about the nadir axis, applied before the tilt angle.
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track
             and cross-track sizes (meters).
@@ -449,6 +471,7 @@ def compute_ground_sample_size(
         nadir_reference,
         tilt_angle,
         attitude,
+        yaw_angle,
     )
     p_m, along, cross = (np.reshape(v, (3, -1)) for v in (p_m, along, cross))
     los = np.reshape(_compute_line_of_sight(target, p_m), (3, -1))
@@ -587,11 +610,13 @@ def compute_view_angles(
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     tilt_angle: float = 0,
     attitude: Any = None,
+    yaw_angle: float = 0,
 ) -> tuple[npt.NDArray, npt.NDArray]:
     """
     Compute the roll and pitch angles (degrees) that point a view's center at
     a target, following the rigid rotation of `compute_projected_ray_position`
-    (after the tilt angle about the cross-track axis, first by the roll angle
+    (after the yaw angle about the nadir axis and the tilt angle about the
+    cross-track axis, first by the roll angle
     about the along-track axis, then by the pitch angle about the rolled
     cross-track axis): the angles of the target in a `ViewGeometry.SCAN` view,
     whose scan plane is tilted by the tilt angle (the target's scan angle and
@@ -613,12 +638,21 @@ def compute_view_angles(
             `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
             which the view is rotated, or `None` for a body aligned with the
             nadir frame (in `velocity_frame`).
+        yaw_angle (float): the yaw angle (degrees) of the view about the
+            nadir axis, applied before the tilt angle.
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the roll (positive
             left) and pitch (positive forward) angles (degrees).
     """
     p_m, nadir, along, cross = _compute_view_frame(
-        orbit_track, 0, 0, velocity_frame, nadir_reference, tilt_angle, attitude
+        orbit_track,
+        0,
+        0,
+        velocity_frame,
+        nadir_reference,
+        tilt_angle,
+        attitude,
+        yaw_angle,
     )
     los = _compute_line_of_sight(target, p_m)
     los = los / np.linalg.norm(los, axis=0)
@@ -689,6 +723,7 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     tilt_angle: float = 0,
     ground_elevation: float = 0,
     attitude: Any = None,
+    yaw_angle: float = 0,
 ) -> GeographicPosition:
     """
     Get the location of a projected ray from an instrument. The ray is cast
@@ -703,9 +738,11 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
     ellipsoid surface normal through the satellite), matching Skyfield's
     `wgs84.subpoint_of`/`wgs84.geographic_position_of`.
 
-    The view is rotated rigidly from nadir, first by the roll angle about
-    the along-track axis, then by the pitch angle about the rolled
-    cross-track axis. Its shape is defined in the plane perpendicular to the
+    The view is rotated rigidly from nadir (the body's axes, with an
+    attitude), first by the yaw angle about the nadir axis (and the tilt
+    angle about the cross-track axis), then by the roll angle about the
+    along-track axis, then by the pitch angle about the rolled cross-track
+    axis. Its shape is defined in the plane perpendicular to the
     boresight at unit distance (as for the focal plane of a camera): a
     rectangle with half widths `tan(field_of_view / 2)`, or an ellipse
     inscribed in it.
@@ -743,6 +780,9 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
             `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
             which the view is rotated, or `None` for a body aligned with the
             nadir frame (in `velocity_frame`).
+        yaw_angle (float): the instrument yaw angle (degrees), a rotation
+            about the nadir axis applied first, positive turning the
+            along-track axis to the left (as an attitude's yaw angle).
     Returns:
         (skyfield.toposlib.GeographicPosition): the geographic position of the projected ray
     """
@@ -760,6 +800,7 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
         tilt_angle,
         ground_elevation,
         attitude,
+        yaw_angle,
     )[:, 0]
     # return resulting geographic position
     return wgs84.latlon(geos[1], geos[0], geos[2])
@@ -884,6 +925,7 @@ def _compute_rays(
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     tilt_angle: float = 0,
     attitude: Any = None,
+    yaw_angle: npt.ArrayLike = 0,
 ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray, bool]:
     """
     Get several rays from an instrument (see `_compute_projected_rays` for
@@ -907,7 +949,9 @@ def _compute_rays(
     p_m, n, a, c = (np.reshape(x, (3, 1, -1)) for x in (p_m, n, a, c))
     # ray pointed at the field of view center (before adding the field of
     # view extent) and the along-track (v) and cross-track (u) axes of the view
-    base_ray, v, u = _rotate_view_axes(n, a, c, roll_angle, pitch_angle, tilt_angle)
+    base_ray, v, u = _rotate_view_axes(
+        n, a, c, roll_angle, pitch_angle, tilt_angle, yaw_angle
+    )
     # construct projected rays
     if is_rectangular:
         # along track half width
@@ -1182,6 +1226,7 @@ def _compute_projected_rays(
     tilt_angle: float = 0,
     ground_elevation: float = 0,
     attitude: Any = None,
+    yaw_angle: npt.ArrayLike = 0,
 ) -> npt.NDArray:
     """
     Get the locations of several projected rays from an instrument (see
@@ -1217,6 +1262,8 @@ def _compute_projected_rays(
             `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
             which the view is rotated, or `None` for a body aligned with the
             nadir frame (in `velocity_frame`).
+        yaw_angle (numpy.typing.ArrayLike): the yaw angle (degrees) about the
+            nadir axis, applied first, shaped as `roll_angle`.
     Returns:
         numpy.typing.NDArray: the geodetic longitudes (degrees), latitudes
             (degrees), and altitudes (meters) of the projected rays, with
@@ -1234,6 +1281,7 @@ def _compute_projected_rays(
         nadir_reference,
         tilt_angle,
         attitude,
+        yaw_angle,
     )
     geos, _ = _project_rays(
         *(np.reshape(x, (3, -1)) for x in rays[:4]), elevation, ground_elevation
@@ -1256,6 +1304,7 @@ def compute_footprint(
     view_geometry: ViewGeometry = ViewGeometry.FRAME,
     ground_elevation: float = 0,
     attitude: Any = None,
+    yaw_angle: float = 0,
 ) -> list[Polygon | MultiPolygon]:
     """
     Compute the instantaneous instrument footprint. Supports both a scalar
@@ -1296,6 +1345,9 @@ def compute_footprint(
             `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
             which the view is rotated, or `None` for a body aligned with the
             nadir frame (in `velocity_frame`).
+        yaw_angle (float): The instrument yaw angle (degrees), a rotation
+            about the nadir axis applied before the roll and pitch angles,
+            positive turning the along-track axis to the left.
     Returns:
         list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The instrument footprint(s).
     """
@@ -1360,6 +1412,7 @@ def compute_footprint(
             nadir_reference,
             pitch_angle,
             attitude,
+            yaw_angle,
         )
     else:
         *rays, _ = _compute_rays(
@@ -1373,6 +1426,7 @@ def compute_footprint(
             velocity_frame,
             nadir_reference,
             attitude=attitude,
+            yaw_angle=yaw_angle,
         )
     position, direction, _, nadir, along = rays
     geos, _ = _project_rays(
@@ -1402,6 +1456,7 @@ def compute_footprint(
             nadir_reference,
             pitch_angle if is_scan else 0,
             attitude,
+            yaw_angle,
         )
         for i in looking_up:
             clipped = _clip_to_horizon(
@@ -1431,6 +1486,7 @@ def compute_swept_footprints(
     nadir_reference: NadirReference = NadirReference.GEODETIC,
     view_geometry: ViewGeometry = ViewGeometry.FRAME,
     attitude: Any = None,
+    yaw_angle: npt.ArrayLike = 0,
 ) -> list[Polygon | MultiPolygon]:
     """
     Compute the footprints swept by an instrument's cross-track line over
@@ -1470,6 +1526,9 @@ def compute_swept_footprints(
             `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
             which the view is rotated, or `None` for a body aligned with the
             nadir frame (in `velocity_frame`).
+        yaw_angle (numpy.typing.ArrayLike): The yaw angle (degrees) about the
+            nadir axis, applied before the roll and pitch angles, a scalar or
+            one per time (see `compute_footprint`).
 
     Returns:
         list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The
@@ -1500,6 +1559,7 @@ def compute_swept_footprints(
             nadir_reference,
             pitch_angle,
             attitude,
+            yaw_angle,
         )
     else:
         # rays of an elliptical view without along-track extent, at the
@@ -1515,6 +1575,7 @@ def compute_swept_footprints(
             velocity_frame,
             nadir_reference,
             attitude=attitude,
+            yaw_angle=yaw_angle,
         )
     geos, _ = _project_rays(*(np.reshape(x, (3, -1)) for x in rays[:4]), elevation)
     # longitudes and latitudes with shape (points across the line, times)

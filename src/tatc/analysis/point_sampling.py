@@ -893,6 +893,7 @@ def _get_batch_view_crossing_times(
                 instrument.nadir_reference,
                 instrument.get_pitch_angle(orbit_track),
                 instrument.platform_attitude,
+                instrument.yaw_angle,
             )
         else:
             position, _, along, _ = _compute_view_frame(
@@ -902,6 +903,7 @@ def _get_batch_view_crossing_times(
                 instrument.velocity_frame,
                 instrument.nadir_reference,
                 attitude=instrument.platform_attitude,
+                yaw_angle=instrument.yaw_angle,
             )
         los = _compute_line_of_sight(xyz[:, point[index]], position)
         return np.sum(los * along, axis=0) / np.linalg.norm(los, axis=0)

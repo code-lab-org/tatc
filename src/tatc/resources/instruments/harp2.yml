@@ -21,8 +21,6 @@ configurations:
     description: The swath of HARP2's near-nadir view (at 664 nm, 0.6 deg forward), with a view tailored to the analysis time step.
     platforms: [pace]
     velocity_frame: earth_fixed
-    attitude:
-      yaw_angle: 0.2093
     instruments:
       - type: pointed
         parameters:
@@ -31,6 +29,7 @@ configurations:
           cross_track_field_of_view: 94.1535
           along_track_field_of_view: {tailor: time_step}
           is_swept: true
+          yaw_angle: 0.2093
           roll_angle: -3.3726
           pitch_angle: 0.5635
           is_rectangular: true
@@ -44,6 +43,11 @@ configurations:
             platforms: [pace]
             period: "2026-10-04"
           roll_angle: *measured_view
+          yaw_angle:
+            kind: measured
+            source: validate_catalog_harp2.py --fit, the slope of the samples' along-track on their cross-track tangents (Earth-fixed frame)
+            platforms: [pace]
+            period: "2026-10-04"
           pitch_angle:
             kind: measured
             source: validate_catalog_harp2.py --fit, the along-track angle of the sample nearest nadir (the view's nominal angle is 0.6 deg)
@@ -53,9 +57,11 @@ configurations:
             kind: derived
             source: Models an imaged swath as a rectangular view
     limitations:
-      - The yaw of 0.2093 deg is measured with validate_catalog_harp2.py --fit on 2026-10-04, from the slope of the samples' along-track on their cross-track tangents (from -0.23 to -0.18 deg at the 5th and 95th percentiles), in the Earth-fixed frame.
+      - The instrument's yaw of 0.2093 deg (first given to the body's attitude, then to the instrument, which gives the same view) is measured with validate_catalog_harp2.py --fit on 2026-10-04, from the slope of the samples' along-track on their cross-track tangents (from -0.23 to -0.18 deg at the 5th and 95th percentiles), in the Earth-fixed frame.
       - HARP2 views each place at up to 60 angles along track, from about 57 deg forward to 56 deg aft, over about seven minutes; only the near-nadir view is modeled. The swaths of the other views lie over the same ground, at other times.
 limitations:
   - PACE flies with yaw steering, so the configuration uses the Earth-fixed frame.
+  - OCI's configuration gives PACE's body the tilt schedule of OCI, which tilts by itself, so this configuration is not carried with OCI's.
   - HARP2 images the sunlit part of each orbit, whereas the view observes whenever a target is in view, unless a solar limit is added.
   - No configuration gives sample sizes, as no published instantaneous field of view was used.
+  - The yaw of the configuration was given to the body's attitude when tested, and then to the instrument, which gives the same views within 3 cm on the ground, so that the platform's instruments share the body's attitude. The records were rescored on the same held-out data, with the swath width changed by 0.5 m, as it is now measured with the instrument's yaw, and every other result unchanged.

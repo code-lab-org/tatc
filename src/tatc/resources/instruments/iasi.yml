@@ -57,8 +57,6 @@ configurations:
     description: The centers of IASI's 30 fields of regard, with footprints the size of one of the four pixels of each.
     platforms: [metop-b]
     velocity_frame: earth_fixed
-    attitude:
-      yaw_angle: 1.329
     instruments:
       - type: pointed
         parameters:
@@ -67,6 +65,7 @@ configurations:
           cross_track_field_of_view: 99.96
           along_track_field_of_view: 3.332
           cross_track_pixels: 30
+          yaw_angle: 1.329
           roll_angle: -0.0131
           is_rectangular: true
           cross_track_oversampling: -2.9596
@@ -90,6 +89,11 @@ configurations:
             source: validate_catalog_iasi.py --fit, the fitted offset of the scan
             platforms: [metop-b]
             period: "2026-10-03"
+          yaw_angle:
+            kind: measured
+            source: validate_catalog_iasi.py --fit, the yaw that places pixels projected at the middle of a scan where IASI samples them
+            platforms: [metop-b]
+            period: "2026-10-03"
           is_rectangular:
             kind: derived
             source: Models a scan line as a rectangular view
@@ -101,10 +105,11 @@ configurations:
             kind: nominal
             source: IASI scans every 8 s
     limitations:
-      - The yaw of 1.329 deg is not a physical yaw. It tilts the view so that pixels projected at the middle of a scan lie where IASI samples them, over the 6.3 s it takes to step across a scan, left to right. It moves the epochs of observations by up to 3.4 s, so use the swath configuration for times. It was fitted on 2026-10-03, with the other angles.
+      - The instrument's yaw of 1.329 deg (first given to the body's attitude, then to the instrument, which gives the same view) is not a physical yaw. It tilts the view so that pixels projected at the middle of a scan lie where IASI samples them, over the 6.3 s it takes to step across a scan, left to right. It moves the epochs of observations by up to 3.4 s, so use the swath configuration for times. It was fitted on 2026-10-03, with the other angles.
       - The median position difference passes on the day tested, at 1.89 km on 2026-11-04, but was 6.38 km on 2026-11-06, over the limit of 6 km, with the same values. About 1 s of that day's difference is consistent with the offset of the product's times, at about 6.6 km/s, so the result depends on the day.
       - Each pixel of this configuration is a field of regard, which holds four of IASI's pixels. Their array of two by two turns with the scan and is not represented, so positions are those of the center of the array, and the spacing is not that of IASI's pixels.
       - The pixel width comes from the published nadir footprint, so that comparison is not independent. The footprint at the swath edge, of 39 km by 20 km, is the independent one, and it comes from a secondary source.
 limitations:
   - The fitted angles were measured on Metop-B, from positions along the ground track of the central fields of regard and heights from a later element set, as its product does not record satellite positions. On Metop-C, recorded as a transfer (2026-11-17, from the pixel positions of the IASI carbon monoxide product of the EUMETSAT Data Store, with a public element set), the swath met the gates of the coverage grade (pass recall 99.6%, epochs within 1.54 s at the 95th percentile, swath width within 2.1 km, IoU 0.993), and the pixels lay 8.2 km (median) from their projected positions, as the product's times, in whole seconds, lead the scans by about 1.1 s (median), about 7 km along the track. Using the configurations on Metop-C warns, as for any platform on which they were not validated.
   - The product holds pixel positions, over land as well as sea, for sea surface temperature rather than for radiances.
+  - The yaw of the pixels configuration was given to the body's attitude when tested, and then to the instrument, which gives the same views within 3 cm on the ground, so that the platform's instruments share the body's attitude. The records were rescored on the same held-out data, with every result unchanged.

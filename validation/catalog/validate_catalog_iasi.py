@@ -8,7 +8,7 @@ IASI steps across 30 fields of regard in about 6.3 s, every 8 s. The center of t
 pixels of a field of regard is compared with TAT-C's pixels, as the array of four turns
 with the scan and no single rectangular view represents it. The time across the scan
 tilts the scan line relative to its position at the middle of the scan, which the pixel
-configuration represents with a constant yaw of the satellite, not a physical one. The
+configuration represents with a constant yaw of the instrument, not a physical one. The
 swath configuration has no yaw, as IASI samples a point when it is abeam.
 
 The product's times are in whole seconds, and the phase of its scans changes between
