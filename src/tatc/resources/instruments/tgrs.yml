@@ -1,0 +1,75 @@
+id: tgrs
+name: TGRS
+aliases: [TriG GNSS Radio-occultation System, COSMIC-2 radio occultation receiver]
+instrument_class: occultation
+selection: Radio occultation receiver of the six FORMOSAT-7/COSMIC-2 satellites in low-inclination orbits, which tracks the signals of GPS, GLONASS, and Galileo satellites setting and rising behind the Earth's limb, with open data products.
+platforms:
+  - id: formosat-7-1
+    name: FORMOSAT-7/COSMIC-2 FM1
+    norad_id: 44349
+    status: operational
+    as_of: 2026-11-15
+  - id: formosat-7-2
+    name: FORMOSAT-7/COSMIC-2 FM2
+    norad_id: 44351
+    status: operational
+    as_of: 2026-11-15
+  - id: formosat-7-3
+    name: FORMOSAT-7/COSMIC-2 FM3
+    norad_id: 44343
+    status: retired
+    as_of: 2026-11-15
+  - id: formosat-7-4
+    name: FORMOSAT-7/COSMIC-2 FM4
+    norad_id: 44350
+    status: operational
+    as_of: 2026-10-16
+  - id: formosat-7-5
+    name: FORMOSAT-7/COSMIC-2 FM5
+    norad_id: 44358
+    status: operational
+    as_of: 2026-11-15
+  - id: formosat-7-6
+    name: FORMOSAT-7/COSMIC-2 FM6
+    norad_id: 44353
+    status: operational
+    as_of: 2026-11-15
+data_products:
+  - name: COSMIC-2 calibrated phase, refractivity, and atmospheric retrievals (UCAR processing), in the AWS Registry of Open Data
+    provider: UCAR COSMIC Data Analysis and Archive Center, through AWS
+    url: https://registry.opendata.aws/gnss-ro-opendata/
+    access: open
+default_configuration: occultations
+configurations:
+  occultations:
+    grade: timing
+    description: Setting and rising occultations of GPS, GLONASS, and Galileo satellites within 65 deg of the receiver's velocity or anti-velocity, with the representative point of each where the straight line between the satellites reaches -80 km.
+    platforms: [formosat-7-1, formosat-7-2, formosat-7-5, formosat-7-6]
+    velocity_frame: inertial
+    sounding:
+      type: occultation
+      constellations: [gps, glonass, galileo]
+      max_yaw: 65
+      range_elevation: [-200000, 60000]
+      sample_elevation: -80000
+      provenance:
+        constellations:
+          kind: derived
+          source: The constellations whose occultations UCAR processes
+        max_yaw:
+          kind: measured
+          source: validate_catalog_tgrs.py --fit, the largest yaw of the recorded occultations at the sample elevation (64.1 deg), rounded up
+          platforms: [formosat-7-1, formosat-7-2, formosat-7-4, formosat-7-5, formosat-7-6]
+          period: "2026-05-14"
+        range_elevation:
+          kind: derived
+          source: TAT-C's default, from 60 km above the surface to 200 km below it along the straight line, which spans recorded profiles
+        sample_elevation:
+          kind: derived
+          source: TAT-C's default, where the straight line passes about 1 km above the surface once refracted in the lower troposphere (see ValidateROCOSMIC2)
+    limitations:
+      - Every occultation of the transmitters is predicted, whereas COSMIC-2 tracks transmitters selectively and records only some of them (about 37% of Galileo's and 69% of GPS's predicted occultations on the fitting day), so counts are upper bounds on those recorded.
+      - Refraction is not modeled, so the sample elevation is that of the straight line, not of the refracted signal.
+limitations:
+  - In UCAR's processing, FM3 recorded no occultations in 2026, and FM4 none from 2026-10-17 to at least 2026-11-15, the held-out day, so FM4 was tested only on the fitting day.
+  - The transmitters are the satellites of an analysis, whose element sets the entry does not hold.

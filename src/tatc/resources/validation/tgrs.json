@@ -1,0 +1,70 @@
+{
+  "entry_id": "tgrs",
+  "configurations": {
+    "occultations": {
+      "digest": "f98408044738c71dc450b2abfb578c359044409bc27fea6b54ce59a26e82037c",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_tgrs.py",
+      "reference": "UCAR COSMIC-2 occultations (AWS GNSS RO database, v1.1) and calibrated phase files (receiver and transmitter positions)",
+      "period": "2026-11-15",
+      "platforms": [
+        "formosat-7-1",
+        "formosat-7-2",
+        "formosat-7-5",
+        "formosat-7-6"
+      ],
+      "metrics": [
+        {
+          "name": "occultation_recall",
+          "value": 100.0
+        },
+        {
+          "name": "tangent_position_median",
+          "value": 0.5496934100519131
+        },
+        {
+          "name": "tangent_position_p95",
+          "value": 1.2385003635900829
+        },
+        {
+          "name": "epoch_median",
+          "value": 0.0005945
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.23135424999999998
+        },
+        {
+          "name": "observed_occultations",
+          "value": 4984.0
+        },
+        {
+          "name": "predicted_occultations",
+          "value": 7322.0
+        },
+        {
+          "name": "tangent_points_compared",
+          "value": 296.0
+        },
+        {
+          "name": "recorded_share_galileo",
+          "value": 41.90970834998002
+        },
+        {
+          "name": "recorded_share_gps",
+          "value": 81.01649276337933
+        },
+        {
+          "name": "recorded_share_glonass",
+          "value": 82.68398268398268
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "tangent_position_median": 0.5657230211462609,
+        "epoch_p95": 0.2343555499999999
+      }
+    }
+  }
+}

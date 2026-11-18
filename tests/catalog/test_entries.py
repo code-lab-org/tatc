@@ -272,6 +272,13 @@ EXPECTED_STATUS = {
         },
         [],
     ),
+    "mls": (
+        "validated",
+        {
+            "scans": ("validated", 93, []),
+        },
+        [],
+    ),
     "modis": (
         "validated",
         {
@@ -340,6 +347,24 @@ EXPECTED_STATUS = {
         },
         [],
     ),
+    "saber": (
+        "partial",
+        {
+            "north_viewing": (
+                "nominal",
+                None,
+                [
+                    "tangent_position_median",
+                    "scan_period_error",
+                    "latitude_extent_error",
+                    "epoch_p95",
+                    "no comparison with reference data",
+                ],
+            ),
+            "south_viewing": ("partial", 53, ["tangent_position_median"]),
+        },
+        [],
+    ),
     "smap_radiometer": (
         "partial",
         {
@@ -366,6 +391,13 @@ EXPECTED_STATUS = {
         "validated",
         {
             "field_of_regard": ("validated", 33, []),
+        },
+        [],
+    ),
+    "tgrs": (
+        "validated",
+        {
+            "occultations": ("validated", 185, []),
         },
         [],
     ),
@@ -1018,6 +1050,7 @@ class TestEntryStatus(unittest.TestCase):
         platforms.
         """
         transfers = {
+            "abi": "goes-18",
             "atms": "noaa-21",
             "cris": "noaa-21",
             "viirs": "noaa-21",
