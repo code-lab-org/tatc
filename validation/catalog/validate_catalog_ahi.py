@@ -150,7 +150,10 @@ def validate(run) -> None:
         results[key] = {
             "reference": "AHI-CMSK cloud mask, every 8th pixel",
             "metrics": [
-                {"name": "imaged_pixels_observed", "value": 100 * float(observed.mean())},
+                {
+                    "name": "imaged_pixels_observed",
+                    "value": 100 * float(observed.mean()),
+                },
                 {"name": "elevation_error_max", "value": float(np.nanmax(error))},
             ],
             "fixture_metrics": {

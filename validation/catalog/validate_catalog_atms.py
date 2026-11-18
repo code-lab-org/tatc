@@ -252,8 +252,7 @@ class Reference(ScanLattice):
         cross[:, 1:-1] = np.linalg.norm(xyz[scans, 2:] - xyz[scans, :-2], axis=-1) / 2e3
         times = iet_to_utc(
             (
-                self.mid_iet[scans, np.newaxis]
-                + 1e6 * self.beam_offsets[np.newaxis, :]
+                self.mid_iet[scans, np.newaxis] + 1e6 * self.beam_offsets[np.newaxis, :]
             ).ravel()
         )
         rows = np.stack(
@@ -296,9 +295,7 @@ def fit(day: datetime, reference: Reference) -> None:
         "inertial",
     )
     zenith = up(np.asarray(lon), np.asarray(lat))
-    motion = reference.velocity + np.cross(
-        [0, 0, EARTH_ROTATION], reference.position
-    )
+    motion = reference.velocity + np.cross([0, 0, EARTH_ROTATION], reference.position)
     along_axis = normalize(motion - np.sum(motion * zenith, axis=-1)[:, None] * zenith)
     left_axis = np.cross(zenith, along_axis)
     # the spacecraft's position (Earth-fixed) at each beam's time
@@ -330,7 +327,9 @@ def main() -> None:
     run = parse_run("atms", __doc__)
     archive = ARCHIVES[run.platform]
     directory = (
-        run.directory if run.platform == FIT_PLATFORM else run.directory / archive.prefix
+        run.directory
+        if run.platform == FIT_PLATFORM
+        else run.directory / archive.prefix
     )
     directory.mkdir(parents=True, exist_ok=True)
     reference = Reference(load_day(run.day, directory, archive))

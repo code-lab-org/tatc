@@ -39,7 +39,11 @@ def parse_day(text: str) -> datetime:
 
 def _format_day(day: datetime) -> str:
     """Formats a day, with its time if it has one."""
-    return f"{day:%Y-%m-%d}" if day.time() == datetime.min.time() else f"{day:%Y-%m-%dT%H:%MZ}"
+    return (
+        f"{day:%Y-%m-%d}"
+        if day.time() == datetime.min.time()
+        else f"{day:%Y-%m-%dT%H:%MZ}"
+    )
 
 
 @dataclass
@@ -151,7 +155,9 @@ def _default_days(parser, entry, keys, platform, fit, transfer) -> list[datetime
                 "one --configuration"
             )
     if len(periods) != 1:
-        parser.error(f"give the days: {what} have no single period ({periods or 'none'})")
+        parser.error(
+            f"give the days: {what} have no single period ({periods or 'none'})"
+        )
     period = periods.pop()
     if " to " in period:
         parser.error(f"give the days: the period of {what} is a range ({period})")
@@ -191,9 +197,13 @@ def parse_run(
         Run: The run.
     """
     entry = get_entry(entry_id)
-    available = tuple(entry.configurations if configurations is None else configurations)
+    available = tuple(
+        entry.configurations if configurations is None else configurations
+    )
     if default_platform is None:
-        default_platform = entry.configurations[entry.default_configuration].platforms[0]
+        default_platform = entry.configurations[entry.default_configuration].platforms[
+            0
+        ]
     platforms = sorted(platform.id for platform in entry.platforms)
     parser = argparse.ArgumentParser(
         description=description, formatter_class=argparse.RawDescriptionHelpFormatter

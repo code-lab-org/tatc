@@ -127,7 +127,9 @@ class Gate:
         return value <= self.limit if self.at_most else value >= self.limit
 
     def _with_unit(self, text: str) -> str:
-        return text + ("%" if self.unit == "%" else f" {self.unit}" if self.unit else "")
+        return text + (
+            "%" if self.unit == "%" else f" {self.unit}" if self.unit else ""
+        )
 
     def format_limit(self) -> str:
         """
@@ -169,12 +171,8 @@ _IOU_SAR = Gate("footprint_iou_median", 0.90, False, "", _IOU_LABEL)
 _IOU_SAR_LOW = Gate(
     "footprint_iou_p5", 0.90, False, "", "Footprint or swath IoU, 5th percentile"
 )
-_PIXEL_POSITION = Gate(
-    "pixel_position_median", 6, True, "km", "Pixel position, median"
-)
-_SAMPLE_SIZE = Gate(
-    "sample_size_within_3pct", 90, False, "%", "Dimensions within 3%"
-)
+_PIXEL_POSITION = Gate("pixel_position_median", 6, True, "km", "Pixel position, median")
+_SAMPLE_SIZE = Gate("sample_size_within_3pct", 90, False, "%", "Dimensions within 3%")
 _PRODUCT_LIMIT = Gate(
     "product_limit", 0.5, True, "deg", "Product limit of local zenith angle"
 )

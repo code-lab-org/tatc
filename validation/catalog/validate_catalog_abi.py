@@ -184,7 +184,10 @@ def main() -> None:
         results[key] = {
             "reference": "ABI-L2-ACMF clear sky mask, every 8th pixel",
             "metrics": [
-                {"name": "imaged_pixels_observed", "value": 100 * float(observed.mean())},
+                {
+                    "name": "imaged_pixels_observed",
+                    "value": 100 * float(observed.mean()),
+                },
                 {"name": "elevation_error_max", "value": float(np.nanmax(error))},
             ],
             "fixture_metrics": {
@@ -206,7 +209,9 @@ def main() -> None:
         expected = compute_field_of_regard(35786e3, 90 - bound)
         configured = run.entry.configurations[key].instruments[0]
         if abs(configured.parameters["field_of_regard"] - expected) > 1e-9:
-            raise ValueError(f"{key}: the entry does not match the bound of {bound} deg")
+            raise ValueError(
+                f"{key}: the entry does not match the bound of {bound} deg"
+            )
         zenith = np.full(latitude.shape, np.nan)
         zenith[valid] = compute_zenith(position, latitude[valid], longitude[valid])
         picks = rng.choice(
