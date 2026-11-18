@@ -4,7 +4,7 @@ Helpers shared by the scripts that validate catalog entries, by topic:
 * `cli`: the shared command line, with the days and platforms of a run from the
   catalog;
 * `archives`: reading reference data (HTTP, range requests, the JPSS archives,
-  NASA Earthdata) and the platforms' element sets;
+  NASA Earthdata, the EUMETSAT Data Store) and the platforms' element sets;
 * `geometry`: coordinates, and the lattices of samples that scanners image;
 * `scoring`: comparisons through public TAT-C methods;
 * `records`: the validation records and reduced test fixtures.
@@ -19,6 +19,7 @@ from .archives import (
     ELEMENT_SET_FOLDER,
     Archive,
     RemoteFile,
+    download_eumetsat,
     get_element_set,
     get_with_retries,
     login_earthdata,

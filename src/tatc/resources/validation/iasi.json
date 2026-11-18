@@ -37,7 +37,29 @@
           "value": 0.9975775507546547
         }
       ],
-      "transfers": {},
+      "transfers": {
+        "metop-c": {
+          "period": "2026-11-17",
+          "metrics": [
+            {
+              "name": "pixel_position_median",
+              "value": 8.180881918534725
+            },
+            {
+              "name": "pixel_position_p95",
+              "value": 11.367706829115837
+            },
+            {
+              "name": "spacing_along_ratio_median",
+              "value": 1.0000459390649632
+            },
+            {
+              "name": "spacing_cross_ratio_median",
+              "value": 0.9971156414724545
+            }
+          ]
+        }
+      },
       "fixture_metrics": {
         "sample_size_within_3pct": 75.0,
         "pixel_position_median": 1.8465413045951906,
@@ -81,7 +103,37 @@
           "value": 0.9977234918616522
         }
       ],
-      "transfers": {},
+      "transfers": {
+        "metop-c": {
+          "period": "2026-11-17",
+          "metrics": [
+            {
+              "name": "pass_recall",
+              "value": 99.61711336773764
+            },
+            {
+              "name": "pass_precision",
+              "value": 99.66688874083944
+            },
+            {
+              "name": "epoch_p95",
+              "value": 1.5391543284999996
+            },
+            {
+              "name": "epoch_median",
+              "value": 1.1067542585
+            },
+            {
+              "name": "swath_width_median",
+              "value": 2.1331154874099885
+            },
+            {
+              "name": "footprint_iou_median",
+              "value": 0.9931694910613788
+            }
+          ]
+        }
+      },
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.39956124489999995

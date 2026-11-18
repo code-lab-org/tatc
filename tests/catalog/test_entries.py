@@ -214,6 +214,15 @@ EXPECTED_STATUS = {
         },
         [],
     ),
+    "fci": (
+        "partial",
+        {
+            "full_disk": ("partial", None, ["product_limit"]),
+            "lst_retrieved": ("validated", 32, []),
+            "sst_acceptable_quality": ("validated", 32, []),
+        },
+        [],
+    ),
     "gedi": (
         "partial",
         {
@@ -524,7 +533,7 @@ class TestLoading(unittest.TestCase):
         )
         self.assertEqual(
             [e.id for e in list_entries(instrument_class="geostationary")],
-            ["abi", "ahi"],
+            ["abi", "ahi", "fci"],
         )
         self.assertEqual(
             [e.id for e in list_entries("conical", "validated")], ["gmi", "tmi"]
@@ -1058,6 +1067,7 @@ class TestEntryStatus(unittest.TestCase):
             "abi": "goes-18",
             "atms": "noaa-21",
             "cris": "noaa-21",
+            "iasi": "metop-c",
             "viirs": "noaa-21",
             "mhs": "metop-b",
             "avhrr": "metop-b",
