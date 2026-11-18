@@ -68,7 +68,7 @@ def get_swath(entry, key, orbit, platform, day, start, step, swept):
         start=day,
         end=day + timedelta(days=1),
     )
-    satellite = payload.to_satellite(entry.name, orbit)
+    satellite = payload.to_satellite(orbit, name=entry.name)
     if not swept:
         satellite = satellite.model_copy(
             update={

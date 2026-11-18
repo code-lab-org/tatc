@@ -148,9 +148,9 @@ class _ScannerFixture(_SwathFixture):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.satellite = cls.entry.to_satellite(
-            cls.orbit, configuration=cls.sizes_key, platform=cls.platform
-        )
+        cls.satellite = cls.entry.build(
+            configuration=cls.sizes_key, orbit=cls.orbit, platform=cls.platform
+        ).to_satellite(cls.orbit, name=cls.entry.name)
         cls.names = np.array([i.name for i in cls.satellite.instruments])
         cls.recorded = cls.entry.record.configurations[cls.sizes_key].fixture_metrics
 
@@ -175,7 +175,9 @@ class _ScannerFixture(_SwathFixture):
             orbit = CircularOrbit(
                 altitude=altitude * 1e3, inclination=inclination, epoch=PUBLISHED_EPOCH
             )
-            satellite = self.entry.to_satellite(orbit, configuration=self.sizes_key)
+            satellite = self.entry.build(
+                configuration=self.sizes_key, orbit=orbit
+            ).to_satellite(orbit, name=self.entry.name)
             time = PUBLISHED_EPOCH + timedelta(minutes=10)
             target = compute_projected_ray_position(
                 orbit.to_gp_orbit().get_orbit_track(time),

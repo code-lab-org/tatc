@@ -705,9 +705,9 @@ def validate_beams(setup: Setup, run, reference, orbit, tle) -> None:
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
-    satellite = entry.to_satellite(
-        orbit, configuration=setup.beams, platform=run.platform
-    )
+    satellite = entry.build(
+        configuration=setup.beams, orbit=orbit, platform=run.platform
+    ).to_satellite(orbit, name=entry.name)
     names = [instrument.name for instrument in satellite.instruments]
     index = names.index(setup.size_instrument)
     frame = entry.configurations[setup.beams].velocity_frame.value

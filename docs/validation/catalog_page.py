@@ -302,14 +302,20 @@ limitations.
     entry = get_entry("atms")
     entry.validation  # tier, gate results, and gaps of each configuration
     satellite = entry.to_satellite(orbit, time_step=10, platform="noaa-21")
-    pixels = entry.to_satellite(orbit, grade="sample_size", platform="noaa-21")
+    beams = entry.build(orbit=orbit, grade="sample_size", platform="noaa-21")
+    collect_observations(point, beams.to_satellite(orbit, name="NOAA-21"),
+                         start, end, instrument_index=beams.instrument_index)
 
 Name the platform analyzed: it selects the configuration tested on it, and
 using a configuration on a platform on which it was not tested gives a
 warning. Where an entry has configurations fitted on more than one platform
-(ATMS, VIIRS, and the OMPS Nadir Mapper), each configuration's name ends with
-its platform, such as ``swath_noaa_21``. A grade (``coverage``, ``timing``, or
-``sample_size``) selects a configuration for that use. Pass the analysis time
+(ATMS, CrIS, VIIRS, the OMPS Nadir Mapper, and CERES), each configuration's
+name ends with its platform, such as ``swath_noaa_21``, and the name without
+it (``swath``) selects the one tested on the platform. A grade (``coverage``,
+``timing``, or ``sample_size``) selects a configuration for that use. Analyze
+a configuration of several instruments with the ``instrument_index`` that
+``build`` gives, as ``to_satellite`` builds only configurations analyzed with
+the default index of 0. Pass the analysis time
 step to configurations whose along-track field of view is tailored to it, and
 keep the attitude of the configuration: a scanner modeled in another velocity
 frame can misplace its swath edges by tens of kilometers. Pass the start and

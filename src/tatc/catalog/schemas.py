@@ -1,5 +1,7 @@
 """
-Object schemas for catalog entries of validated instruments.
+Object schemas for catalog entries of validated instruments, and the payloads
+built from them. The schemas of their validation records are in
+`tatc.catalog.records`.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -12,11 +14,10 @@ import json
 import warnings
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
 import numpy as np
-import pandas as pd
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from ..schemas import (
     Attitude,
@@ -36,15 +37,14 @@ from ..utils import (
     compute_ascending_argument_of_latitude,
     compute_subsolar_latitude,
 )
+from .records import Period, ValidationRecord, _CatalogModel, _get_days_apart
 from .standard import (
-    MIN_HOLDOUT_GAP_DAYS,
-    Gate,
+    EntryValidation,
     Grade,
     InstrumentClass,
-    Tier,
+    evaluate_entry,
     get_gates,
-    get_required_grades,
-    is_compatible,
+    serves,
 )
 
 # the instrument schemas, by their `type`
@@ -72,77 +72,6 @@ _ATTITUDE_TYPES = {
     "glint": GlintAttitude,
     "target": TargetAttitude,
 }
-
-
-def _parse_day(text: str) -> date:
-    """
-    Parses an ISO 8601 date, or the UTC date of an ISO 8601 time with a zone.
-    """
-    try:
-        return date.fromisoformat(text)
-    except ValueError:
-        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        if moment.tzinfo is None:
-            raise ValueError(f"the time {text!r} needs a time zone") from None
-        return moment.astimezone(timezone.utc).date()
-
-
-def get_period_days(period: str) -> tuple[tuple[date, date], ...]:
-    """
-    Gets the days of a period: one or more items separated by commas, each a
-    date or a time with a zone in ISO 8601 (such as `2026-10-02` or
-    `2026-10-03T12:00Z`), or a range of dates (`2026-08-15 to 2026-10-08`).
-
-    Args:
-        period (str): The period.
-
-    Returns:
-        tuple[tuple[datetime.date, datetime.date], ...]: The first and last day
-        (UTC) of each item.
-
-    Raises:
-        ValueError: If the period is not of this form.
-    """
-    intervals = []
-    for item in period.split(","):
-        first, separator, last = item.strip().partition(" to ")
-        start = _parse_day(first)
-        end = _parse_day(last) if separator else start
-        if end < start:
-            raise ValueError(f"the range {item.strip()!r} ends before it starts")
-        intervals.append((start, end))
-    return tuple(intervals)
-
-
-def _check_period(period: str) -> str:
-    get_period_days(period)
-    return period
-
-
-Period = Annotated[str, AfterValidator(_check_period)]
-"""
-A period of dates (see `get_period_days`), such as `2026-10-02`,
-`2026-10-03T12:00Z`, `2026-08-15 to 2026-10-08`, or `2026-11-01, 2026-11-03`.
-"""
-
-
-def _get_days_apart(first: str, second: str) -> int:
-    """
-    Gets the days between the nearest days of two periods (0 if they share one).
-    """
-    return min(
-        max(0, (b_start - a_end).days, (a_start - b_end).days)
-        for a_start, a_end in get_period_days(first)
-        for b_start, b_end in get_period_days(second)
-    )
-
-
-class _CatalogModel(BaseModel):
-    """
-    Base class that rejects unknown fields, as catalog files are written by hand.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class Provenance(_CatalogModel):
@@ -604,9 +533,8 @@ class Configuration(_CatalogModel):
 
     def serves(self, grade: Grade | str) -> bool:
         """
-        Checks whether this configuration serves a use: its grade, or the
-        coverage grade for a configuration at the timing grade, which also tests
-        coverage.
+        Checks whether this configuration serves a use (see
+        `tatc.catalog.standard.serves`).
 
         Args:
             grade (Grade | str): The grade of the use.
@@ -614,10 +542,17 @@ class Configuration(_CatalogModel):
         Returns:
             bool: `True`, if it serves the use.
         """
-        grade = Grade(grade)
-        return self.grade == grade or (
-            grade == Grade.COVERAGE and self.grade == Grade.TIMING
-        )
+        return serves(self.grade, grade)
+
+
+def _get_platform_suffix(configuration: Configuration) -> str | None:
+    """
+    Gets the suffix of the platform of a configuration tested on one platform
+    (such as `_noaa_20`), or `None` for several platforms.
+    """
+    if len(configuration.platforms) != 1:
+        return None
+    return "_" + configuration.platforms[0].replace("-", "_")
 
 
 class Platform(_CatalogModel):
@@ -652,195 +587,6 @@ class DataProduct(_CatalogModel):
     )
 
 
-class Metric(_CatalogModel):
-    """
-    A value of a metric from a comparison with reference data.
-    """
-
-    name: str = Field(..., description="The metric (see `get_gates`).")
-    value: float = Field(..., description="The value.")
-    scope: str | None = Field(
-        default=None,
-        description="The part or condition of the test it applies to (such as an "
-        + "instrument or a time step), if not all of it. A gate takes the worst "
-        + "value of its metric over scopes.",
-    )
-
-
-class Transfer(_CatalogModel):
-    """
-    The results of a configuration on a platform on which it was not tested,
-    which do not count toward its validation.
-    """
-
-    period: Period = Field(..., description="The period of the reference data.")
-    metrics: tuple[Metric, ...] = Field(..., min_length=1, description="The results.")
-
-
-class ConfigurationRecord(_CatalogModel):
-    """
-    The results of validating a configuration, written by a validation script.
-    """
-
-    digest: str = Field(..., description="The `Configuration.digest` tested.")
-    standard_version: int = Field(
-        ..., description="The `STANDARD_VERSION` of the test."
-    )
-    tatc_version: str = Field(..., description="The version of TAT-C tested.")
-    source: str = Field(..., description="The script of the results.")
-    reference: str = Field(..., description="The reference data.")
-    period: Period = Field(..., description="The period of the reference data.")
-    platforms: tuple[str, ...] = Field(
-        ..., min_length=1, description="The platforms of the reference data."
-    )
-    metrics: tuple[Metric, ...] = Field(..., description="The results.")
-    transfers: dict[str, Transfer] = Field(
-        default_factory=dict,
-        description="Results on platforms on which the configuration was not "
-        + "tested, by platform.",
-    )
-    fixture_metrics: dict[str, float] = Field(
-        default_factory=dict,
-        description="Results from the reduced test fixture, which detect "
-        + "regressions but do not themselves establish agreement with the "
-        + "reference data.",
-    )
-
-
-class ValidationRecord(_CatalogModel):
-    """
-    The results of validating the configurations of an entry.
-    """
-
-    entry_id: str = Field(..., description="The identifier of the entry.")
-    configurations: dict[str, ConfigurationRecord] = Field(
-        ..., description="The results of each configuration."
-    )
-
-
-@dataclass(frozen=True)
-class GateResult:
-    """
-    The outcome of a gate: `None` if the metric was not tested.
-    """
-
-    gate: Gate
-    value: float | None
-
-    @property
-    def passed(self) -> bool | None:
-        """
-        Whether the gate is met, or `None` if it was not tested.
-        """
-        return None if self.value is None else self.gate.is_met(self.value)
-
-    @property
-    def gap(self) -> str | None:
-        """
-        The gap, if the gate failed or was not tested.
-        """
-        if self.value is None:
-            return f"{self.gate.metric}: not tested"
-        if not self.passed:
-            return (
-                f"{self.gate.metric}: {self.value} fails the limit of "
-                f"{self.gate.limit}"
-            )
-        return None
-
-
-@dataclass(frozen=True)
-class ConfigurationValidation:
-    """
-    The validation status of a configuration: the results of its gates, and its
-    `evidence_gaps`, of its test rather than of a gate (such as a configuration
-    that changed after it was tested). Its `holdout_gap_days` are the days
-    between the data to which its values were fitted and the data of its test,
-    or `None` if it has no fitted values or no test.
-    """
-
-    tier: Tier
-    grade: Grade
-    gates: tuple[GateResult, ...]
-    evidence_gaps: tuple[str, ...]
-    record: ConfigurationRecord | None
-    holdout_gap_days: int | None = None
-
-    @property
-    def gaps(self) -> tuple[str, ...]:
-        """
-        Every gap: of failed gates, then of untested gates, then of evidence.
-        """
-        return (
-            *(r.gap for r in self.gates if r.passed is False),
-            *(r.gap for r in self.gates if r.passed is None),
-            *self.evidence_gaps,
-        )
-
-
-@dataclass(frozen=True)
-class EntryValidation:
-    """
-    The validation status of an entry, computed from its records and the
-    standard: of each configuration, and the grades of its class that no
-    configuration serves (`missing_grades`).
-    """
-
-    tier: Tier
-    configurations: dict[str, ConfigurationValidation]
-    missing_grades: tuple[Grade, ...]
-
-    @property
-    def gaps(self) -> tuple[str, ...]:
-        """
-        Every gap: of missing grades, then of each configuration, after its
-        identifier (such as `"swath: epoch_p95: not tested"`).
-        """
-        return (
-            *(f"no configuration at the {g.value} grade" for g in self.missing_grades),
-            *(
-                f"{key}: {gap}"
-                for key, validation in self.configurations.items()
-                for gap in validation.gaps
-            ),
-        )
-
-    def to_frame(self) -> pd.DataFrame:
-        """
-        Tabulates the gates of every configuration.
-
-        Returns:
-            pandas.DataFrame: A row for each gate of each configuration, with
-            its `configuration`, `grade`, `tier`, metric `label`, `value` (`NaN`
-            if not tested), formatted `limit`, and whether it `passed` (`None`
-            if not tested).
-        """
-        return pd.DataFrame(
-            [
-                {
-                    "configuration": key,
-                    "grade": validation.grade.value,
-                    "tier": validation.tier.value,
-                    "metric": result.gate.label,
-                    "value": result.value,
-                    "limit": result.gate.format_limit(),
-                    "passed": result.passed,
-                }
-                for key, validation in self.configurations.items()
-                for result in validation.gates
-            ],
-            columns=[
-                "configuration",
-                "grade",
-                "tier",
-                "metric",
-                "value",
-                "limit",
-                "passed",
-            ],
-        )
-
-
 @dataclass(frozen=True)
 class InstrumentPayload:
     """
@@ -859,14 +605,14 @@ class InstrumentPayload:
     """Whether a configuration was not tested on the platform modeled."""
     limitations: tuple[str, ...]
 
-    def to_satellite(self, name: str, orbit: AllOrbits) -> Satellite:
+    def to_satellite(self, orbit: AllOrbits, *, name: str) -> Satellite:
         """
         Builds a satellite that carries the instruments with their attitude.
         Analyze it with the `instrument_index` of this payload.
 
         Args:
-            name (str): The satellite's name.
             orbit (AllOrbits): The orbit.
+            name (str): The satellite's name.
 
         Returns:
             Satellite: The satellite.
@@ -917,6 +663,16 @@ class InstrumentEntry(_CatalogModel):
                 raise ValueError(f"{key}: unknown platforms {sorted(unknown)}")
             # checks that the class has gates at this grade
             get_gates(self.instrument_class, configuration.grade)
+        if len({c.platforms for c in self.configurations.values()}) > 1:
+            # references may name a configuration without its platform
+            for key, configuration in self.configurations.items():
+                suffix = _get_platform_suffix(configuration)
+                if suffix is None or not key.endswith(suffix):
+                    raise ValueError(
+                        f"{key}: in an entry with configurations tested on "
+                        "different platforms, each is tested on one platform and "
+                        "its name ends with it (such as swath_noaa_20)"
+                    )
         if self.record is not None:
             if self.record.entry_id != self.id:
                 raise ValueError("the record belongs to a different entry")
@@ -937,79 +693,36 @@ class InstrumentEntry(_CatalogModel):
                     )
         return self
 
-    def _evaluate_configuration(self, key: str) -> ConfigurationValidation:
-        """
-        Applies the standard to a configuration.
-
-        Args:
-            key (str): The identifier of the configuration.
-
-        Returns:
-            ConfigurationValidation: Its validation status.
-        """
-        configuration = self.configurations[key]
-        gates = get_gates(self.instrument_class, configuration.grade)
-        record = None if self.record is None else self.record.configurations.get(key)
-        if record is None or not record.metrics:
-            return ConfigurationValidation(
-                Tier.NOMINAL,
-                configuration.grade,
-                tuple(GateResult(gate, None) for gate in gates),
-                ("no comparison with reference data",),
-                record,
-            )
-        results = []
-        for gate in gates:
-            values = [m.value for m in record.metrics if m.name == gate.metric]
-            worst = (max if gate.at_most else min)(values) if values else None
-            results.append(GateResult(gate, worst))
-        gaps = []
-        if record.digest != configuration.digest:
-            gaps.append("the configuration changed after it was tested")
-        if not is_compatible(self.instrument_class, record.standard_version):
-            gaps.append(
-                f"version {record.standard_version} of the standard, of the test, "
-                f"does not apply to the {self.instrument_class.value} class"
-            )
-        holdout = configuration.get_holdout_gap(record.period)
-        if holdout is not None and holdout < MIN_HOLDOUT_GAP_DAYS:
-            gaps.append(
-                "fitted values are not tested on data at least "
-                f"{MIN_HOLDOUT_GAP_DAYS} days from their fitting data"
-            )
-        passed = not gaps and all(result.passed for result in results)
-        return ConfigurationValidation(
-            Tier.VALIDATED if passed else Tier.PARTIAL,
-            configuration.grade,
-            tuple(results),
-            tuple(gaps),
-            record,
-            holdout,
-        )
-
     @property
     def validation(self) -> EntryValidation:
         """
         The validation status of this entry, computed from its records and the
-        standard rather than declared. An entry is only as strong as its weakest
-        configuration, and needs configurations at the grades of its class.
+        standard rather than declared (see `tatc.catalog.standard.evaluate_entry`).
         """
-        configurations = {
-            key: self._evaluate_configuration(key) for key in self.configurations
-        }
-        missing = tuple(
-            grade
-            for grade in get_required_grades(self.instrument_class)
-            if not any(c.serves(grade) for c in self.configurations.values())
-        )
-        tier = min((c.tier for c in configurations.values()), key=lambda t: t.rank)
-        if tier == Tier.VALIDATED and missing:
-            tier = Tier.PARTIAL
-        if tier == Tier.NOMINAL and any(
-            c.tier != Tier.NOMINAL for c in configurations.values()
-        ):
-            tier = Tier.PARTIAL
-        return EntryValidation(tier, configurations, missing)
+        return evaluate_entry(self)
+
+    def get_variants(self, name: str) -> list[str]:
+        """
+        Gets the configurations that a name refers to: the configuration of that
+        identifier, or else those whose identifier is the name followed by their
+        platform (such as `swath_noaa_20` and `swath_noaa_21` for `swath`), in
+        an entry with configurations tested on different platforms.
+
+        Args:
+            name (str): The name.
+
+        Returns:
+            list[str]: The identifiers of the configurations, empty if none.
+        """
+        if name in self.configurations:
+            return [name]
+        if len({c.platforms for c in self.configurations.values()}) == 1:
+            return []
+        return [
+            key
+            for key, c in self.configurations.items()
+            if key == f"{name}{_get_platform_suffix(c)}"
+        ]
 
     def select_configuration(
         self,
@@ -1019,15 +732,18 @@ class InstrumentEntry(_CatalogModel):
         platform: str | None = None,
     ) -> str:
         """
-        Selects a configuration: the one named, or else one that serves a use
-        (see `Configuration.serves`) and was tested on a platform, preferring
-        the default configuration and then those at the grade of the default.
-        Without a configuration tested on the platform, it selects among the
-        others (a transfer, on which `build` warns).
+        Selects a configuration: one that serves a use (see `Configuration.serves`)
+        and was tested on a platform, preferring the default configuration and then
+        those at the grade of the default. A name selects among the configurations
+        it refers to (see `get_variants`), so that `swath` selects `swath_noaa_21`
+        for the platform `noaa-21`, and otherwise prefers the platforms of the
+        default configuration. Without a configuration tested on the platform, it
+        selects among the others (a transfer, on which `build` warns).
 
         Args:
-            configuration (str | None): The identifier of the configuration, or
-                `None` to select one.
+            configuration (str | None): The identifier of the configuration, or a
+                name of its variants (see `get_variants`), or `None` to select
+                any configuration.
             grade (Grade | str | None): The grade of the use, if any.
             platform (str | None): The identifier of the platform modeled, if
                 any.
@@ -1038,20 +754,27 @@ class InstrumentEntry(_CatalogModel):
         Raises:
             ValueError: If the configuration is unknown, or none serves the use.
         """
+        default = self.configurations[self.default_configuration]
         if configuration is not None:
-            if configuration not in self.configurations:
+            variants = self.get_variants(configuration)
+            if not variants:
                 raise ValueError(
                     f"unknown configuration {configuration!r} of {self.id!r}: "
                     f"{sorted(self.configurations)}"
                 )
-            if grade is not None and not self.configurations[configuration].serves(
-                grade
-            ):
+            tested = [
+                k for k in variants if platform in self.configurations[k].platforms
+            ]
+            key = min(
+                tested or variants,
+                key=lambda k: self.configurations[k].platforms != default.platforms,
+            )
+            if grade is not None and not self.configurations[key].serves(grade):
                 raise ValueError(
-                    f"configuration {configuration!r} of {self.id!r} is at the "
-                    f"{self.configurations[configuration].grade.value} grade"
+                    f"configuration {key!r} of {self.id!r} is at the "
+                    f"{self.configurations[key].grade.value} grade"
                 )
-            return configuration
+            return key
         candidates = [
             key
             for key, c in self.configurations.items()
@@ -1063,7 +786,6 @@ class InstrumentEntry(_CatalogModel):
             )
         tested = [k for k in candidates if platform in self.configurations[k].platforms]
         candidates = tested or candidates
-        default = self.configurations[self.default_configuration]
         return min(
             candidates,
             key=lambda k: (
@@ -1089,7 +811,8 @@ class InstrumentEntry(_CatalogModel):
         validated with. Each call builds new objects.
 
         Args:
-            configuration (str | None): The identifier of the configuration, or
+            configuration (str | None): The identifier of the configuration, or a
+                name of its variants (such as `swath` for `swath_noaa_20`), or
                 `None` to select one by grade and platform (see
                 `select_configuration`), by default the default configuration.
             grade (Grade | str | None): The grade of the use, if any.
@@ -1220,14 +943,17 @@ class InstrumentEntry(_CatalogModel):
     ) -> Satellite:
         """
         Builds a satellite that carries the instruments of a configuration (see
-        `build`). For several instruments, `build(...).to_satellite(name, orbit)`
-        also gives the `instrument_index` to analyze them with, which is 0 for
-        one instrument.
+        `build`), which is analyzed with an `instrument_index` of 0, as the
+        analysis functions do by default. A configuration analyzed otherwise (the
+        parts of one view, or alternatives that analyze another instrument by
+        default) needs `build(...).to_satellite(orbit, name=name)` and the
+        payload's `instrument_index`.
 
         Args:
             orbit (AllOrbits): The orbit.
-            configuration (str | None): The identifier of the configuration, or
-                `None` to select one by grade and platform.
+            configuration (str | None): The identifier of the configuration, or a
+                name of its variants, or `None` to select one by grade and
+                platform (see `select_configuration`).
             grade (Grade | str | None): The grade of the use, if any.
             time_step (float | None): The analysis time step (seconds), if the
                 configuration tailors a field of view to it.
@@ -1243,8 +969,12 @@ class InstrumentEntry(_CatalogModel):
 
         Returns:
             Satellite: The satellite.
+
+        Raises:
+            ValueError: If the configuration is not analyzed with an
+                `instrument_index` of 0.
         """
-        return self.build(
+        payload = self.build(
             configuration=configuration,
             grade=grade,
             orbit=orbit,
@@ -1253,4 +983,12 @@ class InstrumentEntry(_CatalogModel):
             platform=platform,
             start=start,
             end=end,
-        ).to_satellite(self.name if name is None else name, orbit)
+        )
+        if payload.instrument_index != 0:
+            raise ValueError(
+                f"{payload.references[0]} is analyzed with instrument_index="
+                f"{payload.instrument_index}, which a satellite does not carry: use "
+                "build(...).to_satellite(orbit, name=name) and the payload's "
+                "instrument_index"
+            )
+        return payload.to_satellite(orbit, name=self.name if name is None else name)

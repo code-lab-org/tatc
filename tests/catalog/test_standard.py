@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from pydantic import ValidationError
 
 from tatc.catalog import STANDARD_VERSION, Grade, InstrumentClass, InstrumentEntry, Tier
-from tatc.catalog.schemas import get_period_days
+from tatc.catalog.records import get_period_days
 from tatc.catalog.standard import (
     COMPATIBLE_VERSIONS,
     MIN_HOLDOUT_GAP_DAYS,

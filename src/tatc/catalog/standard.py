@@ -1,5 +1,6 @@
 """
-The standard against which catalog entries are validated.
+The standard against which catalog entries are validated, and its evaluation of
+their records (`evaluate_entry`).
 
 The acceptance thresholds are frozen so that they test new instruments rather
 than following their results: changing one requires a new `STANDARD_VERSION`.
@@ -12,6 +13,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
+
+import pandas as pd
+
+if TYPE_CHECKING:
+    from .records import ConfigurationRecord
+    from .schemas import InstrumentEntry
 
 STANDARD_VERSION = 6
 """The version of the thresholds in `get_gates`."""
@@ -297,3 +305,234 @@ def is_compatible(instrument_class: InstrumentClass, version: int) -> bool:
         version in COMPATIBLE_VERSIONS
         and version >= _CLASS_VERSIONS[InstrumentClass(instrument_class)]
     )
+
+
+def serves(configuration_grade: Grade | str, grade: Grade | str) -> bool:
+    """
+    Checks whether a configuration at a grade serves a use: its own grade, or
+    the coverage grade for a configuration at the timing grade, which also tests
+    coverage.
+
+    Args:
+        configuration_grade (Grade | str): The grade of the configuration.
+        grade (Grade | str): The grade of the use.
+
+    Returns:
+        bool: `True`, if it serves the use.
+    """
+    configuration_grade, grade = Grade(configuration_grade), Grade(grade)
+    return configuration_grade == grade or (
+        grade == Grade.COVERAGE and configuration_grade == Grade.TIMING
+    )
+
+
+@dataclass(frozen=True)
+class GateResult:
+    """
+    The outcome of a gate: `None` if the metric was not tested.
+    """
+
+    gate: Gate
+    value: float | None
+
+    @property
+    def passed(self) -> bool | None:
+        """
+        Whether the gate is met, or `None` if it was not tested.
+        """
+        return None if self.value is None else self.gate.is_met(self.value)
+
+    @property
+    def gap(self) -> str | None:
+        """
+        The gap, if the gate failed or was not tested.
+        """
+        if self.value is None:
+            return f"{self.gate.metric}: not tested"
+        if not self.passed:
+            return (
+                f"{self.gate.metric}: {self.value} fails the limit of "
+                f"{self.gate.limit}"
+            )
+        return None
+
+
+@dataclass(frozen=True)
+class ConfigurationValidation:
+    """
+    The validation status of a configuration: the results of its gates, and its
+    `evidence_gaps`, of its test rather than of a gate (such as a configuration
+    that changed after it was tested). Its `holdout_gap_days` are the days
+    between the data to which its values were fitted and the data of its test,
+    or `None` if it has no fitted values or no test.
+    """
+
+    tier: Tier
+    grade: Grade
+    gates: tuple[GateResult, ...]
+    evidence_gaps: tuple[str, ...]
+    record: ConfigurationRecord | None
+    holdout_gap_days: int | None = None
+
+    @property
+    def gaps(self) -> tuple[str, ...]:
+        """
+        Every gap: of failed gates, then of untested gates, then of evidence.
+        """
+        return (
+            *(r.gap for r in self.gates if r.passed is False),
+            *(r.gap for r in self.gates if r.passed is None),
+            *self.evidence_gaps,
+        )
+
+
+@dataclass(frozen=True)
+class EntryValidation:
+    """
+    The validation status of an entry, computed from its records and the
+    standard: of each configuration, and the grades of its class that no
+    configuration serves (`missing_grades`).
+    """
+
+    tier: Tier
+    configurations: dict[str, ConfigurationValidation]
+    missing_grades: tuple[Grade, ...]
+
+    @property
+    def gaps(self) -> tuple[str, ...]:
+        """
+        Every gap: of missing grades, then of each configuration, after its
+        identifier (such as `"swath: epoch_p95: not tested"`).
+        """
+        return (
+            *(f"no configuration at the {g.value} grade" for g in self.missing_grades),
+            *(
+                f"{key}: {gap}"
+                for key, validation in self.configurations.items()
+                for gap in validation.gaps
+            ),
+        )
+
+    def to_frame(self) -> pd.DataFrame:
+        """
+        Tabulates the gates of every configuration.
+
+        Returns:
+            pandas.DataFrame: A row for each gate of each configuration, with
+            its `configuration`, `grade`, `tier`, metric `label`, `value` (`NaN`
+            if not tested), formatted `limit`, and whether it `passed` (`None`
+            if not tested).
+        """
+        return pd.DataFrame(
+            [
+                {
+                    "configuration": key,
+                    "grade": validation.grade.value,
+                    "tier": validation.tier.value,
+                    "metric": result.gate.label,
+                    "value": result.value,
+                    "limit": result.gate.format_limit(),
+                    "passed": result.passed,
+                }
+                for key, validation in self.configurations.items()
+                for result in validation.gates
+            ],
+            columns=[
+                "configuration",
+                "grade",
+                "tier",
+                "metric",
+                "value",
+                "limit",
+                "passed",
+            ],
+        )
+
+
+def _evaluate_configuration(
+    entry: InstrumentEntry, key: str
+) -> ConfigurationValidation:
+    """
+    Applies the standard to a configuration of an entry: each gate takes the
+    worst value of its metric over scopes, and the evidence has gaps if the
+    configuration changed after its test, the test's version of the standard
+    does not apply to the class, or fitted values were tested on data too close
+    to their fitting data.
+
+    Args:
+        entry (InstrumentEntry): The entry.
+        key (str): The identifier of the configuration.
+
+    Returns:
+        ConfigurationValidation: Its validation status.
+    """
+    configuration = entry.configurations[key]
+    gates = get_gates(entry.instrument_class, configuration.grade)
+    record = None if entry.record is None else entry.record.configurations.get(key)
+    if record is None or not record.metrics:
+        return ConfigurationValidation(
+            Tier.NOMINAL,
+            configuration.grade,
+            tuple(GateResult(gate, None) for gate in gates),
+            ("no comparison with reference data",),
+            record,
+        )
+    results = []
+    for gate in gates:
+        values = [m.value for m in record.metrics if m.name == gate.metric]
+        worst = (max if gate.at_most else min)(values) if values else None
+        results.append(GateResult(gate, worst))
+    gaps = []
+    if record.digest != configuration.digest:
+        gaps.append("the configuration changed after it was tested")
+    if not is_compatible(entry.instrument_class, record.standard_version):
+        gaps.append(
+            f"version {record.standard_version} of the standard, of the test, "
+            f"does not apply to the {entry.instrument_class.value} class"
+        )
+    holdout = configuration.get_holdout_gap(record.period)
+    if holdout is not None and holdout < MIN_HOLDOUT_GAP_DAYS:
+        gaps.append(
+            "fitted values are not tested on data at least "
+            f"{MIN_HOLDOUT_GAP_DAYS} days from their fitting data"
+        )
+    passed = not gaps and all(result.passed for result in results)
+    return ConfigurationValidation(
+        Tier.VALIDATED if passed else Tier.PARTIAL,
+        configuration.grade,
+        tuple(results),
+        tuple(gaps),
+        record,
+        holdout,
+    )
+
+
+def evaluate_entry(entry: InstrumentEntry) -> EntryValidation:
+    """
+    Applies the standard to an entry's records. An entry is only as strong as its
+    weakest configuration, needs configurations that serve the grades of its
+    class (see `get_required_grades`), and is partial rather than nominal if any
+    configuration was compared with reference data.
+
+    Args:
+        entry (InstrumentEntry): The entry.
+
+    Returns:
+        EntryValidation: Its validation status.
+    """
+    configurations = {
+        key: _evaluate_configuration(entry, key) for key in entry.configurations
+    }
+    missing = tuple(
+        grade
+        for grade in get_required_grades(entry.instrument_class)
+        if not any(c.serves(grade) for c in entry.configurations.values())
+    )
+    tier = min((c.tier for c in configurations.values()), key=lambda t: t.rank)
+    if tier == Tier.VALIDATED and missing:
+        tier = Tier.PARTIAL
+    if tier == Tier.NOMINAL and any(
+        c.tier != Tier.NOMINAL for c in configurations.values()
+    ):
+        tier = Tier.PARTIAL
+    return EntryValidation(tier, configurations, missing)

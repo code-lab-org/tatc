@@ -452,9 +452,9 @@ def validate(run, tle, orbit, reference) -> None:
     day = run.day
 
     def satellite_for(time_step: float):
-        return run.entry.to_satellite(
-            orbit, configuration=KEY, time_step=time_step, platform=run.platform
-        )
+        return run.entry.build(
+            configuration=KEY, orbit=orbit, time_step=time_step, platform=run.platform
+        ).to_satellite(orbit, name=run.entry.name)
 
     satellite = satellite_for(ANALYSIS_TIME_STEP)
     points = generate_points_fibonacci_lattice(POINT_SPACING)

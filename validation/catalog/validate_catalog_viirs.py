@@ -567,9 +567,9 @@ def validate_zones(setup: scanner.Setup, run, reference: Reference, orbit, tle):
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
-    satellite = entry.to_satellite(
-        orbit, configuration=setup.beams, platform=run.platform
-    )
+    satellite = entry.build(
+        configuration=setup.beams, orbit=orbit, platform=run.platform
+    ).to_satellite(orbit, name=entry.name)
     names = np.array([instrument.name for instrument in satellite.instruments])
     pixels = measure_pixels(reference, satellite)
     median, p95 = (summarize(pixels[:, 3])[key] for key in ("median", "p95"))

@@ -407,7 +407,9 @@ def validate(run, tle, orbit, data) -> None:
     day = run.day
 
     def satellite_for(time_step: float):
-        return run.entry.to_satellite(orbit, time_step=time_step, platform=run.platform)
+        return run.entry.build(
+            orbit=orbit, time_step=time_step, platform=run.platform
+        ).to_satellite(orbit, name=run.entry.name)
 
     satellite = satellite_for(TIME_STEPS[0])
     labels = side_labels(data, orbit, day)

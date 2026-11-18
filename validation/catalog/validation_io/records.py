@@ -13,7 +13,7 @@ import pandas as pd
 
 import tatc
 from tatc.catalog import STANDARD_VERSION, InstrumentEntry
-from tatc.catalog.schemas import ConfigurationRecord, Transfer, ValidationRecord
+from tatc.catalog.records import ConfigurationRecord, Transfer, ValidationRecord
 from tatc.constants import timescale
 
 # where the scripts write validation records and test fixtures

@@ -52,14 +52,15 @@ class _PushbroomFixture:
         cls.entry = get_entry(cls.entry_id)
         cls.day = datetime.fromisoformat(str(cls.data[cls.day_key]))
         # the day is the period of the analysis, for a schedule of the attitude
-        cls.satellite = cls.entry.to_satellite(
-            GeneralPerturbationsOrbit.from_tle(cls.data[cls.tle_key].tolist()),
+        orbit = GeneralPerturbationsOrbit.from_tle(cls.data[cls.tle_key].tolist())
+        cls.satellite = cls.entry.build(
             configuration=cls.configuration,
+            orbit=orbit,
             time_step=cls.time_step,
             platform=cls.platform,
             start=cls.day,
             end=cls.day + timedelta(days=1),
-        )
+        ).to_satellite(orbit, name=cls.entry.name)
         cls.recorded = cls.entry.record.configurations[
             cls.configuration
         ].fixture_metrics
