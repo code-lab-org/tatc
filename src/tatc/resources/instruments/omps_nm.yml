@@ -14,6 +14,11 @@ platforms:
     norad_id: 43013
     status: operational
     as_of: 2026-11-09
+  - id: suomi-npp
+    name: Suomi NPP
+    norad_id: 37849
+    status: retired
+    as_of: 2026-11-02
 data_products:
   - name: OMPS Nadir Mapper total column geolocation (OMPS-TC-GEO)
     provider: NOAA Open Data Dissemination
@@ -87,9 +92,44 @@ configurations:
             source: Models an imaged swath as a rectangular view
     limitations:
       - The yaw of -0.2944 deg and pitch of 0.1859 deg are measured with validate_catalog_omps.py --fit on 2026-10-01, from the slope of the samples' along-track on their cross-track tangents (the same within 0.02 deg at every latitude) and the along-track angle of the sample nearest nadir, in the inertial frame.
+  swath_suomi_npp:
+    grade: timing
+    description: The swath imaged between the outermost samples of Suomi NPP's Nadir Mapper, with a view tailored to the analysis time step.
+    platforms: [suomi-npp]
+    velocity_frame: inertial
+    attitude:
+      yaw_angle: -0.0911
+      pitch_angle: 0.0739
+    instruments:
+      - type: pointed
+        parameters:
+          name: OMPS Nadir Mapper
+          field_of_regard: 107.72
+          cross_track_field_of_view: 107.3326
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          roll_angle: 0.1934
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the view, rolled by its offset
+          cross_track_field_of_view: &measured_suomi_npp
+            kind: measured
+            source: validate_catalog_omps.py --fit, the outermost samples 53.8597 deg left and 53.4729 deg right of the geodetic nadir (inertial frame)
+            platforms: [suomi-npp]
+            period: "2026-10-01"
+          roll_angle: *measured_suomi_npp
+          is_rectangular:
+            kind: derived
+            source: Models an imaged swath as a rectangular view
+    limitations:
+      - The yaw of -0.0911 deg and pitch of 0.0739 deg are measured with validate_catalog_omps.py --fit on 2026-10-01, from the slope of the samples' along-track on their cross-track tangents (the same within 0.02 deg at every latitude on ascending passes) and the along-track angle of the sample nearest nadir, in the inertial frame.
+      - On data held out on 2026-08-25, epochs were within 20.2 s (95th percentile) and swath widths within 5.5 km (median), as the samples bow aft as on NOAA-20 and NOAA-21, and 98.2% of observed passes were predicted. The passes not predicted lie at the swath's edges (54 deg from nadir, median), within the 40 km of the outermost samples in which a pass is observed but beyond their centers, between which the view lies; Suomi NPP's samples are wider (35 across the swath) than NOAA-20's and NOAA-21's.
+      - Suomi NPP was retired on 2026-11-02, when NOAA stopped delivering its data.
 limitations:
   - The samples do not lie on a line across track. They bow aft toward the swath's edges, from about 0 deg along track near nadir to about 8.5 deg (NOAA-21) and 7.8 deg (NOAA-20) at the edges, about 150 km behind a straight line, which a view cannot represent. On data held out on 2026-11-05, epochs were therefore within 19.9 s (NOAA-21) and 19.1 s (NOAA-20) at the 95th percentile (median -5.6 and -5.1 s), and the swath widths, between the outermost samples, within 7.1 and 5.9 km (median), whereas 99.3% or more of observed passes were predicted and the swath's intersection over union was 0.99 or more (0.98 or more with views tailored to the time step, before swept swaths were added; rescored on the same data). The bow was found on the fitting day, after the fit and before the holdout.
-  - NOAA-20 and NOAA-21 do not steer their yaw, so the configurations use the inertial frame.
+  - NOAA-20, NOAA-21, and Suomi NPP do not steer their yaw, so the configurations use the inertial frame.
   - The Nadir Mapper images the sunlit part of each orbit, whereas the view observes whenever a target is in view, unless a solar limit is added.
   - No configuration gives sample sizes, as no published instantaneous field of view was used.
-  - Each platform has its own configuration, fitted to its own data; NOAA-20 images fewer, wider samples than NOAA-21.
+  - Each platform has its own configuration, fitted to its own data; NOAA-20 images fewer, wider samples than NOAA-21, and Suomi NPP fewer and wider still.

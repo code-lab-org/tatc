@@ -7,8 +7,8 @@ fit needs no element set. The entry's scan angles are fitted to the positions of
 samples on one day (run with `--fit`): running on that day checks the fit, while
 running on a day at least 30 days from it tests the fitted angles on data held out
 from the fit. Both days are in TRMM's forward orientation (the PR product's
-`SCorientation` of 0) throughout. Element sets are read from a file of the history of
-TRMM's element sets.
+`SCorientation` of 0) throughout. Element sets are read from the file of the history
+of TRMM's element sets in `elements/` (or from a file given with `--elements`).
 
 Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`. The positions
 of samples are read whole, and reduced to every third scan and some samples:
@@ -17,10 +17,12 @@ of samples are read whole, and reduced to every third scan and some samples:
     python validation/catalog/validate_catalog_virs.py <data directory> 2013-06-01
     python validation/catalog/validate_catalog_virs.py <data directory> 2013-07-10
 
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
+
 It also validates the entry's sample size configuration, following
 `ValidateSampleSizes`. The gated metrics compare sizes with the footprint published in
 the TRMM Version 7 README of GES DISC, and the projected pixels with the samples'
-positions.
+positions. `--configuration pixels` (or `swath`) tests one configuration.
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results. A record of the day of the fit has no
@@ -29,17 +31,15 @@ holdout, which the entry's validation reports as a gap.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import pathlib
-from datetime import datetime, timezone
+from datetime import datetime
 
 import h5py
 import numpy as np
 import pandas as pd
 
-from tatc.catalog import get_entry
 from tatc.schemas import GeneralPerturbationsOrbit
-from gesdisc_scanner import (
+from scanner import (
     Product,
     Reference,
     Setup,
@@ -48,15 +48,7 @@ from gesdisc_scanner import (
     validate_beams,
     validate_swath,
 )
-from validation_io import (
-    TO_GEODETIC,
-    RemoteFile,
-    ecef,
-    read_element_set_file,
-    FIXTURES,
-    source_of,
-)
-from validate_catalog_trmm_pr import ELEMENT_SET_FILE, NORAD_ID
+from validation_io import FIXTURES, TO_GEODETIC, RemoteFile, ecef, parse_run
 from validate_catalog_trmm_pr import PRODUCT as PR_PRODUCT
 
 SAMPLES = 261
@@ -103,14 +95,11 @@ SCAN_PERIOD = 0.30467
 # August 2001, identical in both directions, at nadir
 PUBLISHED_FOOTPRINTS = (("VIRS", 403, 35, 0, 2.4, 2.4),)
 SETUP = Setup(
-    entry_id="virs",
-    platform="trmm",
     swath="swath",
     beams="pixels",
     size_instrument="VIRS",
     published_footprints=PUBLISHED_FOOTPRINTS,
     fixture_path=FIXTURES / "virs.npz",
-    source=source_of(__file__),
     reference="GPM_1BVIRS version 08 (sample positions), with spacecraft positions of "
     "GPM_2APR version 07",
     published_reference="Footprint of the TRMM Version 7 README of GES DISC; sample "
@@ -171,38 +160,27 @@ def load_reference(day: datetime, directory: pathlib.Path) -> Reference:
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--sample-sizes-only", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    reference = load_reference(day, arguments.directory)
+    run = parse_run("virs", __doc__)
+    reference = load_reference(run.day, run.directory)
     print(
-        f"{arguments.day}: {len(reference.time)} scans (every {LINE_STRIDE}), "
+        f"{run.day:%Y-%m-%d}: {len(reference.time)} scans (every {LINE_STRIDE}), "
         f"{len(reference.gaps)} gaps over a minute",
         flush=True,
     )
-    if arguments.fit:
+    if run.fit:
         for frame in ("inertial", "earth_fixed"):
             fit(reference, frame)
         print(
             f"scan period of the product: {np.median(np.diff(reference.seconds)) / LINE_STRIDE:.6f} s"
         )
         return
-    tle = read_element_set_file(ELEMENT_SET_FILE, NORAD_ID, day)
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    entry = get_entry("virs")
-    validate_beams(SETUP, day, tle, entry, orbit, reference, arguments.write)
-    if not arguments.sample_sizes_only:
-        validate_swath(SETUP, day, tle, entry, orbit, reference, arguments.write)
-    if arguments.write:
-        print(f"wrote {SETUP.fixture_path}")
+    if SETUP.beams in run.configurations:
+        validate_beams(SETUP, run, reference, orbit, tle)
+    if SETUP.swath in run.configurations:
+        validate_swath(SETUP, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

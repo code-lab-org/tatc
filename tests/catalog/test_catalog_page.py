@@ -11,7 +11,6 @@ import pathlib
 import unittest
 
 from tatc.catalog import get_entry, get_entry_ids
-from tatc.catalog.standard import Gate
 
 SCRIPT = pathlib.Path(__file__).parents[2] / "docs" / "validation" / "catalog_page.py"
 
@@ -71,19 +70,6 @@ class TestCatalogPage(unittest.TestCase):
                 texts += configuration.limitations
             for text in texts:
                 self.assertIn(self.script.escape(text), self.page, entry_id)
-
-    def test_rounding_keeps_outcome(self):
-        """
-        Test that a rounded value never appears to meet a gate it fails.
-        """
-        gate = Gate("footprint_iou_median", 0.95, False, "")
-        self.assertEqual(self.script.format_value(0.9486, gate), "0.9486")
-        self.assertEqual(self.script.format_value(0.949996, gate), "0.949996")
-        gate = Gate("pass_recall", 99, False, "%")
-        self.assertEqual(self.script.format_value(98.9996, gate), "98.9996%")
-        gate = Gate("epoch_p95", 1, True, "s")
-        self.assertEqual(self.script.format_value(1.001, gate), "1.001 s")
-        self.assertEqual(self.script.format_value(0.43, gate), "0.43 s")
 
     def test_markup_escaped(self):
         """

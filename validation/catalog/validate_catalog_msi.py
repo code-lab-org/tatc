@@ -20,19 +20,20 @@ Needs the `validation` extra:
     python validation/catalog/validate_catalog_msi.py <data directory> 2026-08-12
     python validation/catalog/validate_catalog_msi.py <data directory> 2026-11-10
 
-With `--write`, it writes the entry's validation record and the reduced fixture from
-which unit tests recompute the results.
+Without a day, it takes that of the entry's record (or, with `--fit`, that of the
+fit). Every run uses the three satellites, each with its own element set. With
+`--write`, it writes the entry's validation record and the reduced fixture from which
+unit tests recompute the results.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import json
 import pathlib
 import re
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -44,7 +45,6 @@ from shapely.ops import unary_union
 from skyfield.framelib import itrs
 
 from tatc.analysis import collect_observations, compute_ground_track
-from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit, Point
@@ -52,63 +52,26 @@ from tatc.utils import compute_projected_ray_position
 from validation_io import (
     TO_GEODETIC,
     ecef,
+    get_element_set,
     get_with_retries,
     match_passes,
     normalize,
+    parse_run,
     post_with_retries,
     predict_passes,
-    read_element_set_file,
     recompute_passes,
     up,
-    update_fixture,
-    write_record,
-    FIXTURES,
-    source_of,
-    ELEMENT_SET_FOLDER,
+    write_results,
 )
-
-FIXTURE_PATH = FIXTURES / "msi.npz"
-ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "sentinel_2026-08-12.3le"
 
 STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
 TOKEN_URL = "https://planetarycomputer.microsoft.com/api/sas/v1/token/sentinel-2-l2a"
 
+# the platforms, by their names in the catalog of tiles
 PLATFORMS = {
-    "sentinel-2a": ("Sentinel-2A", 40697),
-    "sentinel-2b": ("Sentinel-2B", 42063),
-    "sentinel-2c": ("Sentinel-2C", 60989),
-}
-# the element sets of the validation notebook, for the fit day
-ELEMENT_SETS = {
-    "2026-10-03": {
-        "sentinel-2a": [
-            "1 40697U 15028A   26277.51535578  .00000205  00000+0  94862-4 0  9994",
-            "2 40697  98.5646 350.7732 0001083  89.0049 271.1258 14.30820153589369",
-        ],
-        "sentinel-2b": [
-            "1 42063U 17013A   26277.50820593  .00000133  00000+0  67483-4 0  9991",
-            "2 42063  98.5691 350.7118 0001149  89.0927 271.0388 14.30818478500277",
-        ],
-        "sentinel-2c": [
-            "1 60989U 24157A   26277.47326514  .00000038  00000+0  31260-4 0  9993",
-            "2 60989  98.5703 350.6835 0001156  81.8213 278.3101 14.30817151108611",
-        ],
-    },
-    # a fresh held-out day for swept swaths, not used before
-    "2026-11-10": {
-        "sentinel-2a": [
-            "1 40697U 15028A   26315.48729274  .00000195  00000+0  90938-4 0  9999",
-            "2 40697  98.5620  28.1758 0001176  97.2125 262.9192 14.30820979594798",
-        ],
-        "sentinel-2b": [
-            "1 42063U 17013A   26315.48023887  .00000161  00000+0  78066-4 0  9992",
-            "2 42063  98.5726  28.1523 0001127  94.2545 265.8767 14.30820339505706",
-        ],
-        "sentinel-2c": [
-            "1 60989U 24157A   26315.16551832  .00000142  00000+0  70721-4 0  9996",
-            "2 60989  98.5733  27.8362 0000827  99.7117 260.4159 14.30812699114004",
-        ],
-    },
+    "sentinel-2a": "Sentinel-2A",
+    "sentinel-2b": "Sentinel-2B",
+    "sentinel-2c": "Sentinel-2C",
 }
 KEY = "swath"
 FIXTURE_PLATFORM = "sentinel-2b"
@@ -132,14 +95,6 @@ FIXTURE_PASSES = 300
 
 GEOD = Geod(ellps="WGS84")
 EARTH_RADIUS = 6371.0088e3
-
-
-def get_element_set(day: datetime, platform: str) -> list[str]:
-    """Gets the element set of a platform on a day."""
-    key = f"{day:%Y-%m-%d}"
-    if key in ELEMENT_SETS:
-        return ELEMENT_SETS[key][platform]
-    return read_element_set_file(ELEMENT_SET_FILE, PLATFORMS[platform][1], day)
 
 
 def seconds_of(day: datetime, times) -> np.ndarray:
@@ -195,7 +150,7 @@ def load_tiles(day: datetime, directory: pathlib.Path) -> pd.DataFrame:
             encoding="utf-8",
         )
     tiles = pd.DataFrame(json.loads(path.read_text(encoding="utf-8")))
-    names = {name: key for key, (name, _) in PLATFORMS.items()}
+    names = {name: key for key, name in PLATFORMS.items()}
     tiles["platform"] = tiles.platform.map(names)
     tiles["geometry"] = [shape(g) for g in tiles.geometry]
     print(
@@ -833,11 +788,12 @@ def score_epochs(day, reference, satellite_for) -> pd.DataFrame:
     return sample
 
 
-def validate(day, tles, entry, orbits, tiles, datatakes, sections, reference, write):
+def validate(run, tles, orbits, tiles, datatakes, sections, reference):
     """Scores the configuration, and writes its results if requested."""
+    day = run.day
 
     def satellite_for(platform: str, time_step: float):
-        return entry.to_satellite(
+        return run.entry.to_satellite(
             orbits[platform], configuration=KEY, time_step=time_step, platform=platform
         )
 
@@ -886,7 +842,7 @@ def validate(day, tles, entry, orbits, tiles, datatakes, sections, reference, wr
             ]
     metrics = [{**m, "value": float(m["value"])} for m in metrics]
     print(json.dumps(metrics), flush=True)
-    if not write:
+    if not run.write:
         return
     chosen = epochs[
         (epochs.platform == FIXTURE_PLATFORM) & np.isfinite(epochs.difference)
@@ -896,21 +852,17 @@ def validate(day, tles, entry, orbits, tiles, datatakes, sections, reference, wr
         rng.choice(len(chosen), min(FIXTURE_PASSES, len(chosen)), False)
     ]
     fixture = picks[["lat", "lon", "t"]].to_numpy()
-    update_fixture(
-        FIXTURE_PATH,
-        tle=np.array(tles[FIXTURE_PLATFORM]),
-        day=np.array(day.isoformat()),
-        passes=fixture,
-    )
-    write_record(
-        entry,
+    write_results(
+        run,
         KEY,
-        source=source_of(__file__),
         reference="Valid data footprints of Sentinel-2 Level-2A tiles; viewing "
         + "angle grids and GPS ephemerides of their metadata",
-        period=f"{day:%Y-%m-%d}",
-        platforms=sorted(PLATFORMS),
         metrics=metrics,
+        fixture={
+            "tle": np.array(tles[FIXTURE_PLATFORM]),
+            "day": np.array(day.isoformat()),
+            "passes": fixture,
+        },
         fixture_metrics=recompute_passes(
             satellite_for(FIXTURE_PLATFORM, TIME_STEPS[0]), 0, day, fixture
         ),
@@ -919,54 +871,46 @@ def validate(day, tles, entry, orbits, tiles, datatakes, sections, reference, wr
 
 def main() -> None:
     """Fits or validates the entry on a day of data."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    parser.add_argument(
-        "--download-only",
-        action="store_true",
-        help="read and cache the reference data, without scoring",
+    run = parse_run(
+        "msi",
+        __doc__,
+        add_arguments=lambda parser: parser.add_argument(
+            "--download-only",
+            action="store_true",
+            help="read and cache the reference data, without scoring",
+        ),
     )
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    tiles = load_tiles(day, arguments.directory)
-    datastrips = load_datastrips(day, arguments.directory, tiles)
+    day = run.day
+    tiles = load_tiles(day, run.directory)
+    datastrips = load_datastrips(day, run.directory, tiles)
     datatakes = get_datatakes(day, tiles, datastrips)
-    ephemeris, grids = load_reference_times(day, arguments.directory, tiles)
+    ephemeris, grids = load_reference_times(day, run.directory, tiles)
     print(
         f"{len(datatakes)} datatakes, {len(ephemeris)} ephemeris points, "
         f"{len(grids)} grid points",
         flush=True,
     )
-    if arguments.download_only:
+    if run.download_only:
         return
-    tles = {platform: get_element_set(day, platform) for platform in PLATFORMS}
+    # each satellite's element set
+    tles = {
+        platform: get_element_set(
+            platform, day, file=run.elements, directory=run.directory
+        )
+        for platform in PLATFORMS
+    }
     orbits = {
         platform: GeneralPerturbationsOrbit.from_tle(tle)
         for platform, tle in tles.items()
     }
     for platform, tle in tles.items():
-        print(f"{platform}, {arguments.day}: {tle[0][:32]}", flush=True)
+        print(f"{platform}, {day:%Y-%m-%d}: {tle[0][:32]}", flush=True)
     reference = recover_imaging_times(grids, ephemeris)
     sections = measure_sections(day, datatakes, tiles, orbits)
-    if arguments.fit:
+    if run.fit:
         fit(day, sections, orbits, reference)
         return
-    validate(
-        day,
-        tles,
-        get_entry("msi"),
-        orbits,
-        tiles,
-        datatakes,
-        sections,
-        reference,
-        arguments.write,
-    )
+    validate(run, tles, orbits, tiles, datatakes, sections, reference)
 
 
 if __name__ == "__main__":

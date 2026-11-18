@@ -3,8 +3,9 @@ Validates the DPR catalog entry against the GPM Level 2 DPR product, using the e
 values of the entry through public TAT-C methods. The entry's scan angles are fitted
 to the positions of the beams on one day (run with `--fit`): running on that day
 checks the fit, while running on a day at least 30 days from it tests the fitted
-angles on data held out from the fit. Element sets for other days are read from a
-file of the history of GPM's element sets.
+angles on data held out from the fit. GPM's element sets are those registered in
+`elements/element_sets.yml`, or else read from the file of the history of GPM's
+element sets in `elements/` (or from a file given with `--elements`).
 
 Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`. Only the
 needed fields of the product's files are read, with range requests:
@@ -14,9 +15,12 @@ needed fields of the product's files are read, with range requests:
     python validation/catalog/validate_catalog_dpr.py <data directory> 2026-07-20
     python validation/catalog/validate_catalog_dpr.py <data directory> 2026-11-10
 
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
+
 It also validates the entry's sample size configuration, following
 `ValidateSampleSizes`. The gated metrics compare sizes with footprints published in
 the TC PRIMED documentation, and the projected pixels with the beams' positions.
+`--configuration beams` (or `swath`) tests one configuration.
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results. A record of the day of the fit has no
@@ -25,13 +29,8 @@ holdout, which the entry's validation reports as a gap.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
-import pathlib
-from datetime import datetime, timezone
-
-from tatc.catalog import get_entry
 from tatc.schemas import GeneralPerturbationsOrbit
-from gesdisc_scanner import (
+from scanner import (
     Product,
     Reference,
     Setup,
@@ -40,27 +39,8 @@ from gesdisc_scanner import (
     validate_beams,
     validate_swath,
 )
-from validation_io import (
-    read_element_set_file,
-    FIXTURES,
-    source_of,
-    ELEMENT_SET_FOLDER,
-)
+from validation_io import FIXTURES, parse_run
 
-NORAD_ID = 39574
-# the element set of `ValidateConicalGMI` for the day of the fit, and a public element
-# set from CelesTrak, with an epoch after the day of data, for a later held-out day
-ELEMENTS = {
-    "2026-10-03": (
-        "1 39574U 14009C   26277.54227627  .00004528  00000+0  10004-3 0  9997",
-        "2 39574  64.9701 301.6724 0010793 268.6572  91.3332 15.45217995714704",
-    ),
-    "2026-11-10": (
-        "1 39574U 14009C   26315.61017546  .00006513  00000+0  14350-3 0  9999",
-        "2 39574  64.9689 174.1431 0011469 256.2485 103.7379 15.44776426720584",
-    ),
-}
-ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "gpm_2026-07-15.3le"
 PRODUCT = Product(
     short_name="GPM_2ADPR",
     version="08",
@@ -81,14 +61,11 @@ PUBLISHED_FOOTPRINTS = (
     ("DPR", 435, 65, 17.0, 5.48, 6.05),
 )
 SETUP = Setup(
-    entry_id="dpr",
-    platform="gpm",
     swath="swath",
     beams="beams",
     size_instrument="DPR",
     published_footprints=PUBLISHED_FOOTPRINTS,
     fixture_path=FIXTURES / "dpr.npz",
-    source=source_of(__file__),
     reference="GPM_2ADPR version 08 (beam positions of the full swath)",
     published_reference="Footprints of the TC PRIMED documentation; beam positions "
     "of GPM_2ADPR version 08",
@@ -102,39 +79,26 @@ SETUP = Setup(
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--sample-sizes-only", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    reference = Reference(day, load_day(PRODUCT, day, arguments.directory), SCAN_PERIOD)
+    run = parse_run("dpr", __doc__)
+    reference = Reference(
+        run.day, load_day(PRODUCT, run.day, run.directory), SCAN_PERIOD
+    )
     print(
-        f"{arguments.day}: {len(reference.time)} scans, "
+        f"{run.day:%Y-%m-%d}: {len(reference.time)} scans, "
         f"{len(reference.gaps)} gaps over a minute",
         flush=True,
     )
-    if arguments.fit:
+    if run.fit:
         for frame in ("inertial", "earth_fixed"):
             fit(reference, frame)
         return
-    tle = list(
-        ELEMENTS[arguments.day]
-        if arguments.day in ELEMENTS
-        else read_element_set_file(ELEMENT_SET_FILE, NORAD_ID, day)
-    )
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    entry = get_entry("dpr")
-    validate_beams(SETUP, day, tle, entry, orbit, reference, arguments.write)
-    if not arguments.sample_sizes_only:
-        validate_swath(SETUP, day, tle, entry, orbit, reference, arguments.write)
-    if arguments.write:
-        print(f"wrote {SETUP.fixture_path}")
+    if SETUP.beams in run.configurations:
+        validate_beams(SETUP, run, reference, orbit, tle)
+    if SETUP.swath in run.configurations:
+        validate_swath(SETUP, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

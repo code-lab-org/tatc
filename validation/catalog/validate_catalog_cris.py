@@ -25,60 +25,66 @@ from them, without writing.
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
 
-With `--platform noaa-21`, it tests the same values on a sibling satellite, and
+NOAA-21's CrIS has its own configurations, fitted with `--fit` to 2026-11-05 and
+tested on a day at least 30 days from it:
+
+    python validation/catalog/validate_catalog_cris.py <data directory> 2026-11-05 --platform noaa-21 --fit
+    python validation/catalog/validate_catalog_cris.py <data directory> 2026-10-02 --platform noaa-21
+
+So has Suomi NPP's, fitted to 2025-10-02, before its CrIS ended operational use on
+2025-12-23. NOAA's archive has Suomi NPP's element sets only from 2026-08-19, so the
+test reads them from a file of the history of its element sets:
+
+    python validation/catalog/validate_catalog_cris.py <data directory> 2025-10-02 --platform suomi-npp --fit
+    python validation/catalog/validate_catalog_cris.py <data directory> 2025-08-26 --platform suomi-npp
+
+With `--transfer`, it tests NOAA-20's configurations on another platform instead, and
 adds the results to the record as a transfer, which does not count toward the tier.
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit),
+and `--configuration` tests one configuration.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import io
-import json
 import pathlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import h5py
 import numpy as np
-import pandas as pd
-from scipy.spatial import cKDTree
 from skyfield.api import wgs84
 
-import validation_io
-from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
-from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
+import scanner
 from validation_io import (
     ARCHIVES,
+    FIXTURES,
+    TO_GEODETIC,
     Archive,
-    write_transfer,
-    build_grid,
+    ScanLattice,
     compute_published_errors,
     ecef,
     iet_to_utc,
-    in_lattice_cells,
     normalize,
-    recompute_passes,
-    score_passes,
+    parse_run,
     score_published,
-    score_swath_area,
     up,
-    update_fixture,
-    write_record,
-    FIXTURES,
-    source_of,
+    write_results,
 )
 
 FIT_PLATFORM = "noaa-20"
-GATED = (
-    "pass_recall",
-    "pass_precision",
-    "epoch_p95",
-    "swath_width_median",
-    "footprint_iou_median",
-)
-FIXTURE_PATH = FIXTURES / "cris.npz"
+# the configurations of each platform's fit and its fixture
+CONFIGURATIONS = {
+    "noaa-20": ("swath_noaa_20", "pixels_noaa_20", FIXTURES / "cris.npz"),
+    "noaa-21": ("swath_noaa_21", "pixels_noaa_21", FIXTURES / "cris_noaa_21.npz"),
+    "suomi-npp": (
+        "swath_suomi_npp",
+        "pixels_suomi_npp",
+        FIXTURES / "cris_suomi_npp.npz",
+    ),
+}
 
 FIELDS = (
     "StartTime",
@@ -90,9 +96,7 @@ FIELDS = (
     "QF1_CRISSDRGEO",
 )
 N_FOR, N_FOV, SCAN_PERIOD = 30, 9, 8
-TIME_STEPS = (SCAN_PERIOD, 32, 128)
 ORBIT_MARGIN = 128
-SWATH, PIXELS = "swath", "pixels"
 # published footprints: instrument, altitude (km), inclination (deg), scan angle
 # (deg), and sizes along and across track (km), from the NWP SAF, as used by
 # ValidateSampleSizes (the edge is the outermost field of view, at 48.33 + 1.1 deg)
@@ -100,8 +104,6 @@ PUBLISHED_FOOTPRINTS = (
     ("CrIS", 824, 98.7, 0, 14.0, 14.0),
     ("CrIS", 824, 98.7, 49.43, 24.0, 48.0),
 )
-PIXEL_SCAN_STRIDE, WIDTH_SCAN_STRIDE = 100, 5
-FIXTURE_PASSES, FIXTURE_PIXELS = 60, 200
 NADIR_FORS = (14, 15)
 # the hours (UTC) of the day of the fit whose scans the fit measures, the fields it
 # reads, and the published diameter of a field of view (deg)
@@ -117,6 +119,23 @@ FIT_FIELDS = (
     "QF1_CRISSDRGEO",
 )
 FOV_DIAMETER = 0.963
+
+
+def get_setup(platform: str) -> scanner.Setup:
+    """Gets what is validated with a platform's fit: its configurations and fixture."""
+    swath, pixels, fixture_path = CONFIGURATIONS[platform]
+    return scanner.Setup(
+        swath=swath,
+        beams=pixels,
+        size_instrument="CrIS",
+        published_footprints=PUBLISHED_FOOTPRINTS,
+        fixture_path=fixture_path,
+        reference="CrIS SDR geolocation",
+        published_reference="Footprints published by the NWP SAF; fields of view of "
+        "the CrIS SDR geolocation",
+        time_steps=(SCAN_PERIOD, 32, 128),
+        pass_radius=150,
+    )
 
 
 def load_day(
@@ -139,8 +158,11 @@ def load_day(
     return dict(np.load(path))
 
 
-class Reference:
-    """A day of CrIS scans, with what is derived from them."""
+class Reference(ScanLattice):
+    """
+    A day of CrIS scans, with what is derived from them. Passes are found between
+    the centers of the fields of regard, at the times at which CrIS sampled them.
+    """
 
     def __init__(self, data: dict[str, np.ndarray]):
         good = (data["QF1_CRISSDRGEO"] == 0) & np.all(
@@ -156,10 +178,10 @@ class Reference:
         self.lat = np.degrees(np.arcsin(self.unit[..., 2]))
         self.lon = np.degrees(np.arctan2(self.unit[..., 1], self.unit[..., 0]))
         self.height = self.fov_height.mean(axis=2)
-        day = self.time[0].floor("D")
-        self.seconds = (self.time - day).total_seconds().to_numpy()
+        self.day = self.time[0].floor("D")
+        self.seconds = (self.time - self.day).total_seconds().to_numpy()
         self.for_seconds = (
-            (iet_to_utc(data["FORTime"][good].ravel()) - day)
+            (iet_to_utc(data["FORTime"][good].ravel()) - self.day)
             .total_seconds()
             .to_numpy()
             .reshape(-1, N_FOR)
@@ -170,106 +192,48 @@ class Reference:
             (self.time[i], self.time[i + 1]) for i in np.nonzero(period > 60)[0]
         ]
 
-    def in_cells(self, points: np.ndarray, first: int, last: int) -> np.ndarray:
-        """Gets whether unit vectors lie in cells of fields of regard on scans."""
-        return in_lattice_cells(
-            self.unit[first : last + 1], self.is_next_contiguous[first:last], points
+    @property
+    def sample_seconds(self) -> np.ndarray:
+        """The time of each field of regard (s from the start of the day)."""
+        return self.for_seconds
+
+    def pass_time(self, before: int, sample: int, fraction: float):
+        """Gets the time of a pass between a field of regard of a scan and the next."""
+        seconds = self.for_seconds[before, sample] + fraction * (
+            self.for_seconds[before + 1, sample] - self.for_seconds[before, sample]
+        )
+        return self.day + timedelta(seconds=float(seconds))
+
+    @property
+    def span(self) -> tuple[datetime, datetime]:
+        """The start of the first scan and the end of the last."""
+        return (
+            self.start[0].to_pydatetime(),
+            self.start[-1].to_pydatetime() + timedelta(seconds=SCAN_PERIOD),
         )
 
-    def observe_passes(self, points) -> pd.DataFrame:
+    def score_swath_width(self, instrument, orbit, setup, _attitude=None) -> float:
         """
-        Finds the passes on which CrIS observed points, between the centers of its
-        fields of regard, and the times at which it sampled them.
+        Gets the median absolute difference (km) from the width through the centers
+        of the fields of regard.
         """
-        point_unit = up(points.geometry.x.to_numpy(), points.geometry.y.to_numpy())
-        flat = self.unit.reshape(-1, 3)
-        flat_seconds = self.for_seconds.ravel()
-        tree = cKDTree(flat)
-        day = self.time[0].floor("D")
-        rows = []
-        for p, hits in enumerate(
-            tree.query_ball_point(point_unit, r=2 * np.sin(150 / 6371 / 2), workers=-1)
-        ):
-            if not hits:
-                continue
-            hits = np.array(hits)
-            hits = hits[np.argsort(flat_seconds[hits])]
-            for group in np.split(
-                hits, np.nonzero(np.diff(flat_seconds[hits]) > 1200)[0] + 1
-            ):
-                k, j = np.divmod(
-                    group[
-                        np.argmin(np.linalg.norm(flat[group] - point_unit[p], axis=-1))
-                    ],
-                    N_FOR,
-                )
-                first, last = max(k - 1, 0), min(k + 1, len(self.time) - 1)
-                if not self.in_cells(point_unit[[p]], first, last)[0]:
-                    continue
-                # interpolate between the scans before and after the point
-                before = (
-                    k - 1
-                    if np.sum(
-                        (point_unit[p] - self.unit[k, j])
-                        * (self.unit[k, j] - self.unit[k - 1, j])
-                    )
-                    < 0
-                    else k
-                )
-                before = int(np.clip(before, 0, len(self.time) - 2))
-                a, b = self.unit[before, j], self.unit[before + 1, j]
-                fraction = np.clip(
-                    np.sum((point_unit[p] - a) * (b - a)) / np.sum((b - a) ** 2), 0, 1
-                )
-                seconds = self.for_seconds[before, j] + fraction * (
-                    self.for_seconds[before + 1, j] - self.for_seconds[before, j]
-                )
-                rows.append(
-                    {"point_id": p, "time": day + timedelta(seconds=float(seconds))}
-                )
-        return pd.DataFrame(rows).astype({"point_id": "int64"})
+        scans = np.arange(0, len(self.time), setup.width_stride)
+        xyz = ecef(self.lon[scans], self.lat[scans], self.height[scans])
+        observed = np.sum(np.linalg.norm(np.diff(xyz, axis=1), axis=-1), axis=1)
+        altitude = wgs84.geographic_position_of(
+            orbit.get_orbit_track(list(self.time[scans]))
+        ).elevation.m
+        predicted = np.vectorize(instrument.get_swath_width)(altitude)
+        return float(np.median(np.abs(predicted - observed))) / 1e3
+
+    def observe_area(self, orbit, grid, _setup):
+        """Gets the cells compared over one orbit, and which of them CrIS observed."""
+        return self.observe_orbit(orbit, grid, ORBIT_MARGIN)
 
 
-def score_swath_width(reference: Reference, instrument, orbit) -> float:
-    """
-    Gets the median absolute difference (km) from the width through the centers of
-    the fields of regard.
-    """
-    scans = np.arange(0, len(reference.time), WIDTH_SCAN_STRIDE)
-    xyz = ecef(reference.lon[scans], reference.lat[scans], reference.height[scans])
-    observed = np.sum(np.linalg.norm(np.diff(xyz, axis=1), axis=-1), axis=1)
-    altitude = wgs84.geographic_position_of(
-        orbit.get_orbit_track(list(reference.time[scans]))
-    ).elevation.m
-    predicted = np.vectorize(instrument.get_swath_width)(altitude)
-    return float(np.median(np.abs(predicted - observed))) / 1e3
-
-
-def observe_orbit(reference: Reference, orbit, grid):
-    """Gets the cells compared over one orbit, and which of them CrIS observed."""
-    lon, lat, _ = grid
-    unit = up(lon, lat)
-    day = reference.time[0].floor("D")
-    begin = day + pd.Timedelta(hours=12)
-    period = pd.Timedelta(days=1 / orbit.elements[0].mean_motion * 360 / 86400)
-    scans = np.nonzero((reference.time >= begin) & (reference.time < begin + period))[0]
-    first, last = reference.time[scans[0]], reference.time[scans[-1]]
-    distance, nearest = cKDTree(reference.unit[scans].reshape(-1, 3)).query(
-        unit, workers=-1
-    )
-    elapsed = (reference.time[scans] - first).total_seconds().to_numpy()
-    nearest_time = elapsed[nearest // N_FOR]
-    compared = (
-        (distance < 2 * np.sin(300 / 6371 / 2))
-        & (nearest_time > ORBIT_MARGIN)
-        & (nearest_time < (last - first).total_seconds() - ORBIT_MARGIN)
-    )
-    observed = np.zeros(len(unit), dtype=bool)
-    observed[compared] = reference.in_cells(unit[compared], scans[0], scans[-1])
-    return first.to_pydatetime(), last.to_pydatetime(), compared, observed
-
-
-def match_pixels(reference: Reference, instrument, orbit) -> tuple[np.ndarray, ...]:
+def match_pixels(
+    reference: Reference, instrument, orbit, stride: int
+) -> tuple[np.ndarray, ...]:
     """
     Gets the TAT-C pixel (cross-track and along-track index) of each field of view
     of each field of regard. The order of the fields of regard is that in which the
@@ -277,7 +241,7 @@ def match_pixels(reference: Reference, instrument, orbit) -> tuple[np.ndarray, .
     fields of view of the fields of regard nearest nadir, where the array is not
     turned, so that matching does not hide the errors elsewhere in the scan.
     """
-    scans = np.arange(0, len(reference.time), PIXEL_SCAN_STRIDE)
+    scans = np.arange(0, len(reference.time), stride)
     track = orbit.get_orbit_track(list(reference.time[scans]))
 
     def position(cross: int, along: int) -> np.ndarray:
@@ -307,7 +271,7 @@ def match_pixels(reference: Reference, instrument, orbit) -> tuple[np.ndarray, .
     return cross_index, np.broadcast_to(along_index, cross_index.shape)
 
 
-def measure_pixels(reference: Reference, satellite) -> np.ndarray:
+def measure_pixels(reference: Reference, satellite, stride: int) -> np.ndarray:
     """
     Gets rows of seconds from the start of the day, cross-track and along-track
     pixel index, position difference (km) from the field of view, and the field of
@@ -316,8 +280,8 @@ def measure_pixels(reference: Reference, satellite) -> np.ndarray:
     """
     instrument = satellite.get_instrument(0)
     orbit = satellite.orbit.to_gp_orbit()
-    cross_index, along_index = match_pixels(reference, instrument, orbit)
-    scans = np.arange(0, len(reference.time), PIXEL_SCAN_STRIDE)
+    cross_index, along_index = match_pixels(reference, instrument, orbit, stride)
+    scans = np.arange(0, len(reference.time), stride)
     track = orbit.get_orbit_track(list(reference.time[scans]))
     rows = []
     for j in range(N_FOR):
@@ -347,18 +311,22 @@ def measure_pixels(reference: Reference, satellite) -> np.ndarray:
     return np.concatenate(rows)
 
 
-def validate_pixels(
-    day, tle, entry, orbit, reference, write: bool, platform: str = FIT_PLATFORM
-) -> None:
-    """Scores the sample size configuration, and writes its results if requested."""
+def validate_pixels(setup: scanner.Setup, run, reference: Reference, orbit, tle):
+    """
+    Scores the sample size configuration of a run, and writes its results if the run
+    writes: as a transfer, on a platform on which the configuration was not tested.
+    """
+    entry = run.entry
     within, largest = score_published(
-        compute_published_errors(entry, PIXELS, PUBLISHED_FOOTPRINTS)
+        compute_published_errors(entry, setup.beams, setup.published_footprints)
     )
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
-    satellite = entry.to_satellite(orbit, configuration=PIXELS, platform=platform)
-    pixels = measure_pixels(reference, satellite)
+    satellite = entry.to_satellite(
+        orbit, configuration=setup.beams, platform=run.platform
+    )
+    pixels = measure_pixels(reference, satellite, setup.pixel_stride)
     median = summarize(pixels[:, 3])["median"]
     p95 = summarize(pixels[:, 3])["p95"]
     central = pixels[(pixels[:, 1] % 3 == 1) & (pixels[:, 2] == 1)]
@@ -367,33 +335,25 @@ def validate_pixels(
         f"central fields of view: median {np.median(central[:, 3]):.3f} km, "
         f"95th percentile {summarize(central[:, 3])['p95']:.3f} km"
     )
-    if not write:
+    if not run.write:
         return
-    if platform != FIT_PLATFORM:
-        write_transfer(
-            entry,
-            PIXELS,
-            platform,
-            period=f"{day:%Y-%m-%d}",
-            metrics={
-                "pixel_position_median": median,
-                "pixel_position_p95": p95,
-            },
-        )
-        return
-    rng = np.random.default_rng(3)
-    reduced = pixels[rng.choice(len(pixels), FIXTURE_PIXELS, replace=False)]
-    update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), pixels=reduced
-    )
-    write_record(
-        entry,
-        PIXELS,
-        source=source_of(__file__),
-        reference="Footprints published by the NWP SAF; fields of view of the "
-        "CrIS SDR geolocation",
-        period=f"{day:%Y-%m-%d}",
-        platforms=["noaa-20"],
+    fixture = fixture_metrics = None
+    if not run.transfer:
+        rng = np.random.default_rng(3)
+        reduced = pixels[rng.choice(len(pixels), setup.fixture_pixels, replace=False)]
+        fixture = {
+            "tle": np.array(tle),
+            "day": np.array(run.day.isoformat()),
+            "pixels": reduced,
+        }
+        fixture_metrics = {
+            "sample_size_within_3pct": within,
+            "pixel_position_median": summarize(reduced[:, 3])["median"],
+        }
+    write_results(
+        run,
+        setup.beams,
+        reference=setup.published_reference,
         metrics=[
             {"name": "sample_size_within_3pct", "value": within},
             {"name": "sample_size_largest_error", "value": largest},
@@ -404,81 +364,13 @@ def validate_pixels(
                 "value": float(np.median(central[:, 3])),
             },
         ],
-        fixture_metrics={
-            "sample_size_within_3pct": within,
-            "pixel_position_median": summarize(reduced[:, 3])["median"],
+        transfer_metrics={
+            "pixel_position_median": median,
+            "pixel_position_p95": p95,
         },
-    )
-
-
-def validate_swath(
-    day, tle, entry, orbit, reference, write: bool, platform: str = FIT_PLATFORM
-) -> None:
-    """Scores the swath configuration, and writes its results if requested."""
-
-    def satellite_for(time_step: float):
-        return entry.to_satellite(
-            orbit, configuration=SWATH, time_step=time_step, platform=platform
-        )
-
-    satellite = satellite_for(SCAN_PERIOD)
-    points = generate_points_fibonacci_lattice(500e3)
-    observed = reference.observe_passes(points)
-    start = reference.start[0].to_pydatetime()
-    end = reference.start[-1].to_pydatetime() + timedelta(seconds=SCAN_PERIOD)
-    results = score_passes(points, satellite, 0, observed, start, end, reference.gaps)
-    results["swath_width_median"] = score_swath_width(
-        reference, satellite.instruments[0], orbit
-    )
-    print(json.dumps(results), flush=True)
-    grid = build_grid()
-    first, last, compared, covered = observe_orbit(reference, orbit, grid)
-    results["footprint_iou_median"] = score_swath_area(
-        satellite_for, 0, first, last, TIME_STEPS, grid, compared, covered
-    )
-    print(json.dumps(results), flush=True)
-    if not write:
-        return
-    if platform != FIT_PLATFORM:
-        write_transfer(
-            entry,
-            SWATH,
-            platform,
-            period=f"{day:%Y-%m-%d}",
-            metrics={name: results[name] for name in GATED},
-        )
-        return
-    rng = np.random.default_rng(1)
-    picks = observed.iloc[rng.choice(len(observed), FIXTURE_PASSES, replace=False)]
-    passes = np.stack(
-        [
-            points.geometry.y.to_numpy()[picks.point_id],
-            points.geometry.x.to_numpy()[picks.point_id],
-            (picks.time - pd.Timestamp(day)).dt.total_seconds().to_numpy(),
-        ],
-        axis=-1,
-    )
-    update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
-    )
-    write_record(
-        entry,
-        SWATH,
-        source=source_of(__file__),
-        reference="CrIS SDR geolocation",
-        period=f"{day:%Y-%m-%d}",
-        platforms=["noaa-20"],
-        metrics=[
-            {"name": name, "value": float(results[name])}
-            for name in (
-                "pass_recall",
-                "pass_precision",
-                "epoch_p95",
-                "swath_width_median",
-                "footprint_iou_median",
-            )
-        ],
-        fixture_metrics=recompute_passes(satellite, 0, day, passes),
+        fixture=fixture,
+        fixture_path=setup.fixture_path,
+        fixture_metrics=fixture_metrics,
     )
 
 
@@ -523,9 +415,7 @@ def fit(data: dict[str, np.ndarray]) -> None:
     velocity = data["SCVelocity"][good].astype(float)
     # the spacecraft at each field of regard's time, extrapolated from the middle time
     spacecraft = position[:, None] + velocity[:, None] * seconds[..., None]
-    sub_lon, sub_lat, _ = validation_io.TO_GEODETIC.transform(
-        *np.moveaxis(spacecraft, -1, 0)
-    )
+    sub_lon, sub_lat, _ = TO_GEODETIC.transform(*np.moveaxis(spacecraft, -1, 0))
     nadir = -up(sub_lon, sub_lat)
     lines = normalize(
         ecef(
@@ -598,46 +488,32 @@ def fit(data: dict[str, np.ndarray]) -> None:
 
 
 def main() -> None:
-    """Validates the entry on a day of data."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--sample-sizes-only", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    parser.add_argument("--platform", default=FIT_PLATFORM)
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    if arguments.fit:
-        fit(load_fit_hours(day, arguments.directory, ARCHIVES[arguments.platform]))
-        return
-    archive = ARCHIVES[arguments.platform]
+    """Validates the entry on a day of data, or fits its values."""
+    run = parse_run("cris", __doc__)
+    archive = ARCHIVES[run.platform]
     directory = (
-        arguments.directory
-        if arguments.platform == FIT_PLATFORM
-        else arguments.directory / archive.prefix
+        run.directory
+        if run.platform == FIT_PLATFORM
+        else run.directory / archive.prefix
     )
     directory.mkdir(parents=True, exist_ok=True)
-    tle = archive.load_element_set(day, directory)
+    if run.fit:
+        fit(load_fit_hours(run.day, directory, archive))
+        return
+    setup = get_setup(FIT_PLATFORM if run.transfer else run.platform)
+    tle = run.element_set(directory=directory)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    entry = get_entry("cris")
-    reference = Reference(load_day(day, directory, archive))
+    reference = Reference(load_day(run.day, directory, archive))
     print(
-        f"{arguments.day}: {tle[0][:32]}; {len(reference.time)} scans, "
-        f"{len(reference.gaps)} gaps over a minute",
+        f"{run.day:%Y-%m-%d}: {tle[0][:32]}; {len(reference.time)} scans, "
+        f"{len(reference.gaps)} gaps over a minute; configurations "
+        f"{', '.join(run.configurations)}",
         flush=True,
     )
-    validate_pixels(
-        day, tle, entry, orbit, reference, arguments.write, arguments.platform
-    )
-    if not arguments.sample_sizes_only:
-        validate_swath(
-            day, tle, entry, orbit, reference, arguments.write, arguments.platform
-        )
-    if arguments.write:
-        print(f"wrote {FIXTURE_PATH}")
+    if setup.beams in run.configurations:
+        validate_pixels(setup, run, reference, orbit, tle)
+    if setup.swath in run.configurations:
+        scanner.validate_swath(setup, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

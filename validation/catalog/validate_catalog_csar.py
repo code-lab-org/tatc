@@ -12,18 +12,23 @@ time of each of its lines, and the restituted orbit:
 * Passes are those of lattice points inside the grids.
 * Epochs are compared with the zero-Doppler times of interior grid points.
 
-Each mode is a configuration, whose field of view and roll profile (the roll steering,
-as a function of the argument of latitude) come from `--fit`, on a day of products.
-Running on a day at least 30 days from it tests them on data held out from the fit.
+Each mode is a configuration (`iw` and `ew`), whose field of view and roll profile (the
+roll steering, as a function of the argument of latitude) come from `--fit`, on a day
+of products. Running on a day at least 30 days from it tests them on data held out from
+the fit.
 
 Needs the `validation` extra:
 
     python validation/catalog/validate_catalog_csar.py <data directory> 2026-10-02 --fit
-    python validation/catalog/validate_catalog_csar.py <data directory> 2026-08-12
-    python validation/catalog/validate_catalog_csar.py <data directory> 2026-11-10 --mode ew
+    python validation/catalog/validate_catalog_csar.py <data directory> 2026-08-12 \
+        --configuration iw
+    python validation/catalog/validate_catalog_csar.py <data directory> 2026-11-10 \
+        --configuration ew
 
-With `--write`, it writes the entry's validation record and the reduced fixture from
-which unit tests recompute the results.
+Without a day, it takes that of the record of the configuration given with
+`--configuration` (or, with `--fit`, that of the fit). With `--write`, it writes the
+entry's validation record and the reduced fixture from which unit tests recompute the
+results.
 
 With `--platform sentinel-1d`, it tests the same values on a sibling satellite, and
 adds the results to the record as a transfer, which does not count toward the tier.
@@ -31,113 +36,56 @@ adds the results to the record as a transfer, which does not count toward the ti
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import json
 import pathlib
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
 from pyproj import Transformer
-from scipy.spatial import cKDTree
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
-from tatc.analysis import collect_observations, compute_ground_track
-from tatc.catalog import get_entry
-from tatc.catalog.metrics import summarize
+from tatc.analysis import compute_ground_track
 from tatc.generation import generate_points_fibonacci_lattice
-from tatc.schemas import GeneralPerturbationsOrbit, Point, PointedInstrument
-from tatc.utils import compute_argument_of_latitude, compute_projected_ray_position
+from tatc.schemas import GeneralPerturbationsOrbit, PointedInstrument
+import sar
+from sar import (
+    CHUNK_PRODUCTS,
+    MAX_PRODUCT_GAP,
+    MIN_CHUNK_PRODUCTS,
+    TIME_STEPS,
+    to_utc,
+)
 from validation_io import (
-    write_transfer,
-    TO_GEODETIC,
     ecef,
     get_with_retries,
-    in_lattice_cells,
-    match_passes,
-    normalize,
+    parse_run,
     post_with_retries,
-    predict_passes,
-    read_element_set_file,
     recompute_passes,
-    up,
-    update_fixture,
-    write_record,
-    FIXTURES,
-    source_of,
-    ELEMENT_SET_FOLDER,
+    write_results,
 )
-
-FIXTURE_PATH = FIXTURES / "csar.npz"
-ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "sentinel_2026-08-12.3le"
 
 STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
 TOKEN_URL = "https://planetarycomputer.microsoft.com/api/sas/v1/token/sentinel-1-grd"
 
-PLATFORM = FIT_PLATFORM = "sentinel-1c"
-# sibling platforms, on which results are reported as a transfer, with public element
-# sets from CelesTrak, with epochs after each day of data
-TRANSFER_ELEMENTS = {
-    ("sentinel-1d", "2026-11-05"): [
-        "1 66315U 25251A   26312.30420366  .00000154  00000+0  42399-4 0  9994",
-        "2 66315  98.1818 317.6134 0001246  87.7733 272.3609 14.59200353 53741",
-    ],
-}
-NORAD_ID = 62261
-# the element set of the validation notebook, for the fit day, and a public element
-# set from CelesTrak, with an epoch after the day of data, for a later held-out day
-ELEMENT_SETS = {
-    "2026-10-02": [
-        "1 62261U 24235A   26275.78977191 -.00000047  00000+0 -21660-6 0  9997",
-        "2 62261  98.1826 281.5711 0001343  90.3841 269.7512 14.59198718 97106",
-    ],
-    "2026-11-10": [
-        "1 62261U 24235A   26315.56119245  .00000131  00000+0  37523-4 0  9991",
-        "2 62261  98.1823 320.7686 0001279  88.3683 271.7663 14.59200135102901",
-    ],
-}
+REFERENCE = (
+    "Geolocation grids and restituted orbits of the annotations "
+    + "of Sentinel-1 Level-1 GRD products"
+)
 MODES = {"iw": "IW", "ew": "EW"}
 SPEED_OF_LIGHT = 299792458
 
-PROFILE_BIN = 10  # deg of argument of latitude
-TIME_STEPS = (10, 30, 120)
-CHUNK_PRODUCTS = 8
-MIN_CHUNK_PRODUCTS = 3
-MAX_PRODUCT_GAP = 5  # s, between the last line of a product and the first of the next
-EPOCH_PRODUCTS = 40
-EPOCH_LINES = 3
-EPOCH_SAMPLES = np.linspace(0.1, 0.9, 5)
-POINT_SPACING = 100e3
-PRODUCT_RADIUS = 2 * np.sin(350 / 6371 / 2)  # chord, on the unit sphere
-SEARCH_WINDOW = timedelta(minutes=10)
-FIXTURE_PASSES = 150
 
-
-def get_element_set(day: datetime) -> list[str]:
-    """Gets the element set of a day."""
-    key = f"{day:%Y-%m-%d}"
-    if PLATFORM != FIT_PLATFORM:
-        return TRANSFER_ELEMENTS[(PLATFORM, key)]
-    if key in ELEMENT_SETS:
-        return ELEMENT_SETS[key]
-    return read_element_set_file(ELEMENT_SET_FILE, NORAD_ID, day)
-
-
-def to_utc(day: datetime, seconds) -> list[datetime]:
-    """Converts seconds from the start of a day to times."""
-    return [day + timedelta(seconds=float(s)) for s in np.atleast_1d(seconds)]
-
-
-def search_items(day: datetime) -> list[dict]:
-    """Gets the catalog items of the IW and EW products of a day."""
+def search_items(day: datetime, platform: str) -> list[dict]:
+    """Gets the catalog items of a platform's IW and EW products of a day."""
     body = {
         "collections": ["sentinel-1-grd"],
         "datetime": f"{day:%Y-%m-%d}T00:00:00Z/{day:%Y-%m-%d}T23:59:59Z",
         "limit": 1000,
-        "query": {"platform": {"eq": PLATFORM}},
+        "query": {"platform": {"eq": platform}},
     }
     items = []
     while True:
@@ -197,11 +145,14 @@ def read_annotation(item: dict, token: str, day: datetime) -> dict:
     }
 
 
-def load_products(day: datetime, directory: pathlib.Path) -> list[dict]:
-    """Gets the reduced annotations of a day's IW and EW products, in time order."""
-    path = directory / f"csar_{PLATFORM}_{day:%Y%m%d}.npz"
+def load_products(day: datetime, directory: pathlib.Path, platform: str) -> list[dict]:
+    """
+    Gets the reduced annotations of a platform's IW and EW products of a day, in time
+    order.
+    """
+    path = directory / f"csar_{platform}_{day:%Y%m%d}.npz"
     if not path.exists():
-        items = search_items(day)
+        items = search_items(day, platform)
         print(f"reading the annotations of {len(items)} products", flush=True)
         token = get_with_retries(TOKEN_URL).json()["token"]
         with concurrent.futures.ThreadPoolExecutor(16) as pool:
@@ -269,111 +220,9 @@ def load_products(day: datetime, directory: pathlib.Path) -> list[dict]:
     return products
 
 
-def interpolate_orbit(product: dict, seconds) -> tuple[np.ndarray, np.ndarray]:
-    """Gets the restituted position and velocity at times (cubic Hermite)."""
-    t, p, v = (
-        product["orbit_time"],
-        product["orbit_position"],
-        product["orbit_velocity"],
-    )
-    seconds = np.atleast_1d(seconds)
-    k = np.clip(np.searchsorted(t, seconds) - 1, 0, len(t) - 2)
-    h = (t[k + 1] - t[k])[:, None]
-    s = ((seconds - t[k]) / (t[k + 1] - t[k]))[:, None]
-    position = (
-        (2 * s**3 - 3 * s**2 + 1) * p[k]
-        + (s**3 - 2 * s**2 + s) * h * v[k]
-        + (-2 * s**3 + 3 * s**2) * p[k + 1]
-        + (s**3 - s**2) * h * v[k + 1]
-    )
-    velocity = (
-        (6 * s**2 - 6 * s) / h * p[k]
-        + (3 * s**2 - 4 * s + 1) * v[k]
-        + (-6 * s**2 + 6 * s) / h * p[k + 1]
-        + (3 * s**2 - 2 * s) * v[k + 1]
-    )
-    return position, velocity
-
-
-def measure_lines(products: list[dict], orbit, day: datetime) -> pd.DataFrame:
-    """
-    Gets the roll angles (positive left) of the near-range and far-range points of each
-    grid line, measured from the geodetic nadir in the plane of the line, with the
-    argument of latitude of the satellite from the element set.
-    """
-    rows = []
-    for k, product in enumerate(products):
-        times = product["time"]
-        position, velocity = interpolate_orbit(product, times)
-        lon, lat, _ = TO_GEODETIC.transform(*position.T)
-        nadir = -up(lon, lat)
-        left = normalize(np.cross(velocity, nadir))
-        angles = []
-        for column in (0, -1):
-            los = normalize(
-                ecef(product["lon"][:, column], product["lat"][:, column]) - position
-            )
-            angles.append(
-                np.degrees(
-                    np.arctan2(
-                        np.sum(los * left, axis=-1), np.sum(los * nadir, axis=-1)
-                    )
-                )
-            )
-        track = orbit.to_gp_orbit().get_orbit_track(to_utc(day, times))
-        rows.append(
-            pd.DataFrame(
-                {
-                    "product": k,
-                    "mode": product["mode"],
-                    "argument_of_latitude": compute_argument_of_latitude(
-                        track.position.m, track.velocity.m_per_s
-                    ),
-                    "near": angles[0],
-                    "far": angles[1],
-                }
-            )
-        )
-    lines = pd.concat(rows, ignore_index=True)
-    lines["roll"] = (lines.near + lines.far) / 2
-    lines["field_of_view"] = np.abs(lines.near - lines.far)
-    return lines
-
-
-def fit_profile(lines: pd.DataFrame) -> list[tuple[float, float]]:
-    """Gets the median roll angles of the lines in bins of argument of latitude."""
-    centers = (
-        lines.argument_of_latitude // PROFILE_BIN
-    ) * PROFILE_BIN + PROFILE_BIN / 2
-    medians = lines.groupby(centers).roll.median()
-    return [(float(u), round(float(r), 4)) for u, r in medians.items()]
-
-
-def score_edges(products, orbit, day, instrument) -> dict[str, np.ndarray]:
-    """
-    Gets the horizontal distances (km) between the near-range and far-range points of
-    the grid lines and the rays at the edges of the view at the times of the lines.
-    """
-    distances = {"near": [], "far": []}
-    for product in products:
-        times = product["time"]
-        track = orbit.to_gp_orbit().get_orbit_track(to_utc(day, times))
-        roll = instrument.get_roll_angle(track)
-        half = instrument.cross_track_field_of_view / 2
-        # right-looking views have negative roll angles, with near range on the left
-        for edge, column, sign in (("near", 0, 1), ("far", -1, -1)):
-            ray = compute_projected_ray_position(track, 0, 0, roll + sign * half)
-            lon, lat = product["lon"][:, column], product["lat"][:, column]
-            offset = ecef(ray.longitude.degrees, ray.latitude.degrees) - ecef(lon, lat)
-            vertical = up(lon, lat)
-            horizontal = offset - np.sum(offset * vertical, axis=-1)[:, None] * vertical
-            distances[edge].append(np.linalg.norm(horizontal, axis=-1) / 1e3)
-    return {edge: np.concatenate(values) for edge, values in distances.items()}
-
-
 def fit(products, orbit, day) -> None:
     """Measures the field of view and roll profile of each mode."""
-    lines = measure_lines(products, orbit, day)
+    lines = sar.measure_lines(products, orbit, day)
     for key, mode in MODES.items():
         chosen = lines[lines["mode"] == mode]
         field_of_view = float(chosen.field_of_view.median())
@@ -386,7 +235,7 @@ def fit(products, orbit, day) -> None:
             f"(p5 {chosen.field_of_view.quantile(0.05):.4f}, p95 "
             f"{chosen.field_of_view.quantile(0.95):.4f})"
         )
-        profile = fit_profile(chosen)
+        profile = sar.fit_profile(chosen)
         print(f"  roll profile: {json.dumps(profile)}")
         print(f"  far look angle, largest: {-chosen.far.min():.4f} deg")
         # a check within the fit day: profiles of even products, on odd products
@@ -394,7 +243,7 @@ def fit(products, orbit, day) -> None:
         odd = sorted(set(chosen["product"][chosen["product"] % 2 == 1]))
         for label, parameters in (
             ("fixed roll", {"roll_angle": roll}),
-            ("roll profile", {"roll_angle_profile": fit_profile(even)}),
+            ("roll profile", {"roll_angle_profile": sar.fit_profile(even)}),
         ):
             instrument = PointedInstrument(
                 name="check",
@@ -404,7 +253,9 @@ def fit(products, orbit, day) -> None:
                 is_rectangular=True,
                 **parameters,
             )
-            edges = score_edges([products[k] for k in odd], orbit, day, instrument)
+            edges = sar.score_edges(
+                [products[k] for k in odd], orbit, day, instrument, "right"
+            )
             print(
                 f"  {label}, odd products: edges p95 near "
                 f"{np.percentile(edges['near'], 95):.2f} km, far "
@@ -538,222 +389,74 @@ def score_area(products, day, satellite_for) -> pd.DataFrame:
     return table
 
 
-def observe_passes(points, products, day) -> pd.DataFrame:
-    """Finds the passes of points inside grids, one per point and acquisition."""
-    lon, lat = points.geometry.x.to_numpy(), points.geometry.y.to_numpy()
-    # geocentric directions, as for the grids
-    unit = normalize(ecef(lon, lat))
-    tree = cKDTree(unit)
-    rows = []
-    for product in products:
-        cells = normalize(ecef(product["lon"], product["lat"]))
-        center = normalize(cells.reshape(-1, 3).mean(axis=0))
-        nearby = np.array(tree.query_ball_point(center, PRODUCT_RADIUS), dtype=int)
-        if len(nearby) == 0:
-            continue
-        inside = in_lattice_cells(
-            cells, np.ones(len(cells) - 1, dtype=bool), unit[nearby]
-        )
-        found = nearby[inside]
-        if len(found) == 0:
-            continue
-        # the time of the nearest grid line
-        _, nearest = cKDTree(cells.reshape(-1, 3)).query(unit[found])
-        line = nearest // cells.shape[1]
-        rows += [
-            {
-                "point_id": int(i),
-                "datatake": product["datatake"],
-                "time": pd.Timestamp(day) + pd.Timedelta(seconds=product["time"][j]),
-            }
-            for i, j in zip(found, line, strict=True)
-        ]
-    observed = pd.DataFrame(rows).drop_duplicates(["point_id", "datatake"])
-    return observed.reset_index(drop=True)
-
-
-def score_passes(points, satellite, products, day) -> dict:
-    """Compares the passes predicted with those of lattice points inside grids."""
-    observed = observe_passes(points, products, day)
-    ids = np.sort(observed.point_id.unique())
-    observed["point_id"] = np.searchsorted(ids, observed.point_id)
-    subset = points.iloc[ids].reset_index(drop=True)
-    start = to_utc(day, products[0]["time"][0])[0] - SEARCH_WINDOW
-    end = to_utc(day, products[-1]["time"][-1])[0] + SEARCH_WINDOW
-    print(
-        f"predicting passes of {len(subset)} points; {len(observed)} observed",
-        flush=True,
-    )
-    predicted = predict_passes(subset, satellite, 0, start, end, [])
-    return match_passes(predicted, observed)
-
-
-def epoch_points(products: list[dict]) -> np.ndarray:
-    """
-    Gets interior grid points of a sample of products, as rows of latitude, longitude,
-    and zero-Doppler seconds from the start of the day.
-    """
-    stride = max(1, len(products) // EPOCH_PRODUCTS)
-    rows = []
-    for product in products[::stride]:
-        n_line, n_sample = product["lon"].shape
-        for i in np.linspace(1, n_line - 2, EPOCH_LINES).astype(int):
-            for j in (EPOCH_SAMPLES * (n_sample - 1)).round().astype(int):
-                rows.append(
-                    [product["lat"][i, j], product["lon"][i, j], product["time"][i]]
-                )
-    return np.array(rows)
-
-
-def score_epochs(points: np.ndarray, satellite, day) -> np.ndarray:
-    """Gets the differences (s) of epochs from the zero-Doppler times of points."""
-
-    def observe(row):
-        latitude, longitude, seconds = row
-        time = day + timedelta(seconds=float(seconds))
-        found = collect_observations(
-            Point(latitude=float(latitude), longitude=float(longitude)),
-            satellite,
-            time - SEARCH_WINDOW,
-            time + SEARCH_WINDOW,
-        )
-        if found.empty:
-            return np.nan
-        differences = (found.epoch - pd.Timestamp(time)).dt.total_seconds().to_numpy()
-        return differences[np.argmin(np.abs(differences))]
-
-    with concurrent.futures.ThreadPoolExecutor(8) as pool:
-        return np.array(list(pool.map(observe, points)))
-
-
-def validate_mode(key, day, tle, entry, orbit, products, write) -> None:
+def validate_mode(run, key, tle, orbit, products) -> None:
     """Scores the configuration of a mode, and writes its results if requested."""
+    day = run.day
     chosen = [p for p in products if p["mode"] == MODES[key]]
     print(f"--- {key}: {len(chosen)} products", flush=True)
 
     def satellite_for(time_step: float):
-        return entry.to_satellite(
-            orbit, configuration=key, time_step=time_step, platform=PLATFORM
+        return run.entry.to_satellite(
+            orbit, configuration=key, time_step=time_step, platform=run.platform
         )
 
     satellite = satellite_for(TIME_STEPS[0])
-    instrument = satellite.instruments[0]
-    edges = score_edges(chosen, orbit, day, instrument)
-    for edge, values in edges.items():
-        print(
-            f"swath edge, {edge} range: median {np.median(values):.2f} km, p95 "
-            f"{np.percentile(values, 95):.2f} km",
-            flush=True,
-        )
-    points = epoch_points(chosen)
-    differences = score_epochs(points, satellite, day)
-    found = np.isfinite(differences)
-    epochs = summarize(differences[found])
-    print(
-        f"epochs: {int(found.sum())} of {len(points)} points observed, median "
-        f"{epochs['median']:+.3f} s, p95 {epochs['p95']:.3f} s",
-        flush=True,
-    )
-    lattice = generate_points_fibonacci_lattice(POINT_SPACING)
-    passes = score_passes(lattice, satellite, chosen, day)
+    # right-looking views have negative roll angles, with near range on the left
+    edges = sar.score_edges(chosen, orbit, day, satellite.instruments[0], "right")
+    sar.print_edges(edges)
+    points = sar.epoch_points(chosen)
+    differences = sar.score_epochs(points, satellite, day)
+    epochs = sar.summarize_epochs(differences)
+    lattice = generate_points_fibonacci_lattice(sar.POINT_SPACING)
+    passes = sar.score_passes(lattice, satellite, chosen, day)
     print(json.dumps(passes), flush=True)
     area = score_area(chosen, day, satellite_for)
-    metrics = [
-        {"name": "pass_recall", "value": float(passes["pass_recall"])},
-        *[
-            {
-                "name": "swath_edge_p95",
-                "value": float(np.percentile(values, 95)),
-                "scope": f"{edge} range",
-            }
-            for edge, values in edges.items()
-        ],
-        *[
-            {
-                "name": name,
-                "value": float(value),
-                "scope": f"time step {time_step} s",
-            }
-            for time_step in TIME_STEPS
-            for name, value in (
-                ("footprint_iou_median", area[f"iou_{time_step}"].median()),
-                ("footprint_iou_p5", area[f"iou_{time_step}"].quantile(0.05)),
-            )
-        ],
-        {"name": "epoch_p95", "value": float(epochs["p95"])},
-        {"name": "epoch_median", "value": float(epochs["median"])},
-    ]
+    metrics = sar.get_metrics(passes, edges, area, epochs)
     print(json.dumps(metrics), flush=True)
-    if not write:
+    if not run.write:
         return
-    if PLATFORM != FIT_PLATFORM:
-        write_transfer(
-            entry,
-            key,
-            PLATFORM,
-            period=f"{day:%Y-%m-%d}",
-            metrics=metrics,
-        )
+    if run.transfer:
+        write_results(run, key, reference=REFERENCE, metrics=metrics)
         return
-    rng = np.random.default_rng(1)
-    fixture = points[found][
-        rng.choice(int(found.sum()), min(FIXTURE_PASSES, int(found.sum())), False)
-    ]
-    # each mode keeps its own element set and day, since modes may be tested on
-    # different days
-    update_fixture(
-        FIXTURE_PATH,
-        **{
+    fixture = sar.pick_points(points, differences)
+    write_results(
+        run,
+        key,
+        reference=REFERENCE,
+        metrics=metrics,
+        # each mode keeps its own element set and day, since modes may be tested on
+        # different days
+        fixture={
             f"tle_{key}": np.array(tle),
             f"day_{key}": np.array(day.isoformat()),
             f"passes_{key}": fixture,
         },
-    )
-    write_record(
-        entry,
-        key,
-        source=source_of(__file__),
-        reference="Geolocation grids and restituted orbits of the annotations "
-        + "of Sentinel-1 Level-1 GRD products",
-        period=f"{day:%Y-%m-%d}",
-        platforms=[PLATFORM],
-        metrics=metrics,
         fixture_metrics=recompute_passes(satellite, 0, day, fixture),
     )
 
 
 def main() -> None:
     """Fits or validates the entry on a day of data."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--mode", choices=sorted(MODES), action="append")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    parser.add_argument(
-        "--download-only",
-        action="store_true",
-        help="read and cache the reference data, without scoring",
+    run = parse_run(
+        "csar",
+        __doc__,
+        add_arguments=lambda parser: parser.add_argument(
+            "--download-only",
+            action="store_true",
+            help="read and cache the reference data, without scoring",
+        ),
     )
-    parser.add_argument("--platform", default=FIT_PLATFORM)
-    arguments = parser.parse_args()
-    global PLATFORM  # pylint: disable=global-statement
-    PLATFORM = arguments.platform
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    products = load_products(day, arguments.directory)
-    if arguments.download_only:
+    products = load_products(run.day, run.directory, run.platform)
+    if run.download_only:
         return
-    tle = get_element_set(day)
+    tle = run.element_set()
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    print(f"{PLATFORM}, {arguments.day}: {tle[0][:32]}", flush=True)
-    if arguments.fit:
-        fit(products, orbit, day)
+    print(f"{run.platform}, {run.day:%Y-%m-%d}: {tle[0][:32]}", flush=True)
+    if run.fit:
+        fit(products, orbit, run.day)
         return
-    entry = get_entry("csar")
-    for key in arguments.mode or list(MODES):
-        validate_mode(key, day, tle, entry, orbit, products, arguments.write)
+    for key in run.configurations:
+        validate_mode(run, key, tle, orbit, products)
 
 
 if __name__ == "__main__":

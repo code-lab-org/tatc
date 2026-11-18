@@ -1,6 +1,7 @@
 """
 Validates the OMPS Nadir Mapper catalog entry against the geolocation of the OMPS
-total column product (`OMPS-TC-GEO`) of NOAA-20 and NOAA-21, using the exact values
+total column product (`OMPS-TC-GEO`) of NOAA-20, NOAA-21, and Suomi NPP (retired on
+2026-11-02, whose archive ends that day), using the exact values
 of the entry through public TAT-C methods. Each platform's scan angles are fitted to
 the positions of the samples on one day (run with `--fit`), which needs no element
 set: running on a day at least 30 days from it tests the entry on data held out from
@@ -10,10 +11,16 @@ Reads anonymous public data, and needs the `validation` extra:
 
     python validation/catalog/validate_catalog_omps.py <data directory> 2026-10-01 --platform noaa-21 --fit
     python validation/catalog/validate_catalog_omps.py <data directory> 2026-11-05 --platform noaa-21
+    python validation/catalog/validate_catalog_omps.py <data directory> 2026-10-01 --platform suomi-npp --fit
+    python validation/catalog/validate_catalog_omps.py <data directory> 2026-08-25 --platform suomi-npp
 
-A day is reduced to every second line (2.5 s on NOAA-21, 5 s on NOAA-20) and every
+A day is reduced to every second line (2.5 s on NOAA-21, 5 s on NOAA-20, 15 s on
+Suomi NPP) and every
 fourth sample (and the last). The Nadir Mapper images the sunlit part of each orbit, whose dark part is a
 gap.
+
+Without a day, it takes that of the platform's record (or, with `--fit`, of the
+fit); the platform defaults to NOAA-21.
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
@@ -21,26 +28,24 @@ which unit tests recompute the results.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import functools
 import io
 import pathlib
-from datetime import datetime, timezone
+from datetime import datetime
 
 import h5py
 import numpy as np
 
-from tatc.catalog import get_entry
 from tatc.schemas import GeneralPerturbationsOrbit
-from gesdisc_scanner import Reference, Setup, fit, fit_yaw, validate_swath
+from scanner import Reference, Setup, fit, fit_yaw, validate_swath
 from validation_io import (
     ARCHIVES,
-    Archive,
-    TO_GEODETIC,
-    iet_to_utc,
     FIXTURES,
-    source_of,
+    TO_GEODETIC,
+    Archive,
+    iet_to_utc,
+    parse_run,
 )
 
 GROUP = "All_Data/OMPS-TC-GEO_All/"
@@ -49,6 +54,7 @@ LINE_STRIDE, SAMPLE_STRIDE = 2, 4
 CONFIGURATIONS = {
     "noaa-21": ("swath_noaa_21", FIXTURES / "omps_nm_noaa_21.npz"),
     "noaa-20": ("swath_noaa_20", FIXTURES / "omps_nm_noaa_20.npz"),
+    "suomi-npp": ("swath_suomi_npp", FIXTURES / "omps_nm_suomi_npp.npz"),
 }
 
 
@@ -116,7 +122,8 @@ def load_reference(
         "pixels": samples,
         "line_stride": LINE_STRIDE,
     }
-    # the reporting period differs by platform (1.25 s on NOAA-21, 2.5 s on NOAA-20)
+    # the reporting period differs by platform (1.25 s on NOAA-21, 2.5 s on NOAA-20,
+    # 7.5 s on Suomi NPP)
     return Reference(day, data, float(np.median(np.diff(data["time"]))))
 
 
@@ -124,14 +131,11 @@ def make_setup(platform: str) -> Setup:
     """Gets what a run on a platform validates, and where it writes its results."""
     swath, fixture = CONFIGURATIONS[platform]
     return Setup(
-        entry_id="omps_nm",
-        platform=platform,
         swath=swath,
-        beams="",
-        size_instrument="OMPS Nadir Mapper",
+        beams=None,
+        size_instrument=None,
         published_footprints=(),
         fixture_path=fixture,
-        source=source_of(__file__),
         reference="OMPS-TC-GEO (sample positions and times), NOAA Open Data "
         "Dissemination",
         published_reference="",
@@ -143,37 +147,29 @@ def make_setup(platform: str) -> Setup:
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--platform", default="noaa-21", choices=sorted(CONFIGURATIONS))
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    archive = ARCHIVES[arguments.platform]
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    reference = load_reference(day, arguments.directory, archive)
+    run = parse_run("omps_nm", __doc__)
+    archive = ARCHIVES[run.platform]
+    reference = load_reference(run.day, run.directory, archive)
     print(
-        f"{arguments.day} ({arguments.platform}): {len(reference.time)} lines from "
+        f"{run.day:%Y-%m-%d} ({run.platform}): {len(reference.time)} lines from "
         f"{reference.time[0]}, {reference.pixels} samples, {len(reference.gaps)} gaps "
         "over a minute",
         flush=True,
     )
-    if arguments.fit:
+    if run.fit:
         for frame in ("inertial", "earth_fixed"):
             fit(reference, frame)
             fit_yaw(reference, frame)
         return
-    tle = archive.load_element_set(day, arguments.directory)
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    setup = make_setup(arguments.platform)
-    validate_swath(
-        setup, day, tle, get_entry("omps_nm"), orbit, reference, arguments.write
-    )
-    if arguments.write:
-        print(f"wrote {setup.fixture_path}")
+    # a transfer tests the configuration of the default platform
+    entry = run.entry
+    default = entry.configurations[entry.default_configuration].platforms[0]
+    setup = make_setup(default if run.transfer else run.platform)
+    if setup.swath in run.configurations:
+        validate_swath(setup, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

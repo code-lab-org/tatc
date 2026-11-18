@@ -18,16 +18,16 @@ checked with `collect_observations`.
 Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`. Only the
 geometry is read, with range requests:
 
-    python validation/catalog/validate_catalog_tempo.py <data directory> 2026-10-06 --fit
-    python validation/catalog/validate_catalog_tempo.py <data directory> 2026-11-08
+    python validation/catalog/validate_catalog_tempo.py <data directory> [DAY] --fit
+    python validation/catalog/validate_catalog_tempo.py <data directory> [DAY]
 
-With `--write`, it writes the entry's validation record and the reduced fixture from
-which unit tests recompute the results.
+The day defaults to that of the entry's record (the time of its scan), or with
+`--fit` to that of the fit. With `--write`, it writes the entry's validation record
+and the reduced fixture from which unit tests recompute the results.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import json
 import pathlib
@@ -43,34 +43,22 @@ from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 
 from tatc.analysis import collect_observations
-from tatc.catalog import get_entry
 from tatc.catalog.metrics import compute_mask_iou
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from tatc.utils import VelocityFrame, compute_view_tangents
 from validation_io import (
     RemoteFile,
-    add_earth_orientation,
     ecef,
     get_with_retries,
-    up,
-    FIXTURES,
-    source_of,
     login_earthdata,
-    write_record,
+    parse_run,
+    up,
+    write_results,
 )
 
-FIXTURE_PATH = FIXTURES / "tempo.npz"
 SHORT_NAME, VERSION = "TEMPO_RAD_L1", "V04"
-PLATFORM = "intelsat-40e"
 CONFIGURATION = "field_of_regard"
-# public element sets from CelesTrak, with epochs after each day of data
-ELEMENTS = {
-    "2026-11-08": (
-        "1 56174U 23052A   26313.52440553 -.00000165  00000+0  00000+0 0  9999",
-        "2 56174   0.0146 267.4057 0001991 300.1798 298.9210  1.00271930 13283",
-    ),
-}
 GPS_EPOCH = datetime(1980, 1, 6, tzinfo=timezone.utc)
 BAND = "band_290_490_nm"
 GRANULES = 9  # of a full scan
@@ -340,11 +328,11 @@ def check_points(satellite, time, lon, lat, rng) -> tuple[np.ndarray, np.ndarray
         return picks, np.array(list(pool.map(observe, picks)), dtype=bool)
 
 
-def validate(day, tle, scan, write) -> None:
+def validate(run, day: datetime, scan: dict) -> None:
     """Scores the configuration on a held-out scan, and writes its results if requested."""
-    entry = get_entry("tempo")
-    orbit = GeneralPerturbationsOrbit.from_tle(list(tle))
-    satellite = entry.to_satellite(orbit, platform=PLATFORM)
+    tle = run.element_set(day)
+    orbit = GeneralPerturbationsOrbit.from_tle(tle)
+    satellite = run.entry.to_satellite(orbit, platform=run.platform)
     time = scan_time(scan)
     track = orbit.to_gp_orbit().get_orbit_track([time])[0]
     area = outline(scan)
@@ -375,30 +363,23 @@ def validate(day, tle, scan, write) -> None:
     print(
         f"collect_observations agrees with the grid on {agreement:.1f}% of {len(picks)} points near the edges"
     )
-    if not write:
+    if not run.write:
         return
     keep = rng.choice(len(lon), FIXTURE_SAMPLES, replace=False)
     sample = np.concatenate([near[picks], keep])
     fixture = np.stack([lat[sample], lon[sample], observed[sample]], axis=-1)
-    np.savez_compressed(
-        FIXTURE_PATH,
-        **add_earth_orientation(
-            {
-                "tle": np.array(tle),
-                "time": np.array(time.isoformat()),
-                "points": fixture,
-            }
-        ),
-    )
     fixture_predicted = predict_grid(satellite, track, lon[sample], lat[sample])
-    write_record(
-        entry,
+    write_results(
+        run,
         CONFIGURATION,
-        source=source_of(__file__),
         reference=f"{SHORT_NAME} {VERSION} (outer corners of the outermost "
         "pixels of a full scan, ultraviolet band)",
         period=f"{time:%Y-%m-%dT%H:%MZ}",
-        platforms=[PLATFORM],
+        fixture={
+            "tle": np.array(tle),
+            "time": np.array(time.isoformat()),
+            "points": fixture,
+        },
         metrics=[
             {"name": "field_of_regard_iou", "value": float(iou)},
             {
@@ -416,24 +397,18 @@ def validate(day, tle, scan, write) -> None:
             * float(np.mean(fixture_predicted == fixture[:, 2].astype(bool)))
         },
     )
-    print(f"wrote {FIXTURE_PATH}")
 
 
 def main() -> None:
     """Fits or validates the entry on a scan."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    scan = load_scan(day, arguments.directory)
-    if arguments.fit:
+    run = parse_run("tempo", __doc__)
+    # the start of the day (a record states the time of its scan)
+    day = run.day.replace(hour=0, minute=0, second=0, microsecond=0)
+    scan = load_scan(day, run.directory)
+    if run.fit:
         fit(scan)
         return
-    validate(day, ELEMENTS[arguments.day], scan, arguments.write)
+    validate(run, day, scan)
 
 
 if __name__ == "__main__":

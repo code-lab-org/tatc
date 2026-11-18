@@ -14,6 +14,10 @@ geometry is read, with range requests:
     python validation/catalog/validate_catalog_oco2.py <data directory> 2026-10-04 --fit
     python validation/catalog/validate_catalog_oco2.py <data directory> 2026-11-07
 
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit),
+and `--configuration` tests (or fits) one mode's configuration (`nadir` or
+`glint`).
+
 The swath, about 10 km wide, is too narrow for a global lattice of points or grid, so
 a sample of soundings is scored instead: whether the view observes each within two
 minutes of its time, and the epoch's difference. The swath width is compared, frame
@@ -26,7 +30,6 @@ which unit tests recompute the results.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import json
 import pathlib
@@ -43,31 +46,23 @@ from skyfield.framelib import itrs
 from skyfield.units import Distance
 
 from tatc.analysis import collect_observations, compute_ground_track
-from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from tatc.utils import compute_projected_ray_position, compute_specular_point
-from gesdisc_scanner import Product, Reference, load_day, tai93_to_seconds
+from scanner import Product, Reference, load_day, tai93_to_seconds
 from validation_io import (
     TO_GEODETIC,
     RemoteFile,
     ecef,
+    parse_run,
     recompute_passes,
     transform_geometry,
     up,
-    update_fixture,
-    write_record,
+    write_results,
     FIXTURES,
-    source_of,
 )
 
-# public element sets from CelesTrak, with epochs after each day of data
-OCO2_ELEMENTS = (
-    "1 40059U 14035A   26313.25381781  .00000489  00000+0  11850-3 0  9999",
-    "2 40059  98.2167 252.4180 0000990  88.3344 271.7968 14.57127601657173",
-)
-ELEMENTS = {"2026-11-07": OCO2_ELEMENTS}
 MODES = {b"ND": 0, b"GL": 1, b"TG": 2}
 CONFIGURATIONS = {0: "nadir", 1: "glint"}
 FRAME_PERIOD = 0.333
@@ -237,17 +232,17 @@ def score_strips(satellite_for, reference: Reference, segments) -> tuple[float, 
     return min(medians.values()), medians
 
 
-def validate_mode(day, tle, orbit, mode: int, reference: Reference, write: bool):
+def validate_mode(run, tle, orbit, mode: int, reference: Reference):
     """
     Scores a mode's configuration on a sample of soundings and segments of the track,
-    and writes its results if requested.
+    and writes its results if the run writes.
     """
     key = CONFIGURATIONS[mode]
-    entry = get_entry("oco2")
+    day = run.day
 
     def satellite_for(time_step):
-        return entry.to_satellite(
-            orbit, configuration=key, time_step=time_step, platform="oco-2"
+        return run.entry.to_satellite(
+            orbit, configuration=key, time_step=time_step, platform=run.platform
         )
 
     rng = np.random.default_rng(1)
@@ -276,7 +271,7 @@ def validate_mode(day, tle, orbit, mode: int, reference: Reference, write: bool)
         satellite_for, reference, find_segments(reference)
     )
     print(json.dumps(results), flush=True)
-    if not write:
+    if not run.write:
         return
     picks = rng.choice(SAMPLE, FIXTURE_PASSES, replace=False)
     passes = np.stack(
@@ -287,18 +282,11 @@ def validate_mode(day, tle, orbit, mode: int, reference: Reference, write: bool)
         ],
         axis=-1,
     )
-    fixture = FIXTURES / f"oco2_{key}.npz"
-    update_fixture(
-        fixture, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
-    )
-    write_record(
-        entry,
+    write_results(
+        run,
         key,
-        source=source_of(__file__),
         reference=f"OCO2_L1B_Science version 11.2 (sounding positions and "
         f"times, {key} orbits)",
-        period=f"{day:%Y-%m-%d}",
-        platforms=["oco-2"],
         metrics=[
             {"name": name, "value": float(results[name])}
             for name in (
@@ -309,9 +297,14 @@ def validate_mode(day, tle, orbit, mode: int, reference: Reference, write: bool)
                 "footprint_iou_median",
             )
         ],
+        fixture={
+            "tle": np.array(tle),
+            "day": np.array(day.isoformat()),
+            "passes": passes,
+        },
+        fixture_path=FIXTURES / f"oco2_{key}.npz",
         fixture_metrics=recompute_passes(satellite_for(TIME_STEPS[0]), 0, day, passes),
     )
-    print(f"wrote {fixture}")
 
 
 def load_reference(day: datetime, directory: pathlib.Path, mode: int) -> Reference:
@@ -438,30 +431,25 @@ def fit_nadir(reference: Reference) -> None:
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
+    run = parse_run("oco2", __doc__)
     for mode, key in CONFIGURATIONS.items():
-        reference = load_reference(day, arguments.directory, mode)
+        if key not in run.configurations:
+            continue
+        reference = load_reference(run.day, run.directory, mode)
         print(
-            f"{arguments.day} ({key}): {len(reference.time)} frames from "
+            f"{run.day:%Y-%m-%d} ({key}): {len(reference.time)} frames from "
             f"{reference.time[0]}, {len(reference.gaps)} gaps over a minute",
             flush=True,
         )
-        if arguments.fit:
+        if run.fit:
             if mode == 0:
                 fit_nadir(reference)
             else:
                 fit_glint(reference)
             continue
-        tle = list(ELEMENTS[arguments.day])
+        tle = run.element_set()
         orbit = GeneralPerturbationsOrbit.from_tle(tle)
-        validate_mode(day, tle, orbit, mode, reference, arguments.write)
+        validate_mode(run, tle, orbit, mode, reference)
 
 
 if __name__ == "__main__":

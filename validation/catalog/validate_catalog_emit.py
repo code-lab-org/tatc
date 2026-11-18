@@ -14,8 +14,12 @@ is read, with range requests, and the time of every 8th of those lines, interpol
 between them:
 
     python validation/catalog/validate_catalog_emit.py <data directory> 2026-10-04 --fit
-    python validation/catalog/validate_catalog_emit.py <data directory> 2026-10-04 --fit-view
+    python validation/catalog/validate_catalog_emit.py <data directory> 2026-10-04 --fit --fit-view
     python validation/catalog/validate_catalog_emit.py <data directory> 2026-11-08
+
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
+With `--fit-view`, it centers the view in TAT-C's frame, with the entry's yaw and
+pitch, instead of fitting the view's angles.
 
 The swath, about 75 km wide, is imaged in runs of scenes lasting about a minute (at
 most about five), too short and sparse for a global lattice of points or grid, so a
@@ -30,7 +34,6 @@ which unit tests recompute the results.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import json
 import pathlib
@@ -41,37 +44,21 @@ import h5py
 import numpy as np
 
 from tatc.analysis import compute_ground_track
-from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.schemas import GeneralPerturbationsOrbit
-from gesdisc_scanner import Product, Reference, find_granules, fit, fit_view, fit_yaw
+from scanner import Product, Reference, find_granules, fit, fit_view, fit_yaw
 from validate_catalog_ecostress import read_ephemeris
 from validate_catalog_oco2 import area, find_epochs, observed_strip, score_width
 from validation_io import (
     TO_GEODETIC,
     RemoteFile,
-    recompute_passes,
-    update_fixture,
-    write_record,
-    FIXTURES,
-    source_of,
     login_earthdata,
+    parse_run,
+    recompute_passes,
+    write_results,
 )
 
-FIXTURE_PATH = FIXTURES / "emit.npz"
-PLATFORM = "iss"
 CONFIGURATION = "swath"
-# public element sets from CelesTrak, with epochs after each day of data
-ELEMENTS = {
-    "2026-11-07": (
-        "1 25544U 98067A   26313.20747964  .00008201  00000+0  15534-3 0  9995",
-        "2 25544  51.6321 302.4538 0007297   5.2479 354.8585 15.49270212594231",
-    ),
-    "2026-11-08": (
-        "1 25544U 98067A   26314.17503267  .00009346  00000+0  17575-3 0  9996",
-        "2 25544  51.6322 297.6644 0007292   8.9462 351.1656 15.49289712594382",
-    ),
-}
 SCENES = Product(short_name="EMITL1BRAD", version="002", host="https://data.lpdaac")
 EPHEMERIS = Product(short_name="EMITL1BATT", version="002", host="https://data.lpdaac")
 PIXELS, LINE_STRIDE, PIXEL_STRIDE = 1242, 16, 25
@@ -231,15 +218,15 @@ def score_strips(satellite_for, reference: Reference, segments) -> tuple[float, 
     return min(medians.values()), medians
 
 
-def validate(day, tle, orbit, reference: Reference, write: bool) -> None:
+def validate(run, tle, orbit, reference: Reference) -> None:
     """
     Scores the configuration on a sample of pixels and segments of the runs of scenes,
-    and writes its results if requested.
+    and writes its results if the run writes.
     """
-    entry = get_entry("emit")
+    day = run.day
 
     def satellite_for(time_step):
-        return entry.to_satellite(orbit, time_step=time_step, platform=PLATFORM)
+        return run.entry.to_satellite(orbit, time_step=time_step, platform=run.platform)
 
     rng = np.random.default_rng(1)
     lines = rng.choice(len(reference.time), SAMPLE, replace=False)
@@ -263,21 +250,15 @@ def validate(day, tle, orbit, reference: Reference, write: bool) -> None:
         satellite_for, reference, find_segments(reference)
     )
     print(json.dumps(results), flush=True)
-    if not write:
+    if not run.write:
         return
     picks = rng.choice(SAMPLE, FIXTURE_PASSES, replace=False)
     passes = np.stack([latitude[picks], longitude[picks], seconds[picks]], axis=-1)
-    update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
-    )
-    write_record(
-        entry,
+    write_results(
+        run,
         CONFIGURATION,
-        source=source_of(__file__),
         reference="EMITL1BRAD version 002, observation geometry (pixel "
         "positions and line times of every 16th line)",
-        period=f"{day:%Y-%m-%d}",
-        platforms=[PLATFORM],
         metrics=[
             {"name": name, "value": float(results[name])}
             for name in (
@@ -288,48 +269,48 @@ def validate(day, tle, orbit, reference: Reference, write: bool) -> None:
                 "footprint_iou_median",
             )
         ],
+        fixture={
+            "tle": np.array(tle),
+            "day": np.array(day.isoformat()),
+            "passes": passes,
+        },
         fixture_metrics=recompute_passes(satellite_for(TIME_STEPS[0]), 0, day, passes),
     )
-    print(f"wrote {FIXTURE_PATH}")
 
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    parser.add_argument(
-        "--fit-view",
-        action="store_true",
-        help="center the view in TAT-C's frame, with the entry's yaw and pitch",
+    run = parse_run(
+        "emit",
+        __doc__,
+        add_arguments=lambda parser: parser.add_argument(
+            "--fit-view",
+            action="store_true",
+            help="center the view in TAT-C's frame, with the entry's yaw and pitch",
+        ),
     )
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    data = load_day(day, arguments.directory)
+    data = load_day(run.day, run.directory)
     data.update(pixel=COLUMNS, pixels=PIXELS, line_stride=LINE_STRIDE)
     period = float(np.median(np.diff(data["time"])))
-    reference = Reference(day, data, period)
+    reference = Reference(run.day, data, period)
     print(
-        f"{arguments.day}: {len(reference.time)} lines from {reference.time[0]}, "
+        f"{run.day:%Y-%m-%d}: {len(reference.time)} lines from {reference.time[0]}, "
         f"{len(reference.gaps)} gaps over a minute; line spacing {period:.4f} s",
         flush=True,
     )
-    if arguments.fit_view:
-        attitude = get_entry("emit").configurations["swath"].attitude
+    if run.fit_view:
+        attitude = run.entry.configurations[CONFIGURATION].attitude
         fit_view(reference, "inertial", attitude["yaw_angle"], attitude["pitch_angle"])
         return
-    if arguments.fit:
+    if run.fit:
         for frame in ("inertial", "earth_fixed"):
             fit(reference, frame)
             fit_yaw(reference, frame)
         return
-    tle = list(ELEMENTS[arguments.day])
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    validate(day, tle, orbit, reference, arguments.write)
+    validate(run, tle, orbit, reference)
 
 
 if __name__ == "__main__":

@@ -148,9 +148,9 @@ class _ScannerFixture(_SwathFixture):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.satellite = cls.entry.to_satellite(
-            cls.orbit, configuration=cls.sizes_key, platform=cls.platform
-        )
+        cls.satellite = cls.entry.build(
+            configuration=cls.sizes_key, orbit=cls.orbit, platform=cls.platform
+        ).to_satellite(cls.orbit, name=cls.entry.name)
         cls.names = np.array([i.name for i in cls.satellite.instruments])
         cls.recorded = cls.entry.record.configurations[cls.sizes_key].fixture_metrics
 
@@ -175,7 +175,9 @@ class _ScannerFixture(_SwathFixture):
             orbit = CircularOrbit(
                 altitude=altitude * 1e3, inclination=inclination, epoch=PUBLISHED_EPOCH
             )
-            satellite = self.entry.to_satellite(orbit, configuration=self.sizes_key)
+            satellite = self.entry.build(
+                configuration=self.sizes_key, orbit=orbit
+            ).to_satellite(orbit, name=self.entry.name)
             time = PUBLISHED_EPOCH + timedelta(minutes=10)
             target = compute_projected_ray_position(
                 orbit.to_gp_orbit().get_orbit_track(time),
@@ -301,6 +303,17 @@ class TestAtmsNoaa21Fixture(TestAtmsFixture):
     platform = "noaa-21"
 
 
+class TestAtmsSuomiNppFixture(TestAtmsFixture):
+    """
+    Regression tests of the ATMS entry's configurations of Suomi NPP.
+    """
+
+    fixture_name = "atms_suomi_npp"
+    swath_key = "swath_suomi_npp"
+    sizes_key = "beams_suomi_npp"
+    platform = "suomi-npp"
+
+
 class TestViirsFixture(_ScannerFixture, unittest.TestCase):
     """
     Regression tests of the VIIRS entry's configurations of NOAA-20.
@@ -339,18 +352,26 @@ class TestViirsFixture(_ScannerFixture, unittest.TestCase):
         return np.array(differences)
 
 
-class TestViirsNoaa21Fixture(_SwathFixture, unittest.TestCase):
+class TestViirsNoaa21Fixture(TestViirsFixture):
     """
-    Regression tests of the VIIRS entry's swath configuration of NOAA-21.
+    Regression tests of the VIIRS entry's configurations of NOAA-21.
     """
 
-    entry_id = "viirs"
     fixture_name = "viirs_noaa_21"
     swath_key = "swath_noaa_21"
+    sizes_key = "zones_noaa_21"
     platform = "noaa-21"
 
-    def time_step(self) -> float:
-        return float(self.data["scan_period"])
+
+class TestViirsSuomiNppFixture(TestViirsFixture):
+    """
+    Regression tests of the VIIRS entry's configurations of Suomi NPP.
+    """
+
+    fixture_name = "viirs_suomi_npp"
+    swath_key = "swath_suomi_npp"
+    sizes_key = "zones_suomi_npp"
+    platform = "suomi-npp"
 
 
 class TestModisFixture(_ScannerFixture, unittest.TestCase):
@@ -583,7 +604,8 @@ class TestCrisFixture(_ScannerFixture, unittest.TestCase):
     """
 
     entry_id = "cris"
-    sizes_key = "pixels"
+    swath_key = "swath_noaa_20"
+    sizes_key = "pixels_noaa_20"
     meets_published_gate = False
     meets_pixel_gate = False
     footprints = (
@@ -613,6 +635,28 @@ class TestCrisFixture(_ScannerFixture, unittest.TestCase):
         The spacing of CrIS's samples is not measured.
         """
         self.skipTest("the spacing of CrIS's samples is not measured")
+
+
+class TestCrisNoaa21Fixture(TestCrisFixture):
+    """
+    Regression tests of the CrIS entry's configurations of NOAA-21.
+    """
+
+    fixture_name = "cris_noaa_21"
+    swath_key = "swath_noaa_21"
+    sizes_key = "pixels_noaa_21"
+    platform = "noaa-21"
+
+
+class TestCrisSuomiNppFixture(TestCrisFixture):
+    """
+    Regression tests of the CrIS entry's configurations of Suomi NPP.
+    """
+
+    fixture_name = "cris_suomi_npp"
+    swath_key = "swath_suomi_npp"
+    sizes_key = "pixels_suomi_npp"
+    platform = "suomi-npp"
 
 
 class _StepSwathFixture(_SwathFixture):
@@ -649,13 +693,35 @@ class TestOmpsNmNoaa20Fixture(_StepSwathFixture, unittest.TestCase):
     platform = "noaa-20"
 
 
+class TestOmpsNmSuomiNppFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the OMPS Nadir Mapper entry's configuration of Suomi NPP.
+    """
+
+    entry_id = "omps_nm"
+    fixture_name = "omps_nm_suomi_npp"
+    swath_key = "swath_suomi_npp"
+    platform = "suomi-npp"
+
+
 class TestCeresFixture(_StepSwathFixture, unittest.TestCase):
     """
     Regression tests of the CERES entry, at the period of its records (6.6 s).
     """
 
     entry_id = "ceres"
+    swath_key = "swath_noaa_20"
     step = 6.6
+
+
+class TestCeresSuomiNppFixture(TestCeresFixture):
+    """
+    Regression tests of the CERES entry's configuration of Suomi NPP (FM5).
+    """
+
+    fixture_name = "ceres_suomi_npp"
+    swath_key = "swath_suomi_npp"
+    platform = "suomi-npp"
 
 
 class TestHarp2Fixture(_StepSwathFixture, unittest.TestCase):

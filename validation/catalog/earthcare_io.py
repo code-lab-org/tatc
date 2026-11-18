@@ -28,6 +28,7 @@ from tatc.analysis import collect_observations
 from tatc.catalog.metrics import summarize
 from tatc.schemas import Point
 from validation_io import (
+    EARTH_ROTATION,
     TO_GEODETIC,
     RemoteFile,
     ecef,
@@ -35,8 +36,7 @@ from validation_io import (
     normalize,
     recompute_passes,
     up,
-    update_fixture,
-    write_record,
+    write_results,
 )
 
 CATALOGUE = "https://catalog.maap.eo.esa.int/catalogue/collections"
@@ -53,7 +53,6 @@ EPOCH = pd.Timestamp("2000-01-01", tz="UTC")
 # positions they record match an element set's orbit 5.0 s before their times, and
 # a frame's first time follows the UTC sensing start of its header by 5.1 s
 LEAP_SECONDS_SINCE_2000 = 5
-EARTH_ROTATION = 7.2921150e-5  # rad/s
 TIME_STEPS = (10, 30, 120)
 
 
@@ -325,26 +324,23 @@ def find_epochs(satellite, sample: pd.DataFrame) -> np.ndarray:
 
 
 def validate_profiler(
-    entry,
+    run,
     configuration: str,
-    platform: str,
     profiles: Profiles,
     orbit,
     tle,
-    day: datetime,
-    fixture_path: pathlib.Path,
-    source: str,
     reference: str,
-    write: bool,
     sample_size: int = 1000,
     fixture_passes: int = 60,
 ) -> dict:
     """
-    Scores a profiler's configuration on a sample of a day's profiles: the share
-    within the view at their times (segment recall), at time steps up to 120 s, the
-    epochs' differences, and the distance across track from the predicted track of
-    the view's center. Writes the record and the reduced fixture if requested.
+    Scores a profiler's configuration on a sample of a day's profiles, in a run (see
+    `validation_io.parse_run`): the share within the view at their times (segment
+    recall), at time steps up to 120 s, the epochs' differences, and the distance
+    across track from the predicted track of the view's center. Writes the results
+    and the reduced fixture if the run writes.
     """
+    entry, platform, day = run.entry, run.platform, run.day
     rng = np.random.default_rng(1)
     picks = np.sort(rng.choice(len(profiles.seconds), sample_size, replace=False))
     sample = pd.DataFrame(
@@ -384,7 +380,7 @@ def validate_profiler(
     results["epoch_p95"] = max(r["epoch_p95"] for r in by_step.values())
     results["epoch_median"] = by_step[TIME_STEPS[0]]["epoch_median"]
     print(json.dumps(results), flush=True)
-    if not write:
+    if not run.write:
         return results
     chosen = sample.iloc[rng.choice(len(sample), fixture_passes, replace=False)]
     passes = np.stack(
@@ -395,19 +391,13 @@ def validate_profiler(
         ],
         axis=-1,
     )
-    update_fixture(
-        fixture_path, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
-    )
     satellite = entry.to_satellite(
         orbit, configuration=configuration, time_step=TIME_STEPS[0], platform=platform
     )
-    write_record(
-        entry,
+    write_results(
+        run,
         configuration,
-        source=source,
         reference=reference,
-        period=f"{day:%Y-%m-%d}",
-        platforms=[platform],
         metrics=[
             {"name": name, "value": float(results[name])}
             for name in (
@@ -417,9 +407,13 @@ def validate_profiler(
                 "epoch_median",
             )
         ],
+        fixture={
+            "tle": np.array(tle),
+            "day": np.array(day.isoformat()),
+            "passes": passes,
+        },
         fixture_metrics=recompute_passes(satellite, 0, day, passes),
     )
-    print(f"wrote {fixture_path}")
     return results
 
 
