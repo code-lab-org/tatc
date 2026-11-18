@@ -17,9 +17,11 @@ from datetime import datetime
 
 import yaml
 
+from ..schemas import AttitudeSchedule
 from ..schemas.orbit import AllOrbits
+from ..schemas.space.base import AllAttitudes
 from .schemas import InstrumentEntry, InstrumentPayload
-from .standard import InstrumentClass, Tier
+from .standard import Grade, InstrumentClass, Tier
 
 _RESOURCES = pathlib.Path(__file__).parents[1] / "resources"
 _ENTRIES = _RESOURCES / "instruments"
@@ -113,7 +115,9 @@ def build_payload(
     references: str | Sequence[str],
     *,
     orbit: AllOrbits,
+    grade: Grade | str | None = None,
     time_step: float | None = None,
+    attitude: AllAttitudes | AttitudeSchedule | None = None,
     platform: str | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
@@ -123,15 +127,23 @@ def build_payload(
     satellite that carries them together, with the attitude they share, to be
     analyzed together. Each reference is the identifier of an entry (or of one
     of its aliases), optionally with a configuration after a colon (such as
-    `"atms:swath_noaa_20"`), whose configuration is otherwise selected for the
-    platform (see `InstrumentEntry.select_configuration`). A configuration of
-    `alternatives` gives only the instrument it analyzes by default.
+    `"atms:swath_noaa_20"`, or `"atms:swath"` for the variant tested on the
+    platform), whose configuration is otherwise selected by grade and platform
+    (see `InstrumentEntry.select_configuration`). A configuration of
+    `alternatives` gives only the instrument it analyzes by default. Analyze a
+    satellite of the payload (`InstrumentPayload.to_satellite`) with its
+    `instrument_index`.
 
     Args:
         references (str | Sequence[str]): The references.
         orbit (AllOrbits): The orbit.
+        grade (Grade | str | None): The grade of the use, if any, which every
+            configuration must serve.
         time_step (float | None): The analysis time step (seconds), for
             configurations that tailor a field of view to it.
+        attitude (AllAttitudes | AttitudeSchedule | None): An attitude to use
+            instead of the validated one, in the velocity frame of every
+            configuration.
         platform (str | None): The identifier of the platform modeled, if any.
         start (datetime.datetime | None): The start of the analysis, for
             configurations that schedule their tilt by day.
@@ -144,8 +156,9 @@ def build_payload(
 
     Raises:
         KeyError: If an entry is unknown.
-        ValueError: If there are no references, or the configurations have
-            different attitudes.
+        ValueError: If there are no references, a configuration is unknown or
+            does not serve the grade, or the configurations have different
+            attitudes.
     """
     references = [references] if isinstance(references, str) else list(references)
     if not references:
@@ -156,8 +169,10 @@ def build_payload(
         payloads.append(
             get_entry(entry_id).build(
                 configuration=configuration or None,
+                grade=grade,
                 orbit=orbit,
                 time_step=time_step,
+                attitude=attitude,
                 platform=platform,
                 start=start,
                 end=end,

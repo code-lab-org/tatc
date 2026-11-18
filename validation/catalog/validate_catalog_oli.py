@@ -25,13 +25,13 @@ Needs the `validation` extra:
     python validation/catalog/validate_catalog_oli.py <data directory> 2026-10-03 \
         --platform landsat-8
 
-With `--write`, it writes the entry's validation record and, on Landsat 9, the reduced
-fixture from which unit tests recompute the results.
+Without a day, it takes that of the entry's record (or of the transfer's, or with
+`--fit`, that of the fit). With `--write`, it writes the entry's validation record and,
+on Landsat 9, the reduced fixture from which unit tests recompute the results.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import json
 import pathlib
@@ -47,28 +47,23 @@ from shapely.ops import unary_union
 from skyfield.framelib import itrs
 
 from tatc.analysis import collect_observations, compute_ground_track
-from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from validation_io import (
+    EARTH_ROTATION,
     TO_GEODETIC,
-    write_transfer,
     ecef,
     get_with_retries,
     match_passes,
     normalize,
+    parse_run,
     post_with_retries,
     predict_passes,
     recompute_passes,
     up,
-    update_fixture,
-    write_record,
-    FIXTURES,
-    source_of,
+    write_results,
 )
-
-FIXTURE_PATH = FIXTURES / "oli.npz"
 
 SCENES_URL = "https://landsatlook.usgs.gov/stac-server/search"
 ANGLES_URL = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
@@ -76,35 +71,12 @@ ANGLES_TOKEN_URL = (
     "https://planetarycomputer.microsoft.com/api/sas/v1/token/landsat-c2-l2"
 )
 
-FIT_PLATFORM = "landsat-9"
 PLATFORMS = {"landsat-8": "LANDSAT_8", "landsat-9": "LANDSAT_9"}
-_OCTOBER = {
-    "landsat-8": [
-        "1 39084U 13008A   26277.62187981  .00000150  00000+0  43377-4 0  9995",
-        "2 39084  98.2196 346.3945 0001312  94.4520 265.6828 14.57108036713830",
-    ],
-    "landsat-9": [
-        "1 49260U 21088A   26277.17558559  .00000158  00000+0  45237-4 0  9997",
-        "2 49260  98.2176 345.9720 0001438  89.7555 270.3809 14.57106411266879",
-    ],
-}
-_NOVEMBER = {
-    "landsat-8": [
-        "1 39084U 13008A   26311.27004377  .00000333  00000+0  84030-4 0  9996",
-        "2 39084  98.2158  19.5861 0001266  90.4879 269.6465 14.57106512718737",
-    ],
-    "landsat-9": [
-        "1 49260U 21088A   26311.16701518  .00000257  00000+0  67047-4 0  9993",
-        "2 49260  98.2139  19.4951 0001142  86.0967 274.0362 14.57106672271821",
-    ],
-}
-ELEMENT_SETS = {
-    "2026-10-02": _OCTOBER,
-    "2026-10-03": _OCTOBER,
-    "2026-11-05": _NOVEMBER,
-}
-
 KEY = "swath"
+REFERENCE = (
+    "USGS Landsat Collection 2 scene footprints and center times; "
+    + "angle coefficient files of Level-2 products"
+)
 BAND = "BAND04"  # the red band, as for Sentinel-2 MSI
 ANGLE_SCENE_STRIDE = 5
 ALONG_FRACTIONS = (0.25, 0.5, 0.75)
@@ -119,7 +91,6 @@ POINT_SPACING = 100e3
 SCENE_RADIUS = 2 * np.sin(160 / 6371 / 2)  # chord, on the unit sphere
 SEARCH_WINDOW = timedelta(minutes=10)
 FIXTURE_PASSES = 300
-EARTH_ROTATION = np.array([0, 0, 7.2921150e-5])
 
 
 def load_scenes(platform: str, day: datetime, directory: pathlib.Path) -> pd.DataFrame:
@@ -185,7 +156,7 @@ def frames_at(orbit, times, frame: str) -> tuple[np.ndarray, np.ndarray, np.ndar
     position = position.m.T
     velocity = velocity.m_per_s.T
     if frame == "inertial":
-        velocity = velocity + np.cross(EARTH_ROTATION, position)
+        velocity = velocity + np.cross(np.array([0, 0, EARTH_ROTATION]), position)
     lon, lat, _ = TO_GEODETIC.transform(*position.T)
     nadir_up = up(lon, lat)
     along = normalize(
@@ -661,13 +632,12 @@ def score_imaging_times(table: pd.DataFrame, satellite) -> dict[str, float]:
     return results
 
 
-def validate(
-    day, tle, entry, orbit, scenes, corners, platform, directory, write
-) -> None:
+def validate(run, tle, orbit, scenes, corners) -> None:
     """Scores the configuration, and writes its results if requested."""
+    day, platform = run.day, run.platform
 
     def satellite_for(time_step: float):
-        return entry.to_satellite(
+        return run.entry.to_satellite(
             orbit, configuration=KEY, time_step=time_step, platform=platform
         )
 
@@ -681,7 +651,7 @@ def validate(
     }
     centers = score_scene_centers(scenes, corners, satellite)
     results.update(centers)
-    table = load_imaging_times(platform, day, directory)
+    table = load_imaging_times(platform, day, run.directory)
     if table is None:
         print("no angle files: epochs are compared at the centers of scenes only")
         results["epoch_p95"] = centers["epoch_scene_center_p95"]
@@ -699,7 +669,7 @@ def validate(
     results["footprint_iou_median"] = median
     results["footprint_iou_p5"] = low
     print(json.dumps(results), flush=True)
-    if not write:
+    if not run.write:
         return
     if table is None:
         raise ValueError("a validation record needs imaging times across the swath")
@@ -712,14 +682,9 @@ def validate(
         "footprint_iou_median",
         "footprint_iou_p5",
     )
-    if platform != FIT_PLATFORM:
-        write_transfer(
-            entry,
-            KEY,
-            platform,
-            period=f"{day:%Y-%m-%d}",
-            metrics={name: results[name] for name in names},
-        )
+    metrics = {name: results[name] for name in names}
+    if run.transfer:
+        write_results(run, KEY, reference=REFERENCE, metrics=metrics)
         return
     rng = np.random.default_rng(1)
     picks = table.iloc[rng.choice(len(table), FIXTURE_PASSES, replace=False)]
@@ -733,53 +698,32 @@ def validate(
         ],
         axis=-1,
     )
-    update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=fixture
-    )
-    write_record(
-        entry,
+    write_results(
+        run,
         KEY,
-        source=source_of(__file__),
-        reference="USGS Landsat Collection 2 scene footprints and center times; "
-        + "angle coefficient files of Level-2 products",
-        period=f"{day:%Y-%m-%d}",
-        platforms=[platform],
-        metrics=[{"name": name, "value": float(results[name])} for name in names],
+        reference=REFERENCE,
+        metrics=metrics,
+        fixture={
+            "tle": np.array(tle),
+            "day": np.array(day.isoformat()),
+            "passes": fixture,
+        },
         fixture_metrics=recompute_passes(satellite, 0, day, fixture),
     )
 
 
 def main() -> None:
     """Fits or validates the entry on a day of data."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--platform", choices=sorted(PLATFORMS), default=FIT_PLATFORM)
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    tle = ELEMENT_SETS[arguments.day][arguments.platform]
+    run = parse_run("oli", __doc__)
+    tle = run.element_set()
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    scenes = load_scenes(arguments.platform, day, arguments.directory)
+    scenes = load_scenes(run.platform, run.day, run.directory)
     corners = add_corners(scenes, orbit)
-    print(f"{arguments.platform}, {arguments.day}: {tle[0][:32]}", flush=True)
-    if arguments.fit:
+    print(f"{run.platform}, {run.day:%Y-%m-%d}: {tle[0][:32]}", flush=True)
+    if run.fit:
         fit_geometry(scenes, corners, orbit)
         return
-    validate(
-        day,
-        tle,
-        get_entry("oli"),
-        orbit,
-        scenes,
-        corners,
-        arguments.platform,
-        arguments.directory,
-        arguments.write,
-    )
+    validate(run, tle, orbit, scenes, corners)
 
 
 if __name__ == "__main__":

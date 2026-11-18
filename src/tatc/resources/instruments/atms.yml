@@ -14,6 +14,11 @@ platforms:
     norad_id: 54234
     status: operational
     as_of: 2026-11-05
+  - id: suomi-npp
+    name: Suomi NPP
+    norad_id: 37849
+    status: retired
+    as_of: 2026-11-02
 data_products:
   - name: ATMS SDR geolocation (GATMO)
     provider: NOAA Open Data Dissemination
@@ -204,5 +209,97 @@ configurations:
     limitations:
       - The yaw of 0.9341 deg and pitch of -0.1362 deg are those of the swath_noaa_21 configuration.
       - Pixels are projected at the time of a view, so beams near the edges of a scan are displaced along track by up to about 5 km from where ATMS samples them.
+  swath_suomi_npp:
+    grade: timing
+    description: Suomi NPP's swath scanned between the outermost beam centers, with a view tailored to the analysis time step.
+    platforms: [suomi-npp]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: ATMS
+          field_of_regard: 105.5513
+          cross_track_field_of_view: 105.5513
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          field_of_regard: &suomi_npp_extent
+            kind: measured
+            source: validate_catalog_atms.py --fit, between the outermost beams (52.7250 deg left, 52.8263 deg right)
+            platforms: [suomi-npp]
+            period: "2026-10-02"
+          cross_track_field_of_view: *suomi_npp_extent
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - The view is centered on nadir. The scan line, measured with validate_catalog_atms.py --fit on 2026-10-02, is rotated by -0.004 deg and looks 0.045 deg ahead at nadir, which are not modeled.
+      - TAT-C observes all pixels of a view at one instant, whereas ATMS sweeps its beams over about 1.7 s.
+      - Suomi NPP's geolocation product leaves 4 to 11 consecutive scans without positions at 70 to 81 deg latitude in almost every half orbit. On data held out on 2026-08-25, these holes in the observed swath, where the view predicts coverage, lowered the swath's intersection over union to 0.979 and pass precision to 98.8%.
+      - Suomi NPP was retired on 2026-11-02, when NOAA stopped delivering its data.
+  beams_suomi_npp:
+    grade: sample_size
+    description: Suomi NPP's 96 beam positions of a scan, in the three beam widths of ATMS's channels. Analyze one at a time with its instrument index.
+    platforms: [suomi-npp]
+    velocity_frame: inertial
+    grouping: alternatives
+    instrument_index: 1
+    instruments:
+      - type: pointed
+        parameters: &suomi_npp_beam_parameters
+          name: ATMS channels 1-2
+          field_of_regard: 106.6656
+          cross_track_field_of_view: 106.6656
+          along_track_field_of_view: 1.1111
+          cross_track_pixels: 96
+          roll_angle: -0.052
+          is_rectangular: true
+          cross_track_oversampling: 0.786327
+          along_track_oversampling: 0.786327
+          scan_period: 2.6666666666666665
+        provenance: &suomi_npp_beam_provenance
+          field_of_regard: &suomi_npp_spacing
+            kind: measured
+            source: validate_catalog_atms.py --fit, a fitted spacing of 1.11110 deg over 96 beams
+            platforms: [suomi-npp]
+            period: "2026-10-02"
+          cross_track_field_of_view: *suomi_npp_spacing
+          along_track_field_of_view: *suomi_npp_spacing
+          cross_track_pixels:
+            kind: nominal
+            source: ATMS has 96 Earth views per scan
+          roll_angle:
+            kind: measured
+            source: validate_catalog_atms.py --fit, the fitted roll
+            platforms: [suomi-npp]
+            period: "2026-10-02"
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          cross_track_oversampling: &suomi_npp_oversampling
+            kind: derived
+            source: One minus the fitted spacing divided by the beam width, published by channel
+          along_track_oversampling: *suomi_npp_oversampling
+          scan_period:
+            kind: nominal
+            source: ATMS scans every 8/3 s
+      - type: pointed
+        parameters:
+          <<: *suomi_npp_beam_parameters
+          name: ATMS channels 3-16
+          cross_track_oversampling: 0.494955
+          along_track_oversampling: 0.494955
+        provenance: *suomi_npp_beam_provenance
+      - type: pointed
+        parameters:
+          <<: *suomi_npp_beam_parameters
+          name: ATMS channels 17-22
+          cross_track_oversampling: -0.010091
+          along_track_oversampling: -0.010091
+        provenance: *suomi_npp_beam_provenance
+    limitations:
+      - Pixels are projected at the time of a view, so beams near the edges of a scan are displaced along track by up to about 5 km from where ATMS samples them.
+      - Suomi NPP was retired on 2026-11-02, when NOAA stopped delivering its data.
 limitations:
-  - The swath_noaa_20 and beams_noaa_20 configurations are fitted on NOAA-20, and swath_noaa_21 and beams_noaa_21 on NOAA-21, whose scan line is rotated by about 0.93 deg. NOAA-20's configurations on NOAA-21 are a transfer that warns on use; on 2026-11-05, the swath's passes were all found, but its width differed by 13.9 km and epochs by up to 3.3 s (95th percentile), and pixels lay 10.5 km from the beams (median). No configuration was tested on Suomi NPP.
+  - The swath_noaa_20 and beams_noaa_20 configurations are fitted on NOAA-20, swath_noaa_21 and beams_noaa_21 on NOAA-21, whose scan line is rotated by about 0.93 deg, and swath_suomi_npp and beams_suomi_npp on Suomi NPP. NOAA-20's configurations on NOAA-21 are a transfer that warns on use; on 2026-11-05, the swath's passes were all found, but its width differed by 13.9 km and epochs by up to 3.3 s (95th percentile), and pixels lay 10.5 km from the beams (median).

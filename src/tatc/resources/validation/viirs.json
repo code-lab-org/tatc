@@ -168,6 +168,132 @@
         "passes_found": 100.0,
         "epoch_p95": 2.2811480393999997
       }
+    },
+    "swath_suomi_npp": {
+      "digest": "a79c7988486d4ef78406fa8ec67e60c8ded5ee82c223fe6bd3d3287d01916b14",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_viirs.py",
+      "reference": "VIIRS moderate-resolution geolocation",
+      "period": "2026-08-25",
+      "platforms": [
+        "suomi-npp"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.97736788502885
+        },
+        {
+          "name": "pass_precision",
+          "value": 98.58290560142825
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.9515381351999996
+        },
+        {
+          "name": "swath_width_median",
+          "value": 2.453208002546104
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9907172458686178
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 2.03514846435
+      }
+    },
+    "zones_suomi_npp": {
+      "digest": "72a98bcbd92938942d8b27e8e9da23f995a215ac953cdb6a9a407fad16d3382e",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_viirs.py",
+      "reference": "Footprints published by NOAA/CIMSS; samples of the VIIRS moderate-resolution geolocation",
+      "period": "2026-08-25",
+      "platforms": [
+        "suomi-npp"
+      ],
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 1.0188987969794616
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 1.5636802132798064
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 3.459404392507996
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.0000401766721048
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.999997334731372
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 1.4588351956271661,
+        "spacing_along_ratio_median": 1.0000330637471193,
+        "spacing_cross_ratio_median": 1.000078997547047
+      }
+    },
+    "zones_noaa_21": {
+      "digest": "772d5ff41bba843657f177d1cf34c386a6984e231ada8d1f991119d78c923742",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_viirs.py",
+      "reference": "Footprints published by NOAA/CIMSS; samples of the VIIRS moderate-resolution geolocation",
+      "period": "2026-10-02",
+      "platforms": [
+        "noaa-21"
+      ],
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 1.5939365030449903
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 2.926704935020191
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 4.970290255871409
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.0000678163958447
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 1.0000495704506132
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 2.7879023801961136,
+        "spacing_along_ratio_median": 1.0000709594732,
+        "spacing_cross_ratio_median": 1.000197800402593
+      }
     }
   }
 }

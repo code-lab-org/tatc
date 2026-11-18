@@ -11,10 +11,14 @@ The product's files are HDF4 (about 0.5 MB each), so they are downloaded whole:
     python validation/catalog/validate_catalog_amsua.py <data directory> 2026-10-04 --fit
     python validation/catalog/validate_catalog_amsua.py <data directory> 2026-11-05
 
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
+Aqua's element sets are those registered in `elements/element_sets.yml`, or those
+of a file given with `--elements`.
+
 It also validates the entry's sample size configuration, following
 `ValidateSampleSizes`. The gated metrics compare sizes with the footprint published
 in the product's documentation, and the projected pixels with the footprints'
-positions.
+positions. `--configuration footprints` (or `swath`) tests one configuration.
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
@@ -22,16 +26,14 @@ which unit tests recompute the results.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import pathlib
 import threading
-from datetime import datetime, timezone
+from datetime import datetime
 
 import numpy as np
 
-from tatc.catalog import get_entry
 from tatc.schemas import GeneralPerturbationsOrbit
-from gesdisc_scanner import (
+from scanner import (
     Product,
     Reference,
     Setup,
@@ -41,20 +43,8 @@ from gesdisc_scanner import (
     validate_beams,
     validate_swath,
 )
-from validation_io import (
-    get_with_retries,
-    FIXTURES,
-    source_of,
-)
+from validation_io import FIXTURES, get_with_retries, parse_run
 
-# the public element set of `validate_catalog_modis.py` for Aqua, with an epoch after
-# the day of data
-ELEMENTS = {
-    "2026-11-05": (
-        "1 27424U 02022A   26311.28865478  .00000831  00000+0  17465-3 0  9993",
-        "2 27424  98.4481 283.5818 0000983 104.9545   2.1913 14.62267061304185",
-    ),
-}
 SCAN_PERIOD = 8.0
 # the HDF4 library is not thread-safe
 HDF4_LOCK = threading.Lock()
@@ -118,14 +108,11 @@ PRODUCT = Product(short_name="AIRABRAD", version="005", read=read_amsua)
 # which gives 45 km in diameter at nadir, at Aqua's nominal altitude
 PUBLISHED_FOOTPRINTS = (("AMSU-A", 705, 98.2, 0, 45.0, 45.0),)
 SETUP = Setup(
-    entry_id="amsua",
-    platform="aqua",
     swath="swath",
     beams="footprints",
     size_instrument="AMSU-A",
     published_footprints=PUBLISHED_FOOTPRINTS,
     fixture_path=FIXTURES / "amsua.npz",
-    source=source_of(__file__),
     reference="AIRABRAD version 005 (footprint positions and times)",
     published_reference="Footprint published in the AIRABRAD documentation; "
     "footprint positions of AIRABRAD version 005",
@@ -139,37 +126,28 @@ SETUP = Setup(
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--sample-sizes-only", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    reference = Reference(day, load_day(PRODUCT, day, arguments.directory), SCAN_PERIOD)
+    run = parse_run("amsua", __doc__)
+    reference = Reference(
+        run.day, load_day(PRODUCT, run.day, run.directory), SCAN_PERIOD
+    )
     print(
-        f"{arguments.day}: {len(reference.time)} scans from {reference.time[0]}, "
+        f"{run.day:%Y-%m-%d}: {len(reference.time)} scans from {reference.time[0]}, "
         f"{len(reference.gaps)} gaps over a minute",
         flush=True,
     )
-    if arguments.fit:
+    if run.fit:
         for frame in ("inertial", "earth_fixed"):
             fit(reference, frame)
         offsets = reference.beam_seconds - reference.seconds[:, np.newaxis]
         print(f"footprint times from nadir: {np.median(offsets, axis=0)}")
         return
-    tle = list(ELEMENTS[arguments.day])
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    entry = get_entry("amsua")
-    validate_beams(SETUP, day, tle, entry, orbit, reference, arguments.write)
-    if not arguments.sample_sizes_only:
-        validate_swath(SETUP, day, tle, entry, orbit, reference, arguments.write)
-    if arguments.write:
-        print(f"wrote {SETUP.fixture_path}")
+    if SETUP.beams in run.configurations:
+        validate_beams(SETUP, run, reference, orbit, tle)
+    if SETUP.swath in run.configurations:
+        validate_swath(SETUP, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

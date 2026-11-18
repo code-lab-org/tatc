@@ -12,19 +12,20 @@ Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`. Only t
 measurements' times and positions are read, with range requests:
 
     python validation/catalog/validate_catalog_poseidon4.py <data directory> 2026-11-07
-    python validation/catalog/validate_catalog_poseidon4.py <data directory> 2026-11-08         --platform sentinel-6b
+    python validation/catalog/validate_catalog_poseidon4.py <data directory> 2026-11-08 \
+        --platform sentinel-6b
 
-With `--write`, it writes the entry's validation record and the reduced fixture from
-which unit tests recompute the results.
+Without a day, it takes that of the entry's record (or of the transfer's). With
+`--write`, it writes the entry's validation record and the reduced fixture from which
+unit tests recompute the results.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import json
 import pathlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import earthaccess
 import h5py
@@ -35,36 +36,21 @@ from skyfield.api import wgs84
 
 from tatc.analysis import collect_observations
 from tatc.catalog.metrics import summarize
-from tatc.catalog import get_entry
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from validation_io import (
     RemoteFile,
-    write_transfer,
     get_with_retries,
-    recompute_passes,
-    update_fixture,
-    write_record,
-    FIXTURES,
-    source_of,
     login_earthdata,
+    parse_run,
+    recompute_passes,
+    write_results,
 )
 
-FIXTURE_PATH = FIXTURES / "poseidon4.npz"
+CONFIGURATION = "nadir"
 SHORT_NAMES = {
     "sentinel-6a": "JASON_CS_S6A_L2_ALT_LR_RED_OST_NRT_F",
     "sentinel-6b": "JASON_CS_S6B_L2_ALT_LR_RED_OST_NRT_G",
-}
-# public element sets from CelesTrak, with epochs after each day of data
-ELEMENTS = {
-    ("sentinel-6a", "2026-11-07"): (
-        "1 46984U 20086A   26313.07249362 -.00000031  00000+0  13085-3 0  9999",
-        "2 46984  66.0401 194.1205 0007726 269.8082  90.2048 12.80930425278889",
-    ),
-    ("sentinel-6b", "2026-11-08"): (
-        "1 66514U 25264A   26313.38515319 -.00000027  00000+0  14654-3 0  9993",
-        "2 66514  66.0401 193.5973 0007634 268.8904  91.1236 12.80930309 45764",
-    ),
 }
 EPOCH = pd.Timestamp("2000-01-01", tz="UTC")
 TIME_STEPS = (10, 30, 120)
@@ -180,20 +166,14 @@ def find_epochs(satellite, sample: pd.DataFrame) -> np.ndarray:
 
 def main() -> None:
     """Validates the entry on a day of data."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--platform", default="sentinel-6a", choices=SHORT_NAMES)
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    platform = arguments.platform
-    data = load_day(day, arguments.directory, platform)
-    print(f"{arguments.day}: {len(data)} measurements", flush=True)
-    tle = list(ELEMENTS[(platform, arguments.day)])
+    run = parse_run("poseidon4", __doc__)
+    if run.fit:
+        raise SystemExit("the entry has no fitted values")
+    day, platform, entry = run.day, run.platform, run.entry
+    data = load_day(day, run.directory, platform)
+    print(f"{day:%Y-%m-%d}: {len(data)} measurements", flush=True)
+    tle = run.element_set()
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    entry = get_entry("poseidon4")
     rng = np.random.default_rng(1)
     sample = data.iloc[rng.choice(len(data), SAMPLE, replace=False)].reset_index(
         drop=True
@@ -223,20 +203,21 @@ def main() -> None:
     results["epoch_p95"] = max(r["epoch_p95"] for r in by_step.values())
     results["epoch_median"] = by_step[TIME_STEPS[0]]["epoch_median"]
     print(json.dumps(results), flush=True)
-    if not arguments.write:
+    if not run.write:
         return
-    if platform != "sentinel-6a":
-        write_transfer(
-            entry,
-            "nadir",
-            platform,
-            period=f"{day:%Y-%m-%d}",
+    reference = f"{SHORT_NAMES[platform]} (1 Hz measurement positions and times)"
+    if run.transfer:
+        write_results(
+            run,
+            CONFIGURATION,
+            reference=reference,
             metrics={
                 name: results[name]
                 for name in ("segment_recall", "track_offset_median", "epoch_p95")
             },
         )
         return
+    # the fixture's passes are drawn after the sample, from the same generator
     picks = sample.iloc[rng.choice(len(sample), FIXTURE_PASSES, replace=False)]
     passes = np.stack(
         [
@@ -246,31 +227,27 @@ def main() -> None:
         ],
         axis=-1,
     )
-    update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
-    )
-    satellite = entry.to_satellite(
-        orbit, time_step=TIME_STEPS[0], platform="sentinel-6a"
-    )
-    write_record(
-        entry,
-        "nadir",
-        source=source_of(__file__),
-        reference=f"{SHORT_NAMES[platform]} (1 Hz measurement positions and times)",
-        period=f"{day:%Y-%m-%d}",
-        platforms=["sentinel-6a"],
-        metrics=[
-            {"name": name, "value": float(results[name])}
+    satellite = entry.to_satellite(orbit, time_step=TIME_STEPS[0], platform=platform)
+    write_results(
+        run,
+        CONFIGURATION,
+        reference=reference,
+        metrics={
+            name: results[name]
             for name in (
                 "segment_recall",
                 "track_offset_median",
                 "epoch_p95",
                 "epoch_median",
             )
-        ],
+        },
+        fixture={
+            "tle": np.array(tle),
+            "day": np.array(day.isoformat()),
+            "passes": passes,
+        },
         fixture_metrics=recompute_passes(satellite, 0, day, passes),
     )
-    print(f"wrote {FIXTURE_PATH}")
 
 
 if __name__ == "__main__":

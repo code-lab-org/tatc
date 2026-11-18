@@ -1179,7 +1179,7 @@ def _make_satellite(
 
     return build_payload(
         payloads, orbit=orbit, time_step=time_step, start=start, end=end
-    ).to_satellite(name, orbit)
+    ).to_satellite(orbit, name=name)
 
 
 def _plane_orbits(
