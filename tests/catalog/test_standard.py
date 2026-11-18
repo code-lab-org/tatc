@@ -14,6 +14,7 @@ from tatc.catalog.schemas import get_period_days
 from tatc.catalog.standard import (
     COMPATIBLE_VERSIONS,
     MIN_HOLDOUT_GAP_DAYS,
+    Gate,
     get_gates,
     get_required_grades,
     is_compatible,
@@ -213,7 +214,27 @@ class TestFrozenGates(unittest.TestCase):
                 grades = get_required_grades(instrument_class)
                 self.assertIn(Grade.COVERAGE, grades)
                 for grade in grades:
-                    self.assertTrue(get_gates(instrument_class, grade))
+                    gates = get_gates(instrument_class, grade)
+                    self.assertTrue(gates)
+                    for gate in gates:
+                        # labels are shown on the catalog page
+                        self.assertNotEqual(gate.label, gate.metric)
+
+    def test_rounding_keeps_outcome(self):
+        """
+        Test that a rounded value never appears to meet a gate it fails.
+        """
+        gate = Gate("footprint_iou_median", 0.95, False, "")
+        self.assertEqual(gate.format_value(0.9486), "0.9486")
+        self.assertEqual(gate.format_value(0.949996), "0.949996")
+        gate = Gate("pass_recall", 99, False, "%")
+        self.assertEqual(gate.format_value(98.9996), "98.9996%")
+        self.assertEqual(gate.format_limit(), "≥ 99%")
+        gate = Gate("epoch_p95", 1, True, "s")
+        self.assertEqual(gate.format_value(1.001), "1.001 s")
+        self.assertEqual(gate.format_value(0.43), "0.43 s")
+        self.assertEqual(gate.format_limit(), "≤ 1 s")
+        self.assertEqual(gate.label, "epoch_p95")
 
     def test_tier_rank(self):
         """

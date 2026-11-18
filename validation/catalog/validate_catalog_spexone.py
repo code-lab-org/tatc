@@ -16,6 +16,7 @@ needed fields are read, with range requests:
     python validation/catalog/validate_catalog_spexone.py <data directory> 2026-10-04 --fit
     python validation/catalog/validate_catalog_spexone.py <data directory> 2026-11-07
 
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
 The product covers the sunlit part of each orbit, whose dark part is a gap.
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
@@ -24,19 +25,17 @@ which unit tests recompute the results.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import pathlib
-from datetime import datetime, timezone
+from datetime import datetime
 
 import earthaccess
 import h5py
 import numpy as np
 import pandas as pd
 
-from tatc.catalog import get_entry
 from tatc.schemas import GeneralPerturbationsOrbit
-from gesdisc_scanner import (
+from scanner import (
     Product,
     Reference,
     Setup,
@@ -50,16 +49,10 @@ from validation_io import (
     TO_GEODETIC,
     RemoteFile,
     FIXTURES,
-    source_of,
     login_earthdata,
+    parse_run,
 )
 
-# public element sets from CelesTrak, with epochs after each day of data
-PACE_ELEMENTS = (
-    "1 58928U 24025A   26313.27483190  .00000501  00000+0  10091-3 0  9993",
-    "2 58928  98.1040 242.4857 0002666 129.8006 230.3433 14.65644467147180",
-)
-ELEMENTS = {"2026-11-07": PACE_ELEMENTS, "2026-11-08": PACE_ELEMENTS}
 NADIR_VIEW = 2
 # the bins of the product's grid that the nadir view observes
 COLUMNS = np.arange(6, 25)
@@ -109,14 +102,11 @@ NAVIGATION = Product(
     short_name="PACE_SPEXONE_L1B_SCI", version="4", host="https://obdaac-tea"
 )
 SETUP = Setup(
-    entry_id="spexone",
-    platform="pace",
     swath="swath",
-    beams="",
-    size_instrument="SPEXone",
+    beams=None,
+    size_instrument=None,
     published_footprints=(),
     fixture_path=FIXTURES / "spexone.npz",
-    source=source_of(__file__),
     reference="PACE_SPEXONE_L1C_SCI version 4 (positions of bins and times of the "
     "nadir view)",
     published_reference="",
@@ -164,35 +154,24 @@ def load_reference(day: datetime, directory: pathlib.Path) -> Reference:
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    reference = load_reference(day, arguments.directory)
+    run = parse_run("spexone", __doc__)
+    reference = load_reference(run.day, run.directory)
     print(
-        f"{arguments.day}: {len(reference.time)} rows from {reference.time[0]}, "
+        f"{run.day:%Y-%m-%d}: {len(reference.time)} rows from {reference.time[0]}, "
         f"{reference.beams} bins, {len(reference.gaps)} gaps over a minute",
         flush=True,
     )
-    if arguments.fit:
+    if run.fit:
         for frame in ("earth_fixed", "inertial"):
             fit(reference, frame)
             fit_yaw(reference, frame)
         offsets = reference.beam_seconds - reference.seconds[:, np.newaxis]
         print(f"bin times from the row's: {np.round(np.median(offsets, axis=0), 3)}")
         return
-    tle = list(ELEMENTS[arguments.day])
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    validate_swath(
-        SETUP, day, tle, get_entry("spexone"), orbit, reference, arguments.write
-    )
-    if arguments.write:
-        print(f"wrote {SETUP.fixture_path}")
+    validate_swath(SETUP, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

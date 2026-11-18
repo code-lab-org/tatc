@@ -30,13 +30,13 @@ Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`:
     python validation/catalog/validate_catalog_ascat.py <data directory> 2026-10-05 --fit
     python validation/catalog/validate_catalog_ascat.py <data directory> 2026-11-08
 
-With `--write`, it writes the entry's validation record and the reduced fixture from
-which unit tests recompute the results.
+Without a day, it takes that of the entry's record (or, with `--fit`, that of the
+fit). With `--write`, it writes the entry's validation record and the reduced fixture
+from which unit tests recompute the results.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import json
 import pathlib
@@ -54,7 +54,6 @@ from shapely.ops import unary_union
 from skyfield.framelib import itrs
 
 from tatc.analysis import compute_ground_track
-from tatc.catalog import get_entry
 from tatc.catalog.metrics import compute_mask_iou
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
@@ -63,35 +62,19 @@ from validation_io import (
     TO_GEODETIC,
     ecef,
     get_with_retries,
+    login_earthdata,
     match_passes,
     normalize,
+    parse_run,
+    pick_passes,
     predict_passes,
-    read_element_set_file,
     recompute_passes,
     up,
-    update_fixture,
-    write_record,
-    FIXTURES,
-    source_of,
-    ELEMENT_SET_FOLDER,
-    login_earthdata,
+    write_results,
 )
 
-FIXTURE_PATH = FIXTURES / "ascat.npz"
-
 SHORT_NAME = "ASCATC-L2-25km"
-NORAD_ID = 43689
-PLATFORM = "metop-c"
 CONFIGURATION = "swaths"
-# element sets of the fitting day, and public element sets from CelesTrak, with
-# epochs after each day of data
-ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "metop_2026-10-05.3le"
-ELEMENT_SETS = {
-    "2026-11-08": [
-        "1 43689U 18087A   26313.63049069  .00000132  00000+0  80485-4 0  9990",
-        "2 43689  98.7253  10.9624 0001551 125.2403 234.8919 14.21484744415495",
-    ],
-}
 EPOCH = datetime(1990, 1, 1, tzinfo=timezone.utc)
 CELLS = 42
 # (edge cell, the cell beside it inward) of each side's outer and inner edges
@@ -419,11 +402,12 @@ def observe_passes(points, data: dict, day) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def validate(day, tle, entry, orbit, data, write) -> None:
+def validate(run, tle, orbit, data) -> None:
     """Scores the configuration, and writes its results if requested."""
+    day = run.day
 
     def satellite_for(time_step: float):
-        return entry.to_satellite(orbit, time_step=time_step, platform=PLATFORM)
+        return run.entry.to_satellite(orbit, time_step=time_step, platform=run.platform)
 
     satellite = satellite_for(TIME_STEPS[0])
     labels = side_labels(data, orbit, day)
@@ -484,54 +468,34 @@ def validate(day, tle, entry, orbit, data, write) -> None:
         {"name": "epoch_median", "value": float(results["epoch_median"])},
     ]
     print(json.dumps(metrics), flush=True)
-    if not write:
+    if not run.write:
         return
-    rng = np.random.default_rng(1)
-    picks = observed.iloc[rng.choice(len(observed), FIXTURE_PASSES, replace=False)]
-    fixture = np.column_stack(
-        [
-            subset.geometry.y.to_numpy()[picks.point_id],
-            subset.geometry.x.to_numpy()[picks.point_id],
-            (picks.time - pd.Timestamp(day)).dt.total_seconds().to_numpy(),
-        ]
-    )
-    update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=fixture
-    )
-    write_record(
-        entry,
+    fixture = pick_passes(subset, observed, day, FIXTURE_PASSES)
+    write_results(
+        run,
         CONFIGURATION,
-        source=source_of(__file__),
         reference=f"{SHORT_NAME} (wind vector cell positions and row times)",
-        period=f"{day:%Y-%m-%d}",
-        platforms=[PLATFORM],
         metrics=metrics,
+        fixture={
+            "tle": np.array(tle),
+            "day": np.array(day.isoformat()),
+            "passes": fixture,
+        },
         fixture_metrics=recompute_passes(satellite, None, day, fixture),
     )
-    print(f"wrote {FIXTURE_PATH}")
 
 
 def main() -> None:
     """Fits or validates the entry on a day of data."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    data = load_day(day, arguments.directory)
-    if arguments.day in ELEMENT_SETS:
-        tle = ELEMENT_SETS[arguments.day]
-    else:
-        tle = read_element_set_file(ELEMENT_SET_FILE, NORAD_ID, day)
+    run = parse_run("ascat", __doc__)
+    data = load_day(run.day, run.directory)
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    if arguments.fit:
-        fit(data, orbit, day)
+    if run.fit:
+        fit(data, orbit, run.day)
         return
-    validate(day, tle, get_entry("ascat"), orbit, data, arguments.write)
+    validate(run, tle, orbit, data)
 
 
 if __name__ == "__main__":

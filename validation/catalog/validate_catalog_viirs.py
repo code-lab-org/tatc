@@ -30,64 +30,46 @@ They are tested on a day at least 30 days from the fit:
     python validation/catalog/validate_catalog_viirs.py <data directory> 2026-10-02 --platform suomi-npp --fit
     python validation/catalog/validate_catalog_viirs.py <data directory> 2026-08-25 --platform suomi-npp
 
-With `--sample-sizes-only`, it tests only the zones.
-
 With `--transfer`, it tests NOAA-20's configurations on another platform instead, and
 adds the results to the record as a transfer, which does not count toward the tier.
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit),
+and `--configuration` tests one configuration (such as `zones_noaa_20`, only the
+zones).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
-import json
 import pathlib
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 
 import h5py
 import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
 
-from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
-from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
-import gesdisc_scanner
+import scanner
 from validation_io import (
     ARCHIVES,
-    Archive,
-    write_transfer,
+    FIXTURES,
     TO_GEODETIC,
+    Archive,
     RemoteFile,
-    build_grid,
     compute_published_errors,
     compute_spacing_ratios,
     ecef,
     iet_to_utc,
     inertial_velocity,
     normalize,
-    recompute_passes,
-    score_passes,
+    parse_run,
     score_published,
-    score_swath_area,
     up,
-    update_fixture,
-    write_record,
-    FIXTURES,
-    source_of,
+    write_results,
 )
 
 FIT_PLATFORM = "noaa-20"
-GATED = (
-    "pass_recall",
-    "pass_precision",
-    "epoch_p95",
-    "swath_width_median",
-    "footprint_iou_median",
-)
-
 # the configurations of each platform's fit and its fixture
 CONFIGURATIONS = {
     "noaa-20": ("swath_noaa_20", "zones_noaa_20", FIXTURES / "viirs_noaa_20.npz"),
@@ -113,22 +95,28 @@ PUBLISHED_FOOTPRINTS = (
     ("VIIRS zone 2", 824, 98.7, 0, 0.742, 0.776),
     ("VIIRS zone 4", 824, 98.7, 56.0, 1.60, 1.58),
 )
-FIXTURE_PASSES, FIXTURE_PIXELS, FIXTURE_SPACING = 60, 200, 200
 
 
-@dataclass(frozen=True)
-class Run:
+def get_setup(platform: str, scan_period: float) -> scanner.Setup:
     """
-    What a run tests: the configurations of the swath and zones (if any), the platform
-    whose data they are tested on, the fixture, and whether the results are a
-    transfer to a platform on which the configurations were not fitted.
+    Gets what is validated with a platform's fit: its configurations and fixture,
+    with the swath's area compared at time steps from the day's scan period.
     """
-
-    platform: str
-    swath: str
-    zones: str | None
-    fixture_path: pathlib.Path
-    transfer: bool
+    swath, zones, fixture_path = CONFIGURATIONS[platform]
+    return scanner.Setup(
+        swath=swath,
+        beams=zones,
+        # each zone is an instrument of its own
+        size_instrument=None,
+        published_footprints=PUBLISHED_FOOTPRINTS,
+        fixture_path=fixture_path,
+        reference="VIIRS moderate-resolution geolocation",
+        published_reference="Footprints published by NOAA/CIMSS; samples of the "
+        "VIIRS moderate-resolution geolocation",
+        time_steps=(scan_period, 30, 120),
+        # passes are found in the granules' outlines, not within a radius
+        pass_radius=0,
+    )
 
 
 def open_granule(url: str) -> h5py.File:
@@ -199,7 +187,10 @@ def load_day(
 
 
 class Reference:
-    """A day of VIIRS scans and pixels, with what is derived from them."""
+    """
+    A day of VIIRS scans and pixels, with what is derived from them. The observed
+    swath is that of the granules' outlines (G-rings).
+    """
 
     def __init__(self, scans: dict, pixels: dict):
         self.scans, self.pixels = scans, pixels
@@ -224,7 +215,7 @@ class Reference:
             for i in np.nonzero(np.diff(seconds) > 180)[0]
         ]
 
-    def observe_passes(self, points) -> pd.DataFrame:
+    def observe_passes(self, points, _radius=None) -> pd.DataFrame:
         """Finds the granules in whose outlines points lie, by pass, and their times."""
         point_xyz = up(points.geometry.x.to_numpy(), points.geometry.y.to_numpy())
         first_nadir = normalize(self.scans["SCPosition"][:, 0].astype(float))
@@ -282,6 +273,29 @@ class Reference:
             np.array([a[1], a[2], b[2], b[1]]),
         ]
 
+    @property
+    def span(self) -> tuple[datetime, datetime]:
+        """The first and last scans' middle times."""
+        return self.time[0].to_pydatetime(), self.time[-1].to_pydatetime()
+
+    def score_swath_width(self, instrument, _orbit, _setup, _attitude=None) -> float:
+        """Gets the median absolute difference (km) from the width through the samples."""
+        ok = self.ok
+        lat, lon, height = (self.pixels[k][ok] for k in ("lat", "lon", "height"))
+        center = (
+            ecef(lon[:, 1], lat[:, 1], height[:, 1])
+            + ecef(lon[:, 2], lat[:, 2], height[:, 2])
+        ) / 2
+        observed = np.sum(np.linalg.norm(np.diff(center, axis=1), axis=-1), axis=1)
+        position = self.scans["SCPosition"][self.granules].astype(float)[ok]
+        altitude = TO_GEODETIC.transform(*position.T)[2]
+        predicted = np.vectorize(instrument.get_swath_width)(altitude)
+        return float(np.median(np.abs(predicted - observed))) / 1e3
+
+    def observe_area(self, orbit, grid, _setup):
+        """Gets the cells compared over one orbit, and which of them VIIRS observed."""
+        return observe_orbit(self, orbit, grid)
+
 
 def in_outline(vertices: np.ndarray, points: np.ndarray) -> np.ndarray:
     """Gets whether unit vectors lie in an outline connected by great circles."""
@@ -325,21 +339,6 @@ def observe_orbit(reference: Reference, orbit, grid):
     observed = np.zeros(len(unit), dtype=bool)
     observed[compared] = inside
     return first.to_pydatetime(), last.to_pydatetime(), compared, observed
-
-
-def score_swath_width(reference: Reference, instrument) -> float:
-    """Gets the median absolute difference (km) from the width through the samples."""
-    ok = reference.ok
-    lat, lon, height = (reference.pixels[k][ok] for k in ("lat", "lon", "height"))
-    center = (
-        ecef(lon[:, 1], lat[:, 1], height[:, 1])
-        + ecef(lon[:, 2], lat[:, 2], height[:, 2])
-    ) / 2
-    observed = np.sum(np.linalg.norm(np.diff(center, axis=1), axis=-1), axis=1)
-    position = reference.scans["SCPosition"][reference.granules].astype(float)[ok]
-    altitude = TO_GEODETIC.transform(*position.T)[2]
-    predicted = np.vectorize(instrument.get_swath_width)(altitude)
-    return float(np.median(np.abs(predicted - observed))) / 1e3
 
 
 def measure_pixels(reference: Reference, satellite) -> np.ndarray:
@@ -442,7 +441,7 @@ def measure_spacing(reference: Reference) -> tuple[pd.DatetimeIndex, np.ndarray]
 def fit(day: datetime, reference: Reference) -> None:
     """
     Prints the angles fitted to a day in the inertial frame (with
-    `gesdisc_scanner.fit` and `gesdisc_scanner.fit_yaw`), from the middle of each
+    `scanner.fit` and `scanner.fit_yaw`), from the middle of each
     sampled scan, between its two middle detectors: those of the outermost samples,
     and the yaw and along-track angle of the scan line.
     """
@@ -466,7 +465,7 @@ def fit(day: datetime, reference: Reference) -> None:
         .to_numpy()
     )
     order = np.argsort(seconds)
-    sampled = gesdisc_scanner.Reference(
+    sampled = scanner.Reference(
         day,
         {
             "time": seconds[order],
@@ -480,8 +479,8 @@ def fit(day: datetime, reference: Reference) -> None:
         },
         reference.scan_period,
     )
-    gesdisc_scanner.fit(sampled, "inertial")
-    gesdisc_scanner.fit_yaw(sampled, "inertial")
+    scanner.fit(sampled, "inertial")
+    scanner.fit_yaw(sampled, "inertial")
     fit_zones(reference)
 
 
@@ -556,16 +555,20 @@ def fit_zones(reference: Reference) -> None:
         )
 
 
-def validate_zones(day, tle, entry, orbit, reference, write: bool, run: Run) -> None:
-    """Scores the sample size configuration, and writes its results if requested."""
+def validate_zones(setup: scanner.Setup, run, reference: Reference, orbit, tle):
+    """
+    Scores the sample size configuration of a run, and writes its results if the run
+    writes: as a transfer, on a platform on which the configuration was not tested.
+    """
+    entry = run.entry
     within, largest = score_published(
-        compute_published_errors(entry, run.zones, PUBLISHED_FOOTPRINTS)
+        compute_published_errors(entry, setup.beams, setup.published_footprints)
     )
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
     satellite = entry.to_satellite(
-        orbit, configuration=run.zones, platform=run.platform
+        orbit, configuration=setup.beams, platform=run.platform
     )
     names = np.array([instrument.name for instrument in satellite.instruments])
     pixels = measure_pixels(reference, satellite)
@@ -576,44 +579,35 @@ def validate_zones(day, tle, entry, orbit, reference, write: bool, run: Run) -> 
         satellite, names[rows[:, 4].astype(int)], times, rows
     )
     print(f"spacing, predicted / measured: {along:.4f} along, {cross:.4f} across")
-    if not write:
+    if not run.write:
         return
-    if run.transfer:
-        write_transfer(
-            entry,
-            run.zones,
-            run.platform,
-            period=f"{day:%Y-%m-%d}",
-            metrics={
-                "pixel_position_median": median,
-                "pixel_position_p95": p95,
-                "spacing_along_ratio_median": along,
-                "spacing_cross_ratio_median": cross,
-            },
+    fixture = fixture_metrics = None
+    if not run.transfer:
+        rng = np.random.default_rng(3)
+        picks = rng.choice(len(rows), setup.fixture_spacing, replace=False)
+        fixture_along, fixture_cross = compute_spacing_ratios(
+            satellite, names[rows[picks, 4].astype(int)], times[picks], rows[picks]
         )
-        return
-    rng = np.random.default_rng(3)
-    picks = rng.choice(len(rows), FIXTURE_SPACING, replace=False)
-    fixture_along, fixture_cross = compute_spacing_ratios(
-        satellite, names[rows[picks, 4].astype(int)], times[picks], rows[picks]
-    )
-    reduced = pixels[rng.choice(len(pixels), FIXTURE_PIXELS, replace=False)]
-    update_fixture(
-        run.fixture_path,
-        tle=np.array(tle),
-        day=np.array(day.isoformat()),
-        pixels=reduced,
-        spacing=rows[picks],
-        spacing_seconds=(times[picks] - pd.Timestamp(day)).total_seconds().to_numpy(),
-    )
-    write_record(
-        entry,
-        run.zones,
-        source=source_of(__file__),
-        reference="Footprints published by NOAA/CIMSS; samples of the VIIRS "
-        "moderate-resolution geolocation",
-        period=f"{day:%Y-%m-%d}",
-        platforms=[run.platform],
+        reduced = pixels[rng.choice(len(pixels), setup.fixture_pixels, replace=False)]
+        fixture = {
+            "tle": np.array(tle),
+            "day": np.array(run.day.isoformat()),
+            "pixels": reduced,
+            "spacing": rows[picks],
+            "spacing_seconds": (times[picks] - pd.Timestamp(run.day))
+            .total_seconds()
+            .to_numpy(),
+        }
+        fixture_metrics = {
+            "sample_size_within_3pct": within,
+            "pixel_position_median": summarize(reduced[:, 3])["median"],
+            "spacing_along_ratio_median": fixture_along,
+            "spacing_cross_ratio_median": fixture_cross,
+        }
+    write_results(
+        run,
+        setup.beams,
+        reference=setup.published_reference,
         metrics=[
             {"name": "sample_size_within_3pct", "value": within},
             {"name": "sample_size_largest_error", "value": largest},
@@ -622,140 +616,55 @@ def validate_zones(day, tle, entry, orbit, reference, write: bool, run: Run) -> 
             {"name": "spacing_along_ratio_median", "value": along},
             {"name": "spacing_cross_ratio_median", "value": cross},
         ],
-        fixture_metrics={
-            "sample_size_within_3pct": within,
-            "pixel_position_median": summarize(reduced[:, 3])["median"],
-            "spacing_along_ratio_median": fixture_along,
-            "spacing_cross_ratio_median": fixture_cross,
+        transfer_metrics={
+            "pixel_position_median": median,
+            "pixel_position_p95": p95,
+            "spacing_along_ratio_median": along,
+            "spacing_cross_ratio_median": cross,
         },
-    )
-
-
-def validate_swath(day, tle, entry, orbit, reference, write: bool, run: Run) -> None:
-    """Scores the swath configuration, and writes its results if requested."""
-
-    def satellite_for(time_step: float):
-        return entry.to_satellite(
-            orbit, configuration=run.swath, time_step=time_step, platform=run.platform
-        )
-
-    satellite = satellite_for(reference.scan_period)
-    points = generate_points_fibonacci_lattice(500e3)
-    observed = reference.observe_passes(points)
-    start, end = reference.time[0].to_pydatetime(), reference.time[-1].to_pydatetime()
-    results = score_passes(points, satellite, 0, observed, start, end, reference.gaps)
-    results["swath_width_median"] = score_swath_width(
-        reference, satellite.instruments[0]
-    )
-    print(json.dumps(results), flush=True)
-    grid = build_grid()
-    first, last, compared, covered = observe_orbit(reference, orbit, grid)
-    results["footprint_iou_median"] = score_swath_area(
-        satellite_for,
-        0,
-        first,
-        last,
-        (reference.scan_period, 30, 120),
-        grid,
-        compared,
-        covered,
-    )
-    print(json.dumps(results), flush=True)
-    if not write:
-        return
-    if run.transfer:
-        write_transfer(
-            entry,
-            run.swath,
-            run.platform,
-            period=f"{day:%Y-%m-%d}",
-            metrics={name: results[name] for name in GATED},
-        )
-        return
-    rng = np.random.default_rng(1)
-    picks = observed.iloc[rng.choice(len(observed), FIXTURE_PASSES, replace=False)]
-    passes = np.stack(
-        [
-            points.geometry.y.to_numpy()[picks.point_id],
-            points.geometry.x.to_numpy()[picks.point_id],
-            (picks.time - pd.Timestamp(day)).dt.total_seconds().to_numpy(),
-        ],
-        axis=-1,
-    )
-    update_fixture(
-        run.fixture_path,
-        tle=np.array(tle),
-        day=np.array(day.isoformat()),
-        passes=passes,
-        scan_period=np.array(reference.scan_period),
-    )
-    write_record(
-        entry,
-        run.swath,
-        source=source_of(__file__),
-        reference="VIIRS moderate-resolution geolocation",
-        period=f"{day:%Y-%m-%d}",
-        platforms=[run.platform],
-        metrics=[
-            {"name": name, "value": float(results[name])}
-            for name in (
-                "pass_recall",
-                "pass_precision",
-                "epoch_p95",
-                "swath_width_median",
-                "footprint_iou_median",
-            )
-        ],
-        fixture_metrics=recompute_passes(satellite, 0, day, passes),
+        fixture=fixture,
+        fixture_path=setup.fixture_path,
+        fixture_metrics=fixture_metrics,
     )
 
 
 def main() -> None:
-    """Validates the entry on a day of data."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--sample-sizes-only", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    parser.add_argument("--platform", default=FIT_PLATFORM)
-    parser.add_argument("--transfer", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    archive = ARCHIVES[arguments.platform]
+    """Validates the entry on a day of data, or fits its values."""
+    run = parse_run("viirs", __doc__)
+    archive = ARCHIVES[run.platform]
     directory = (
-        arguments.directory
-        if arguments.platform == FIT_PLATFORM
-        else arguments.directory / archive.prefix
+        run.directory
+        if run.platform == FIT_PLATFORM
+        else run.directory / archive.prefix
     )
     directory.mkdir(parents=True, exist_ok=True)
-    reference = Reference(*load_day(day, directory, archive))
-    if arguments.fit:
-        fit(day, reference)
+    reference = Reference(*load_day(run.day, directory, archive))
+    if run.fit:
+        fit(run.day, reference)
         return
-    fitted = FIT_PLATFORM if arguments.transfer else arguments.platform
-    run = Run(
-        arguments.platform,
-        *CONFIGURATIONS[fitted],
-        fitted != arguments.platform,
+    setup = get_setup(
+        FIT_PLATFORM if run.transfer else run.platform, reference.scan_period
     )
-    tle = archive.load_element_set(day, directory)
+    tle = run.element_set(directory=directory)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    entry = get_entry("viirs")
     print(
-        f"{arguments.day}: {tle[0][:32]}; {len(reference.time)} scans, "
-        f"{len(reference.gaps)} gaps over three minutes; configurations {run.swath} "
-        f"and {run.zones}",
+        f"{run.day:%Y-%m-%d}: {tle[0][:32]}; {len(reference.time)} scans, "
+        f"{len(reference.gaps)} gaps over three minutes; configurations "
+        f"{', '.join(run.configurations)}",
         flush=True,
     )
-    if run.zones is not None:
-        validate_zones(day, tle, entry, orbit, reference, arguments.write, run)
-    if not arguments.sample_sizes_only:
-        validate_swath(day, tle, entry, orbit, reference, arguments.write, run)
-    if arguments.write:
-        print(f"wrote {run.fixture_path}")
+    if setup.beams in run.configurations:
+        validate_zones(setup, run, reference, orbit, tle)
+    if setup.swath in run.configurations:
+        # the tests of the swath's passes also need the day's scan period
+        scanner.validate_swath(
+            setup,
+            run,
+            reference,
+            orbit,
+            tle,
+            fixture_extras={"scan_period": np.array(reference.scan_period)},
+        )
 
 
 if __name__ == "__main__":

@@ -23,29 +23,29 @@ Needs the `validation` extra:
     python validation/catalog/validate_catalog_tropomi.py <data directory> 2026-11-05
     python validation/catalog/validate_catalog_tropomi.py <data directory> 2026-11-10
 
-With `--write`, it writes the entry's validation record and the reduced fixture from
-which unit tests recompute the results.
+Without a day, it takes that of the entry's record (or, with `--fit`, that of the
+fit). With `--write`, it writes the entry's validation record and the reduced fixture
+from which unit tests recompute the results.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import json
 import pathlib
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import h5py
 import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
 
-from tatc.catalog import get_entry
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
 from tatc.utils import compute_projected_ray_position
 from validation_io import (
+    EARTH_ROTATION,
     RemoteFile,
     build_grid,
     ecef,
@@ -53,37 +53,17 @@ from validation_io import (
     in_lattice_cells,
     match_passes,
     normalize,
+    parse_run,
+    pick_passes,
     predict_passes,
     recompute_passes,
     score_swath_area,
     up,
-    update_fixture,
-    write_record,
-    FIXTURES,
-    source_of,
+    write_results,
 )
-
-FIXTURE_PATH = FIXTURES / "tropomi.npz"
 
 BUCKET = "https://meeo-s5p.s3.amazonaws.com/"
 PREFIX = "NRTI/L2__AER_AI/"
-PLATFORM = "sentinel-5p"
-ELEMENT_SETS = {
-    "2026-11-04": [
-        "1 42969U 17064A   26311.28829078  .00000048  00000+0  44053-4 0  9996",
-        "2 42969  98.8082 252.4800 0000829  99.6231 260.5039 14.19499222469868",
-    ],
-    "2026-11-05": [
-        "1 42969U 17064A   26311.28829078  .00000048  00000+0  44053-4 0  9996",
-        "2 42969  98.8082 252.4800 0000829  99.6231 260.5039 14.19499222469868",
-    ],
-    # a fresh held-out day for swept swaths, not used before
-    "2026-11-10": [
-        "1 42969U 17064A   26315.30604670  .00000068  00000+0  53520-4 0  9993",
-        "2 42969  98.8091 256.4758 0000925 101.4950 258.6329 14.19500041470438",
-    ],
-}
-
 KEY = "swath"
 N_ROWS = 450
 NODES = np.r_[np.arange(0, N_ROWS, 16), N_ROWS]
@@ -102,7 +82,6 @@ CELL_LINE_STRIDE = 10
 CELL_NEIGHBORS = 8
 FIT_LINE_STRIDE = 10
 FIXTURE_PASSES = 200
-EARTH_ROTATION = np.array([0, 0, 7.2921150e-5])
 PRODUCT = "PRODUCT/"
 GEOLOCATION = PRODUCT + "SUPPORT_DATA/GEOLOCATIONS/"
 
@@ -288,7 +267,7 @@ def measure_rays(reference: Reference, frame: str = "earth_fixed") -> dict:
         (reference.seconds[lines + 1] - reference.seconds[lines - 1])[:, None]
     )
     if frame == "inertial":
-        velocity = velocity + np.cross(EARTH_ROTATION, position)
+        velocity = velocity + np.cross(np.array([0, 0, EARTH_ROTATION]), position)
     zenith = reference.satellite_up[lines]
     along = normalize(velocity - np.sum(velocity * zenith, axis=-1)[:, None] * zenith)
     left = np.cross(zenith, along)
@@ -468,12 +447,13 @@ def observe_arc(reference: Reference, grid):
     )
 
 
-def validate(day, tle, entry, orbit, reference, write) -> None:
+def validate(run, tle, orbit, reference) -> None:
     """Scores the configuration, and writes its results if requested."""
+    day = run.day
 
     def satellite_for(time_step: float):
-        return entry.to_satellite(
-            orbit, configuration=KEY, time_step=time_step, platform=PLATFORM
+        return run.entry.to_satellite(
+            orbit, configuration=KEY, time_step=time_step, platform=run.platform
         )
 
     satellite = satellite_for(ANALYSIS_TIME_STEP)
@@ -491,21 +471,9 @@ def validate(day, tle, entry, orbit, reference, write) -> None:
         satellite_for, None, first, last, TIME_STEPS, grid, compared, covered
     )
     print(json.dumps(results), flush=True)
-    if not write:
+    if not run.write:
         return
-    rng = np.random.default_rng(1)
-    picks = observed.iloc[rng.choice(len(observed), FIXTURE_PASSES, replace=False)]
-    passes = np.stack(
-        [
-            points.geometry.y.to_numpy()[picks.point_id],
-            points.geometry.x.to_numpy()[picks.point_id],
-            (picks.time - pd.Timestamp(day)).dt.total_seconds().to_numpy(),
-        ],
-        axis=-1,
-    )
-    update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=passes
-    )
+    passes = pick_passes(points, observed, day, FIXTURE_PASSES)
     names = (
         "pass_recall",
         "epoch_p95",
@@ -513,48 +481,35 @@ def validate(day, tle, entry, orbit, reference, write) -> None:
         "swath_width_median",
         "footprint_iou_median",
     )
-    write_record(
-        entry,
+    write_results(
+        run,
         KEY,
-        source=source_of(__file__),
         reference="Sentinel-5P TROPOMI aerosol index product (near real time)",
-        period=f"{day:%Y-%m-%d}",
-        platforms=[PLATFORM],
-        metrics=[{"name": name, "value": float(results[name])} for name in names],
+        metrics={name: results[name] for name in names},
+        fixture={
+            "tle": np.array(tle),
+            "day": np.array(day.isoformat()),
+            "passes": passes,
+        },
         fixture_metrics=recompute_passes(satellite, None, day, passes),
     )
 
 
 def main() -> None:
     """Fits or validates the entry on a day of data."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    reference = Reference(load_day(day, arguments.directory))
+    run = parse_run("tropomi", __doc__)
+    reference = Reference(load_day(run.day, run.directory))
     print(
-        f"{arguments.day}: {len(reference.seconds)} lines, "
+        f"{run.day:%Y-%m-%d}: {len(reference.seconds)} lines, "
         f"{reference.n_dropped} dropped, {len(reference.arcs)} arcs, "
         f"{len(reference.gaps)} gaps over a minute",
         flush=True,
     )
-    if arguments.fit:
+    if run.fit:
         fit_geometry(reference)
         return
-    tle = ELEMENT_SETS[arguments.day]
-    validate(
-        day,
-        tle,
-        get_entry("tropomi"),
-        GeneralPerturbationsOrbit.from_tle(tle),
-        reference,
-        arguments.write,
-    )
+    tle = run.element_set()
+    validate(run, tle, GeneralPerturbationsOrbit.from_tle(tle), reference)
 
 
 if __name__ == "__main__":

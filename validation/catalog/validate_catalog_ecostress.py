@@ -17,10 +17,13 @@ requests (about 5 GB a day), and every 50th sample (and the last). The fit of
 2026-10-04 read every fourth scene instead.
 
     python validation/catalog/validate_catalog_ecostress.py <data directory> 2026-10-04 --fit
-    python validation/catalog/validate_catalog_ecostress.py <data directory> 2026-10-04 --fit-view
+    python validation/catalog/validate_catalog_ecostress.py <data directory> 2026-10-04 --fit --fit-view
     python validation/catalog/validate_catalog_ecostress.py <data directory> 2026-11-08
 
-ECOSTRESS images scenes over land and coastal waters, whose gaps are not compared.
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
+With `--fit-view`, it centers the view in TAT-C's frame, with the entry's yaw and
+pitch, instead of fitting the scan's angles. ECOSTRESS images scenes over land and
+coastal waters, whose gaps are not compared.
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
@@ -28,20 +31,18 @@ which unit tests recompute the results.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import pathlib
-from datetime import datetime, timezone
+from datetime import datetime
 
 import earthaccess
 import h5py
 import numpy as np
 from skyfield.framelib import itrs
 
-from tatc.catalog import get_entry
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit
-from gesdisc_scanner import (
+from scanner import (
     Product,
     Reference,
     Setup,
@@ -55,21 +56,10 @@ from validation_io import (
     TO_GEODETIC,
     RemoteFile,
     FIXTURES,
-    source_of,
     login_earthdata,
+    parse_run,
 )
 
-# public element sets from CelesTrak, with epochs after each day of data
-ELEMENTS = {
-    "2026-11-07": (
-        "1 25544U 98067A   26313.20747964  .00008201  00000+0  15534-3 0  9995",
-        "2 25544  51.6321 302.4538 0007297   5.2479 354.8585 15.49270212594231",
-    ),
-    "2026-11-08": (
-        "1 25544U 98067A   26314.17503267  .00009346  00000+0  17575-3 0  9996",
-        "2 25544  51.6322 297.6644 0007292   8.9462 351.1656 15.49289712594382",
-    ),
-}
 GEOLOCATION = Product(
     short_name="ECO_L1B_GEO", version="002", host="https://data.lpdaac"
 )
@@ -159,14 +149,11 @@ def load_day(day: datetime, directory: pathlib.Path) -> dict:
 
 
 SETUP = Setup(
-    entry_id="ecostress",
-    platform="iss",
     swath="swath",
-    beams="",
-    size_instrument="ECOSTRESS",
+    beams=None,
+    size_instrument=None,
     published_footprints=(),
     fixture_path=FIXTURES / "ecostress.npz",
-    source=source_of(__file__),
     reference="ECO_L1B_GEO version 002 (sample positions and times of every fourth "
     "sweep, in blocks of eight consecutive scenes of every 32)",
     published_reference="",
@@ -178,44 +165,36 @@ SETUP = Setup(
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    parser.add_argument(
-        "--fit-view",
-        action="store_true",
-        help="center the view in TAT-C's frame, with the entry's yaw and pitch",
+    run = parse_run(
+        "ecostress",
+        __doc__,
+        add_arguments=lambda parser: parser.add_argument(
+            "--fit-view",
+            action="store_true",
+            help="center the view in TAT-C's frame, with the entry's yaw and pitch",
+        ),
     )
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    data = load_day(day, arguments.directory)
+    data = load_day(run.day, run.directory)
     data.update(pixel=COLUMNS, pixels=SAMPLES, line_stride=SWEEP_STRIDE)
-    reference = Reference(day, data, SWEEP_STRIDE * SWEEP_PERIOD)
+    reference = Reference(run.day, data, SWEEP_STRIDE * SWEEP_PERIOD)
     print(
-        f"{arguments.day}: {len(reference.time)} sweeps from {reference.time[0]}, "
+        f"{run.day:%Y-%m-%d}: {len(reference.time)} sweeps from {reference.time[0]}, "
         f"{len(reference.gaps)} gaps over a minute",
         flush=True,
     )
-    if arguments.fit_view:
-        attitude = get_entry("ecostress").configurations["swath"].attitude
+    if run.fit_view:
+        attitude = run.entry.configurations[SETUP.swath].attitude
         fit_view(reference, "inertial", attitude["yaw_angle"], attitude["pitch_angle"])
         return
-    if arguments.fit:
+    if run.fit:
         for frame in ("inertial", "earth_fixed"):
             fit(reference, frame)
             fit_yaw(reference, frame)
         return
-    tle = list(ELEMENTS[arguments.day])
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    validate_swath(
-        SETUP, day, tle, get_entry("ecostress"), orbit, reference, arguments.write
-    )
-    if arguments.write:
-        print(f"wrote {SETUP.fixture_path}")
+    validate_swath(SETUP, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

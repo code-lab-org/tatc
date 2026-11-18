@@ -27,16 +27,18 @@ the satellite was retired. NOAA's archive has Suomi NPP's element sets only from
     python validation/catalog/validate_catalog_ceres.py <data directory> 2026-07-25 --platform suomi-npp --fit
     python validation/catalog/validate_catalog_ceres.py <data directory> 2026-06-20 --platform suomi-npp
 
+Without a day, it takes that of the platform's record (or, with `--fit`, of the
+fit).
+
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import pathlib
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 
 import earthaccess
 import numpy as np
@@ -44,16 +46,14 @@ import pyhdf.VS  # pylint: disable=unused-import
 from pyhdf.HDF import HDF
 from pyhdf.SD import SD, SDC
 
-from tatc.catalog import get_entry
 from tatc.schemas import GeneralPerturbationsOrbit
-from gesdisc_scanner import Reference, Setup, fit, fit_yaw, validate_swath
+from scanner import Reference, Setup, fit, fit_yaw, validate_swath
 from validation_io import (
-    ARCHIVES,
+    FIXTURES,
     TO_GEODETIC,
     get_with_retries,
-    FIXTURES,
-    source_of,
     login_earthdata,
+    parse_run,
 )
 
 
@@ -224,14 +224,11 @@ def make_setup(platform: str) -> Setup:
     """Gets what a run on a platform validates, and where it writes its results."""
     product = PRODUCTS[platform]
     return Setup(
-        entry_id="ceres",
-        platform=platform,
         swath=product.configuration,
-        beams="",
-        size_instrument="CERES",
+        beams=None,
+        size_instrument=None,
         published_footprints=(),
         fixture_path=product.fixture_path,
-        source=source_of(__file__),
         reference=f"{product.short_name} {product.version} (footprint positions, "
         "projected to the ellipsoid, and times)",
         published_reference="",
@@ -243,40 +240,32 @@ def make_setup(platform: str) -> Setup:
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--platform", default="noaa-20", choices=sorted(PRODUCTS))
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    data = load_day(day, arguments.directory, PRODUCTS[arguments.platform])
+    run = parse_run("ceres", __doc__)
+    data = load_day(run.day, run.directory, PRODUCTS[run.platform])
     stride = np.unique(np.r_[0 : len(SWEEPS[0]) : SAMPLE_STRIDE, len(SWEEPS[0]) - 1])
     data.update(pixel=stride, pixels=len(SWEEPS[0]))
-    reference = Reference(day, data, RECORD_PERIOD)
+    reference = Reference(run.day, data, RECORD_PERIOD)
     print(
-        f"{arguments.day}: {len(reference.time)} sweeps from {reference.time[0]}, "
+        f"{run.day:%Y-%m-%d}: {len(reference.time)} sweeps from {reference.time[0]}, "
         f"{len(reference.gaps)} gaps over a minute",
         flush=True,
     )
-    if arguments.fit:
+    if run.fit:
         for frame in ("inertial", "earth_fixed"):
             fit(reference, frame)
             fit_yaw(reference, frame)
         offsets = reference.beam_seconds - reference.seconds[:, np.newaxis]
         print(f"footprint times from the sweep's middle: {offsets[0, [0, -1]]}")
         return
-    tle = ARCHIVES[arguments.platform].load_element_set(day, arguments.directory)
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    setup = make_setup(arguments.platform)
-    validate_swath(
-        setup, day, tle, get_entry("ceres"), orbit, reference, arguments.write
-    )
-    if arguments.write:
-        print(f"wrote {setup.fixture_path}")
+    # a transfer tests the configuration of the default platform
+    entry = run.entry
+    default = entry.configurations[entry.default_configuration].platforms[0]
+    setup = make_setup(default if run.transfer else run.platform)
+    if setup.swath in run.configurations:
+        validate_swath(setup, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated, Any, Literal
 
 import numpy as np
+import pandas as pd
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from ..schemas import (
@@ -759,6 +760,7 @@ class ConfigurationValidation:
     """
 
     tier: Tier
+    grade: Grade
     gates: tuple[GateResult, ...]
     evidence_gaps: tuple[str, ...]
     record: ConfigurationRecord | None
@@ -801,6 +803,41 @@ class EntryValidation:
                 for key, validation in self.configurations.items()
                 for gap in validation.gaps
             ),
+        )
+
+    def to_frame(self) -> pd.DataFrame:
+        """
+        Tabulates the gates of every configuration.
+
+        Returns:
+            pandas.DataFrame: A row for each gate of each configuration, with
+            its `configuration`, `grade`, `tier`, metric `label`, `value` (`NaN`
+            if not tested), formatted `limit`, and whether it `passed` (`None`
+            if not tested).
+        """
+        return pd.DataFrame(
+            [
+                {
+                    "configuration": key,
+                    "grade": validation.grade.value,
+                    "tier": validation.tier.value,
+                    "metric": result.gate.label,
+                    "value": result.value,
+                    "limit": result.gate.format_limit(),
+                    "passed": result.passed,
+                }
+                for key, validation in self.configurations.items()
+                for result in validation.gates
+            ],
+            columns=[
+                "configuration",
+                "grade",
+                "tier",
+                "metric",
+                "value",
+                "limit",
+                "passed",
+            ],
         )
 
 
@@ -916,6 +953,7 @@ class InstrumentEntry(_CatalogModel):
         if record is None or not record.metrics:
             return ConfigurationValidation(
                 Tier.NOMINAL,
+                configuration.grade,
                 tuple(GateResult(gate, None) for gate in gates),
                 ("no comparison with reference data",),
                 record,
@@ -942,6 +980,7 @@ class InstrumentEntry(_CatalogModel):
         passed = not gaps and all(result.passed for result in results)
         return ConfigurationValidation(
             Tier.VALIDATED if passed else Tier.PARTIAL,
+            configuration.grade,
             tuple(results),
             tuple(gaps),
             record,

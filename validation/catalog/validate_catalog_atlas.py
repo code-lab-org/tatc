@@ -19,6 +19,11 @@ Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`:
     python validation/catalog/validate_catalog_atlas.py <data directory> 2026-10-01
     python validation/catalog/validate_catalog_atlas.py <data directory> 2026-11-04
 
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
+The element set of each day is registered in `elements/element_sets.yml`: public
+element sets from CelesTrak, with epochs a few days after each day of data (that of
+2026-10-01 is the one of `ValidateLidarICESat2`).
+
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results. A record of the day of the fit has no
 holdout, which the entry's validation reports as a gap.
@@ -27,12 +32,11 @@ With `--same-day-element-set`, it tests instead with the element set nearest the
 of the day from elements/icesat2_2026-11-04.3le, for comparison with the views'
 intended use with an element set a few days old; it does not write a record:
 
-    python validation/catalog/validate_catalog_atlas.py <data directory> 2026-11-04         --same-day-element-set
+    python validation/catalog/validate_catalog_atlas.py <data directory> 2026-11-04 --same-day-element-set
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import concurrent.futures
 import json
 import pathlib
@@ -46,37 +50,20 @@ from pyproj import Geod
 from skyfield.api import wgs84
 
 from tatc.analysis import collect_observations
-from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
 from tatc.constants import EARTH_MEAN_RADIUS, timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from validation_io import (
-    RemoteFile,
-    read_element_set_file,
-    update_fixture,
-    write_record,
-    FIXTURES,
-    source_of,
     ELEMENT_SET_FOLDER,
+    RemoteFile,
+    get_element_set,
     login_earthdata,
+    parse_run,
+    write_results,
 )
 
-FIXTURE_PATH = FIXTURES / "atlas.npz"
-
-# public element sets from CelesTrak, with epochs a few days after each day of data;
-# the first is that of `ValidateLidarICESat2`
-ELEMENTS = {
-    "2026-10-01": (
-        "1 43613U 18070A   26277.57046165  .00001587  00000+0  57409-4 0  9990",
-        "2 43613  91.9994 320.5065 0005609  71.5392 288.6467 15.28297940449160",
-    ),
-    "2026-11-04": (
-        "1 43613U 18070A   26312.33969722  .00003760  00000+0  13651-3 0  9992",
-        "2 43613  91.9941 329.8453 0000721   8.7128 351.4134 15.28274788454479",
-    ),
-}
-ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "icesat2_2026-11-04.3le"
-NORAD_ID = 43613
+# the file of element sets of `--same-day-element-set`
+SAME_DAY_ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "icesat2_2026-11-04.3le"
 CONFIGURATION = "beam_pairs"
 PAIRS = ("gt1", "gt2", "gt3")
 BEAMS = ("gt1l", "gt1r", "gt2l", "gt2r", "gt3l", "gt3r")
@@ -89,7 +76,7 @@ SAMPLE_PER_PAIR = 600
 TIME_STEPS = (1, 10, 30)
 SPACING_BIN = 10  # s
 FIT_PERCENTILE = 99.5
-FIXTURE_SEGMENTS = 60
+FIXTURE_PASSES = 60
 GEOD = Geod(ellps="WGS84")
 
 
@@ -178,10 +165,13 @@ def distance(off_nadir):
     return EARTH_MEAN_RADIUS * (theta - a)
 
 
-def add_offsets(segments: pd.DataFrame, orbit) -> pd.DataFrame:
-    """Adds the cross-track offsets (km, positive to the left) from the ground track."""
+def track_bearings(samples: pd.DataFrame, orbit) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Gets the bearings (deg, clockwise from the heading of the ground track) and
+    distances (m) of samples from the ground track's point at their times.
+    """
     satellite = orbit.elements[0].to_skyfield()
-    times = timescale.from_datetimes(list(segments.time.dt.floor("us")))
+    times = timescale.from_datetimes(list(samples.time.dt.floor("us")))
     now = wgs84.subpoint_of(satellite.at(times))
     later = wgs84.subpoint_of(satellite.at(timescale.tt_jd(times.tt + 1 / 86400)))
     heading = GEOD.inv(
@@ -193,12 +183,16 @@ def add_offsets(segments: pd.DataFrame, orbit) -> pd.DataFrame:
     azimuth, _, length = GEOD.inv(
         now.longitude.degrees,
         now.latitude.degrees,
-        segments.longitude.to_numpy(),
-        segments.latitude.to_numpy(),
+        samples.longitude.to_numpy(),
+        samples.latitude.to_numpy(),
     )
-    return segments.assign(
-        cross_km=-length * np.sin(np.radians(azimuth - heading)) / 1e3
-    )
+    return azimuth - heading, length
+
+
+def add_offsets(segments: pd.DataFrame, orbit) -> pd.DataFrame:
+    """Adds the cross-track offsets (km, positive to the left) from the ground track."""
+    bearing, length = track_bearings(segments, orbit)
+    return segments.assign(cross_km=-length * np.sin(np.radians(bearing)) / 1e3)
 
 
 def fit(segments: pd.DataFrame) -> None:
@@ -215,27 +209,33 @@ def fit(segments: pd.DataFrame) -> None:
         )
 
 
-def score_segments(entry, orbit, segments: pd.DataFrame, day: datetime) -> dict:
+def score_views(
+    run, configuration: str, orbit, samples: pd.DataFrame, views, per_view: int
+) -> tuple[dict, np.ndarray]:
     """
-    Scores a sample of each pair's segments: whether its view observes them within
-    two minutes of their times, and the epochs' differences, at each time step.
+    Scores a sample of the segments (or shots) of each view (by `pair`): whether the
+    view observes them within two minutes of their times, and the epochs'
+    differences, at each time step. Gets the results by time step, and the sample as
+    rows of latitude, longitude, seconds from the start of the day, and the index of
+    the view.
     """
     rng = np.random.default_rng(1)
     sample = pd.concat(
         [
-            group.iloc[
-                rng.choice(len(group), min(SAMPLE_PER_PAIR, len(group)), replace=False)
-            ]
-            for _, group in segments.groupby("pair")
+            group.iloc[rng.choice(len(group), min(per_view, len(group)), replace=False)]
+            for _, group in samples.groupby("pair")
         ],
         ignore_index=True,
     )
     results = {}
     for time_step in TIME_STEPS:
-        satellite = entry.to_satellite(
-            orbit, configuration=CONFIGURATION, time_step=time_step, platform="icesat-2"
+        satellite = run.entry.to_satellite(
+            orbit,
+            configuration=configuration,
+            time_step=time_step,
+            platform=run.platform,
         )
-        differences = find_epochs(satellite, sample)
+        differences = find_epochs(satellite, sample, views)
         found = np.isfinite(differences)
         results[time_step] = {
             "segment_recall": 100 * float(found.mean()),
@@ -249,16 +249,19 @@ def score_segments(entry, orbit, segments: pd.DataFrame, day: datetime) -> dict:
         [
             sample.latitude.to_numpy(),
             sample.longitude.to_numpy(),
-            (sample.time - pd.Timestamp(day)).dt.total_seconds().to_numpy(),
-            sample.pair.map(PAIRS.index).to_numpy(),
+            (sample.time - pd.Timestamp(run.day)).dt.total_seconds().to_numpy(),
+            sample.pair.map(views.index).to_numpy(),
         ],
         axis=-1,
     )
     return results, passes
 
 
-def find_epochs(satellite, sample) -> np.ndarray:
-    """Gets the difference (s) of each segment's nearest predicted epoch, or NaN."""
+def find_epochs(satellite, sample: pd.DataFrame, views) -> np.ndarray:
+    """
+    Gets the difference (s) of each sample's nearest predicted epoch by the view
+    (`pair`, of `views`), within two minutes of its time, or NaN.
+    """
 
     def find(row):
         time = row.time.floor("us").to_pydatetime()
@@ -267,7 +270,7 @@ def find_epochs(satellite, sample) -> np.ndarray:
             satellite,
             time - timedelta(minutes=2),
             time + timedelta(minutes=2),
-            PAIRS.index(row.pair),
+            views.index(row.pair),
         )
         if found.empty:
             return np.nan
@@ -277,6 +280,69 @@ def find_epochs(satellite, sample) -> np.ndarray:
 
     with concurrent.futures.ThreadPoolExecutor(8) as pool:
         return np.array(list(pool.map(find, sample.itertuples())), dtype=float)
+
+
+def write_views(
+    run,
+    configuration: str,
+    orbit,
+    tle,
+    scored: tuple[dict, np.ndarray],
+    spacing: float,
+    views,
+    reference: str,
+) -> None:
+    """
+    Writes the results of the views (see `score_views`) and the spacing error, with
+    the reduced fixture of a sample of the passes, rescored at the first time step.
+    """
+    results, passes = scored
+    satellite = run.entry.to_satellite(
+        orbit,
+        configuration=configuration,
+        time_step=TIME_STEPS[0],
+        platform=run.platform,
+    )
+    rng = np.random.default_rng(2)
+    reduced = passes[rng.choice(len(passes), FIXTURE_PASSES, replace=False)]
+    fixture_differences = find_epochs(
+        satellite,
+        pd.DataFrame(
+            {
+                "latitude": reduced[:, 0],
+                "longitude": reduced[:, 1],
+                "time": pd.Timestamp(run.day)
+                + pd.to_timedelta(reduced[:, 2], unit="s"),
+                "pair": [views[int(i)] for i in reduced[:, 3]],
+            }
+        ),
+        views,
+    )
+    found = np.isfinite(fixture_differences)
+    write_results(
+        run,
+        configuration,
+        reference=reference,
+        metrics=[
+            {
+                "name": name,
+                "value": values[name],
+                "scope": f"time step {time_step} s",
+            }
+            for time_step, values in results.items()
+            for name in ("segment_recall", "epoch_p95", "epoch_median")
+        ]
+        + [{"name": "beam_spacing_error_median", "value": spacing}],
+        fixture={
+            "tle": np.array(tle),
+            "day": np.array(run.day.isoformat()),
+            "passes": reduced,
+        },
+        fixture_metrics={
+            "passes_found": 100 * float(found.mean()),
+            "epoch_p95": float(summarize(fixture_differences[found])["p95"]),
+        },
+    )
 
 
 def score_spacing(entry, segments: pd.DataFrame) -> float:
@@ -311,81 +377,46 @@ def score_spacing(entry, segments: pd.DataFrame) -> float:
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its views."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    parser.add_argument("--same-day-element-set", action="store_true")
-    arguments = parser.parse_args()
-    if arguments.same_day_element_set and (arguments.write or arguments.fit):
-        parser.error("--same-day-element-set neither fits nor writes a record")
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
+    run = parse_run(
+        "atlas",
+        __doc__,
+        add_arguments=lambda parser: parser.add_argument(
+            "--same-day-element-set",
+            action="store_true",
+            help="test with the element set nearest the middle of the day from "
+            f"elements/{SAME_DAY_ELEMENT_SET_FILE.name}, without writing",
+        ),
+    )
+    if run.same_day_element_set and (run.write or run.fit):
+        raise SystemExit("--same-day-element-set neither fits nor writes a record")
     tle = (
-        read_element_set_file(ELEMENT_SET_FILE, NORAD_ID, day)
-        if arguments.same_day_element_set
-        else list(ELEMENTS[arguments.day])
+        get_element_set(run.platform, run.day, file=SAME_DAY_ELEMENT_SET_FILE)
+        if run.same_day_element_set
+        else run.element_set()
     )
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    segments = add_offsets(load_day(day, arguments.directory), orbit)
+    segments = add_offsets(load_day(run.day, run.directory), orbit)
     print(
-        f"{arguments.day}: {tle[0][:32]}; {len(segments)} segments in "
+        f"{run.day:%Y-%m-%d}: {tle[0][:32]}; {len(segments)} segments in "
         f"{segments.file.nunique()} files",
         flush=True,
     )
-    if arguments.fit:
+    if run.fit:
         fit(segments)
         return
-    entry = get_entry("atlas")
-    results, passes = score_segments(entry, orbit, segments, day)
-    spacing = score_spacing(entry, segments)
-    if not arguments.write:
-        return
-    satellite = entry.to_satellite(
-        orbit, configuration=CONFIGURATION, time_step=TIME_STEPS[0], platform="icesat-2"
-    )
-    rng = np.random.default_rng(2)
-    reduced = passes[rng.choice(len(passes), FIXTURE_SEGMENTS, replace=False)]
-    fixture_differences = find_epochs(
-        satellite,
-        pd.DataFrame(
-            {
-                "latitude": reduced[:, 0],
-                "longitude": reduced[:, 1],
-                "time": pd.Timestamp(day) + pd.to_timedelta(reduced[:, 2], unit="s"),
-                "pair": [PAIRS[int(i)] for i in reduced[:, 3]],
-            }
-        ),
-    )
-    update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=reduced
-    )
-    found = np.isfinite(fixture_differences)
-    write_record(
-        entry,
-        CONFIGURATION,
-        source=source_of(__file__),
-        reference="ATL08QL version 007 (land segments south of 60 deg S)",
-        period=f"{day:%Y-%m-%d}",
-        platforms=["icesat-2"],
-        metrics=[
-            {
-                "name": name,
-                "value": values[name],
-                "scope": f"time step {time_step} s",
-            }
-            for time_step, values in results.items()
-            for name in ("segment_recall", "epoch_p95", "epoch_median")
-        ]
-        + [{"name": "beam_spacing_error_median", "value": spacing}],
-        fixture_metrics={
-            "passes_found": 100 * float(found.mean()),
-            "epoch_p95": float(summarize(fixture_differences[found])["p95"]),
-        },
-    )
-    print(f"wrote {FIXTURE_PATH}")
+    scored = score_views(run, CONFIGURATION, orbit, segments, PAIRS, SAMPLE_PER_PAIR)
+    spacing = score_spacing(run.entry, segments)
+    if run.write:
+        write_views(
+            run,
+            CONFIGURATION,
+            orbit,
+            tle,
+            scored,
+            spacing,
+            PAIRS,
+            "ATL08QL version 007 (land segments south of 60 deg S)",
+        )
 
 
 if __name__ == "__main__":

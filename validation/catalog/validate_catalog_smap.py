@@ -22,6 +22,16 @@ Needs the `validation` extra and a NASA Earthdata login:
     python validation/catalog/validate_catalog_smap.py <data directory> 2026-10-24
     python validation/catalog/validate_catalog_smap.py <data directory> 2026-09-20
 
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
+Element sets for days not registered in `elements/element_sets.yml` are taken from
+the file of SMAP's element sets in `elements/` (or one given with `--elements`).
+`--download-only` downloads and reduces the day's data, without testing.
+
+It also validates the entry's sample size configuration (`footprints`): sizes at
+the scan's center are compared with published footprints, and the spacing of the
+samples nearest it with that measured. To run only these tests, use
+`--configuration footprints`.
+
 With `--fit`, it derives the cone angle instead, as `ValidateGridSMAP` did, from the
 gridded brightness temperatures of the day (`SPL1CTB`, the half orbits from two hours
 before the day to two hours after it): the angle from nadir of a boresight at the
@@ -34,62 +44,46 @@ which unit tests recompute the results.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
-import concurrent.futures
 import json
 import pathlib
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import earthaccess
-import geopandas as gpd
 import h5py
 import numpy as np
 import pandas as pd
-from pyproj import Geod
 from scipy.spatial import cKDTree
-from shapely import contains_xy, prepare
 
-from tatc.analysis import (
-    collect_observations,
-    compute_ground_track,
-    compute_sample_sizes,
-)
-from tatc.catalog import get_entry
-from tatc.catalog.metrics import compute_mask_iou, compute_pass_scores, summarize
+from tatc.catalog.metrics import compute_pass_scores, summarize
 from tatc.constants import timescale
 from tatc.generation import generate_points_fibonacci_lattice
-from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
+from tatc.schemas import GeneralPerturbationsOrbit
+from conical import (
+    GEOD,
+    compute_arc_spacing_ratios,
+    compute_center_errors,
+    cone_crossing,
+    orbit_period,
+    pick_cone_passes,
+    score_swath_steps,
+)
 from validation_io import (
     TO_GEODETIC,
     build_grid,
     ecef,
     in_lattice_cells,
-    normalize,
-    read_element_set_file,
-    recompute_passes,
-    up,
-    update_fixture,
-    write_record,
-    FIXTURES,
-    source_of,
-    ELEMENT_SET_FOLDER,
     login_earthdata,
+    normalize,
+    parse_run,
+    predict_passes,
+    recompute_passes,
+    score_published,
+    up,
+    write_results,
 )
 
-FIXTURE_PATH = FIXTURES / "smap_radiometer.npz"
-ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "smap_2026-09-20.3le"
-
-PLATFORM = "smap"
-NORAD_ID = 40376
 CONFIGURATION = "looks"
-# the element set of ValidateGridSMAP, for the day of its cone angle
-ELEMENT_SETS = {
-    "2026-10-24": [
-        "1 40376U 15003A   26298.67804942  .00000247  00000+0  56844-4 0  9999",
-        "2 40376  98.1310 303.9506 0001331  85.8091 274.3263 14.63397245626701",
-    ],
-}
 SCAN_PERIOD = 4.11
 AZIMUTHS = np.arange(-87, 87.1, 1.5)  # deg from the velocity, in each half
 TIME_STEPS = (SCAN_PERIOD, 10, 30)
@@ -97,7 +91,6 @@ POINT_SPACING = 300e3
 MATCH_TOLERANCE = pd.Timedelta(seconds=60)
 ORBIT_MARGIN = 120  # s
 FIXTURE_PASSES = 120
-GEOD = Geod(ellps="WGS84")
 SAMPLE_CONFIGURATION = "footprints"
 # published footprints: name, altitude (km), and sizes along and across track (km) at
 # the scan's center (forward), where the plane of incidence, which holds the major
@@ -108,22 +101,12 @@ PUBLISHED_FOOTPRINTS = (
     ("SMAP radiometer", 685, 49.0, 38.0),
 )
 PUBLISHED_INCLINATION = 98.1
-PUBLISHED_EPOCH = datetime(2026, 10, 1, tzinfo=timezone.utc)
-SIZE_TOLERANCE = 0.03
 SPACING_SCAN_STRIDE = 25
 FIXTURE_SPACING_SAMPLES = 150
 
 
 # the mean radius (m) of the spherical Earth on which the cone angle is derived
 FIT_EARTH_RADIUS = 6371.0088e3
-
-
-def get_element_set(day: datetime) -> list[str]:
-    """Gets the element set of a day."""
-    key = f"{day:%Y-%m-%d}"
-    if key in ELEMENT_SETS:
-        return ELEMENT_SETS[key]
-    return read_element_set_file(ELEMENT_SET_FILE, NORAD_ID, day)
 
 
 def to_seconds(j2000: np.ndarray, day: datetime) -> np.ndarray:
@@ -263,10 +246,6 @@ class Reference:
         if self.time[-1] < 86400 - 60:
             self.gaps.append((self.time[-1], 86400))
 
-    def to_utc(self, seconds) -> list[datetime]:
-        """Converts seconds from the start of the day to times."""
-        return [self.day + timedelta(seconds=float(s)) for s in np.atleast_1d(seconds)]
-
     def in_gap(self, times: pd.Series, margin: float = 180) -> np.ndarray:
         """Gets whether times are within a margin of gaps of the data."""
         seconds = (times - pd.Timestamp(self.day)).dt.total_seconds().to_numpy()
@@ -274,32 +253,6 @@ class Reference:
         for a, b in self.gaps:
             result |= (seconds > a - margin) & (seconds < b + margin)
         return result
-
-    def cone_crossing(self, target, k: int, cone_angle: float) -> float:
-        """Gets the time (s) a target crosses the cone near scan k, by bisection."""
-
-        def angle(t: float) -> float:
-            i = int(np.clip(np.searchsorted(self.time, t) - 1, 0, len(self.time) - 2))
-            f = (t - self.time[i]) / (self.time[i + 1] - self.time[i])
-            position = self.position[i] + f * (self.position[i + 1] - self.position[i])
-            lon, lat, _ = TO_GEODETIC.transform(*position)
-            return (
-                np.degrees(
-                    np.arccos(np.dot(normalize(target - position), -up(lon, lat)))
-                )
-                - cone_angle
-            )
-
-        lower, upper = self.time[k] - 8, self.time[k] + 8
-        if angle(lower) * angle(upper) > 0:
-            return np.nan
-        for _ in range(30):
-            middle = (lower + upper) / 2
-            if (angle(middle) > 0) == (angle(lower) > 0):
-                lower = middle
-            else:
-                upper = middle
-        return (lower + upper) / 2
 
     def in_cell(self, cells, point, k: int, j: int) -> bool:
         """Gets whether a unit vector lies in the cell of a lattice at (k, j)."""
@@ -350,7 +303,15 @@ class Reference:
                     ):
                         continue
                     k = int(nearest[0] // columns)
-                    crossing = self.cone_crossing(ecef(lon[p], lat[p]), k, cone_angle)
+                    crossing = cone_crossing(
+                        self.time,
+                        self.position,
+                        ecef(lon[p], lat[p]),
+                        k,
+                        cone_angle,
+                        8,
+                        signed=True,
+                    )
                     if np.isfinite(crossing):
                         rows.append(
                             {"point_id": int(p), "look": look, "seconds": crossing}
@@ -369,18 +330,11 @@ class Reference:
 
 def score_looks(reference, points, satellite, observed) -> dict[str, float]:
     """Compares predicted and observed looks of points."""
-    start, end = reference.to_utc([reference.time[0], reference.time[-1]])
-
-    def predict(item):
-        p, geometry = item
-        return collect_observations(
-            Point(latitude=geometry.y, longitude=geometry.x), satellite, start, end
-        ).assign(point_id=p)
-
-    with concurrent.futures.ThreadPoolExecutor(8) as pool:
-        predicted = pd.concat(list(pool.map(predict, enumerate(points.geometry))))
-    predicted = predicted.reset_index(drop=True)
-    predicted["point_id"] = predicted.point_id.astype("int64")
+    start, end = (
+        reference.day + timedelta(seconds=float(s))
+        for s in (reference.time[0], reference.time[-1])
+    )
+    predicted = predict_passes(points, satellite, 0, start, end, [])
     predicted = predicted[~reference.in_gap(predicted.epoch)]
     observed = observed[~reference.in_gap(observed.time)]
     merged = pd.merge_asof(
@@ -426,7 +380,7 @@ def score_swath_width(reference, instrument) -> float:
 
 def score_swath_area(reference, satellite_for, orbit) -> float:
     """Gets the lowest IoU of the swath over an orbit without gaps, by time step."""
-    period = 86400 / (orbit.elements[0].mean_motion * 86400 / 360)
+    period = orbit_period(orbit)
     start = 12 * 3600
     while True:
         scans = np.nonzero(
@@ -459,67 +413,17 @@ def score_swath_area(reference, satellite_for, orbit) -> float:
         observed[compared] |= in_lattice_cells(
             part, reference.contiguous[scans][:-1], grid[compared], neighbors=12
         )
-    scores = []
-    for time_step in TIME_STEPS:
-        times = reference.to_utc(
-            first + time_step * (np.arange(int((last - first) // time_step)) + 0.5)
-        )
-        geometry = compute_ground_track(satellite_for(time_step), times).geometry.iloc[
-            0
-        ]
-        prepare(geometry)
-        predicted = np.zeros(len(grid), dtype=bool)
-        predicted[compared] = contains_xy(geometry, lon[compared], lat[compared])
-        scores.append(compute_mask_iou(observed, predicted, weights))
-        print(f"swath IoU at {time_step:g} s: {scores[-1]:.4f}", flush=True)
-    return min(scores)
-
-
-def score_published_footprints(entry) -> tuple[float, float]:
-    """
-    Compares the sample size at the scan's center (forward) with the published
-    footprints. Returns the percent of dimensions within tolerance and the largest
-    error (%).
-    """
-    errors = []
-    for name, altitude, along, cross in PUBLISHED_FOOTPRINTS:
-        orbit = CircularOrbit(
-            altitude=altitude * 1e3,
-            inclination=PUBLISHED_INCLINATION,
-            epoch=PUBLISHED_EPOCH,
-        )
-        satellite = entry.to_satellite(
-            orbit,
-            configuration=SAMPLE_CONFIGURATION,
-            time_step=SCAN_PERIOD,
-            platform=PLATFORM,
-        )
-        time = PUBLISHED_EPOCH + timedelta(minutes=10)
-        target = satellite.get_instrument(0).compute_footprint_center(
-            orbit.to_gp_orbit().get_orbit_track(time)
-        )
-        sizes = compute_sample_sizes(
-            gpd.GeoDataFrame(
-                {
-                    "satellite": [satellite.name],
-                    "instrument": [name],
-                    "epoch": pd.DatetimeIndex([time]),
-                },
-                geometry=gpd.points_from_xy(
-                    [target.longitude.degrees], [target.latitude.degrees]
-                ),
-                crs="EPSG:4326",
-            ),
-            satellite,
-        )
-        pair = (
-            sizes.sample_along.iloc[0] / 1e3 / along - 1,
-            sizes.sample_cross.iloc[0] / 1e3 / cross - 1,
-        )
-        print(f"{along} x {cross} km: {pair[0]:+.2%} along, {pair[1]:+.2%} across")
-        errors.extend(abs(error) for error in pair)
-    errors = np.array(errors)
-    return 100 * float(np.mean(errors <= SIZE_TOLERANCE)), 100 * float(errors.max())
+    return score_swath_steps(
+        satellite_for,
+        0,
+        reference.day,
+        first,
+        last,
+        TIME_STEPS,
+        (lon, lat, weights),
+        compared,
+        observed,
+    )
 
 
 def measure_spacing(reference: Reference) -> np.ndarray:
@@ -554,31 +458,19 @@ def measure_spacing(reference: Reference) -> np.ndarray:
     return np.array(rows, dtype=float)
 
 
-def compute_spacing_ratios(day, satellite, rows) -> tuple[float, float]:
-    """Gets the median ratios of predicted to measured spacing along arcs and scans."""
-    sizes = compute_sample_sizes(
-        gpd.GeoDataFrame(
-            {
-                "satellite": satellite.name,
-                "instrument": satellite.instruments[0].name,
-                "epoch": pd.DatetimeIndex(
-                    [day + timedelta(seconds=float(s)) for s in rows[:, 2]]
-                ),
-            },
-            geometry=gpd.points_from_xy(rows[:, 1], rows[:, 0]),
-            crs="EPSG:4326",
-        ),
-        satellite,
+def validate_sample_sizes(run, orbit, tle, reference: Reference) -> None:
+    """Scores the sample size configuration, and writes its results if the run writes."""
+    entry = run.entry
+    within, largest = score_published(
+        compute_center_errors(
+            entry,
+            SAMPLE_CONFIGURATION,
+            PUBLISHED_FOOTPRINTS,
+            PUBLISHED_INCLINATION,
+            time_step=SCAN_PERIOD,
+            platform=run.platform,
+        )
     )
-    return (
-        float(np.median(sizes.spacing_cross.to_numpy() / 1e3 / rows[:, 3])),
-        float(np.median(sizes.spacing_along.to_numpy() / 1e3 / rows[:, 4])),
-    )
-
-
-def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> None:
-    """Scores the sample size configuration, and writes its results if requested."""
-    within, largest = score_published_footprints(entry)
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
@@ -586,46 +478,96 @@ def validate_sample_sizes(day, tle, entry, orbit, reference, write: bool) -> Non
         orbit,
         configuration=SAMPLE_CONFIGURATION,
         time_step=SCAN_PERIOD,
-        platform=PLATFORM,
+        platform=run.platform,
     )
+    name = satellite.instruments[0].name
     rows = measure_spacing(reference)
-    arc, between = compute_spacing_ratios(day, satellite, rows)
+    arc, between = compute_arc_spacing_ratios(satellite, name, run.day, rows)
     print(
         f"spacing, predicted / measured: {arc:.4f} arc, {between:.4f} scans "
         f"({np.median(rows[:, 3]):.2f} and {np.median(rows[:, 4]):.2f} km measured)",
         flush=True,
     )
-    if not write:
+    if not run.write:
         return
     rng = np.random.default_rng(2)
     picks = rows[rng.choice(len(rows), FIXTURE_SPACING_SAMPLES, replace=False)]
-    fixture_arc, fixture_between = compute_spacing_ratios(day, satellite, picks)
-    update_fixture(
-        FIXTURE_PATH,
-        tle=np.array(tle),
-        day=np.array(day.isoformat()),
-        footprints=np.array([row[1:] for row in PUBLISHED_FOOTPRINTS], dtype=float),
-        spacing=picks,
+    fixture_arc, fixture_between = compute_arc_spacing_ratios(
+        satellite, name, run.day, picks
     )
-    write_record(
-        entry,
+    write_results(
+        run,
         SAMPLE_CONFIGURATION,
-        source=source_of(__file__),
         reference="Footprints of Piepmeier et al. (2017) and the JPL SMAP "
         "specifications; spacing of SPL1BTB",
-        period=f"{day:%Y-%m-%d}",
-        platforms=[PLATFORM],
         metrics=[
             {"name": "sample_size_within_3pct", "value": within},
             {"name": "sample_size_largest_error", "value": largest},
             {"name": "spacing_arc_ratio_median", "value": arc},
             {"name": "spacing_scan_ratio_median", "value": between},
         ],
+        fixture={
+            "tle": np.array(tle),
+            "day": np.array(run.day.isoformat()),
+            "footprints": np.array(
+                [row[1:] for row in PUBLISHED_FOOTPRINTS], dtype=float
+            ),
+            "spacing": picks,
+        },
         fixture_metrics={
             "sample_size_within_3pct": within,
             "spacing_arc_ratio_median": fixture_arc,
             "spacing_scan_ratio_median": fixture_between,
         },
+    )
+
+
+def validate_looks(run, orbit, tle, reference: Reference) -> None:
+    """Scores the looks configuration, and writes its results if the run writes."""
+    entry = run.entry
+
+    def satellite_for(time_step: float):
+        return entry.to_satellite(orbit, time_step=time_step, platform=run.platform)
+
+    satellite = satellite_for(SCAN_PERIOD)
+    cone_angle = (
+        entry.configurations[CONFIGURATION].instruments[0].parameters["cone_angle"]
+    )
+    points = generate_points_fibonacci_lattice(POINT_SPACING)
+    observed = reference.observe_looks(points, cone_angle)
+    results = score_looks(reference, points, satellite, observed)
+    print(json.dumps(results), flush=True)
+    results["swath_width_median"] = score_swath_width(
+        reference, satellite.instruments[0]
+    )
+    results["footprint_iou_median"] = score_swath_area(reference, satellite_for, orbit)
+    print(json.dumps(results), flush=True)
+    if not run.write:
+        return
+    passes = pick_cone_passes(
+        points, observed[~reference.in_gap(observed.time)], FIXTURE_PASSES
+    )
+    write_results(
+        run,
+        CONFIGURATION,
+        reference="SPL1BTB (footprint positions and times)",
+        metrics=[
+            {"name": name, "value": float(results[name])}
+            for name in (
+                "pass_recall",
+                "pass_precision",
+                "epoch_p95",
+                "epoch_median",
+                "swath_width_median",
+                "footprint_iou_median",
+            )
+        ],
+        fixture={
+            "tle": np.array(tle),
+            "day": np.array(run.day.isoformat()),
+            "passes": passes,
+        },
+        fixture_metrics=recompute_passes(satellite, 0, run.day, passes),
     )
 
 
@@ -661,15 +603,13 @@ def load_fit_incidence(day: datetime, directory: pathlib.Path) -> np.ndarray:
     return np.load(path)
 
 
-def fit(day: datetime, directory: pathlib.Path) -> None:
+def fit(day: datetime, directory: pathlib.Path, tle: list[str]) -> None:
     """
     Prints the cone angle of a boresight at the median incidence angle of a day's
     forward looks, at the mean altitude of its element set, on a spherical Earth.
     """
     incidence = float(np.nanmedian(load_fit_incidence(day, directory)))
-    altitude = GeneralPerturbationsOrbit.from_tle(
-        get_element_set(day)
-    ).get_mean_altitude()
+    altitude = GeneralPerturbationsOrbit.from_tle(tle).get_mean_altitude()
     cone = np.degrees(
         np.arcsin(
             FIT_EARTH_RADIUS
@@ -685,89 +625,34 @@ def fit(day: datetime, directory: pathlib.Path) -> None:
 
 
 def main() -> None:
-    """Validates the entry on a day of data."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    parser.add_argument("--download-only", action="store_true")
-    parser.add_argument("--sample-sizes-only", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    if arguments.fit:
-        fit(day, arguments.directory)
+    """Validates the entry on a day of data, or fits its cone angle."""
+    run = parse_run(
+        "smap_radiometer",
+        __doc__,
+        add_arguments=lambda parser: parser.add_argument(
+            "--download-only",
+            action="store_true",
+            help="download and reduce the day's data, without testing",
+        ),
+    )
+    if run.fit:
+        fit(run.day, run.directory, run.element_set())
         return
-    data = load_day(day, arguments.directory)
-    if arguments.download_only:
+    data = load_day(run.day, run.directory)
+    if run.download_only:
         return
-    tle = get_element_set(day)
+    tle = run.element_set()
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    entry = get_entry("smap_radiometer")
-    reference = Reference(day, data)
+    reference = Reference(run.day, data)
     print(
-        f"{arguments.day}: {len(reference.time)} scans, gaps "
+        f"{run.day:%Y-%m-%d}: {len(reference.time)} scans, gaps "
         + ", ".join(f"{a / 3600:.2f}-{b / 3600:.2f} h" for a, b in reference.gaps),
         flush=True,
     )
-    validate_sample_sizes(day, tle, entry, orbit, reference, arguments.write)
-    if arguments.sample_sizes_only:
-        return
-
-    def satellite_for(time_step: float):
-        return entry.to_satellite(orbit, time_step=time_step, platform=PLATFORM)
-
-    satellite = satellite_for(SCAN_PERIOD)
-    cone_angle = (
-        entry.configurations[CONFIGURATION].instruments[0].parameters["cone_angle"]
-    )
-    points = generate_points_fibonacci_lattice(POINT_SPACING)
-    observed = reference.observe_looks(points, cone_angle)
-    results = score_looks(reference, points, satellite, observed)
-    print(json.dumps(results), flush=True)
-    results["swath_width_median"] = score_swath_width(
-        reference, satellite.instruments[0]
-    )
-    results["footprint_iou_median"] = score_swath_area(reference, satellite_for, orbit)
-    print(json.dumps(results), flush=True)
-    if not arguments.write:
-        return
-    rng = np.random.default_rng(1)
-    kept = observed[~reference.in_gap(observed.time)]
-    picks = kept.iloc[rng.choice(len(kept), FIXTURE_PASSES, replace=False)]
-    fixture = np.column_stack(
-        [
-            points.geometry.y.to_numpy()[picks.point_id],
-            points.geometry.x.to_numpy()[picks.point_id],
-            picks.seconds.to_numpy(),
-        ]
-    )
-    update_fixture(
-        FIXTURE_PATH, tle=np.array(tle), day=np.array(day.isoformat()), passes=fixture
-    )
-    metrics = [
-        {"name": name, "value": float(results[name])}
-        for name in (
-            "pass_recall",
-            "pass_precision",
-            "epoch_p95",
-            "epoch_median",
-            "swath_width_median",
-            "footprint_iou_median",
-        )
-    ]
-    write_record(
-        entry,
-        CONFIGURATION,
-        source=source_of(__file__),
-        reference="SPL1BTB (footprint positions and times)",
-        period=f"{day:%Y-%m-%d}",
-        platforms=[PLATFORM],
-        metrics=metrics,
-        fixture_metrics=recompute_passes(satellite, 0, day, fixture),
-    )
-    print(f"wrote {FIXTURE_PATH}")
+    if SAMPLE_CONFIGURATION in run.configurations:
+        validate_sample_sizes(run, orbit, tle, reference)
+    if CONFIGURATION in run.configurations:
+        validate_looks(run, orbit, tle, reference)
 
 
 if __name__ == "__main__":

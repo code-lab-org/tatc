@@ -3,8 +3,9 @@ Validates the MHS catalog entry against the GPM Level 1C MHS product of Metop-C,
 using the exact values of the entry through public TAT-C methods. The entry's scan
 angles are fitted to the positions of the beams on one day (run with `--fit`):
 running on that day checks the fit, while running on a day at least 30 days from it
-tests the fitted angles on data held out from the fit. Element sets for other days
-are read from a file of the history of Metop's element sets.
+tests the fitted angles on data held out from the fit. Element sets are those
+registered in `elements/element_sets.yml`, or else read from the file of the history
+of Metop's element sets in `elements/` (or from a file given with `--elements`).
 
 Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`:
 
@@ -12,9 +13,12 @@ Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`:
     python validation/catalog/validate_catalog_mhs.py <data directory> 2026-11-05
     python validation/catalog/validate_catalog_mhs.py <data directory> 2026-10-05
 
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
+
 It also validates the entry's sample size configuration, following
 `ValidateSampleSizes`. The gated metrics compare sizes with footprints published in
 the TC PRIMED documentation, and the projected pixels with the beams' positions.
+`--configuration beams` (or `swath`) tests one configuration.
 
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results. A record of the day of the fit has no
@@ -26,13 +30,8 @@ adds the results to the record as a transfer, which does not count toward the ti
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
-import pathlib
-from datetime import datetime, timezone
-
-from tatc.catalog import get_entry
 from tatc.schemas import GeneralPerturbationsOrbit
-from gesdisc_scanner import (
+from scanner import (
     Product,
     Reference,
     Setup,
@@ -41,48 +40,17 @@ from gesdisc_scanner import (
     validate_beams,
     validate_swath,
 )
-from validation_io import (
-    read_element_set_file,
-    FIXTURES,
-    source_of,
-    ELEMENT_SET_FOLDER,
-)
+from validation_io import FIXTURES, parse_run
 
-NORAD_ID = 43689
-# public element sets from CelesTrak, with epochs after each day of data
-ELEMENTS = {
-    "2026-11-05": (
-        "1 43689U 18087A   26312.29310542  .00000136  00000+0  82226-4 0  9997",
-        "2 43689  98.7256   9.6406 0001524 126.9326 233.1991 14.21484375415305",
+SPACECRAFT = ("SCstatus/SClatitude", "SCstatus/SClongitude", "SCstatus/SCaltitude")
+# the product of each platform: Metop-C's, on which the entry is fitted and tested,
+# and a sibling's, on which results are reported as a transfer
+PRODUCTS = {
+    "metop-c": Product(
+        short_name="GPM_1CMETOPCMHS", version="08", group="S1", spacecraft=SPACECRAFT
     ),
-}
-ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "metop_2026-10-05.3le"
-PRODUCT = Product(
-    short_name="GPM_1CMETOPCMHS",
-    version="08",
-    group="S1",
-    spacecraft=("SCstatus/SClatitude", "SCstatus/SClongitude", "SCstatus/SCaltitude"),
-)
-# a sibling platform, on which results are reported as a transfer, with its product
-# and public element sets from CelesTrak, with epochs after each day of data
-TRANSFERS = {
-    "metop-b": (
-        Product(
-            short_name="GPM_1CMETOPBMHS",
-            version="08",
-            group="S1",
-            spacecraft=(
-                "SCstatus/SClatitude",
-                "SCstatus/SClongitude",
-                "SCstatus/SCaltitude",
-            ),
-        ),
-        {
-            "2026-11-05": (
-                "1 38771U 12049A   26312.34881222  .00000142  00000+0  84646-4 0  9994",
-                "2 38771  98.6322   0.8399 0001242 300.9364  59.1691 14.21470905733749",
-            ),
-        },
+    "metop-b": Product(
+        short_name="GPM_1CMETOPBMHS", version="08", group="S1", spacecraft=SPACECRAFT
     ),
 }
 SCAN_PERIOD = 8 / 3
@@ -94,14 +62,11 @@ PUBLISHED_FOOTPRINTS = (
     ("MHS", 817, 98.7, 49.444, 27.1, 52.8),
 )
 SETUP = Setup(
-    entry_id="mhs",
-    platform="metop-c",
     swath="swath",
     beams="beams",
     size_instrument="MHS",
     published_footprints=PUBLISHED_FOOTPRINTS,
     fixture_path=FIXTURES / "mhs.npz",
-    source=source_of(__file__),
     reference="GPM_1CMETOPCMHS version 08 (beam positions)",
     published_reference="Footprints of the TC PRIMED documentation; beam positions "
     "of GPM_1CMETOPCMHS version 08",
@@ -115,59 +80,26 @@ SETUP = Setup(
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument("--sample-sizes-only", action="store_true")
-    parser.add_argument("--write", action="store_true")
-    parser.add_argument("--platform", default=SETUP.platform)
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    product = (
-        PRODUCT
-        if arguments.platform == SETUP.platform
-        else TRANSFERS[arguments.platform][0]
+    run = parse_run("mhs", __doc__)
+    reference = Reference(
+        run.day, load_day(PRODUCTS[run.platform], run.day, run.directory), SCAN_PERIOD
     )
-    reference = Reference(day, load_day(product, day, arguments.directory), SCAN_PERIOD)
     print(
-        f"{arguments.day}: {len(reference.time)} scans, "
+        f"{run.day:%Y-%m-%d}: {len(reference.time)} scans, "
         f"{len(reference.gaps)} gaps over a minute",
         flush=True,
     )
-    if arguments.fit:
+    if run.fit:
         for frame in ("earth_fixed", "inertial"):
             fit(reference, frame)
         return
-    if arguments.platform != SETUP.platform:
-        tle = list(TRANSFERS[arguments.platform][1][arguments.day])
-    else:
-        tle = list(
-            ELEMENTS[arguments.day]
-            if arguments.day in ELEMENTS
-            else read_element_set_file(ELEMENT_SET_FILE, NORAD_ID, day)
-        )
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    entry = get_entry("mhs")
-    validate_beams(
-        SETUP, day, tle, entry, orbit, reference, arguments.write, arguments.platform
-    )
-    if not arguments.sample_sizes_only:
-        validate_swath(
-            SETUP,
-            day,
-            tle,
-            entry,
-            orbit,
-            reference,
-            arguments.write,
-            arguments.platform,
-        )
-    if arguments.write:
-        print(f"wrote {SETUP.fixture_path}")
+    if SETUP.beams in run.configurations:
+        validate_beams(SETUP, run, reference, orbit, tle)
+    if SETUP.swath in run.configurations:
+        validate_swath(SETUP, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

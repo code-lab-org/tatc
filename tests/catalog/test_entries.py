@@ -950,6 +950,28 @@ class TestEntryStatus(unittest.TestCase):
         )
         self.assertTrue(validation.gaps)
 
+    def test_gate_table(self):
+        """
+        Test that the table of gates has a row for each gate of each
+        configuration, with untested gates neither passed nor failed.
+        """
+        for entry_id in ("viirs", "airs"):
+            entry = get_entry(entry_id)
+            table = entry.validation.to_frame()
+            rows = [
+                (key, result)
+                for key, validation in entry.validation.configurations.items()
+                for result in validation.gates
+            ]
+            self.assertEqual(len(table), len(rows))
+            for (_, row), (key, result) in zip(table.iterrows(), rows):
+                self.assertEqual(row["configuration"], key)
+                self.assertEqual(
+                    row["grade"], entry.configurations[key].grade.value
+                )
+                self.assertEqual(row["metric"], result.gate.label)
+                self.assertEqual(row["passed"], result.passed)
+
     def test_mhs_has_no_fitted_values(self):
         """
         Test that the MHS entry, whose values are all published, needs no holdout.

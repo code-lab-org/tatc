@@ -20,33 +20,26 @@ with range requests:
     python validation/catalog/validate_catalog_earthcare_msi.py <data directory> 2026-09-27 --fit-view
     python validation/catalog/validate_catalog_earthcare_msi.py <data directory> 2026-11-07
 
-With `--write`, it writes the entry's validation record and the reduced fixture from
-which unit tests recompute the results.
+Without a day, it takes that of the entry's record (or, with `--fit`, of the fit;
+`--fit-view` needs its day). The element set is the one nearest the middle of the day
+in `elements/earthcare_2026-09-27.3le` (or in a file given with `--elements`). With
+`--write`, it writes the entry's validation record and the reduced fixture from which
+unit tests recompute the results.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import argparse
 import pathlib
-from datetime import datetime, timezone
+from datetime import datetime
 
 import numpy as np
 
-from tatc.catalog import get_entry
 from tatc.schemas import GeneralPerturbationsOrbit
 from earthcare_io import check_time_scale, load_day, to_seconds
-from gesdisc_scanner import Reference, Setup, fit, fit_view, fit_yaw, validate_swath
-from validation_io import (
-    TO_GEODETIC,
-    read_element_set_file,
-    FIXTURES,
-    source_of,
-    ELEMENT_SET_FOLDER,
-)
+from scanner import Reference, Setup, fit, fit_view, fit_yaw, validate_swath
+from validation_io import FIXTURES, TO_GEODETIC, parse_run
 from validate_catalog_atlid import read_atlid
 
-NORAD_ID = 59908
-ELEMENT_SET_FILE = ELEMENT_SET_FOLDER / "earthcare_2026-09-27.3le"
 PRODUCT = "MSI_RGR_1C"
 # the product's grid has 384 columns, of which 12 to 368 hold the imaged pixels and
 # the others are always fill
@@ -63,14 +56,11 @@ ORBIT_STRIDE = 4
 FIT_YAW = 0.0
 FIT_PITCH = -0.6198
 SETUP = Setup(
-    entry_id="earthcare_msi",
-    platform="earthcare",
     swath="swath",
-    beams="",
-    size_instrument="",
+    beams=None,
+    size_instrument=None,
     published_footprints=(),
     fixture_path=FIXTURES / "earthcare_msi.npz",
-    source=source_of(__file__),
     reference=f"{PRODUCT} (pixel positions of every fourth orbit, every eighth line), "
     "with spacecraft positions of ATL_NOM_1B",
     published_reference="",
@@ -125,43 +115,36 @@ def load_reference(day: datetime, directory: pathlib.Path) -> Reference:
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=pathlib.Path)
-    parser.add_argument("day")
-    parser.add_argument("--fit", action="store_true")
-    parser.add_argument(
-        "--fit-view",
-        action="store_true",
-        help="center the view in TAT-C's frame, with the fitted yaw",
+    run = parse_run(
+        "earthcare_msi",
+        __doc__,
+        add_arguments=lambda parser: parser.add_argument(
+            "--fit-view",
+            action="store_true",
+            help="center the view in TAT-C's frame, with the fitted yaw",
+        ),
     )
-    parser.add_argument("--write", action="store_true")
-    arguments = parser.parse_args()
-    arguments.directory.mkdir(parents=True, exist_ok=True)
-    day = datetime.fromisoformat(arguments.day).replace(tzinfo=timezone.utc)
-    reference = load_reference(day, arguments.directory)
+    reference = load_reference(run.day, run.directory)
     print(
-        f"{arguments.day}: {len(reference.time)} lines (every {LINE_STRIDE}), "
+        f"{run.day:%Y-%m-%d}: {len(reference.time)} lines (every {LINE_STRIDE}), "
         f"{len(reference.gaps)} gaps over a minute, line period "
         f"{reference.scan_period:.4f} s",
         flush=True,
     )
-    if arguments.fit:
-        check_time_scale(PRODUCT, day, "ScienceData/time")
+    if run.fit:
+        check_time_scale(PRODUCT, run.day, "ScienceData/time")
         for frame in ("inertial", "earth_fixed"):
             fit(reference, frame)
             fit_yaw(reference, frame)
         return
-    if arguments.fit_view:
+    if run.fit_view:
         for frame in ("inertial", "earth_fixed"):
             fit_view(reference, frame, FIT_YAW, FIT_PITCH, instrument_pitch=True)
         return
-    tle = read_element_set_file(ELEMENT_SET_FILE, NORAD_ID, day)
+    tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    entry = get_entry("earthcare_msi")
-    validate_swath(SETUP, day, tle, entry, orbit, reference, arguments.write)
-    if arguments.write:
-        print(f"wrote {SETUP.fixture_path}")
+    validate_swath(SETUP, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

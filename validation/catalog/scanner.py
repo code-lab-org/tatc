@@ -1,9 +1,13 @@
 """
 Helpers shared by the scripts that validate cross-track scanners against swath
-products at NASA GES DISC (the GPM mission's Level 2 DPR product and Level 1C MHS
-products, and the Level 1B AIRS and AMSU-A products of Aqua), whose scans give the
-position of each beam's center on the ellipsoid: reading the products, fitting the
-scan's angles, and scoring.
+products whose scans give the position of each sample's center on the ellipsoid
+(of NASA's DAACs, NOAA, and EUMETSAT): reading products of NASA's DAACs, fitting a
+scan's angles, and scoring a sample size configuration (`validate_beams`) and a
+swath configuration (`validate_swath`).
+
+A product's scans are a `Reference`, a lattice of samples (`ScanLattice`). Products
+read otherwise (such as those of the JPSS satellites) give their own reference,
+with the methods that `validate_beams` and `validate_swath` call.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -35,27 +39,26 @@ from tatc.utils import (
     compute_view_tangents,
 )
 from validation_io import (
-    write_transfer,
+    EARTH_ROTATION,
     TO_GEODETIC,
     RemoteFile,
+    ScanLattice,
     build_grid,
     compute_published_errors,
     compute_spacing_ratios,
     ecef,
     get_with_retries,
-    in_lattice_cells,
+    login_earthdata,
     normalize,
+    pick_passes,
     recompute_passes,
     score_passes,
     score_published,
     score_swath_area,
     up,
-    update_fixture,
-    write_record,
-    login_earthdata,
+    write_results,
 )
 
-EARTH_ROTATION = 7.2921150e-5  # rad/s
 ORBIT_MARGIN = 120  # s
 GEOD = Geod(ellps="WGS84")
 GATED = (
@@ -182,7 +185,7 @@ def load_day(product: Product, day: datetime, directory: pathlib.Path) -> dict:
     return dict(np.load(cache))
 
 
-class Reference:
+class Reference(ScanLattice):
     """
     A day of scans of a cross-track scanner, with what is derived from them. Each scan
     has a time; products that also give each beam's time (`beam_time`, in seconds from
@@ -260,70 +263,21 @@ class Reference:
             )
         )
 
-    def in_cells(self, points: np.ndarray, first: int, last: int) -> np.ndarray:
-        """Gets whether unit vectors lie in cells of beams on a range of scans."""
-        return in_lattice_cells(
-            self.unit[first : last + 1], self.is_next_contiguous[first:last], points
-        )
+    @property
+    def sample_seconds(self) -> np.ndarray:
+        """The time of each beam (s from the start of the day), scans by beams."""
+        return self.beam_seconds
 
-    def observe_passes(self, points, radius: float) -> pd.DataFrame:
+    def pass_time(self, before: int, sample: int, fraction: float) -> pd.Timestamp:
         """
-        Finds the passes on which the scanner observed points, and their times, with
-        each beam at its time (or the time of its scan, if the product gives no time
-        by beam).
+        Gets the time of a pass between a beam of a scan and of the next, with each
+        beam at its time (or the time of its scan, if the product gives no time by
+        beam).
         """
-        point_unit = up(points.geometry.x.to_numpy(), points.geometry.y.to_numpy())
-        flat = self.unit.reshape(-1, 3)
-        beam_seconds = self.beam_seconds.ravel()
-        tree = cKDTree(flat)
-        rows = []
-        for p, hits in enumerate(
-            tree.query_ball_point(
-                point_unit, r=2 * np.sin(radius / 6371 / 2), workers=-1
-            )
-        ):
-            if not hits:
-                continue
-            hits = np.array(hits)
-            hits = hits[np.argsort(beam_seconds[hits])]
-            for group in np.split(
-                hits, np.nonzero(np.diff(beam_seconds[hits]) > 1200)[0] + 1
-            ):
-                k, j = np.divmod(
-                    group[
-                        np.argmin(np.linalg.norm(flat[group] - point_unit[p], axis=-1))
-                    ],
-                    self.beams,
-                )
-                first, last = max(k - 1, 0), min(k + 1, len(self.time) - 1)
-                if not self.in_cells(point_unit[[p]], first, last)[0]:
-                    continue
-                # interpolate between the scans before and after the point
-                before = (
-                    k - 1
-                    if np.sum(
-                        (point_unit[p] - self.unit[k, j])
-                        * (self.unit[k, j] - self.unit[max(k - 1, 0), j])
-                    )
-                    < 0
-                    else k
-                )
-                before = int(np.clip(before, 0, len(self.time) - 2))
-                a, b = self.unit[before, j], self.unit[before + 1, j]
-                fraction = np.clip(
-                    np.sum((point_unit[p] - a) * (b - a)) / np.sum((b - a) ** 2), 0, 1
-                )
-                seconds = self.beam_seconds[before, j] + fraction * (
-                    self.beam_seconds[before + 1, j] - self.beam_seconds[before, j]
-                )
-                rows.append(
-                    {
-                        "point_id": p,
-                        "time": pd.Timestamp(self.day)
-                        + pd.Timedelta(seconds=float(seconds)),
-                    }
-                )
-        return pd.DataFrame(rows).astype({"point_id": "int64"})
+        seconds = self.beam_seconds[before, sample] + fraction * (
+            self.beam_seconds[before + 1, sample] - self.beam_seconds[before, sample]
+        )
+        return pd.Timestamp(self.day) + pd.Timedelta(seconds=float(seconds))
 
     def contiguous_scans(self) -> np.ndarray:
         """Gets the scans whose neighbors are one scan period before and after."""
@@ -458,7 +412,7 @@ def fit_view(
         (a0, c0), (am, _), (a1, c1) = tangents(roll, pitch)
         roll += float(np.degrees(np.arctan(np.median((c0 + c1) / 2))))
         pitch += float(np.degrees(np.arctan(np.median(am))))
-    (a0, c0), (am, cm), (a1, c1) = tangents(roll, pitch)
+    (a0, c0), (am, _), (a1, c1) = tangents(roll, pitch)
     width = 2 * np.degrees(np.arctan(np.median(np.abs(c0 - c1)) / 2))
     slope = np.degrees(np.arctan(np.median((a0 - a1) / (c0 - c1))))
     print(
@@ -712,16 +666,17 @@ def measure_spacing(reference: Reference, stride: int):
 
 @dataclass(frozen=True)
 class Setup:
-    """What a script validates, and where it writes its results."""
+    """
+    What a script validates on a platform: the configurations of its swath and
+    beams (or samples), the instrument and published footprints of its sample
+    sizes, its references, its fixture, and the parameters of its tests.
+    """
 
-    entry_id: str
-    platform: str
     swath: str
-    beams: str
-    size_instrument: str
+    beams: str | None
+    size_instrument: str | None
     published_footprints: tuple
     fixture_path: pathlib.Path
-    source: str
     reference: str
     published_reference: str
     time_steps: tuple[float, ...]
@@ -735,75 +690,71 @@ class Setup:
     fixture_spacing: int = 200
 
 
-def validate_beams(
-    setup: Setup, day, tle, entry, orbit, reference, write: bool, platform=None
-):
+def validate_beams(setup: Setup, run, reference, orbit, tle) -> None:
     """
-    Scores the sample size configuration, and writes its results if requested: on a
-    platform other than the configuration's (`platform`), as transfer metrics.
+    Scores the sample size configuration of a run (see `validation_io.parse_run`),
+    and writes its results if the run writes: as a transfer, on a platform on which
+    the configuration was not tested. A reference read otherwise than as a
+    `Reference` gives its own `measure_pixels(satellite, index, setup, frame)` and
+    `measure_spacing(setup)`.
     """
-    platform = platform or setup.platform
+    entry = run.entry
     within, largest = score_published(
         compute_published_errors(entry, setup.beams, setup.published_footprints)
     )
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
     )
-    satellite = entry.to_satellite(orbit, configuration=setup.beams, platform=platform)
+    satellite = entry.to_satellite(
+        orbit, configuration=setup.beams, platform=run.platform
+    )
     names = [instrument.name for instrument in satellite.instruments]
     index = names.index(setup.size_instrument)
-    pixels = measure_pixels(
-        reference,
-        satellite,
-        index,
-        setup.pixel_stride,
-        entry.configurations[setup.beams].velocity_frame.value,
-    )
+    frame = entry.configurations[setup.beams].velocity_frame.value
+    if hasattr(reference, "measure_pixels"):
+        pixels = reference.measure_pixels(satellite, index, setup, frame)
+    else:
+        pixels = measure_pixels(reference, satellite, index, setup.pixel_stride, frame)
     median = summarize(pixels[:, 2])["median"]
     p95 = summarize(pixels[:, 2])["p95"]
     print(f"pixel position: median {median:.3f} km, 95th percentile {p95:.3f} km")
-    times, rows = measure_spacing(reference, setup.spacing_stride)
+    if hasattr(reference, "measure_spacing"):
+        times, rows = reference.measure_spacing(setup)
+    else:
+        times, rows = measure_spacing(reference, setup.spacing_stride)
     along, cross = compute_spacing_ratios(
         satellite, [setup.size_instrument] * len(rows), times, rows
     )
     print(f"spacing, predicted / measured: {along:.4f} along, {cross:.4f} across")
-    if not write:
+    if not run.write:
         return
-    if platform != setup.platform:
-        write_transfer(
-            entry,
-            setup.beams,
-            platform,
-            period=f"{day:%Y-%m-%d}",
-            metrics={
-                "pixel_position_median": median,
-                "pixel_position_p95": p95,
-                "spacing_along_ratio_median": along,
-                "spacing_cross_ratio_median": cross,
-            },
+    fixture = fixture_metrics = None
+    if not run.transfer:
+        rng = np.random.default_rng(3)
+        picks = rng.choice(len(rows), setup.fixture_spacing, replace=False)
+        fixture_along, fixture_cross = compute_spacing_ratios(
+            satellite, [setup.size_instrument] * len(picks), times[picks], rows[picks]
         )
-        return
-    rng = np.random.default_rng(3)
-    picks = rng.choice(len(rows), setup.fixture_spacing, replace=False)
-    fixture_along, fixture_cross = compute_spacing_ratios(
-        satellite, [setup.size_instrument] * len(picks), times[picks], rows[picks]
-    )
-    reduced = pixels[rng.choice(len(pixels), setup.fixture_pixels, replace=False)]
-    update_fixture(
-        setup.fixture_path,
-        tle=np.array(tle),
-        day=np.array(day.isoformat()),
-        pixels=reduced,
-        spacing=rows[picks],
-        spacing_seconds=(times[picks] - pd.Timestamp(day)).total_seconds().to_numpy(),
-    )
-    write_record(
-        entry,
+        reduced = pixels[rng.choice(len(pixels), setup.fixture_pixels, replace=False)]
+        fixture = {
+            "tle": np.array(tle),
+            "day": np.array(run.day.isoformat()),
+            "pixels": reduced,
+            "spacing": rows[picks],
+            "spacing_seconds": (times[picks] - pd.Timestamp(run.day))
+            .total_seconds()
+            .to_numpy(),
+        }
+        fixture_metrics = {
+            "sample_size_within_3pct": within,
+            "pixel_position_median": summarize(reduced[:, 2])["median"],
+            "spacing_along_ratio_median": fixture_along,
+            "spacing_cross_ratio_median": fixture_cross,
+        }
+    write_results(
+        run,
         setup.beams,
-        source=setup.source,
         reference=setup.published_reference,
-        period=f"{day:%Y-%m-%d}",
-        platforms=[setup.platform],
         metrics=[
             {"name": "sample_size_within_3pct", "value": within},
             {"name": "sample_size_largest_error", "value": largest},
@@ -812,23 +763,31 @@ def validate_beams(
             {"name": "spacing_along_ratio_median", "value": along},
             {"name": "spacing_cross_ratio_median", "value": cross},
         ],
-        fixture_metrics={
-            "sample_size_within_3pct": within,
-            "pixel_position_median": summarize(reduced[:, 2])["median"],
-            "spacing_along_ratio_median": fixture_along,
-            "spacing_cross_ratio_median": fixture_cross,
+        transfer_metrics={
+            "pixel_position_median": median,
+            "pixel_position_p95": p95,
+            "spacing_along_ratio_median": along,
+            "spacing_cross_ratio_median": cross,
         },
+        fixture=fixture,
+        fixture_path=setup.fixture_path,
+        fixture_metrics=fixture_metrics,
     )
 
 
 def validate_swath(
-    setup: Setup, day, tle, entry, orbit, reference, write: bool, platform=None
-):
+    setup: Setup, run, reference, orbit, tle, *, fixture_extras: dict | None = None
+) -> None:
     """
-    Scores the swath configuration, and writes its results if requested: on a
-    platform other than the configuration's (`platform`), as transfer metrics.
+    Scores the swath configuration of a run (see `validation_io.parse_run`), and
+    writes its results if the run writes: as a transfer, on a platform on which the
+    configuration was not tested. A reference read otherwise than as a `Reference`
+    gives its own `span` (the start and end of its data),
+    `score_swath_width(instrument, orbit, setup, attitude)`, and
+    `observe_area(orbit, grid, setup)`. Other arrays that the tests of the fixture
+    need are given as `fixture_extras`.
     """
-    platform = platform or setup.platform
+    entry, day = run.entry, run.day
 
     def satellite_for(time_step: float):
         # the period of the day, for a configuration that schedules its attitude
@@ -836,7 +795,7 @@ def validate_swath(
             orbit,
             configuration=setup.swath,
             time_step=time_step,
-            platform=platform,
+            platform=run.platform,
             start=day,
             end=day + timedelta(days=1),
         )
@@ -844,70 +803,57 @@ def validate_swath(
     satellite = satellite_for(setup.time_steps[0])
     points = generate_points_fibonacci_lattice(setup.point_spacing)
     observed = reference.observe_passes(points, setup.pass_radius)
-    start = reference.time[0].to_pydatetime()
-    end = reference.time[-1].to_pydatetime() + timedelta(seconds=reference.scan_period)
+    if hasattr(reference, "span"):
+        start, end = reference.span
+    else:
+        start = reference.time[0].to_pydatetime()
+        end = reference.time[-1].to_pydatetime() + timedelta(
+            seconds=reference.scan_period
+        )
     results = score_passes(points, satellite, 0, observed, start, end, reference.gaps)
-    results["swath_width_median"] = score_swath_width(
-        reference,
-        satellite.instruments[0],
-        orbit,
-        setup.width_stride,
-        satellite.attitude,
-    )
+    if hasattr(reference, "score_swath_width"):
+        results["swath_width_median"] = reference.score_swath_width(
+            satellite.instruments[0], orbit, setup, satellite.attitude
+        )
+    else:
+        results["swath_width_median"] = score_swath_width(
+            reference,
+            satellite.instruments[0],
+            orbit,
+            setup.width_stride,
+            satellite.attitude,
+        )
     print(json.dumps(results), flush=True)
     grid = build_grid()
-    first, last, compared, covered = observe_orbit(
-        reference, orbit, grid, 2 * setup.pass_radius
-    )
+    if hasattr(reference, "observe_area"):
+        first, last, compared, covered = reference.observe_area(orbit, grid, setup)
+    else:
+        first, last, compared, covered = observe_orbit(
+            reference, orbit, grid, 2 * setup.pass_radius
+        )
     results["footprint_iou_median"] = score_swath_area(
         satellite_for, 0, first, last, setup.time_steps, grid, compared, covered
     )
     print(json.dumps(results), flush=True)
-    if not write:
+    if not run.write:
         return
-    if platform != setup.platform:
-        write_transfer(
-            entry,
-            setup.swath,
-            platform,
-            period=f"{day:%Y-%m-%d}",
-            metrics={name: float(results[name]) for name in GATED},
-        )
-        return
-    rng = np.random.default_rng(1)
-    picks = observed.iloc[
-        rng.choice(len(observed), setup.fixture_passes, replace=False)
-    ]
-    passes = np.stack(
-        [
-            points.geometry.y.to_numpy()[picks.point_id],
-            points.geometry.x.to_numpy()[picks.point_id],
-            (picks.time - pd.Timestamp(day)).dt.total_seconds().to_numpy(),
-        ],
-        axis=-1,
-    )
-    update_fixture(
-        setup.fixture_path,
-        tle=np.array(tle),
-        day=np.array(day.isoformat()),
-        passes=passes,
-    )
-    write_record(
-        entry,
+    fixture = fixture_metrics = None
+    if not run.transfer:
+        passes = pick_passes(points, observed, day, setup.fixture_passes)
+        fixture = {
+            "tle": np.array(tle),
+            "day": np.array(day.isoformat()),
+            "passes": passes,
+            **(fixture_extras or {}),
+        }
+        fixture_metrics = recompute_passes(satellite, 0, day, passes)
+    write_results(
+        run,
         setup.swath,
-        source=setup.source,
         reference=setup.reference,
-        period=f"{day:%Y-%m-%d}",
-        platforms=[setup.platform],
-        metrics=[
-            {"name": name, "value": float(results[name])}
-            for name in (
-                "pass_recall",
-                "pass_precision",
-                "epoch_p95",
-                "swath_width_median",
-                "footprint_iou_median",
-            )
-        ],
-        fixture_metrics=recompute_passes(satellite, 0, day, passes),
+        metrics=[{"name": name, "value": float(results[name])} for name in GATED],
+        transfer_metrics={name: float(results[name]) for name in GATED},
+        fixture=fixture,
+        fixture_path=setup.fixture_path,
+        fixture_metrics=fixture_metrics,
     )

@@ -93,16 +93,26 @@ class Tier(str, Enum):
         return list(Tier).index(self)
 
 
+# the decimals with which values of a unit are shown, at least
+_DECIMALS = {"": 4}
+
+
 @dataclass(frozen=True)
 class Gate:
     """
-    An acceptance threshold on a metric.
+    An acceptance threshold on a metric, with the metric's `label` for display
+    (by default, its name).
     """
 
     metric: str
     limit: float
     at_most: bool
     unit: str
+    label: str = ""
+
+    def __post_init__(self):
+        if not self.label:
+            object.__setattr__(self, "label", self.metric)
 
     def is_met(self, value: float) -> bool:
         """
@@ -116,29 +126,72 @@ class Gate:
         """
         return value <= self.limit if self.at_most else value >= self.limit
 
+    def _with_unit(self, text: str) -> str:
+        return text + ("%" if self.unit == "%" else f" {self.unit}" if self.unit else "")
 
-_PASS_RECALL = Gate("pass_recall", 99, False, "%")
-_PASS_PRECISION = Gate("pass_precision", 95, False, "%")
-_EPOCH_COVERAGE = Gate("epoch_p95", 3, True, "s")
-_EPOCH_TIMING = Gate("epoch_p95", 1, True, "s")
-_SWATH_WIDTH = Gate("swath_width_median", 5, True, "km")
-_SWATH_EDGE = Gate("swath_edge_p95", 10, True, "km")
-_IOU = Gate("footprint_iou_median", 0.95, False, "")
-_IOU_SAR = Gate("footprint_iou_median", 0.90, False, "")
-_IOU_SAR_LOW = Gate("footprint_iou_p5", 0.90, False, "")
-_PIXEL_POSITION = Gate("pixel_position_median", 6, True, "km")
-_SAMPLE_SIZE = Gate("sample_size_within_3pct", 90, False, "%")
-_PRODUCT_LIMIT = Gate("product_limit", 0.5, True, "deg")
+    def format_limit(self) -> str:
+        """
+        Formats the threshold, such as `"≤ 5 km"`.
+
+        Returns:
+            str: The threshold, with its unit.
+        """
+        return self._with_unit(f"{'≤' if self.at_most else '≥'} {self.limit:g}")
+
+    def format_value(self, value: float) -> str:
+        """
+        Formats a value of the metric, with enough decimals that its rounded
+        value meets this gate exactly when the value does.
+
+        Args:
+            value (float): The value.
+
+        Returns:
+            str: The value, with its unit.
+        """
+        decimals = _DECIMALS.get(self.unit, 2)
+        text = f"{value:.{decimals}f}"
+        while decimals < 8 and self.is_met(float(text)) != self.is_met(value):
+            decimals += 1
+            text = f"{value:.{decimals}f}"
+        return self._with_unit(text)
+
+
+_PASS_RECALL = Gate("pass_recall", 99, False, "%", "Pass recall")
+_PASS_PRECISION = Gate("pass_precision", 95, False, "%", "Pass precision")
+_EPOCH_COVERAGE = Gate("epoch_p95", 3, True, "s", "Epoch, 95th percentile")
+_EPOCH_TIMING = Gate("epoch_p95", 1, True, "s", "Epoch, 95th percentile")
+_SWATH_WIDTH = Gate("swath_width_median", 5, True, "km", "Swath width, median")
+_SWATH_EDGE = Gate("swath_edge_p95", 10, True, "km", "Swath edges, 95th percentile")
+_IOU_LABEL = "Footprint or swath IoU, median"
+_IOU = Gate("footprint_iou_median", 0.95, False, "", _IOU_LABEL)
+_IOU_SAR = Gate("footprint_iou_median", 0.90, False, "", _IOU_LABEL)
+_IOU_SAR_LOW = Gate(
+    "footprint_iou_p5", 0.90, False, "", "Footprint or swath IoU, 5th percentile"
+)
+_PIXEL_POSITION = Gate(
+    "pixel_position_median", 6, True, "km", "Pixel position, median"
+)
+_SAMPLE_SIZE = Gate(
+    "sample_size_within_3pct", 90, False, "%", "Dimensions within 3%"
+)
+_PRODUCT_LIMIT = Gate(
+    "product_limit", 0.5, True, "deg", "Product limit of local zenith angle"
+)
 # version 2: the share of beam segments within the views at their times, where
 # the beams follow their reference tracks, and the error of the spacing of beams
-_SEGMENT_RECALL = Gate("segment_recall", 99, False, "%")
-_BEAM_SPACING = Gate("beam_spacing_error_median", 0.2, True, "km")
+_SEGMENT_RECALL = Gate("segment_recall", 99, False, "%", "Segment recall")
+_BEAM_SPACING = Gate(
+    "beam_spacing_error_median", 0.2, True, "km", "Beam spacing error, median"
+)
 # version 3: the distance across track of a nadir altimeter's measurements from the
 # predicted ground track
-_TRACK_OFFSET = Gate("track_offset_median", 0.5, True, "km")
+_TRACK_OFFSET = Gate("track_offset_median", 0.5, True, "km", "Track offset, median")
 # version 5: the intersection over union of a geostationary instrument's predicted
 # field of regard with the area imaged in a scan of a region
-_FIELD_OF_REGARD_IOU = Gate("field_of_regard_iou", 0.95, False, "")
+_FIELD_OF_REGARD_IOU = Gate(
+    "field_of_regard_iou", 0.95, False, "", "Field of regard IoU"
+)
 
 # gates of the coverage and timing grades that do not depend on epoch accuracy
 _SWEEP_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {

@@ -13,19 +13,6 @@ from tatc.catalog import STANDARD_VERSION, get_entry, get_entry_ids
 from tatc.catalog.standard import MIN_HOLDOUT_GAP_DAYS
 
 REPOSITORY = "https://github.com/code-lab-org/tatc/blob/main/"
-METRIC_LABELS = {
-    "pass_recall": "Pass recall",
-    "pass_precision": "Pass precision",
-    "epoch_p95": "Epoch, 95th percentile",
-    "swath_width_median": "Swath width, median",
-    "swath_edge_p95": "Swath edges, 95th percentile",
-    "footprint_iou_median": "Footprint or swath IoU, median",
-    "footprint_iou_p5": "Footprint or swath IoU, 5th percentile",
-    "pixel_position_median": "Pixel position, median",
-    "sample_size_within_3pct": "Dimensions within 3%",
-    "product_limit": "Product limit of local zenith angle",
-}
-DECIMALS = {"%": 2, "s": 2, "km": 2, "deg": 2, "": 4}
 
 
 def escape(text: str) -> str:
@@ -40,45 +27,6 @@ def escape(text: str) -> str:
     """
     text = re.sub(r"([\\*`|])", r"\\\1", text)
     return re.sub(r"_(?=\s|$|[.,;:)])", r"\\_", text)
-
-
-def format_value(value: float, gate) -> str:
-    """
-    Formats a metric value, with enough decimals that its rounded value meets
-    its gate exactly when the value does.
-
-    Args:
-        value (float): The value.
-        gate (Gate): The gate of the metric.
-
-    Returns:
-        str: The value with its unit.
-    """
-    unit = gate.unit
-    decimals = DECIMALS.get(unit, 4)
-    text = f"{value:.{decimals}f}"
-    while decimals < 8:
-        if gate.is_met(float(text)) == gate.is_met(value):
-            break
-        decimals += 1
-        text = f"{value:.{decimals}f}"
-    return text + ("%" if unit == "%" else f" {unit}" if unit else "")
-
-
-def format_limit(gate) -> str:
-    """
-    Formats the threshold of a gate.
-
-    Args:
-        gate (Gate): The gate.
-
-    Returns:
-        str: The threshold.
-    """
-    sign = "≤" if gate.at_most else "≥"
-    limit = f"{gate.limit:g}"
-    unit = "%" if gate.unit == "%" else f" {gate.unit}" if gate.unit else ""
-    return f"{sign} {limit}{unit}"
 
 
 def list_table(header: list[str], rows: list[list[str]], widths: list[int]) -> str:
@@ -181,7 +129,7 @@ def render_configuration(entry, key: str) -> str:
         if result.value is None:
             value, outcome = "not tested", "untested"
         else:
-            value = format_value(result.value, gate)
+            value = gate.format_value(result.value)
             scopes = [
                 m.scope
                 for m in record.metrics
@@ -192,9 +140,9 @@ def render_configuration(entry, key: str) -> str:
             outcome = "pass" if result.passed else "**fail**"
         rows.append(
             [
-                METRIC_LABELS.get(gate.metric, gate.metric),
+                gate.label,
                 value,
-                format_limit(gate),
+                gate.format_limit(),
                 outcome,
             ]
         )
