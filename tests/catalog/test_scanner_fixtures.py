@@ -535,7 +535,8 @@ class TestAmsuaFixture(_BeamScannerFixture, unittest.TestCase):
     """
 
     entry_id = "amsua"
-    sizes_key = "footprints"
+    swath_key = "swath_aqua"
+    sizes_key = "footprints_aqua"
     size_instrument = "AMSU-A"
     platform = "aqua"
     meets_published_gate = False
@@ -543,6 +544,34 @@ class TestAmsuaFixture(_BeamScannerFixture, unittest.TestCase):
 
     def time_step(self) -> float:
         return 8.0
+
+
+class TestAmsuaMetopBFixture(TestAmsuaFixture):
+    """
+    Regression tests of the AMSU-A entry's configurations of Metop-B, whose
+    footprints are published in the ATOVS Level 1b Product Guide.
+    """
+
+    fixture_name = "amsua_metop_b"
+    swath_key = "swath_metop_b"
+    sizes_key = "footprints_metop_b"
+    platform = "metop-b"
+    meets_published_gate = True
+    footprints = (
+        ("AMSU-A", 833, 98.7, 0, 47.63, 47.63),
+        ("AMSU-A", 833, 98.7, 48.33, 78.79, 146.89),
+    )
+
+
+class TestAmsuaMetopCFixture(TestAmsuaMetopBFixture):
+    """
+    Regression tests of the AMSU-A entry's configurations of Metop-C.
+    """
+
+    fixture_name = "amsua_metop_c"
+    swath_key = "swath_metop_c"
+    sizes_key = "footprints_metop_c"
+    platform = "metop-c"
 
 
 class TestAvhrrFixture(_BeamScannerFixture, unittest.TestCase):

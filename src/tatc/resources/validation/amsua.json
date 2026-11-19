@@ -1,7 +1,7 @@
 {
   "entry_id": "amsua",
   "configurations": {
-    "footprints": {
+    "footprints_aqua": {
       "digest": "12c13b6d6059dce8bc645deadf845d3364840f84686bc2d5f1027c27e810a96a",
       "standard_version": 5,
       "tatc_version": "3.6.0",
@@ -38,45 +38,45 @@
         }
       ],
       "transfers": {
-        "metop-b": {
-          "period": "2026-11-17",
-          "metrics": [
-            {
-              "name": "pixel_position_median",
-              "value": 22.000357173244776
-            },
-            {
-              "name": "pixel_position_p95",
-              "value": 69.62679050986236
-            },
-            {
-              "name": "spacing_along_ratio_median",
-              "value": 1.0000929486656722
-            },
-            {
-              "name": "spacing_cross_ratio_median",
-              "value": 0.9979109239280284
-            }
-          ]
-        },
         "metop-c": {
           "period": "2026-11-17",
           "metrics": [
             {
               "name": "pixel_position_median",
-              "value": 21.927567637922674
+              "value": 14.040036869649207
             },
             {
               "name": "pixel_position_p95",
-              "value": 69.16091629319683
+              "value": 62.427089701854904
             },
             {
               "name": "spacing_along_ratio_median",
-              "value": 1.000096652744627
+              "value": 0.999986526088364
             },
             {
               "name": "spacing_cross_ratio_median",
-              "value": 0.9979162666829906
+              "value": 0.9977240951014916
+            }
+          ]
+        },
+        "metop-b": {
+          "period": "2026-11-17",
+          "metrics": [
+            {
+              "name": "pixel_position_median",
+              "value": 14.263194878446242
+            },
+            {
+              "name": "pixel_position_p95",
+              "value": 62.72453769999313
+            },
+            {
+              "name": "spacing_along_ratio_median",
+              "value": 0.9999766720604617
+            },
+            {
+              "name": "spacing_cross_ratio_median",
+              "value": 0.9977119320693318
             }
           ]
         }
@@ -88,7 +88,7 @@
         "spacing_cross_ratio_median": 0.9956250963916206
       }
     },
-    "swath": {
+    "swath_aqua": {
       "digest": "369162ad7568ddcffbc1e3e81552c52f471f7b2232da5e94cc9be7f7f3928bce",
       "standard_version": 5,
       "tatc_version": "3.6.0",
@@ -121,6 +121,31 @@
         }
       ],
       "transfers": {
+        "metop-c": {
+          "period": "2026-11-17",
+          "metrics": [
+            {
+              "name": "pass_recall",
+              "value": 99.96673320026613
+            },
+            {
+              "name": "pass_precision",
+              "value": 99.98336383297288
+            },
+            {
+              "name": "epoch_p95",
+              "value": 8.7035733356
+            },
+            {
+              "name": "swath_width_median",
+              "value": 0.4141442253580317
+            },
+            {
+              "name": "footprint_iou_median",
+              "value": 0.9966584078401425
+            }
+          ]
+        },
         "metop-b": {
           "period": "2026-11-17",
           "metrics": [
@@ -134,40 +159,15 @@
             },
             {
               "name": "epoch_p95",
-              "value": 11.425177998550001
+              "value": 8.742660284
             },
             {
               "name": "swath_width_median",
-              "value": 0.42116507157706656
+              "value": 0.40893020150694065
             },
             {
               "name": "footprint_iou_median",
-              "value": 0.996611323689219
-            }
-          ]
-        },
-        "metop-c": {
-          "period": "2026-11-17",
-          "metrics": [
-            {
-              "name": "pass_recall",
-              "value": 99.96673320026613
-            },
-            {
-              "name": "pass_precision",
-              "value": 99.96673320026613
-            },
-            {
-              "name": "epoch_p95",
-              "value": 11.288537479450003
-            },
-            {
-              "name": "swath_width_median",
-              "value": 0.4279337254969869
-            },
-            {
-              "name": "footprint_iou_median",
-              "value": 0.9966580585736586
+              "value": 0.9708884557615975
             }
           ]
         }
@@ -175,6 +175,170 @@
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 2.1124676153499995
+      }
+    },
+    "footprints_metop_c": {
+      "digest": "535c1888dc96aa2671abf73a1d6d9b3cc050309ff61f6a5ab5ea8e998397588c",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_amsua.py",
+      "reference": "Footprints published in the ATOVS Level 1b Product Guide; footprint positions of the AMSU-A Level 1B of the EUMETSAT Data Store",
+      "period": "2026-11-17",
+      "platforms": [
+        "metop-c"
+      ],
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 0.8300388385747093
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 1.0742029904437023
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 2.808174930544332
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.999987994760869
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9980254011574692
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 1.021092493378846,
+        "spacing_along_ratio_median": 0.9997676911824955,
+        "spacing_cross_ratio_median": 0.9979708561725712
+      }
+    },
+    "swath_metop_c": {
+      "digest": "a1a361402207e30732ab58bcf8a5af52424bc4f7826f64e49550f5a73dbeedcc",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_amsua.py",
+      "reference": "AMSU-A Level 1B of the EUMETSAT Data Store (footprint positions, times from the sampling interval)",
+      "period": "2026-11-17",
+      "platforms": [
+        "metop-c"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.98336660013307
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.96673873274571
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.1629431705
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.4141442253580317
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9977852559910352
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.14588113099999994
+      }
+    },
+    "footprints_metop_b": {
+      "digest": "1f978f4aa594714dd29a460780032564e0b1183db5e9781caa7f36cbbf92a96f",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_amsua.py",
+      "reference": "Footprints published in the ATOVS Level 1b Product Guide; footprint positions of the AMSU-A Level 1B of the EUMETSAT Data Store",
+      "period": "2026-11-17",
+      "platforms": [
+        "metop-b"
+      ],
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 0.829844115190892
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 1.067286405251093
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 2.7689258322076933
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9999903292249759
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.998022230947524
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 1.0120425534548199,
+        "spacing_along_ratio_median": 1.000041611179346,
+        "spacing_cross_ratio_median": 0.9980485993570913
+      }
+    },
+    "swath_metop_b": {
+      "digest": "a1a361402207e30732ab58bcf8a5af52424bc4f7826f64e49550f5a73dbeedcc",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_amsua.py",
+      "reference": "AMSU-A Level 1B of the EUMETSAT Data Store (footprint positions, times from the sampling interval)",
+      "period": "2026-11-17",
+      "platforms": [
+        "metop-b"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.98334166250208
+        },
+        {
+          "name": "pass_precision",
+          "value": 100.0
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.15507911639999997
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.40893020150694065
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9977634806418944
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.1674759898
       }
     }
   }

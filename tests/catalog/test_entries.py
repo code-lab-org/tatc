@@ -85,8 +85,12 @@ EXPECTED_STATUS = {
     "amsua": (
         "partial",
         {
-            "swath": ("validated", None, []),
-            "footprints": ("partial", None, ["sample_size_within_3pct"]),
+            "swath_aqua": ("validated", None, []),
+            "footprints_aqua": ("partial", None, ["sample_size_within_3pct"]),
+            "swath_metop_b": ("validated", None, []),
+            "footprints_metop_b": ("validated", 30, []),
+            "swath_metop_c": ("validated", None, []),
+            "footprints_metop_c": ("validated", 30, []),
         },
         [],
     ),
@@ -520,7 +524,7 @@ class TestLoading(unittest.TestCase):
                     )
                 named.append(entry.id)
         self.assertEqual(
-            named, ["atms", "ceres", "cris", "omps_nm", "tropics", "viirs"]
+            named, ["amsua", "atms", "ceres", "cris", "omps_nm", "tropics", "viirs"]
         )
 
     def test_alias_lookup(self):
