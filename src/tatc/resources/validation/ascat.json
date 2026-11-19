@@ -75,7 +75,75 @@
           "value": 0.371873582
         }
       ],
-      "transfers": {},
+      "transfers": {
+        "metop-b": {
+          "period": "2026-11-17",
+          "metrics": [
+            {
+              "name": "pass_recall",
+              "value": 99.82913072329131
+            },
+            {
+              "name": "swath_edge_p95",
+              "value": 6.2083713197599435,
+              "scope": "left inner"
+            },
+            {
+              "name": "swath_edge_p95",
+              "value": 6.71942949956372,
+              "scope": "left outer"
+            },
+            {
+              "name": "swath_edge_p95",
+              "value": 6.2796240055587615,
+              "scope": "right inner"
+            },
+            {
+              "name": "swath_edge_p95",
+              "value": 6.67809813217191,
+              "scope": "right outer"
+            },
+            {
+              "name": "footprint_iou_median",
+              "value": 0.9833672608112805,
+              "scope": "time step 10 s"
+            },
+            {
+              "name": "footprint_iou_p5",
+              "value": 0.9765169941004214,
+              "scope": "time step 10 s"
+            },
+            {
+              "name": "footprint_iou_median",
+              "value": 0.9833672608112805,
+              "scope": "time step 30 s"
+            },
+            {
+              "name": "footprint_iou_p5",
+              "value": 0.9765169941004214,
+              "scope": "time step 30 s"
+            },
+            {
+              "name": "footprint_iou_median",
+              "value": 0.9833672608112805,
+              "scope": "time step 120 s"
+            },
+            {
+              "name": "footprint_iou_p5",
+              "value": 0.9765169941004214,
+              "scope": "time step 120 s"
+            },
+            {
+              "name": "epoch_p95",
+              "value": 1.9102576139999998
+            },
+            {
+              "name": "epoch_median",
+              "value": 0.354890976
+            }
+          ]
+        }
+      },
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 1.8460118375499996

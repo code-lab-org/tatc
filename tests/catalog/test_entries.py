@@ -1099,17 +1099,20 @@ class TestEntryStatus(unittest.TestCase):
         platforms.
         """
         transfers = {
-            "abi": "goes-18",
-            "atms": "noaa-21",
-            "cris": "noaa-21",
-            "iasi": "metop-c",
-            "viirs": "noaa-21",
-            "mhs": "metop-b",
-            "avhrr": "metop-b",
-            "csar": "sentinel-1d",
-            "modis": "aqua",
-            "oli": "landsat-8",
-            "poseidon4": "sentinel-6b",
+            "abi": {"goes-18"},
+            "amsua": {"metop-b", "metop-c"},
+            "ascat": {"metop-b"},
+            "atms": {"noaa-21"},
+            "cris": {"noaa-21"},
+            "iasi": {"metop-c"},
+            "viirs": {"noaa-21"},
+            "mhs": {"metop-b"},
+            "avhrr": {"metop-b"},
+            "csar": {"sentinel-1d"},
+            "modis": {"aqua"},
+            "oli": {"landsat-8"},
+            "olci": {"sentinel-3b"},
+            "poseidon4": {"sentinel-6b"},
         }
         recorded = {
             entry.id: {
@@ -1119,23 +1122,21 @@ class TestEntryStatus(unittest.TestCase):
             }
             for entry in list_entries()
         }
-        self.assertEqual(
-            {k: v for k, v in recorded.items() if v},
-            {k: {v} for k, v in transfers.items()},
-        )
-        for entry_id, platform in transfers.items():
+        self.assertEqual({k: v for k, v in recorded.items() if v}, transfers)
+        for entry_id, platforms in transfers.items():
             entry = get_entry(entry_id)
             for key, record in entry.record.configurations.items():
-                if platform not in record.transfers:
-                    continue
-                self.assertNotIn(platform, entry.configurations[key].platforms, key)
-                with self.assertWarns(UserWarning):
-                    entry.build(
-                        configuration=key,
-                        orbit=GeneralPerturbationsOrbit.from_tle(GPM_TLE),
-                        time_step=10,
-                        platform=platform,
+                for platform in platforms & set(record.transfers):
+                    self.assertNotIn(
+                        platform, entry.configurations[key].platforms, key
                     )
+                    with self.assertWarns(UserWarning):
+                        entry.build(
+                            configuration=key,
+                            orbit=GeneralPerturbationsOrbit.from_tle(GPM_TLE),
+                            time_step=10,
+                            platform=platform,
+                        )
 
     def test_gmi_reports_spacing_limitation(self):
         """

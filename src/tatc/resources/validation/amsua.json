@@ -37,7 +37,50 @@
           "value": 0.9958033875057757
         }
       ],
-      "transfers": {},
+      "transfers": {
+        "metop-b": {
+          "period": "2026-11-17",
+          "metrics": [
+            {
+              "name": "pixel_position_median",
+              "value": 22.000357173244776
+            },
+            {
+              "name": "pixel_position_p95",
+              "value": 69.62679050986236
+            },
+            {
+              "name": "spacing_along_ratio_median",
+              "value": 1.0000929486656722
+            },
+            {
+              "name": "spacing_cross_ratio_median",
+              "value": 0.9979109239280284
+            }
+          ]
+        },
+        "metop-c": {
+          "period": "2026-11-17",
+          "metrics": [
+            {
+              "name": "pixel_position_median",
+              "value": 21.927567637922674
+            },
+            {
+              "name": "pixel_position_p95",
+              "value": 69.16091629319683
+            },
+            {
+              "name": "spacing_along_ratio_median",
+              "value": 1.000096652744627
+            },
+            {
+              "name": "spacing_cross_ratio_median",
+              "value": 0.9979162666829906
+            }
+          ]
+        }
+      },
       "fixture_metrics": {
         "sample_size_within_3pct": 0.0,
         "pixel_position_median": 4.4112185989226536,
@@ -77,7 +120,58 @@
           "value": 0.9979001473835111
         }
       ],
-      "transfers": {},
+      "transfers": {
+        "metop-b": {
+          "period": "2026-11-17",
+          "metrics": [
+            {
+              "name": "pass_recall",
+              "value": 99.95002498750625
+            },
+            {
+              "name": "pass_precision",
+              "value": 99.98333611064822
+            },
+            {
+              "name": "epoch_p95",
+              "value": 11.425177998550001
+            },
+            {
+              "name": "swath_width_median",
+              "value": 0.42116507157706656
+            },
+            {
+              "name": "footprint_iou_median",
+              "value": 0.996611323689219
+            }
+          ]
+        },
+        "metop-c": {
+          "period": "2026-11-17",
+          "metrics": [
+            {
+              "name": "pass_recall",
+              "value": 99.96673320026613
+            },
+            {
+              "name": "pass_precision",
+              "value": 99.96673320026613
+            },
+            {
+              "name": "epoch_p95",
+              "value": 11.288537479450003
+            },
+            {
+              "name": "swath_width_median",
+              "value": 0.4279337254969869
+            },
+            {
+              "name": "footprint_iou_median",
+              "value": 0.9966580585736586
+            }
+          ]
+        }
+      },
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 2.1124676153499995

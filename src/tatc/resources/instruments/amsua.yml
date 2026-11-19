@@ -9,10 +9,24 @@ platforms:
     norad_id: 27424
     status: extended
     as_of: 2026-11-05
+  - id: metop-b
+    name: Metop-B
+    norad_id: 38771
+    status: extended
+    as_of: 2026-11-17
+  - id: metop-c
+    name: Metop-C
+    norad_id: 43689
+    status: operational
+    as_of: 2026-11-17
 data_products:
   - name: AIRS/Aqua L1B AMSU (A1/A2) geolocated and calibrated brightness temperatures (AIRABRAD), version 005
     provider: NASA GES DISC
     url: https://disc.gsfc.nasa.gov/datasets/AIRABRAD_005/summary
+    access: registration
+  - name: AMSU-A Level 1B, Metop (EPS native format), whose footprint positions test the transfer to Metop-B and Metop-C
+    provider: EUMETSAT Data Store
+    url: https://data.eumetsat.int/product/EO:EUM:DAT:METOP:AMSUL1
     access: registration
 default_configuration: swath
 configurations:
@@ -81,4 +95,5 @@ configurations:
       - The product's documentation gives a footprint 45 km in diameter at nadir, about 10% larger than its published beam width of 3.3 deg gives at Aqua's nominal altitude of 705 km (about 40.6 km), so the published footprint fails the gate.
 limitations:
   - Aqua does not steer its yaw, so the configurations use the inertial frame.
-  - These configurations were tested on Aqua. AMSU-A also flies on other satellites, on which they were not tested.
+  - These configurations were tested on Aqua. On Metop-B and Metop-C, recorded as transfers (2026-11-17, from the footprint positions of the AMSU-A Level 1B product of the EUMETSAT Data Store, with public element sets), the swath covered the same passes (pass recall 99.95% and 99.97%, IoU 0.997 on both, swath width within 0.43 km), but the epochs differed by 2.94 s (median) and by up to 11.4 s and 11.3 s (95th percentile), and the footprints were 22 km (median) and 69 km (95th percentile) from their projected positions. The product gives each scan the time of the start of its record, about 2.95 s (steady over the day) before AMSU-A reaches nadir, the time it takes to step from its first footprint; and Metop steers its yaw, which the inertial frame these configurations take from Aqua does not, so the outer footprints lie up to about 70 km along the track from their projections. With the Earth-fixed frame, a diagnostic not recorded, the footprints were within 37 km (95th percentile) and the epochs within 5.7 s. Using the configurations on Metop warns, as for any platform on which they were not validated.
+  - The product of Metop's AMSU-A records no position of the spacecraft other than its altitude, so its ground position was taken as the midpoint of the two central footprints, which lie either side of nadir.
