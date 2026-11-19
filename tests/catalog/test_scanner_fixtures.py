@@ -833,10 +833,6 @@ class TestBbrFixture(_StepSwathFixture, unittest.TestCase):
     instrument_index = 1
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestTropics03Fixture(_StepSwathFixture, unittest.TestCase):
     """
     Regression tests of the TROPICS entry's configuration of TROPICS-03, at the
@@ -868,3 +864,18 @@ class TestTropics06Fixture(TestTropics03Fixture):
     fixture_name = "tropics_06"
     swath_key = "swath_tropics_06"
     platform = "tropics-06"
+
+
+class TestIasiNgFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the IASI-NG entry's configuration, at the period of its
+    scans.
+    """
+
+    entry_id = "iasi_ng"
+    platform = "metop-sga1"
+    step = 15.561
+
+
+if __name__ == "__main__":
+    unittest.main()

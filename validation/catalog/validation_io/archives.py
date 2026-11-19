@@ -305,15 +305,27 @@ def read_element_set_file(
     """
     if not path.exists():
         raise FileNotFoundError(f"element sets for {day:%Y-%m-%d} need {path}")
-    middle = day.replace(tzinfo=None) + timedelta(hours=12)
     sets = _parse_element_sets(path, norad_id)
     if not sets:
         raise ValueError(f"{path} has no element sets of {norad_id}")
+    return _select_element_sets(sets, day, within, path)
+
+
+def _select_element_sets(
+    sets: list[tuple], day: datetime, within: timedelta | None, source
+) -> list[str]:
+    """
+    Gets the element set whose epoch is nearest the middle of a day, or every set
+    of a distinct epoch `within` a time of it, in order of epoch.
+    """
+    middle = day.replace(tzinfo=None) + timedelta(hours=12)
     if within is not None:
         # the last set of each epoch
         near = {epoch: tle for epoch, tle in sets if abs(epoch - middle) <= within}
         if not near:
-            raise ValueError(f"{path} has no element sets within {within} of {middle}")
+            raise ValueError(
+                f"{source} has no element sets within {within} of {middle}"
+            )
         return [line for epoch in sorted(near) for line in near[epoch]]
     return min(sets, key=lambda item: abs((item[0] - middle).total_seconds()))[1]
 
@@ -351,8 +363,8 @@ def get_element_set(
     Gets the element set of a platform for a day: from a `file` of element sets, if
     given; or else the one registered for the day in `elements/element_sets.yml`;
     or else NOAA's operational element set of a JPSS satellite, cached in a
-    `directory`; or else from the file in `elements/` of the platform's element
-    sets. From a file, it gets the set whose epoch is nearest the middle of the day,
+    `directory`; or else from the files in `elements/` of the platform's element
+    sets. From files, it gets the set whose epoch is nearest the middle of the day,
     or every set `within` a time of it.
 
     Args:
@@ -380,9 +392,14 @@ def get_element_set(
         tle = ARCHIVES[platform].load_element_set(day, directory)
         if tle is not None:
             return tle
-    for path in sorted(ELEMENT_SET_FOLDER.glob("*.3le")):
-        if _parse_element_sets(path, norad_id):
-            return read_element_set_file(path, norad_id, day, within)
+    # the sets of every file that holds the platform's, as several files may
+    sets = [
+        item
+        for path in sorted(ELEMENT_SET_FOLDER.glob("*.3le"))
+        for item in _parse_element_sets(path, norad_id)
+    ]
+    if sets:
+        return _select_element_sets(sets, day, within, ELEMENT_SET_FOLDER)
     raise FileNotFoundError(
         f"no element set of {platform} for {day:%Y-%m-%d}: register one in "
         f"{ELEMENT_SET_REGISTRY.name}, or give a file of element sets (--elements)"

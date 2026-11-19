@@ -253,6 +253,13 @@ EXPECTED_STATUS = {
         },
         [],
     ),
+    "iasi_ng": (
+        "partial",
+        {
+            "swath": ("validated", 30, []),
+        },
+        ["no configuration at the sample_size grade"],
+    ),
     "karin": (
         "validated",
         {
