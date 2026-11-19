@@ -310,6 +310,13 @@ EXPECTED_STATUS = {
         },
         [],
     ),
+    "mws": (
+        "partial",
+        {
+            "swath": ("validated", 30, []),
+        },
+        ["no configuration at the sample_size grade"],
+    ),
     "oci": (
         "partial",
         {

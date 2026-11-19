@@ -1,0 +1,47 @@
+id: mws
+name: MWS
+aliases: [Microwave Sounder, Metop-SG MWS]
+instrument_class: cross_track
+selection: Cross-track microwave sounder of EUMETSAT's second-generation polar satellites (Metop-SG), the successor to AMSU-A and MHS, with open data products.
+platforms:
+  - id: metop-sga1
+    name: Metop-SG A1
+    norad_id: 65159
+    status: operational
+    as_of: 2026-11-17
+data_products:
+  - name: MWS Level 1b, Metop-SG, in BUFR (EO:EUM:DAT:0892)
+    provider: EUMETSAT Data Store
+    url: https://data.eumetsat.int/product/EO:EUM:DAT:0892
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: coverage
+    description: The swath scanned between the outermost centers of the fields of view, with a view tailored to the analysis time step.
+    platforms: [metop-sga1]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: MWS
+          field_of_regard: 98.6063
+          cross_track_field_of_view: 98.6063
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          field_of_regard: &measured_extent
+            kind: measured
+            source: validate_catalog_mws.py --fit, between the outermost of the 95 fields of view (49.30 deg either side of nadir, in an Earth-fixed frame, spaced 1.049 deg), over 38,327 scans
+            platforms: [metop-sga1]
+            period: "2026-10-19"
+          cross_track_field_of_view: *measured_extent
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - TAT-C observes all fields of view of a scan at one instant, whereas MWS sweeps them over part of its 2.25 s scan. The product gives one time per scan, which precedes TAT-C's epochs by about 1.1 s (median), so epochs are tested at the coverage grade only.
+limitations:
+  - The product does not record the satellite's position, so the fit used positions from an element set of 2026-10-17, two days before the data, whose error enters the fitted angles.
+  - The Data Store holds the product for about 30 days, so a test can only use recent days.

@@ -877,5 +877,15 @@ class TestIasiNgFixture(_StepSwathFixture, unittest.TestCase):
     step = 15.561
 
 
+class TestMwsFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the MWS entry's configuration, at the period of its scans.
+    """
+
+    entry_id = "mws"
+    platform = "metop-sga1"
+    step = 2.254
+
+
 if __name__ == "__main__":
     unittest.main()
