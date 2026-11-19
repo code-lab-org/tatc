@@ -1,0 +1,87 @@
+{
+  "entry_id": "trmm_pr",
+  "configurations": {
+    "beams": {
+      "digest": "dd262ee432d302cd5b1c611723d72397ef984a2e7243c409ba50494a2f44a364",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_trmm_pr.py",
+      "reference": "Footprints of the TC PRIMED documentation; beam positions of GPM_2APR version 07",
+      "period": "2013-07-10",
+      "platforms": [
+        "trmm"
+      ],
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 75.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 7.852917384362312
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 1.4305026963940388
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 3.3162060306343313
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.0004575792433081
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9999036149143976
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 75.0,
+        "pixel_position_median": 1.4943282339928428,
+        "spacing_along_ratio_median": 1.000529865219386,
+        "spacing_cross_ratio_median": 0.9995917448877449
+      }
+    },
+    "swath": {
+      "digest": "4b6091eef521f2b0a097a5111d95f16de01347d9b1acf2bee3b165b9dd6f0191",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_trmm_pr.py",
+      "reference": "GPM_2APR version 07 (beam positions of the full swath)",
+      "period": "2013-07-10",
+      "platforms": [
+        "trmm"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.89159304027318
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.73481978569109
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.48247243139999985
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.07483880740018503
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9972156199996317
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.5281053159499999
+      }
+    }
+  }
+}

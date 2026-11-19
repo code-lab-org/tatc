@@ -150,6 +150,7 @@ def compute_latencies(
     Returns:
         geopandas.GeoDataFrame: The data frame of collected latency results, sorted by the 'observed'
         column in ascending order. It includes the following columns:
+
         - 'target_hash' (str): Hash of the observation point (see
           `tatc.utils.geometry.hash_geometry`).
         - 'geometry' (geometry): Geometry representing the observation point.
@@ -216,7 +217,7 @@ def compute_latencies(
 
     # compute latency
     obs["latency"] = obs["downlinked"] - obs["epoch"]
-    obs.rename(columns={"epoch": "observed"}, inplace=True)
+    obs = obs.rename(columns={"epoch": "observed"})
 
     # select relevant columns
     obs = obs[

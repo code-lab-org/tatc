@@ -8,7 +8,9 @@ The following provide documentation on the Python API to TAT-C.
   :maxdepth: 1
 
   schemas/index
+  catalog
   generation/index
   analysis/index
+  tradespace/index
   preprocess/index
   utils/index

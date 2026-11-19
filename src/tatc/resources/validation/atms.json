@@ -1,0 +1,299 @@
+{
+  "entry_id": "atms",
+  "configurations": {
+    "beams_noaa_20": {
+      "digest": "6204bdac0a0a5f41b83b74d9d919ba45e7b5b79523a76b208625e83235f47056",
+      "standard_version": 5,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_atms.py",
+      "reference": "Footprints of the TC PRIMED documentation; beam centers of the ATMS SDR geolocation",
+      "period": "2026-08-12",
+      "platforms": [
+        "noaa-20"
+      ],
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 1.3509096401289389
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 2.902846553836423
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 4.9413017561773085
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9999908456504776
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9996077625644662
+        }
+      ],
+      "transfers": {
+        "noaa-21": {
+          "period": "2026-11-05",
+          "metrics": [
+            {
+              "name": "pixel_position_median",
+              "value": 10.465413785361328
+            },
+            {
+              "name": "pixel_position_p95",
+              "value": 26.295214680110742
+            },
+            {
+              "name": "spacing_along_ratio_median",
+              "value": 0.9999908099704082
+            },
+            {
+              "name": "spacing_cross_ratio_median",
+              "value": 1.0013790873553656
+            }
+          ]
+        }
+      },
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 2.8692399074004333,
+        "spacing_along_ratio_median": 1.0001399678325114,
+        "spacing_cross_ratio_median": 0.9991169024652665
+      }
+    },
+    "swath_noaa_20": {
+      "digest": "b05ed81204ec49166c38805c94b006e2f976ddcb3019d4860a7334924f5cfb4a",
+      "standard_version": 5,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_atms.py",
+      "reference": "ATMS SDR geolocation",
+      "period": "2026-08-12",
+      "platforms": [
+        "noaa-20"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 100.0
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.94613520064638
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.25346872419999994
+        },
+        {
+          "name": "swath_width_median",
+          "value": 1.616704368373379
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9989132282156962
+        }
+      ],
+      "transfers": {
+        "noaa-21": {
+          "period": "2026-11-05",
+          "metrics": [
+            {
+              "name": "pass_recall",
+              "value": 99.98644435407347
+            },
+            {
+              "name": "pass_precision",
+              "value": 99.54116059379217
+            },
+            {
+              "name": "epoch_p95",
+              "value": 3.293412317
+            },
+            {
+              "name": "swath_width_median",
+              "value": 13.908579539331608
+            },
+            {
+              "name": "footprint_iou_median",
+              "value": 0.9948722191554508
+            }
+          ]
+        }
+      },
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.21595644864999994
+      }
+    },
+    "beams_noaa_21": {
+      "digest": "1d3bd90a9b9d472ec640d20deec56627cd4f3ff0cfadb71b6fc55188f7b29b31",
+      "standard_version": 5,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_atms.py",
+      "reference": "Footprints of the TC PRIMED documentation; beam centers of the ATMS SDR geolocation",
+      "period": "2026-10-02",
+      "platforms": [
+        "noaa-21"
+      ],
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 1.3203690828231585
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 3.158313472100375
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 6.291568197896196
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9999748086574383
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9994635130399332
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 3.0711510048337605,
+        "spacing_along_ratio_median": 0.9999415250211267,
+        "spacing_cross_ratio_median": 0.9989961809645305
+      }
+    },
+    "swath_noaa_21": {
+      "digest": "a688ecbd6aa004f86243d81cd600f88b7c6666c27710bbafbcf847afd43c9aaf",
+      "standard_version": 5,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_atms.py",
+      "reference": "ATMS SDR geolocation",
+      "period": "2026-10-02",
+      "platforms": [
+        "noaa-21"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.79710536994455
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.85113005819461
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.2881191013
+        },
+        {
+          "name": "swath_width_median",
+          "value": 1.2179282886832952
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9955844942739329
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.2672554863499998
+      }
+    },
+    "beams_suomi_npp": {
+      "digest": "f03be908d38cc2b0e3bd1822392e3cd956e48d6457ca9c872569054941719f19",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_atms.py",
+      "reference": "Footprints of the TC PRIMED documentation; beam centers of the ATMS SDR geolocation",
+      "period": "2026-08-25",
+      "platforms": [
+        "suomi-npp"
+      ],
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 1.3508718077116066
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 3.2813397904606196
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 6.306344571399305
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.000019273676143
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9995340821934351
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 3.0334231732100183,
+        "spacing_along_ratio_median": 1.0000870516906368,
+        "spacing_cross_ratio_median": 0.9995557873893834
+      }
+    },
+    "swath_suomi_npp": {
+      "digest": "fcbec395dd729b9f25fcc6bed58aa52b24dd5f612d5c7a4d6fbb5c777349551d",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_atms.py",
+      "reference": "ATMS SDR geolocation",
+      "period": "2026-08-25",
+      "platforms": [
+        "suomi-npp"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.82120753678998
+        },
+        {
+          "name": "pass_precision",
+          "value": 98.8020691532807
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.2930060774
+        },
+        {
+          "name": "swath_width_median",
+          "value": 1.385480741286883
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9792744094129643
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.3330154753
+      }
+    }
+  }
+}

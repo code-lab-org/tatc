@@ -1,0 +1,137 @@
+id: tmi
+name: TMI
+aliases: [TRMM TMI, TRMM Microwave Imager]
+instrument_class: conical
+selection: Conically scanning microwave imager of the Tropical Rainfall Measuring Mission, with open precipitation and brightness temperature products from 1997 to 2015, the predecessor of GPM's GMI.
+platforms:
+  - id: trmm
+    name: TRMM
+    norad_id: 25063
+    status: retired
+    as_of: 2015-04-15
+data_products:
+  - name: GPM_1CTRMMTMI
+    provider: NASA GES DISC
+    url: https://disc.gsfc.nasa.gov/datasets/GPM_1CTRMMTMI_08/summary
+    access: registration
+default_configuration: feeds
+configurations:
+  feeds:
+    grade: timing
+    description: The arcs scanned by the 10 GHz (S1), 19 to 37 GHz (S2), and 85.5 GHz (S3) samples, flying forward, with a view tailored to the analysis time step. Analyze one at a time with its instrument index.
+    platforms: [trmm]
+    velocity_frame: inertial
+    grouping: alternatives
+    instruments:
+      - type: conical
+        parameters:
+          name: TMI S1
+          cone_angle: 49.326
+          scan_center_azimuth: -0.322
+          scan_half_width: 64.537
+          along_track_field_of_view: {tailor: time_step}
+        provenance:
+          cone_angle: &measured
+            kind: measured
+            source: validate_catalog_tmi.py --fit, from each group's samples and the recorded spacecraft positions (printed to 3 decimals)
+            platforms: [trmm]
+            period: "2013-06-01"
+          scan_center_azimuth: *measured
+          scan_half_width: *measured
+      - type: conical
+        parameters:
+          name: TMI S2
+          cone_angle: 49.179
+          scan_center_azimuth: 0.129
+          scan_half_width: 64.491
+          along_track_field_of_view: {tailor: time_step}
+        provenance:
+          cone_angle: *measured
+          scan_center_azimuth: *measured
+          scan_half_width: *measured
+      - type: conical
+        parameters:
+          name: TMI S3
+          cone_angle: 49.180
+          scan_center_azimuth: -0.182
+          scan_half_width: 64.802
+          along_track_field_of_view: {tailor: time_step}
+        provenance:
+          cone_angle: *measured
+          scan_center_azimuth: *measured
+          scan_half_width: *measured
+    limitations:
+      - TRMM periodically flew backward (yaw maneuvers every two to four weeks, as on 2013-06-15 and 2013-06-28), when TMI scanned behind the satellite. These configurations represent forward flight (the products' SCorientation of 0); supply an attitude schedule for backward flight.
+  sample_size:
+    grade: sample_size
+    description: The beams of TMI's channels at the angles of the feeds configuration, flying forward, whose footprints and spacing `compute_sample_sizes` gives. Analyze one at a time with its instrument index.
+    platforms: [trmm]
+    velocity_frame: inertial
+    grouping: alternatives
+    instruments:
+      - type: conical
+        parameters:
+          name: TMI 10.65 GHz
+          cone_angle: 49.326
+          scan_center_azimuth: -0.322
+          scan_half_width: 64.537
+          along_track_field_of_view: {tailor: time_step}
+          beam_width: 3.68
+          scan_sample_spacing: 1.2512
+        provenance:
+          cone_angle: *measured
+          scan_center_azimuth: *measured
+          scan_half_width: *measured
+          beam_width: &beam_width
+            kind: nominal
+            source: Kummerow et al. (1998), TMI characteristics (vertical polarization), as reproduced by NOAA MiRS
+          scan_sample_spacing: &sample_spacing
+            kind: derived
+            source: The integration time of 6.6 ms (3.3 ms at 85.5 GHz) of Kummerow et al. (1998), over the scan period of 1.899 s measured by validate_catalog_tmi.py --fit
+      - type: conical
+        parameters: &middle_frequency
+          name: TMI 19.35 GHz
+          cone_angle: 49.179
+          scan_center_azimuth: 0.129
+          scan_half_width: 64.491
+          along_track_field_of_view: {tailor: time_step}
+          beam_width: 1.90
+          scan_sample_spacing: 1.2512
+        provenance: &middle_frequency_provenance
+          cone_angle: *measured
+          scan_center_azimuth: *measured
+          scan_half_width: *measured
+          beam_width: *beam_width
+          scan_sample_spacing: *sample_spacing
+      - type: conical
+        parameters:
+          <<: *middle_frequency
+          name: TMI 21.3 GHz
+          beam_width: 1.70
+        provenance: *middle_frequency_provenance
+      - type: conical
+        parameters:
+          <<: *middle_frequency
+          name: TMI 37.0 GHz
+          beam_width: 1.0
+        provenance: *middle_frequency_provenance
+      - type: conical
+        parameters:
+          name: TMI 85.5 GHz
+          cone_angle: 49.180
+          scan_center_azimuth: -0.182
+          scan_half_width: 64.802
+          along_track_field_of_view: {tailor: time_step}
+          beam_width: 0.42
+          scan_sample_spacing: 0.6256
+        provenance:
+          cone_angle: *measured
+          scan_center_azimuth: *measured
+          scan_half_width: *measured
+          beam_width: *beam_width
+          scan_sample_spacing: *sample_spacing
+    limitations:
+      - TRMM periodically flew backward, when TMI scanned behind the satellite. These configurations represent forward flight; supply an attitude schedule for backward flight.
+limitations:
+  - The fitted angles were measured at an altitude of about 400 km, after TRMM's orbit boost of August 2001 and before its descent from late 2014; before the boost, TRMM flew at about 350 km.
+  - On data held out on 2013-07-10 (39 days from the fit, in forward flight), the feeds predicted 99.66 to 99.80% of observed passes, with 99.85 to 99.95% of predicted passes observed, epochs within 0.75 s (95th percentile), swath width within 2.5 to 2.9 km (median), and swath IoU 0.995 to 0.996. The sample sizes at the center of the scan were within 3% of 90% of the published dimensions (the gate's limit), the largest error 3.7% across track at 85.5 GHz.

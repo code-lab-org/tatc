@@ -1,0 +1,64 @@
+id: abi
+name: ABI
+aliases: [Advanced Baseline Imager]
+instrument_class: geostationary
+selection: Imager of the GOES-R series of operational geostationary weather satellites, with open data products.
+platforms:
+  - id: goes-19
+    name: GOES-19
+    norad_id: 60133
+    status: operational
+    as_of: 2026-10-03
+data_products:
+  - name: GOES-R ABI Level 2 products
+    provider: NOAA Open Data Dissemination
+    url: https://registry.opendata.aws/noaa-goes/
+    access: open
+default_configuration: full_disk
+configurations:
+  full_disk:
+    grade: coverage
+    description: The Earth's disk, as imaged by a full-disk scan.
+    platforms: [goes-19]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: instrument
+        parameters:
+          name: ABI
+          field_of_regard: 17.4
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Spans the Earth's disk from geostationary altitude
+    limitations:
+      - A larger field of regard would pass the same test, which shows that the disk is observed rather than the value of the field of regard.
+  sst_good_quality:
+    grade: coverage
+    description: Where the sea surface temperature product is of good quality (local zenith angle up to 67 degrees).
+    platforms: [goes-19]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: instrument
+        parameters:
+          name: ABI SST
+          field_of_regard: 15.992925974773678
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: compute_field_of_regard(35786e3, 90 - 67), from the bound declared by the product
+  lst_good_quality:
+    grade: coverage
+    description: Where the land surface temperature product is of good quality (local zenith angle up to 55 degrees).
+    platforms: [goes-19]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: instrument
+        parameters:
+          name: ABI LST
+          field_of_regard: 14.222342173124204
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: compute_field_of_regard(35786e3, 90 - 55), from the bound declared by the product
+limitations:
+  - The scan is not modeled. Every point is available at any time, without the 10 minute cadence of a full-disk scan or the mesoscale and CONUS sectors.

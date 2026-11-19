@@ -1,0 +1,55 @@
+id: earthcare_msi
+name: EarthCARE MSI
+aliases: [EarthCARE Multi-Spectral Imager]
+instrument_class: pushbroom
+selection: Multi-spectral pushbroom imager of EarthCARE, with seven visible to thermal infrared bands across a 150 km swath tilted away from the sun, which gives the scene around the profiles of ATLID and CPR.
+platforms:
+  - id: earthcare
+    name: EarthCARE
+    norad_id: 59908
+    status: operational
+    as_of: 2026-11-07
+data_products:
+  - name: MSI_RGR_1C
+    provider: ESA MAAP
+    url: https://earth.esa.int/eogateway/catalog/earthcare-l1-products
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath of the imaged pixels, from about 120 km to the left of the ground track to 39 km to its right, with a view tailored to the analysis time step.
+    platforms: [earthcare]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: EarthCARE MSI
+          field_of_regard: 33.7128
+          cross_track_field_of_view: 22.4603
+          along_track_field_of_view: {tailor: time_step}
+          roll_angle: 5.6148
+          pitch_angle: -0.6226
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the view's cross-track line, rolled and then pitched by its offsets, as the field of regard bounds the period in which a point can be observed
+          cross_track_field_of_view: &measured
+            kind: measured
+            source: validate_catalog_earthcare_msi.py --fit-view, the view that TAT-C centers on the outermost imaged pixels (columns 12 and 368 of MSI_RGR_1C), with the instrument's pitch (Earth-fixed frame), from spacecraft positions of ATL_NOM_1B
+            platforms: [earthcare]
+            period: "2026-09-27"
+          roll_angle: *measured
+          pitch_angle: *measured
+          is_rectangular:
+            kind: derived
+            source: Models an imaged line as a rectangular view
+    limitations:
+      - The view is not yawed. In TAT-C's frame, the imaged line slopes 0.04 deg along track on the day of the fit (a yaw of about 0.04 deg straightens it), which places the swath's edges within about 0.1 km along track.
+      - The swath is that of the 357 imaged columns of the regridded product (MSI_RGR_1C), whose grid of 384 columns is padded with fill.
+limitations:
+  - EarthCARE steers its yaw, so the configuration uses the Earth-fixed frame, in which the fitted line's slope was constant within 0.01 deg at every latitude and in both directions; in the inertial frame, it varied by about 7 deg.
+  - The visible and near-infrared bands image the sunlit part of each orbit, whereas the view observes whenever a target is in view, unless a solar limit is added.
+  - On data held out on 2026-11-07 (41 days from the fit, with the element set whose epoch is nearest the day's middle, which lay up to 1.3 km across track from the recorded positions), 99.55% of observed passes were predicted, with epochs within 0.50 s (95th percentile), swath width within 0.22 km (median), and swath IoU 0.989.

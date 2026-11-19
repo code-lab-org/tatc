@@ -1,0 +1,95 @@
+id: virs
+name: VIRS
+aliases: [TRMM VIRS, Visible and Infrared Scanner]
+instrument_class: cross_track
+selection: Cross-track visible and infrared scanner of the Tropical Rainfall Measuring Mission, with open calibrated radiances from 1997 to 2014, flying with the PR and TMI for cloud context of precipitation.
+platforms:
+  - id: trmm
+    name: TRMM
+    norad_id: 25063
+    status: retired
+    as_of: 2015-04-15
+data_products:
+  - name: GPM_1BVIRS
+    provider: NASA GES DISC
+    url: https://disc.gsfc.nasa.gov/datasets/GPM_1BVIRS_08/summary
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath scanned between the outermost samples, with a view tailored to the analysis time step.
+    platforms: [trmm]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: VIRS
+          field_of_regard: 89.7298
+          cross_track_field_of_view: 89.7298
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          field_of_regard: &measured_extent
+            kind: measured
+            source: validate_catalog_virs.py --fit, between the outermost samples (printed to 4 decimals)
+            platforms: [trmm]
+            period: "2013-06-01"
+          cross_track_field_of_view: *measured_extent
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - The view is centered on nadir. The outermost samples measure 44.74 deg to the left and 44.99 deg to the right.
+  pixels:
+    grade: sample_size
+    description: The 261 samples of a scan line, whose sizes and spacing `compute_sample_sizes` gives.
+    platforms: [trmm]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: VIRS
+          field_of_regard: 90.3173
+          cross_track_field_of_view: 90.0737
+          along_track_field_of_view: 0.34511
+          cross_track_pixels: 261
+          roll_angle: -0.1218
+          is_rectangular: true
+          scan_period: 0.30467
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: The rolled view, so that every pixel can be observed
+          cross_track_field_of_view: &measured_spacing
+            kind: measured
+            source: validate_catalog_virs.py --fit, a fitted spacing of 0.34511 deg over 261 samples
+            platforms: [trmm]
+            period: "2013-06-01"
+          along_track_field_of_view:
+            kind: derived
+            source: The fitted spacing across track, as the TRMM Version 7 README of GES DISC gives VIRS's horizontal resolution as identical in both directions
+          cross_track_pixels:
+            kind: nominal
+            source: The GPM-format VIRS product has 261 samples per scan
+          roll_angle:
+            kind: measured
+            source: validate_catalog_virs.py --fit, the offset of the fitted sample angles
+            platforms: [trmm]
+            period: "2013-06-01"
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          scan_period:
+            kind: measured
+            source: validate_catalog_virs.py --fit, the median time between scans
+            platforms: [trmm]
+            period: "2013-06-01"
+    limitations:
+      - TAT-C projects all pixels of a scan at one instant, at the time the product gives for the scan.
+limitations:
+  - The products give no spacecraft positions, so the fit took them from the PR product of the same spacecraft, interpolated to the scans' times.
+  - On data held out on 2013-07-10 (39 days from the fit, in forward flight), 99.81% of observed passes were predicted and 99.74% of predicted passes observed, with epochs within 0.59 s (95th percentile), swath width within 0.24 km (median), and swath IoU 0.994; the pixels were within 2.19 km (median) of the product's.
+  - TRMM periodically flew backward (yaw maneuvers every two to four weeks). The scan is nearly symmetric, so the swath is nearly unchanged, but the roll of the pixels configuration changes sign. The configurations were fitted and tested in forward flight.
+  - The fitted angles were measured at an altitude of about 400 km, after TRMM's orbit boost of August 2001; before the boost, TRMM flew at about 350 km, with a swath of about 720 km rather than 833 km. VIRS products end on 2014-03-21.

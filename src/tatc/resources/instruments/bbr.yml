@@ -1,0 +1,80 @@
+id: bbr
+name: BBR
+aliases: [EarthCARE BBR, Broadband Radiometer]
+instrument_class: pushbroom
+selection: Broadband radiometer of EarthCARE, which measures reflected shortwave and emitted longwave radiances in three fixed views along track (about 50 deg aft, nadir, and 50 deg fore) for top-of-atmosphere fluxes, flying with ATLID, CPR, and MSI.
+platforms:
+  - id: earthcare
+    name: EarthCARE
+    norad_id: 59908
+    status: operational
+    as_of: 2026-11-07
+data_products:
+  - name: BBR_SNG_1B
+    provider: ESA MAAP
+    url: https://earth.esa.int/eogateway/catalog/earthcare-l1-products
+    access: registration
+default_configuration: views
+configurations:
+  views:
+    grade: timing
+    description: The aft, nadir, and fore views (instrument indices 0, 1, and 2), each a line of 30 pixels across track, with a view tailored to the analysis time step. Analyze one at a time with its instrument index; the views observe the same ground about 70 s apart.
+    platforms: [earthcare]
+    velocity_frame: earth_fixed
+    grouping: alternatives
+    instruments:
+      - type: pointed
+        parameters:
+          name: BBR aft
+          field_of_regard: 100.7374
+          cross_track_field_of_view: 2.4165
+          along_track_field_of_view: {tailor: time_step}
+          roll_angle: 0.0964
+          pitch_angle: -50.3554
+          is_swept: true
+          is_rectangular: true
+        provenance: &provenance
+          field_of_regard:
+            kind: derived
+            source: Contains the view's cross-track line, rolled and then pitched by its offsets, as the field of regard bounds the period in which a point can be observed
+          cross_track_field_of_view: &measured
+            kind: measured
+            source: validate_catalog_bbr.py --fit-view, the view that TAT-C centers on the outermost pixels of the shortwave band, with the instrument's pitch (Earth-fixed frame), from the recorded platform positions
+            platforms: [earthcare]
+            period: "2026-09-27"
+          roll_angle: *measured
+          pitch_angle: *measured
+          is_rectangular:
+            kind: derived
+            source: Models an imaged line as a rectangular view
+      - type: pointed
+        parameters:
+          name: BBR nadir
+          field_of_regard: 2.4359
+          cross_track_field_of_view: 2.4165
+          along_track_field_of_view: {tailor: time_step}
+          roll_angle: 0.0062
+          pitch_angle: -0.0913
+          is_swept: true
+          is_rectangular: true
+        provenance: *provenance
+      - type: pointed
+        parameters:
+          name: BBR fore
+          field_of_regard: 100.3558
+          cross_track_field_of_view: 2.4164
+          along_track_field_of_view: {tailor: time_step}
+          roll_angle: -0.0970
+          pitch_angle: 50.1645
+          is_swept: true
+          is_rectangular: true
+        provenance: *provenance
+    limitations:
+      - On the day of the fit, the views' lines were straight across track, with slopes of 0.06 deg (aft), 0.01 deg (nadir), and 0.01 deg (fore) in TAT-C's frame, constant at every latitude and in both directions in the Earth-fixed frame (EarthCARE steers its yaw); in the inertial frame, the lines' yaw varied by about 7 deg.
+      - The views were fitted to the shortwave band; the longwave band images the same pixels about 0.08 s later.
+      - The products break for about 4.3 s about every 93 s (about 950 breaks a day, about 5% of the day), so the area they observe is striped across track. The views are scored with breaks over 1 s as periods without data, rather than over 60 s as for other entries; the swath area compared omits cells nearest the lines that border them. This was chosen after a first score on the day of the fit, in which the aft view's swath IoU was 0.943 (with 94.6% of predicted passes observed); with it, the views' swath IoU was 0.990 (aft), 0.983 (nadir), and 0.989 (fore) on that day, with 99.2 to 99.5% of passes predicted.
+      - On data held out on 2026-11-07 (41 days from the fit, with the element set whose epoch is nearest the day's middle, 15:03 UTC), the views predicted 97.3% (aft), 95.5% (nadir), and 97.9% (fore) of passes, failing the pass recall gate, with swath IoU 0.954, 0.921, and 0.952, the nadir view failing the swath IoU gate; epochs were within 0.52 s (95th percentile; +0.20 s median, against -0.01 s on the day of the fit) and swath width within 0.04 km (median). The same element set put the orbit up to 1.3 km across track from the positions recorded with ATLID's profiles that day (95th percentile), against 0.3 km on the day of the fit.
+      - The same held-out data tested afterward with the day's other element set (epoch 07:20 UTC) gave swath IoU 0.978 (aft), 0.963 (nadir), and 0.977 (fore), passing that gate, but the views still predicted only 98.6%, 97.5%, and 98.3% of passes, failing the pass recall gate, with epochs within 0.74 s (95th percentile; +0.27 to +0.29 s median) and swath width within 0.03 km (median). The element set alone does not account for the missed passes. The record keeps the element set chosen by the rule (epoch nearest the day's middle), so this result is not counted toward the tier.
+limitations:
+  - The nadir view's swath is about 17 km wide, and the aft and fore views' about 28 km, at the orbit's altitude of about 400 km.
+  - Public Level 1 products of BBR cover blocks of about five days (as 2026-09-25 to 09-29, 10-15 to 10-19, and 11-04 to 11-08), whereas the views observe whenever a target is in view.

@@ -1,0 +1,159 @@
+{
+  "entry_id": "tmi",
+  "configurations": {
+    "sample_size": {
+      "digest": "d3202819e316ccb7d2d81f515f2e37255dee46024cd2ba668b0e046bcc138a36",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_tmi.py",
+      "reference": "Footprints of the TC PRIMED documentation; spacing of GPM_1CTRMMTMI version 08",
+      "period": "2013-07-10",
+      "platforms": [
+        "trmm"
+      ],
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 90.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 3.6684429733183865
+        },
+        {
+          "name": "spacing_arc_ratio_median",
+          "value": 1.0064354081074307,
+          "scope": "S1"
+        },
+        {
+          "name": "spacing_scan_ratio_median",
+          "value": 1.0167542466015138,
+          "scope": "S1"
+        },
+        {
+          "name": "spacing_arc_ratio_median",
+          "value": 1.0073094442553039,
+          "scope": "S2"
+        },
+        {
+          "name": "spacing_scan_ratio_median",
+          "value": 1.016750635214927,
+          "scope": "S2"
+        },
+        {
+          "name": "spacing_arc_ratio_median",
+          "value": 1.0072878236752607,
+          "scope": "S3"
+        },
+        {
+          "name": "spacing_scan_ratio_median",
+          "value": 1.0167702165622625,
+          "scope": "S3"
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 90.0,
+        "spacing_arc_ratio_median_S1": 1.0063197849779906,
+        "spacing_scan_ratio_median_S1": 1.0179568283375442,
+        "spacing_arc_ratio_median_S2": 1.0080807886389849,
+        "spacing_scan_ratio_median_S2": 1.020637233614014,
+        "spacing_arc_ratio_median_S3": 1.0071425417335256,
+        "spacing_scan_ratio_median_S3": 1.013955665952739
+      }
+    },
+    "feeds": {
+      "digest": "06706e6a6316ae9b6c8492e66e39647c96d8019283648a55f030b901a44bce48",
+      "standard_version": 6,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_tmi.py",
+      "reference": "GPM_1CTRMMTMI version 08 (positions of the S1, S2, and S3 samples)",
+      "period": "2013-07-10",
+      "platforms": [
+        "trmm"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.66197944835046,
+          "scope": "S1"
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.85098889189922,
+          "scope": "S1"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.747224621,
+          "scope": "S1"
+        },
+        {
+          "name": "swath_width_median",
+          "value": 2.925942876422545,
+          "scope": "S1"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9964058124529312,
+          "scope": "S1"
+        },
+        {
+          "name": "pass_recall",
+          "value": 99.68715995647443,
+          "scope": "S2"
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.945452066003,
+          "scope": "S2"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.7481998721999997,
+          "scope": "S2"
+        },
+        {
+          "name": "swath_width_median",
+          "value": 2.474207290029386,
+          "scope": "S2"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9964799455541511,
+          "scope": "S2"
+        },
+        {
+          "name": "pass_recall",
+          "value": 99.79616795760293,
+          "scope": "S3"
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.87760097919217,
+          "scope": "S3"
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.7477911938499995,
+          "scope": "S3"
+        },
+        {
+          "name": "swath_width_median",
+          "value": 2.4538273128502768,
+          "scope": "S3"
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9953404613800938,
+          "scope": "S3"
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.7493399012999999
+      }
+    }
+  }
+}

@@ -6,9 +6,9 @@ Base object schemas for space systems.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_serializer, model_validator
 
 from ..attitude import Attitude, AttitudeSchedule, GlintAttitude, TargetAttitude
 from ..instrument import AllInstruments, Instrument
@@ -57,6 +57,20 @@ class SpaceSystem(BaseModel):
                         + "but the attitude sets the body's (see Attitude.velocity_frame)."
                     )
         return self
+
+    @field_serializer("instruments", mode="wrap")
+    def _serialize_instruments(
+        self, instruments: Any, handler: Any
+    ) -> list[dict[str, Any]]:
+        """
+        Omits the velocity frames of instruments if the attitude sets the
+        body's, so serialized data passes `_check_velocity_frames` when loaded.
+        """
+        data = handler(instruments)
+        if self.attitude is not None:
+            for instrument in data:
+                instrument.pop("velocity_frame", None)
+        return data
 
     def get_instrument(self, index: int = 0) -> Instrument:
         """

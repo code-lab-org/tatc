@@ -1,0 +1,58 @@
+id: atlid
+name: ATLID
+aliases: [EarthCARE ATLID, Atmospheric Lidar]
+instrument_class: profiler
+selection: High-spectral-resolution atmospheric lidar of ESA and JAXA's EarthCARE, with open profiles of cloud and aerosol backscatter along a single beam, flying with CPR, MSI, and BBR.
+platforms:
+  - id: earthcare
+    name: EarthCARE
+    norad_id: 59908
+    status: operational
+    as_of: 2026-11-07
+data_products:
+  - name: ATL_NOM_1B
+    provider: ESA MAAP
+    url: https://earth.esa.int/eogateway/catalog/earthcare-l1-products
+    access: registration
+default_configuration: profile
+configurations:
+  profile:
+    grade: timing
+    description: A narrow view about 10 km wide, pointed about 3 deg behind nadir along the ground track, that contains the lidar's footprint, with a view tailored to the analysis time step.
+    platforms: [earthcare]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: ATLID
+          field_of_regard: 6.2752
+          cross_track_field_of_view: 1.432
+          along_track_field_of_view: {tailor: time_step}
+          roll_angle: 0.0282
+          pitch_angle: -3.0481
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the view's cross-track line, rolled and then pitched by its offsets, as the field of regard bounds the period in which a point can be observed
+          cross_track_field_of_view:
+            kind: derived
+            source: 2 atan(5 km / 400 km), a view about 10 km wide at the orbit's altitude, which contains the footprint (about 30 m wide) given the error of an element set near the day
+          roll_angle: &measured
+            kind: measured
+            source: validate_catalog_atlid.py --fit, the median angles of the profiles from the geodetic nadir across and along the ground track (Earth-fixed frame), from the recorded sensor positions
+            platforms: [earthcare]
+            period: "2026-09-27"
+          pitch_angle: *measured
+          is_rectangular:
+            kind: derived
+            source: Models the band along the track as a rectangular view
+    limitations:
+      - The view's width is not the footprint's; it is wide enough to contain the profiles' positions given the error of an element set near the day of the analysis.
+      - On the day of the fit, the angles were constant within 0.003 deg along track and 0.007 deg across track (5th to 95th percentiles), at every latitude and in both directions, in the Earth-fixed frame (EarthCARE steers its yaw); in the inertial frame, the angle across track varied by 0.38 deg.
+      - On data held out on 2026-11-07 (41 days from the fit, with the element set whose epoch is nearest the day's middle, 15:03 UTC), every sampled profile was within the view at its time and epochs were within 0.46 s (95th percentile; +0.18 s median), but the profiles lay 0.72 km (median) across track from the predicted track of the view's center, failing the track offset gate. The profiles' angles that day were those of the fit (-3.0481 deg along track and +0.0282 deg across track, median, Earth-fixed frame); the element set's inclination (97.0160 deg) differs by about 0.01 deg from those of the sets around it (97.006 to 97.008 deg), and its orbit lay up to 1.3 km across track from the recorded positions (95th percentile), against 0.3 km on the day of the fit.
+      - The same held-out data tested afterward with the day's other element set (epoch 07:20 UTC), whose orbit lay within 0.7 km across track of the recorded positions (95th percentile), had every sampled profile in view, the profiles 0.33 km (median) from the predicted track, and epochs within 0.66 s (95th percentile), passing every gate. The record keeps the element set chosen by the rule (epoch nearest the day's middle), so this result is not counted toward the tier.
+limitations:
+  - The view observes everywhere along its track, whereas products omit profiles by quality and mode.
+  - EarthCARE's altitude varies from about 398 to 425 km around its orbit, so the footprint lies 21 to 23 km behind the satellite's nadir.

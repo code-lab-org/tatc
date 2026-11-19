@@ -6,7 +6,7 @@ Object schemas for conically scanning instruments.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -61,6 +61,9 @@ class ConicalInstrument(Instrument):
     over an integration time.
     """
 
+    type: Literal["conical"] = Field(
+        default="conical", description="Instrument type discriminator."
+    )
     cone_angle: float = Field(
         ...,
         description="Angle (degrees) of the scanned cone from nadir.",

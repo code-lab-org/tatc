@@ -6,6 +6,8 @@ Object schemas for off-nadir pointing instruments.
 
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
 import numpy.typing as npt
 from pydantic import Field, ValidationInfo, field_validator
@@ -19,6 +21,7 @@ from ...utils.projection import (
     VelocityFrame,
     ViewGeometry,
     compute_footprint,
+    compute_swept_footprints,
     compute_ground_advance,
     compute_ground_sample_size,
     compute_projected_ray_position,
@@ -34,6 +37,9 @@ class PointedInstrument(Instrument):
     pointing offset and a rectangular or elliptical pixel array.
     """
 
+    type: Literal["pointed"] = Field(
+        default="pointed", description="Instrument type discriminator."
+    )
     cross_track_field_of_view: float = Field(
         ...,
         description="Angular field (degrees) of view orthogonal to instrument motion.",
@@ -93,6 +99,18 @@ class PointedInstrument(Instrument):
     is_rectangular: bool = Field(
         default=False,
         description="True, if this instrument produces a rectangular view.",
+    )
+    is_swept: bool = Field(
+        default=False,
+        description="True, if this instrument's view sweeps along track, as for a "
+        + "pushbroom imager or a cross-track scanner, whose footprints over the "
+        + "time steps of a ground track or the samples of a region are the "
+        + "strips swept by its cross-track line (the directions whose along-track "
+        + "angle relative to the view center is zero; see "
+        + "`compute_swept_footprints`), as `tatc.analysis.collect_observations` "
+        + "observes a point when that line sweeps over it, rather than its view "
+        + "at each instant. The along-track field of view still sets the view at "
+        + "an instant (see `compute_footprint`).",
     )
     cross_track_pixels: int = Field(
         default=1, description="Number of pixels in cross-track direction.", ge=1
@@ -325,6 +343,43 @@ class PointedInstrument(Instrument):
             nadir_reference=self.nadir_reference,
             view_geometry=self.view_geometry,
             ground_elevation=ground_elevation,
+            attitude=self._attitude,
+        )
+
+    def compute_swept_footprints(
+        self,
+        orbit_track: Geocentric,
+        counts: npt.ArrayLike,
+        number_points: int | None = None,
+        elevation: float = 0,
+    ) -> list[Polygon | MultiPolygon]:
+        """
+        Compute the footprints swept by the view's cross-track line over spans
+        of time (see `tatc.utils.compute_swept_footprints`).
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite
+                position/velocity at the times of each span (at least two,
+                from its start to its end), one span after another.
+            counts (numpy.typing.ArrayLike): The number of times of each span.
+            number_points (int | None): The number of points across the line.
+            elevation (float): The elevation (meters) at which project the footprints.
+
+        Returns:
+            list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]: The
+                footprint of each span.
+        """
+        return compute_swept_footprints(
+            orbit_track=orbit_track,
+            counts=counts,
+            cross_track_field_of_view=self.cross_track_field_of_view,
+            roll_angle=self.get_roll_angle(orbit_track),
+            pitch_angle=self.get_pitch_angle(orbit_track),
+            number_points=number_points,
+            elevation=elevation,
+            velocity_frame=self.velocity_frame,
+            nadir_reference=self.nadir_reference,
+            view_geometry=self.view_geometry,
             attitude=self._attitude,
         )
 

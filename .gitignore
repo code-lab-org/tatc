@@ -71,9 +71,10 @@ instance/
 # Sphinx documentation
 docs/_build/
 
-# Reference data downloaded by example and validation notebooks
+# Reference data downloaded by example and validation notebooks, and catalog validation scripts
 docs/validation/data/
-docs/examples/data/
+docs/examples/osse/data/
+validation/data/
 
 # PyBuilder
 .pybuilder/
@@ -163,3 +164,6 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 .DS_Store
+
+# written by docs/validation/catalog_page.py on each build
+docs/validation/catalog.rst

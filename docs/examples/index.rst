@@ -2,31 +2,26 @@
 Examples
 ========
 
-The following provide examples of TAT-C use in a Jupyter notebook environment.
+The following provide examples of TAT-C use in a Jupyter notebook environment, grouped by topic. Start with the getting started examples, which introduce the analysis functions with one satellite.
 
 .. toctree::
-  :maxdepth: 1
+  :maxdepth: 2
 
-  CollectObservations.ipynb
-  GenerateRandomPoints.ipynb
-  CollectOrbitGroundTrack.ipynb
-  CollectRadarTrack.ipynb
-  CollectPlatformTrack.ipynb
-  CollectAirborneGroundTrackP3B.ipynb
-  ComputeCoverage.ipynb
-  FindCoincidentObservations.ipynb
-  ComputeLatency.ipynb
-  ComputeDOP.ipynb
-  CollectRO.ipynb
-  CollectLimb.ipynb
-  CollectSpace.ipynb
-  RunOSSEMonsoon.ipynb
-  RunOSSEHurricane.ipynb
+  getting_started/index
+  coverage/index
+  limb_and_space/index
+  ground_systems/index
+  osse/index
+  tradespace/index
 
 Note that running the above examples in a local Python environment requires additional dependencies which can be installed via::
 
   pip install tatc[examples]
 
-using the pip package manager. The airborne example (``CollectAirborneGroundTrackP3B.ipynb``) additionally requires the HyPlan flight planning library, installed via::
+using the pip package manager. The observing system simulation experiments require::
 
-  pip install hyplan
+  pip install tatc[osse]
+
+and the trade space tutorial requires::
+
+  pip install tatc[tradespace]

@@ -1,0 +1,98 @@
+id: trmm_pr
+name: PR
+aliases: [TRMM PR, TRMM Precipitation Radar, Precipitation Radar]
+instrument_class: cross_track
+selection: Cross-track precipitation radar of the Tropical Rainfall Measuring Mission, the first spaceborne precipitation radar, with open three-dimensional precipitation products from 1997 to 2015, the predecessor of GPM's DPR.
+platforms:
+  - id: trmm
+    name: TRMM
+    norad_id: 25063
+    status: retired
+    as_of: 2015-04-15
+data_products:
+  - name: GPM_2APR
+    provider: NASA GES DISC
+    url: https://disc.gsfc.nasa.gov/datasets/GPM_2APR_07/summary
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath scanned between the outermost beam centers, with a view tailored to the analysis time step.
+    platforms: [trmm]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: PR
+          field_of_regard: 33.9791
+          cross_track_field_of_view: 33.9791
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          field_of_regard: &measured_extent
+            kind: measured
+            source: validate_catalog_trmm_pr.py --fit, between the outermost beams (printed to 4 decimals)
+            platforms: [trmm]
+            period: "2013-06-01"
+          cross_track_field_of_view: *measured_extent
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+    limitations:
+      - The view is centered on nadir. The outermost beams measure 16.96 deg to the left and 17.02 deg to the right.
+  beams:
+    grade: sample_size
+    description: The 49 beam positions of a scan, whose footprints and spacing `compute_sample_sizes` gives.
+    platforms: [trmm]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: PR
+          field_of_regard: 34.6935
+          cross_track_field_of_view: 34.6935
+          along_track_field_of_view: 0.70803
+          cross_track_pixels: 49
+          roll_angle: -0.0269
+          is_rectangular: true
+          cross_track_oversampling: 0.002775
+          along_track_oversampling: 0.002775
+          scan_period: 0.5997
+        provenance:
+          field_of_regard: &measured_spacing
+            kind: measured
+            source: validate_catalog_trmm_pr.py --fit, a fitted spacing of 0.70803 deg over 49 beams
+            platforms: [trmm]
+            period: "2013-06-01"
+          cross_track_field_of_view: *measured_spacing
+          along_track_field_of_view: *measured_spacing
+          cross_track_pixels:
+            kind: nominal
+            source: The PR scans 49 angle bins (JAXA PR Instruction Manual, Version 7)
+          roll_angle:
+            kind: measured
+            source: validate_catalog_trmm_pr.py --fit, the offset of the fitted beam angles
+            platforms: [trmm]
+            period: "2013-06-01"
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          cross_track_oversampling: &oversampling
+            kind: derived
+            source: One minus the fitted spacing divided by the beam width of 0.71 deg, published in Table 0-2 of the JAXA PR Instruction Manual, Version 7
+          along_track_oversampling: *oversampling
+          scan_period:
+            kind: measured
+            source: validate_catalog_trmm_pr.py --fit, the median time between scans
+            platforms: [trmm]
+            period: "2013-06-01"
+    limitations:
+      - TAT-C projects all pixels of a scan at one instant, at the time the product gives for the scan.
+      - The published footprint (TC PRIMED documentation, after the orbit boost) is 5.0 km at nadir and at the scan's edge, whereas the beam width (0.71 deg) gives about 5.4 km across track at the edge; on data held out on 2013-07-10 (39 days from the fit), 75% of the published dimensions were within 3% (largest error 7.9%, across track at the edge), failing the sample size gate, while the projected beams were within 1.43 km (median) of the product's and the spacing within 0.1%.
+limitations:
+  - TRMM periodically flew backward (yaw maneuvers every two to four weeks). The scan is nearly symmetric, so the swath is unchanged, but the small roll of the beams configuration changes sign.
+  - The fitted angles were measured at an altitude of about 400 km, after TRMM's orbit boost of August 2001 and before its descent from late 2014; before the boost, TRMM flew at about 350 km, with a narrower swath.
+  - Products report precipitation only where the radar detects it; these configurations describe where the radar samples, not where it detects precipitation.
+  - On data held out on 2013-07-10 (39 days from the fit, in forward flight), the swath predicted 99.89% of observed passes, with 99.73% of predicted passes observed, epochs within 0.48 s (95th percentile), swath width within 0.07 km (median), and swath IoU 0.997.

@@ -1,0 +1,38 @@
+{
+  "entry_id": "tempo",
+  "configurations": {
+    "field_of_regard": {
+      "digest": "c44fd0bd205eb689dfdd9449710a57782ffbb7959072be988dd750364b234842",
+      "standard_version": 5,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_tempo.py",
+      "reference": "TEMPO_RAD_L1 V04 (outer corners of the outermost pixels of a full scan, ultraviolet band)",
+      "period": "2026-11-08T18:22Z",
+      "platforms": [
+        "intelsat-40e"
+      ],
+      "metrics": [
+        {
+          "name": "field_of_regard_iou",
+          "value": 0.9941123218240923
+        },
+        {
+          "name": "imaged_area_predicted",
+          "value": 99.85880265340707
+        },
+        {
+          "name": "predicted_area_imaged",
+          "value": 99.5511657762421
+        },
+        {
+          "name": "collect_observations_agreement",
+          "value": 100.0
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "points_agreeing": 98.0
+      }
+    }
+  }
+}

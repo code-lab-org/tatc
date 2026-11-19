@@ -1,0 +1,43 @@
+{
+  "entry_id": "harp2",
+  "configurations": {
+    "swath": {
+      "digest": "dbbda9bbb91e8bfad0332d07dc4e83711dcebe054f8d7c1450c687b22efb47bd",
+      "standard_version": 5,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_harp2.py",
+      "reference": "PACE_HARP2_L1B_SCI version 4 (positions and times of the near-nadir view)",
+      "period": "2026-11-07",
+      "platforms": [
+        "pace"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.98689384010486
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.90178746808093
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.44383682184999995
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.5993460746463388
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9995809395635673
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.42397417094999984
+      }
+    }
+  }
+}

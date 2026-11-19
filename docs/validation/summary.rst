@@ -4,10 +4,13 @@ Validation Summary
 
 The validation notebooks compare TAT-C's analyses with data from operational
 missions: recorded orbits, geolocated samples, acquisition catalogs, and
-archives of observations, mostly from 2025 and 2026. This page summarizes
+archives of observations, mostly from 2025 and 2026, and one compares its
+trade study capabilities with a published cost analysis. This page summarizes
 their headline results by capability, the modeling choices they found to
 matter, and the limits of what TAT-C models. Each result links to the notebook
-with its full method, data, and figures.
+with its full method, data, and figures. Results marked as held out come from the
+:doc:`catalog`, whose instruments were tested, under the :doc:`standard`, on data
+at least 30 days from the data their values were fitted to.
 
 Unless noted, orbits are propagated with SGP4 from public two-line element
 (TLE) sets near the analysis period, and percentiles are of the absolute
@@ -26,30 +29,30 @@ Orbits and Propagation
    * - TLE propagation (`GeneralPerturbationsOrbit`)
      - Recorded or precise orbits of NOAA-20, Sentinel-1C, Sentinel-2, NISAR, Terra, GCOM-W, Aura, PACE, GRACE-FO
      - 0.5 to 1.7 km along track (95th percentile) within days of the TLE epoch, under 0.5 km across track and radially
-       (:doc:`ValidateImagerATMS`, :doc:`ValidatePushbroomMSI`, :doc:`ValidateSpaceGRACEFO`); errors grow with drag:
-       29 km after 20 days for Sentinel-2A (:doc:`ValidateRevisitSentinel2`), 300 km after 26 days for GPM
-       (:doc:`ValidateYawFlipGPM`), and about 250 km per day before the ISS's last reboost (:doc:`ValidateOrbitISS`)
+       (:doc:`instruments/ValidateImagerATMS`, :doc:`instruments/ValidatePushbroomMSI`, :doc:`limb_and_space/ValidateSpaceGRACEFO`); errors grow with drag:
+       29 km after 20 days for Sentinel-2A (:doc:`coverage/ValidateRevisitSentinel2`), 300 km after 26 days for GPM
+       (:doc:`instruments/ValidateYawFlipGPM`), and about 250 km per day before the ISS's last reboost (:doc:`orbits/ValidateOrbitISS`)
    * - Maintained orbits (`remove_drag`, `repeat_cycle`)
      - Landsat 9 element set history, 19 months
      - Repeating the first 16-day cycle keeps the ground track within 3 km and the timing within 50 s, and predicts
-       99.4% of 8,241 observations; direct propagation diverges within months (:doc:`ValidateMaintainedOrbitLandsat9`)
+       99.4% of 8,241 observations; direct propagation diverges within months (:doc:`orbits/ValidateMaintainedOrbitLandsat9`)
    * - Repeat cycles (`get_repeat_cycle`)
      - SWOT, OCO-2, ICESat-2
-     - SWOT's 20.86-day cycle within 3.1 s (:doc:`ValidateSwathSWOT`); OCO-2's 16 days (:doc:`ValidatePointingOCO2`);
-       ICESat-2's 91 days not detected, but refined to within 25 s when declared (:doc:`ValidateLidarICESat2`)
+     - SWOT's 20.86-day cycle within 3.1 s (:doc:`instruments/ValidateSwathSWOT`); OCO-2's 16 days (:doc:`instruments/ValidatePointingOCO2`);
+       ICESat-2's 91 days not detected, but refined to within 25 s when declared (:doc:`instruments/ValidateLidarICESat2`)
    * - Drifting orbits
      - Terra, since its inclination adjustments ended
      - A single TLE reproduces the local time drift (39.5 vs. 37.3 minutes per year) within 0.3 minutes over three
-       months, but departs by 4.4 minutes after a year (:doc:`ValidateDriftMODIS`)
+       months, but departs by 4.4 minutes after a year (:doc:`instruments/ValidateDriftMODIS`)
    * - Orbit generators (`SunSynchronousOrbit`, `WalkerConstellation`, `TrainConstellation`, `MolniyaOrbit`,
        `TundraOrbit`, `GeosynchronousOrbit`)
      - 13 sun-synchronous missions; Galileo, BeiDou-3, GLONASS, OneWeb; Sentinel-2, Landsat, NOAA-20/21; Meridian,
        EKS, QZSS, GOES
      - Ascending node within 0.02 minutes of local time; Walker slots within 1 to 3 deg; trains within 29 to 45 km;
-       Molniya apogee drift under 0.07 deg per day; Tundra apogee latitudes within 0.03 deg (:doc:`ValidateOrbitGeneration`)
+       Molniya apogee drift under 0.07 deg per day; Tundra apogee latitudes within 0.03 deg (:doc:`orbits/ValidateOrbitGeneration`)
    * - Streets of coverage (`SOCConstellation`)
      - Iridium
-     - Reproduces Iridium's 6 planes of 11 satellites and its continuous coverage (:doc:`ValidateConstellationIridium`)
+     - Reproduces Iridium's 6 planes of 11 satellites and its continuous coverage (:doc:`orbits/ValidateConstellationIridium`)
 
 Instruments and Pointing
 ========================
@@ -62,50 +65,142 @@ Instruments and Pointing
      - Reference
      - Result
    * - Cross-track scanners (`PointedInstrument`, `ViewGeometry.SCAN`)
-     - NOAA-20 ATMS, CrIS, and VIIRS; Terra MODIS
-     - More than 99% of passes predicted; epochs within 0.26 s (ATMS) and 2 s (VIIRS) at the 95th percentile, 0.22 s
-       (MODIS) median; swath width within 2 to 3 km with measured fields of regard; CrIS footprint centers within
-       0.7 km (95th percentile) (:doc:`ValidateImagerATMS`, :doc:`ValidateImagerCrIS`, :doc:`ValidateImagerVIIRS`,
-       :doc:`ValidateDriftMODIS`)
+     - NOAA-20 ATMS, CrIS, and VIIRS; Terra and Aqua MODIS; Metop-B IASI; GPM DPR; Metop-C MHS and AVHRR; Aqua
+       AIRS and AMSU-A; PACE OCI; NOAA-20 CERES; ISS ECOSTRESS; TRMM PR and VIRS
+     - On held-out data, 99.8 to 100% of passes predicted (ATMS, CrIS, VIIRS, MODIS, IASI, DPR); epochs within 0.25 s
+       (ATMS), 0.40 s (CrIS), 0.44 s (MODIS), 0.60 s (DPR), and 2.0 s (VIIRS) at the 95th percentile; swath width
+       within 0.20 to 3.3 km (median) with measured fields of regard; pixel centers within 1.4 to 2.9 km (median;
+       ATMS, VIIRS, MODIS, DPR). MHS, with its published scan, observed 99.97% of passes predicted, with epochs within
+       1.7 s, swath width within 0.8 km, and pixel centers within 5.7 km (median), along track of where MHS samples
+       them. AIRS and AMSU-A, with their published scans, observed 99.9% of passes predicted, with epochs within
+       0.45 s (AIRS) and 2.2 s (AMSU-A), swath width within 0.7 and 1.5 km, and pixel centers within 3.6 and 4.6 km
+       (median). AVHRR, with fitted angles and yaw on held-out data, observed 99.4% of passes predicted, with epochs
+       within 0.16 s (95th percentile), swath width within 1.3 km, and pixel centers within 0.5 km (median); without
+       its yaw of 0.29 deg, epochs were within 1.1 s. OCI, whose tilt fore or aft follows a daily schedule set by
+       the subsolar latitude and which is blind while the tilt changes, predicted 99.9% of the passes observed on
+       held-out data, with 97.4% of its predicted passes observed, epochs within 0.55 s (95th percentile), swath
+       width within 0.9 km (median), and swath IoU 0.997.
+       On sibling satellites, as transfers, MHS and AVHRR on Metop-B passed every swath test, while NOAA-20's angles
+       on NOAA-21 placed ATMS's pixels within 10.5 km and VIIRS's swath width within 21 km (median); fitted on
+       NOAA-21, with ATMS's scan rotated 0.93 deg, ATMS's pixels were within 3.2 km and the swath widths of ATMS and
+       VIIRS within 1.2 and 2.8 km (median) on held-out data (:doc:`catalog`; :doc:`instruments/ValidateImagerATMS`, :doc:`instruments/ValidateImagerVIIRS`, :doc:`instruments/ValidateDriftMODIS`). CrIS's
+       footprint centers within 0.7 km (95th percentile) only
+       with a computation per field of regard written in the notebook, and within 19 km (central field of view) and
+       43 km (all) at the 95th percentile with public methods, which observe a scan at one instant and do not rotate
+       the array of fields of view (:doc:`instruments/ValidateImagerCrIS`). On held-out data, CERES (first sweep of each
+       record) predicted 99.6% of observed passes, with 99.4% of predicted passes observed, epochs within 0.29 s (95th
+       percentile), and swath IoU 0.999, but swath width within 7.9 km (median), its edges 60 deg from nadir; ECOSTRESS,
+       with fitted yaw and pitch and its view centered in TAT-C's frame, had 98.4% of predicted passes observed,
+       epochs within 0.72 s, swath width within 0.62 km, and swath IoU 0.988, but predicted 98.9% of observed passes
+       (:doc:`catalog`). On data of TRMM held out 39 days from the fit, PR and VIRS predicted 99.89 and 99.81% of
+       passes, with epochs within 0.48 and 0.59 s (95th percentile), swath width within 0.07 and 0.24 km, swath IoU
+       0.997 and 0.994, and pixel centers within 1.4 and 2.2 km (median); PR's published footprint of 5.0 km at the
+       scan's edge lies 7.9% below the size its beam width gives (:doc:`catalog`)
    * - Pushbroom imagers (`PointedInstrument`)
-     - Sentinel-2 MSI
-     - Footprint IoU 0.965 (median, 122 datastrips); epochs within 2 to 3 s with one view, 0.26 s (95th percentile)
-       with a view per detector module and a geocentric nadir (:doc:`ValidatePushbroomMSI`)
+     - Sentinel-2 MSI, Landsat 9 OLI, Sentinel-5P TROPOMI, Sentinel-3A OLCI, PACE HARP2 and SPEXone, NOAA-20 and
+       NOAA-21 OMPS Nadir Mapper, OCO-2, ISS EMIT, EarthCARE MSI and BBR
+     - On held-out data, 99.8% or more of passes predicted; swath width within 0.1 to 2.0 km and swath IoU 0.99 or
+       more (median); epochs within 1.3 s (OLI), 2.1 s (TROPOMI), and 2.6 s (MSI, one view) at the 95th percentile
+       (:doc:`catalog`). MSI's epochs within
+       0.26 s (95th percentile) with a view per detector module and a geocentric nadir (:doc:`instruments/ValidatePushbroomMSI`).
+       OLCI, a single view rolled 12.7 deg away from the sun, on held-out tie points: 99.8% of passes predicted,
+       epochs within 0.13 s (95th percentile), and swath IoU 0.990, but swath width within 9.9 km (:doc:`catalog`).
+       On held-out data, HARP2 (near-nadir view) and SPEXone predicted 99.99 and 99.86% of passes, with epochs within
+       0.44 and 0.22 s (95th percentile), swath width within 0.6 km, and swath IoU 0.9996 and 0.979. The OMPS Nadir
+       Mapper predicted 99.3 to 99.4% of passes, with swath IoU 0.99 or more, but epochs within 19 to 20 s and swath
+       width within 5.9 to 7.1 km, as its swath bows along track. OCO-2's narrow slit (about 10 km) observed 90.4%
+       (nadir) and 89.4% (glint) of sampled soundings, with epochs within 0.88 and 1.24 s, and swath IoU 0.45 and 0.41
+       (:doc:`catalog`). EMIT, with fitted yaw and pitch and its view centered in TAT-C's frame, observed 94.6%
+       of sampled pixels on held-out data, with epochs within 0.25 s and swath width within 0.05 km, but missed pixels
+       within about 1.5 km of one edge of its 75 km swath, and swath IoU was 0.925; with its roll measured from
+       the geodetic nadir instead, its view had lain 4.0 to 4.5 km to one side (:doc:`catalog`). On EarthCARE data
+       held out 41 days from the fit, MSI (rolled 5.6 deg away from the sun) predicted 99.55% of passes, with epochs
+       within 0.50 s (95th percentile), swath width within 0.22 km, and swath IoU 0.989. BBR's three views (about
+       50 deg aft, nadir, and 50 deg fore), with breaks in its data over 1 s as periods without data, predicted 95.5
+       to 97.9% of passes, with epochs within 0.52 s (95th percentile), swath width within 0.04 km, and swath IoU
+       0.921 to 0.954, against 99.2 to 99.5% and 0.983 to 0.990 on the day of the fit, with the element set nearest
+       the day's middle that put ATLID's and CPR's profiles 0.72 km from their track; with the day's other element
+       set, swath IoU 0.963 to 0.978, but still 97.5 to 98.6% of passes predicted (:doc:`catalog`)
    * - Conical scanners (`ConicalInstrument`)
-     - GCOM-W AMSR2, GPM GMI, SMAP radiometer
-     - 99.95 to 100% of passes, epochs within 0.27 s (AMSR2) and 0.69 s (GMI) at the 95th percentile; swath IoU 0.998
-       to 0.999; SMAP's forward and aft looks within 0.2 s (median) (:doc:`ValidateConicalAMSR2`,
-       :doc:`ValidateConicalGMI`, :doc:`ValidateGridSMAP`)
+     - GCOM-W AMSR2, GPM GMI, SMAP radiometer, DMSP F18 SSMIS, TRMM TMI
+     - AMSR2: 99.95% of passes, epochs within 0.27 s (95th percentile) (:doc:`instruments/ValidateConicalAMSR2`); GMI: swath
+       width within 0.4 km (95th percentile) (:doc:`instruments/ValidateConicalGMI`); SMAP's forward and aft looks within 0.2 s
+       (median) (:doc:`coverage/ValidateGridSMAP`). On held-out AMSR2 data, 99.98% of passes predicted,
+       epochs within 0.79 s (95th percentile), swath width within 2.8 km, and swath IoU 0.998; on held-out GMI data,
+       99.93 to 100% of passes predicted with both feeds, epochs within 0.63 s (95th percentile), swath width within
+       0.25 km, and swath IoU 0.999; on held-out SMAP Level
+       1B footprints, 100% of passes predicted with both looks, epochs within 0.14 s (95th percentile), swath width
+       within 2.1 km, and swath IoU 0.998; on held-out SSMIS data, 99.7% of passes predicted, epochs within 0.51 s
+       (95th percentile), swath width within 2.6 km, and swath IoU 0.992 (:doc:`catalog`). TMI's three feeds, on
+       held-out data: 99.66 to 99.80% of passes predicted, epochs within 0.75 s (95th percentile), swath width within
+       2.9 km, and swath IoU 0.995 or more (:doc:`catalog`)
    * - Side-looking SAR (`PointedInstrument` with roll, `roll_angle_profile`)
      - NISAR, Sentinel-1C
-     - Epochs within 0.3 and 0.44 s (95th percentile) of zero-Doppler times; footprint IoU 0.93 to 0.96 (median); roll
-       steering profiles bring swath edges within 6 to 7 km (:doc:`ValidateSARNISAR`, :doc:`ValidateSARSentinel1`)
+     - NISAR's swath edges within 5 to 7 km across track (95th percentile) (:doc:`instruments/ValidateSARNISAR`); roll
+       steering profiles bring Sentinel-1C's within 6 to 7 km (:doc:`instruments/ValidateSARSentinel1`).
+       On held-out Sentinel-1C data, IW's swath edges within 6.7 to 6.9 km (95th percentile), epochs within 0.43 s
+       of zero-Doppler times, and swath IoU 0.974, but 98.98% of its passes predicted, the misses at the swath edges;
+       EW, on a later held-out day, predicted 99.16% of passes, with edges within 7.6 to 9.5 km, epochs within
+       0.34 s, and swath IoU 0.989 (:doc:`catalog`). On held-out NISAR data of its modes with a 20 or 40 MHz band,
+       99.27% of passes predicted, epochs within 0.92 s, and far-range edges within 6.8 km, but near-range edges
+       within 12.1 km (95th percentile) with a fixed field of view, and swath IoU 0.974 (:doc:`catalog`). NISAR's 77 MHz mode, on four held-out days with an element set of each day:
+       99.01% of passes predicted, edges within 3.1 km and epochs within 0.13 s (95th percentile); with an element set
+       3 to 7 days later, edges within 8.9 km and epochs within 1.28 s, as it lay 1.7 to 9.2 km ahead of the products'
+       orbits along track (:doc:`catalog`)
    * - Wide-swath interferometer (two rolled instruments)
      - SWOT KaRIn
      - Every pixel 11 to 59 km from the ground track observed by the instrument on its side, none in the nadir gap;
-       epochs within 0.04 s after removing the orbit offset (:doc:`ValidateSwathSWOT`)
+       epochs within 0.04 s after removing the orbit offset (:doc:`instruments/ValidateSwathSWOT`). On held-out data, with the
+       edges of good-quality heights (about 7.5 to 61 km from the ground track), 99.05% of passes predicted, edges
+       within 3.0 km and epochs within 0.52 s (95th percentile), and swath IoU 0.993 (:doc:`catalog`)
+   * - Scatterometer (two rolled instruments)
+     - Metop-C ASCAT
+     - On held-out data, with row times recovered from the product's rounded times, 99.83% of passes predicted,
+       edges of the wind vector cells within 7.2 km (95th percentile), swath IoU 0.983 (median), and epochs within 1.9 s (95th percentile) of the cells' rows (:doc:`catalog`)
    * - Narrow-beam lidar
-     - ICESat-2 ATLAS
+     - ICESat-2 ATLAS, GEDI
      - Beams located within about 2 km with a TLE, so a view about 4 km wide predicts 95% of their observations
-       (:doc:`ValidateLidarICESat2`)
+       (:doc:`instruments/ValidateLidarICESat2`). With views about 4.9 km wide fitted over Antarctica, held-out data a month
+       later had every sampled segment within its pair's view and the pairs' spacing within 0.02 km, but epochs 5.5 s
+       early (median) with an element set 4 days from the data, consistent with its along-track error; with an
+       element set of the day, within 0.37 s (95th percentile) (:doc:`catalog`).
+       GEDI's eight beams, as views fitted where GEDI points within 1 deg of nadir: on held-out data, 99.9% of
+       sampled shots within their views and the beams' spacing within 0.026 km, but epochs 2.4 s early (median),
+       consistent with beams pointing behind the plane across track; with a pitch fitted on the fitting day, 99.55%
+       within their views on another held-out day, but epochs 1.1 s late (median; 1.5 s at the 95th percentile), as
+       the offset along track varies between days (:doc:`catalog`)
+   * - Nadir altimeter
+     - Sentinel-6 Poseidon-4
+     - With a view 0.43 deg wide, every sampled segment of the ground track observed, the track within 0.14 km
+       (median) and epochs within 0.12 s (95th percentile); on Sentinel-6B, as a transfer, the track within 0.11 km
+       and epochs within 0.11 s (:doc:`catalog`)
+   * - Profilers
+     - EarthCARE ATLID and CPR
+     - With views about 10 km wide (ATLID's pitched 3.05 deg behind nadir), on held-out data every sampled profile
+       within its view, and epochs within 0.46 and 0.48 s (95th percentile), but profiles 0.72 km (median) from the
+       predicted track with the element set nearest the day's middle, whose inclination differed by 0.01 deg from
+       those of the sets around it; with the day's other element set, 0.33 km (:doc:`catalog`)
    * - Geostationary imagers
-     - GOES-19 ABI
+     - GOES-19 ABI, Himawari-9 AHI, TEMPO
      - A 17.4 deg field of regard observes the full disk; elevation angles within 0.0004 deg; product coverage limits
-       within about 0.3 deg of local zenith angle (:doc:`ValidateGeostationaryGOES`)
+       within 0.36 deg of local zenith angle; on held-out AHI cloud top heights, the product's limit within 0.70 deg
+       (:doc:`catalog`). TEMPO's region, as a rectangular view fitted
+       to the edges of a full scan: field of regard IoU 0.994 with the area a held-out scan imaged; the hourly
+       east-west sweep is not modeled (:doc:`catalog`)
    * - Tilted scanners (`pitch_angle_profile`), sun glint (`compute_glint_angle`)
      - PACE OCI
      - Pixels within 0.8 km near nadir and 9 km at the edges (median); epochs within 0.15 s (median) with a daily tilt
-       profile; glint angles within 0.26 deg (:doc:`ValidateTiltPACE`)
+       profile; glint angles within 0.26 deg (:doc:`instruments/ValidateTiltPACE`)
    * - Attitudes (`Attitude`, `AttitudeSchedule`, `TargetAttitude`, `GlintAttitude`)
      - OCO-2 modes, GPM yaw flips, ISS attitude (EMIT)
      - OCO-2 views within 1.5 km (glint), 2.1 km (nadir), and 5.5 km (target) median under one schedule
-       (:doc:`ValidatePointingOCO2`); GMI times relative to the radar within 0.6 s (median) across a yaw flip
-       (:doc:`ValidateYawFlipGPM`); EMIT epochs within 1.1 s (median) with the recorded ISS attitude
-       (:doc:`ValidateOrbitISS`)
+       (:doc:`instruments/ValidatePointingOCO2`); GMI times relative to the radar within 0.6 s (median) across a yaw flip
+       (:doc:`instruments/ValidateYawFlipGPM`); EMIT epochs within 1.1 s (median) with the recorded ISS attitude
+       (:doc:`orbits/ValidateOrbitISS`)
    * - Sample sizes (`compute_sample_sizes`)
      - ATMS, CrIS, VIIRS, MODIS, AMSR2, GMI
      - Sample spacing within 1% across track and 0.2 to 0.8% along track; 55 of 58 published footprint dimensions
-       within 3% (:doc:`ValidateSampleSizes`)
+       within 3% (:doc:`instruments/ValidateSampleSizes`)
 
 Coverage Analyses
 =================
@@ -120,28 +215,34 @@ Coverage Analyses
    * - Revisit (`collect_observations`, `aggregate_observations`, `reduce_observations`)
      - Sentinel-2A, 2B, and 2C acquisitions over 20 days
      - Every observed pass of 2B and 2C predicted; median 4 samples and 5.0-day mean revisit, observed and predicted;
-       samples equal at 88% of points (:doc:`ValidateRevisitSentinel2`)
+       samples equal at 88% of points (:doc:`coverage/ValidateRevisitSentinel2`)
    * - Regions (`collect_region_observations`)
      - Sentinel-2 over six countries; Sentinel-1C over polar regions
      - All 114 and all 210 acquired passes predicted, including regions around both poles and across the
        anti-meridian; sample counts and mean revisit equal to observed for five of six countries; swaths reach 87.58 deg
-       north (products: 87.57 deg) (:doc:`ValidateRegionSentinel2`, :doc:`ValidateRegionPolarSentinel1`)
+       north (products: 87.57 deg) (:doc:`coverage/ValidateRegionSentinel2`, :doc:`coverage/ValidateRegionPolarSentinel1`)
    * - Features (`collect_feature_observations`)
      - TC PRIMED tropical cyclone overpasses, 2025 Atlantic season, 10 satellites
      - All 1,433 archived overpasses predicted; viewed fraction within 0.2 percentage points (median)
-       (:doc:`ValidateFeaturesTCPRIMED`)
+       (:doc:`coverage/ValidateFeaturesTCPRIMED`)
    * - Gridded statistics (`grid_observations`)
      - SMAP radiometer, one day
      - Same number of passes at 90% of points; gridded samples within 2.4% and revisit equal (median)
-       (:doc:`ValidateGridSMAP`)
+       (:doc:`coverage/ValidateGridSMAP`)
    * - Illumination (`min_target_solar_elevation`, `omit_solar=False`)
      - Landsat 8 and 9 scenes
      - Solar elevation and azimuth within 0.025 and 0.06 deg, epochs within 0.7 s; a 5 deg minimum solar elevation
-       predicts 94 to 95% of acquisitions, 91 to 93% of predictions acquired (:doc:`ValidateSolarLandsat`)
+       predicts 94 to 95% of acquisitions, 91 to 93% of predictions acquired (:doc:`coverage/ValidateSolarLandsat`)
    * - Coincidences (`find_coincident_observations`, `find_coincident_ground_track`)
      - GMI and AMSR2 within 15 minutes
      - With `instantaneous=True`, 97.7% of true coincidences found and 99.9% of those found true, within 2.4 s (95th
-       percentile); 98.2% of coincident points within coincident footprints (:doc:`ValidateCoincidenceGMIAMSR2`)
+       percentile); 98.2% of coincident points within coincident footprints (:doc:`coverage/ValidateCoincidenceGMIAMSR2`)
+   * - Sampling error (`estimate_sampling_error`)
+     - IMERG half-hourly precipitation, Maritime Continent, July 2025; four constellation designs
+     - With the statistics of June, errors of July's monthly means at 1,600 points as predicted (RMS standardized
+       errors 1.02 to 1.05; 94 to 95% within 2 predicted standard deviations); designs ranked by an order of magnitude,
+       as predicted; independent samples (`sigma / sqrt(n)`) overpredict dense sampling by up to 1.8 times
+       (:doc:`coverage/ValidateSamplingErrorIMERG`)
 
 Limb, Occultation, and Satellite-to-Satellite Analyses
 ======================================================
@@ -157,22 +258,22 @@ Limb, Occultation, and Satellite-to-Satellite Analyses
      - Aura MLS, TIMED SABER
      - MLS tangent points within 1.8 km (median) at matched times and altitudes; SABER scan sample times within
        0.05 s (median); daily latitude ranges within 0.2 deg and equator local times within 0.02 h
-       (:doc:`ValidateLimbMLS`, :doc:`ValidateLimbSABER`)
+       (:doc:`limb_and_space/ValidateLimbMLS`, :doc:`limb_and_space/ValidateLimbSABER`)
    * - Radio occultation (`collect_ro_observations`)
      - COSMIC-2 and PlanetiQ, GPS, GLONASS, and Galileo
-     - All 5,699 and 3,838 recorded occultations predicted with the correct direction; times within 0.25 to 0.30 s
-       (95th percentile); tangent points 0.33 to 0.38 km (median) from truth (:doc:`ValidateROCOSMIC2`,
-       :doc:`ValidateROPlanetiQ`)
+     - All 5,699 and 3,838 recorded occultations predicted with the correct direction; times within 0.23 to 0.30 s
+       (95th percentile); tangent points 0.30 to 0.39 km (median) from truth (:doc:`limb_and_space/ValidateROCOSMIC2`,
+       :doc:`limb_and_space/ValidateROPlanetiQ`)
    * - Earth occlusion (`collect_space_observations`)
      - COSMIC-2 occultations; GRACE-FO precise orbits
-     - Window edges within 0.25 to 0.30 s (95th percentile) of recorded occultations and within 2 ms of
-       `collect_ro_observations`; all GRACE-FO occlusion edges predicted (:doc:`ValidateSpaceCOSMIC2`,
-       :doc:`ValidateSpaceGRACEFO`)
+     - Window edges within 0.23 to 0.30 s (95th percentile) of recorded occultations and within 2 ms of
+       `collect_ro_observations`; all GRACE-FO occlusion edges predicted (:doc:`limb_and_space/ValidateSpaceCOSMIC2`,
+       :doc:`limb_and_space/ValidateSpaceGRACEFO`)
    * - Slant range (`collect_space_observations`)
      - GRACE-FO precise orbits; SOCRATES close approaches
      - Range between formation satellites within 21 m (standard deviation); closest approaches within 1 m and 0.3 ms
        (median) of SOCRATES; every window at least `min_duration` long found, down to 0.1 s
-       (:doc:`ValidateSpaceGRACEFO`, :doc:`ValidateSpaceSOCRATES`)
+       (:doc:`limb_and_space/ValidateSpaceGRACEFO`, :doc:`limb_and_space/ValidateSpaceSOCRATES`)
 
 Ground Systems and Navigation
 =============================
@@ -187,15 +288,40 @@ Ground Systems and Navigation
    * - Ground radar (`RadarStation`, `compute_terrain_mask`)
      - Four NEXRAD radars in Arizona, Level II volume scans
      - DEM terrain masks agree with observed blockage at 90 to 92% of azimuths; observable area IoU 0.77 to 0.92 per
-       station and 0.84 to 0.93 for the network (:doc:`ValidateRadarNEXRAD`)
+       station and 0.84 to 0.93 for the network (:doc:`ground_systems/ValidateRadarNEXRAD`)
    * - Downlink latency (`collect_downlinks`, `compute_latencies`)
      - NOAA-20 product granules
      - Mean latency 21 vs. 23 minutes, within 9 minutes per granule (95th percentile), the difference being processing
-       time (:doc:`ValidateLatencyNOAA20`)
+       time (:doc:`ground_systems/ValidateLatencyNOAA20`)
    * - Dilution of precision (`compute_dop`)
      - GPS, Galileo, BeiDou, and GLONASS broadcast ephemerides at six IGS stations
      - Within 0.01% (median) of an independent computation for the same satellites, including a clock per system
-       (:doc:`ValidateDopGNSS`)
+       (:doc:`ground_systems/ValidateDopGNSS`)
+
+Trade Studies
+=============
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 25 55
+
+   * - Capability
+     - Reference
+     - Result
+   * - Correlated cost risk (`Triangular`, `Component`, `CostModel.draw`, `risk_space`, `exceedance`)
+     - Maier, Yeakel, and Wendoloski (2023): two NSOSA constellations that share a geostationary configuration
+     - With the published numbers of blocks and units, replicates with common random numbers reproduce the
+       expected costs, standard deviations, and covariance of the constellations within their sampling error, and
+       the probability that one costs more than the other (97.8%; 94.8% with independent draws); Table I's growth
+       factors reproduced (:doc:`trade_studies/ValidateCostVarianceNSOSA`)
+   * - Production blocks and study periods (`DeploymentSchedule`, `SatelliteCost.block_size`)
+     - Launch schedules and production blocks of the same study
+     - Launches, production of later units, and developments of both blocks of the geostationary configuration
+       reproduced to the month; over the study period (a sustained constellation, with a design life of each
+       configuration), the published numbers of developments and units of two of three configurations
+       reproduced, and one constellation's expected cost; the third configuration's published numbers cannot be
+       derived from its schedule, which costs the constellation that flies it 4% more than published and raises
+       the probability above to 99.9% (:doc:`trade_studies/ValidateCostVarianceNSOSA`)
 
 Modeling Guidance
 =================
@@ -212,6 +338,18 @@ numerical error in TAT-C:
 * **Measured instrument parameters.** Nominal fields of regard gave swaths 11 km
   too narrow (ATMS) and 47 km too wide (VIIRS); parameters fitted to geolocated
   samples close the gap.
+* **Time step.** A view tailored to the analysis time step stretches along
+  track, and its rigid footprint departs from the swath as the time step grows,
+  most for views far from nadir, tilted, or yawed. Swept instruments
+  (`is_swept`), as in every pointed configuration of the catalog, take as their
+  swath the strip their cross-track line sweeps, which does not depend on the
+  time step. All results above are with swept swaths, at time steps of 10, 30,
+  and 120 s. Before they were added, the catalog's swath IoU at 120 s had been
+  0.72 to 0.82 (Sentinel-1C), 0.73 to 0.76 (NISAR), 0.73 (EMIT), 0.90 (ECOSTRESS), 0.93 to 0.95
+  (OCI, MSI, TROPOMI, DPR), and 0.17 (OCO-2 glint). Records were rescored on
+  the same held-out data, with every other result unchanged; MSI, TROPOMI,
+  DPR, OCI, and Sentinel-1's EW mode, whose tiers changed, were tested again on
+  a later held-out day, which their records hold.
 * **Element set age.** Use element sets near the analysis period, especially
   for low orbits with strong drag or frequent maneuvers (ISS, GPM), a
   multi-element `GeneralPerturbationsOrbit` for past periods, and a maintained
@@ -226,6 +364,23 @@ numerical error in TAT-C:
   5 deg reproduces the acquisitions of sun-synchronous land imagers.
 * **Coincidences of samples.** Observation periods of scanning instruments last
   minutes; compare their epochs with `instantaneous=True`.
+* **Statistics of sampled fields.** A single month's standard deviation of
+  precipitation at a point predicts the next month's poorly (a correlation of
+  0.16); smoothed or regional standard deviations, from climatology or another
+  period, give calibrated sampling errors, and one regional decorrelation time
+  suffices.
+* **Correlation of cost growth.** `CostModel.correlation` correlates the normal
+  scores from which the growths of components are drawn; the growths of skewed
+  distributions are correlated slightly less (0.486 for 0.5, with the cost
+  growth factors of formal risk assessments). Use about 0.514 to correlate the
+  costs of components by 0.5.
+* **Costs within a study period.** A mission that is not sustained costs the
+  satellites it launches by its end. To compare operational constellations
+  over a fixed study period, as architecture studies do, use
+  `DeploymentSchedule(sustained=True)`, which counts the share of the units
+  (and later blocks' developments) in production at the end; the two differ by
+  2 to 7% of the cost of a constellation over 30 years, unevenly between
+  alternatives.
 * **Navigation constellations.** Model the operational satellites (those with
   healthy broadcast ephemerides); public TLE groups include others, which make
   DOP 4 to 16% optimistic.
@@ -241,6 +396,10 @@ Not Modeled
 * Pointing limits in `collect_space_observations`, such as an antenna's field
   of view, and slews between attitudes, which are instantaneous.
 * Acquisition plans, downlink processing time, and data gaps.
+* Daily cycles of sampled fields: sampling errors model a stationary field, so
+  sun-synchronous sampling of a field with a strong daily cycle has errors up
+  to 25% larger than predicted, and a small bias (2 to 3% for IMERG
+  precipitation over the Maritime Continent).
 
 Changes to TAT-C from Validation
 ================================

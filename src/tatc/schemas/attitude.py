@@ -20,7 +20,11 @@ from skyfield.toposlib import GeographicPosition
 
 from ..utils.ellipsoid import compute_ellipsoid_intersection, rectangular_to_geodetic
 from ..utils.glint import compute_specular_point
-from ..utils.orbital import _check_angle_profile, _interpolate_angle_profile
+from ..utils.orbital import (
+    _check_angle_profile,
+    _interpolate_angle_profile,
+    compute_argument_of_latitude,
+)
 from ..utils.projection import (
     VelocityFrame,
     _compute_line_of_sight,
@@ -29,6 +33,21 @@ from ..utils.projection import (
 )
 from ..utils.time import _index_orbit_track
 from .surface.point import Point
+
+
+def _observing_always(orbit_track: Geocentric) -> npt.NDArray[np.bool_]:
+    """
+    Gets, for an attitude without blind intervals, that the instruments observe
+    at each time of an orbit track.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): The satellite
+            position/velocity (in an inertial frame).
+
+    Returns:
+        numpy.typing.NDArray: `True` at each time, with the shape of its times.
+    """
+    return np.ones(np.shape(orbit_track.t.tt), dtype=bool)
 
 
 class Attitude(BaseModel):
@@ -104,6 +123,16 @@ class Attitude(BaseModel):
         + "overrides `pitch_angle`.",
         min_length=1,
     )
+    blind_intervals: list[tuple[float, float]] | None = Field(
+        default=None,
+        description="Intervals of the satellite's argument of latitude (degrees "
+        + "from the ascending node, 0 to 360), as (start, end) pairs, in which "
+        + "the space system's instruments do not observe, for example while the "
+        + "body or a mechanism moves between attitudes. An interval whose end "
+        + "precedes its start contains the ascending node. Observations in them "
+        + "are not valid (see `Instrument.is_valid_observation`).",
+        min_length=1,
+    )
 
     @field_validator("yaw_angle_profile", "roll_angle_profile", "pitch_angle_profile")
     @classmethod
@@ -114,6 +143,51 @@ class Attitude(BaseModel):
         Validates an angle profile (see `_check_angle_profile`).
         """
         return _check_angle_profile(profile, info.field_name.split("_")[0].title())
+
+    @field_validator("blind_intervals")
+    @classmethod
+    def _validate_blind_intervals(
+        cls, intervals: list[tuple[float, float]] | None
+    ) -> list[tuple[float, float]] | None:
+        """
+        Validates that the bounds of blind intervals lie in [0, 360) and that
+        each interval has a length.
+        """
+        if intervals is None:
+            return None
+        for start, end in intervals:
+            if not (0 <= start < 360 and 0 <= end < 360):
+                raise ValueError("Arguments of latitude must be in [0, 360).")
+            if start == end:
+                raise ValueError("A blind interval must not start where it ends.")
+        return sorted(intervals)
+
+    def is_observing(self, orbit_track: Geocentric) -> npt.NDArray[np.bool_]:
+        """
+        Gets whether the instruments observe at each time of an orbit track:
+        whether the satellite's argument of latitude lies outside the blind
+        intervals.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite
+                position/velocity (in an inertial frame).
+
+        Returns:
+            numpy.typing.NDArray: `True` where the instruments observe, with the
+                shape of the times of the orbit track.
+        """
+        if self.blind_intervals is None:
+            return _observing_always(orbit_track)
+        argument = compute_argument_of_latitude(
+            orbit_track.position.m, orbit_track.velocity.m_per_s
+        )
+        blind = np.zeros(np.shape(argument), dtype=bool)
+        for start, end in self.blind_intervals:
+            if start < end:
+                blind |= (argument >= start) & (argument < end)
+            else:
+                blind |= (argument >= start) | (argument < end)
+        return np.reshape(~blind, np.shape(orbit_track.t.tt))
 
     def get_angles(
         self, orbit_track: Geocentric
@@ -317,6 +391,21 @@ class TargetAttitude(BaseModel):
             np.reshape(pitch, shape),
             np.full(shape, self.velocity_frame == VelocityFrame.INERTIAL),
         )
+
+    def is_observing(self, orbit_track: Geocentric) -> npt.NDArray[np.bool_]:
+        """
+        Gets whether the instruments observe at each time of an orbit track
+        (see `Attitude.is_observing`): always.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite
+                position/velocity (in an inertial frame).
+
+        Returns:
+            numpy.typing.NDArray: `True`, with the shape of the times of the
+                orbit track.
+        """
+        return _observing_always(orbit_track)
 
 
 class GlintAttitude(BaseModel):
@@ -527,6 +616,21 @@ class GlintAttitude(BaseModel):
             np.full(shape, self.velocity_frame == VelocityFrame.INERTIAL),
         )
 
+    def is_observing(self, orbit_track: Geocentric) -> npt.NDArray[np.bool_]:
+        """
+        Gets whether the instruments observe at each time of an orbit track
+        (see `Attitude.is_observing`): always.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite
+                position/velocity (in an inertial frame).
+
+        Returns:
+            numpy.typing.NDArray: `True`, with the shape of the times of the
+                orbit track.
+        """
+        return _observing_always(orbit_track)
+
 
 ScheduledAttitudes = Annotated[
     Attitude | TargetAttitude | GlintAttitude, Field(discriminator="type")
@@ -632,24 +736,58 @@ class AttitudeSchedule(BaseModel):
                 the yaw, roll, and pitch angles (degrees), and whether the
                 velocity frame is inertial
         """
-        tt = np.asarray(orbit_track.t.tt, dtype=float)
-        shape = np.shape(tt)
-        starts = np.atleast_1d(
-            orbit_track.t.ts.from_datetimes([s.start for s in self.segments]).tt
-        )
-        segment = np.maximum(
-            np.searchsorted(starts, np.reshape(tt, -1), "right") - 1, 0
-        )
+        shape = np.shape(orbit_track.t.tt)
+        segment = self._get_segment_index(orbit_track)
         yaw, roll, pitch = (np.zeros(segment.shape) for _ in range(3))
         inertial = np.zeros(segment.shape, dtype=bool)
-        for i in np.unique(segment):
-            index = np.flatnonzero(segment == i)
-            track = (
-                orbit_track
-                if len(shape) == 0
-                else _index_orbit_track(orbit_track, index)
-            )
+        for i, index, track in self._split_by_segment(orbit_track, segment):
             values = self.segments[i].attitude.get_body_angles(track)
             for array, value in zip((yaw, roll, pitch, inertial), values):
                 array[index] = np.reshape(value, -1)
         return tuple(np.reshape(array, shape) for array in (yaw, roll, pitch, inertial))
+
+    def is_observing(self, orbit_track: Geocentric) -> npt.NDArray[np.bool_]:
+        """
+        Gets whether the instruments observe at each time of an orbit track,
+        from the attitude of the segment in which each time lies (see
+        `Attitude.is_observing`).
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite
+                position/velocity (in an inertial frame).
+
+        Returns:
+            numpy.typing.NDArray: `True` where the instruments observe, with the
+                shape of the times of the orbit track.
+        """
+        segment = self._get_segment_index(orbit_track)
+        observing = np.ones(segment.shape, dtype=bool)
+        for i, index, track in self._split_by_segment(orbit_track, segment):
+            observing[index] = np.reshape(
+                self.segments[i].attitude.is_observing(track), -1
+            )
+        return np.reshape(observing, np.shape(orbit_track.t.tt))
+
+    def _get_segment_index(self, orbit_track: Geocentric) -> npt.NDArray:
+        """
+        Gets the index of the segment in which each time of an orbit track lies,
+        as a flat array.
+        """
+        starts = np.atleast_1d(
+            orbit_track.t.ts.from_datetimes([s.start for s in self.segments]).tt
+        )
+        tt = np.reshape(np.asarray(orbit_track.t.tt, dtype=float), -1)
+        return np.maximum(np.searchsorted(starts, tt, "right") - 1, 0)
+
+    @staticmethod
+    def _split_by_segment(orbit_track: Geocentric, segment: npt.NDArray):
+        """
+        Yields each segment's index, the flat indices of its times, and the orbit
+        track at those times.
+        """
+        scalar = np.ndim(orbit_track.t.tt) == 0
+        for i in np.unique(segment):
+            index = np.flatnonzero(segment == i)
+            yield i, index, (
+                orbit_track if scalar else _index_orbit_track(orbit_track, index)
+            )

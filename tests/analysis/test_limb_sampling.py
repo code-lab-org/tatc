@@ -511,7 +511,7 @@ class TestCollectLimbObservations(IssConstellationTestCase):
             scan_elevations=self.scan_elevations,
             scan_duration=self.scan_duration,
         )
-        self.assertTrue((results.time.values == np.sort(results.time.values)).all())
+        self.assertTrue(results.time.is_monotonic_increasing)
 
     def test_collect_limb_observations_bottom_to_top_ascends(self):
         """
