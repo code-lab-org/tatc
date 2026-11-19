@@ -1,0 +1,68 @@
+{
+  "entry_id": "gras",
+  "configurations": {
+    "occultations": {
+      "digest": "bed9dda9a78e357126d3d7613e7965b4e69b2ebe69d3569281e99283bf0a2f59",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_gras.py",
+      "reference": "UCAR Metop occultations (AWS GNSS RO database, v1.1) and calibrated phase files (receiver and transmitter positions), and refractivity profiles",
+      "period": "2026-06-12",
+      "platforms": [
+        "metop-b",
+        "metop-c"
+      ],
+      "metrics": [
+        {
+          "name": "occultation_recall",
+          "value": 100.0
+        },
+        {
+          "name": "tangent_position_median",
+          "value": 0.2787654047027667
+        },
+        {
+          "name": "tangent_position_p95",
+          "value": 0.8170319414828271
+        },
+        {
+          "name": "epoch_median",
+          "value": 0.036189
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.17779245
+        },
+        {
+          "name": "observed_occultations",
+          "value": 1093.0
+        },
+        {
+          "name": "predicted_occultations",
+          "value": 1511.0
+        },
+        {
+          "name": "tangent_points_compared",
+          "value": 100.0
+        },
+        {
+          "name": "sample_elevation_error",
+          "value": 0.13889156364975497
+        },
+        {
+          "name": "profile_position_median",
+          "value": 11.367511682712607
+        },
+        {
+          "name": "recorded_share_gps",
+          "value": 72.33620119126407
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "tangent_position_median": 0.3064720431530868,
+        "epoch_p95": 0.15087134999999993
+      }
+    }
+  }
+}

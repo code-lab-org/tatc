@@ -66,6 +66,7 @@ underlying data, whose providers' terms apply.
 | `mls.npz` | Times, directions, and GHz tangent points of the upward sweeps of nominal major frames of `ML1OA` version 6, 15 November 2026 | [NASA GES DISC](https://disc.gsfc.nasa.gov/datasets/ML1OA_006/summary) | `validation/catalog/validate_catalog_mls.py` |
 | `saber.npz` | Times, directions, and tangent points of the events of SABER Level 2A version 2.0, 18 August 2026 (north-viewing) and 13 November 2026 (south-viewing) | [GATS, Inc.](https://saber.gats-inc.com/data.php) | `validation/catalog/validate_catalog_saber.py` |
 | `tgrs.npz` | Occultations of COSMIC-2's receivers and the positions of receiver and transmitter from their calibrated phase files (UCAR processing), 15 November 2026, with the element sets of the satellites | [UCAR COSMIC Data Analysis and Archive Center, through the AWS Registry of Open Data](https://registry.opendata.aws/gnss-ro-opendata/) | `validation/catalog/validate_catalog_tgrs.py` |
+| `gras.npz` | Occultations of Metop-B's and Metop-C's receivers and the positions of receiver and transmitter from their calibrated phase files (UCAR processing), 12 June 2026, with the element sets of the satellites | [UCAR COSMIC Data Analysis and Archive Center, through the AWS Registry of Open Data](https://registry.opendata.aws/gnss-ro-opendata/) | `validation/catalog/validate_catalog_gras.py` |
 
 Each fixture also holds two-line element sets, used to propagate the satellite's
 orbit, and the delta T (TT - UT1) its records were made with, sampled around its days

@@ -3,9 +3,10 @@ Regression tests that recompute the results of the sounder entries from reduced
 fixtures: the limb sounders MLS and SABER (scans and reference tangent points, written
 by `validation/catalog/validate_catalog_mls.py` and
 `validation/catalog/validate_catalog_saber.py`, see `validation/catalog/sounding.py`),
-and the COSMIC-2 radio occultation receiver TGRS (occultations and the tangent points
-of the straight lines between recorded positions, written by
-`validation/catalog/validate_catalog_tgrs.py`).
+and the radio occultation receivers TGRS of COSMIC-2 and GRAS of Metop (occultations
+and the tangent points of the straight lines between recorded positions, written by
+`validation/catalog/validate_catalog_tgrs.py` and
+`validation/catalog/validate_catalog_gras.py`, see `validation/catalog/occultation.py`).
 
 These detect changes in TAT-C's results without network access. They do not themselves
 establish agreement with the reference data, which the scripts do.
@@ -172,20 +173,22 @@ class TestSABERNorthFixture(_LimbFixture, unittest.TestCase):
     configuration = "north_viewing"
 
 
-class TestTGRSFixture(unittest.TestCase):
+class _OccultationFixture:
     """
-    Regression tests of COSMIC-2's occultations: each sampled occultation is
+    Tests shared by the radio occultation receivers: each sampled occultation is
     predicted near its time, at the recorded distances and times from the tangent
     points of the straight lines between the recorded positions.
     """
 
+    entry_id: str
+
     @classmethod
     def setUpClass(cls):
-        cls.fixture = FIXTURES / "tgrs.npz"
+        cls.fixture = FIXTURES / f"{cls.entry_id}.npz"
         with np.load(cls.fixture, allow_pickle=False) as data:
             use_fixture_earth_orientation(cls, data)
             cls.data = {key: data[key] for key in data.files}
-        cls.entry = get_entry("tgrs")
+        cls.entry = get_entry(cls.entry_id)
         cls.sounding = cls.entry.configurations["occultations"].sounding
         cls.day = datetime.fromisoformat(str(cls.data["day"]))
         cls.satellites = {
@@ -245,6 +248,22 @@ class TestTGRSFixture(unittest.TestCase):
             self.recorded["epoch_p95"],
             places=4,
         )
+
+
+class TestTGRSFixture(_OccultationFixture, unittest.TestCase):
+    """
+    Regression tests of COSMIC-2's occultations.
+    """
+
+    entry_id = "tgrs"
+
+
+class TestGRASFixture(_OccultationFixture, unittest.TestCase):
+    """
+    Regression tests of Metop-B's and Metop-C's occultations.
+    """
+
+    entry_id = "gras"
 
 
 if __name__ == "__main__":

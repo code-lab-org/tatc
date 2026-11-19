@@ -242,6 +242,13 @@ EXPECTED_STATUS = {
         },
         [],
     ),
+    "gras": (
+        "validated",
+        {
+            "occultations": ("validated", 30, []),
+        },
+        [],
+    ),
     "harp2": (
         "validated",
         {
