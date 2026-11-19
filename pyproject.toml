@@ -107,6 +107,9 @@ osse = [
 preprocess = [
     "rasterio"
 ]
+airborne = [
+    "hyplan"
+]
 tradespace = [
     "joblib",
     "matplotlib",
