@@ -141,9 +141,7 @@ def read_orbit(path: pathlib.Path, day: datetime) -> dict:
     }
 
 
-def load_day(
-    day: datetime, directory: pathlib.Path, platform: str = "metop-c"
-) -> dict:
+def load_day(day: datetime, directory: pathlib.Path, platform: str = "metop-c") -> dict:
     """
     Downloads and reduces the rows of a day of a platform, or loads them from a
     cache.

@@ -1138,9 +1138,7 @@ class TestEntryStatus(unittest.TestCase):
             entry = get_entry(entry_id)
             for key, record in entry.record.configurations.items():
                 for platform in platforms & set(record.transfers):
-                    self.assertNotIn(
-                        platform, entry.configurations[key].platforms, key
-                    )
+                    self.assertNotIn(platform, entry.configurations[key].platforms, key)
                     with self.assertWarns(UserWarning):
                         entry.build(
                             configuration=key,
