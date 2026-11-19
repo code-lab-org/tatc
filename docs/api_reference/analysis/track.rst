@@ -41,10 +41,6 @@ Collect Airborne Ground Track
 -----------------------------
 .. autofunction:: tatc.analysis.collect_airborne_ground_track
 
-Compute Airborne Edge Points
-----------------------------
-.. autofunction:: tatc.analysis.compute_airborne_edge_points
-
 Collect Radar Track
 -------------------
 .. autofunction:: tatc.analysis.collect_radar_track

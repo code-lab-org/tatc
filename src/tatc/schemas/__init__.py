@@ -2,6 +2,7 @@
 Defines object schemas.
 """
 
+from .air import Aircraft, Trajectory
 from .architecture import Architecture
 from .attitude import (
     Attitude,
@@ -42,6 +43,7 @@ from .surface import (
 )
 
 __all__ = [
+    "Aircraft",
     "AllInstruments",
     "AllOrbits",
     "AllSpaceObjects",
@@ -70,6 +72,7 @@ __all__ = [
     "TargetAttitude",
     "GlintAttitude",
     "TerrainMask",
+    "Trajectory",
     "TrainConstellation",
     "TundraOrbit",
     "TwoLineElements",

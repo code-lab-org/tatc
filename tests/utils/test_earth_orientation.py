@@ -11,11 +11,13 @@ import unittest
 import warnings
 
 import numpy as np
+from skyfield.api import wgs84
+from skyfield.framelib import itrs
 from skyfield.nutationlib import iau2000a_radians
 
 from tatc import config
 from tatc.constants import timescale
-from tatc.utils import earth_orientation
+from tatc.utils import compute_static_track, earth_orientation
 
 
 class TestNutationInterpolation(unittest.TestCase):
@@ -46,6 +48,24 @@ class TestNutationInterpolation(unittest.TestCase):
             t._nutation_angles_radians, iau2000a_radians(timescale.tt_jd(jd))
         ):
             self.assertLess(np.max(np.abs(interpolated - exact)) * microarcseconds, 2)
+
+    def test_earth_fixed_tracks(self):
+        """
+        Test that tracks converted from the Earth-fixed frame (of fixed
+        platforms and aircraft) interpolate their nutation angles, and convert
+        back to their Earth-fixed positions.
+        """
+        config.get_rc().nutation_interpolation_minutes = 15
+        t = timescale.tt_jd(2461041.5 + np.linspace(0, 1, 50))
+        track = compute_static_track(-110.0, 35.0, 1000.0, 30.0, t)
+        self.assertIn("_nutation_angles_radians", vars(t))
+        np.testing.assert_allclose(
+            track.frame_xyz(itrs).m,
+            np.repeat(
+                wgs84.latlon(35.0, -110.0, 1000.0).itrs_xyz.m[:, np.newaxis], 50, axis=1
+            ),
+            atol=1e-6,
+        )
 
     def test_scalar_time(self):
         """

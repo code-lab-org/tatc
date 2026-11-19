@@ -2,10 +2,7 @@
 Defines analysis functions.
 """
 
-from .airborne_track import (
-    collect_airborne_ground_track,
-    compute_airborne_edge_points,
-)
+from .airborne_track import collect_airborne_ground_track
 from .coincidence import (
     find_coincident_ground_track,
     find_coincident_observations,
@@ -94,7 +91,6 @@ __all__ = [
     "collect_space_observations",
     "compare_sampled_means",
     "compute_access_periods",
-    "compute_airborne_edge_points",
     "compute_dop",
     "compute_ground_track",
     "compute_latencies",

@@ -25,10 +25,11 @@ from ..schemas import (
     GeneralPerturbationsOrbit,
     PointedInstrument,
     Satellite,
+    Trajectory,
 )
 from ..utils.geometry import split_polygon
 from ..utils.glint import compute_glint_angle
-from ..utils.time import _index_orbit_track, _to_time
+from ..utils.time import _index_orbit_track, _to_time, _to_time_from_offsets
 from .check import (
     _check_satellite,
     _check_satellites,
@@ -108,7 +109,7 @@ def _get_half_spans(times: list[datetime]) -> npt.NDArray:
 
 
 def _get_observing_runs(
-    orbit: GeneralPerturbationsOrbit,
+    orbit: GeneralPerturbationsOrbit | Trajectory,
     instrument: PointedInstrument,
     offsets: list[npt.NDArray],
     observing: list[npt.NDArray],
@@ -121,7 +122,8 @@ def _get_observing_runs(
     `_BLIND_TOLERANCE`, on the side on which the instrument observes.
 
     Args:
-        orbit (GeneralPerturbationsOrbit): The orbit.
+        orbit (GeneralPerturbationsOrbit | Trajectory): The orbit, or the
+            trajectory of an aircraft.
         instrument (PointedInstrument): The instrument.
         offsets (list[numpy.typing.NDArray]): The offsets of the sub-times of
             each step.
@@ -181,7 +183,7 @@ def _get_observing_runs(
 
 
 def _compute_step_footprints(
-    orbit: GeneralPerturbationsOrbit,
+    orbit: GeneralPerturbationsOrbit | Trajectory,
     instrument: AllInstruments,
     times: list[datetime],
     half_spans: npt.NDArray,
@@ -199,7 +201,8 @@ def _compute_step_footprints(
     longest run of observing times.
 
     Args:
-        orbit (GeneralPerturbationsOrbit): The orbit.
+        orbit (GeneralPerturbationsOrbit | Trajectory): The orbit, or the
+            trajectory of an aircraft.
         instrument (AllInstruments): The instrument, bound to its attitude.
         times (list[datetime.datetime]): The times.
         half_spans (numpy.typing.NDArray): The half span (seconds) of each
@@ -233,28 +236,28 @@ def _compute_step_footprints(
     if len(index) == 0:
         return list(footprints), represent
     max_substep = config.get_rc().swept_footprint_max_substep
-    offsets = [
-        np.linspace(
-            -half_spans[i],
-            half_spans[i],
-            int(np.ceil(2 * half_spans[i] / max_substep)) + 1,
-        )
-        for i in index
-    ]
-    sub_times = [
-        times[i] + timedelta(seconds=float(s))
-        for i, offset in zip(index, offsets)
-        for s in offset
-    ]
-    track = orbit.get_orbit_track_at_time(_to_time(sub_times))
+    # the offsets (seconds) of the evenly spaced sub-times of each step, from
+    # the start to the end of its span, for all steps at once
+    half = np.asarray(half_spans, dtype=float)[index]
+    counts = np.ceil(2 * half / max_substep).astype(int) + 1
+    step = np.repeat(np.arange(len(index)), counts)
+    position = np.arange(np.sum(counts)) - np.repeat(np.cumsum(counts) - counts, counts)
+    offset = half[step] * (2 * position / (counts[step] - 1) - 1)
+    # the sub-times, as offsets from the earliest time (without building a
+    # datetime for each)
+    reference = min(times[i] for i in index)
+    seconds = np.array([(times[i] - reference).total_seconds() for i in index])
+    track = orbit.get_orbit_track_at_time(
+        _to_time_from_offsets(reference, seconds[step] + offset)
+    )
     observe = np.reshape(instrument.is_observing(track), -1)
-    counts = [len(offset) for offset in offsets]
     if np.all(observe):
         footprints[index] = instrument.compute_swept_footprints(
             track, counts, elevation=elevation
         )
         return list(footprints), represent
     # trim the steps to their runs of observing times
+    offsets = np.split(offset, np.cumsum(counts)[:-1])
     observing = np.split(observe, np.cumsum(counts)[:-1])
     runs = _get_observing_runs(
         orbit, instrument, offsets, observing, [times[i] for i in index]
