@@ -92,3 +92,4 @@ limitations:
   - PACE flies with yaw steering, and the scan is nearly perpendicular to the Earth-fixed ground track, so the configuration uses the Earth-fixed frame.
   - No configuration gives sample sizes, as no published instantaneous field of view was used.
   - The tilt schedule is that of the days tested; it is set by the mission and may change.
+  - The tilt schedule, with its blind intervals, is given to the body, whereas OCI tilts by itself. HARP2's and SPEXone's configurations give PACE's body no attitude, so they are not carried with OCI's; an attitude that replaces theirs would tilt and blind them with OCI.

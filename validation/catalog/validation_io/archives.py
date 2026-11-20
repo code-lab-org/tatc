@@ -1,7 +1,7 @@
 """
 Access to reference data: HTTP requests with retries, files read with range
-requests, the public archives of the JPSS satellites, a NASA Earthdata login, and
-the element sets of the platforms.
+requests, the public archives of the JPSS satellites, a NASA Earthdata login, the
+EUMETSAT Data Store, and the element sets of the platforms.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -45,6 +45,76 @@ def login_earthdata():
         "Earthdata login failed: set EARTHDATA_TOKEN, or add urs.earthdata.nasa.gov "
         "to ~/.netrc"
     )
+
+
+def download_eumetsat(
+    collection: str,
+    start: datetime,
+    end: datetime,
+    directory: pathlib.Path,
+    *,
+    match: str = "",
+    entry: str | None = None,
+) -> list[pathlib.Path]:
+    """
+    Downloads the products of a collection of the EUMETSAT Data Store sensed in a
+    period (whose names contain `match`), or one file of each (whose name ends with
+    `entry`), unless they are cached in a directory. Downloads need a login to the
+    Data Store's version 2 APIs (`eumdac auth --interactive`, whose tokens `eumdac`
+    refreshes).
+
+    Args:
+        collection (str): The identifier of the collection.
+        start (datetime.datetime): The start of the period.
+        end (datetime.datetime): The end of the period.
+        directory (pathlib.Path): Where the files are cached.
+        match (str): Text that the names of the products contain.
+        entry (str | None): The end of the name of the file of each product to
+            download, or `None` for the whole product.
+
+    Returns:
+        list[pathlib.Path]: The files, in the order of the products' names.
+    """
+    # imported here, as only the scripts of EUMETSAT's products need it
+    import eumdac  # pylint: disable=import-outside-toplevel
+    from eumdac.token import OAuth2Token  # pylint: disable=import-outside-toplevel
+
+    directory.mkdir(parents=True, exist_ok=True)
+    store = eumdac.DataStore(OAuth2Token())
+    products = sorted(
+        (
+            product
+            for product in store.get_collection(collection).search(
+                dtstart=start.replace(tzinfo=None), dtend=end.replace(tzinfo=None)
+            )
+            if match in str(product)
+        ),
+        key=str,
+    )
+    paths = []
+    for product in products:
+        name = (
+            str(product) + ".zip"
+            if entry is None
+            else next(e for e in product.entries if e.endswith(entry))
+        )
+        path = directory / pathlib.PurePosixPath(name).name
+        if not path.exists():
+            for attempt in range(4):
+                try:
+                    with product.open(entry=None if entry is None else name) as source:
+                        temporary = path.with_suffix(path.suffix + ".part")
+                        with open(temporary, "wb") as target:
+                            while chunk := source.read(1 << 20):
+                                target.write(chunk)
+                    temporary.replace(path)
+                    break
+                except Exception:  # pylint: disable=broad-exception-caught
+                    if attempt == 3:
+                        raise
+                    clock.sleep(10 * (attempt + 1))
+        paths.append(path)
+    return paths
 
 
 def get_with_retries(url: str, session=None, **kwargs) -> requests.Response:
@@ -235,15 +305,27 @@ def read_element_set_file(
     """
     if not path.exists():
         raise FileNotFoundError(f"element sets for {day:%Y-%m-%d} need {path}")
-    middle = day.replace(tzinfo=None) + timedelta(hours=12)
     sets = _parse_element_sets(path, norad_id)
     if not sets:
         raise ValueError(f"{path} has no element sets of {norad_id}")
+    return _select_element_sets(sets, day, within, path)
+
+
+def _select_element_sets(
+    sets: list[tuple], day: datetime, within: timedelta | None, source
+) -> list[str]:
+    """
+    Gets the element set whose epoch is nearest the middle of a day, or every set
+    of a distinct epoch `within` a time of it, in order of epoch.
+    """
+    middle = day.replace(tzinfo=None) + timedelta(hours=12)
     if within is not None:
         # the last set of each epoch
         near = {epoch: tle for epoch, tle in sets if abs(epoch - middle) <= within}
         if not near:
-            raise ValueError(f"{path} has no element sets within {within} of {middle}")
+            raise ValueError(
+                f"{source} has no element sets within {within} of {middle}"
+            )
         return [line for epoch in sorted(near) for line in near[epoch]]
     return min(sets, key=lambda item: abs((item[0] - middle).total_seconds()))[1]
 
@@ -281,8 +363,8 @@ def get_element_set(
     Gets the element set of a platform for a day: from a `file` of element sets, if
     given; or else the one registered for the day in `elements/element_sets.yml`;
     or else NOAA's operational element set of a JPSS satellite, cached in a
-    `directory`; or else from the file in `elements/` of the platform's element
-    sets. From a file, it gets the set whose epoch is nearest the middle of the day,
+    `directory`; or else from the files in `elements/` of the platform's element
+    sets. From files, it gets the set whose epoch is nearest the middle of the day,
     or every set `within` a time of it.
 
     Args:
@@ -310,9 +392,14 @@ def get_element_set(
         tle = ARCHIVES[platform].load_element_set(day, directory)
         if tle is not None:
             return tle
-    for path in sorted(ELEMENT_SET_FOLDER.glob("*.3le")):
-        if _parse_element_sets(path, norad_id):
-            return read_element_set_file(path, norad_id, day, within)
+    # the sets of every file that holds the platform's, as several files may
+    sets = [
+        item
+        for path in sorted(ELEMENT_SET_FOLDER.glob("*.3le"))
+        for item in _parse_element_sets(path, norad_id)
+    ]
+    if sets:
+        return _select_element_sets(sets, day, within, ELEMENT_SET_FOLDER)
     raise FileNotFoundError(
         f"no element set of {platform} for {day:%Y-%m-%d}: register one in "
         f"{ELEMENT_SET_REGISTRY.name}, or give a file of element sets (--elements)"

@@ -2,8 +2,8 @@
   "entry_id": "omps_nm",
   "configurations": {
     "swath_noaa_21": {
-      "digest": "f4c2a37a0a87cdc3c9d400e4430dce483b27b22ad12b55e827792524736430fe",
-      "standard_version": 5,
+      "digest": "f3a655c539277871167d34cd4d0a8760b0a56f22ed3b90c81d8f94d03679b5dd",
+      "standard_version": 6,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_omps.py",
       "reference": "OMPS-TC-GEO (sample positions and times), NOAA Open Data Dissemination",
@@ -22,11 +22,11 @@
         },
         {
           "name": "epoch_p95",
-          "value": 19.864090383399997
+          "value": 19.864087295199997
         },
         {
           "name": "swath_width_median",
-          "value": 7.120701586989918
+          "value": 7.124970103573985
         },
         {
           "name": "footprint_iou_median",
@@ -36,12 +36,12 @@
       "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
-        "epoch_p95": 18.04092930554999
+        "epoch_p95": 18.040926267999993
       }
     },
     "swath_noaa_20": {
-      "digest": "4d3ad5fb855d592975f403f34904189470d57ae1c4e35e8c3f99b42fbe1c0e5e",
-      "standard_version": 5,
+      "digest": "8651995c6b5168aa39aa7308ca23c65f1e9c0510592a418d52dd8b40b6532873",
+      "standard_version": 6,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_omps.py",
       "reference": "OMPS-TC-GEO (sample positions and times), NOAA Open Data Dissemination",
@@ -60,11 +60,11 @@
         },
         {
           "name": "epoch_p95",
-          "value": 19.1431448369
+          "value": 19.143140239499996
         },
         {
           "name": "swath_width_median",
-          "value": 5.9036565579480955
+          "value": 5.909835828539217
         },
         {
           "name": "footprint_iou_median",
@@ -74,11 +74,11 @@
       "transfers": {},
       "fixture_metrics": {
         "passes_found": 100.0,
-        "epoch_p95": 19.3603290015
+        "epoch_p95": 19.360326199550002
       }
     },
     "swath_suomi_npp": {
-      "digest": "0ab6d674c6ba371a37bfb74a18c7a02b6cfc2238e0f78c7d80c29756fd15f8f6",
+      "digest": "af4dc1cd0b2ab78d27791db9ac4d0b6fe31a47a559ed3f16885ab4398781df0e",
       "standard_version": 6,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_omps.py",
@@ -98,11 +98,11 @@
         },
         {
           "name": "epoch_p95",
-          "value": 20.239496825499998
+          "value": 20.239494147499997
         },
         {
           "name": "swath_width_median",
-          "value": 5.518520541843958
+          "value": 5.520490747013129
         },
         {
           "name": "footprint_iou_median",
@@ -112,7 +112,7 @@
       "transfers": {},
       "fixture_metrics": {
         "passes_found": 98.33333333333333,
-        "epoch_p95": 22.200544366099997
+        "epoch_p95": 22.2005448537
       }
     }
   }

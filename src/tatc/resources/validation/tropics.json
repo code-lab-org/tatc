@@ -1,0 +1,119 @@
+{
+  "entry_id": "tropics",
+  "configurations": {
+    "swath_tropics_03": {
+      "digest": "2af130530fcb89bfac4aa8e048e84dcc79ebc3a5397176e15ba953777e1a2045",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_tropics.py",
+      "reference": "TROPICS03BRTTL1B (118 GHz spot positions and times)",
+      "period": "2024-10-01",
+      "platforms": [
+        "tropics-03"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.0607252075142
+        },
+        {
+          "name": "pass_precision",
+          "value": 96.22321239125822
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.4816614186000006
+        },
+        {
+          "name": "swath_width_median",
+          "value": 8.865014310581843
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9842614817783955
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 1.0595723846999983
+      }
+    },
+    "swath_tropics_05": {
+      "digest": "2d3fac7b497721b62ad278f6cc47c8e8a3103bc3d60db44297666f447e9b6f25",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_tropics.py",
+      "reference": "TROPICS05BRTTL1B (118 GHz spot positions and times)",
+      "period": "2024-10-01",
+      "platforms": [
+        "tropics-05"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.3381037567084
+        },
+        {
+          "name": "pass_precision",
+          "value": 95.8736187845304
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.3853839223999997
+        },
+        {
+          "name": "swath_width_median",
+          "value": 6.501321456870995
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9917949280204094
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 1.1056049129499996
+      }
+    },
+    "swath_tropics_06": {
+      "digest": "2879b1620eb204c9c97cae8e00aafceaa6e66e4323add4147433c68477175b7b",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_tropics.py",
+      "reference": "TROPICS06BRTTL1B (118 GHz spot positions and times)",
+      "period": "2024-10-01",
+      "platforms": [
+        "tropics-06"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 98.54377880184332
+        },
+        {
+          "name": "pass_precision",
+          "value": 94.66973614308482
+        },
+        {
+          "name": "epoch_p95",
+          "value": 5.78938563175
+        },
+        {
+          "name": "swath_width_median",
+          "value": 10.970625355786177
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.963506799053553
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 96.66666666666667,
+        "epoch_p95": 5.577971716599999
+      }
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "entry_id": "mws",
+  "configurations": {
+    "swath": {
+      "digest": "ad45bae6831f1e95baa1e950bcb99850cb769541def346c8aa47d6e05375d91d",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_mws.py",
+      "reference": "MWS Level 1b (EO:EUM:DAT:0892, BUFR), positions of the fields of view",
+      "period": "2026-11-18",
+      "platforms": [
+        "metop-sga1"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.9673522690173
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.98367346938775
+        },
+        {
+          "name": "epoch_p95",
+          "value": 1.7367841370000001
+        },
+        {
+          "name": "swath_width_median",
+          "value": 0.7391879105924163
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.998947929338247
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 1.6819902477
+      }
+    }
+  }
+}

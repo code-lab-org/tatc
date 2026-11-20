@@ -137,3 +137,4 @@ configurations:
 limitations:
   - GEDI was stored on the station from March 2023 to April 2024, without observing. Its processed data were available until 10 June 2026 when the entry was made.
   - The station's orbit decays and is reboosted often, so element sets age quickly; the views were fitted and tested with element sets within hours of the data.
+  - The body's pitch of -3.2916 deg is fitted to GEDI's shots alone, so it holds the station's attitude and GEDI's mounting on it, which one instrument cannot separate. EMIT's and ECOSTRESS's fits, on other days, give a yaw of about 3.8 deg and a pitch of about -7.4 deg, so configurations of instruments on the station are carried together only with an attitude that replaces theirs.

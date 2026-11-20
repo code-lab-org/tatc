@@ -8,7 +8,7 @@ IASI steps across 30 fields of regard in about 6.3 s, every 8 s. The center of t
 pixels of a field of regard is compared with TAT-C's pixels, as the array of four turns
 with the scan and no single rectangular view represents it. The time across the scan
 tilts the scan line relative to its position at the middle of the scan, which the pixel
-configuration represents with a constant yaw of the satellite, not a physical one. The
+configuration represents with a constant yaw of the instrument, not a physical one. The
 swath configuration has no yaw, as IASI samples a point when it is abeam.
 
 The product's times are in whole seconds, and the phase of its scans changes between
@@ -28,6 +28,12 @@ the same part of an orbit whose shape is maintained. Running on a day at least 3
 from it tests the angles on data held out from the fit. That element set, with an
 epoch of 2026-11-07, is used on both days (as registered in
 `elements/element_sets.yml`).
+
+With `--platform metop-c`, it tests the same values on Metop-C, whose pixel positions
+come from the IASI carbon monoxide product (EO:EUM:DAT:METOP:IASIL2COX, in BUFR, of
+the EUMETSAT Data Store), which holds every pixel of every scan, with times in whole
+seconds; the results are recorded as a transfer, which does not count toward the tier.
+It needs a login to the Data Store (`eumdac auth --interactive`).
 
 Needs the `validation` extra and an Earthdata token in `EARTHDATA_TOKEN`:
 
@@ -64,6 +70,7 @@ from validation_io import (
     TO_GEODETIC,
     ScanLattice,
     build_grid,
+    download_eumetsat,
     ecef,
     login_earthdata,
     normalize,
@@ -77,6 +84,8 @@ from validation_io import (
 )
 
 PRODUCT = "IASI_SST_METOP_B-OSISAF-L2P-v1.0"
+# the product of Metop-C's pixel positions, in the EUMETSAT Data Store
+COX_COLLECTION = "EO:EUM:DAT:METOP:IASIL2COX"
 
 N_FORS, N_PIXELS = 30, 4
 SCAN_PERIOD = 8.0
@@ -186,6 +195,72 @@ def load_day(day: datetime, directory: pathlib.Path) -> dict:
             longitude=np.concatenate(longitudes),
         )
         print(f"{len(urls)} granules", flush=True)
+    return dict(np.load(path))
+
+
+def read_cox(path: pathlib.Path) -> list[tuple]:
+    """
+    Reads the scans of a file of the IASI carbon monoxide product (BUFR, a scan in
+    each message): each scan's time and its pixels' latitudes and longitudes, in the
+    order of the fields of view (the four pixels of each field of regard in turn).
+    """
+    # imported here, as only Metop-C's product needs it
+    import eccodes  # pylint: disable=import-outside-toplevel
+
+    scans = []
+    with open(path, "rb") as f:
+        while (message := eccodes.codes_bufr_new_from_file(f)) is not None:
+            try:
+                eccodes.codes_set(message, "unpack", 1)
+                fov = eccodes.codes_get_array(message, "fieldOfViewNumber")
+                if len(fov) != N_FORS * N_PIXELS:
+                    continue
+                order = np.argsort(fov)
+                stamp = [
+                    int(eccodes.codes_get_array(message, key)[0])
+                    for key in ("year", "month", "day", "hour", "minute", "second")
+                ]
+                scans.append(
+                    (
+                        pd.Timestamp(datetime(*stamp), tz="UTC"),
+                        eccodes.codes_get_array(message, "latitude")[order],
+                        eccodes.codes_get_array(message, "longitude")[order],
+                    )
+                )
+            finally:
+                eccodes.codes_release(message)
+    return scans
+
+
+def load_day_cox(day: datetime, directory: pathlib.Path) -> dict:
+    """
+    Downloads and reduces Metop-C's pixel positions of a day, from the IASI carbon
+    monoxide product, or loads them from a cache.
+    """
+    path = directory / f"iasi_metopc_{day:%Y%m%d}.npz"
+    if not path.exists():
+        files = download_eumetsat(
+            COX_COLLECTION,
+            day - timedelta(minutes=5),
+            day + timedelta(days=1, minutes=5),
+            directory / f"cox_{day:%Y%m%d}",
+            match="METOPC+IASI",
+            entry=".bin",
+        )
+        scans = {}
+        for file in files:
+            for time, latitude, longitude in read_cox(file):
+                if day <= time.to_pydatetime() < day + timedelta(days=1):
+                    scans[time] = (latitude, longitude)
+        times = sorted(scans)
+        np.savez_compressed(
+            path,
+            start=np.array([t.as_unit("ns").value for t in times], dtype="int64"),
+            offset=np.zeros(len(times)),
+            latitude=np.array([scans[t][0] for t in times], dtype=np.float32),
+            longitude=np.array([scans[t][1] for t in times], dtype=np.float32),
+        )
+        print(f"{len(files)} files, {len(times)} scans", flush=True)
     return dict(np.load(path))
 
 
@@ -501,7 +576,12 @@ def main() -> None:
     run = parse_run("iasi", __doc__)
     tle = run.element_set()
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    reference = Reference(load_day(run.day, run.directory), run.day)
+    data = (
+        load_day_cox(run.day, run.directory)
+        if run.platform == "metop-c"
+        else load_day(run.day, run.directory)
+    )
+    reference = Reference(data, run.day)
     print(
         f"{run.day:%Y-%m-%d}: {len(reference.time)} scans, {reference.n_dropped} "
         f"dropped, {len(reference.gaps)} gaps over a minute, "

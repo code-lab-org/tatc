@@ -1,0 +1,111 @@
+id: saber
+name: SABER
+aliases: [Sounding of the Atmosphere using Broadband Emission Radiometry, TIMED SABER]
+instrument_class: limb
+selection: Side-looking infrared limb sounder of NASA's TIMED, which profiles the temperature and composition of the mesosphere and lower thermosphere in alternating upward and downward scans, with open data products.
+platforms:
+  - id: timed
+    name: TIMED
+    norad_id: 26998
+    status: extended
+    as_of: 2026-11-13
+data_products:
+  - name: SABER Level 2A, version 2.0
+    provider: GATS, Inc.
+    url: https://saber.gats-inc.com/data.php
+    access: open
+default_configuration: north_viewing
+configurations:
+  north_viewing:
+    grade: timing
+    description: Alternating upward and downward scans to the left of the flight direction (toward the orbit normal), which view from about 53 deg S to 85 deg N, as between TIMED's yaw maneuvers in which SABER views north.
+    platforms: [timed]
+    velocity_frame: inertial
+    sounding:
+      type: limb
+      scan_azimuth: 90
+      scan_elevations: [12746, 24655, 36563, 48472, 60380, 72289, 84197, 96106, 108014, 119923, 131831, 143740, 155648]
+      scan_duration: 17.993
+      scans:
+        - offset: 0
+          direction: upward
+        - offset: 81.808
+          direction: downward
+      cycle_period: 129.53
+      sample_elevation: 84197
+      provenance:
+        scan_azimuth:
+          kind: derived
+          source: SABER views to the left of the flight direction, 90 deg from the velocity toward the orbit normal
+        scan_elevations:
+          kind: measured
+          source: validate_catalog_saber.py --fit, the median bottom and top of the events, in 12 even steps
+          platforms: [timed]
+          period: "2026-09-21"
+        scan_duration:
+          kind: measured
+          source: validate_catalog_saber.py --fit, so that a scan at a constant angular rate reaches the sample elevation when the median event does (the median event lasts 17.78 s)
+          platforms: [timed]
+          period: "2026-09-21"
+        scans:
+          kind: measured
+          source: validate_catalog_saber.py --fit, an upward scan and a downward scan at the median time from an upward scan to the next downward scan
+          platforms: [timed]
+          period: "2026-09-21"
+        cycle_period:
+          kind: measured
+          source: validate_catalog_saber.py --fit, the median time from an upward scan to the next
+          platforms: [timed]
+          period: "2026-09-21"
+        sample_elevation:
+          kind: derived
+          source: The middle of the scan's elevations
+  south_viewing:
+    grade: timing
+    description: Alternating upward and downward scans to the right of the flight direction, which view from about 85 deg S to 53 deg N, as between TIMED's yaw maneuvers in which SABER views south.
+    platforms: [timed]
+    velocity_frame: inertial
+    sounding:
+      type: limb
+      scan_azimuth: 270
+      scan_elevations: [12746, 24655, 36563, 48472, 60380, 72289, 84197, 96106, 108014, 119923, 131831, 143740, 155648]
+      scan_duration: 17.993
+      scans:
+        - offset: 0
+          direction: upward
+        - offset: 81.808
+          direction: downward
+      cycle_period: 129.53
+      sample_elevation: 84197
+      provenance:
+        scan_azimuth:
+          kind: derived
+          source: SABER views to the right of the flight direction, 270 deg from the velocity
+        scan_elevations:
+          kind: measured
+          source: validate_catalog_saber.py --fit, the median bottom and top of the events, in 12 even steps
+          platforms: [timed]
+          period: "2026-09-21"
+        scan_duration:
+          kind: measured
+          source: validate_catalog_saber.py --fit, so that a scan at a constant angular rate reaches the sample elevation when the median event does (the median event lasts 17.78 s)
+          platforms: [timed]
+          period: "2026-09-21"
+        scans:
+          kind: measured
+          source: validate_catalog_saber.py --fit, an upward scan and a downward scan at the median time from an upward scan to the next downward scan
+          platforms: [timed]
+          period: "2026-09-21"
+        cycle_period:
+          kind: measured
+          source: validate_catalog_saber.py --fit, the median time from an upward scan to the next
+          platforms: [timed]
+          period: "2026-09-21"
+        sample_elevation:
+          kind: derived
+          source: The middle of the scan's elevations
+limitations:
+  - TIMED yaws about every 60 days, which turns SABER's view between north and south; the configurations do not schedule the yaw, so choose the configuration of the side SABER views in the period analyzed.
+  - The cycle of scans starts at the start of an analysis, whereas SABER's events follow its own timeline, so scans are placed along the track as SABER's are only to within the spacing of scans.
+  - SABER's Level 2A tangent points are rotated from the tangency of their own lines of sight, by an amount that grows with the years since 2000 like the precession of the equator since J2000, which places them tens of kilometers west of TAT-C's (see ValidateLimbSABER).
+  - Refraction is not modeled.

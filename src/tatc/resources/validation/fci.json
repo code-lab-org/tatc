@@ -1,0 +1,81 @@
+{
+  "entry_id": "fci",
+  "configurations": {
+    "full_disk": {
+      "digest": "c3855ff11b67c06cf28fa3fe9666b5c90b68bdb905fba68c1b11fa38361d476f",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_fci.py",
+      "reference": "FCI Level 2 cloud mask (EO:EUM:DAT:0678), every 8th pixel",
+      "period": "2026-11-17T12:00Z",
+      "platforms": [
+        "meteosat-12"
+      ],
+      "metrics": [
+        {
+          "name": "imaged_pixels_observed",
+          "value": 100.0
+        },
+        {
+          "name": "elevation_error_max",
+          "value": 0.01625135748591333
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "imaged_pixels_observed": 100.0,
+        "elevation_error_max": 0.01565079199692576
+      }
+    },
+    "lst_retrieved": {
+      "digest": "a346c57d4c0d89511d90a5b814187b2f8bc7914817a1dedee06af72d561aafe5",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_fci.py",
+      "reference": "LSA SAF land surface temperature (EO:EUM:DAT:1088)",
+      "period": "2026-11-17T12:00Z",
+      "platforms": [
+        "meteosat-12"
+      ],
+      "metrics": [
+        {
+          "name": "product_limit",
+          "value": 0.4441149285066359
+        },
+        {
+          "name": "good_pixels_observed",
+          "value": 87.09677419354838
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "product_limit": 0.42814198129133274
+      }
+    },
+    "sst_acceptable_quality": {
+      "digest": "ad1159214f1c200fa680225df5d48b3e8585ae6429db43e47576d0a3378feb6d",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_fci.py",
+      "reference": "OSI SAF Level 3C sea surface temperature (EO:EUM:DAT:0694), quality levels 4 and 5",
+      "period": "2026-11-17T12:00Z",
+      "platforms": [
+        "meteosat-12"
+      ],
+      "metrics": [
+        {
+          "name": "product_limit",
+          "value": 0.3896289920399738
+        },
+        {
+          "name": "good_pixels_observed",
+          "value": 96.72131147540983
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "product_limit": 0.3142486532976392
+      }
+    }
+  }
+}

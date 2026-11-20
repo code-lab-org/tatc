@@ -1,0 +1,61 @@
+{
+  "entry_id": "mls",
+  "configurations": {
+    "scans": {
+      "digest": "459f9b7adbf5fcccedde0dc98afff82dde9e9a1651452a4534918d2293088f5a",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_mls.py",
+      "reference": "ML1OA version 6 (GHz tangent points of the upward sweeps of nominal major frames)",
+      "period": "2026-11-15",
+      "platforms": [
+        "aura"
+      ],
+      "metrics": [
+        {
+          "name": "tangent_position_median",
+          "value": 1.9608222820172878
+        },
+        {
+          "name": "tangent_position_p95",
+          "value": 3.0818457076819006
+        },
+        {
+          "name": "epoch_median",
+          "value": -0.06403008948355016
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.34604653336452174
+        },
+        {
+          "name": "scan_period_error",
+          "value": 0.0064804072054779295
+        },
+        {
+          "name": "latitude_extent_error",
+          "value": 0.024692989436573498
+        },
+        {
+          "name": "scans_compared",
+          "value": 3441.0
+        },
+        {
+          "name": "reference_scans",
+          "value": 3441.0
+        },
+        {
+          "name": "scans_per_day",
+          "value": 3506.0
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "tangent_position_median": 1.9998153508847498,
+        "epoch_p95": 0.3398660752161637,
+        "scan_period_error": 0.0064804072054779295,
+        "latitude_extent_error": 0.024692989436573498
+      }
+    }
+  }
+}

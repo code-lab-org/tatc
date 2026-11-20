@@ -21,7 +21,21 @@
           "value": 0.00037989186479592263
         }
       ],
-      "transfers": {},
+      "transfers": {
+        "goes-18": {
+          "period": "2026-11-17T12:00Z",
+          "metrics": [
+            {
+              "name": "imaged_pixels_observed",
+              "value": 100.0
+            },
+            {
+              "name": "elevation_error_max",
+              "value": 0.0006003700155474689
+            }
+          ]
+        }
+      },
       "fixture_metrics": {
         "imaged_pixels_observed": 100.0,
         "elevation_error_max": 0.00037431447341873536
@@ -47,7 +61,21 @@
           "value": 99.15966386554622
         }
       ],
-      "transfers": {},
+      "transfers": {
+        "goes-18": {
+          "period": "2026-11-17T12:00Z",
+          "metrics": [
+            {
+              "name": "product_limit",
+              "value": 0.3648519248410622
+            },
+            {
+              "name": "good_pixels_observed",
+              "value": 99.15254237288136
+            }
+          ]
+        }
+      },
       "fixture_metrics": {
         "product_limit": 0.31548953875399377
       }
@@ -72,7 +100,21 @@
           "value": 99.67672413793103
         }
       ],
-      "transfers": {},
+      "transfers": {
+        "goes-18": {
+          "period": "2026-11-17T12:00Z",
+          "metrics": [
+            {
+              "name": "product_limit",
+              "value": 0.24487304485880657
+            },
+            {
+              "name": "good_pixels_observed",
+              "value": 99.53775038520801
+            }
+          ]
+        }
+      },
       "fixture_metrics": {
         "product_limit": 0.2588730783312698
       }

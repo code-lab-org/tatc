@@ -1,5 +1,6 @@
 """
-Validates the ABI catalog entry against GOES-19 full-disk products, using the exact
+Validates the ABI catalog entry against GOES-19 full-disk products (or, with
+`--platform goes-18`, GOES-18's, as a transfer), using the exact
 values of the entry through public TAT-C methods: whether the full disk's imaged pixels
 are observed, with the satellite's elevation angle, and the local zenith angles to
 which the sea and land surface temperature products are of good quality. The values
@@ -36,7 +37,11 @@ from tatc.schemas import GeneralPerturbationsOrbit, Point
 from tatc.utils import compute_field_of_regard
 from validation_io import get_with_retries, parse_run, write_results
 
-BUCKET = "https://noaa-goes19.s3.amazonaws.com/"
+# NOAA's open archive of each platform's products
+BUCKETS = {
+    "goes-18": "https://noaa-goes18.s3.amazonaws.com/",
+    "goes-19": "https://noaa-goes19.s3.amazonaws.com/",
+}
 SAMPLES = 2000
 FIXTURE_SAMPLES = 60
 PRODUCTS = {
@@ -46,17 +51,23 @@ PRODUCTS = {
 WGS84_A, WGS84_F = 6378137.0, 1 / 298.257223563
 
 
-def download(product: str, time: datetime, directory: pathlib.Path) -> pathlib.Path:
-    """Downloads the first full-disk file of a product starting in the hour of a time."""
+def download(
+    platform: str, product: str, time: datetime, directory: pathlib.Path
+) -> pathlib.Path:
+    """
+    Downloads a platform's first full-disk file of a product starting in the hour
+    of a time.
+    """
+    bucket = BUCKETS[platform]
     prefix = f"{product}/{time:%Y}/{time.timetuple().tm_yday:03d}/{time:%H}/"
     root = ET.fromstring(
-        get_with_retries(BUCKET, params={"list-type": "2", "prefix": prefix}).content
+        get_with_retries(bucket, params={"list-type": "2", "prefix": prefix}).content
     )
     namespace = "{http://s3.amazonaws.com/doc/2006-03-01/}"
     key = root.find(f"{namespace}Contents/{namespace}Key").text
     path = directory / key.split("/")[-1]
     if not path.exists():
-        path.write_bytes(get_with_retries(BUCKET + key).content)
+        path.write_bytes(get_with_retries(bucket + key).content)
     return path
 
 
@@ -81,7 +92,8 @@ def fixed_grid(dataset: xr.Dataset) -> tuple[np.ndarray, np.ndarray]:
             np.arctan((r_eq / r_pol) ** 2 * s_z / np.sqrt((h - s_x) ** 2 + s_y**2))
         )
         longitude = np.degrees(lon_0 - np.arctan(s_y / (h - s_x)))
-    return latitude, longitude
+    # wrapped to [-180, 180), as the disk of GOES-West crosses the antimeridian
+    return latitude, (longitude + 180) % 360 - 180
 
 
 def satellite_position(orbit: GeneralPerturbationsOrbit, time: datetime) -> np.ndarray:
@@ -165,7 +177,9 @@ def main() -> None:
 
     # earth disk: elevation angles, and which imaged pixels are observed
     key = "full_disk"
-    with xr.open_dataset(download("ABI-L2-ACMF", time, run.directory)) as dataset:
+    with xr.open_dataset(
+        download(run.platform, "ABI-L2-ACMF", time, run.directory)
+    ) as dataset:
         reduced = dataset.isel(x=slice(0, None, 8), y=slice(0, None, 8))
         latitude, longitude = fixed_grid(reduced)
         on_grid = np.isfinite(latitude)
@@ -199,7 +213,9 @@ def main() -> None:
 
     # product coverage: the boundary of predicted observations near declared bounds
     for key, (product, variable, step) in PRODUCTS.items():
-        with xr.open_dataset(download(product, time, run.directory)) as dataset:
+        with xr.open_dataset(
+            download(run.platform, product, time, run.directory)
+        ) as dataset:
             reduced = dataset.isel(x=slice(0, None, step), y=slice(0, None, step))
             latitude, longitude = fixed_grid(reduced)
             valid = np.isfinite(latitude)
