@@ -7,11 +7,13 @@ Methods to collect the static tracks of instruments on fixed surface platforms.
 from __future__ import annotations
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import shapely
 from shapely.geometry import MultiPolygon, Polygon
+from skyfield.positionlib import Geocentric
 
-from ..schemas import SurfacePlatform
+from ..schemas import Instrument, SurfacePlatform
 from .check import _check_platforms, _get_instrument_indices
 from .ground_track import _get_mask_geometry
 
@@ -86,11 +88,39 @@ def _clip_to_region(
     )
 
 
+def _get_platform_altaz(
+    track: Geocentric, instrument: Instrument, elevation: float, empty: bool
+) -> dict[str, float]:
+    """
+    Gets the altitude/azimuth angles (degrees) of a platform's instrument
+    seen from the center of its view at an elevation (see
+    `collect_platform_track`).
+
+    Args:
+        track (skyfield.positionlib.Geocentric): The platform's static track.
+        instrument (Instrument): The instrument.
+        elevation (float): The target elevation (meters).
+        empty (bool): `True` if the footprint is empty, without angles.
+
+    Returns:
+        dict[str, float]: the angles (`platform_alt` and `platform_az`)
+    """
+    if empty:
+        return {"platform_alt": np.nan, "platform_az": np.nan}
+    center = instrument.compute_footprint_center(track, elevation=elevation)
+    alt, az, _ = (track - center.at(track.t)).altaz()
+    return {
+        "platform_alt": float(np.ravel(alt.degrees)[0]),
+        "platform_az": float(np.ravel(az.degrees)[0]),
+    }
+
+
 def collect_platform_track(
     platforms: SurfacePlatform | list[SurfacePlatform],
     instrument_index: int | None = 0,
     elevation: float | None = None,
     mask: Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries | None = None,
+    platform_altaz: bool = False,
 ) -> gpd.GeoDataFrame:
     """
     Collect the static footprint of each instrument on fixed surface
@@ -126,12 +156,18 @@ def collect_platform_track(
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
                 An optional mask, always interpreted in WGS84 (lon/lat)
                 coordinates, to constrain results.
+        platform_altaz (bool): `True` to include the altitude/azimuth angles
+                (`platform_alt` and `platform_az`) of the instruments seen
+                from the center of their view at the target elevation (as
+                `sat_altaz` does for a satellite), `NaN` for an empty
+                footprint. Below the instruments, the altitude is the
+                elevation angle of the view; above them, it is negative.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected platform track
             results, with columns `platform`, `instrument`, `elevation`,
-            `valid_obs`, and `geometry`, in the order of the platforms and
-            their instruments.
+            `valid_obs`, and `geometry` (and the angles requested), in the
+            order of the platforms and their instruments.
     """
     platforms = _check_platforms(platforms, SurfacePlatform, "platforms")
     records = []
@@ -151,17 +187,23 @@ def collect_platform_track(
             )[0]
             if region is not None:
                 footprint = _clip_to_region(footprint, region, target)
-            records.append(
-                {
-                    "platform": platform.name,
-                    "instrument": instrument.name,
-                    "elevation": target,
-                    "valid_obs": not footprint.is_empty,
-                    "geometry": footprint,
-                }
-            )
+            record = {
+                "platform": platform.name,
+                "instrument": instrument.name,
+                "elevation": target,
+                "valid_obs": not footprint.is_empty,
+                "geometry": footprint,
+            }
+            if platform_altaz:
+                record.update(
+                    _get_platform_altaz(track, instrument, target, footprint.is_empty)
+                )
+            records.append(record)
     if len(records) == 0:
-        return _get_empty_platform_track()
+        track = _get_empty_platform_track()
+        if platform_altaz:
+            track[["platform_alt", "platform_az"]] = np.empty((0, 2))
+        return track
     track = gpd.GeoDataFrame(records, crs="EPSG:4326")
     if mask is not None:
         # clipping does not preserve the order of rows

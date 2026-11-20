@@ -253,15 +253,15 @@ def find_coincident_observations(
     )
 
 
-_PLATFORM_COLUMNS = ("satellite", "aircraft")
+_PLATFORM_COLUMNS = ("satellite", "aircraft", "platform")
 """Columns that name the platform of a footprint in a ground track."""
 
 
 def _get_platforms(track: pd.DataFrame) -> np.ndarray:
     """
     Gets the platform of each footprint of a ground track, named by its
-    `satellite` or `aircraft` column (so that a satellite and an aircraft of
-    the same name are different platforms).
+    `satellite`, `aircraft`, or `platform` column (so that a satellite and an
+    aircraft of the same name are different platforms).
 
     Args:
         track (pandas.DataFrame): The ground track.
@@ -276,7 +276,8 @@ def _get_platforms(track: pd.DataFrame) -> np.ndarray:
             platforms[named] = column + ": " + track.loc[named, column].astype(str)
     if platforms.isna().any():
         raise ValueError(
-            "each footprint must name its platform in a satellite or aircraft column"
+            "each footprint must name its platform in a satellite, aircraft, or "
+            "platform column"
         )
     return platforms.to_numpy()
 
@@ -288,22 +289,27 @@ def find_coincident_ground_track(
     """
     Find coincident observations of ground tracks: the pairs of footprints
     of different platforms, as collected by
-    `tatc.analysis.ground_track.collect_ground_track` for satellites and
+    `tatc.analysis.ground_track.collect_ground_track` for satellites,
     `tatc.analysis.airborne_track.collect_airborne_ground_track` for
-    aircraft (concatenated, for example, to find the underflights of a
-    satellite by an aircraft), whose times differ by at most
-    `max_time_difference` and which overlap (share a positive area, in
-    longitude/latitude coordinates). Each footprint's platform is named by
-    its `satellite` or `aircraft` column. Footprints of different
-    instruments on the same platform are not coincident with each other.
+    aircraft, and `tatc.analysis.platform_track.collect_platform_track` for
+    fixed surface platforms (concatenated, for example, to find the
+    underflights of a satellite by an aircraft, or the overpasses of a
+    tower's view), whose times differ by at most `max_time_difference` and
+    which overlap (share a positive area, in longitude/latitude
+    coordinates). Each footprint's platform is named by its `satellite`,
+    `aircraft`, or `platform` column. Footprints of different instruments on
+    the same platform are not coincident with each other. A footprint
+    without a time (as of a fixed platform, whose footprint does not
+    change) is static: it is coincident with the overlapping footprints of
+    other platforms at any time.
 
     Each pair records the columns of both footprints, suffixed `_1` and
     `_2` (for example, `time_1`, `satellite_1`, and `valid_obs_1`) and
-    ordered so that `time_1` is no later than `time_2`, the time difference
-    `time_difference` (`time_2` less `time_1`), and the overlap of the
-    footprints as its geometry. Dissolving the result (for example, after
-    selecting the pairs of valid observations) gives the area observed in
-    common.
+    ordered so that `time_1` is no later than `time_2` (a static footprint
+    second), the time difference `time_difference` (`time_2` less `time_1`,
+    or `NaT` with a static footprint), and the overlap of the footprints as
+    its geometry. Dissolving the result (for example, after selecting the
+    pairs of valid observations) gives the area observed in common.
 
     Footprints are first matched by overlap, then by time, so the cost
     grows with the number of times each area is observed.
@@ -315,10 +321,18 @@ def find_coincident_ground_track(
 
     Returns:
         geopandas.GeoDataFrame: The data frame of coincident footprints,
-            sorted by `time_1` and `time_2`.
+            sorted by `time_1` and `time_2` (static footprints last).
     """
     max_time_difference = _check_max_time_difference(max_time_difference)
-    track = ground_track.sort_values("time", kind="stable").reset_index(drop=True)
+    track = ground_track
+    if "time" not in track.columns:
+        # every footprint is static
+        track = track.assign(
+            time=pd.Series(pd.NaT, index=track.index, dtype="datetime64[ns, UTC]")
+        )
+    # in order of time, with static footprints (without a time) last
+    track = track.sort_values("time", kind="stable", na_position="last")
+    track = track.reset_index(drop=True)
     geometries = track.geometry.to_numpy()
     platforms = _get_platforms(track)
     times = pd.DatetimeIndex(track["time"])
@@ -332,10 +346,13 @@ def find_coincident_ground_track(
         first.append(index_1[query_1])
         second.append(index_2[query_2])
     first, second = np.concatenate(first), np.concatenate(second)
-    # order each pair by time (rows are sorted by time)
+    # order each pair by time (rows are sorted by time, static ones last)
     first, second = np.minimum(first, second), np.maximum(first, second)
     time_difference = times[second] - times[first]
-    selected = np.asarray(time_difference <= max_time_difference)
+    # a static footprint is coincident at any time
+    selected = np.asarray(time_difference <= max_time_difference) | np.asarray(
+        time_difference.isna()
+    )
     first, second = first[selected], second[selected]
     overlap = shapely.intersection(geometries[first], geometries[second])
     # exclude footprints that only touch

@@ -32,7 +32,6 @@ from ..utils.geometry import split_polygon
 from ..utils.glint import compute_glint_angle
 from ..utils.time import _index_orbit_track, _to_time, _to_time_from_offsets
 from .check import (
-    _check_satellite,
     _check_satellites,
     _check_times,
     _combine_results,
@@ -599,57 +598,133 @@ def _clip_track(
     return track.sort_index().sort_values("time", kind="stable").reset_index(drop=True)
 
 
+def _get_empty_orbit_coverage() -> gpd.GeoDataFrame:
+    """
+    Gets an empty data frame for the coverage of each orbit (see
+    `compute_ground_track`).
+
+    Returns:
+        geopandas.GeoDataFrame: Empty data frame.
+    """
+    columns = {
+        "satellite": pd.Series([], dtype="str"),
+        "instrument": pd.Series([], dtype="str"),
+        "orbit_id": pd.Series([], dtype="int"),
+        "start": pd.Series([], dtype="datetime64[ns, utc]"),
+        "end": pd.Series([], dtype="datetime64[ns, utc]"),
+        "geometry": pd.Series([], dtype="object"),
+    }
+    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
+
+
+def _compute_orbit_coverage(
+    satellite: Satellite, track: gpd.GeoDataFrame, first: datetime
+) -> gpd.GeoDataFrame:
+    """
+    Dissolves the valid footprints of a satellite's instrument within each
+    orbit (see `compute_ground_track`): the number of periods, of the element
+    that propagates the orbit at each time (see `get_element_index`), since
+    the first time.
+
+    Args:
+        satellite (Satellite): The satellite.
+        track (geopandas.GeoDataFrame): The valid footprints of an instrument.
+        first (datetime.datetime): The first time.
+
+    Returns:
+        geopandas.GeoDataFrame: the coverage of each orbit
+    """
+    orbit = satellite.orbit.to_gp_orbit()
+    orbit_id = [
+        int(
+            (time - first)
+            // orbit.elements[orbit.get_element_index(time)].get_orbit_period()
+        )
+        for time in track["time"]
+    ]
+    track = track.assign(orbit_id=orbit_id)
+    times = track.groupby("orbit_id")["time"]
+    dissolved = track[["orbit_id", "geometry"]].dissolve(by="orbit_id")
+    return gpd.GeoDataFrame(
+        {
+            "satellite": satellite.name,
+            "instrument": track["instrument"].iloc[0],
+            "orbit_id": dissolved.index.to_numpy(),
+            "start": times.min().to_numpy(),
+            "end": times.max().to_numpy(),
+        },
+        geometry=dissolved.geometry.to_numpy(),
+        crs=track.crs,
+    )
+
+
 def compute_ground_track(
-    satellite: Satellite,
+    satellites: Satellite | list[Satellite],
     times: list[datetime],
-    instrument_index: int = 0,
+    instrument_index: int | None = 0,
     elevation: float = 0,
     mask: Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries | None = None,
     dissolve_orbits: bool = True,
     time_step: timedelta | None = None,
 ) -> gpd.GeoDataFrame:
     """
-    Compute the aggregated ground track for a satellite of interest: unlike
-    `collect_ground_track` (one footprint polygon per time step), this
-    dissolves the valid-observation footprints within each orbit into a
-    single geometry per orbit, and optionally dissolves across orbits into
-    one geometry for the entire `times` range.
+    Compute the aggregated (dissolved) coverage of instruments on satellites:
+    unlike `collect_ground_track` (one footprint per time), this dissolves
+    the footprints of valid observations into one geometry (for example,
+    the area observed over the times) or, if not `dissolve_orbits`, into one
+    geometry for each orbit of each satellite's instrument.
 
     Args:
-        satellite (Satellite): The observing satellite.
-        instrument_index (int): The index of the observing instrument in satellite.
-        times (typing.List[datetime.datetime]): The list of datetimes to sample.
-        elevation (float): The elevation (meters) above the datum in the
-                WGS 84 coordinate system for which to calculate ground track.
+        satellites (Satellite | list[Satellite]): The observing satellite(s).
+        times (list[datetime.datetime]): The times to sample.
+        instrument_index (int | None): The index of the observing instrument
+                on each satellite, or `None` for every instrument of each
+                satellite.
+        elevation (float): The elevation (meters) above the WGS 84 ellipsoid
+                at which to compute footprints.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
                 An optional mask, always interpreted in WGS84 (lon/lat)
                 coordinates, to constrain results.
-        dissolve_orbits (bool): True, to aggregate multiple orbits in one output.
+        dissolve_orbits (bool): `True` to dissolve the coverage of every orbit,
+                satellite, and instrument into one geometry; `False` for
+                one geometry for each orbit of each satellite's instrument.
         time_step (datetime.timedelta | None): The time step that each time
                 represents, over which a swept instrument's footprint sweeps
                 (see `collect_ground_track`), or `None` to infer it from the
                 neighboring times.
+
     Returns:
-        GeoDataFrame: The data frame of aggregated ground track results.
+        geopandas.GeoDataFrame: The data frame of the aggregated ground
+            track: if `dissolve_orbits`, one row with the observed area (or
+            none if no observation is valid); otherwise, one row for each
+            orbit of each satellite's instrument with a valid observation,
+            with columns `satellite`, `instrument`, `orbit_id` (the number of
+            orbital periods since the first time), `start` and `end` (the
+            first and last times of its valid footprints), and `geometry`,
+            sorted by `start`.
     """
-    _check_satellite(satellite)
-    track = collect_ground_track(
-        satellite, times, instrument_index, elevation, mask, time_step=time_step
-    )
-    if not track.empty:
-        # assign orbit identifier, from the period of the element that
-        # propagates the orbit at each time (see `get_element_index`)
-        orbit = satellite.orbit.to_gp_orbit()
-        track["orbit_id"] = [
-            (time - times[0])
-            // orbit.elements[orbit.get_element_index(time)].get_orbit_period()
-            for time in track.time
-        ]
-        # filter to valid observations and dissolve
-        track = track[track.valid_obs].dissolve(by="orbit_id").reset_index(drop=True)
+    satellites = _check_satellites(satellites)
+    _check_times(times)
+    orbits = []
+    for satellite in satellites:
+        for index in _get_instrument_indices(satellite, instrument_index):
+            track = collect_ground_track(
+                satellite, times, index, elevation, mask, time_step=time_step
+            )
+            track = track[track["valid_obs"]]
+            if not track.empty:
+                orbits.append(_compute_orbit_coverage(satellite, track, min(times)))
     if dissolve_orbits:
-        track = track.dissolve()
-    return track
+        if len(orbits) == 0:
+            return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+        return pd.concat(orbits)[["geometry"]].dissolve().reset_index(drop=True)
+    if len(orbits) == 0:
+        return _get_empty_orbit_coverage()
+    return (
+        pd.concat(orbits, ignore_index=True)
+        .sort_values("start", kind="stable")
+        .reset_index(drop=True)
+    )
 
 
 def collect_ground_pixels(

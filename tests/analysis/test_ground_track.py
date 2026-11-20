@@ -370,6 +370,79 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
             results = compute_ground_track(satellite, times, dissolve_orbits=False)
             self.assertEqual(len(results.index), orbits)
 
+    def test_compute_ground_track_satellites_and_orbits(self):
+        """
+        Test that the coverage of several satellites and instruments is the
+        union of their coverage, and that the coverage of each orbit of each
+        satellite's instrument records its times.
+        """
+        satellites = [
+            member.model_copy(
+                update={
+                    "instruments": [
+                        Instrument(name="Narrow", field_of_regard=20),
+                        Instrument(name="Wide", field_of_regard=40),
+                    ]
+                }
+            )
+            for member in self.constellation.generate_members()[:2]
+        ]
+        times = [
+            datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
+            for i in range(0, 200, 2)
+        ]
+        combined = compute_ground_track(satellites, times, instrument_index=None)
+        self.assertListEqual(list(combined.columns), ["geometry"])
+        self.assertEqual(len(combined), 1)
+        separate = [
+            compute_ground_track(satellite, times, instrument_index=index)
+            for satellite in satellites
+            for index in (0, 1)
+        ]
+        self.assertAlmostEqual(
+            combined.geometry.iloc[0].area,
+            gpd.GeoSeries([s.geometry.iloc[0] for s in separate]).union_all().area,
+        )
+        orbits = compute_ground_track(
+            satellites, times, instrument_index=None, dissolve_orbits=False
+        )
+        self.assertListEqual(
+            list(orbits.columns),
+            ["satellite", "instrument", "orbit_id", "start", "end", "geometry"],
+        )
+        # three orbits (of about 93 minutes, over 200 minutes) of two
+        # instruments of two satellites
+        self.assertEqual(len(orbits), 12)
+        self.assertTrue(orbits["start"].is_monotonic_increasing)
+        self.assertTrue((orbits["start"] <= orbits["end"]).all())
+        self.assertEqual(set(orbits["orbit_id"]), {0, 1, 2})
+        self.assertAlmostEqual(
+            orbits.union_all().area, combined.geometry.iloc[0].area, places=6
+        )
+
+    def test_compute_ground_track_empty(self):
+        """
+        Test that the coverage without valid observations is empty, with the
+        columns of the dissolved coverage or of the coverage of each orbit.
+        """
+        satellite = Satellite(
+            name="Narrow",
+            orbit=self.orbit,
+            instruments=[Instrument(name="Narrow", field_of_regard=20)],
+        )
+        times = [datetime(2022, 6, 1, tzinfo=timezone.utc)]
+        empty = compute_ground_track(satellite, times, elevation=1e7)
+        self.assertTrue(empty.empty)
+        self.assertListEqual(list(empty.columns), ["geometry"])
+        orbits = compute_ground_track(
+            satellite, times, elevation=1e7, dissolve_orbits=False
+        )
+        self.assertTrue(orbits.empty)
+        self.assertListEqual(
+            list(orbits.columns),
+            ["satellite", "instrument", "orbit_id", "start", "end", "geometry"],
+        )
+
     def test_compute_ground_track_multipolygon(self):
         """
         Test that ground track computation works for a single satellite and a list

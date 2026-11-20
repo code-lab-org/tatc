@@ -445,6 +445,41 @@ class TestPlatformAnalysis(IssConstellationTestCase):
             atol=1e-6,
         )
 
+    def test_collect_platform_track_altaz(self):
+        """
+        Test the altitude/azimuth angles of the instruments seen from the
+        centers of their views: overhead for a nadir view, at the complement
+        of the pitch angle back along the heading for an oblique view, below
+        for an upward view, and NaN for an empty footprint.
+        """
+        results = collect_platform_track(
+            self.platform, instrument_index=None, platform_altaz=True
+        )
+        np.testing.assert_allclose(results["platform_alt"], [90.0, 30.0], atol=0.01)
+        self.assertAlmostEqual(results["platform_az"].iloc[1], 225.0, delta=0.01)
+        upward = self.platforms[1].model_copy(
+            update={
+                "instruments": [
+                    PointedInstrument(
+                        cross_track_field_of_view=40,
+                        along_track_field_of_view=40,
+                        roll_angle=180,
+                    ),
+                    Instrument(field_of_regard=60),
+                ]
+            }
+        )
+        above = collect_platform_track(
+            upward, instrument_index=None, elevation=2340, platform_altaz=True
+        )
+        self.assertAlmostEqual(above["platform_alt"].iloc[0], -90.0, delta=0.01)
+        # the nadir view of a target above is blocked by the ground
+        self.assertFalse(above["valid_obs"].iloc[1])
+        self.assertTrue(above[["platform_alt", "platform_az"]].iloc[1].isna().all())
+        empty = collect_platform_track([], platform_altaz=True)
+        self.assertTrue(empty.empty)
+        self.assertIn("platform_alt", empty.columns)
+
     def test_compute_platform_track_dissolves(self):
         """
         Test that compute_platform_track dissolves footprints into a single

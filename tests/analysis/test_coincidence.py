@@ -14,10 +14,11 @@ from tatc.analysis import (
     aggregate_observations,
     collect_ground_track,
     collect_observations,
+    collect_platform_track,
     find_coincident_ground_track,
     find_coincident_observations,
 )
-from tatc.schemas import Instrument, Satellite
+from tatc.schemas import Instrument, Satellite, SurfacePlatform
 
 from .common import IssConstellationTestCase
 
@@ -366,8 +367,86 @@ class TestFindCoincidentGroundTrack(IssConstellationTestCase):
         self.assertTrue(pd.isna(results.iloc[0].aircraft_1))
         self.assertEqual(results.iloc[0].aircraft_2, "A")
         self.assertTrue(pd.isna(results.iloc[0].satellite_2))
-        with self.assertRaisesRegex(ValueError, "satellite or aircraft"):
+        with self.assertRaisesRegex(ValueError, "satellite, aircraft, or platform"):
             find_coincident_ground_track(ground_track.drop(columns="aircraft"))
+
+    def test_static_footprints(self):
+        """
+        Test that the footprints of fixed platforms (without a time) are
+        coincident with overlapping footprints at any time, and with each
+        other, after the footprints with times.
+        """
+        tower = {
+            "platform": "Tower",
+            "instrument": "Camera",
+            "elevation": 300.0,
+            "valid_obs": True,
+            "geometry": box(1, 1, 3, 3),
+        }
+        balloon = {**tower, "platform": "Balloon", "geometry": box(2, 2, 4, 4)}
+        ground_track = pd.concat(
+            [
+                gpd.GeoDataFrame(
+                    [
+                        _make_footprint("A", 0, box(0, 0, 2, 2)),
+                        _make_footprint("B", 60, box(0, 0, 2, 2)),
+                        _make_footprint("C", 0, box(5, 5, 6, 6)),
+                    ],
+                    crs="EPSG:4326",
+                ),
+                gpd.GeoDataFrame([tower, balloon], crs="EPSG:4326"),
+            ],
+            ignore_index=True,
+        )
+        results = find_coincident_ground_track(ground_track)
+        # A and B, an hour apart, are each coincident with the tower, but not
+        # with each other
+        self.assertListEqual(
+            results["satellite_1"].fillna(results["platform_1"]).tolist(),
+            ["A", "B", "Tower"],
+        )
+        self.assertListEqual(
+            results["satellite_2"].fillna(results["platform_2"]).tolist(),
+            ["Tower", "Tower", "Balloon"],
+        )
+        self.assertTrue(results["time_difference"].isna().all())
+        self.assertTrue(results["time_2"].isna().all())
+        self.assertTrue(results.geometry.iloc[0].equals(box(1, 1, 2, 2)))
+        self.assertTrue(results.geometry.iloc[-1].equals(box(2, 2, 3, 3)))
+        # only static footprints, without a time column
+        static = find_coincident_ground_track(
+            gpd.GeoDataFrame([tower, balloon], crs="EPSG:4326")
+        )
+        self.assertEqual(len(static.index), 1)
+        self.assertTrue(static["time_difference"].isna().all())
+
+    def test_collect_platform_track(self):
+        """
+        Test that the overpasses of a satellite over the view of a fixed
+        platform are coincident with it.
+        """
+        satellite = Satellite(
+            name="Satellite",
+            orbit=self.orbit,
+            instruments=[Instrument(name="Test", field_of_regard=60.0)],
+        )
+        times = [T0 + timedelta(minutes=i) for i in range(0, 100)]
+        ground_track = collect_ground_track(satellite, times)
+        center = ground_track.geometry.iloc[50].centroid
+        tower = SurfacePlatform(
+            name="Tower",
+            latitude=center.y,
+            longitude=center.x,
+            height=1000,
+            instruments=[Instrument(name="Camera", field_of_regard=120.0)],
+        )
+        results = find_coincident_ground_track(
+            pd.concat([ground_track, collect_platform_track(tower)], ignore_index=True)
+        )
+        self.assertFalse(results.empty)
+        self.assertIn(times[50], set(results["time_1"]))
+        self.assertTrue((results["platform_2"] == "Tower").all())
+        self.assertTrue(results["time_difference"].isna().all())
 
     def test_empty(self):
         """
