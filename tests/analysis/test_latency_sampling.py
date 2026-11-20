@@ -179,7 +179,8 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         # every observation is downlinked to one of the stations, no earlier
         # than it is observed
         self.assertTrue(
-            set(results.station.dropna()) <= {station.name for station in self.stations}
+            set(results.ground_station.dropna())
+            <= {station.name for station in self.stations}
         )
         self.assertTrue((results.latency.dropna() >= pd.Timedelta(0)).all())
 
@@ -230,7 +231,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
 
     def test_compute_latency_columns_present_and_correct(self):
         """
-        Regression test: `platform_alt`/`platform_az`/`station` must survive
+        Regression test: `platform_alt`/`platform_az`/`ground_station` must survive
         `compute_latencies` with their real values -- these columns are
         never suffixed by the underlying `merge_asof` (each exists in only
         one of `observations`/`downlinks`), unlike `epoch`/`geometry`
@@ -252,12 +253,12 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         results = compute_latencies(observations, downlinks)
         self.assertIn("platform_alt", results.columns)
         self.assertIn("platform_az", results.columns)
-        self.assertIn("station", results.columns)
+        self.assertIn("ground_station", results.columns)
         for column in ("platform_alt", "platform_az"):
             self.assertTrue((results[column] == observations[column]).all())
-        matched = results.station.notna()
+        matched = results.ground_station.notna()
         self.assertTrue(matched.any())
-        self.assertTrue((results.station[matched] == self.station.name).all())
+        self.assertTrue((results.ground_station[matched] == self.station.name).all())
 
     def test_reduce_latencies_separates_points(self):
         """
@@ -319,7 +320,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         downlinks = gpd.GeoDataFrame(
             [
                 {
-                    "station": "S1",
+                    "ground_station": "S1",
                     "geometry": ShapelyPoint(1, 1),
                     "satellite": "A",
                     "start": pd.Timestamp("2022-06-01T00:00", tz="UTC"),
@@ -363,7 +364,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         """
         t_0 = pd.Timestamp("2022-06-01T00:00", tz="UTC")
         return {
-            "station": station,
+            "ground_station": station,
             "geometry": ShapelyPoint(1, 1),
             "satellite": "A",
             "start": t_0 + pd.Timedelta(minutes=start),
@@ -396,7 +397,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
             gpd.GeoDataFrame(downlinks, crs="EPSG:4326"),
             during_contact=during_contact,
         ).set_index("target_hash")
-        return latencies.latency.dt.total_seconds() / 60, latencies.station
+        return latencies.latency.dt.total_seconds() / 60, latencies.ground_station
 
     def test_compute_latencies_during_contact_next(self):
         """

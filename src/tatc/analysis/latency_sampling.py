@@ -29,7 +29,7 @@ def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
         geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
-        "station": pd.Series([], dtype="str"),
+        "ground_station": pd.Series([], dtype="str"),
         "geometry": pd.Series([], dtype="object"),
         "satellite": pd.Series([], dtype="str"),
         "start": pd.Series([], dtype="datetime64[ns, utc]"),
@@ -58,6 +58,7 @@ def collect_downlinks(
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected downlink results,
+            each naming its ground station in a `ground_station` column,
             sorted by start time.
     """
     satellites = _check_satellites(satellites)
@@ -75,7 +76,7 @@ def collect_downlinks(
     # collect the records of ground station overpasses
     records = [
         {
-            "station": station.name,
+            "ground_station": station.name,
             "geometry": geo.Point(
                 station.longitude, station.latitude, station.elevation
             ),
@@ -114,7 +115,7 @@ def _get_empty_latency_frame() -> gpd.GeoDataFrame:
         "instrument": pd.Series([], dtype="str"),
         "platform_alt": pd.Series([], dtype="float"),
         "platform_az": pd.Series([], dtype="float"),
-        "station": pd.Series([], dtype="str"),
+        "ground_station": pd.Series([], dtype="str"),
         "downlinked": pd.Series([], dtype="datetime64[ns, utc]"),
         "latency": pd.Series([], dtype="timedelta64[ns]"),
         "observed": pd.Series([], dtype="datetime64[ns, utc]"),
@@ -158,7 +159,7 @@ def compute_latencies(
         - 'instrument' (object): Name or identifier of the instrument.
         - 'platform_alt' (float64): Altitude of the satellite at the time of observation.
         - 'platform_az' (float64): Azimuth of the satellite at the time of observation.
-        - 'station' (object): Name or identifier of the ground station for downlink.
+        - 'ground_station' (object): Name or identifier of the ground station for downlink.
         - 'downlinked' (datetime64[ns, UTC]): Timestamp when the observation data was downlinked.
         - 'latency' (timedelta64[ns]): Latency between observation and downlink.
         - 'observed' (datetime64[ns, UTC]): Timestamp when the observation was made.
@@ -171,7 +172,9 @@ def compute_latencies(
         return _get_empty_latency_frame()
 
     obs = observations.sort_values(by="end").reset_index(drop=True)
-    contacts = downlinks[["satellite", "station", "start", "epoch", "end"]].rename(
+    contacts = downlinks[
+        ["satellite", "ground_station", "start", "epoch", "end"]
+    ].rename(
         columns={
             "start": "downlink_start",
             "epoch": "downlinked",
@@ -212,7 +215,7 @@ def compute_latencies(
         earlier = in_progress & (
             obs["downlinked"].isna() | (downlinked < obs["downlinked"])
         )
-        obs.loc[earlier, "station"] = current.loc[earlier, "station"]
+        obs.loc[earlier, "ground_station"] = current.loc[earlier, "ground_station"]
         obs.loc[earlier, "downlinked"] = downlinked[earlier]
 
     # compute latency
@@ -228,7 +231,7 @@ def compute_latencies(
             "instrument",
             "platform_alt",
             "platform_az",
-            "station",
+            "ground_station",
             "downlinked",
             "latency",
             "observed",
