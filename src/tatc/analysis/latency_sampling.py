@@ -290,8 +290,8 @@ def reduce_latencies(
     Args:
         latency_observations (geopandas.GeoDataFrame): The latency observations.
         targets (geopandas.GeoDataFrame | geopandas.GeoSeries | None): The
-            targets, including those not observed, or `None` for those
-            observed.
+            targets, including those not observed, with the other columns of
+            a data frame of targets, or `None` for those observed.
 
     Returns:
         geopandas.GeoDataFrame: The data frame with reduced latencies.

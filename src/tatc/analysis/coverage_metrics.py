@@ -7,6 +7,8 @@ regions: the aggregation, reduction, and gridding of observations.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -15,6 +17,7 @@ import shapely
 from ..utils.geometry import _hash_geometries
 from .check import (
     _aggregate_names,
+    _check_time_window,
     _get_empty_observation_frame,
     _get_platform_columns,
 )
@@ -82,7 +85,8 @@ def _get_targets(
     """
     Gets the targets of a summary of observations: those given (identified
     by the hash of their geometry, see `tatc.utils.geometry.hash_geometry`,
-    as observations identify them), or those observed.
+    as observations identify them, with the other columns of a data frame of
+    targets, such as a `point_id` or a weight), or those observed.
 
     Args:
         observations (pandas.DataFrame): The observations, with the
@@ -100,11 +104,22 @@ def _get_targets(
         result = gpd.GeoDataFrame(result.reset_index(drop=True), geometry="geometry")
         return result if result.crs is not None else result.set_crs("EPSG:4326")
     geometry = targets if isinstance(targets, gpd.GeoSeries) else targets.geometry
-    return gpd.GeoDataFrame(
+    attributes = (
+        {}
+        if isinstance(targets, gpd.GeoSeries)
+        else {
+            column: targets[column].to_numpy()
+            for column in targets.columns
+            if column not in ("target_hash", targets.geometry.name)
+        }
+    )
+    result = gpd.GeoDataFrame(
         {"target_hash": _hash_geometries(geometry)},
         geometry=geometry.to_numpy(),
         crs=geometry.crs if geometry.crs is not None else "EPSG:4326",
     )
+    # the hash and geometry, then the attributes
+    return result.assign(**attributes)
 
 
 def _include_targets(
@@ -142,7 +157,15 @@ def _include_targets(
         if column in counts:
             values = np.where(found, values, 0).astype(int)
         result[column] = values
-    return result[[column for column in reduced.columns if column in result.columns]]
+    # the target's attributes after its hash and geometry, then the statistics
+    first = [
+        column
+        for column in reduced.columns
+        if column in ("target_hash", reduced.geometry.name)
+    ]
+    attributes = [column for column in result.columns if column not in reduced.columns]
+    statistics = [column for column in reduced.columns if column not in first]
+    return result[[*first, *attributes, *statistics]]
 
 
 def _sum_by_cell(
@@ -293,14 +316,16 @@ def reduce_observations(
     result has a row for every target, in their order: a target not observed
     has no samples (zero) and undefined (NaT) access and revisit, so that
     unobserved targets appear in maps and statistics rather than being
-    omitted.
+    omitted. Targets given as a data frame keep their other columns (such as
+    a `point_id` or a weight, after the geometry), except those named as the
+    statistics.
 
     Args:
         aggregated_observations (geopandas.GeoDataFrame): The aggregated observations.
         targets (geopandas.GeoDataFrame | geopandas.GeoSeries | None): The
             targets, including those not observed (identified by the hash of
-            their geometry, as the observations' `target_hash`), or `None`
-            for those observed.
+            their geometry, as the observations' `target_hash`), with their
+            other columns, or `None` for those observed.
 
     Returns:
         geopandas.GeoDataFrame: The data frame with reduced observations.
@@ -390,3 +415,70 @@ def grid_observations(
     result["access"] = pd.to_timedelta(mean_access, unit="s").as_unit("ns")
     result["revisit"] = pd.to_timedelta(mean_revisit, unit="s").as_unit("ns")
     return result
+
+
+def count_observations(
+    observations: pd.DataFrame,
+    start: datetime,
+    end: datetime,
+    step: timedelta,
+    by: str | list[str] | None = None,
+) -> pd.DataFrame:
+    """
+    Count the observations in progress over time: for each step of a period
+    (from `start`, every `step`, to `end`), the number of observations whose
+    period (from `start` to `end`, inclusive) overlaps it, as the number of
+    satellites that observe at once, the points that a constellation
+    observes in each minute, or the links available to a satellite (see
+    `collect_space_observations`). A short step counts the observations in
+    progress at each time. Observations of any kind with `start` and `end`
+    columns may be counted.
+
+    Args:
+        observations (pandas.DataFrame): The observations, with their
+                `start` and `end`.
+        start (datetime.datetime): The start of the period.
+        end (datetime.datetime): The end of the period.
+        step (datetime.timedelta): The duration of each step.
+        by (str | list[str] | None): The column(s) whose values group the
+                counts, or `None` for one count.
+
+    Returns:
+        pandas.DataFrame: The counts, indexed by the start of each step
+            (`start`): one column (`observations`), or one for each group
+            (named by its value, or its values for several columns).
+    """
+    _check_time_window(start, end)
+    if step <= timedelta(0):
+        raise ValueError(f"step ({step}) must be positive")
+    count = int(np.ceil((end - start) / step))
+    index = pd.DatetimeIndex(
+        [pd.Timestamp(start) + k * pd.Timedelta(step) for k in range(count)],
+        name="start",
+    ).tz_convert("UTC")
+    columns = [] if by is None else [by] if isinstance(by, str) else list(by)
+    # the steps that each observation overlaps (from the step of its start to
+    # that of its end), within the period
+    origin = pd.Timestamp(start).tz_convert("UTC")
+    first = np.floor(
+        (pd.to_datetime(observations["start"], utc=True) - origin) / pd.Timedelta(step)
+    ).to_numpy()
+    last = np.floor(
+        (pd.to_datetime(observations["end"], utc=True) - origin) / pd.Timedelta(step)
+    ).to_numpy()
+    inside = (last >= 0) & (first < count)
+    first = np.clip(first[inside], 0, count - 1).astype(int)
+    last = np.clip(last[inside], 0, count - 1).astype(int)
+    if columns:
+        groups = pd.MultiIndex.from_frame(observations.loc[inside, columns])
+        codes, labels = groups.factorize(sort=True)
+        labels = labels.get_level_values(0) if len(columns) == 1 else pd.Index(labels)
+    else:
+        codes = np.zeros(len(first), dtype=int)
+        labels = pd.Index(["observations"])
+    # count the starts and ends of the overlapped steps, and accumulate them
+    changes = np.zeros((count + 1, len(labels)), dtype=int)
+    np.add.at(changes, (first, codes), 1)
+    np.add.at(changes, (last + 1, codes), -1)
+    counts = np.cumsum(changes[:-1], axis=0)
+    return pd.DataFrame(counts, index=index, columns=labels)

@@ -17,6 +17,7 @@ from shapely import geometry as geo
 from skyfield.api import wgs84
 from skyfield.framelib import itrs
 
+from .._warnings import warn
 from ..constants import EARTH_POLAR_RADIUS, timescale
 from ..schemas import (
     ConicalInstrument,
@@ -1096,8 +1097,8 @@ def collect_multi_observations(
     """
     Collect multiple satellite observations of a geodetic point of interest
     by every instrument on every satellite in `satellites`: equivalent to
-    `collect_observations` with `instrument_index=None`, kept for backwards
-    compatibility.
+    `collect_observations` with `instrument_index=None`. Deprecated: use
+    `collect_observations` with `instrument_index=None`.
 
     Args:
         point (Point | shapely.geometry.Point): The ground point of interest
@@ -1111,4 +1112,9 @@ def collect_multi_observations(
     Returns:
         geopandas.GeoDataFrame: The data frame with all recorded observations.
     """
+    warn(
+        "collect_multi_observations is deprecated and will be removed in a future release: use "
+        "collect_observations with instrument_index=None",
+        DeprecationWarning,
+    )
     return collect_observations(point, satellites, start, end, None, omit_solar)

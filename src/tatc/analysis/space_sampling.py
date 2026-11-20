@@ -262,6 +262,7 @@ def collect_space_observations(
     max_range: float | None = None,
     min_grazing_altitude: float | None = 0,
     min_duration: timedelta = timedelta(seconds=60),
+    directed: bool = True,
 ) -> gpd.GeoDataFrame:
     """
     Collects the periods when satellites can observe other satellites, as by
@@ -273,7 +274,13 @@ def collect_space_observations(
     Each ordered pair of an observing ("from") and an observed ("to")
     satellite is analyzed, except a satellite with itself, so that by
     default (with the same satellites observing and observed) each period
-    is reported for both directions.
+    is reported for both directions, with the same `start` and `end` but
+    lines of sight in opposite directions (and so a different
+    `target_hash`). The constraints are symmetric, so with `directed` set to
+    `False`, each pair of satellites is analyzed and reported once (as for
+    the crosslinks of a constellation), observed from the satellite given
+    first (in `from_satellites`, then `to_satellites`), with half the
+    computation.
 
     Each observation records as its geometry the lines of sight from the
     observing to the observed satellite at the start and end of the period
@@ -306,6 +313,8 @@ def collect_space_observations(
             guaranteed to be detected (sets the resolution of the search for
             observation periods): a smaller value costs more computation but
             guards against skipping brief periods (or gaps between periods).
+        directed (bool): `True` to analyze each ordered pair of satellites
+            (each direction), `False` to analyze each pair once.
 
     Returns:
         geopandas.GeoDataFrame: The observation periods, sorted by start.
@@ -336,6 +345,9 @@ def collect_space_observations(
         for to_satellite in to_satellites
         if from_satellite != to_satellite
     ]
+    if not directed:
+        # each pair once, from the satellite given first
+        pairs = list(dict.fromkeys(tuple(sorted(pair)) for pair in pairs))
     if len(pairs) == 0 or end == start:
         return _get_empty_space_frame()
     pair_from = np.array([u for u, _ in pairs])

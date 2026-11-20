@@ -18,6 +18,7 @@ from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 
 from .. import config
+from .._warnings import warn
 from ..constants import (
     EARTH_ECCENTRICITY,
     EARTH_EQUATORIAL_RADIUS,
@@ -1026,8 +1027,8 @@ def collect_multi_region_observations(
     """
     Collect multiple satellite observations of a region of interest by every
     instrument on every satellite in `satellites`: equivalent to
-    `collect_region_observations` with `instrument_index=None`, kept for
-    backwards compatibility.
+    `collect_region_observations` with `instrument_index=None`. Deprecated: use
+    `collect_region_observations` with `instrument_index=None`.
 
     Args:
         region (shapely.geometry.Polygon | shapely.geometry.MultiPolygon):
@@ -1040,4 +1041,9 @@ def collect_multi_region_observations(
     Returns:
         geopandas.GeoDataFrame: The data frame with all recorded observations.
     """
+    warn(
+        "collect_multi_region_observations is deprecated and will be removed in a future release: use "
+        "collect_region_observations with instrument_index=None",
+        DeprecationWarning,
+    )
     return collect_region_observations(region, satellites, start, end, None)

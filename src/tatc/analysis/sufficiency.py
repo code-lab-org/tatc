@@ -270,7 +270,9 @@ def estimate_sampling_error(
         standard_deviation (float | Mapping | pandas.Series): The standard
             deviation of the field, or of each target (by `target_hash`).
         targets (geopandas.GeoDataFrame | geopandas.GeoSeries | None): The
-            targets, including those not observed, or `None` for those
+            targets, including those not observed, with the other columns of
+            a data frame of targets (such as a `point_id` or a weight,
+            except those named as the results), or `None` for those
             observed.
         time_column (str | None): The column of the times of the samples,
             or `None` (default) for the first of `epoch`, `time`, or
@@ -359,7 +361,9 @@ def compute_revisit_statistics(
         end (datetime.datetime): The end of the period.
         quantiles (Sequence[float]): The quantiles of the revisits.
         targets (geopandas.GeoDataFrame | geopandas.GeoSeries | None): The
-            targets, including those not observed, or `None` for those
+            targets, including those not observed, with the other columns of
+            a data frame of targets (such as a `point_id` or a weight,
+            except those named as the results), or `None` for those
             observed.
         time_column (str | None): The column of the times of the samples,
             or `None` (default) for the first of `epoch`, `time`, or
@@ -459,7 +463,9 @@ def compute_local_time_coverage(
             (`time_column`) of each.
         bins (int): The number of intervals of the day.
         targets (geopandas.GeoDataFrame | geopandas.GeoSeries | None): The
-            targets, including those not observed, or `None` for those
+            targets, including those not observed, with the other columns of
+            a data frame of targets (such as a `point_id` or a weight,
+            except those named as the results), or `None` for those
             observed.
         time_column (str | None): The column of the times of the samples,
             or `None` (default) for the first of `epoch`, `time`, or
@@ -636,7 +642,9 @@ def compare_sampled_means(
         name (str | None): The column of the sampled values, or `None` for the
             field's name (or `"value"`).
         targets (geopandas.GeoDataFrame | geopandas.GeoSeries | None): The
-            targets, including those not observed, or `None` for those
+            targets, including those not observed, with the other columns of
+            a data frame of targets (such as a `point_id` or a weight,
+            except those named as the results), or `None` for those
             observed.
         method (str): `"nearest"` or `"linear"`, for the field at the targets.
         dimensions (Mapping[str, str] | None): The names of the field's

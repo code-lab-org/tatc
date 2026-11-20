@@ -17,7 +17,6 @@ from tatc.analysis import (
     collect_ground_pixels,
     collect_ground_track,
     collect_limb_observations,
-    collect_multi_observations,
     collect_observations,
     collect_orbit_track,
     collect_ro_observations,
@@ -97,9 +96,6 @@ class TestValidation(IssConstellationTestCase):
         """
         calls = {
             "collect_observations": lambda c: collect_observations(
-                self.point, c, self.start, self.end
-            ),
-            "collect_multi_observations": lambda c: collect_multi_observations(
                 self.point, c, self.start, self.end
             ),
             "collect_downlinks": lambda c: collect_downlinks(

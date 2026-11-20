@@ -167,6 +167,15 @@ class TestRevisitStatistics(unittest.TestCase):
         self.assertEqual(stats.max_gap[1], timedelta(hours=12))
         self.assertTrue(pd.isna(stats.revisit[1]))
         self.assertEqual(stats.max_gap[2], DAY)
+        # targets given as a data frame keep their other columns
+        frame = gpd.GeoDataFrame({"region": ["a", "b", "c"]}, geometry=targets)
+        named = compute_revisit_statistics(
+            observations, START, START + DAY, targets=frame
+        )
+        self.assertListEqual(list(named.region), ["a", "b", "c"])
+        self.assertListEqual(
+            list(named.columns[:4]), ["target_hash", "geometry", "region", "samples"]
+        )
 
 
 class TestLocalTimeCoverage(unittest.TestCase):

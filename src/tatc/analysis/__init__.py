@@ -12,6 +12,7 @@ from .coincidence import (
 )
 from .coverage_metrics import (
     aggregate_observations,
+    count_observations,
     grid_observations,
     reduce_observations,
 )
@@ -115,6 +116,7 @@ __all__ = [
     "compute_revisit_statistics",
     "compute_sample_sizes",
     "compute_surface_track",
+    "count_observations",
     "dissolve_footprints",
     "estimate_sampling_error",
     "find_coincident_ground_track",

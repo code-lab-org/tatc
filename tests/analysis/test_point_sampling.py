@@ -748,15 +748,16 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         )
         self.assertTrue(results.empty)
 
-    def test_collect_multi_observations(self):
+    def test_collect_observations_of_constellation(self):
         """
         Test that observations can be collected for multiple satellites and a single point.
         """
-        collect_multi_observations(
+        collect_observations(
             self.point,
             self.constellation.generate_members(),
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 2, tzinfo=timezone.utc),
+            instrument_index=None,
         )
 
     def test_collect_multi_observations_null(self):
@@ -766,11 +767,12 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         """
         start = datetime(2022, 6, 1, 0, 10, tzinfo=timezone.utc)
         end = datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc)
-        results = collect_multi_observations(
+        results = collect_observations(
             self.point,
             self.constellation.generate_members(),
             start,
             end,
+            instrument_index=None,
         )
         self.assertTrue(results.empty)
 
@@ -780,11 +782,12 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         DataFrame with the expected columns, not raise (there is nothing to
         concatenate when no satellite/instrument pair ever runs).
         """
-        results = collect_multi_observations(
+        results = collect_observations(
             self.point,
             [],
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 2, tzinfo=timezone.utc),
+            instrument_index=None,
         )
         self.assertTrue(results.empty)
         self.assertIn("start", results.columns)
@@ -831,15 +834,16 @@ class TestCoverageAnalysis(IssConstellationTestCase):
     def test_collect_observations_of_every_instrument(self):
         """
         Test that observations by every instrument (`instrument_index=None`)
-        equal those of `collect_multi_observations`, and that a list of one
+        equal those of the deprecated `collect_multi_observations`, and that a list of one
         point gives the observations of that point.
         """
         start = datetime(2022, 6, 1, tzinfo=timezone.utc)
         end = datetime(2022, 6, 2, tzinfo=timezone.utc)
         members = self.constellation.generate_members()
+        with self.assertWarns(DeprecationWarning):
+            multi = collect_multi_observations(self.point, members, start, end)
         pd.testing.assert_frame_equal(
-            collect_observations(self.point, members, start, end, None),
-            collect_multi_observations(self.point, members, start, end),
+            collect_observations(self.point, members, start, end, None), multi
         )
         pd.testing.assert_frame_equal(
             collect_observations([self.point], self.satellite, start, end),
@@ -988,11 +992,12 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         """
         Test that observations can be aggregated for multiple satellites and a single point.
         """
-        results = collect_multi_observations(
+        results = collect_observations(
             self.point,
             self.constellation.generate_members(),
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 2, tzinfo=timezone.utc),
+            instrument_index=None,
         )
         results = aggregate_observations(results)
         for i in range(len(results.index)):
@@ -1009,11 +1014,12 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         Test that no observations are aggregated for multiple satellites and a single point
         when the time window does not overlap with any observations.
         """
-        results = collect_multi_observations(
+        results = collect_observations(
             self.point,
             self.constellation.generate_members(),
             datetime(2022, 6, 1, 0, 10, tzinfo=timezone.utc),
             datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
+            instrument_index=None,
         )
         results = aggregate_observations(results)
         self.assertTrue(results.empty)
@@ -1087,11 +1093,12 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         """
         Test that observations can be reduced for multiple satellites and a single point.
         """
-        results = collect_multi_observations(
+        results = collect_observations(
             self.point,
             self.constellation.generate_members(),
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 10, tzinfo=timezone.utc),
+            instrument_index=None,
         )
         aggregated_results = aggregate_observations(results)
         reduced_results = reduce_observations(aggregated_results)
@@ -1120,11 +1127,12 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         start = datetime(2022, 6, 1, tzinfo=timezone.utc)
         far = ShapelyPoint(0, 89.9)
         targets = gpd.GeoSeries([far, ShapelyPoint(0, 0, 0)], crs="EPSG:4326")
-        results = collect_multi_observations(
+        results = collect_observations(
             self.point,
             self.constellation.generate_members(),
             start,
             start + timedelta(days=2),
+            instrument_index=None,
         )
         aggregated = aggregate_observations(results)
         reduced = reduce_observations(aggregated, targets=targets)
@@ -1142,17 +1150,29 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         self.assertEqual(reduced.revisit.iloc[1], observed.revisit.iloc[0])
         empty = reduce_observations(aggregated.iloc[:0], targets=targets)
         self.assertListEqual(list(empty.samples), [0, 0])
+        # targets given as a data frame keep their other columns
+        frame = gpd.GeoDataFrame(
+            {"weight": [2.0, 3.0], "samples": [-1, -1]}, geometry=targets
+        )
+        weighted = reduce_observations(aggregated, targets=frame)
+        self.assertListEqual(
+            list(weighted.columns),
+            ["target_hash", "geometry", "weight", "access", "revisit", "samples"],
+        )
+        self.assertListEqual(list(weighted.weight), [2.0, 3.0])
+        self.assertListEqual(list(weighted.samples), list(reduced.samples))
 
     def test_reduce_observations_null(self):
         """
         Test that no observations are reduced for multiple satellites and a single point
         when the time window does not overlap with any observations.
         """
-        results = collect_multi_observations(
+        results = collect_observations(
             self.point,
             self.constellation.generate_members(),
             datetime(2022, 6, 1, 0, 10, tzinfo=timezone.utc),
             datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
+            instrument_index=None,
         )
         aggregated_results = aggregate_observations(results)
         reduced_results = reduce_observations(aggregated_results)
