@@ -18,9 +18,10 @@ from shapely import geometry as geo
 
 from ..schemas import AllPlatforms, Point
 from ..utils.geometry import _get_point_coordinates, _hash_geometries
-from ._tracks import Mask
-from .airborne_track import _collect_airborne
+from ._tracks import Mask, _collect_tracks, _FootprintRequest
+from .airborne_track import _collect_aircraft
 from .check import (
+    AIRCRAFT,
     RADAR_STATION,
     SATELLITE,
     SURFACE_PLATFORM,
@@ -32,9 +33,21 @@ from .check import (
     _group_platforms,
     _is_single,
 )
-from .ground_track import _collect_satellites
-from .radar_track import collect_radar_track
-from .surface_track import _collect_surface
+from .ground_track import _collect_satellite
+from .radar_track import _collect_radar_station, _get_empty_radar_track
+from .surface_track import _collect_surface_platform
+
+_COLLECTORS = {
+    SATELLITE: (_collect_satellite,),
+    AIRCRAFT: (_collect_aircraft,),
+    SURFACE_PLATFORM: (_collect_surface_platform,),
+    RADAR_STATION: (_collect_radar_station, _get_empty_radar_track),
+}
+"""
+The collector of the footprints of a platform of each kind (see
+`tatc.analysis._tracks._collect_tracks`), with the empty result of its kind
+if not the default.
+"""
 
 
 def collect_footprints(
@@ -123,45 +136,21 @@ def collect_footprints(
             "elevation is required to collect the footprints of radar stations "
             "(see collect_radar_track)"
         )
-    frames = []
-    for kind, members in groups.items():
-        if not members:
-            continue
-        if kind is RADAR_STATION:
-            frames.append(
-                collect_radar_track(
-                    members, elevation, mask, times=times  # type: ignore
-                )
-            )
-        elif kind is SURFACE_PLATFORM:
-            # by default, at the ground elevation of each platform
-            frames.append(
-                _collect_surface(
-                    members,
-                    times,
-                    instrument_index,
-                    elevation,
-                    mask,
-                    platform_altaz,
-                    solar_altaz,
-                    pixels,
-                )
-            )
-        else:
-            collect = _collect_satellites if kind is SATELLITE else _collect_airborne
-            frames.append(
-                collect(
-                    members,
-                    times,  # type: ignore
-                    instrument_index,
-                    0 if elevation is None else elevation,
-                    mask,
-                    platform_altaz,
-                    solar_altaz,
-                    time_step,
-                    pixels,
-                )
-            )
+    request = _FootprintRequest.create(
+        times,
+        instrument_index,
+        elevation,
+        mask,
+        platform_altaz,
+        solar_altaz,
+        time_step,
+        pixels,
+    )
+    frames = [
+        _collect_tracks(members, kind, request, *_COLLECTORS[kind])
+        for kind, members in groups.items()
+        if members
+    ]
     if len(frames) == 0:
         return gpd.GeoDataFrame(geometry=gpd.GeoSeries([], crs="EPSG:4326"))
     if single or len(frames) == 1:

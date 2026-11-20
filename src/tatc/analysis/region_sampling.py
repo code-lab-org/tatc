@@ -293,7 +293,7 @@ def compute_region_access_periods(
         pandas.Series: the access periods (`pandas.Interval` of UTC
             timestamps), in time order.
     """
-    _warn_low_perigees([_check_satellite(satellite)], stacklevel=3)
+    _warn_low_perigees([_check_satellite(satellite)])
     _check_time_window(start, end)
     if not isinstance(region, (geo.Polygon, geo.MultiPolygon)):
         raise TypeError(

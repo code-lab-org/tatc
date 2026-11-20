@@ -10,6 +10,7 @@ from datetime import timedelta
 import numpy as np
 import pandas as pd
 from pydantic import ValidationError
+from shapely.geometry import LineString
 from skyfield.api import wgs84
 from skyfield.framelib import itrs
 
@@ -365,6 +366,94 @@ class TestTrajectory(unittest.TestCase):
         self.assertEqual(before[1], 0.0)
         with self.assertRaises(ValidationError):
             trajectory.pitch = [1.0]
+
+    def test_from_waypoints(self):
+        """
+        Tests that a flight between two waypoints matches the states of an
+        aircraft flying along the geodesic at its ground speed and altitude,
+        ending at the last waypoint.
+        """
+        data = straight_trajectory(n=61, track=30.0)
+        trajectory = Trajectory.from_waypoints(
+            [
+                (data.longitude.iloc[0], data.latitude.iloc[0]),
+                (data.longitude.iloc[-1], data.latitude.iloc[-1]),
+            ],
+            START.to_pydatetime(),
+            speed=200.0,
+            altitude=10000.0,
+        )
+        self.assertEqual(len(trajectory.time), 61)
+        self.assertIsNone(trajectory.max_gap)
+        self.assertFalse(trajectory.has_attitude())
+        np.testing.assert_allclose(trajectory.latitude, data.latitude, atol=1e-6)
+        np.testing.assert_allclose(trajectory.longitude, data.longitude, atol=1e-6)
+        np.testing.assert_allclose(trajectory.track, data.track, atol=1e-6)
+        np.testing.assert_allclose(trajectory.ground_speed, 200.0)
+        self.assertAlmostEqual(
+            (trajectory.time[-1] - START).total_seconds(), 60.0, places=3
+        )
+
+    def test_from_waypoints_legs(self):
+        """
+        Tests that a flight through several waypoints (a line, with a
+        repeated waypoint) visits each, at the altitude of each, with a final
+        state at the last waypoint between time steps.
+        """
+        corner = GEOD.fwd(-110.0, 35.0, 90.0, 30e3)[:2]
+        end = GEOD.fwd(*corner, 0.0, 20e3)[:2]
+        trajectory = Trajectory.from_waypoints(
+            LineString([(-110.0, 35.0), corner, corner, end]),
+            START.to_pydatetime(),
+            speed=150.0,
+            altitude=[1000.0, 3000.0, 3000.0, 2000.0],
+            time_step=timedelta(seconds=7),
+        )
+        latitude, longitude = np.array(trajectory.latitude), np.array(
+            trajectory.longitude
+        )
+        _, _, to_corner = GEOD.inv(
+            longitude,
+            latitude,
+            np.full(len(latitude), corner[0]),
+            np.full(len(latitude), corner[1]),
+        )
+        self.assertLess(np.min(to_corner), 150.0 * 7)
+        self.assertAlmostEqual(trajectory.longitude[-1], end[0], places=6)
+        self.assertAlmostEqual(trajectory.latitude[-1], end[1], places=6)
+        self.assertAlmostEqual(trajectory.altitude[0], 1000.0)
+        self.assertAlmostEqual(trajectory.altitude[-1], 2000.0)
+        self.assertLessEqual(max(trajectory.altitude), 3000.0)
+        steps = np.diff([time.timestamp() for time in trajectory.time])
+        np.testing.assert_allclose(steps[:-1], 7.0)
+        self.assertLess(steps[-1], 7.0)
+        # the flight takes about the distance over the speed
+        duration = (trajectory.time[-1] - trajectory.time[0]).total_seconds()
+        self.assertAlmostEqual(duration, 50e3 / 150.0, delta=1.0)
+
+    def test_from_waypoints_invalid(self):
+        """
+        Tests that waypoints without two distinct points, a naive start, or
+        a speed or time step that is not positive raise a ValueError.
+        """
+        start = START.to_pydatetime()
+        waypoints = [(-110.0, 35.0), (-109.0, 35.0)]
+        cases = {
+            "one point": lambda: Trajectory.from_waypoints(
+                [(-110.0, 35.0), (-110.0, 35.0)], start, 100.0, 1000.0
+            ),
+            "naive start": lambda: Trajectory.from_waypoints(
+                waypoints, start.replace(tzinfo=None), 100.0, 1000.0
+            ),
+            "speed": lambda: Trajectory.from_waypoints(waypoints, start, 0.0, 1000.0),
+            "time step": lambda: Trajectory.from_waypoints(
+                waypoints, start, 100.0, 1000.0, timedelta(0)
+            ),
+        }
+        for name, call in cases.items():
+            with self.subTest(name):
+                with self.assertRaises(ValueError):
+                    call()
 
 
 if __name__ == "__main__":

@@ -291,3 +291,42 @@ class TestValidation(IssConstellationTestCase):
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             _check_satellites([self.satellite])
+
+    def test_warnings_refer_to_caller(self):
+        """
+        Test that an analysis's warning refers to the line that called it,
+        however deeply within TAT-C it is issued, and that an analysis that
+        checks its satellites at several depths warns once (at that line).
+        """
+        low = Satellite(
+            name="Low",
+            orbit=SunSynchronousOrbit(
+                altitude=700, equator_crossing_time=time(10, 30), epoch=self.start
+            ),
+            instruments=[Instrument(name="Test", field_of_regard=30)],
+        )
+        features = gpd.GeoDataFrame(
+            {"start": [pd.Timestamp(self.start)], "end": [pd.Timestamp(self.end)]},
+            geometry=[Polygon([(0, 0), (1, 0), (1, 1)])],
+            crs="EPSG:4326",
+        )
+        calls = {
+            "compute_ground_track": lambda: compute_ground_track(low, self.times),
+            "collect_feature_observations": lambda: collect_feature_observations(
+                features, low, self.times
+            ),
+            "collect_ground_track with sat_altaz": lambda: collect_ground_track(
+                low, self.times, sat_altaz=True
+            ),
+        }
+        for name, call in calls.items():
+            with self.subTest(name):
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("default")
+                    call()
+                messages = [w for w in caught if "perigee" in str(w.message)]
+                self.assertEqual(len(messages), 1)
+                self.assertEqual(messages[0].filename, __file__)
+                deprecated = [w for w in caught if w.category is DeprecationWarning]
+                for warning in deprecated:
+                    self.assertEqual(warning.filename, __file__)

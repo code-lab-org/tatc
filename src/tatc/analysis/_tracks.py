@@ -9,9 +9,10 @@ tracks and pixels.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import cached_property
 from typing import Any
 
 import geopandas as gpd
@@ -22,16 +23,17 @@ import shapely
 from shapely.geometry import MultiPolygon, Polygon
 from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
+from skyfield.timelib import Time
 from skyfield.toposlib import GeographicPosition
 
 from .. import config
+from .._warnings import warn
 from ..constants import de421
 from ..schemas import AllInstruments, Instrument, PointedInstrument
 from ..utils.geometry import split_polygon
 from ..utils.glint import compute_glint_angle
 from ..utils.time import _index_orbit_track, _to_time, _to_time_from_offsets
 from .check import (
-    _PlatformKind,
     _check_distinct_names,
     _check_platforms,
     _check_times,
@@ -39,6 +41,7 @@ from .check import (
     _get_instrument_indices,
     _get_platform_kind,
     _is_single,
+    _PlatformKind,
 )
 
 Mask = Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries
@@ -60,12 +63,11 @@ def _get_platform_altaz(platform_altaz: bool, sat_altaz: bool | None) -> bool:
     """
     if sat_altaz is None:
         return platform_altaz
-    warnings.warn(
+    warn(
         "sat_altaz is deprecated and will be removed in a future release: use "
         "platform_altaz (whose angles are named platform_alt and platform_az, "
         "formerly sat_alt and sat_az)",
         DeprecationWarning,
-        stacklevel=3,
     )
     return platform_altaz or sat_altaz
 
@@ -140,70 +142,184 @@ def _get_mask_geometry(mask: Mask) -> Polygon | MultiPolygon:
     return split_polygon(geometry)
 
 
+@dataclass(frozen=True)
+class _FootprintRequest:
+    """
+    The arguments of a collection of footprints (or pixels), shared by the
+    platforms of every kind (see `_collect_tracks`).
+
+    Attributes:
+        times (list[datetime.datetime] | None): The times, or `None` for the
+            times of each aircraft's trajectory or the static footprints of
+            fixed platforms.
+        instrument_index (int | None): The index of the observing instrument
+            on each platform, or `None` for every instrument of each platform.
+        elevation (float | None): The elevation (meters) above the WGS 84
+            ellipsoid at which to compute footprints, or `None` for the
+            default of each kind (see `get_elevation`).
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):
+            The mask, split along the anti-meridian and poles (see
+            `_get_mask_geometry`), if any.
+        platform_altaz (bool): `True` to include the platforms' angles.
+        solar_altaz (bool): `True` to include the solar and glint angles.
+        time_step (datetime.timedelta | None): The time step that each time
+            represents (see `_get_step_half_spans`).
+        pixels (bool): `True` to collect pixel centers rather than footprints.
+    """
+
+    times: list[datetime] | None
+    instrument_index: int | None = 0
+    elevation: float | None = None
+    mask: Polygon | MultiPolygon | None = None
+    platform_altaz: bool = False
+    solar_altaz: bool = False
+    time_step: timedelta | None = None
+    pixels: bool = False
+
+    @classmethod
+    def create(
+        cls,
+        times: list[datetime] | None,
+        instrument_index: int | None = 0,
+        elevation: float | None = None,
+        mask: Mask | None = None,
+        platform_altaz: bool = False,
+        solar_altaz: bool = False,
+        time_step: timedelta | None = None,
+        pixels: bool = False,
+    ) -> _FootprintRequest:
+        """
+        Creates a request, checking its times (see `_check_times`) and
+        splitting its mask (see `_get_mask_geometry`).
+
+        Args:
+            times (list[datetime.datetime] | None): The times.
+            instrument_index (int | None): The instrument index.
+            elevation (float | None): The elevation (meters).
+            mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
+                The mask, in WGS84 (lon/lat) coordinates, if any.
+            platform_altaz (bool): `True` to include the platforms' angles.
+            solar_altaz (bool): `True` to include the solar and glint angles.
+            time_step (datetime.timedelta | None): The time step.
+            pixels (bool): `True` to collect pixel centers.
+
+        Returns:
+            _FootprintRequest: the request
+        """
+        _check_times(times)
+        return cls(
+            times,
+            instrument_index,
+            elevation,
+            None if mask is None else _get_mask_geometry(mask),
+            platform_altaz,
+            solar_altaz,
+            time_step,
+            pixels,
+        )
+
+    @property
+    def angles(self) -> list[str]:
+        """The angle columns requested (see `_get_angle_columns`)."""
+        return _get_angle_columns(self.platform_altaz, self.solar_altaz)
+
+    def get_elevation(self, default: float = 0) -> float:
+        """
+        Gets the elevation at which to compute footprints: the requested
+        elevation, or a default (such as the ellipsoid for satellites and
+        aircraft).
+
+        Args:
+            default (float): The default elevation (meters).
+
+        Returns:
+            float: the elevation (meters)
+        """
+        return default if self.elevation is None else self.elevation
+
+    @cached_property
+    def skyfield_times(self) -> Time:
+        """
+        The times as Skyfield times, shared (with their Earth orientation)
+        by every platform.
+        """
+        return _to_time(self.times)
+
+    @cached_property
+    def half_spans(self) -> npt.NDArray:
+        """
+        The half span (seconds) of the step of each time (see
+        `_get_step_half_spans`).
+        """
+        return _get_step_half_spans(self.times, self.time_step)  # type: ignore
+
+
+_Collector = Callable[[Any, Any, _FootprintRequest], Any]
+"""
+Collects the track (or pixels) of a platform's instrument (by index, or
+`None` for a platform without instruments), returning a
+`geopandas.GeoDataFrame`, or `None` if it is empty.
+"""
+
+
 def _collect_tracks(
     platforms: object,
     kind: _PlatformKind,
-    times: list[datetime] | None,
-    instrument_index: int | None,
-    mask: Mask | None,
-    platform_altaz: bool,
-    solar_altaz: bool,
-    collect: Callable[
-        [Any, int, Polygon | MultiPolygon | None], gpd.GeoDataFrame | None
-    ],
-    timed: bool = True,
+    request: _FootprintRequest,
+    collect: _Collector,
+    empty: Callable[[bool], gpd.GeoDataFrame] | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Collects the tracks (or pixels) of the instruments of platforms of a
     kind: checks the platforms (see `_check_platforms`, with distinct names,
-    see `_check_distinct_names`) and times (see `_check_times`), splits the mask (see `_get_mask_geometry`), collects
-    the track of each platform's instruments, and combines them (see
-    `_combine_results`): for a single platform and instrument, its track;
-    otherwise, those of each platform and instrument, concatenated and
-    sorted by time (or, without times, in the order of the platforms and
+    see `_check_distinct_names`), collects the track of each platform's
+    instruments (or of each platform without instruments), and combines
+    them (see `_combine_results`): for a single platform and instrument, its
+    track; otherwise, those of each platform and instrument, concatenated
+    and sorted by time (or, without times, in the order of the platforms and
     their instruments).
 
     Args:
         platforms (object): The platform(s).
         kind (_PlatformKind): The kind of platform.
-        times (list[datetime.datetime] | None): The times, of which none
-            gives an empty track.
-        instrument_index (int | None): The index of the observing instrument
-            on each platform, or `None` for every instrument of each platform.
-        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
-            The mask, if any.
-        platform_altaz (bool): `True` to include the platforms' angles.
-        solar_altaz (bool): `True` to include the solar and glint angles.
-        collect (Callable[[Any, int, shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None], geopandas.GeoDataFrame | None]):
-            Collects the track of a platform's instrument (by index), with
-            the split mask, or `None` if it is empty.
-        timed (bool): `True` if the tracks have a `time` column.
+        request (_FootprintRequest): The request, of which no times give an
+            empty track.
+        collect (_Collector): Collects the track of a platform's instrument.
+        empty (Callable[[bool], geopandas.GeoDataFrame] | None): Gets an
+            empty track, with a `time` column if timed, by default that of
+            `_get_empty_track` with the angles requested.
 
     Returns:
         geopandas.GeoDataFrame: the tracks
     """
-    single = _is_single(platforms, instrument_index=instrument_index)
-    checked = _check_platforms(platforms, kind, stacklevel=6)
+    single = _is_single(platforms, instrument_index=request.instrument_index)
+    checked = _check_platforms(platforms, kind)
     _check_distinct_names(checked, kind, kind.argument)
-    _check_times(times)
-    angles = _get_angle_columns(platform_altaz, solar_altaz)
+    # fixed platforms without times have static footprints
+    timed = not kind.fixed or request.times is not None
 
-    def empty() -> gpd.GeoDataFrame:
-        return _get_empty_track(kind, angles, timed=timed)
+    def get_empty() -> gpd.GeoDataFrame:
+        if empty is not None:
+            return empty(timed)
+        return _get_empty_track(kind, request.angles, timed=timed)
 
-    if times is not None and len(times) == 0:
-        return empty()
-    geometry = None if mask is None else _get_mask_geometry(mask)
+    if request.times is not None and len(request.times) == 0:
+        return get_empty()
     tracks = []
     for platform in checked:
-        for index in _get_instrument_indices(platform, instrument_index):
-            track = collect(platform, index, geometry)
-            tracks.append(empty() if track is None else track)
+        indices = (
+            _get_instrument_indices(platform, request.instrument_index)
+            if kind.instrumented
+            else [None]
+        )
+        for index in indices:
+            track = collect(platform, index, request)
+            tracks.append(get_empty() if track is None else track)
     if timed:
-        return _combine_results(tracks, single, "time", empty)
+        return _combine_results(tracks, single, "time", get_empty)
     tracks = [track for track in tracks if not track.empty]
     if len(tracks) == 0:
-        return empty()
+        return get_empty()
     return pd.concat(tracks, ignore_index=True)
 
 
@@ -449,9 +565,7 @@ def _assemble_track(
     track: Geocentric,
     geometries: list[Polygon | MultiPolygon],
     elevation: float,
-    mask: Polygon | MultiPolygon | None,
-    platform_altaz: bool,
-    solar_altaz: bool,
+    request: _FootprintRequest,
     represent: list[datetime | None] | None = None,
     ground_elevation: float = 0,
 ) -> gpd.GeoDataFrame:
@@ -478,10 +592,8 @@ def _assemble_track(
         geometries (list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon]):
             The footprint at each time.
         elevation (float): The elevation (meters) of the footprints.
-        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):
-            The mask (see `_get_mask_geometry`), if any.
-        platform_altaz (bool): `True` to include the platform's angles.
-        solar_altaz (bool): `True` to include the solar and glint angles.
+        request (_FootprintRequest): The request, of the mask (if any) and
+            the angles to include.
         represent (list[datetime.datetime | None] | None): For each footprint,
             the time at which to evaluate its validity if not its own (see
             `_compute_step_footprints`).
@@ -528,8 +640,10 @@ def _assemble_track(
         geometry=list(geometries),
         crs="EPSG:4326",
     )
-    _add_altaz_columns(frame, track, target, platform_altaz, solar_altaz)
-    return _clip_track(frame, mask)
+    _add_altaz_columns(
+        frame, track, target, request.platform_altaz, request.solar_altaz
+    )
+    return _clip_track(frame, request.mask)
 
 
 def _assemble_pixels(
@@ -538,9 +652,7 @@ def _assemble_pixels(
     times: list[datetime] | pd.DatetimeIndex | None,
     track: Geocentric,
     elevation: float,
-    mask: Polygon | MultiPolygon | None,
-    platform_altaz: bool,
-    solar_altaz: bool,
+    request: _FootprintRequest,
     ground_elevation: float = 0,
     region: Polygon | MultiPolygon | None = None,
 ) -> gpd.GeoDataFrame | None:
@@ -563,10 +675,8 @@ def _assemble_pixels(
         track (skyfield.positionlib.Geocentric): The platform's track at the
             times (at one time if `None`).
         elevation (float): The elevation (meters) of the pixels.
-        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):
-            The mask (see `_get_mask_geometry`), if any.
-        platform_altaz (bool): `True` to include the platform's angles.
-        solar_altaz (bool): `True` to include the solar and glint angles.
+        request (_FootprintRequest): The request, of the mask (if any) and
+            the angles to include.
         ground_elevation (float): The elevation (meters) of the ground, which
             blocks rays toward an elevation above the instrument.
         region (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):
@@ -610,8 +720,8 @@ def _assemble_pixels(
         geometry=list(points),
         crs="EPSG:4326",
     )
-    _add_altaz_columns(frame, rows, target, platform_altaz, solar_altaz)
-    return _clip_track(frame, mask)
+    _add_altaz_columns(frame, rows, target, request.platform_altaz, request.solar_altaz)
+    return _clip_track(frame, request.mask)
 
 
 def _check_pixel_instrument(instrument: Instrument) -> None:

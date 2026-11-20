@@ -7,6 +7,7 @@ Object schema for the trajectories of aircraft.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Annotated
 
@@ -21,10 +22,13 @@ from pydantic import (
     PrivateAttr,
     model_validator,
 )
+from pyproj import Geod
+from shapely.geometry import LineString
 from skyfield.constants import DAY_S
 from skyfield.positionlib import Geocentric
 from skyfield.timelib import Time
 
+from ...constants import EARTH_ECCENTRICITY, EARTH_EQUATORIAL_RADIUS
 from ...utils.ellipsoid import geodetic_to_rectangular, rectangular_to_geodetic
 from ...utils.projection import _earth_fixed_to_geocentric
 from ...utils.time import _to_time
@@ -40,6 +44,8 @@ _MIN_SPEED = 1e-3
 # tolerance (seconds) of the times at the ends of the parts of a trajectory,
 # which absorbs their rounding
 _TIME_TOLERANCE = 1e-6
+
+_GEOD = Geod(ellps="WGS84")
 
 Finite = Annotated[float, Field(allow_inf_nan=False)]
 Latitude = Annotated[float, Field(ge=-90, le=90, allow_inf_nan=False)]
@@ -125,10 +131,37 @@ def _interpolate_hermite(
     return result, rate
 
 
+def _get_radius_of_curvature(
+    latitude: npt.NDArray, azimuth: npt.NDArray
+) -> npt.NDArray:
+    """
+    Gets the radius of curvature (meters) of the WGS 84 ellipsoid in an
+    azimuth at a latitude (by Euler's theorem, from its meridian and prime
+    vertical radii of curvature), by which a horizontal distance at an
+    altitude scales to the distance over the ellipsoid below.
+
+    Args:
+        latitude (numpy.typing.NDArray): The geodetic latitudes (degrees).
+        azimuth (numpy.typing.NDArray): The azimuths (degrees clockwise from
+            north).
+
+    Returns:
+        numpy.typing.NDArray: the radii of curvature (meters)
+    """
+    lat, azi = np.radians(latitude), np.radians(azimuth)
+    e2 = EARTH_ECCENTRICITY**2
+    w = 1 - e2 * np.sin(lat) ** 2
+    meridian = EARTH_EQUATORIAL_RADIUS * (1 - e2) / w**1.5
+    prime = EARTH_EQUATORIAL_RADIUS / np.sqrt(w)
+    return 1 / (np.cos(azi) ** 2 / meridian + np.sin(azi) ** 2 / prime)
+
+
 class Trajectory(BaseModel):
     """
     Trajectory of an aircraft: its states at a sequence of times (for example,
-    from a flight plan, a flight recording, or a simulation). Between the
+    from a flight plan, a flight recording, or a simulation, read from a
+    table with `from_dataframe`, or flown through waypoints at a constant
+    speed with `from_waypoints`). Between the
     times, its position follows the cubic (Hermite) curve through the
     positions and horizontal velocities of the neighboring states, with the
     altitude, roll, pitch, and heading interpolated linearly; before the first
@@ -277,6 +310,93 @@ class Trajectory(BaseModel):
         }
         return cls(
             time=states["time"].dt.to_pydatetime().tolist(), max_gap=max_gap, **values
+        )
+
+    @classmethod
+    def from_waypoints(
+        cls,
+        waypoints: Sequence[tuple[float, float]] | LineString,
+        start: datetime,
+        speed: float,
+        altitude: float | Sequence[float],
+        time_step: timedelta = timedelta(seconds=1),
+    ) -> Trajectory:
+        """
+        Creates the trajectory of a flight through waypoints, as planned for
+        an underflight or a survey: from the first waypoint at the `start`,
+        along the geodesic (on the WGS 84 ellipsoid) to each next waypoint at
+        a constant ground speed, turning at each waypoint without slowing. Its
+        states are sampled at each time step from the start, and at the last
+        waypoint, with the track along the geodesic and the ground speed. The
+        trajectory has no gaps (`max_gap` is `None`) and no attitude (level
+        wings and nose, heading along the track): for turns, climbs, or an
+        attitude, see `tatc.preprocess.sample_flight_plan` and
+        `tatc.preprocess.estimate_attitude`.
+
+        Args:
+            waypoints (Sequence[tuple[float, float]] | shapely.geometry.LineString):
+                The waypoints, as (longitude, latitude) pairs (decimal degrees)
+                or the vertices of a line, at least two distinct.
+            start (datetime.datetime): The time (timezone-aware) at the first
+                waypoint.
+            speed (float): The ground speed (meters per second): the
+                horizontal speed at the aircraft's altitude (see
+                `Trajectory.ground_speed`).
+            altitude (float | Sequence[float]): The altitude (meters above the
+                WGS 84 ellipsoid), or that at each waypoint, interpolated
+                linearly over each leg.
+            time_step (datetime.timedelta): The time between states.
+
+        Returns:
+            Trajectory: the trajectory
+        """
+        if start.utcoffset() is None:
+            raise ValueError("start must be a timezone-aware datetime")
+        if not speed > 0:
+            raise ValueError(f"speed must be positive, not {speed}")
+        if not time_step > timedelta(0):
+            raise ValueError(f"time_step must be positive, not {time_step}")
+        points = np.asarray(
+            waypoints.coords if isinstance(waypoints, LineString) else waypoints,
+            dtype=float,
+        )[:, :2]
+        altitudes = np.broadcast_to(np.asarray(altitude, dtype=float), len(points))
+        # omit repeated waypoints, which do not move the aircraft
+        distinct = np.r_[True, np.any(points[1:] != points[:-1], axis=1)]
+        points, altitudes = points[distinct], altitudes[distinct]
+        if len(points) < 2:
+            raise ValueError("waypoints must include at least two distinct points")
+        longitude, latitude = points[:, 0], points[:, 1]
+        azimuth, _, length = _GEOD.inv(
+            longitude[:-1], latitude[:-1], longitude[1:], latitude[1:]
+        )
+        # the time to fly each leg at the ground speed at its altitude: the
+        # distance over the ellipsoid below scales with its radius of
+        # curvature in the leg's azimuth
+        radius = _get_radius_of_curvature(latitude[:-1], azimuth)
+        mean_altitude = (altitudes[:-1] + altitudes[1:]) / 2
+        leg_seconds = length * (radius + mean_altitude) / radius / speed
+        leg_start = np.concatenate([[0], np.cumsum(leg_seconds)])
+        seconds = np.arange(0, leg_start[-1], time_step.total_seconds())
+        if leg_start[-1] - seconds[-1] > _TIME_TOLERANCE:
+            seconds = np.append(seconds, leg_start[-1])
+        leg = np.clip(
+            np.searchsorted(leg_start, seconds, side="right") - 1, 0, len(length) - 1
+        )
+        fraction = np.clip((seconds - leg_start[leg]) / leg_seconds[leg], 0, 1)
+        state_longitude, state_latitude, back_azimuth = _GEOD.fwd(
+            longitude[leg], latitude[leg], azimuth[leg], fraction * length[leg]
+        )
+        return cls(
+            time=[start + timedelta(seconds=float(value)) for value in seconds],
+            latitude=np.asarray(state_latitude).tolist(),
+            longitude=np.asarray(state_longitude).tolist(),
+            altitude=(
+                altitudes[leg] + fraction * (altitudes[leg + 1] - altitudes[leg])
+            ).tolist(),
+            track=((np.asarray(back_azimuth) + 180) % 360).tolist(),
+            ground_speed=[float(speed)] * len(seconds),
+            max_gap=None,
         )
 
     def has_attitude(self) -> bool:

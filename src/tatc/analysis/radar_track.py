@@ -9,18 +9,11 @@ from __future__ import annotations
 from datetime import datetime
 
 import geopandas as gpd
-import numpy as np
 import pandas as pd
 
 from ..schemas import RadarStation
-from ._tracks import Mask, _clip_track, _get_mask_geometry
-from .check import (
-    RADAR_STATION,
-    _check_distinct_names,
-    _check_platforms,
-    _check_times,
-    _dissolve_footprints,
-)
+from ._tracks import Mask, _clip_track, _collect_tracks, _FootprintRequest
+from .check import RADAR_STATION, _dissolve_footprints
 
 
 def _get_empty_radar_track(timed: bool = False) -> gpd.GeoDataFrame:
@@ -87,37 +80,52 @@ def collect_radar_track(
             `times`, also `time` (first), sorted by time and then in the
             order of the stations.
     """
-    stations = _check_platforms(stations, RADAR_STATION)
-    _check_distinct_names(stations, RADAR_STATION, RADAR_STATION.argument)
-    _check_times(times)
-    timed = times is not None
-    if len(stations) == 0 or (timed and len(times) == 0):  # type: ignore
-        return _get_empty_radar_track(timed)
-    records = []
-    for station in stations:
-        ranges = station.compute_ground_ranges(elevation)
-        footprint = station.compute_footprint(elevation)
-        records.append(
-            {
-                "radar_station": station.name,
-                "band": station.band.value if station.band is not None else None,
-                "inner_ground_range": ranges[0] if ranges is not None else None,
-                "outer_ground_range": ranges[1] if ranges is not None else None,
-                "valid_obs": not footprint.is_empty,
-                "geometry": footprint,
-            }
-        )
-    track = gpd.GeoDataFrame(records, crs="EPSG:4326")
-    if timed:
-        # the footprint of each station at each time
-        track = track.iloc[np.tile(np.arange(len(stations)), len(times))]  # type: ignore
-        track.insert(
-            0,
-            "time",
-            np.repeat(pd.to_datetime(times, utc=True).as_unit("ns"), len(stations)),
-        )
-        track = track.reset_index(drop=True)
-    return _clip_track(track, _get_mask_geometry(mask) if mask is not None else None)
+    return _collect_tracks(
+        stations,
+        RADAR_STATION,
+        _FootprintRequest.create(times, None, elevation, mask),
+        _collect_radar_station,
+        _get_empty_radar_track,
+    )
+
+
+def _collect_radar_station(
+    station: RadarStation, _: None, request: _FootprintRequest
+) -> gpd.GeoDataFrame:
+    """
+    Collect a radar station's footprint (see `collect_radar_track`): one row,
+    or one row at each time of the request.
+
+    Args:
+        station (RadarStation): The radar station.
+        _ (None): The index of the instrument (a radar station has none).
+        request (_FootprintRequest): The request, with an elevation.
+
+    Returns:
+        geopandas.GeoDataFrame: the footprint(s)
+    """
+    elevation: float = request.elevation  # type: ignore
+    ranges = station.compute_ground_ranges(elevation)
+    footprint = station.compute_footprint(elevation)
+    times = [None] if request.times is None else request.times
+    track = gpd.GeoDataFrame(
+        {
+            **(
+                {}
+                if request.times is None
+                else {"time": pd.to_datetime(times, utc=True).as_unit("ns")}
+            ),
+            "radar_station": station.name,
+            "band": station.band.value if station.band is not None else None,
+            "inner_ground_range": ranges[0] if ranges is not None else None,
+            "outer_ground_range": ranges[1] if ranges is not None else None,
+            "valid_obs": not footprint.is_empty,
+        },
+        index=pd.RangeIndex(len(times)),
+        geometry=[footprint] * len(times),
+        crs="EPSG:4326",
+    )
+    return _clip_track(track, request.mask)
 
 
 def compute_radar_track(

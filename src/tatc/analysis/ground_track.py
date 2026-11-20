@@ -7,7 +7,6 @@ Methods to collect the ground tracks of instruments on satellites.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from functools import cache
 
 import geopandas as gpd
 import numpy as np
@@ -15,10 +14,9 @@ import numpy.typing as npt
 import pandas as pd
 from shapely.geometry import MultiPolygon, Polygon
 from skyfield.positionlib import Geocentric
-from skyfield.timelib import Time
 
 from ..schemas import AllInstruments, Satellite
-from ..utils.time import _index_orbit_track, _to_time
+from ..utils.time import _index_orbit_track
 from ._tracks import (
     Mask,
     _assemble_pixels,
@@ -26,13 +24,13 @@ from ._tracks import (
     _check_pixel_instrument,
     _collect_tracks,
     _compute_step_footprints,
+    _FootprintRequest,
     _get_platform_altaz,
-    _get_step_half_spans,
 )
 from .check import (
     SATELLITE,
+    _check_distinct_names,
     _check_satellites,
-    _check_times,
     _dissolve_footprints,
     _get_instrument_indices,
 )
@@ -175,124 +173,77 @@ def collect_ground_track(
             `instrument_index`), sorted by time; otherwise, those of each
             satellite and instrument, concatenated and sorted by time.
     """
-    return _collect_satellites(
-        satellites,
-        times,
-        instrument_index,
-        elevation,
-        mask,
-        _get_platform_altaz(platform_altaz, sat_altaz),
-        solar_altaz,
-        time_step,
-    )
-
-
-def _collect_satellites(
-    satellites: Satellite | list[Satellite],
-    times: list[datetime],
-    instrument_index: int | None,
-    elevation: float,
-    mask: Mask | None,
-    platform_altaz: bool,
-    solar_altaz: bool,
-    time_step: timedelta | None,
-    pixels: bool = False,
-) -> gpd.GeoDataFrame:
-    """
-    Collect the footprints (see `collect_ground_track`) or, if `pixels`, the
-    pixels (see `collect_ground_pixels`) of instruments on satellites.
-    """
-
-    @cache
-    def shared() -> Time:
-        # the times, shared by every satellite (with their Earth orientation)
-        return _to_time(times)
-
-    @cache
-    def half_spans() -> npt.NDArray:
-        # the span of each time's step, over which a swept instrument's
-        # footprint sweeps
-        return _get_step_half_spans(times, time_step)
-
-    def collect(satellite: Satellite, index: int, mask: Polygon | MultiPolygon | None):
-        if pixels:
-            return _collect_ground_pixels(
-                satellite,
-                index,
-                times,
-                shared(),
-                elevation,
-                mask,
-                platform_altaz,
-                solar_altaz,
-            )
-        return _collect_ground_track(
-            satellite,
-            index,
-            times,
-            shared(),
-            half_spans(),
-            elevation,
-            mask,
-            platform_altaz,
-            solar_altaz,
-        )
-
     return _collect_tracks(
         satellites,
         SATELLITE,
-        times,
-        instrument_index,
-        mask,
-        platform_altaz,
-        solar_altaz,
-        collect,
+        _FootprintRequest.create(
+            times,
+            instrument_index,
+            elevation,
+            mask,
+            _get_platform_altaz(platform_altaz, sat_altaz),
+            solar_altaz,
+            time_step,
+        ),
+        _collect_satellite,
     )
 
 
-def _collect_ground_track(
-    satellite: Satellite,
-    instrument_index: int,
-    times: list[datetime],
-    t: Time,
-    half_spans: npt.NDArray,
-    elevation: float,
-    mask: Polygon | MultiPolygon | None,
-    platform_altaz: bool,
-    solar_altaz: bool,
+def _collect_satellite(
+    satellite: Satellite, instrument_index: int, request: _FootprintRequest
 ) -> gpd.GeoDataFrame | None:
     """
-    Collect a satellite instrument's ground track at times, given as
-    `datetime`s and as Skyfield times (see `collect_ground_track`), with a
-    mask split along the anti-meridian and poles, or `None` if no footprint
-    intersects the mask.
+    Collect a satellite instrument's footprints (see `collect_ground_track`)
+    or, if the request is of pixels, its pixels (see
+    `collect_ground_pixels`), or `None` if there are none within the mask.
+
+    Args:
+        satellite (Satellite): The satellite.
+        instrument_index (int): The index of the instrument.
+        request (_FootprintRequest): The request.
+
+    Returns:
+        geopandas.GeoDataFrame | None: the footprints or pixels
     """
     instrument = satellite.get_instrument(instrument_index)
-    if mask is not None and len(times) > 1:
+    times: list[datetime] = request.times  # type: ignore
+    elevation = request.get_elevation()
+    if request.pixels:
+        _check_pixel_instrument(instrument)
+    # pixel arrays are views at an instant (steps of no span)
+    half_spans = np.zeros(len(times)) if request.pixels else request.half_spans
+    if request.mask is not None and len(times) > 1:
         # propagate orbit only where the footprint intersects the mask,
         # reusing the footprints computed to cull it
         culled = _cull_orbit_track(
-            satellite, instrument, times, half_spans, mask, elevation
+            satellite, instrument, times, half_spans, request.mask, elevation
         )
         if culled is None:
             return None
         orbit_track, geometries, represent = culled
     else:
-        orbit_track = satellite.get_track(t)
-        # compute footprints (exact ray/WGS 84 ellipsoid intersection)
-        geometries, represent = _compute_step_footprints(
-            satellite, instrument, times, half_spans, elevation, orbit_track
+        orbit_track = satellite.get_track(request.skyfield_times)
+        geometries, represent = (
+            ([], [])
+            if request.pixels
+            # compute footprints (exact ray/WGS 84 ellipsoid intersection)
+            else _compute_step_footprints(
+                satellite, instrument, times, half_spans, elevation, orbit_track
+            )
+        )
+    track_times = orbit_track.t.utc_datetime()
+    if request.pixels:
+        return _assemble_pixels(
+            satellite, instrument, track_times, orbit_track, elevation, request  # type: ignore
         )
     return _assemble_track(
         satellite,
         instrument,
-        orbit_track.t.utc_datetime(),  # type: ignore
+        track_times,  # type: ignore
         orbit_track,
         geometries,
         elevation,
-        mask,
-        platform_altaz,
-        solar_altaz,
+        request,
         represent=represent,
     )
 
@@ -402,28 +353,23 @@ def compute_ground_track(
             first and last times of its valid footprints), and `geometry`,
             sorted by `start`.
     """
-    satellites = _check_satellites(satellites)
-    _check_times(times)
+    request = _FootprintRequest.create(
+        times, instrument_index, elevation, mask, time_step=time_step
+    )
     if dissolve_orbits:
         return _dissolve_footprints(
-            collect_ground_track(
-                satellites,
-                times,
-                instrument_index,
-                elevation,
-                mask,
-                time_step=time_step,
-            )
+            _collect_tracks(satellites, SATELLITE, request, _collect_satellite)
         )
+    checked = _check_satellites(satellites)
+    _check_distinct_names(checked, SATELLITE, SATELLITE.argument)
     orbits = []
-    for satellite in satellites:
+    for satellite in checked if len(times) > 0 else []:
         for index in _get_instrument_indices(satellite, instrument_index):
-            track = collect_ground_track(
-                satellite, times, index, elevation, mask, time_step=time_step
-            )
-            track = track[track["valid_obs"]]
-            if not track.empty:
-                orbits.append(_compute_orbit_coverage(satellite, track, min(times)))
+            track = _collect_satellite(satellite, index, request)
+            if track is not None:
+                track = track[track["valid_obs"]]
+                if not track.empty:
+                    orbits.append(_compute_orbit_coverage(satellite, track, min(times)))
     if len(orbits) == 0:
         return _get_empty_orbit_coverage()
     return (
@@ -482,56 +428,17 @@ def collect_ground_pixels(
             `instrument_index`), sorted by time; otherwise, those of each
             satellite and instrument, concatenated and sorted by time.
     """
-    return _collect_satellites(
+    return _collect_tracks(
         satellites,
-        times,
-        instrument_index,
-        elevation,
-        mask,
-        _get_platform_altaz(platform_altaz, sat_altaz),
-        solar_altaz,
-        None,
-        pixels=True,
-    )
-
-
-def _collect_ground_pixels(
-    satellite: Satellite,
-    instrument_index: int,
-    times: list[datetime],
-    t: Time,
-    elevation: float,
-    mask: Polygon | MultiPolygon | None,
-    platform_altaz: bool,
-    solar_altaz: bool,
-) -> gpd.GeoDataFrame | None:
-    """
-    Collect a satellite instrument's ground pixels at times, given as
-    `datetime`s and as Skyfield times (see `collect_ground_pixels`), with a
-    mask split along the anti-meridian and poles, or `None` if there are
-    none.
-    """
-    instrument = satellite.get_instrument(instrument_index)
-    _check_pixel_instrument(instrument)
-    if mask is not None and len(times) > 1:
-        # propagate orbit only where the footprint intersects the mask
-        # pixel arrays are views at an instant, so cull by the views at the
-        # times (with steps of no span)
-        culled = _cull_orbit_track(
-            satellite, instrument, times, np.zeros(len(times)), mask, elevation
-        )
-        if culled is None:
-            return None
-        orbit_track, _, _ = culled
-    else:
-        orbit_track = satellite.get_track(t)
-    return _assemble_pixels(
-        satellite,
-        instrument,
-        orbit_track.t.utc_datetime(),  # type: ignore
-        orbit_track,
-        elevation,
-        mask,
-        platform_altaz,
-        solar_altaz,
+        SATELLITE,
+        _FootprintRequest.create(
+            times,
+            instrument_index,
+            elevation,
+            mask,
+            _get_platform_altaz(platform_altaz, sat_altaz),
+            solar_altaz,
+            pixels=True,
+        ),
+        _collect_satellite,
     )

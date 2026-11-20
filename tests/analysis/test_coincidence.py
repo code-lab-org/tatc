@@ -550,3 +550,105 @@ class TestFindCoincidentGroundTrack(IssConstellationTestCase):
             sorted([("A", "B"), ("A", "C"), ("B", "C")] * 2),
         )
         self.assertTrue((results.time_difference == timedelta(0)).all())
+
+    def test_fixed_platform_copies(self):
+        """
+        Test that a footprint pairs only with the copy nearest in time of
+        each instrument of a fixed platform collected at times (its footprint
+        is the same at every time), the earlier of two as near, and each
+        footprint of one fixed platform with the nearest copy of another.
+        """
+
+        def radar(time, name="KIWA", geometry=box(1, 1, 3, 3)):
+            footprint = _make_footprint(None, time, geometry)
+            del footprint["satellite"], footprint["instrument"]
+            return {**footprint, "radar_station": name}
+
+        def tower(time, instrument):
+            footprint = _make_footprint(None, time, box(0, 0, 2, 2), instrument)
+            del footprint["satellite"]
+            return {**footprint, "surface_platform": "Tower"}
+
+        ground_track = gpd.GeoDataFrame(
+            [
+                _make_footprint("A", 5, box(0, 0, 2, 2)),
+                _make_footprint("A", 6.5, box(0, 0, 2, 2)),
+                *[radar(time) for time in range(10)],
+                *[tower(time, instrument) for time in (0, 11) for instrument in "XY"],
+            ],
+            crs="EPSG:4326",
+        )
+        difference = timedelta(minutes=10)
+        results = find_coincident_ground_track(
+            ground_track, difference, between=("satellite", "radar_station")
+        )
+        # A's footprint at 6.5 minutes is as near to the copies at 6 and 7
+        # minutes: the earlier is kept
+        self.assertListEqual(list(results.time_1), [_minutes(5), _minutes(6.5)])
+        self.assertListEqual(list(results.time_2), [_minutes(5), _minutes(6)])
+        towers = find_coincident_ground_track(
+            ground_track, difference, between=("satellite", "surface_platform")
+        )
+        self.assertListEqual(
+            list(zip(towers.time_1, towers.time_2, towers.instrument_2)),
+            [
+                (_minutes(5), _minutes(0), "X"),
+                (_minutes(5), _minutes(0), "Y"),
+                (_minutes(6.5), _minutes(11), "X"),
+                (_minutes(6.5), _minutes(11), "Y"),
+            ],
+        )
+        fixed = find_coincident_ground_track(
+            ground_track, difference, between=("radar_station", "surface_platform")
+        )
+        # each radar footprint with the nearest copy of each tower instrument
+        self.assertEqual(len(fixed), 20)
+        self.assertTrue((abs(fixed.time_difference) <= timedelta(minutes=5)).all())
+
+    def test_valid_pairs(self):
+        """
+        Test that a pair is a valid observation if both footprints are, so
+        that dissolving the pairs gives the area validly observed in common.
+        """
+        from tatc.analysis import dissolve_footprints
+
+        ground_track = gpd.GeoDataFrame(
+            [
+                _make_footprint("A", 0, box(0, 0, 2, 2)),
+                _make_footprint("B", 0, box(1, 1, 3, 3)),
+                {**_make_footprint("C", 0, box(0, 0, 1.5, 1.5)), "valid_obs": False},
+            ],
+            crs="EPSG:4326",
+        )
+        results = find_coincident_ground_track(ground_track)
+        self.assertListEqual(
+            list(zip(results.satellite_1, results.satellite_2, results.valid_obs)),
+            [("A", "B", True), ("A", "C", False), ("B", "C", False)],
+        )
+        common = dissolve_footprints(results)
+        self.assertTrue(common.geometry.iloc[0].equals(box(1, 1, 2, 2)))
+        self.assertNotIn(
+            "valid_obs",
+            find_coincident_ground_track(ground_track.drop(columns="valid_obs")),
+        )
+
+    def test_bounds_at_other_times(self):
+        """
+        Test that footprints whose bounds overlap but whose times differ by
+        more than the maximum time difference are not coincident, and that
+        footprints whose bounds overlap without overlapping are not either.
+        """
+        ground_track = gpd.GeoDataFrame(
+            [
+                _make_footprint("A", 0, box(0, 0, 2, 2)),
+                _make_footprint("B", 30, box(0, 0, 2, 2)),
+                _make_footprint(
+                    "B", 0, box(0, 0, 3, 3).difference(box(0, 0, 2.5, 2.5))
+                ),
+            ],
+            crs="EPSG:4326",
+        )
+        self.assertTrue(find_coincident_ground_track(ground_track).empty)
+        self.assertEqual(
+            len(find_coincident_ground_track(ground_track, timedelta(minutes=30))), 1
+        )

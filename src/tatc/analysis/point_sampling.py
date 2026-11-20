@@ -242,7 +242,7 @@ def compute_access_periods(
         pandas.Series: the access periods (`pandas.Interval` of UTC
             timestamps), in time order.
     """
-    _warn_low_perigees([_check_satellite(satellite)], stacklevel=3)
+    _warn_low_perigees([_check_satellite(satellite)])
     _check_time_window(start, end)
     return _run(
         _compute_access_periods(point, satellite, start, end, min_elevation_angle)

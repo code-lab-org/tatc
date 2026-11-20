@@ -64,7 +64,9 @@ column of its kind: ``satellite``, ``aircraft``, ``surface_platform``, or
 observes points; ``collect_footprint_observations`` samples the observations
 of points from footprints collected at times, for any platforms. Fixed
 platforms (surface platforms and radar stations) give static footprints
-without times, or the same footprint at each of the times given.
+without times, or the same footprint at each of the times given; in
+coincident footprints, another platform's footprint pairs only with the copy
+nearest in time.
 
 Any Platforms
 -------------

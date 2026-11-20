@@ -255,6 +255,20 @@ class TestFeatureObservationsOtherPlatforms(unittest.TestCase):
         )
         self.assertNotIn("satellite", observations.columns)
 
+    def test_fixed_platform_time(self):
+        """
+        Test that a radar station, whose footprint is the same at each time,
+        observes a feature at the earliest time at which it exists.
+        """
+        features = self.features.assign(
+            start=pd.DatetimeIndex([self.times[30]], dtype="datetime64[ns, UTC]")
+        )
+        observations = collect_feature_observations(
+            features, self.radar, list(reversed(self.times)), elevation=3000
+        )
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations["time"].iloc[0], pd.Timestamp(self.times[30]))
+
     def test_surface_platform_ground_elevation(self):
         """
         Test that the viewing geometry of a surface platform's observation is

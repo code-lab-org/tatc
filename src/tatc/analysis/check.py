@@ -6,7 +6,6 @@ Input validation and result handling shared by the analysis functions.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from .. import constants
+from .._warnings import warn
 from ..schemas import Aircraft, RadarStation, Satellite, SurfacePlatform
 from ..schemas.space.base_constellation import BaseConstellation
 
@@ -37,21 +37,34 @@ class _PlatformKind:
         label (str): The kind, as named in errors.
         argument (str): The argument that takes platforms of this kind in
             the analyses of a single kind (such as `collect_ground_track`).
+        fixed (bool): `True` if platforms of this kind do not move in the
+            Earth-fixed frame, so that their footprints do not change with
+            time (and may be collected without times).
+        instrumented (bool): `True` if platforms of this kind carry
+            instruments (`instruments`), `False` if a platform is itself the
+            instrument (as a radar station is).
     """
 
     type: type
     column: str
     label: str
     argument: str
+    fixed: bool = False
+    instrumented: bool = True
 
 
 SATELLITE = _PlatformKind(Satellite, "satellite", "satellite", "satellites")
 AIRCRAFT = _PlatformKind(Aircraft, "aircraft", "aircraft", "aircraft")
 SURFACE_PLATFORM = _PlatformKind(
-    SurfacePlatform, "surface_platform", "surface platform", "platforms"
+    SurfacePlatform, "surface_platform", "surface platform", "platforms", fixed=True
 )
 RADAR_STATION = _PlatformKind(
-    RadarStation, "radar_station", "radar station", "stations"
+    RadarStation,
+    "radar_station",
+    "radar station",
+    "stations",
+    fixed=True,
+    instrumented=False,
 )
 
 _PLATFORM_KINDS = (SATELLITE, AIRCRAFT, SURFACE_PLATFORM, RADAR_STATION)
@@ -193,7 +206,6 @@ def _check_platforms(
     kind: _PlatformKind,
     name: str | None = None,
     allow_single: bool = True,
-    stacklevel: int = 4,
 ) -> list:
     """
     Checks that `value` is a list (or tuple) of platforms of a kind (for
@@ -207,8 +219,6 @@ def _check_platforms(
         name (str | None): The argument name to report in the error
             message, by default that of the kind (see `_PlatformKind`).
         allow_single (bool): `True`, to also accept a single platform.
-        stacklevel (int): The stack level of a warning of low perigees,
-            relative to `_warn_low_perigees`.
 
     Returns:
         list: the checked platforms, as a list.
@@ -227,7 +237,7 @@ def _check_platforms(
             f"not a {type(value).__name__}{_get_constellation_hint(value)}"
         )
     if kind is SATELLITE:
-        _warn_low_perigees(checked, stacklevel)
+        _warn_low_perigees(checked)
     return checked
 
 
@@ -235,7 +245,6 @@ def _check_satellites(
     satellites: object,
     name: str = "satellites",
     allow_single: bool = True,
-    stacklevel: int = 4,
 ) -> list[Satellite]:
     """
     Checks that `satellites` is a list (or tuple) of `Satellite`s (or, if
@@ -246,16 +255,14 @@ def _check_satellites(
         satellites (object): the value to check.
         name (str): the argument name to report in the error message.
         allow_single (bool): `True`, to also accept a single `Satellite`.
-        stacklevel (int): the stack level of a warning of low perigees,
-            relative to `_warn_low_perigees`.
 
     Returns:
         list[Satellite]: the checked satellites, as a list.
     """
-    return _check_platforms(satellites, SATELLITE, name, allow_single, stacklevel + 1)
+    return _check_platforms(satellites, SATELLITE, name, allow_single)
 
 
-def _warn_low_perigees(satellites: list[Satellite], stacklevel: int = 4) -> None:
+def _warn_low_perigees(satellites: list[Satellite]) -> None:
     """
     Warns (once, for all of them) if any satellites have a perigee altitude
     below 100 km, as from an orbit altitude specified in kilometers rather
@@ -265,9 +272,9 @@ def _warn_low_perigees(satellites: list[Satellite], stacklevel: int = 4) -> None
     members or conversions to general perturbations orbits).
 
     Args:
-        satellites (list[Satellite]): the satellites to check.
-        stacklevel (int): the stack level of the warning, so that it refers
-            to the analysis function's caller.
+        satellites (list[Satellite]): the satellites to check. The warning
+            refers to the code that called the analysis (see
+            `tatc._warnings.warn`).
     """
     low = {}
     for satellite in satellites:
@@ -282,12 +289,11 @@ def _warn_low_perigees(satellites: list[Satellite], stacklevel: int = 4) -> None
         names = ", ".join(repr(name) for name in list(low)[:3])
         if len(low) > 3:
             names += f", and {len(low) - 3} more"
-        warnings.warn(
+        warn(
             f"satellites ({names}) have a perigee altitude below "
             f"{_MIN_PERIGEE_ALTITUDE / 1e3:.0f} km (as low as "
             f"{min(low.values()) / 1e3:.1f} km): check that orbit altitudes and "
-            "semimajor axes are in meters",
-            stacklevel=stacklevel,
+            "semimajor axes are in meters"
         )
 
 

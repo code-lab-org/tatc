@@ -7,7 +7,6 @@ Methods to analyze dilusion of precision.
 
 from __future__ import annotations
 
-import warnings
 from datetime import datetime
 from enum import Enum
 
@@ -17,6 +16,7 @@ import pandas as pd
 from shapely.geometry import Point as ShapelyPoint
 from skyfield.api import wgs84
 
+from .._warnings import warn
 from ..constants import timescale
 from ..schemas import Point, Satellite
 from ..utils.geometry import _get_point_coordinates
@@ -149,7 +149,7 @@ def compute_dop(
             H_inv = np.linalg.solve(H.T @ H, np.eye(H.shape[1]))
         except np.linalg.LinAlgError:
             # If the H matrix nearly singular, linalg will not be able to solve, return NaN and a warning
-            warnings.warn("H matrix could not be inverted, NaN DOP value returned.")
+            warn("H matrix could not be inverted, NaN DOP value returned.")
             return np.nan
         # compute and return the dop value
         # the reference clock is undefined if no reference satellite is visible

@@ -113,7 +113,9 @@ def collect_feature_observations(
     feature: the part of the feature within the valid footprints of all
     times at which the feature exists, which is only part of it if the
     feature extends beyond the swath. Its time is that of the footprint
-    that covers most of the feature, and the viewing geometry is that at
+    that covers most of the feature (the earliest of those that cover as
+    much, as the footprints of a fixed platform at each time do), and the
+    viewing geometry is that at
     this time: the platform's elevation angle (`platform_alt`) and azimuth
     (`platform_az`), seen from the centroid of the viewed part, its slant
     range (`platform_range`), and its height above the WGS 84 ellipsoid
@@ -209,8 +211,9 @@ def collect_feature_observations(
         return _get_empty_feature_observations(kinds)
     # each observation: the union of the pieces of a feature viewed by a
     # platform's instrument, at the time of the piece with the largest area
+    # (the earliest of those as large)
     observations = (
-        pieces.sort_values("area", ascending=False, kind="stable")
+        pieces.sort_values(["area", "time"], ascending=[False, True], kind="stable")
         .groupby(["feature", "platform", "instrument"], sort=False, dropna=False)
         .agg(
             kind=("kind", "first"),

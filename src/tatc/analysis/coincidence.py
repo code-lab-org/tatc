@@ -18,8 +18,10 @@ import shapely
 
 from .check import (
     _PLATFORM_COLUMNS,
+    _PLATFORM_KINDS,
     _aggregate_names,
     _get_empty_observation_frame,
+    _get_instruments,
     _get_platform_columns,
     _get_platform_kinds,
     _get_platforms,
@@ -258,6 +260,57 @@ def find_coincident_observations(
     )
 
 
+def _keep_nearest_copies(
+    first: np.ndarray,
+    second: np.ndarray,
+    fixed: np.ndarray,
+    instruments: np.ndarray,
+    times: pd.DatetimeIndex,
+) -> np.ndarray:
+    """
+    Selects, of the candidate pairs of footprints of two platforms, those
+    with the timed footprint of a fixed platform (see `_PlatformKind.fixed`)
+    nearest in time to the other footprint: a fixed platform's footprint is
+    the same at every time, so its copies at other times would pair with the
+    other footprint again (see `find_coincident_ground_track`). Each footprint
+    of the other platform (of the first, if both are fixed) is kept with the
+    nearest copy of each instrument of the fixed platform (the earlier of
+    two as near).
+
+    Args:
+        first (numpy.ndarray): The row of the first footprint of each pair.
+        second (numpy.ndarray): The row of the second footprint of each pair.
+        fixed (numpy.ndarray): Whether the platform of each row is fixed.
+        instruments (numpy.ndarray): The instrument code of each row.
+        times (pandas.DatetimeIndex): The time of each row (`NaT` if static).
+
+    Returns:
+        numpy.ndarray: whether to keep each pair
+    """
+    keep = np.ones(len(first), dtype=bool)
+    # the copy of each pair (the second footprint if fixed, otherwise the
+    # first), if it is a timed footprint of a fixed platform
+    copy = np.where(fixed[second], second, first)
+    other = np.where(fixed[second], first, second)
+    timed = (
+        fixed[copy] & ~np.asarray(times[copy].isna()) & ~np.asarray(times[other].isna())
+    )
+    index = np.flatnonzero(timed)
+    if len(index) == 0:
+        return keep
+    copy, other = copy[index], other[index]
+    copy_times = times.asi8[copy]
+    distance = np.abs(copy_times - times.asi8[other])
+    order = np.lexsort((copy_times, distance, instruments[copy], other))
+    group_other, group_instrument = other[order], instruments[copy][order]
+    nearest = np.ones(len(order), dtype=bool)
+    nearest[1:] = (group_other[1:] != group_other[:-1]) | (
+        group_instrument[1:] != group_instrument[:-1]
+    )
+    keep[index[order[~nearest]]] = False
+    return keep
+
+
 def _check_between(between: tuple[str, str] | None) -> tuple[str, str] | None:
     """
     Checks the kinds of platforms between which to find coincident footprints.
@@ -307,13 +360,22 @@ def find_coincident_ground_track(
     static: it is coincident with the overlapping footprints of other
     platforms at any time.
 
+    The footprint of a fixed surface platform or radar station collected at
+    times is the same at every time, so a footprint of another platform
+    pairs only with its copy nearest in time (of each instrument; the
+    earlier of two as near), rather than with every copy within
+    `max_time_difference`. For two fixed platforms, each footprint of the
+    first pairs with the nearest copy of the second.
+
     Each pair records the columns of both footprints, suffixed `_1` and
     `_2` (for example, `time_1`, `satellite_1`, and `valid_obs_1`) and
     ordered so that `time_1` is no later than `time_2` (a static footprint
     second), the time difference `time_difference` (`time_2` less `time_1`,
-    or `NaT` with a static footprint), and the overlap of the footprints as
-    its geometry. Dissolving the result (for example, after selecting the
-    pairs of valid observations) gives the area observed in common.
+    or `NaT` with a static footprint), whether both are valid observations
+    (`valid_obs`, if the footprints have one), and the overlap of the
+    footprints as its geometry. Dissolving the result (see
+    `tatc.analysis.footprints.dissolve_footprints`, which selects the pairs
+    of valid observations) gives the area observed in common.
 
     With `between`, only the pairs of a footprint of one kind of platform
     and one of another (or of two platforms of one kind) are found, for
@@ -323,8 +385,8 @@ def find_coincident_ground_track(
     `aircraft_2`), whatever its time, so that `time_difference` is negative
     if it is later.
 
-    Footprints are first matched by overlap, then by time, so the cost
-    grows with the number of times each area is observed.
+    Footprints whose bounds overlap are first matched by time, so that
+    only those within `max_time_difference` are tested for overlap.
 
     Args:
         ground_track (geopandas.GeoDataFrame): The collected ground track.
@@ -352,6 +414,8 @@ def find_coincident_ground_track(
     track = track.reset_index(drop=True)
     geometries = track.geometry.to_numpy()
     kinds = _get_platform_kinds(track)
+    fixed = np.isin(kinds, [kind.column for kind in _PLATFORM_KINDS if kind.fixed])
+    instruments, _ = pd.factorize(pd.Series(_get_instruments(track)).astype(str))
     platforms, names = pd.factorize(_get_platforms(track))
     times = pd.DatetimeIndex(track["time"])
     # the footprints of each platform (in time order), and their spatial
@@ -359,8 +423,9 @@ def find_coincident_ground_track(
     order = np.argsort(platforms, kind="stable")
     rows = np.split(order, np.cumsum(np.bincount(platforms, minlength=len(names)))[:-1])
     trees: dict[int, shapely.STRtree] = {}
-    # find the overlapping footprints of each pair of platforms (of the kinds
-    # between which to find them)
+    # find the candidate pairs of each pair of platforms (of the kinds between
+    # which to find them): footprints whose bounds overlap, at times within
+    # the maximum time difference (or static)
     first, second = [np.array([], dtype=int)], [np.array([], dtype=int)]
     for code_1, code_2 in combinations(range(len(rows)), 2):
         pair = (kinds[rows[code_1][0]], kinds[rows[code_2][0]])
@@ -368,11 +433,20 @@ def find_coincident_ground_track(
             continue
         if code_2 not in trees:
             trees[code_2] = shapely.STRtree(geometries[rows[code_2]])
-        query_1, query_2 = trees[code_2].query(
-            geometries[rows[code_1]], predicate="intersects"
+        query_1, query_2 = trees[code_2].query(geometries[rows[code_1]])
+        row_1, row_2 = rows[code_1][query_1], rows[code_2][query_2]
+        time_difference = times[row_2] - times[row_1]
+        # a static footprint is coincident at any time
+        selected = np.asarray(abs(time_difference) <= max_time_difference) | np.asarray(
+            time_difference.isna()
         )
-        first.append(rows[code_1][query_1])
-        second.append(rows[code_2][query_2])
+        row_1, row_2 = row_1[selected], row_2[selected]
+        if fixed[rows[code_1][0]] or fixed[rows[code_2][0]]:
+            nearest = _keep_nearest_copies(row_1, row_2, fixed, instruments, times)
+            row_1, row_2 = row_1[nearest], row_2[nearest]
+        selected = shapely.intersects(geometries[row_1], geometries[row_2])
+        first.append(row_1[selected])
+        second.append(row_2[selected])
     first, second = np.concatenate(first), np.concatenate(second)
     # order each pair by time (rows are sorted by time, static ones last) or,
     # with `between`, by kind
@@ -380,17 +454,19 @@ def find_coincident_ground_track(
     if between is not None:
         swap = kinds[first] != between[0]
         first, second = np.where(swap, second, first), np.where(swap, first, second)
-    time_difference = times[second] - times[first]
-    # a static footprint is coincident at any time
-    selected = np.asarray(abs(time_difference) <= max_time_difference) | np.asarray(
-        time_difference.isna()
-    )
-    first, second = first[selected], second[selected]
     overlap = shapely.intersection(geometries[first], geometries[second])
     # exclude footprints that only touch
     selected = shapely.area(overlap) > 0
     first, second = first[selected], second[selected]
     columns = [column for column in track.columns if column != track.geometry.name]
+    valid = (
+        {
+            "valid_obs": track["valid_obs"].eq(True).to_numpy()[first]
+            & track["valid_obs"].eq(True).to_numpy()[second]
+        }
+        if "valid_obs" in track.columns
+        else {}
+    )
     pairs = gpd.GeoDataFrame(
         {
             **{
@@ -401,6 +477,7 @@ def find_coincident_ground_track(
             "time_difference": (times[second] - times[first]).to_series(
                 index=pd.RangeIndex(len(first))
             ),
+            **valid,
         },
         geometry=gpd.GeoSeries(overlap[selected], crs=track.crs),
     )

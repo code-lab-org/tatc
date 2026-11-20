@@ -12,7 +12,6 @@ from datetime import datetime, timedelta
 
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import MultiPolygon, Polygon
 
 from ..schemas import Aircraft
 from ._tracks import (
@@ -21,6 +20,7 @@ from ._tracks import (
     _assemble_track,
     _collect_tracks,
     _compute_step_footprints,
+    _FootprintRequest,
     _get_step_half_spans,
 )
 from .check import AIRCRAFT, _dissolve_footprints
@@ -93,97 +93,56 @@ def collect_airborne_ground_track(
             sorted by time; otherwise, those of each aircraft and
             instrument, concatenated and sorted by time.
     """
-    return _collect_airborne(
+    return _collect_tracks(
         aircraft,
-        times,
-        instrument_index,
-        elevation,
-        mask,
-        platform_altaz,
-        solar_altaz,
-        time_step,
-    )
-
-
-def _collect_airborne(
-    aircraft: Aircraft | list[Aircraft],
-    times: list[datetime] | None,
-    instrument_index: int | None,
-    elevation: float,
-    mask: Mask | None,
-    platform_altaz: bool,
-    solar_altaz: bool,
-    time_step: timedelta | None,
-    pixels: bool = False,
-) -> gpd.GeoDataFrame:
-    """
-    Collect the footprints (see `collect_airborne_ground_track`) or, if
-    `pixels`, the pixels (see `tatc.analysis.footprints.collect_footprints`)
-    of instruments on aircraft.
-    """
-
-    def collect(vehicle: Aircraft, index: int, mask: Polygon | MultiPolygon | None):
-        return _collect_airborne_ground_track(
-            vehicle,
-            index,
+        AIRCRAFT,
+        _FootprintRequest.create(
             times,
+            instrument_index,
             elevation,
             mask,
             platform_altaz,
             solar_altaz,
             time_step,
-            pixels,
-        )
-
-    return _collect_tracks(
-        aircraft,
-        AIRCRAFT,
-        times,
-        instrument_index,
-        mask,
-        platform_altaz,
-        solar_altaz,
-        collect,
+        ),
+        _collect_aircraft,
     )
 
 
-def _collect_airborne_ground_track(
-    aircraft: Aircraft,
-    instrument_index: int,
-    times: list[datetime] | None,
-    elevation: float,
-    mask: Polygon | MultiPolygon | None,
-    platform_altaz: bool,
-    solar_altaz: bool,
-    time_step: timedelta | None,
-    pixels: bool = False,
+def _collect_aircraft(
+    aircraft: Aircraft, instrument_index: int, request: _FootprintRequest
 ) -> gpd.GeoDataFrame | None:
     """
     Collect an aircraft instrument's footprints (see
-    `collect_airborne_ground_track`) or pixels, with a mask split along the
-    anti-meridian and poles, or `None` if there are none.
+    `collect_airborne_ground_track`) or, if the request is of pixels, its
+    pixels, or `None` if there are none.
+
+    Args:
+        aircraft (Aircraft): The aircraft.
+        instrument_index (int): The index of the instrument.
+        request (_FootprintRequest): The request.
+
+    Returns:
+        geopandas.GeoDataFrame | None: the footprints or pixels
     """
     trajectory = aircraft.trajectory
-    if times is None:
+    if request.times is None:
         times = list(trajectory.time)
     else:
         times = [
-            time for time, inside in zip(times, trajectory.contains(times)) if inside
+            time
+            for time, inside in zip(request.times, trajectory.contains(request.times))
+            if inside
         ]
     if len(times) == 0:
         return None
     instrument = aircraft.get_instrument(instrument_index)
     track = aircraft.get_track(times)
-    if pixels:
+    elevation = request.get_elevation()
+    timestamps = pd.to_datetime(times, utc=True)
+    if request.pixels:
         return _assemble_pixels(
-            aircraft,
-            instrument,
-            pd.to_datetime(times, utc=True),
-            track,
-            elevation,
-            mask,
-            platform_altaz,
-            solar_altaz,
+            aircraft, instrument, timestamps, track, elevation, request
         )
     # the instrument observes at each time (which the trajectory contains), so
     # each footprint's validity is evaluated at its own time unless it is
@@ -192,20 +151,18 @@ def _collect_airborne_ground_track(
         aircraft,
         instrument,
         times,
-        _get_step_half_spans(times, time_step),
+        _get_step_half_spans(times, request.time_step),
         elevation,
         track,
     )
     return _assemble_track(
         aircraft,
         instrument,
-        pd.to_datetime(times, utc=True),
+        timestamps,
         track,
         geometries,
         elevation,
-        mask,
-        platform_altaz,
-        solar_altaz,
+        request,
         represent=represent,
     )
 

@@ -6,7 +6,6 @@ Methods to collect the static tracks of instruments on fixed surface platforms.
 
 from __future__ import annotations
 
-import warnings
 from datetime import datetime
 
 import geopandas as gpd
@@ -14,8 +13,15 @@ import pandas as pd
 import shapely
 from shapely.geometry import MultiPolygon, Polygon
 
+from .._warnings import warn
 from ..schemas import SurfacePlatform
-from ._tracks import Mask, _assemble_pixels, _assemble_track, _collect_tracks
+from ._tracks import (
+    Mask,
+    _assemble_pixels,
+    _assemble_track,
+    _collect_tracks,
+    _FootprintRequest,
+)
 from .check import SURFACE_PLATFORM, _dissolve_footprints
 
 
@@ -145,81 +151,39 @@ def collect_surface_track(
             by time, otherwise those of each platform and instrument,
             concatenated and sorted by time.
     """
-    return _collect_surface(
+    return _collect_tracks(
         platforms,
-        times,
-        instrument_index,
-        elevation,
-        mask,
-        platform_altaz,
-        solar_altaz,
+        SURFACE_PLATFORM,
+        _FootprintRequest.create(
+            times, instrument_index, elevation, mask, platform_altaz, solar_altaz
+        ),
+        _collect_surface_platform,
     )
 
 
-def _collect_surface(
-    platforms: SurfacePlatform | list[SurfacePlatform],
-    times: list[datetime] | None,
-    instrument_index: int | None,
-    elevation: float | None,
-    mask: Mask | None,
-    platform_altaz: bool,
-    solar_altaz: bool,
-    pixels: bool = False,
-) -> gpd.GeoDataFrame:
+def _collect_surface_platform(
+    platform: SurfacePlatform, instrument_index: int, request: _FootprintRequest
+) -> gpd.GeoDataFrame | None:
     """
-    Collect the footprints (see `collect_surface_track`) or, if `pixels`,
-    the pixels (see `tatc.analysis.footprints.collect_footprints`) of
-    instruments on fixed surface platforms.
+    Collect a surface platform instrument's footprints (see
+    `collect_surface_track`) or, if the request is of pixels, its pixels, or
+    `None` if there are none.
+
+    Args:
+        platform (SurfacePlatform): The platform.
+        instrument_index (int): The index of the instrument.
+        request (_FootprintRequest): The request.
+
+    Returns:
+        geopandas.GeoDataFrame | None: the footprints or pixels
     """
-    if solar_altaz and times is None:
+    times = request.times
+    if request.solar_altaz and times is None:
         raise ValueError(
             "solar_altaz requires times: the solar angles of a fixed "
             "platform's footprint change with time"
         )
-
-    def collect(
-        platform: SurfacePlatform, index: int, mask: Polygon | MultiPolygon | None
-    ):
-        return _collect_surface_track(
-            platform,
-            index,
-            times,
-            elevation,
-            mask,
-            platform_altaz,
-            solar_altaz,
-            pixels,
-        )
-
-    return _collect_tracks(
-        platforms,
-        SURFACE_PLATFORM,
-        times,
-        instrument_index,
-        mask,
-        platform_altaz,
-        solar_altaz,
-        collect,
-        timed=times is not None,
-    )
-
-
-def _collect_surface_track(
-    platform: SurfacePlatform,
-    instrument_index: int,
-    times: list[datetime] | None,
-    elevation: float | None,
-    mask: Polygon | MultiPolygon | None,
-    platform_altaz: bool,
-    solar_altaz: bool,
-    pixels: bool = False,
-) -> gpd.GeoDataFrame | None:
-    """
-    Collect a surface platform instrument's footprints (see
-    `collect_surface_track`) or pixels, with a mask split along the
-    anti-meridian and poles, or `None` if there are none.
-    """
-    target = _get_target_elevation(platform, elevation)
+    target = _get_target_elevation(platform, request.elevation)
     # the static track, from which the footprints are projected
     static = platform.get_track()
     # the track at each time (or at the time of the static track, without
@@ -235,16 +199,14 @@ def _collect_surface_track(
         else None
     )
     instrument = platform.get_instrument(instrument_index)
-    if pixels:
+    if request.pixels:
         return _assemble_pixels(
             platform,
             instrument,
             timestamps,
             track,
             target,
-            mask,
-            platform_altaz,
-            solar_altaz,
+            request,
             ground_elevation=platform.elevation,
             region=region,
         )
@@ -260,9 +222,7 @@ def _collect_surface_track(
         track,
         [footprint] * (1 if times is None else len(times)),
         target,
-        mask,
-        platform_altaz,
-        solar_altaz,
+        request,
         ground_elevation=platform.elevation,
     )
 
@@ -323,11 +283,10 @@ def _warn_renamed(old: str, new: str) -> None:
         old (str): The deprecated name.
         new (str): The new name.
     """
-    warnings.warn(
+    warn(
         f"{old} is deprecated and will be removed in a future release: use {new} "
         "(whose results name each platform in a surface_platform column)",
         DeprecationWarning,
-        stacklevel=3,
     )
 
 
