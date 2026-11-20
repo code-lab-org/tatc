@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 
 from ..schemas import Satellite, SurfacePlatform
@@ -301,3 +302,153 @@ def _combine_results(
         .sort_values(sort_by, kind="stable" if stable else "quicksort")
         .reset_index(drop=True)
     )
+
+
+_PLATFORM_COLUMNS = ("satellite", "aircraft", "surface_platform", "radar_station")
+"""
+Columns that name the observing platform of a result, one for each kind of
+platform: satellites, aircraft, fixed surface platforms, and radar stations.
+"""
+
+
+def _get_platform_columns(frame: pd.DataFrame) -> list[str]:
+    """
+    Gets the columns of a result that name its observing platforms (see
+    `_PLATFORM_COLUMNS`), in their standard order.
+
+    Args:
+        frame (pandas.DataFrame): The result.
+
+    Returns:
+        list[str]: the platform columns
+    """
+    return [column for column in _PLATFORM_COLUMNS if column in frame.columns]
+
+
+def _get_platforms(frame: pd.DataFrame) -> np.ndarray:
+    """
+    Gets the observing platform of each row of a result, named by its
+    `satellite`, `aircraft`, `surface_platform`, or `radar_station` column,
+    as its kind and name (so that a satellite and an aircraft of the same
+    name are different platforms).
+
+    Args:
+        frame (pandas.DataFrame): The result.
+
+    Returns:
+        numpy.ndarray: the platform (kind and name) of each row
+    """
+    platforms = pd.Series(None, index=frame.index, dtype=object)
+    for column in _get_platform_columns(frame):
+        named = platforms.isna() & frame[column].notna()
+        platforms[named] = column + ": " + frame.loc[named, column].astype(str)
+    if platforms.isna().any():
+        raise ValueError(
+            "each row must name its platform in a "
+            + ", ".join(_PLATFORM_COLUMNS[:-1])
+            + f", or {_PLATFORM_COLUMNS[-1]} column"
+        )
+    return platforms.to_numpy()
+
+
+def _join_names(names: pd.Series) -> str | None:
+    """
+    Joins the names of the contributors to a combined result (such as the
+    platforms of a coincident observation), comma-separated, omitting missing
+    names (as of the platforms of another kind).
+
+    Args:
+        names (pandas.Series): The names.
+
+    Returns:
+        str | None: the joined names, or `None` if all are missing
+    """
+    present = names.dropna()
+    return ", ".join(present) if len(present) > 0 else None
+
+
+def _aggregate_names(
+    grouped: pd.core.groupby.DataFrameGroupBy, column: str
+) -> pd.Series:
+    """
+    Joins the names in a column of each group of a result (see
+    `_join_names`), quickly if no name is missing.
+
+    Args:
+        grouped (pandas.core.groupby.DataFrameGroupBy): The grouped result.
+        column (str): The column of names.
+
+    Returns:
+        pandas.Series: the joined names of each group
+    """
+    names = grouped[column]
+    if names.obj.notna().all():
+        return names.agg(", ".join)
+    return names.agg(_join_names)
+
+
+def _dissolve_footprints(
+    track: gpd.GeoDataFrame, by: str | list[str] | None = None
+) -> gpd.GeoDataFrame:
+    """
+    Dissolves the footprints of valid observations (`valid_obs`, if given)
+    of a track into one geometry, or one for each group of `by` (see
+    `tatc.analysis.footprints.dissolve_footprints`).
+
+    Args:
+        track (geopandas.GeoDataFrame): The track.
+        by (str | list[str] | None): The column(s) by which to group the
+            footprints, or `None` for one geometry.
+
+    Returns:
+        geopandas.GeoDataFrame: the dissolved footprints
+    """
+    columns = [] if by is None else [by] if isinstance(by, str) else list(by)
+    crs = track.crs if track.crs is not None else "EPSG:4326"
+    if "valid_obs" in track.columns:
+        track = track[track["valid_obs"].eq(True).to_numpy()]
+    if track.empty:
+        return gpd.GeoDataFrame(
+            {
+                column: pd.Series(
+                    [], dtype=track[column].dtype if column in track else "object"
+                )
+                for column in columns
+            },
+            geometry=gpd.GeoSeries([], crs=crs),
+            crs=crs,
+        )
+    geometry = track.geometry.name
+    if not columns:
+        return track[[geometry]].dissolve().reset_index(drop=True)
+    dissolved = track[[*columns, geometry]].dissolve(by=columns, dropna=False)
+    return dissolved.reset_index()[[*columns, geometry]]
+
+
+def _get_empty_observation_frame(
+    platform_columns: list[str] | None = None,
+) -> gpd.GeoDataFrame:
+    """
+    Gets an empty data frame of observations of targets (such as aggregated
+    or coincident observations), with the columns that name their platforms.
+
+    Args:
+        platform_columns (list[str] | None): The columns that name the
+            platforms (see `_PLATFORM_COLUMNS`), by default `satellite`.
+
+    Returns:
+        geopandas.GeoDataFrame: Empty data frame.
+    """
+    columns = {
+        "target_hash": pd.Series([], dtype="str"),
+        "geometry": pd.Series([], dtype="object"),
+        **{
+            column: pd.Series([], dtype="str")
+            for column in platform_columns or ["satellite"]
+        },
+        "instrument": pd.Series([], dtype="str"),
+        "start": pd.Series([], dtype="datetime64[ns, utc]"),
+        "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
+        "end": pd.Series([], dtype="datetime64[ns, utc]"),
+    }
+    return gpd.GeoDataFrame(columns, crs="EPSG:4326")

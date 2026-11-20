@@ -125,7 +125,7 @@ def _get_positions(satellite: Satellite, t: Time, rotation: np.ndarray) -> np.nd
     Skyfield times `t`, given their GCRS -> ITRS rotation matrices (see
     `tatc.utils.ellipsoid._itrs_rotation`).
     """
-    track = satellite.orbit.to_gp_orbit().get_orbit_track_at_time(t)
+    track = satellite.get_track(t)
     return np.einsum("ij...,j...->i...", rotation, track.position.m)
 
 

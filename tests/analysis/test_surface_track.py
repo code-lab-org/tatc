@@ -5,7 +5,7 @@ Unit tests for surface platform analysis functions.
 """
 
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 from pyproj import Geod
@@ -405,7 +405,9 @@ class TestPlatformAnalysis(IssConstellationTestCase):
         """
         far = self.platform.model_copy(update={"name": "Far", "longitude": -100})
         mask = box(-113, 33, -112, 34)
-        track = collect_surface_track([far, *self.platforms], None, mask=mask)
+        track = collect_surface_track(
+            [far, *self.platforms], instrument_index=None, mask=mask
+        )
         self.assertListEqual(
             list(track.surface_platform), ["Balloon", "Balloon", "Tower"]
         )
@@ -509,6 +511,81 @@ class TestPlatformAnalysis(IssConstellationTestCase):
         empty = compute_surface_track([])
         self.assertTrue(empty.empty)
         self.assertListEqual(list(empty.columns), ["geometry"])
+
+    def test_collect_surface_track_times(self):
+        """
+        Test that, with times, the static footprint of each instrument is
+        repeated at each time, sorted by time, with its validity (such as a
+        sunlit target) and solar angles evaluated at each time.
+        """
+        sunlit = PointedInstrument(
+            name="Sunlit",
+            cross_track_field_of_view=40,
+            along_track_field_of_view=30,
+            min_target_solar_elevation=10,
+        )
+        platform = self.platform.model_copy(
+            update={"instruments": [self.camera, sunlit]}
+        )
+        # local noon and midnight in Phoenix (UTC-7)
+        noon = datetime(2026, 6, 1, 19, tzinfo=timezone.utc)
+        times = [noon, noon + timedelta(hours=12)]
+        track = collect_surface_track(
+            platform,
+            times,
+            instrument_index=None,
+            surface_platform_altaz=True,
+            solar_altaz=True,
+        )
+        self.assertListEqual(
+            list(track.columns[:6]),
+            [
+                "time",
+                "surface_platform",
+                "instrument",
+                "elevation",
+                "valid_obs",
+                "geometry",
+            ],
+        )
+        self.assertListEqual(list(track["time"]), [times[0]] * 2 + [times[1]] * 2)
+        self.assertListEqual(list(track["valid_obs"]), [True, True, True, False])
+        self.assertGreater(track["solar_alt"].iloc[0], 60)
+        self.assertLess(track["solar_alt"].iloc[2], 0)
+        static = collect_surface_track(
+            platform, instrument_index=None, surface_platform_altaz=True
+        )
+        for i in range(2):
+            self.assertTrue(track.geometry.iloc[i].equals(static.geometry.iloc[i]))
+            self.assertAlmostEqual(
+                track["surface_platform_alt"].iloc[i],
+                static["surface_platform_alt"].iloc[i],
+            )
+        # the coverage of valid observations at any time
+        self.assertEqual(len(compute_surface_track(platform, times[1:], None)), 1)
+        self.assertTrue(collect_surface_track(platform, []).empty)
+        self.assertIn("time", collect_surface_track(platform, []).columns)
+
+    def test_collect_surface_track_solar_altaz_requires_times(self):
+        """
+        Test that the solar angles require times.
+        """
+        with self.assertRaisesRegex(ValueError, "requires times"):
+            collect_surface_track(self.platform, solar_altaz=True)
+        with self.assertRaisesRegex(ValueError, "timezone-aware"):
+            collect_surface_track(self.platform, [datetime(2026, 1, 1)])
+
+    def test_deprecated_names_former_arguments(self):
+        """
+        Test that the former names of the functions keep their former order
+        of arguments (without times).
+        """
+        with self.assertWarns(DeprecationWarning):
+            track = collect_platform_track(self.platforms, None)
+        self.assertEqual(len(track), 3)
+        with self.assertWarns(DeprecationWarning):
+            coverage = compute_platform_track(self.platforms, None)
+        self.assertEqual(len(coverage), 1)
 
     def test_deprecated_names(self):
         """

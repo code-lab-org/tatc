@@ -35,11 +35,12 @@ class TestRadarAnalysis(unittest.TestCase):
         self.assertListEqual(
             list(track.columns),
             [
-                "station",
+                "radar_station",
                 "band",
                 "elevation",
                 "inner_ground_range",
                 "outer_ground_range",
+                "valid_obs",
                 "geometry",
             ],
         )
@@ -61,7 +62,7 @@ class TestRadarAnalysis(unittest.TestCase):
         """
         track = collect_radar_track(self.stations, elevation=3048)
         self.assertEqual(len(track), 2)
-        self.assertListEqual(list(track.station), ["Station 1", "Station 2"])
+        self.assertListEqual(list(track.radar_station), ["Station 1", "Station 2"])
         for i, station in enumerate(self.stations):
             inner, outer = station.compute_ground_ranges(3048)
             self.assertAlmostEqual(track.inner_ground_range.iloc[i], inner, delta=1e-6)
@@ -86,7 +87,7 @@ class TestRadarAnalysis(unittest.TestCase):
         mask = box(-1, -1, 1, 1)
         track = collect_radar_track(self.stations, elevation=3048, mask=mask)
         # only "Station 1" at (0, 0) falls within the mask's footprint overlap
-        self.assertTrue((track.station == "Station 1").any())
+        self.assertTrue((track.radar_station == "Station 1").any())
 
     def test_compute_radar_track_dissolves_overlap(self):
         """
@@ -107,6 +108,40 @@ class TestRadarAnalysis(unittest.TestCase):
         """
         merged = compute_radar_track([], elevation=3048)
         self.assertTrue(merged.empty)
+        self.assertListEqual(list(merged.columns), ["geometry"])
+
+    def test_collect_radar_track_valid_obs(self):
+        """
+        Test that a station whose beams do not reach the target elevation has
+        an empty footprint, which is not a valid observation, and is not
+        dissolved.
+        """
+        track = collect_radar_track(self.stations, elevation=0)
+        self.assertFalse(track["valid_obs"].any())
+        self.assertTrue(track.geometry.is_empty.all())
+        self.assertTrue(compute_radar_track(self.stations, elevation=0).empty)
+        self.assertTrue(collect_radar_track(self.stations, 3048)["valid_obs"].all())
+
+    def test_collect_radar_track_mask_keeps_order(self):
+        """
+        Test that clipping to a mask keeps the order of the stations, and
+        that a mask across the anti-meridian is split.
+        """
+        stations = [
+            RadarStation(name="East", latitude=0, longitude=179.5),
+            RadarStation(name="West", latitude=0, longitude=-179.5),
+            RadarStation(name="Far", latitude=0, longitude=0),
+        ]
+        mask = box(178, -2, 182, 2)
+        track = collect_radar_track(stations, elevation=3048, mask=mask)
+        self.assertListEqual(list(track.radar_station), ["East", "West"])
+
+    def test_collect_radar_track_type(self):
+        """
+        Test that each station must be a RadarStation.
+        """
+        with self.assertRaisesRegex(TypeError, r"stations\[1\] must be a RadarStation"):
+            collect_radar_track([self.station, "KXXX"], elevation=3048)
 
     def test_collect_radar_track_requires_elevation(self):
         """

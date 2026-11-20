@@ -16,6 +16,12 @@ import numpy as np
 import pandas as pd
 import shapely
 
+from .check import (
+    _aggregate_names,
+    _get_empty_observation_frame,
+    _get_platform_columns,
+    _get_platforms,
+)
 from .coverage_metrics import _get_target_keys
 
 
@@ -35,25 +41,6 @@ def _check_max_time_difference(max_time_difference: timedelta) -> pd.Timedelta:
             f"max_time_difference must be non-negative, not {max_time_difference}"
         )
     return value
-
-
-def _get_empty_coincidence_frame() -> gpd.GeoDataFrame:
-    """
-    Gets an empty data frame for coincident observations.
-
-    Returns:
-        geopandas.GeoDataFrame: Empty data frame.
-    """
-    columns = {
-        "target_hash": pd.Series([], dtype="str"),
-        "geometry": pd.Series([], dtype="object"),
-        "satellite": pd.Series([], dtype="str"),
-        "instrument": pd.Series([], dtype="str"),
-        "start": pd.Series([], dtype="datetime64[ns, utc]"),
-        "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
-        "end": pd.Series([], dtype="datetime64[ns, utc]"),
-    }
-    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
 
 
 def _find_coincident_periods(
@@ -126,20 +113,27 @@ def find_coincident_observations(
 ) -> gpd.GeoDataFrame:
     """
     Find coincident observations of points: the periods when at least
-    `min_platforms` satellites observe the same target (the same
+    `min_platforms` platforms observe the same target (the same
     `target_hash`, see `_get_target_keys`) at once, as collected by
-    `tatc.analysis.point_sampling.collect_observations`. Observations by
-    different instruments on the same satellite are not coincident with
-    each other.
+    `tatc.analysis.point_sampling.collect_observations` for satellites or
+    `tatc.analysis.footprints.collect_footprint_observations` for the
+    footprints of any platform (concatenated, for example, to find when an
+    aircraft and a satellite observe the same point). Each observation's
+    platform is named by its `satellite`, `aircraft`, `surface_platform`, or
+    `radar_station` column. Observations by different instruments on the
+    same platform are not coincident with each other.
 
     Each observation period is widened by half of `max_time_difference`
     before and after, so that two observations coincide if the gap between
     their periods is at most `max_time_difference` (for instantaneous
     observations, if their epochs differ by at most `max_time_difference`).
     Each coincident period is maximal: it spans the time that at least
-    `min_platforms` widened periods overlap, even as the satellites
-    observing change; `satellite`/`instrument` record every contributor to
-    that period, comma-separated and paired, in order of their start time.
+    `min_platforms` widened periods overlap, even as the platforms
+    observing change; the platform columns (such as `satellite`) and
+    `instrument` record every contributor to that period, comma-separated,
+    in order of their start time: each platform column names the
+    contributors of its kind (missing if there are none), so that, with
+    platforms of one kind, its names and the instruments are paired.
     `epoch` is the midpoint of the coincident period.
 
     With `instantaneous`, each observation is reduced to its `epoch` (for a
@@ -158,7 +152,7 @@ def find_coincident_observations(
     Args:
         observations (geopandas.GeoDataFrame): The collected observations of
                 points.
-        min_platforms (int): The minimum number of satellites (at least 2)
+        min_platforms (int): The minimum number of platforms (at least 2)
                 observing at once.
         max_time_difference (datetime.timedelta): The maximum time
                 difference between coincident observations.
@@ -172,8 +166,9 @@ def find_coincident_observations(
     if min_platforms < 2:
         raise ValueError(f"min_platforms must be at least 2, not {min_platforms}")
     half_difference = _check_max_time_difference(max_time_difference) / 2
+    platform_columns = _get_platform_columns(observations)
     if observations.empty:
-        return _get_empty_coincidence_frame()
+        return _get_empty_observation_frame(platform_columns)
     if not (observations.geom_type == "Point").all():
         raise ValueError(
             "observations must be of points (see find_coincident_ground_track "
@@ -182,7 +177,7 @@ def find_coincident_observations(
     gdf = observations.reset_index(drop=True)
     # targets (in sorted order of their keys) and platforms of the observations
     target, _ = pd.MultiIndex.from_arrays(_get_target_keys(gdf)).factorize(sort=True)
-    platform, _ = pd.factorize(gdf["satellite"])
+    platform, _ = pd.factorize(_get_platforms(gdf))
 
     def naive_utc(times: pd.Series) -> np.ndarray:
         return times.dt.tz_convert("UTC").dt.tz_localize(None).to_numpy()
@@ -196,7 +191,7 @@ def find_coincident_observations(
         target, platform, start, end, min_platforms
     )
     if len(period_target) == 0:
-        return _get_empty_coincidence_frame()
+        return _get_empty_observation_frame(platform_columns)
     # each observation overlapping a period contributes to it, in order of
     # its start time
     candidates = pd.DataFrame(
@@ -205,7 +200,8 @@ def find_coincident_observations(
             "widened_start": start,
             "widened_end": end,
             "start": naive_utc(observed_start),
-            "satellite": gdf["satellite"].to_numpy(),
+            "platform": platform,
+            **{column: gdf[column].to_numpy() for column in platform_columns},
             "instrument": gdf["instrument"].to_numpy(),
         }
     )
@@ -227,9 +223,14 @@ def find_coincident_observations(
         period_end = contributors.groupby("period")["start"].max().to_numpy()
     contributors = (
         contributors.sort_values(["period", "start"], kind="stable")
-        .drop_duplicates(["period", "satellite", "instrument"])
+        .drop_duplicates(["period", "platform", "instrument"])
         .groupby("period")
-        .agg(satellite=("satellite", ", ".join), instrument=("instrument", ", ".join))
+    )
+    contributors = pd.DataFrame(
+        {
+            column: _aggregate_names(contributors, column)
+            for column in [*platform_columns, "instrument"]
+        }
     )
     # each target's hash and geometry, from its first observation
     first = gdf.groupby(target).head(1).set_index(pd.Index(target).unique())
@@ -240,8 +241,10 @@ def find_coincident_observations(
             {
                 "target_hash": first["target_hash"].loc[period_target].to_numpy(),
                 "geometry": first.geometry.loc[period_target].to_numpy(),
-                "satellite": contributors["satellite"].to_numpy(),
-                "instrument": contributors["instrument"].to_numpy(),
+                **{
+                    column: contributors[column].to_numpy()
+                    for column in [*platform_columns, "instrument"]
+                },
                 "start": start,
                 "epoch": start + (end - start) / 2,
                 "end": end,
@@ -253,35 +256,6 @@ def find_coincident_observations(
     )
 
 
-_PLATFORM_COLUMNS = ("satellite", "aircraft", "surface_platform")
-"""Columns that name the platform of a footprint in a ground track."""
-
-
-def _get_platforms(track: pd.DataFrame) -> np.ndarray:
-    """
-    Gets the platform of each footprint of a ground track, named by its
-    `satellite`, `aircraft`, or `surface_platform` column (so that a satellite and an
-    aircraft of the same name are different platforms).
-
-    Args:
-        track (pandas.DataFrame): The ground track.
-
-    Returns:
-        numpy.ndarray: the platform (kind and name) of each footprint
-    """
-    platforms = pd.Series(None, index=track.index, dtype=object)
-    for column in _PLATFORM_COLUMNS:
-        if column in track.columns:
-            named = platforms.isna() & track[column].notna()
-            platforms[named] = column + ": " + track.loc[named, column].astype(str)
-    if platforms.isna().any():
-        raise ValueError(
-            "each footprint must name its platform in a satellite, aircraft, or "
-            "surface_platform column"
-        )
-    return platforms.to_numpy()
-
-
 def find_coincident_ground_track(
     ground_track: gpd.GeoDataFrame,
     max_time_difference: timedelta = timedelta(0),
@@ -289,19 +263,22 @@ def find_coincident_ground_track(
     """
     Find coincident observations of ground tracks: the pairs of footprints
     of different platforms, as collected by
-    `tatc.analysis.ground_track.collect_ground_track` for satellites,
+    `tatc.analysis.footprints.collect_footprints` for any platforms together,
+    or by `tatc.analysis.ground_track.collect_ground_track` for satellites,
     `tatc.analysis.airborne_track.collect_airborne_ground_track` for
-    aircraft, and `tatc.analysis.surface_track.collect_surface_track` for
-    fixed surface platforms (concatenated, for example, to find the
-    underflights of a satellite by an aircraft, or the overpasses of a
-    tower's view), whose times differ by at most `max_time_difference` and
-    which overlap (share a positive area, in longitude/latitude
+    aircraft, `tatc.analysis.surface_track.collect_surface_track` for fixed
+    surface platforms, and `tatc.analysis.radar_track.collect_radar_track`
+    for radar stations, concatenated (for example, to find the underflights
+    of a satellite by an aircraft, or the overpasses of a tower's view or a
+    radar's coverage), whose times differ by at most `max_time_difference`
+    and which overlap (share a positive area, in longitude/latitude
     coordinates). Each footprint's platform is named by its `satellite`,
-    `aircraft`, or `surface_platform` column. Footprints of different instruments on
-    the same platform are not coincident with each other. A footprint
-    without a time (as of a fixed platform, whose footprint does not
-    change) is static: it is coincident with the overlapping footprints of
-    other platforms at any time.
+    `aircraft`, `surface_platform`, or `radar_station` column. Footprints of
+    different instruments on the same platform are not coincident with each
+    other. A footprint without a time (as of a fixed platform or radar
+    station collected without times, whose footprint does not change) is
+    static: it is coincident with the overlapping footprints of other
+    platforms at any time.
 
     Each pair records the columns of both footprints, suffixed `_1` and
     `_2` (for example, `time_1`, `satellite_1`, and `valid_obs_1`) and

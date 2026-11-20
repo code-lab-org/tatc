@@ -52,3 +52,15 @@ Collect Radar Track
 Compute Radar Track
 -------------------
 .. autofunction:: tatc.analysis.compute_radar_track
+
+Collect Footprints
+------------------
+.. autofunction:: tatc.analysis.collect_footprints
+
+Dissolve Footprints
+-------------------
+.. autofunction:: tatc.analysis.dissolve_footprints
+
+Collect Footprint Observations
+------------------------------
+.. autofunction:: tatc.analysis.collect_footprint_observations

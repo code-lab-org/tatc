@@ -368,7 +368,7 @@ class TestFindCoincidentGroundTrack(IssConstellationTestCase):
         self.assertEqual(results.iloc[0].aircraft_2, "A")
         self.assertTrue(pd.isna(results.iloc[0].satellite_2))
         with self.assertRaisesRegex(
-            ValueError, "satellite, aircraft, or surface_platform"
+            ValueError, "satellite, aircraft, surface_platform, or radar_station"
         ):
             find_coincident_ground_track(ground_track.drop(columns="aircraft"))
 

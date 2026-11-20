@@ -17,6 +17,11 @@ from .coverage_metrics import (
 )
 from .dop_sampling import DopMethod, compute_dop
 from .feature_sampling import collect_feature_observations
+from .footprints import (
+    collect_footprint_observations,
+    collect_footprints,
+    dissolve_footprints,
+)
 from .ground_track import (
     collect_ground_pixels,
     collect_ground_track,
@@ -82,6 +87,8 @@ __all__ = [
     "collect_airborne_ground_track",
     "collect_downlinks",
     "collect_feature_observations",
+    "collect_footprint_observations",
+    "collect_footprints",
     "collect_ground_pixels",
     "collect_ground_track",
     "collect_limb_observations",
@@ -108,6 +115,7 @@ __all__ = [
     "compute_revisit_statistics",
     "compute_sample_sizes",
     "compute_surface_track",
+    "dissolve_footprints",
     "estimate_sampling_error",
     "find_coincident_ground_track",
     "find_coincident_observations",

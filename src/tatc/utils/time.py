@@ -84,16 +84,18 @@ def to_datetime64_ns(
     )
 
 
-def _to_time(times: datetime | list[datetime]) -> Time:
+def _to_time(times: datetime | list[datetime] | Time) -> Time:
     """
-    Converts time(s) to a Skyfield `Time`.
+    Converts time(s) to a Skyfield `Time` (a `Time` is returned unchanged).
 
     Args:
-        times (datetime | list[datetime]): The time(s).
+        times (datetime | list[datetime] | skyfield.timelib.Time): The time(s).
 
     Returns:
         skyfield.timelib.Time: the Skyfield time(s)
     """
+    if isinstance(times, Time):
+        return times
     if isinstance(times, datetime):
         return constants.timescale.from_datetime(times)
     return constants.timescale.from_datetimes(times)

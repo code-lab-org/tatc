@@ -142,13 +142,11 @@ def _get_ro_validity(
         if index is None:
             rx_pv = rx_track
             if k not in tx_tracks:
-                tx_tracks[k] = (
-                    transmitters[k].orbit.to_gp_orbit().get_orbit_track_at_time(t)
-                )
+                tx_tracks[k] = transmitters[k].get_track(t)
             tx_pv = tx_tracks[k]
         else:
             rx_pv = _index_orbit_track(rx_track, position[index])
-            tx_pv = transmitters[k].orbit.to_gp_orbit().get_orbit_track_at_time(rx_pv.t)
+            tx_pv = transmitters[k].get_track(rx_pv.t)
         rx_v_u, rx_n_u, rx_b_u = compute_vnb_frame(rx_pv)
         _, tp_sign, _, rx_tx_yaw = _tangent_point_geometry(
             tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u
@@ -404,7 +402,7 @@ def _sample_ro_arcs(
         rx_track, position = rx_tracks[r]
         rx_pv = _index_orbit_track(rx_track, position[index])
         rx_v_u, rx_n_u, rx_b_u = compute_vnb_frame(rx_pv)
-        tx_pv = transmitters[k].orbit.to_gp_orbit().get_orbit_track_at_time(rx_pv.t)
+        tx_pv = transmitters[k].get_track(rx_pv.t)
         tp_p[:, index], _, rx_tx_pitch[index], rx_tx_yaw[index] = (
             _tangent_point_geometry(tx_pv, rx_pv, rx_v_u, rx_n_u, rx_b_u)
         )

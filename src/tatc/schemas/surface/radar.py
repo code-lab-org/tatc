@@ -76,13 +76,9 @@ class RadarStation(Point):
     elevation: float = Field(
         default=0,
         description="Elevation (meters) of the radar antenna, including "
-        + "tower height. Coverage depends only on target elevations "
-        + "relative to this value, so it must use the same vertical "
-        + "reference as target elevations and any terrain mask: heights "
-        + "above mean sea level (as in NOAA's NEXRAD station tables and "
-        + "digital elevation models such as Copernicus DEM GLO-30) are "
-        + "recommended, noting that they differ from heights above the "
-        + "WGS 84 ellipsoid by the local geoid height (see "
+        + "tower height, above the WGS 84 ellipsoid, as for target "
+        + "elevations and other platforms: a height above mean sea level "
+        + "(as in NOAA's NEXRAD station tables) plus the geoid height (see "
         + "`tatc.utils.compute_geoid_height`).",
     )
     max_range: float = Field(
@@ -239,7 +235,7 @@ class RadarStation(Point):
 
         Args:
             elevation (float): The elevation (meters) of the observed
-                target, in the same vertical reference as this station's
+                target above the WGS 84 ellipsoid, as this station's
                 `elevation`.
 
         Returns:
@@ -264,7 +260,7 @@ class RadarStation(Point):
 
         Args:
             elevation (float): The elevation (meters) of the observed
-                target, in the same vertical reference as this station's
+                target above the WGS 84 ellipsoid, as this station's
                 `elevation`.
             number_points (int | None): The number of azimuth samples to
                 generate (evenly spaced over one full revolution).
@@ -320,7 +316,7 @@ class RadarStation(Point):
 
         Args:
             elevation (float): The elevation (meters) of the observed
-                target, in the same vertical reference as this station's
+                target above the WGS 84 ellipsoid, as this station's
                 `elevation`.
             number_points (int | None): The number of azimuth samples used
                 when this station has a `terrain_mask` (ignored otherwise,

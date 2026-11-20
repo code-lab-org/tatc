@@ -104,10 +104,7 @@ def compute_dop(
     # codebase), rather than a single element (closest to times[0]) whose
     # own propagation is reused for the whole time span regardless of how
     # far later times drift from that element's epoch
-    orbit_tracks = [
-        satellite.orbit.to_gp_orbit().get_orbit_track_at_time(sk_times)
-        for satellite in satellites
-    ]
+    orbit_tracks = [satellite.get_track(sk_times) for satellite in satellites]
 
     # compute elevation/azimuth angles and range
     altazs = [

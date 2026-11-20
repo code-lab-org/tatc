@@ -105,9 +105,7 @@ def compute_sample_sizes(
         # the instrument, with its views rotated from the body's axes
         instrument = satellite.get_instrument(instrument_index)
         index = position[observations.index.get_indexer(group.index)]
-        orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track_at_time(
-            _to_time(list(group[time_column]))
-        )
+        orbit_track = satellite.get_track(_to_time(list(group[time_column])))
         target = wgs84.latlon(latitude[index], longitude[index], elevation[index])
         distance = (orbit_track - target.at(orbit_track.t)).altaz()[2]
         result.iloc[index, result.columns.get_loc("sat_range")] = np.atleast_1d(

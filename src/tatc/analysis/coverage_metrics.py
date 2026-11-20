@@ -12,6 +12,12 @@ import numpy as np
 import pandas as pd
 import shapely
 
+from .check import (
+    _aggregate_names,
+    _get_empty_observation_frame,
+    _get_platform_columns,
+)
+
 
 def _get_target_keys(gdf: gpd.GeoDataFrame) -> list[pd.Series]:
     """
@@ -28,35 +34,20 @@ def _get_target_keys(gdf: gpd.GeoDataFrame) -> list[pd.Series]:
     return [gdf["target_hash"]]
 
 
-def _get_empty_aggregate_frame() -> gpd.GeoDataFrame:
-    """
-    Gets an empty data frame for aggregated coverage analysis results.
-
-    Returns:
-        geopandas.GeoDataFrame: Empty data frame.
-    """
-    columns = {
-        "target_hash": pd.Series([], dtype="str"),
-        "geometry": pd.Series([], dtype="object"),
-        "satellite": pd.Series([], dtype="str"),
-        "instrument": pd.Series([], dtype="str"),
-        "start": pd.Series([], dtype="datetime64[ns, utc]"),
-        "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
-        "end": pd.Series([], dtype="datetime64[ns, utc]"),
-    }
-    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
-
-
 def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     Aggregate constellation observations. Interleaves observations by multiple
-    satellites to compute aggregate performance metrics including access
+    platforms to compute aggregate performance metrics including access
     (observation duration) and revisit (duration between observations).
     Overlapping (including fully nested) observations of the same target
     (the same `target_hash`, see `_get_target_keys`), possibly from different
-    satellites/instruments, are merged into a single continuous coverage
-    period; `satellite`/`instrument` record every contributor to that
-    period, comma-separated, and the geometry is the union of theirs (for a
+    platforms/instruments, are merged into a single continuous coverage
+    period; the platform columns (`satellite`, or, as for the observations
+    of `tatc.analysis.footprints.collect_footprint_observations`, `aircraft`,
+    `surface_platform`, or `radar_station`) and `instrument` record every
+    contributor to that period, comma-separated (each platform column only
+    those of its kind, missing if there are none), and the geometry is the
+    union of theirs (for a
     region, the part of it observed during the period). `epoch` is reassigned to
     the midpoint of the merged period's `start`/`end` (a representative
     instant), not the mean of the constituent observations' own epochs.
@@ -72,8 +63,9 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     Returns:
         geopandas.GeoDataFrame: The data frame with aggregated observations.
     """
+    platform_columns = _get_platform_columns(observations)
     if observations.empty:
-        return _get_empty_aggregate_frame()
+        return _get_empty_observation_frame(platform_columns)
     # targets (in sorted order of their keys), with each target's observations
     # sorted by start (stably), for all targets together
     target, _ = pd.MultiIndex.from_arrays(_get_target_keys(observations)).factorize(
@@ -101,12 +93,10 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     aggregated = gpd.GeoDataFrame(
         {
             "target_hash": grouped["target_hash"].first(),
-            "satellite": grouped["satellite"]
-            .agg(", ".join)
-            .astype(gdf["satellite"].dtype),
-            "instrument": grouped["instrument"]
-            .agg(", ".join)
-            .astype(gdf["instrument"].dtype),
+            **{
+                column: _aggregate_names(grouped, column).astype(gdf[column].dtype)
+                for column in [*platform_columns, "instrument"]
+            },
             "start": grouped["start"].min(),
             "end": grouped["end"].max(),
         },
@@ -115,7 +105,7 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         ),
     )
     aggregated = aggregated[
-        ["geometry", "target_hash", "satellite", "instrument", "start", "end"]
+        ["geometry", "target_hash", *platform_columns, "instrument", "start", "end"]
     ]
     # reassign epoch to the midpoint of the merged period, as a single
     # representative instant, rather than the mean of the constituent

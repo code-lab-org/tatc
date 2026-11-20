@@ -76,7 +76,7 @@ def _get_elevation_angles(
     topos = wgs84.latlon(latitude, longitude, elevation)
     t_track, t_topos = _to_time(times), timescale.from_datetimes(times)
     yield [t_track, t_topos]
-    orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track_at_time(t_track)
+    orbit_track = satellite.get_track(t_track)
     return np.atleast_1d((orbit_track - topos.at(t_topos)).altaz()[0].degrees)
 
 
