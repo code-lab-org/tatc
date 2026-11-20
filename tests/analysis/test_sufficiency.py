@@ -191,6 +191,93 @@ class TestLocalTimeCoverage(unittest.TestCase):
             compute_local_time_coverage(observations, bins=0)
 
 
+class TestOverlappingSamples(unittest.TestCase):
+    """
+    Unit tests for merging the overlapping observations of a target, and
+    for finding the times of observations.
+    """
+
+    def setUp(self):
+        point = Point(0, 0)
+
+        def observation(satellite, start, end, epoch):
+            return {
+                "geometry": point,
+                "target_hash": hash_geometry(point),
+                "satellite": satellite,
+                "instrument": "imager",
+                "start": START + timedelta(hours=start),
+                "epoch": START + timedelta(hours=epoch),
+                "end": START + timedelta(hours=end),
+            }
+
+        # two satellites observe at once (overlapping), then one alone
+        self.observations = gpd.GeoDataFrame(
+            [
+                observation("A", 1.0, 1.2, 1.1),
+                observation("B", 1.1, 1.3, 1.3),
+                observation("A", 7.0, 7.2, 7.1),
+            ],
+            crs="EPSG:4326",
+        )
+
+    def test_merged_samples(self):
+        """
+        Each observation is a sample by default; with `merge_overlapping`,
+        overlapping observations are one sample (at the midpoint of their
+        times), as `reduce_observations` counts them.
+        """
+        from tatc.analysis import aggregate_observations, reduce_observations
+
+        raw = compute_revisit_statistics(self.observations, START, START + DAY)
+        self.assertEqual(raw.samples[0], 3)
+        self.assertEqual(raw.revisit[0], timedelta(hours=3))
+        merged = compute_revisit_statistics(
+            self.observations, START, START + DAY, merge_overlapping=True
+        )
+        reduced = reduce_observations(aggregate_observations(self.observations))
+        self.assertEqual(merged.samples[0], 2)
+        self.assertEqual(merged.samples[0], reduced.samples[0])
+        self.assertEqual(merged.revisit[0], timedelta(hours=7.1 - 1.2))
+        error = estimate_sampling_error(
+            self.observations, START, START + DAY, DAY, merge_overlapping=True
+        )
+        self.assertEqual(error.samples[0], 2)
+        coverage = compute_local_time_coverage(
+            self.observations, bins=24, merge_overlapping=True
+        )
+        self.assertEqual(coverage.local_bins_sampled[0], 2)
+        self.assertEqual(coverage["local 01:00"][0], 1)
+
+    def test_time_columns(self):
+        """
+        The time of an observation is its `epoch`, `time`, or else the
+        midpoint of its `start` and `end` (as of regions without epochs).
+        """
+        timed = self.observations.rename(columns={"epoch": "time"})
+        periods = self.observations.drop(columns="epoch")
+        for observations, revisit in (
+            (timed, 7.1 - 1.2),
+            (periods, 7.1 - 1.15),
+        ):
+            stats = compute_revisit_statistics(
+                observations, START, START + DAY, merge_overlapping=True
+            )
+            self.assertAlmostEqual(
+                stats.revisit[0] / timedelta(hours=1), revisit, places=9
+            )
+        stats = compute_revisit_statistics(
+            self.observations,
+            START,
+            START + DAY,
+            time_column="start",
+            merge_overlapping=True,
+        )
+        self.assertAlmostEqual(stats.revisit[0] / timedelta(hours=1), 5.95, places=9)
+        with self.assertRaisesRegex(ValueError, "must have a time"):
+            compute_revisit_statistics(periods.drop(columns="end"), START, START + DAY)
+
+
 @unittest.skipUnless(HAS_XARRAY, "requires xarray")
 class TestSampleField(unittest.TestCase):
     """

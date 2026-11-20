@@ -385,6 +385,7 @@ def _get_empty_region_frame() -> gpd.GeoDataFrame:
         "satellite": pd.Series([], dtype="str"),
         "instrument": pd.Series([], dtype="str"),
         "start": pd.Series([], dtype="datetime64[ns, utc]"),
+        "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
         "end": pd.Series([], dtype="datetime64[ns, utc]"),
     }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
@@ -915,6 +916,7 @@ def _collect_region_observations(
                 "satellite": satellite.name,
                 "instrument": instrument.name,
                 "start": period.left,
+                "epoch": period.left + (period.right - period.left) / 2,
                 "end": period.right,
             }
             for period, swath in zip(periods, swaths)
@@ -986,8 +988,8 @@ def collect_region_observations(
     Returns:
         geopandas.GeoDataFrame: The data frame of observations, with the
             region's `target_hash`, the swath (`geometry`), the `satellite`
-            and `instrument` names, and the `start` and `end` of each
-            observation: for a single region, satellite, and instrument (an
+            and `instrument` names, and the `start`, `epoch` (the midpoint),
+            and `end` of each observation: for a single region, satellite, and instrument (an
             integer `instrument_index`), in time order; otherwise, those of
             each region, satellite, and instrument, concatenated and sorted
             by start time.

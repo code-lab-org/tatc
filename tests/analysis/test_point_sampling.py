@@ -1111,6 +1111,38 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             delta=timedelta(seconds=0.01),
         )
 
+    def test_reduce_observations_targets(self):
+        """
+        Test that, with targets, every target is reduced in their order: an
+        unobserved target with no samples and undefined access and revisit,
+        also without any observations.
+        """
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        far = ShapelyPoint(0, 89.9)
+        targets = gpd.GeoSeries([far, ShapelyPoint(0, 0, 0)], crs="EPSG:4326")
+        results = collect_multi_observations(
+            self.point,
+            self.constellation.generate_members(),
+            start,
+            start + timedelta(days=2),
+        )
+        aggregated = aggregate_observations(results)
+        reduced = reduce_observations(aggregated, targets=targets)
+        observed = reduce_observations(aggregated)
+        self.assertListEqual(
+            list(reduced.target_hash),
+            [hash_geometry(far), observed.target_hash.iloc[0]],
+        )
+        self.assertListEqual(list(reduced.columns), list(observed.columns))
+        self.assertEqual(reduced.samples.iloc[0], 0)
+        self.assertTrue(pd.isna(reduced.access.iloc[0]))
+        self.assertTrue(pd.isna(reduced.revisit.iloc[0]))
+        self.assertTrue(reduced.geometry.iloc[0].equals(far))
+        self.assertEqual(reduced.samples.iloc[1], observed.samples.iloc[0])
+        self.assertEqual(reduced.revisit.iloc[1], observed.revisit.iloc[0])
+        empty = reduce_observations(aggregated.iloc[:0], targets=targets)
+        self.assertListEqual(list(empty.samples), [0, 0])
+
     def test_reduce_observations_null(self):
         """
         Test that no observations are reduced for multiple satellites and a single point
@@ -1299,12 +1331,11 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             places=6,
         )
 
-    def test_grid_observations_cell_without_points_is_omitted(self):
+    def test_grid_observations_cell_without_points(self):
         """
-        Documents current behavior: unlike the fully-empty
-        `reduced_observations` case (which zero-fills every cell), a cell
-        with no points inside it is simply absent from a non-empty result,
-        since the point-in-cell join is an inner join.
+        Test that a cell with no observed points inside it is gridded with no
+        samples and undefined access and revisit, as every cell is when
+        there are no observations at all.
         """
         cells = gpd.GeoDataFrame(
             [self._make_cell(0, 0, 0, 1, 1), self._make_cell(1, 2, 2, 3, 3)],
@@ -1314,9 +1345,16 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             [self._make_reduced_observation(0, 0.5, 0.5, 5, 10, 100)],
             crs="EPSG:4326",
         )
-        result = grid_observations(reduced, cells)
-        self.assertEqual(len(result.index), 1)
-        self.assertEqual(result.iloc[0].cell_id, 0)
+        for result in (
+            grid_observations(reduced, cells),
+            grid_observations(reduced.iloc[:0], cells),
+        ):
+            self.assertListEqual(list(result.cell_id), [0, 1])
+            self.assertEqual(result.iloc[1].samples, 0)
+            self.assertTrue(pd.isna(result.iloc[1].access))
+            self.assertTrue(pd.isna(result.iloc[1].revisit))
+            self.assertEqual(result["access"].dtype, "timedelta64[ns]")
+        self.assertEqual(grid_observations(reduced, cells).iloc[0].samples, 100)
 
 
 class TestCollectObservationsGeometry(IssConstellationTestCase):

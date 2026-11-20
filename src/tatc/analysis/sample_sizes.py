@@ -8,15 +8,24 @@ spacing between pixels, which bound the detail an observation can resolve.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import shapely
 from skyfield.api import wgs84
 
-from ..schemas import ConicalInstrument, PointedInstrument, Satellite
+from ..schemas import AllInstruments, AllPlatforms, ConicalInstrument, PointedInstrument
 from ..utils.projection import VelocityFrame, compute_view_angles
-from ..utils.time import _to_time
-from .check import _check_satellites
+from .check import (
+    _get_instruments,
+    _get_observation_times,
+    _get_platform_key,
+    _get_platform_kind,
+    _get_platforms,
+    _group_platforms,
+)
 
 _COLUMNS = [
     "platform_range",
@@ -28,9 +37,49 @@ _COLUMNS = [
 ]
 
 
+def _get_sized_instrument(
+    platform: AllPlatforms,
+    name: str | None,
+    instrument: AllInstruments | Mapping[str, AllInstruments] | None,
+) -> AllInstruments | None:
+    """
+    Gets the instrument whose samples to size at the observations of a
+    platform's instrument (by name): the given instrument (or that given for
+    the name), or else the observing instrument, either bound to the
+    platform's attitude (see `get_instrument`), or `None` for a platform
+    without instruments (a radar station).
+
+    Args:
+        platform (AllPlatforms): The observing platform.
+        name (str | None): The name of the observing instrument.
+        instrument (AllInstruments | Mapping[str, AllInstruments] | None): The
+            instrument to size, or one for each observing instrument's name.
+
+    Returns:
+        AllInstruments | None: the instrument, bound to the platform's attitude
+    """
+    kind = _get_platform_kind(platform)
+    if kind is None or not kind.instrumented:
+        return None
+    sized = instrument.get(name) if isinstance(instrument, Mapping) else instrument
+    if sized is not None:
+        # bound as the platform's own instrument would be
+        return platform.model_copy(update={"instruments": [sized]}).get_instrument(0)
+    index = next(
+        (i for i, carried in enumerate(platform.instruments) if carried.name == name),
+        None,
+    )
+    if index is None:
+        raise ValueError(
+            f"{kind.label} {platform.name!r} has no instrument named {name!r}"
+        )
+    return platform.get_instrument(index)
+
+
 def compute_sample_sizes(
     observations: gpd.GeoDataFrame,
-    satellites: Satellite | list[Satellite],
+    platforms: AllPlatforms | list[AllPlatforms],
+    instrument: AllInstruments | Mapping[str, AllInstruments] | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Compute the sizes of the samples of observations: for each observation,
@@ -49,91 +98,102 @@ def compute_sample_sizes(
     `beam_width` and `scan_sample_spacing` are given), and `NaN` for other
     instruments, whose samples are not defined.
 
-    Also computes the satellite's slant range from the target (`platform_range`,
-    meters) and the target's scan angle (`scan_angle`, degrees): its angle
-    across track from nadir, positive to the left of the direction of motion
-    (see `tatc.utils.compute_view_angles`), measured from the body's axes
-    if the satellite has an attitude, which gives its position in the swath.
+    Also computes the platform's slant range from the target
+    (`platform_range`, meters) and the target's scan angle (`scan_angle`,
+    degrees): its angle across track from nadir, positive to the left of
+    the direction of motion (see `tatc.utils.compute_view_angles`),
+    measured from the body's axes if the platform has an attitude, which
+    gives its position in the swath. A radar station has no instruments: its
+    observations have a slant range only.
 
-    The observations are those of points (see `collect_observations`), at
-    their `epoch`, or of features (see `collect_feature_observations`), at
-    their `time`, whose target is the centroid of the viewed part.
+    The observations may be of any kind of platform (satellites, aircraft,
+    fixed surface platforms, or radar stations), each named in the column of
+    its kind: those of points (see `collect_observations` and
+    `collect_footprint_observations`) and of features (see
+    `collect_feature_observations`), whose target is the centroid of the
+    viewed part, each at its time (see `epoch` or `time`).
+
+    With `instrument`, the samples are those of another instrument at the
+    same observations, as of a sensor whose pixels differ from the swath
+    that was observed (for example, a proposed sensor flown on the same
+    platforms): one instrument for every observation, or one for the
+    observations of each observing instrument (by name), the others sized
+    as their own.
 
     Args:
         observations (geopandas.GeoDataFrame): The observations, with the
-                `satellite` and `instrument` that observe each.
-        satellites (Satellite | list[Satellite]): The observing satellites,
-                including those named by the observations.
+                platform and `instrument` that observe each.
+        platforms (AllPlatforms | list[AllPlatforms]): The observing
+                platforms, including those named by the observations.
+        instrument (AllInstruments | Mapping[str, AllInstruments] | None):
+                The instrument whose samples to size in place of the
+                observing instrument, or one for each observing instrument's
+                name, or `None` for the observing instruments.
 
     Returns:
         geopandas.GeoDataFrame: the observations, with the sample sizes,
             spacings, slant ranges, and scan angles.
     """
-    satellites = _check_satellites(satellites)
-    by_name = {satellite.name: satellite for satellite in satellites}
+    groups = _group_platforms(platforms)
+    lookup = {
+        _get_platform_key(kind.column, platform.name): platform
+        for kind, members in groups.items()
+        for platform in members
+    }
     result = observations.copy()
     for column in _COLUMNS:
         result[column] = np.nan
     if len(observations) == 0:
         return result
-    time_column = "epoch" if "epoch" in observations.columns else "time"
+    times = _get_observation_times(observations).to_numpy()
     # the targets: observed points, or the centroids of observed regions
     geometry = observations.geometry.to_numpy()
     is_point = shapely.get_type_id(geometry) == shapely.GeometryType.POINT
     centroid = shapely.centroid(geometry)
     longitude, latitude = shapely.get_x(centroid), shapely.get_y(centroid)
     elevation = np.where(is_point, np.nan_to_num(shapely.get_z(geometry)), 0)
+    keys = _get_platforms(observations)
+    names = _get_instruments(observations)
     position = np.arange(len(observations))
-    for (satellite_name, instrument_name), group in observations.groupby(
-        ["satellite", "instrument"], sort=False
+    columns = {column: result.columns.get_loc(column) for column in _COLUMNS}
+    for (key, name), index in (
+        pd.DataFrame({"key": keys, "name": names})
+        .groupby(["key", "name"], sort=False, dropna=False)
+        .indices.items()
     ):
-        satellite = by_name.get(satellite_name)
-        if satellite is None:
-            raise ValueError(f"no satellite named {satellite_name!r}")
-        instrument_index = next(
-            (
-                i
-                for i, instrument in enumerate(satellite.instruments)
-                if instrument.name == instrument_name
-            ),
-            None,
-        )
-        if instrument_index is None:
+        platform = lookup.get(key)
+        if platform is None:
+            column, platform_name = key.split(": ", 1)
             raise ValueError(
-                f"satellite {satellite_name!r} has no instrument named {instrument_name!r}"
+                f"no {column.replace('_', ' ')} named {platform_name!r} in platforms"
             )
-        # the instrument, with its views rotated from the body's axes
-        instrument = satellite.get_instrument(instrument_index)
-        index = position[observations.index.get_indexer(group.index)]
-        orbit_track = satellite.get_track(_to_time(list(group[time_column])))
+        index = position[index]
+        track = platform.get_track(list(pd.DatetimeIndex(times[index], tz="UTC")))
         target = wgs84.latlon(latitude[index], longitude[index], elevation[index])
-        distance = (orbit_track - target.at(orbit_track.t)).altaz()[2]
-        result.iloc[index, result.columns.get_loc("platform_range")] = np.atleast_1d(
-            distance.m
-        )
+        distance = (track - target.at(track.t)).altaz()[2]
+        result.iloc[index, columns["platform_range"]] = np.atleast_1d(distance.m)
+        sized = _get_sized_instrument(platform, name, instrument)
+        if sized is None:
+            continue
         velocity_frame = (
-            instrument.velocity_frame
-            if isinstance(instrument, (PointedInstrument, ConicalInstrument))
+            sized.velocity_frame
+            if isinstance(sized, (PointedInstrument, ConicalInstrument))
             else VelocityFrame.EARTH_FIXED
         )
         roll, _ = compute_view_angles(
-            orbit_track,
+            track,
             target,
             velocity_frame,
-            instrument.nadir_reference,
-            attitude=instrument.platform_attitude,
+            sized.nadir_reference,
+            attitude=sized.platform_attitude,
         )
-        result.iloc[index, result.columns.get_loc("scan_angle")] = np.atleast_1d(roll)
-        if isinstance(instrument, (PointedInstrument, ConicalInstrument)):
+        result.iloc[index, columns["scan_angle"]] = np.atleast_1d(roll)
+        if isinstance(sized, (PointedInstrument, ConicalInstrument)):
             for prefix, method in (
-                ("sample", instrument.compute_sample_size),
-                ("spacing", instrument.compute_sample_spacing),
+                ("sample", sized.compute_sample_size),
+                ("spacing", sized.compute_sample_spacing),
             ):
-                along, cross = method(orbit_track, target)
-                result.iloc[index, result.columns.get_loc(f"{prefix}_along")] = (
-                    np.atleast_1d(along)
-                )
-                result.iloc[index, result.columns.get_loc(f"{prefix}_cross")] = (
-                    np.atleast_1d(cross)
-                )
+                along, cross = method(track, target)
+                result.iloc[index, columns[f"{prefix}_along"]] = np.atleast_1d(along)
+                result.iloc[index, columns[f"{prefix}_cross"]] = np.atleast_1d(cross)
     return result

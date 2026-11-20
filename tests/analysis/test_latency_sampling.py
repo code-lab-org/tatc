@@ -514,6 +514,50 @@ class TestLatencyAnalysis(IssConstellationTestCase):
             "samples": samples,
         }
 
+    def test_reduce_latencies_targets(self):
+        """
+        Test that, with targets, every target is reduced in their order: an
+        unobserved target with no samples and an undefined latency.
+        """
+        latencies = gpd.GeoDataFrame(
+            [
+                {
+                    "target_hash": hash_geometry(ShapelyPoint(0, 0)),
+                    "geometry": ShapelyPoint(0, 0),
+                    "latency": pd.Timedelta(minutes=10),
+                }
+            ],
+            crs="EPSG:4326",
+        )
+        targets = gpd.GeoSeries([ShapelyPoint(5, 5), ShapelyPoint(0, 0)])
+        reduced = reduce_latencies(latencies, targets=targets)
+        self.assertListEqual(list(reduced.samples), [0, 1])
+        self.assertTrue(pd.isna(reduced.latency.iloc[0]))
+        self.assertEqual(reduced.latency.iloc[1], pd.Timedelta(minutes=10))
+
+    def test_grid_latencies_cell_without_points(self):
+        """
+        Test that a cell with no points inside it is gridded with no samples
+        and an undefined latency, and that points without a latency do not
+        weigh on the mean of their cell.
+        """
+        cells = gpd.GeoDataFrame(
+            [self._make_cell(0, 0, 0, 1, 1), self._make_cell(1, 2, 2, 3, 3)],
+            crs="EPSG:4326",
+        )
+        reduced = gpd.GeoDataFrame(
+            [
+                self._make_reduced_latency("a", 0.5, 0.5, 600, 2),
+                {**self._make_reduced_latency("b", 0.6, 0.6, 0, 3), "latency": pd.NaT},
+            ],
+            crs="EPSG:4326",
+        )
+        result = grid_latencies(reduced, cells)
+        self.assertListEqual(list(result.cell_id), [0, 1])
+        self.assertListEqual(list(result.samples), [5, 0])
+        self.assertEqual(result.latency.iloc[0], pd.Timedelta(seconds=600))
+        self.assertTrue(pd.isna(result.latency.iloc[1]))
+
     def test_grid_latencies_empty_reduced_latencies(self):
         """
         Test that an empty `reduced_latencies` yields every cell with zero

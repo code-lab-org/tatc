@@ -223,7 +223,15 @@ class TestCollectRegionObservations(IssConstellationTestCase):
         self.assertGreater(len(observations.index), 0)
         self.assertEqual(
             list(observations.columns),
-            ["target_hash", "geometry", "satellite", "instrument", "start", "end"],
+            [
+                "target_hash",
+                "geometry",
+                "satellite",
+                "instrument",
+                "start",
+                "epoch",
+                "end",
+            ],
         )
         self.assertTrue((observations.target_hash == hash_geometry(region)).all())
         self.assertTrue(observations.start.is_monotonic_increasing)

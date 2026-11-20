@@ -644,3 +644,48 @@ def _get_empty_observation_frame(
         "end": pd.Series([], dtype="datetime64[ns, utc]"),
     }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
+
+
+_TIME_COLUMNS = ("epoch", "time", "closest_time")
+"""
+Columns that give the time of an observation, in order of preference: the
+`epoch` of observations of points, footprints, and regions, the `time` of
+observations of features and of limb and radio occultation profiles, and the
+`closest_time` of observations in space.
+"""
+
+
+def _get_observation_times(
+    observations: pd.DataFrame, time_column: str | None = None
+) -> pd.Series:
+    """
+    Gets the time of each observation: that of a given column or, by default,
+    of the first of its `epoch`, `time`, or `closest_time` columns (see
+    `_TIME_COLUMNS`), or else the midpoint of its `start` and `end`.
+
+    Args:
+        observations (pandas.DataFrame): The observations.
+        time_column (str | None): The column of the times, or `None` to
+            find it.
+
+    Returns:
+        pandas.Series: the time of each observation (UTC)
+    """
+    if time_column is None:
+        time_column = next(
+            (column for column in _TIME_COLUMNS if column in observations.columns),
+            None,
+        )
+    if time_column is not None:
+        if time_column not in observations.columns:
+            raise ValueError(f"observations have no {time_column!r} column")
+        return pd.to_datetime(observations[time_column], utc=True)
+    if "start" in observations.columns and "end" in observations.columns:
+        start = pd.to_datetime(observations["start"], utc=True)
+        end = pd.to_datetime(observations["end"], utc=True)
+        return start + (end - start) / 2
+    raise ValueError(
+        "observations must have a time: an "
+        + ", ".join(repr(column) for column in _TIME_COLUMNS)
+        + ", or 'start' and 'end' column"
+    )

@@ -129,9 +129,9 @@ class TestSampleSizes(unittest.TestCase):
         )
         self.assertTrue((sizes.sample_cross > 0).all())
 
-    def test_unknown_satellite(self):
+    def test_unknown_platform(self):
         """
-        Test that observations by a satellite not given raise an error.
+        Test that observations by a platform not given raise an error.
         """
         observations = collect_observations(
             self.points, self.satellite, self.start, self.end
@@ -153,6 +153,76 @@ class TestSampleSizes(unittest.TestCase):
         sizes = compute_sample_sizes(observations, self.satellite)
         self.assertEqual(len(sizes), 0)
         self.assertIn("sample_cross", sizes.columns)
+
+    def test_instrument_override(self):
+        """
+        Test that the samples of another instrument are sized at the same
+        observations: one instrument for every observation, or one for the
+        observations of a named instrument (the others sized as their own),
+        equal to those of the instrument carried by the satellite.
+        """
+        observations = collect_observations(
+            self.points, self.satellite, self.start, self.end, instrument_index=None
+        )
+        finer = self.scanner.model_copy(
+            update={"name": "finer", "along_track_field_of_view": 1.1}
+        )
+        carried = compute_sample_sizes(
+            observations[observations.instrument == "scanner"],
+            self.satellite.model_copy(
+                update={"instruments": [finer.model_copy(update={"name": "scanner"})]}
+            ),
+        )
+        sized = compute_sample_sizes(observations, self.satellite, {"scanner": finer})
+        scanner = (sized.instrument == "scanner").to_numpy()
+        np.testing.assert_allclose(
+            sized.sample_along[scanner], carried.sample_along, rtol=1e-12
+        )
+        self.assertTrue(sized.sample_along[~scanner].isna().all())
+        everything = compute_sample_sizes(observations, self.satellite, finer)
+        self.assertTrue((everything.sample_along > 0).all())
+        np.testing.assert_allclose(
+            everything.sample_along[scanner], carried.sample_along, rtol=1e-12
+        )
+
+    def test_other_platforms(self):
+        """
+        Test that the observations of an aircraft at a layer are sized from
+        its height above the layer, and that those of a radar station have a
+        slant range only.
+        """
+        from tatc.analysis import collect_footprint_observations, collect_footprints
+        from tatc.schemas import Aircraft, RadarStation, Trajectory
+
+        aircraft = Aircraft(
+            name="P-3",
+            trajectory=Trajectory.from_waypoints(
+                [(-100.2, 35.0), (-99.8, 35.0)], self.start, 150.0, 8000.0
+            ),
+            instruments=[
+                self.scanner.model_copy(
+                    update={"velocity_frame": VelocityFrame.EARTH_FIXED}
+                )
+            ],
+        )
+        radar = RadarStation(name="KXXX", latitude=35.0, longitude=-100.3)
+        times = list(aircraft.trajectory.time)
+        footprints = collect_footprints([aircraft, radar], times, elevation=3000)
+        observations = collect_footprint_observations(
+            ShapelyPoint(-100, 35, 3000), footprints
+        )
+        sizes = compute_sample_sizes(observations, [aircraft, radar])
+        flown = sizes[sizes.aircraft.notna()]
+        self.assertEqual(len(flown), 1)
+        self.assertAlmostEqual(flown.platform_range.iloc[0], 5000, delta=200)
+        # a 2.2 degree beam from 5 km above the layer is about 190 m wide
+        self.assertAlmostEqual(flown.sample_along.iloc[0], 192, delta=10)
+        station = sizes[sizes.radar_station.notna()]
+        self.assertEqual(len(station), 1)
+        self.assertGreater(station.platform_range.iloc[0], 20e3)
+        self.assertTrue(station[["scan_angle", "sample_along"]].isna().all(axis=None))
+        with self.assertRaisesRegex(ValueError, "aircraft named 'P-3'"):
+            compute_sample_sizes(observations, radar)
 
     def test_conical_observations(self):
         """
