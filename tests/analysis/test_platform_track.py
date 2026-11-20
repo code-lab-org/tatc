@@ -88,7 +88,8 @@ class TestPlatformAnalysis(IssConstellationTestCase):
         track = collect_platform_track([])
         self.assertTrue(track.empty)
         self.assertListEqual(
-            list(track.columns), ["platform", "instrument", "elevation", "geometry"]
+            list(track.columns),
+            ["platform", "instrument", "elevation", "valid_obs", "geometry"],
         )
 
     def test_collect_platform_track_singular_matches_list(self):
@@ -294,10 +295,21 @@ class TestPlatformAnalysis(IssConstellationTestCase):
                 ]
             }
         )
-        footprints = collect_platform_track(
+        results = collect_platform_track(
             platform, instrument_index=None, elevation=1310
-        ).geometry
+        )
+        footprints = results.geometry
         self.assertTrue(footprints.iloc[0].is_empty)
+        # an empty footprint is not a valid observation
+        self.assertListEqual(results["valid_obs"].tolist(), [False, True])
+        coverage = compute_platform_track(
+            platform, instrument_index=None, elevation=1310
+        )
+        self.assertEqual(len(coverage), 1)
+        self.assertAlmostEqual(coverage.geometry.iloc[0].area, footprints.iloc[1].area)
+        blocked = compute_platform_track(platform, elevation=1310)
+        self.assertTrue(blocked.empty)
+        self.assertListEqual(list(blocked.columns), ["geometry"])
         annulus = footprints.iloc[1]
         self.assertTrue(annulus.is_valid)
         self.assertEqual(len(annulus.interiors), 1)
@@ -446,9 +458,12 @@ class TestPlatformAnalysis(IssConstellationTestCase):
 
     def test_compute_platform_track_empty(self):
         """
-        Test that an empty platform list produces an empty data frame.
+        Test that an empty platform list produces an empty data frame with
+        the columns of a dissolved track.
         """
-        self.assertTrue(compute_platform_track([]).empty)
+        empty = compute_platform_track([])
+        self.assertTrue(empty.empty)
+        self.assertListEqual(list(empty.columns), ["geometry"])
 
 
 if __name__ == "__main__":

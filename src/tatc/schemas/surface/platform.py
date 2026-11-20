@@ -152,6 +152,22 @@ class SurfacePlatform(Point):
             angles,
         )
 
+    def get_instrument(self, index: int = 0) -> Instrument:
+        """
+        Gets an instrument carried by this platform, whose views are rotated
+        from the axes of the platform (see `get_track`), as
+        `tatc.schemas.Satellite.get_instrument` and
+        `tatc.schemas.Aircraft.get_instrument` get those of a satellite and
+        an aircraft.
+
+        Args:
+            index (int): The index of the instrument.
+
+        Returns:
+            Instrument: the instrument
+        """
+        return self.instruments[index]
+
     def get_track(self, times: datetime | list[datetime] | None = None) -> Geocentric:
         """
         Gets the static track of the platform's instruments (see

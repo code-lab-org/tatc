@@ -27,6 +27,7 @@ def _get_empty_platform_track() -> gpd.GeoDataFrame:
         "platform": pd.Series([], dtype="str"),
         "instrument": pd.Series([], dtype="str"),
         "elevation": pd.Series([], dtype="float"),
+        "valid_obs": pd.Series([], dtype="bool"),
         "geometry": pd.Series([], dtype="object"),
     }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
@@ -106,7 +107,11 @@ def collect_platform_track(
     `SurfacePlatform.compute_visible_region`). Unlike
     `collect_ground_track`, there is no time dimension: a platform does not
     move in the Earth-fixed frame, so this returns one row per platform and
-    instrument rather than one row per time step.
+    instrument rather than one row per time step. An empty footprint (as of
+    a view entirely blocked by the ground or terrain) is not a valid
+    observation (`valid_obs`), as for satellites and aircraft; without
+    times, an instrument's time-varying requirements (such as a sunlit
+    target, see `Instrument.is_valid_observation`) are not evaluated.
 
     Args:
         platforms (SurfacePlatform | list[SurfacePlatform]): The platform(s).
@@ -124,7 +129,9 @@ def collect_platform_track(
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected platform track
-            results, in the order of the platforms and their instruments.
+            results, with columns `platform`, `instrument`, `elevation`,
+            `valid_obs`, and `geometry`, in the order of the platforms and
+            their instruments.
     """
     platforms = _check_platforms(platforms, SurfacePlatform, "platforms")
     records = []
@@ -138,7 +145,7 @@ def collect_platform_track(
             else None
         )
         for index in _get_instrument_indices(platform, instrument_index, "platform"):
-            instrument = platform.instruments[index]
+            instrument = platform.get_instrument(index)
             footprint = instrument.compute_footprint(
                 track, elevation=target, ground_elevation=platform.elevation
             )[0]
@@ -149,6 +156,7 @@ def collect_platform_track(
                     "platform": platform.name,
                     "instrument": instrument.name,
                     "elevation": target,
+                    "valid_obs": not footprint.is_empty,
                     "geometry": footprint,
                 }
             )
@@ -172,8 +180,8 @@ def compute_platform_track(
     Compute the aggregated (dissolved) coverage of instruments on fixed
     surface platforms into a single composite geometry (e.g. a network
     coverage map): unlike `collect_platform_track` (one footprint polygon per
-    platform and instrument), this dissolves every footprint into one
-    geometry.
+    platform and instrument), this dissolves the footprints of valid
+    observations into one geometry.
 
     Args:
         platforms (SurfacePlatform | list[SurfacePlatform]): The platform(s).
@@ -190,9 +198,12 @@ def compute_platform_track(
                 coordinates, to constrain results.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame of aggregated platform track results.
+        geopandas.GeoDataFrame: The data frame of the aggregated platform
+            track: one row with the observed area, or none if no observation
+            is valid.
     """
     track = collect_platform_track(platforms, instrument_index, elevation, mask)
+    track = track[track["valid_obs"]]
     if track.empty:
-        return track
-    return track[["geometry"]].dissolve()
+        return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+    return track[["geometry"]].dissolve().reset_index(drop=True)
