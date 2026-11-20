@@ -40,7 +40,7 @@ def compute_dop(
     point: Point | ShapelyPoint,
     satellites: list[Satellite],
     min_elevation: float,
-    dop_method: DopMethod,
+    dop_method: DopMethod | None = None,
     min_count_visible: int = 4,
     systems: list[str] | None = None,
 ) -> gpd.GeoDataFrame:
@@ -63,7 +63,8 @@ def compute_dop(
                 shapely point (longitude, latitude, and optional elevation in meters)
         satellites: the list of satellites to be viewed by the ground point
         min_elevation: the minimum elevation angle (deg) to consider a satellite visible
-        dop_method: dilusion of precision calculation method
+        dop_method: dilusion of precision calculation method, or None
+                (default) for every method at once
         min_count_visible: minimum number of visible satellites, inclusive,
                 required for a valid measurement (must be at least 4, since
                 the calculation solves a 4-unknown system: 3D position plus
@@ -75,7 +76,11 @@ def compute_dop(
                 (default) to estimate a single clock bias
 
     Outputs:
-    - geopandas.GeoDataFrame: the dop for the given user location and satellite.
+    - geopandas.GeoDataFrame: the dop for the given user location and
+      satellites: with a `dop_method`, its value at each time (`dop`, indexed
+      by time); without one, a row for each time with its `time`, the value
+      of every method (`gdop`, `pdop`, `hdop`, `vdop`, and `tdop`), and the
+      number of visible satellites (`visible`), computed together.
 
     """
     _check_satellites(satellites, allow_single=False)
@@ -122,15 +127,16 @@ def compute_dop(
     y = r * np.cos(el) * np.sin(az)
     z = r * np.sin(el)
 
-    def _dop(i):
+    def _dops(i):
         """
-        Compute the dilution of precision value for time index i.
+        Compute the dilution of precision values of every method for time
+        index i (NaN if too few satellites are visible).
         """
         mask = el[:, i] >= np.deg2rad(min_elevation)
         # systems with visible satellites (sorted, so the reference is first)
         visible_systems = np.unique(system_index[mask])
         if n[i] < max(min_count_visible, 3 + len(visible_systems)):
-            return np.nan
+            return dict.fromkeys(DopMethod, np.nan)
         # H is a nx(3+k) matrix where n is the number of visible satellites
         # and k is the number of systems with visible satellites (named as in
         # the literature)
@@ -150,31 +156,41 @@ def compute_dop(
         except np.linalg.LinAlgError:
             # If the H matrix nearly singular, linalg will not be able to solve, return NaN and a warning
             warn("H matrix could not be inverted, NaN DOP value returned.")
-            return np.nan
-        # compute and return the dop value
+            return dict.fromkeys(DopMethod, np.nan)
         # the reference clock is undefined if no reference satellite is visible
         reference_variance = H_inv[3, 3] if visible_systems[0] == 0 else np.nan
-        if dop_method == DopMethod.GDOP:
-            return np.sqrt(H_inv[0, 0] + H_inv[1, 1] + H_inv[2, 2] + reference_variance)
-        if dop_method == DopMethod.PDOP:
-            return np.sqrt(H_inv[0, 0] + H_inv[1, 1] + H_inv[2, 2])
-        if dop_method == DopMethod.HDOP:
-            return np.sqrt(H_inv[0, 0] + H_inv[1, 1])
-        if dop_method == DopMethod.VDOP:
-            return np.sqrt(H_inv[2, 2])
-        if dop_method == DopMethod.TDOP:
-            return np.sqrt(reference_variance)
-        raise ValueError("Invalid DOP method")
+        return {
+            DopMethod.GDOP: np.sqrt(
+                H_inv[0, 0] + H_inv[1, 1] + H_inv[2, 2] + reference_variance
+            ),
+            DopMethod.PDOP: np.sqrt(H_inv[0, 0] + H_inv[1, 1] + H_inv[2, 2]),
+            DopMethod.HDOP: np.sqrt(H_inv[0, 0] + H_inv[1, 1]),
+            DopMethod.VDOP: np.sqrt(H_inv[2, 2]),
+            DopMethod.TDOP: np.sqrt(reference_variance),
+        }
 
-    dop = np.array([_dop(i) for i in range(len(times))])
+    if dop_method is not None:
+        dop_method = DopMethod(dop_method)
+    dops = [_dops(i) for i in range(len(times))]
+    geometry = gpd.points_from_xy([longitude] * len(dops), [latitude] * len(dops))
+    if dop_method is None:
+        return gpd.GeoDataFrame(
+            {
+                "time": pd.to_datetime(list(times), utc=True),
+                **{
+                    method.value: np.array([dop[method] for dop in dops], dtype=float)
+                    for method in DopMethod
+                },
+                "visible": n.astype(int),
+            },
+            geometry=geometry,
+            crs="EPSG:4326",
+        )
+    dop = np.array([dop[dop_method] for dop in dops], dtype=float)
 
     columns = {
         "dop": pd.Series(dop, dtype="float", index=times),
-        "geometry": pd.Series(
-            gpd.points_from_xy([longitude] * len(dop), [latitude] * len(dop)),
-            dtype="object",
-            index=times,
-        ),
+        "geometry": pd.Series(geometry, dtype="object", index=times),
     }
     dop_df = gpd.GeoDataFrame(columns, crs="EPSG:4326")
 

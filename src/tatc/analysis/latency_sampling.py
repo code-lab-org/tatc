@@ -17,7 +17,7 @@ from shapely import geometry as geo
 
 from ..schemas import GroundStation, Satellite
 from ..utils.computation import _run_together
-from .check import _check_satellites, _check_time_window
+from .check import _check_satellites, _check_time_window, _get_observation_times
 from .coverage_metrics import _get_target_keys, _include_targets, _sum_by_cell
 from .point_sampling import _compute_access_periods
 
@@ -143,6 +143,13 @@ def compute_latencies(
     the start of the downlink in progress. Each observation is assigned the
     earliest of these downlink times.
 
+    The observations are those of each satellite (not aggregated, see
+    `aggregate_observations`, whose periods may merge several satellites'):
+    of points (see `collect_observations` or `collect_footprint_observations`),
+    of regions (see `collect_region_observations`), or of features (see
+    `collect_feature_observations`), each at its time (its `epoch`, or else
+    its `time`), ending at its `end` (or its time, if none).
+
     Args:
         observations (geopandas.GeoDataFrame): The data frame of observations to downlink.
         downlinks (geopandas.GeoDataFrame): The data frame of downlink opportunities.
@@ -151,7 +158,8 @@ def compute_latencies(
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected latency results, sorted by the 'observed'
-        column in ascending order. It includes the following columns:
+        column in ascending order. It includes the following columns, of
+        those that the observations have:
 
         - 'target_hash' (str): Hash of the observation point (see
           `tatc.utils.geometry.hash_geometry`).
@@ -169,10 +177,21 @@ def compute_latencies(
         raise ValueError(
             f"during_contact must be 'next', 'end', or 'immediate', not {during_contact!r}"
         )
+    if "revisit" in observations.columns:
+        raise ValueError(
+            "observations must be those of each satellite, not aggregated "
+            "(see aggregate_observations): compute their latencies before "
+            "aggregating them"
+        )
     if observations.empty or downlinks.empty:
         return _get_empty_latency_frame()
 
-    obs = observations.sort_values(by="end").reset_index(drop=True)
+    obs = observations.copy()
+    # the time of each observation, and its end (or its time, if none)
+    obs["epoch"] = _get_observation_times(observations).dt.as_unit("ns").to_numpy()
+    if "end" not in obs.columns:
+        obs["end"] = obs["epoch"]
+    obs = obs.sort_values(by="end").reset_index(drop=True)
     contacts = downlinks[
         ["satellite", "ground_station", "start", "epoch", "end"]
     ].rename(
@@ -223,21 +242,8 @@ def compute_latencies(
     obs["latency"] = obs["downlinked"] - obs["epoch"]
     obs = obs.rename(columns={"epoch": "observed"})
 
-    # select relevant columns
-    obs = obs[
-        [
-            "target_hash",
-            "geometry",
-            "satellite",
-            "instrument",
-            "platform_alt",
-            "platform_az",
-            "ground_station",
-            "downlinked",
-            "latency",
-            "observed",
-        ]
-    ]
+    # select relevant columns, of those the observations have
+    obs = obs[[column for column in _get_empty_latency_frame() if column in obs]]
 
     # ensure the result is a GeoDataFrame with the observations' CRS
     obs = gpd.GeoDataFrame(

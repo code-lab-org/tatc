@@ -114,6 +114,41 @@ class TestLatencyAnalysis(IssConstellationTestCase):
             ),
         )
 
+    def test_compute_latency_of_regions_and_features(self):
+        """
+        Test that the latencies of observations without angles (of regions,
+        at their epochs) and of observations without ends (of features, at
+        their times) are computed, with the columns that they have, and that
+        aggregated observations raise a `ValueError`.
+        """
+        from tatc.analysis import aggregate_observations, collect_region_observations
+
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        end = datetime(2022, 6, 4, tzinfo=timezone.utc)
+        downlinks = collect_downlinks(self.stations, self.satellite, start, end)
+        regions = collect_region_observations(
+            box(-10, -10, 10, 10), self.satellite, start, end
+        )
+        latencies = compute_latencies(regions, downlinks)
+        self.assertEqual(len(latencies), len(regions))
+        self.assertNotIn("platform_alt", latencies.columns)
+        self.assertListEqual(
+            sorted(latencies.observed), sorted(regions.epoch.dt.as_unit("ns"))
+        )
+        # those observed before the last downlink are downlinked after them
+        downlinked = latencies.latency.dropna()
+        self.assertGreater(len(downlinked), 0)
+        self.assertTrue((downlinked >= timedelta(0)).all())
+        features = regions.drop(columns=["start", "epoch", "end"]).assign(
+            time=regions.epoch
+        )
+        pd.testing.assert_series_equal(
+            compute_latencies(features, downlinks).latency,
+            compute_latencies(regions.assign(end=regions.epoch), downlinks).latency,
+        )
+        with self.assertRaisesRegex(ValueError, "not aggregated"):
+            compute_latencies(aggregate_observations(regions), downlinks)
+
     def test_compute_latency_empty(self):
         """
         Test that latency computation returns an empty DataFrame when no latencies are available.
