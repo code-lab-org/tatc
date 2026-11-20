@@ -96,6 +96,7 @@ examples = [
 ]
 osse = [
     "tatc[examples]",
+    "h5py",
     "netcdf4",
     "pydap",
     "rioxarray",
