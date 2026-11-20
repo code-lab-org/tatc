@@ -439,9 +439,20 @@ class TestAirborneTrack(unittest.TestCase):
             shapely.get_coordinates(results.geometry.iloc[5], include_z=True)[:, 2],
             3000.0,
         )
-        above = collect_airborne_ground_track(aircraft, elevation=9000.0)
+        above = collect_airborne_ground_track(
+            aircraft, elevation=9000.0, aircraft_altaz=True, solar_altaz=True
+        )
         self.assertFalse(above["valid_obs"].any())
         self.assertTrue(above.geometry.is_empty.all())
+        # without a footprint, the angles at its center are not defined
+        for column in (
+            "aircraft_alt",
+            "aircraft_az",
+            "solar_alt",
+            "solar_az",
+            "glint_angle",
+        ):
+            self.assertTrue(above[column].isna().all(), column)
 
     def test_turn_has_no_gaps(self):
         """
@@ -495,9 +506,12 @@ class TestAirborneTrack(unittest.TestCase):
                     f"2026-03-01T{hour:02d}:00Z"
                 ) + pd.to_timedelta(np.arange(3), unit="s")
                 results = collect_airborne_ground_track(
-                    _aircraft(data, [_scanner(req_target_sunlit=True)])
+                    _aircraft(data, [_scanner(req_target_sunlit=True)]),
+                    solar_altaz=True,
                 )
                 self.assertEqual(results["valid_obs"].tolist(), [sunlit] * 3)
+                # an invalid observation with a footprint keeps its angles
+                self.assertEqual((results["solar_alt"] > 0).tolist(), [sunlit] * 3)
 
 
 if __name__ == "__main__":

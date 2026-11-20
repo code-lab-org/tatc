@@ -411,7 +411,8 @@ def collect_ground_track(
                 for the sub-satellite point.
         solar_altaz (bool): `True` to include solar altitude/azimuth angles
                 and the glint angle (see `tatc.utils.compute_glint_angle`)
-                for the sub-satellite point.
+                for the sub-satellite point. The angles are `NaN` for an
+                empty footprint.
         time_step (datetime.timedelta | None): The time step that each time
                 represents, over which a swept instrument's footprint sweeps,
                 or `None` to take half the smaller gap to the neighboring
@@ -511,9 +512,9 @@ def _collect_ground_track(
                 instrument.compute_footprint_center(moved_track, elevation),
             )
         )
-    if isinstance(instrument, PointedInstrument) and instrument.is_swept:
-        # swept footprints entirely within blind intervals are not valid
-        valid_obs = valid_obs & ~shapely.is_empty(np.array(geometries, dtype=object))
+    # empty footprints (as of a view that misses the elevation, or a swept
+    # footprint entirely within blind intervals) are not valid
+    valid_obs = valid_obs & ~shapely.is_empty(np.array(geometries, dtype=object))
     records = [
         {
             "time": time,
@@ -541,7 +542,10 @@ def _add_altaz_columns(
     """
     Appends the altitude/azimuth angles (degrees) of an observing platform
     and of the sun, seen from the footprint centers, to a ground track (one
-    row per time).
+    row per time): `NaN` for an empty footprint (as of a view that misses
+    the elevation), which has no center. An observation that is not valid
+    for another reason (such as a target that is not sunlit) keeps its
+    angles.
 
     Args:
         track (geopandas.GeoDataFrame): The ground track, modified in place.
@@ -553,10 +557,11 @@ def _add_altaz_columns(
             angles (`solar_alt` and `solar_az`) and the glint angle
             (`glint_angle`, see `tatc.utils.compute_glint_angle`).
     """
+    angles = {}
     if platform is not None:
         alt, az, _ = (orbit_track - target.at(orbit_track.t)).altaz()
-        track[f"{platform}_alt"] = alt.degrees  # type: ignore
-        track[f"{platform}_az"] = az.degrees  # type: ignore
+        angles[f"{platform}_alt"] = alt.degrees  # type: ignore
+        angles[f"{platform}_az"] = az.degrees  # type: ignore
     if solar_altaz:
         alt, az, _ = (
             (de421["earth"] + target)
@@ -565,9 +570,12 @@ def _add_altaz_columns(
             .apparent()
             .altaz()
         )
-        track["solar_alt"] = alt.degrees  # type: ignore
-        track["solar_az"] = az.degrees  # type: ignore
-        track["glint_angle"] = np.atleast_1d(compute_glint_angle(orbit_track, target))
+        angles["solar_alt"] = alt.degrees  # type: ignore
+        angles["solar_az"] = az.degrees  # type: ignore
+        angles["glint_angle"] = compute_glint_angle(orbit_track, target)
+    empty = track.geometry.isna().to_numpy() | track.geometry.is_empty.to_numpy()
+    for name, values in angles.items():
+        track[name] = np.where(empty, np.nan, np.atleast_1d(values))
 
 
 def _clip_track(

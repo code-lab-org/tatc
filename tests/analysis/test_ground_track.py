@@ -181,6 +181,29 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
             self.assertGreaterEqual(solar_az, 0.0)
             self.assertLess(solar_az, 360.0)
 
+    def test_collect_ground_track_altaz_without_footprint(self):
+        """
+        Test that an observation without a footprint (at an elevation above
+        the satellite) is not valid, and that the angles at its footprint
+        center are NaN.
+        """
+        times = [
+            datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
+            for i in range(3)
+        ]
+        satellite = Satellite(
+            name="Narrow",
+            orbit=self.orbit,
+            instruments=[Instrument(name="Narrow", field_of_regard=20)],
+        )
+        results = collect_ground_track(
+            satellite, times, elevation=1e7, sat_altaz=True, solar_altaz=True
+        )
+        self.assertTrue(results.geometry.is_empty.all())
+        self.assertFalse(results["valid_obs"].any())
+        for column in ("sat_alt", "sat_az", "solar_alt", "solar_az", "glint_angle"):
+            self.assertTrue(results[column].isna().all(), column)
+
     def test_collect_ground_track_mask_limits_footprints_to_region(self):
         """
         Test that every returned footprint intersects the provided mask,

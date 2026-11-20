@@ -55,6 +55,8 @@ Added:
 Changed:
  - `find_coincident_ground_track` pairs the footprints of satellites and aircraft (named by their `satellite` or `aircraft` column), so that concatenated ground tracks give the underflights of a satellite.
  - Module `preprocess` imports each of its modules when first used, so that the airborne methods do not require `rasterio`.
+ - The angles at the footprint centers of a ground track (`sat_altaz`, `solar_altaz`, and the aircraft's `aircraft_altaz`) are `NaN` for an empty footprint (as of a view that misses the elevation), which has no center, rather than angles at an arbitrary point; an observation that is not valid for another reason (such as a target that is not sunlit) keeps its angles.
+ - An empty footprint of a satellite's instrument is not a valid observation (`valid_obs`), for any instrument, as for aircraft; previously, only swept footprints were invalid when empty.
  - Analyses at given times (`collect_orbit_track`, `collect_ground_track`, `compute_ground_track`, `collect_ground_pixels`, `collect_feature_observations`, `collect_limb_observations`, `compute_dop`, and the airborne tracks) raise a `ValueError` naming the first time without a time zone, as analyses over a time window do, rather than an error from Skyfield.
  - Tracks of fixed platforms (`compute_static_track`) and aircraft interpolate the nutation angles of the Earth's orientation, as orbits do, and swept footprints build the times of their sub-steps at once, which speeds their footprints.
  - The OSSE examples (`RunOSSEMonsoon`, `RunOSSEHurricane`) are in `docs/examples/osse`, and download the Nature Run to a `data` directory beside them.

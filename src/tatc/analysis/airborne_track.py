@@ -101,7 +101,8 @@ def collect_airborne_ground_track(
         solar_altaz (bool): `True` to include the solar altitude/azimuth
             angles (`solar_alt` and `solar_az`) and the glint angle
             (`glint_angle`, see `tatc.utils.compute_glint_angle`) at the
-            footprint center.
+            footprint center. The angles are `NaN` for an empty footprint
+            (as of a level at or above the aircraft).
         time_step (datetime.timedelta | None): The time step that each time
             represents, over which a swept instrument's footprint sweeps, or
             `None` to take half the smaller gap to the neighboring times on
