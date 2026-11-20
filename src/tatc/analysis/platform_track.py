@@ -12,7 +12,7 @@ import shapely
 from shapely.geometry import MultiPolygon, Polygon
 
 from ..schemas import SurfacePlatform
-from .check import _get_instrument_indices
+from .check import _check_platforms, _get_instrument_indices
 from .ground_track import _get_mask_geometry
 
 
@@ -126,7 +126,7 @@ def collect_platform_track(
         geopandas.GeoDataFrame: The data frame of collected platform track
             results, in the order of the platforms and their instruments.
     """
-    platforms = [platforms] if isinstance(platforms, SurfacePlatform) else platforms
+    platforms = _check_platforms(platforms, SurfacePlatform, "platforms")
     records = []
     for platform in platforms:
         target = _get_target_elevation(platform, elevation)

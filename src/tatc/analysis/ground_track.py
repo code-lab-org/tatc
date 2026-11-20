@@ -17,6 +17,7 @@ from shapely.geometry import MultiPolygon, Polygon
 from skyfield.api import wgs84
 from skyfield.positionlib import Geocentric
 from skyfield.timelib import Time
+from skyfield.toposlib import GeographicPosition
 
 from .. import config
 from ..constants import de421
@@ -522,29 +523,69 @@ def _collect_ground_track(
         for i, time in enumerate(orbit_track.t.utc_datetime())  # type: ignore
     ]
     track = gpd.GeoDataFrame(records, crs="EPSG:4326")
-    if sat_altaz:
-        # append satellite altitude/azimuth columns
-        sat_altaz_data = (orbit_track - target.at(orbit_track.t)).altaz()
-        track["sat_alt"] = sat_altaz_data[0].degrees  # type: ignore
-        track["sat_az"] = sat_altaz_data[1].degrees  # type: ignore
+    _add_altaz_columns(
+        track, orbit_track, target, "sat" if sat_altaz else None, solar_altaz
+    )
+    return _clip_track(track, mask)
+
+
+def _add_altaz_columns(
+    track: gpd.GeoDataFrame,
+    orbit_track: Geocentric,
+    target: GeographicPosition,
+    platform: str | None,
+    solar_altaz: bool,
+) -> None:
+    """
+    Appends the altitude/azimuth angles (degrees) of an observing platform
+    and of the sun, seen from the footprint centers, to a ground track (one
+    row per time).
+
+    Args:
+        track (geopandas.GeoDataFrame): The ground track, modified in place.
+        orbit_track (skyfield.positionlib.Geocentric): The platform's track.
+        target (skyfield.toposlib.GeographicPosition): The footprint centers.
+        platform (str | None): The prefix of the platform's columns
+            (`{platform}_alt` and `{platform}_az`), or `None` to omit them.
+        solar_altaz (bool): `True` to append the solar altitude/azimuth
+            angles (`solar_alt` and `solar_az`) and the glint angle
+            (`glint_angle`, see `tatc.utils.compute_glint_angle`).
+    """
+    if platform is not None:
+        alt, az, _ = (orbit_track - target.at(orbit_track.t)).altaz()
+        track[f"{platform}_alt"] = alt.degrees  # type: ignore
+        track[f"{platform}_az"] = az.degrees  # type: ignore
     if solar_altaz:
-        # append solar altitude/azimuth columns
-        solar_altaz_data = (
+        alt, az, _ = (
             (de421["earth"] + target)
             .at(orbit_track.t)
             .observe(de421["sun"])
             .apparent()
             .altaz()
         )
-        track["solar_alt"] = solar_altaz_data[0].degrees  # type: ignore
-        track["solar_az"] = solar_altaz_data[1].degrees  # type: ignore
-        # append glint angle column (at the footprint center)
+        track["solar_alt"] = alt.degrees  # type: ignore
+        track["solar_az"] = az.degrees  # type: ignore
         track["glint_angle"] = np.atleast_1d(compute_glint_angle(orbit_track, target))
 
+
+def _clip_track(
+    track: gpd.GeoDataFrame, mask: Polygon | MultiPolygon | None
+) -> gpd.GeoDataFrame:
+    """
+    Clips a ground track to a mask, if any, and sorts its rows by time
+    (clipping does not preserve their order), keeping the original order of
+    rows at the same time.
+
+    Args:
+        track (geopandas.GeoDataFrame): The ground track.
+        mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):
+            The mask (see `_get_mask_geometry`).
+
+    Returns:
+        geopandas.GeoDataFrame: the clipped and sorted ground track
+    """
     if mask is not None:
         track = gpd.clip(track, mask)
-    # sort rows by time (clipping does not preserve their order), keeping
-    # the original order of rows at the same time
     return track.sort_index().sort_values("time", kind="stable").reset_index(drop=True)
 
 

@@ -17,8 +17,20 @@ import shapely
 from pyproj import Geod
 from shapely.geometry import box
 
-from tatc.analysis import collect_airborne_ground_track
-from tatc.schemas import Aircraft, Instrument, PointedInstrument, Trajectory
+from tatc.analysis import (
+    collect_airborne_ground_track,
+    collect_ground_track,
+    compute_airborne_ground_track,
+    find_coincident_ground_track,
+)
+from tatc.schemas import (
+    Aircraft,
+    Instrument,
+    PointedInstrument,
+    Satellite,
+    TwoLineElements,
+    Trajectory,
+)
 
 from ..schemas.air.common import START, straight_trajectory
 
@@ -172,6 +184,106 @@ class TestAirborneTrack(unittest.TestCase):
             swath.area, width * 100.5 * 100.0, delta=0.005 * swath.area
         )
         self.assertIsInstance(swath, shapely.Polygon)
+
+    def test_times_in_gaps(self):
+        """
+        Tests that times within a gap between states longer than the maximum
+        gap, or outside the trajectory, are omitted.
+        """
+        data = straight_trajectory(n=3, step=10.0)
+        later = straight_trajectory(n=3, step=10.0, latitude=35.5)
+        later["time"] += timedelta(hours=1)
+        both = pd.concat([data, later], ignore_index=True)
+        times = [START + timedelta(minutes=m) for m in (-1, 0, 0.25, 30, 60, 60.25, 61)]
+        results = collect_airborne_ground_track(_aircraft(both), times=times)
+        self.assertEqual(list(results["time"]), [times[i] for i in (1, 2, 4, 5)])
+        self.assertTrue(results["valid_obs"].all())
+        aircraft = Aircraft(
+            name="aircraft",
+            trajectory=Trajectory.from_dataframe(both, max_gap=None),
+            instruments=[_scanner()],
+        )
+        self.assertEqual(len(collect_airborne_ground_track(aircraft, times=times)), 5)
+
+    def test_altaz(self):
+        """
+        Tests the altitude/azimuth angles of the aircraft and the sun seen from
+        the footprint centers.
+        """
+        data = straight_trajectory(n=5, roll=10.0, track=0.0)
+        results = collect_airborne_ground_track(
+            _aircraft(data, [Instrument(field_of_regard=10.0)]),
+            aircraft_altaz=True,
+            solar_altaz=True,
+        )
+        for column in (
+            "aircraft_alt",
+            "aircraft_az",
+            "solar_alt",
+            "solar_az",
+            "glint_angle",
+        ):
+            self.assertIn(column, results.columns)
+        # a generic instrument observes about nadir: the aircraft is overhead
+        np.testing.assert_allclose(results["aircraft_alt"], 90.0, atol=1e-3)
+        self.assertTrue(
+            ((results["solar_alt"] > 0) & (results["solar_alt"] < 90)).all()
+        )
+        rolled = collect_airborne_ground_track(_aircraft(data), aircraft_altaz=True)
+        # rolled right wing down, the scan centers to the left (west) of a
+        # northward track, from which the aircraft is seen to the east
+        np.testing.assert_allclose(rolled["aircraft_alt"], 80.0, atol=0.05)
+        np.testing.assert_allclose(rolled["aircraft_az"], 90.0, atol=0.5)
+
+    def test_compute(self):
+        """
+        Tests that the dissolved coverage is the union of the valid footprints.
+        """
+        data = straight_trajectory(n=20, altitude=5000.0)
+        aircraft = _aircraft(data)
+        track = collect_airborne_ground_track(aircraft)
+        coverage = compute_airborne_ground_track(aircraft)
+        self.assertEqual(len(coverage), 1)
+        self.assertAlmostEqual(
+            coverage.geometry.iloc[0].area,
+            shapely.union_all(track.geometry.values).area,
+            delta=1e-12,
+        )
+        self.assertTrue(compute_airborne_ground_track(aircraft, elevation=6000.0).empty)
+
+    def test_underflight(self):
+        """
+        Tests that the footprints of an aircraft beneath a satellite's ground
+        track are coincident with the satellite's.
+        """
+        satellite = Satellite(
+            name="ISS",
+            orbit=TwoLineElements(
+                tle=[
+                    "1 25544U 98067A   26074.50000000  .00016717  00000-0  10270-3 0  9994",
+                    "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391 50000",
+                ]
+            ),
+            instruments=[Instrument(name="imager", field_of_regard=20.0)],
+        )
+        times = [START + timedelta(seconds=s) for s in range(0, 6000, 10)]
+        ground_track = collect_ground_track(satellite, times)
+        # an aircraft flying beneath the satellite's nadir point at one time
+        center = ground_track.geometry.iloc[0].centroid
+        data = straight_trajectory(n=30, latitude=center.y, longitude=center.x)
+        data["time"] = times[0] + pd.to_timedelta(np.arange(30) - 15, unit="s")
+        airborne = collect_airborne_ground_track(_aircraft(data))
+        pairs = find_coincident_ground_track(
+            pd.concat([ground_track, airborne], ignore_index=True),
+            max_time_difference=timedelta(minutes=1),
+        )
+        self.assertFalse(pairs.empty)
+        self.assertTrue(
+            (pairs["satellite_1"].fillna(pairs["satellite_2"]) == "ISS").all()
+        )
+        self.assertTrue(
+            (pairs["aircraft_1"].fillna(pairs["aircraft_2"]) == "aircraft").all()
+        )
 
     def test_roll_shifts_swath(self):
         """

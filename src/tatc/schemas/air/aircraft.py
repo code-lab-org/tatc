@@ -14,9 +14,8 @@ import numpy.typing as npt
 from pydantic import BaseModel, Field, model_validator
 from skyfield.positionlib import Geocentric
 
-from ...utils.projection import VelocityFrame
 from ...utils.time import _to_time
-from ..instrument import AllInstruments, Instrument, PointedInstrument
+from ..instrument import AllInstruments, Instrument, _check_platform_instruments
 from .trajectory import Trajectory
 
 
@@ -110,6 +109,23 @@ class Aircraft(BaseModel):
     nose, along the track, the down axis points to nadir. The aircraft's roll,
     pitch, and heading (see `Trajectory`) rotate the views of a
     `PointedInstrument`; a generic `Instrument` observes a cone about nadir.
+
+    The roll and pitch of an aircraft (right wing down and nose up positive,
+    as in the aerospace convention and in flight recordings such as IWG1) and
+    those of a satellite's attitude and an instrument's view (see
+    `tatc.schemas.Attitude` and `PointedInstrument`) are the same rotations:
+    right-handed about the forward and right axes of a frame whose axes point
+    forward, right, and down (an aircraft's body axes, or a satellite's
+    local-vertical, local-horizontal axes). A positive roll tilts the down
+    axis, and so the views, to the left, and a positive pitch tilts them
+    forward: an aircraft rolled 10 degrees shifts a nadir view as an
+    instrument's `roll_angle` of 10 degrees does. The yaw differs: an
+    aircraft's heading is clockwise (positive turning the nose to the right,
+    as is standard for aircraft and spacecraft), whereas the yaw angle of a
+    satellite's attitude is positive turning its front to the left. The look
+    angles of some planning tools are positive to the right (as are the swath
+    offset angles of HyPlan's sensors), the opposite of a roll angle (see
+    `tatc.preprocess.airborne.instrument_from_sensor`).
     """
 
     name: str = Field(..., description="Aircraft name.", examples=["NASA P-3B"])
@@ -127,22 +143,7 @@ class Aircraft(BaseModel):
         roll or pitch angle profiles (which vary with an orbit's argument of
         latitude) or an inertial velocity frame (aligned with an orbit plane).
         """
-        for instrument in self.instruments:
-            if isinstance(instrument, PointedInstrument):
-                if (
-                    instrument.roll_angle_profile is not None
-                    or instrument.pitch_angle_profile is not None
-                ):
-                    raise ValueError(
-                        f"instrument {instrument.name!r}: roll and pitch angle "
-                        "profiles are not supported on an aircraft"
-                    )
-                if instrument.velocity_frame != VelocityFrame.EARTH_FIXED:
-                    raise ValueError(
-                        f"instrument {instrument.name!r}: an aircraft's track "
-                        "defines the along-track direction, which requires "
-                        "velocity_frame='earth_fixed'"
-                    )
+        _check_platform_instruments(self.instruments, "an aircraft", "track")
         return self
 
     def get_instrument(self, index: int = 0) -> Instrument:

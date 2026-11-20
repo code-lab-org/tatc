@@ -77,10 +77,34 @@ class TestTrajectory(unittest.TestCase):
         """
         Tests that a data frame without a required column is not accepted.
         """
-        with self.assertRaisesRegex(ValueError, "ground_speed"):
-            Trajectory.from_dataframe(
-                straight_trajectory(n=3).drop(columns="ground_speed")
-            )
+        with self.assertRaisesRegex(ValueError, "altitude"):
+            Trajectory.from_dataframe(straight_trajectory(n=3).drop(columns="altitude"))
+
+    def test_from_dataframe_missing_values(self):
+        """
+        Tests that rows missing a value are omitted and that an optional column
+        without any value is ignored.
+        """
+        data = straight_trajectory(n=5)
+        data.loc[2, "altitude"] = np.nan
+        data["roll"] = np.nan
+        trajectory = Trajectory.from_dataframe(data)
+        self.assertEqual(len(trajectory.time), 4)
+        self.assertNotIn(data["time"][2], trajectory.time)
+        self.assertIsNone(trajectory.roll)
+
+    def test_non_finite_values(self):
+        """
+        Tests that values that are not finite are not accepted.
+        """
+        values = Trajectory.from_dataframe(
+            straight_trajectory(n=3, roll=0.0)
+        ).model_dump()
+        for name in ("latitude", "altitude", "track", "roll"):
+            for value in (np.nan, np.inf):
+                with self.subTest(name=name, value=value):
+                    with self.assertRaisesRegex(ValidationError, "finite"):
+                        Trajectory(**{**values, name: [0.0, value, 0.0]})
 
     def test_validation(self):
         """
@@ -94,6 +118,7 @@ class TestTrajectory(unittest.TestCase):
             ("time", [START, START, START + timedelta(seconds=1)]),
             ("latitude", [91.0, 0.0, 0.0]),
             ("ground_speed", [-1.0, 0.0, 0.0]),
+            ("max_gap", timedelta(0)),
         ):
             with self.subTest(name=name), self.assertRaises(ValidationError):
                 Trajectory(**{**values, name: value})
@@ -232,6 +257,75 @@ class TestTrajectory(unittest.TestCase):
         np.testing.assert_allclose(crab, [-2.0, 0.0, 3.0, 4.0], atol=1e-6)
         np.testing.assert_allclose(roll, [0.0, 5.0, 10.0, 10.0], atol=1e-6)
         np.testing.assert_allclose(pitch, 0.0)
+
+    def test_contains(self):
+        """
+        Tests that a trajectory contains the times from its first to its last
+        state, except within a gap longer than the maximum gap.
+        """
+        data = straight_trajectory(n=4, step=30.0)
+        later = straight_trajectory(n=2, latitude=34.0)
+        later["time"] += timedelta(minutes=10)
+        trajectory = Trajectory.from_dataframe(pd.concat([data, later]))
+        offsets = [-1.0, 0.0, 45.0, 90.0, 91.0, 300.0, 599.0, 600.0, 601.0, 602.0]
+        times = [START + timedelta(seconds=s) for s in offsets]
+        np.testing.assert_array_equal(
+            trajectory.contains(times),
+            [False, True, True, True, False, False, False, True, True, False],
+        )
+        self.assertTrue(trajectory.contains(START))
+        np.testing.assert_array_equal(
+            Trajectory.from_dataframe(pd.concat([data, later]), max_gap=None).contains(
+                times
+            ),
+            [False] + [True] * 8 + [False],
+        )
+
+    def test_estimated_motion(self):
+        """
+        Tests that the track and ground speed, if not given, are estimated from
+        the positions, within each part of the trajectory between gaps, and
+        that a state without a neighbor within the maximum gap is not accepted.
+        """
+        data = straight_trajectory(n=10, speed=150.0, track=300.0, step=5.0)
+        given = Trajectory.from_dataframe(data)
+        estimated = Trajectory.from_dataframe(
+            data.drop(columns=["track", "ground_speed"])
+        )
+        times = _to_time([START + timedelta(seconds=s) for s in (0.0, 12.5, 45.0)])
+        np.testing.assert_allclose(
+            _ground_velocity(estimated.get_orbit_track_at_time(times)),
+            _ground_velocity(given.get_orbit_track_at_time(times)),
+            rtol=1e-4,
+        )
+        later = straight_trajectory(n=2, speed=100.0, track=180.0, latitude=34.0)
+        later["time"] += timedelta(minutes=10)
+        parts = Trajectory.from_dataframe(
+            pd.concat([data, later]).drop(columns=["track", "ground_speed"])
+        )
+        azimuth, speed = _ground_velocity(
+            parts.get_orbit_track_at_time(_to_time(parts.time))
+        )
+        np.testing.assert_allclose(
+            azimuth, list(data["track"]) + [180.0] * 2, atol=1e-3
+        )
+        np.testing.assert_allclose(speed, [150.0] * 10 + [100.0] * 2, rtol=1e-4)
+        with self.assertRaisesRegex(ValidationError, "neighboring state"):
+            Trajectory.from_dataframe(
+                pd.concat([data, later.iloc[:1]]).drop(columns="track")
+            )
+
+    def test_assignment(self):
+        """
+        Tests that assigned fields are validated and change the track.
+        """
+        trajectory = Trajectory.from_dataframe(straight_trajectory(n=3))
+        before = trajectory.get_angles(_to_time(START))
+        trajectory.roll = [5.0, 5.0, 5.0]
+        np.testing.assert_allclose(trajectory.get_angles(_to_time(START))[1], 5.0)
+        self.assertEqual(before[1], 0.0)
+        with self.assertRaises(ValidationError):
+            trajectory.pitch = [1.0]
 
 
 if __name__ == "__main__":

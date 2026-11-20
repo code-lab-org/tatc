@@ -24,7 +24,7 @@ from tatc.schemas.air.aircraft import _to_body_angles
 from tatc.utils.ellipsoid import geodetic_to_rectangular
 from tatc.utils.projection import _rotate_view_axes
 
-from .common import straight_trajectory
+from .common import GEOD, straight_trajectory
 
 
 def _body_to_ned(heading, pitch, roll):
@@ -205,6 +205,61 @@ class TestAircraft(unittest.TestCase):
         self.assertEqual(
             Aircraft.model_validate_json(aircraft.model_dump_json()), aircraft
         )
+
+    def test_roll_and_pitch_conventions(self):
+        """
+        Tests that the roll and pitch of an aircraft (right wing down and nose
+        up positive) shift a nadir view as the roll and pitch angles of an
+        instrument do: to the left and forward.
+        """
+        data = straight_trajectory(n=2, track=0.0, altitude=5000.0)
+        for name, angles in (("roll", (10.0, 0.0)), ("pitch", (0.0, 10.0))):
+            with self.subTest(name=name):
+                rotated = Aircraft(
+                    name="rotated",
+                    trajectory=Trajectory.from_dataframe(data.assign(**{name: 10.0})),
+                    instruments=[
+                        PointedInstrument(
+                            cross_track_field_of_view=1, along_track_field_of_view=1
+                        )
+                    ],
+                )
+                pointed = Aircraft(
+                    name="pointed",
+                    trajectory=Trajectory.from_dataframe(data),
+                    instruments=[
+                        PointedInstrument(
+                            cross_track_field_of_view=1,
+                            along_track_field_of_view=1,
+                            roll_angle=angles[0],
+                            pitch_angle=angles[1],
+                        )
+                    ],
+                )
+                centers = [
+                    aircraft.get_instrument().compute_footprint_center(
+                        aircraft.get_track(), 0
+                    )
+                    for aircraft in (rotated, pointed)
+                ]
+                np.testing.assert_allclose(
+                    centers[0].longitude.degrees,
+                    centers[1].longitude.degrees,
+                    atol=1e-9,
+                )
+                np.testing.assert_allclose(
+                    centers[0].latitude.degrees, centers[1].latitude.degrees, atol=1e-9
+                )
+                azimuth = GEOD.inv(
+                    data["longitude"][0],
+                    data["latitude"][0],
+                    centers[0].longitude.degrees[0],
+                    centers[0].latitude.degrees[0],
+                )[0]
+                # to the left (west) of a northward track, or forward (north)
+                self.assertAlmostEqual(
+                    azimuth, -90.0 if name == "roll" else 0.0, delta=0.01
+                )
 
 
 if __name__ == "__main__":

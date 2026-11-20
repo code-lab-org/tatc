@@ -14,16 +14,14 @@ from shapely.geometry import MultiPolygon, Polygon
 from skyfield.positionlib import Geocentric
 
 from ...utils.projection import (
-    VelocityFrame,
     _compute_horizon_region,
     compute_static_track,
 )
 from ...utils.time import _to_time
 from ..instrument import (
     AllInstruments,
-    ConicalInstrument,
     Instrument,
-    PointedInstrument,
+    _check_platform_instruments,
 )
 from .point import Point
 from .terrain import TerrainMask
@@ -95,27 +93,9 @@ class SurfacePlatform(Point):
         orbit's argument of latitude) or an inertial velocity frame (aligned
         with an orbit plane).
         """
-        for instrument in self.instruments:
-            if isinstance(instrument, ConicalInstrument):
-                raise ValueError(
-                    f"instrument {instrument.name!r}: a ConicalInstrument is not "
-                    "supported on a surface platform"
-                )
-            if isinstance(instrument, PointedInstrument):
-                if (
-                    instrument.roll_angle_profile is not None
-                    or instrument.pitch_angle_profile is not None
-                ):
-                    raise ValueError(
-                        f"instrument {instrument.name!r}: roll and pitch angle "
-                        "profiles are not supported on a surface platform"
-                    )
-                if instrument.velocity_frame != VelocityFrame.EARTH_FIXED:
-                    raise ValueError(
-                        f"instrument {instrument.name!r}: a surface platform's "
-                        "heading defines the along-track direction, which "
-                        "requires velocity_frame='earth_fixed'"
-                    )
+        _check_platform_instruments(
+            self.instruments, "a surface platform", "heading", allow_conical=False
+        )
         return self
 
     def get_altitude(self) -> float:

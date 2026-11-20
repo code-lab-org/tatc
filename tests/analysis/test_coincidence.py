@@ -340,6 +340,35 @@ class TestFindCoincidentGroundTrack(IssConstellationTestCase):
         self.assertIn("time_difference", results.columns)
         self.assertIn("satellite_2", results.columns)
 
+    def test_aircraft(self):
+        """
+        Test that footprints of a satellite and an aircraft (an underflight)
+        are coincident, even if the aircraft has the same name, and that a
+        footprint must name its platform.
+        """
+        aircraft = _make_footprint(None, 1, box(1, 1, 3, 3))
+        aircraft["aircraft"] = aircraft.pop("satellite")
+        aircraft["aircraft"] = "A"
+        ground_track = pd.concat(
+            [
+                gpd.GeoDataFrame(
+                    [_make_footprint("A", 0, box(0, 0, 2, 2))], crs="EPSG:4326"
+                ),
+                gpd.GeoDataFrame([aircraft], crs="EPSG:4326"),
+            ],
+            ignore_index=True,
+        )
+        results = find_coincident_ground_track(
+            ground_track, max_time_difference=timedelta(minutes=1)
+        )
+        self.assertEqual(len(results.index), 1)
+        self.assertEqual(results.iloc[0].satellite_1, "A")
+        self.assertTrue(pd.isna(results.iloc[0].aircraft_1))
+        self.assertEqual(results.iloc[0].aircraft_2, "A")
+        self.assertTrue(pd.isna(results.iloc[0].satellite_2))
+        with self.assertRaisesRegex(ValueError, "satellite or aircraft"):
+            find_coincident_ground_track(ground_track.drop(columns="aircraft"))
+
     def test_empty(self):
         """
         Test that an empty ground track has no coincident footprints.

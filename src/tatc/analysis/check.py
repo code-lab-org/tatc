@@ -49,6 +49,31 @@ def _check_satellite(satellite: object, name: str = "satellite") -> Satellite:
     raise TypeError(f"{name} must be a Satellite, not a {type(satellite).__name__}")
 
 
+def _check_platforms(value: object, kind: type, name: str) -> list:
+    """
+    Checks that `value` is an instance of `kind` (for example, an
+    `Aircraft`) or a list of them, raising a `TypeError` otherwise.
+
+    Args:
+        value (object): The value to check.
+        kind (type): The type of each platform.
+        name (str): The argument name to report in the error message.
+
+    Returns:
+        list: the checked platforms, as a list.
+    """
+    checked = list(value) if isinstance(value, (list, tuple)) else [value]
+    for i, platform in enumerate(checked):
+        if not isinstance(platform, kind):
+            label = f"{name}[{i}]" if isinstance(value, (list, tuple)) else name
+            article = "an" if kind.__name__[0] in "AEIOU" else "a"
+            raise TypeError(
+                f"{label} must be {article} {kind.__name__}, "
+                f"not a {type(platform).__name__}"
+            )
+    return checked
+
+
 def _check_satellites(
     satellites: object, name: str = "satellites", allow_single: bool = True
 ) -> list[Satellite]:
