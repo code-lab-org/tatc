@@ -73,8 +73,9 @@ The states of an aircraft's trajectory (read by
 :meth:`tatc.schemas.Trajectory.from_dataframe`) and the instruments it carries
 are derived from flight plans, flight recordings, and sensor models, such as
 those of `HyPlan <https://github.com/ryanpavlick/hyplan>`_. Altitudes above
-mean sea level are converted to altitudes above the WGS 84 ellipsoid with a
-constant geoid height.
+mean sea level are converted to altitudes above the WGS 84 ellipsoid with the
+EGM2008 geoid (:func:`tatc.utils.compute_geoid_height`) or a constant geoid
+height.
 
 Sample Flight Plan
 ------------------

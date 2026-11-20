@@ -35,5 +35,7 @@ class Point(BaseModel):
     )
     elevation: float = Field(
         default=0,
-        description="Elevation (meters) above datum in the WGS 84 coordinate system.",
+        description="Elevation (meters) above the WGS 84 ellipsoid: a height "
+        + "above mean sea level plus the geoid height (see "
+        + "`tatc.utils.compute_geoid_height`).",
     )

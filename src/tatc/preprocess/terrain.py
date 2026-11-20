@@ -36,6 +36,7 @@ except ImportError as error:
 
 from .. import constants
 from ..schemas.surface import RadarStation, SurfacePlatform, TerrainMask
+from ..utils.geoid import compute_geoid_height
 from ..utils.geometry import geodesic_destination
 from ..utils.observation import compute_local_incidence_angle
 from ..utils.radar import compute_terrain_elevation_angle
@@ -111,7 +112,10 @@ def _normalize_dem_path(path: str) -> str:
 
 
 def sample_dem_elevation(
-    dem_paths: str | list[str], longitude: float, latitude: float
+    dem_paths: str | list[str],
+    longitude: float,
+    latitude: float,
+    above_ellipsoid: bool = False,
 ) -> float:
     """
     Samples terrain elevation at a specified longitude/latitude, from the
@@ -120,7 +124,10 @@ def sample_dem_elevation(
     whatever vertical datum the DEM uses: for most public global DEMs,
     including Copernicus DEM GLO-30, this is mean sea level (the EGM2008
     geoid), which differs from the WGS 84 ellipsoid by the local geoid
-    undulation (up to about 100 m in magnitude).
+    height (up to about 107 m in magnitude). With `above_ellipsoid`, the
+    EGM2008 geoid height (see `tatc.utils.compute_geoid_height`) is added
+    to give the elevation above the WGS 84 ellipsoid, as for the
+    `elevation` of a `tatc.schemas.SurfacePlatform`.
 
     Args:
         dem_paths (str | list[str]): One or more DEM raster sources, each
@@ -128,6 +135,9 @@ def sample_dem_elevation(
             Optimized GeoTIFF (COG), tried in order.
         longitude (float): Longitude (decimal degrees) of the sample point.
         latitude (float): Latitude (decimal degrees) of the sample point.
+        above_ellipsoid (bool): `True` to give the elevation above the WGS
+            84 ellipsoid, of a DEM whose elevations are above the EGM2008
+            geoid (as those of Copernicus DEM GLO-30).
 
     Returns:
         float: The sampled terrain elevation (meters).
@@ -144,6 +154,8 @@ def sample_dem_elevation(
                 continue
             value = next(dataset.sample([(longitude, latitude)]))[0]
             if dataset.nodata is None or value != dataset.nodata:
+                if above_ellipsoid:
+                    return float(value) + compute_geoid_height(longitude, latitude)
                 return float(value)
     raise ValueError(
         f"No DEM data available at ({longitude}, {latitude}) from the provided source(s)."

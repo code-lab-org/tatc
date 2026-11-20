@@ -25,6 +25,7 @@ from tatc.preprocess import (
     states_from_iwg1,
 )
 from tatc.schemas import Aircraft, Trajectory
+from tatc.utils import compute_geoid_height
 
 GEOD = Geod(ellps="WGS84")
 TAKEOFF = pd.Timestamp("2026-10-15T17:00:00Z")
@@ -93,6 +94,14 @@ class TestSampleFlightPlan(unittest.TestCase):
             states.loc[line, "altitude"], 10000 * 0.3048 - 30.0, atol=1e-9
         )
         self.assertAlmostEqual(states["altitude"].iloc[-1], 11000 * 0.3048 - 30.0)
+        # by default, the EGM2008 geoid at each state
+        egm2008 = sample_flight_plan(_plan(), TAKEOFF)
+        np.testing.assert_allclose(
+            egm2008["altitude"],
+            states["altitude"]
+            + 30.0
+            + compute_geoid_height(egm2008["longitude"], egm2008["latitude"]),
+        )
         # the states lie along the path at the distance flown
         distance = GEOD.inv(
             -112.0, 33.0, states["longitude"].iloc[30], states["latitude"].iloc[30]
@@ -259,6 +268,10 @@ class TestStatesFromIwg1(unittest.TestCase):
         np.testing.assert_allclose(states["ground_speed"], 300 * 1852 / 3600)
         trajectory = Trajectory.from_dataframe(states)
         self.assertEqual(trajectory.roll, [3.0] * 3)
+        np.testing.assert_allclose(
+            states_from_iwg1(data)["altitude"],
+            20000 * 0.3048 + compute_geoid_height(-112.0, states["latitude"]),
+        )
         with self.assertRaisesRegex(ValueError, "altitude_gps_ft"):
             states_from_iwg1(data.drop(columns="altitude_gps_ft"))
 

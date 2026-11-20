@@ -164,7 +164,10 @@ class Trajectory(BaseModel):
         ..., description="Longitudes (decimal degrees) in WGS 84."
     )
     altitude: list[Finite] = Field(
-        ..., description="Altitudes (meters) above the WGS 84 ellipsoid."
+        ...,
+        description="Altitudes (meters) above the WGS 84 ellipsoid: heights "
+        + "above mean sea level plus the geoid height (see "
+        + "`tatc.utils.compute_geoid_height`).",
     )
     track: list[Finite] | None = Field(
         default=None,

@@ -20,6 +20,7 @@ from rasterio.transform import from_origin
 from shapely.geometry import Point, box
 
 from tatc import constants
+from tatc.utils import compute_geoid_height
 from tatc.preprocess import (
     add_local_incidence_angles,
     compute_terrain_mask,
@@ -147,6 +148,16 @@ class TestSampleDemElevation(unittest.TestCase):
         """
         self.assertAlmostEqual(
             sample_dem_elevation([self.dem_path], 0.25, 0.0), 2000.0, delta=1e-6
+        )
+
+    def test_above_ellipsoid(self):
+        """
+        Test that the elevation above the ellipsoid adds the geoid height.
+        """
+        self.assertAlmostEqual(
+            sample_dem_elevation(self.dem_path, 0.25, 0.0, above_ellipsoid=True),
+            2000.0 + compute_geoid_height(0.25, 0.0),
+            delta=1e-6,
         )
 
     def test_raises_outside_coverage(self):

@@ -15,10 +15,12 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from pyproj import Geod
 
 from ..schemas import PointedInstrument
+from ..utils.geoid import compute_geoid_height
 
 _GEOD = Geod(ellps="WGS84")
 _METERS_PER_FOOT = 0.3048
@@ -33,7 +35,7 @@ def sample_flight_plan(
     plan: pd.DataFrame,
     takeoff_time: datetime,
     time_step: timedelta = timedelta(seconds=1),
-    geoid_height: float = 0.0,
+    geoid_height: float | None = None,
 ) -> pd.DataFrame:
     """
     Samples the states of an aircraft at regular times along a flight plan
@@ -55,10 +57,12 @@ def sample_flight_plan(
         takeoff_time (datetime.datetime): The time at which the plan starts
             (the takeoff time given to `hyplan.compute_flight_plan`).
         time_step (datetime.timedelta): The time between states.
-        geoid_height (float): The height (meters) of the geoid above the WGS
-            84 ellipsoid in the area of the flight (for example, about -30
-            meters near Phoenix, Arizona), added to the altitudes above mean
-            sea level to give altitudes above the ellipsoid.
+        geoid_height (float | None): The height (meters) of the geoid above
+            the WGS 84 ellipsoid, added to the altitudes above mean sea level
+            to give altitudes above the ellipsoid: a constant (for example,
+            about -30 meters near Phoenix, Arizona), or `None` for the
+            EGM2008 geoid at each state (see
+            `tatc.utils.compute_geoid_height`).
 
     Returns:
         pandas.DataFrame: The states, with columns `time`, `latitude`,
@@ -85,11 +89,9 @@ def sample_flight_plan(
             continue
         fraction = (t - starts[i]) / duration[i]
         lon, lat, track, length = _sample_path(row.geometry, fraction)
-        altitude = (
-            _METERS_PER_FOOT
-            * (row.start_altitude + fraction * (row.end_altitude - row.start_altitude))
-            + geoid_height
-        )
+        altitude = _METERS_PER_FOOT * (
+            row.start_altitude + fraction * (row.end_altitude - row.start_altitude)
+        ) + _get_geoid_height(lon, lat, geoid_height)
         crab = getattr(row, "crab_angle_deg", np.nan)
         heading = track + (0.0 if pd.isna(crab) else float(crab))
         parts.append(
@@ -114,6 +116,32 @@ def sample_flight_plan(
     states = pd.concat(parts, ignore_index=True)
     states["time"] = pd.to_datetime(states["time"], utc=True)
     return states
+
+
+def _get_geoid_height(
+    longitude: npt.ArrayLike, latitude: npt.ArrayLike, geoid_height: float | None
+) -> float | npt.NDArray:
+    """
+    Gets the height (meters) of the geoid above the WGS 84 ellipsoid: a
+    constant, or, if `None`, that of the EGM2008 geoid at positions (where
+    given; see `tatc.utils.compute_geoid_height`).
+
+    Args:
+        longitude (numpy.typing.ArrayLike): The longitudes (degrees).
+        latitude (numpy.typing.ArrayLike): The latitudes (degrees).
+        geoid_height (float | None): The constant height, or `None`.
+
+    Returns:
+        float | numpy.typing.NDArray: the geoid height(s)
+    """
+    if geoid_height is not None:
+        return geoid_height
+    longitude = np.asarray(longitude, dtype=float)
+    latitude = np.asarray(latitude, dtype=float)
+    known = np.isfinite(longitude) & np.isfinite(latitude)
+    result = np.full(longitude.shape, np.nan)
+    result[known] = compute_geoid_height(longitude[known], latitude[known])
+    return result
 
 
 def _sample_path(
@@ -241,7 +269,9 @@ def _smooth(
     return series.to_numpy()
 
 
-def states_from_iwg1(data: pd.DataFrame, geoid_height: float = 0.0) -> pd.DataFrame:
+def states_from_iwg1(
+    data: pd.DataFrame, geoid_height: float | None = None
+) -> pd.DataFrame:
     """
     Gets the states of an aircraft from a flight recording in the IWG1
     format (NASA's interchange format of aircraft navigation and state data),
@@ -255,9 +285,12 @@ def states_from_iwg1(data: pd.DataFrame, geoid_height: float = 0.0) -> pd.DataFr
             (UTC), `latitude`, `longitude`, `altitude_gps_ft` (feet above
             mean sea level), `groundspeed` (knots), and `track`, and
             optionally `true_heading`, `roll_deg`, and `pitch_deg`.
-        geoid_height (float): The height (meters) of the geoid above the WGS
-            84 ellipsoid in the area of the flight, added to the altitudes
-            above mean sea level to give altitudes above the ellipsoid.
+        geoid_height (float | None): The height (meters) of the geoid above
+            the WGS 84 ellipsoid, added to the altitudes above mean sea level
+            to give altitudes above the ellipsoid: a constant (for example,
+            about -30 meters near Phoenix, Arizona), or `None` for the
+            EGM2008 geoid at each state (see
+            `tatc.utils.compute_geoid_height`).
 
     Returns:
         pandas.DataFrame: The states, with columns `time`, `latitude`,
@@ -281,7 +314,8 @@ def states_from_iwg1(data: pd.DataFrame, geoid_height: float = 0.0) -> pd.DataFr
             "time": pd.to_datetime(data["timestamp"], utc=True),
             "latitude": data["latitude"],
             "longitude": data["longitude"],
-            "altitude": data["altitude_gps_ft"] * _METERS_PER_FOOT + geoid_height,
+            "altitude": data["altitude_gps_ft"] * _METERS_PER_FOOT
+            + _get_geoid_height(data["longitude"], data["latitude"], geoid_height),
             "track": data["track"],
             "ground_speed": data["groundspeed"] * _METERS_PER_SECOND_PER_KNOT,
         }

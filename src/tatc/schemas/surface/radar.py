@@ -82,7 +82,8 @@ class RadarStation(Point):
         + "above mean sea level (as in NOAA's NEXRAD station tables and "
         + "digital elevation models such as Copernicus DEM GLO-30) are "
         + "recommended, noting that they differ from heights above the "
-        + "WGS 84 ellipsoid by the local geoid undulation.",
+        + "WGS 84 ellipsoid by the local geoid height (see "
+        + "`tatc.utils.compute_geoid_height`).",
     )
     max_range: float = Field(
         default=460000,

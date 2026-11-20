@@ -40,6 +40,8 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_glint_angle
 
+.. autofunction:: tatc.utils.compute_geoid_height
+
 .. autofunction:: tatc.utils.compute_subsolar_latitude
 
 .. autoclass:: tatc.utils.VelocityFrame

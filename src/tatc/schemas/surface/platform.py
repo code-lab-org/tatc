@@ -49,8 +49,8 @@ class SurfacePlatform(Point):
     elevation: float = Field(
         default=0,
         description="Elevation (meters) of the ground below the platform above "
-        + "the WGS 84 ellipsoid (which differs from a height above mean sea "
-        + "level by the local geoid undulation).",
+        + "the WGS 84 ellipsoid: a height above mean sea level plus the geoid "
+        + "height (see `tatc.utils.compute_geoid_height`).",
     )
     height: float = Field(
         ...,
