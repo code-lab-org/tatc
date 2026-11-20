@@ -34,6 +34,7 @@ from ..utils.time import _index_orbit_track, _to_time, _to_time_from_offsets
 from .check import (
     _check_satellite,
     _check_satellites,
+    _check_times,
     _combine_results,
     _get_instrument_indices,
     _is_single,
@@ -425,6 +426,7 @@ def collect_ground_track(
     """
     single = _is_single(satellites, instrument_index=instrument_index)
     satellites = _check_satellites(satellites)
+    _check_times(times)
     if len(times) == 0:
         return _get_empty_ground_track()
     if mask is not None:
@@ -683,6 +685,7 @@ def collect_ground_pixels(
     """
     single = _is_single(satellites, instrument_index=instrument_index)
     satellites = _check_satellites(satellites)
+    _check_times(times)
     if len(times) == 0:
         return _get_empty_ground_track()
     if mask is not None:

@@ -307,25 +307,26 @@ class Trajectory(BaseModel):
         ]
         return np.split(index, gaps)
 
-    def contains(self, times: datetime | list[datetime]) -> npt.NDArray[np.bool_]:
+    def contains(
+        self, times: datetime | list[datetime] | Time
+    ) -> npt.NDArray[np.bool_]:
         """
         Determines whether the trajectory gives the aircraft's state at times:
         from its first to its last time, and not within a gap between states
         longer than `max_gap`.
 
         Args:
-            times (datetime.datetime | list[datetime.datetime]): The time(s).
+            times (datetime.datetime | list[datetime.datetime] | skyfield.timelib.Time):
+                The time(s).
 
         Returns:
             numpy.typing.NDArray: Array of indicators (with the shape of the
                 times): `True` if the trajectory contains the time.
         """
-        seconds = self._get_seconds(_to_time(times))
-        s = self._get_states()["seconds"]
-        # the first and last seconds of each part, within a small tolerance
-        # (that absorbs the rounding of times)
-        first = np.array([s[part[0]] for part in self._get_parts()]) - _TIME_TOLERANCE
-        last = np.array([s[part[-1]] for part in self._get_parts()]) + _TIME_TOLERANCE
+        t = times if isinstance(times, Time) else _to_time(times)
+        seconds = self._get_seconds(t)
+        states = self._get_states()
+        first, last = states["part_first"], states["part_last"]
         part = np.searchsorted(first, seconds, side="right") - 1
         return (part >= 0) & (seconds <= last[np.maximum(part, 0)])
 
@@ -334,7 +335,9 @@ class Trajectory(BaseModel):
         Gets the states as arrays: the seconds (TT) since the first time and
         the Earth-fixed positions (meters) and horizontal velocities (meters
         per second), and the altitudes, unit vectors along the track, and
-        attitude angles (degrees, the heading relative to the track).
+        attitude angles (degrees, the heading relative to the track), and the
+        first and last seconds of each part of the trajectory between gaps
+        (within a small tolerance that absorbs the rounding of times).
         """
         if self._states is None:
             t = _to_time(self.time)
@@ -384,6 +387,10 @@ class Trajectory(BaseModel):
             )
             self._states = {
                 "seconds": seconds,
+                "part_first": np.array([seconds[p[0]] for p in self._get_parts()])
+                - _TIME_TOLERANCE,
+                "part_last": np.array([seconds[p[-1]] for p in self._get_parts()])
+                + _TIME_TOLERANCE,
                 "position": position,
                 "velocity": direction * speed,
                 "direction": direction,

@@ -15,7 +15,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from pyproj import Geod
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point
 
 from tatc.analysis import collect_airborne_ground_track
 from tatc.preprocess import (
@@ -30,6 +30,28 @@ from tatc.utils import compute_geoid_height
 GEOD = Geod(ellps="WGS84")
 TAKEOFF = pd.Timestamp("2026-10-15T17:00:00Z")
 HAS_HYPLAN = importlib.util.find_spec("hyplan") is not None
+
+
+class _Quantity:
+    """
+    A stand-in for a quantity with units (as of pint), in the units in which it
+    is read.
+    """
+
+    def __init__(self, value):
+        self.value = value
+
+    def __truediv__(self, other):
+        return _Quantity(self.value / other.value)
+
+    def __rmul__(self, factor):
+        return _Quantity(factor * self.value)
+
+    def m_as(self, unit):  # pylint: disable=unused-argument
+        """
+        Gets the magnitude.
+        """
+        return self.value
 
 
 def _line(longitude, latitude, azimuth, distance, n=50):
@@ -117,6 +139,62 @@ class TestSampleFlightPlan(unittest.TestCase):
         self.assertEqual(len(states), 10)
         with self.assertRaises(ValueError):
             sample_flight_plan(_plan(), TAKEOFF, time_step=timedelta(0))
+
+    def test_skipped_segments(self):
+        """
+        Tests that a segment without altitudes is skipped while its time
+        elapses, that a segment without duration is skipped, and that an empty
+        plan has no states.
+        """
+        line = _line(-112.0, 33.0, 0.0, 12000.0)
+        plan = gpd.GeoDataFrame(
+            {
+                "time_to_segment": [1.0, 2.0, 0.0, 1.0],
+                "start_altitude": [10000.0, np.nan, 10000.0, 10000.0],
+                "end_altitude": [10000.0, np.nan, 10000.0, 10000.0],
+            },
+            geometry=[line] * 4,
+            crs="EPSG:4326",
+        )
+        states = sample_flight_plan(plan, TAKEOFF, geoid_height=0.0)
+        seconds = (states["time"] - TAKEOFF).dt.total_seconds()
+        np.testing.assert_array_equal(seconds, list(range(60)) + list(range(180, 241)))
+        # without the optional columns, the heading is the track
+        self.assertTrue(states["segment_name"].isna().all())
+        np.testing.assert_allclose(states["heading"], states["track"])
+        empty = sample_flight_plan(plan.iloc[:0], TAKEOFF)
+        self.assertTrue(empty.empty)
+        self.assertEqual(
+            list(empty.columns),
+            [
+                "time",
+                "latitude",
+                "longitude",
+                "altitude",
+                "track",
+                "ground_speed",
+                "heading",
+                "segment_type",
+                "segment_name",
+            ],
+        )
+
+    def test_hold(self):
+        """
+        Tests that a path without length (as a hold) is stationary.
+        """
+        plan = gpd.GeoDataFrame(
+            {"time_to_segment": [0.1], "start_altitude": [1e4], "end_altitude": [1e4]},
+            geometry=[LineString([(-112.0, 33.0), (-112.0, 33.0)])],
+            crs="EPSG:4326",
+        )
+        states = sample_flight_plan(plan, TAKEOFF)
+        self.assertEqual(len(states), 7)
+        np.testing.assert_allclose(states["ground_speed"], 0.0)
+        np.testing.assert_allclose(
+            states[["longitude", "latitude"]], [[-112.0, 33.0]] * 7
+        )
+        Trajectory.from_dataframe(states)
 
     @unittest.skipUnless(HAS_HYPLAN, "requires hyplan")
     def test_hyplan(self):
@@ -223,6 +301,44 @@ class TestEstimateAttitude(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ground_speed"):
             estimate_attitude(states.drop(columns="ground_speed"))
 
+    def test_invalid_states(self):
+        """
+        Tests that states missing a value, or not in increasing order of time,
+        are not accepted.
+        """
+        states = self._turn(n=10)
+        for name in ("time", "altitude", "track", "ground_speed"):
+            with self.subTest(name=name):
+                missing = states.copy()
+                missing.loc[4, name] = None
+                with self.assertRaisesRegex(ValueError, f"missing values.*{name}"):
+                    estimate_attitude(missing)
+        for order in ([1, 0, 2], [0, 1, 1, 2]):
+            with self.subTest(order=order):
+                with self.assertRaisesRegex(ValueError, "strictly increasing"):
+                    estimate_attitude(states.iloc[order])
+
+    def test_isolated_states(self):
+        """
+        Tests that states without a neighbor within the maximum gap are level.
+        """
+        states = self._turn(n=5)
+        states["time"] = TAKEOFF + pd.to_timedelta(120 * np.arange(5), unit="s")
+        result = estimate_attitude(states)
+        np.testing.assert_allclose(result[["roll", "pitch"]], 0.0)
+        self.assertTrue((estimate_attitude(states, max_gap=None)["roll"] > 0).all())
+
+    def test_flight_path_pitch(self):
+        """
+        Tests that the pitch is that of the flight path, toward vertical for a
+        climb without ground speed.
+        """
+        for speed, pitch in ((0.0, 90.0), (5.0, 45.0)):
+            with self.subTest(speed=speed):
+                result = estimate_attitude(self._turn(n=10, speed=speed, rate=0.0))
+                np.testing.assert_allclose(result["pitch"], pitch, atol=1e-4)
+                np.testing.assert_allclose(result["roll"], 0.0)
+
 
 class TestStatesFromIwg1(unittest.TestCase):
     """
@@ -308,6 +424,94 @@ class TestInstrumentFromSensor(unittest.TestCase):
             )
         with self.assertRaisesRegex(TypeError, "not supported"):
             instrument_from_sensor(SimpleNamespace(name="profiler"))
+
+    def test_along_track_field_of_view(self):
+        """
+        Tests the along-track field of view of a scanning lidar (its beam
+        divergence) and radar (its beam width, the wavelength over the
+        antenna's length or twice the azimuth resolution).
+        """
+        width = np.degrees(0.24 / 1.6)
+        for attributes, expected in (
+            ({"beam_divergence": _Quantity(0.05)}, 0.05),
+            ({"lens": SimpleNamespace(divergence_mrad=1.0)}, np.degrees(0.001)),
+            ({"wavelength": _Quantity(0.24), "antenna_length": _Quantity(1.6)}, width),
+            (
+                {"wavelength": _Quantity(0.24), "azimuth_resolution": _Quantity(0.8)},
+                width,
+            ),
+        ):
+            with self.subTest(attributes=sorted(attributes)):
+                sensor = SimpleNamespace(
+                    name="sensor",
+                    swath_offset_angles=lambda: (-10.0, 10.0),
+                    **attributes,
+                )
+                self.assertAlmostEqual(
+                    instrument_from_sensor(sensor).along_track_field_of_view, expected
+                )
+
+    def test_frame_camera(self):
+        """
+        Tests that a frame camera tilted toward a direction (0 degrees forward,
+        90 degrees to the left) views the ground at the tilt angle in that
+        direction, and that its footprints are collected.
+        """
+        height, tilt = 1000.0, 20.0
+        data = pd.DataFrame(
+            {
+                "time": TAKEOFF + pd.to_timedelta([0, 1], unit="s"),
+                "latitude": [33.0, 33.0018],
+                "longitude": -112.0,
+                "altitude": height,
+                "track": 0.0,
+                "ground_speed": 200.0,
+            }
+        )
+        for direction in (None, 0.0, 45.0, 90.0, 200.0):
+            with self.subTest(direction=direction):
+                camera = SimpleNamespace(
+                    name="camera", fov_x=10.0, fov_y=8.0, tilt_angle=tilt
+                )
+                if direction is not None:
+                    camera.tilt_direction = direction
+                instrument = instrument_from_sensor(camera)
+                self.assertTrue(instrument.is_rectangular)
+                self.assertEqual(
+                    (
+                        instrument.cross_track_field_of_view,
+                        instrument.along_track_field_of_view,
+                    ),
+                    (10.0, 8.0),
+                )
+                aircraft = Aircraft(
+                    name="aircraft",
+                    trajectory=Trajectory.from_dataframe(data),
+                    instruments=[instrument],
+                )
+                center = aircraft.get_instrument().compute_footprint_center(
+                    aircraft.get_track(), 0
+                )
+                azimuth, _, distance = GEOD.inv(
+                    -112.0,
+                    33.0,
+                    center.longitude.degrees[0],
+                    center.latitude.degrees[0],
+                )
+                # toward the tilt direction (counterclockwise from the track)
+                angle = np.radians(0.0 if direction is None else direction)
+                offset = height * np.tan(np.radians(tilt))
+                left = -distance * np.sin(np.radians(azimuth))
+                forward = distance * np.cos(np.radians(azimuth))
+                self.assertAlmostEqual(left, offset * np.sin(angle), delta=0.5)
+                self.assertAlmostEqual(forward, offset * np.cos(angle), delta=0.5)
+                footprints = collect_airborne_ground_track(aircraft)
+                self.assertTrue(footprints["valid_obs"].all())
+                self.assertTrue(
+                    footprints.geometry.iloc[0].contains(
+                        Point(center.longitude.degrees[0], center.latitude.degrees[0])
+                    )
+                )
 
     @unittest.skipUnless(HAS_HYPLAN, "requires hyplan")
     def test_hyplan_sensors(self):

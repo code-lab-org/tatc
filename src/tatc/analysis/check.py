@@ -7,7 +7,7 @@ Input validation and result handling shared by the analysis functions.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 
 import geopandas as gpd
@@ -147,6 +147,37 @@ def _warn_low_perigees(satellites: list[Satellite], stacklevel: int = 4) -> None
         )
 
 
+def _check_aware(name: str, value: datetime) -> None:
+    """
+    Checks that a datetime is timezone-aware, raising a `ValueError` otherwise
+    (a naive datetime would otherwise fail deep within Skyfield).
+
+    Args:
+        name (str): the name of the datetime, for the error message.
+        value (datetime): the datetime.
+    """
+    if isinstance(value, datetime) and value.utcoffset() is None:
+        raise ValueError(
+            f"{name} must be a timezone-aware datetime, "
+            "e.g. datetime(2025, 1, 1, tzinfo=timezone.utc)"
+        )
+
+
+def _check_times(times: datetime | Iterable[datetime] | None) -> None:
+    """
+    Checks that the times of an analysis are timezone-aware datetimes,
+    raising a `ValueError` naming the first that is not.
+
+    Args:
+        times (datetime | Iterable[datetime] | None): the time(s), or `None`.
+    """
+    if times is None:
+        return
+    for value in [times] if isinstance(times, datetime) else times:
+        if isinstance(value, datetime):
+            _check_aware(f"time {value.isoformat()}", value)
+
+
 def _check_time_window(start: datetime, end: datetime) -> None:
     """
     Checks that an analysis time window has timezone-aware `start` and `end`
@@ -158,12 +189,8 @@ def _check_time_window(start: datetime, end: datetime) -> None:
         start (datetime): the start of the time window.
         end (datetime): the end of the time window.
     """
-    for name, value in (("start", start), ("end", end)):
-        if isinstance(value, datetime) and value.utcoffset() is None:
-            raise ValueError(
-                f"{name} must be a timezone-aware datetime, "
-                "e.g. datetime(2025, 1, 1, tzinfo=timezone.utc)"
-            )
+    _check_aware("start", start)
+    _check_aware("end", end)
     if end < start:
         raise ValueError(
             f"end ({end.isoformat()}) is before start ({start.isoformat()})"

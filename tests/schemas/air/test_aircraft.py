@@ -9,8 +9,10 @@ ellipsoid.
 """
 
 import unittest
+from datetime import timedelta
 
 import numpy as np
+import pandas as pd
 from pydantic import ValidationError
 from spiceypy.spiceypy import recgeo, surfpt
 
@@ -139,25 +141,36 @@ class TestAircraft(unittest.TestCase):
 
     def test_get_instrument(self):
         """
-        Tests that instruments are rotated by the aircraft's attitude only if
-        its trajectory gives one.
+        Tests that instruments are bound to the aircraft's attitude (level if
+        its trajectory gives none, as for an unbound instrument) and observe at
+        the times that the trajectory contains.
         """
         instrument = PointedInstrument(
             cross_track_field_of_view=40, along_track_field_of_view=1
         )
+        data = straight_trajectory(n=3)
+        later = straight_trajectory(n=3, latitude=36.0)
+        later["time"] += timedelta(minutes=10)
         level = Aircraft(
             name="a",
-            trajectory=Trajectory.from_dataframe(straight_trajectory(n=3)),
+            trajectory=Trajectory.from_dataframe(pd.concat([data, later])),
             instruments=[instrument],
         )
-        self.assertIsNone(level.get_instrument().platform_attitude)
-        banked = Aircraft(
-            name="a",
-            trajectory=Trajectory.from_dataframe(straight_trajectory(n=3, roll=5.0)),
-            instruments=[instrument],
+        bound = level.get_instrument()
+        self.assertIsNotNone(bound.platform_attitude)
+        self.assertIsNone(level.instruments[0].platform_attitude)
+        track = level.get_track(level.trajectory.time)
+        np.testing.assert_allclose(
+            bound.compute_footprint_center(track).latitude.degrees,
+            instrument.compute_footprint_center(track).latitude.degrees,
+            atol=1e-12,
         )
-        self.assertIsNotNone(banked.get_instrument().platform_attitude)
-        self.assertIsNone(banked.instruments[0].platform_attitude)
+        offsets = [-1.0, 0.0, 2.0, 3.0, 300.0, 600.0, 602.0, 603.0]
+        times = [data["time"][0] + timedelta(seconds=s) for s in offsets]
+        np.testing.assert_array_equal(
+            bound.is_observing(level.get_track(times)),
+            [False, True, True, False, False, True, True, False],
+        )
 
     def test_check_instruments(self):
         """

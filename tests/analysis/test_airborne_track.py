@@ -32,7 +32,7 @@ from tatc.schemas import (
     Trajectory,
 )
 
-from ..schemas.air.common import START, straight_trajectory
+from ..schemas.air.common import START, straight_trajectory, surface_distance
 
 GEOD = Geod(ellps="WGS84")
 COLUMNS = ["time", "aircraft", "instrument", "valid_obs", "geometry"]
@@ -178,12 +178,107 @@ class TestAirborneTrack(unittest.TestCase):
             results.to_crs(results.estimate_utm_crs()).geometry.values
         )
         width = 2 * 10000.0 * np.tan(np.radians(HALF_ANGLE))
-        # the swath from 0.25 seconds before the first time to 0.25 seconds
-        # after the last
+        # the swath from the first to the last state (trimmed to the
+        # trajectory, not 0.25 seconds beyond it)
         self.assertAlmostEqual(
-            swath.area, width * 100.5 * 100.0, delta=0.005 * swath.area
+            swath.area, width * 100.0 * 100.0, delta=0.005 * swath.area
         )
         self.assertIsInstance(swath, shapely.Polygon)
+
+    def test_sweeps_trimmed(self):
+        """
+        Tests that swept footprints are trimmed to the trajectory: they do not
+        extend before the first state, after the last, or into a gap longer
+        than the maximum gap.
+        """
+        data = straight_trajectory(n=20, speed=100.0)
+        later = data.iloc[10:].copy()
+        later["time"] += timedelta(minutes=5)
+        gapped = pd.concat([data.iloc[:10], later], ignore_index=True)
+        aircraft = _aircraft(gapped)
+        results = collect_airborne_ground_track(
+            aircraft, time_step=timedelta(seconds=10)
+        )
+        # the forward extents (meters) of the footprints of a 10-second step
+        # at 100 meters per second, in parts from 0 to 9 and 10 to 19 seconds,
+        # trimmed within 0.1 seconds (10 meters) inside the trajectory
+        for row, extent in {
+            0: (0, 500),
+            5: (-500, 400),
+            9: (-500, 0),
+            10: (0, 500),
+            19: (-500, 0),
+        }.items():
+            with self.subTest(row=row):
+                forward, _ = _offsets(results, gapped, row)
+                self.assertTrue(extent[0] - 1 <= forward.min() <= extent[0] + 10.5)
+                self.assertTrue(extent[1] - 10.5 <= forward.max() <= extent[1] + 1)
+        self.assertTrue(results["valid_obs"].all())
+        # by default, half the time to the neighboring states
+        forward, _ = _offsets(collect_airborne_ground_track(aircraft), gapped, 0)
+        self.assertAlmostEqual(forward.min(), 0, delta=0.5)
+        self.assertAlmostEqual(forward.max(), 50, delta=0.5)
+
+    def test_times_order_and_repeats(self):
+        """
+        Tests that the results of unsorted times are sorted with their
+        footprints, and that a single or repeated time has a footprint.
+        """
+        aircraft = _aircraft(straight_trajectory(n=10, speed=100.0))
+        times = [START + timedelta(seconds=s) for s in (5, 3, 7, 5)]
+        results = collect_airborne_ground_track(aircraft, times=times)
+        ordered = collect_airborne_ground_track(aircraft, times=sorted(times))
+        self.assertEqual(list(results["time"]), sorted(times))
+        self.assertTrue(results.geometry.geom_equals_exact(ordered.geometry, 0).all())
+        self.assertTrue(results["valid_obs"].all())
+        for instrument in (_scanner(), Instrument(field_of_regard=10.0)):
+            with self.subTest(instrument=instrument.name):
+                single = collect_airborne_ground_track(
+                    _aircraft(straight_trajectory(n=10), [instrument]), times=times[:1]
+                )
+                self.assertTrue(single["valid_obs"].all())
+                self.assertFalse(single.geometry.is_empty.any())
+        empty = collect_airborne_ground_track(aircraft, times=[])
+        self.assertTrue(empty.empty)
+        self.assertEqual(list(empty.columns), COLUMNS)
+
+    def _assert_swath_area(self, data, track, latitude):
+        """
+        Asserts that the footprints of a straight, level flight at 10 km and
+        200 meters per second tile a swath of the expected area (from their
+        geodesic areas, which are not distorted by longitude and latitude).
+        """
+        results = collect_airborne_ground_track(_aircraft(data))
+        self.assertTrue(results["valid_obs"].all())
+        self.assertTrue(results.geometry.is_valid.all())
+        area = sum(abs(GEOD.geometry_area_perimeter(g)[0]) for g in results.geometry)
+        width = 2 * 10000.0 * np.tan(np.radians(HALF_ANGLE))
+        length = surface_distance(200.0 * (len(data) - 1), latitude, track, 10000.0)
+        self.assertAlmostEqual(area, width * length, delta=0.005 * area)
+        return results
+
+    def test_antimeridian(self):
+        """
+        Tests the footprints of a flight across the anti-meridian: split
+        there, each part narrow in longitude, with the area of the swath.
+        """
+        data = straight_trajectory(n=20, track=90.0, longitude=179.99, latitude=10.0)
+        self.assertTrue((data["longitude"] < 0).any() and (data["longitude"] > 0).any())
+        results = self._assert_swath_area(data, 90.0, 10.0)
+        for geometry in results.geometry:
+            for part in getattr(geometry, "geoms", [geometry]):
+                self.assertLess(part.bounds[2] - part.bounds[0], 0.01)
+        coverage = compute_airborne_ground_track(_aircraft(data)).geometry.iloc[0]
+        self.assertEqual(coverage.geom_type, "MultiPolygon")
+
+    def test_over_pole(self):
+        """
+        Tests the footprints of a flight over the north pole.
+        """
+        data = straight_trajectory(n=20, track=0.0, latitude=89.98)
+        # the track turns from north to south past the pole
+        self.assertEqual(set(np.round(data["track"])), {0.0, 180.0})
+        self._assert_swath_area(data, 0.0, 89.98)
 
     def test_times_in_gaps(self):
         """

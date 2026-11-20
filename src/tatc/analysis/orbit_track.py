@@ -25,6 +25,7 @@ from ..utils.observation import field_of_regard_to_swath_width
 from ..utils.time import _index_orbit_track, _to_time
 from .check import (
     _check_satellites,
+    _check_times,
     _combine_results,
     _get_instrument_indices,
     _is_single,
@@ -148,6 +149,7 @@ def collect_orbit_track(
     """
     single = _is_single(satellites, instrument_index=instrument_index)
     satellites = _check_satellites(satellites)
+    _check_times(times)
     if len(times) == 0:
         return _get_empty_orbit_track()
     # the times, shared by every satellite (with their Earth orientation)

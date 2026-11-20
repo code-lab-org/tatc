@@ -19,7 +19,7 @@ from skyfield.api import wgs84
 
 from ..schemas import Satellite
 from ..utils.time import _to_time
-from .check import _check_satellites
+from .check import _check_satellites, _check_times
 from .ground_track import collect_ground_track
 
 _GEOD = Geod(ellps="WGS84")
@@ -122,6 +122,7 @@ def collect_feature_observations(
     """
     features = _check_features(features)
     satellites = _check_satellites(satellites)
+    _check_times(times)
     if len(features) == 0 or len(times) == 0:
         return _get_empty_feature_observations()
     # the footprints, clipped to the bounds of the features

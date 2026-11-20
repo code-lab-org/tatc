@@ -20,7 +20,7 @@ from skyfield.api import wgs84
 from ..constants import timescale
 from ..schemas import Point, Satellite
 from ..utils.geometry import _get_point_coordinates
-from .check import _check_satellites
+from .check import _check_satellites, _check_times
 
 
 class DopMethod(str, Enum):
@@ -79,6 +79,7 @@ def compute_dop(
 
     """
     _check_satellites(satellites, allow_single=False)
+    _check_times(times)
     # index each satellite's clock bias (0 for the reference system)
     if systems is None:
         system_index = np.zeros(len(satellites), dtype=int)

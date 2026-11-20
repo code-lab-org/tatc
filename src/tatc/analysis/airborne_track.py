@@ -19,6 +19,7 @@ from shapely.geometry import MultiPolygon, Polygon
 from ..schemas import Aircraft
 from .check import (
     _check_platforms,
+    _check_times,
     _combine_results,
     _get_instrument_indices,
     _is_single,
@@ -68,7 +69,10 @@ def collect_airborne_ground_track(
     `tatc.schemas.Aircraft`). The footprint of a swept instrument (see
     `PointedInstrument.is_swept`, as for a cross-track scanner or a pushbroom
     imager) is the strip its cross-track line sweeps over the time step
-    centered on each time.
+    centered on each time, trimmed (to within 0.1 seconds) to the times that
+    the trajectory contains (see `tatc.schemas.Trajectory.contains`): it does
+    not extend before the first or after the last state, or into a gap longer
+    than `max_gap`.
 
     The footprint is the geometric overlap of an instrument's field of view
     with the elevation (for example, the ground or a layer of a storm):
@@ -114,6 +118,7 @@ def collect_airborne_ground_track(
     """
     single = _is_single(aircraft, instrument_index=instrument_index)
     aircraft = _check_platforms(aircraft, Aircraft, "aircraft")
+    _check_times(times)
     if mask is not None:
         mask = _get_mask_geometry(mask)
     tracks = [
@@ -164,8 +169,8 @@ def _collect_airborne_ground_track(
         else np.full(len(times), time_step.total_seconds() / 2)
     )
     track = aircraft.get_track(times)
-    # the aircraft never stops observing, so each footprint's validity is
-    # evaluated at its own time
+    # the instrument observes at each time (which the trajectory contains), so
+    # each footprint's validity is evaluated at its own time
     geometries, _ = _compute_step_footprints(
         trajectory, instrument, times, half_spans, elevation, track
     )

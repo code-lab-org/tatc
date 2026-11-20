@@ -109,7 +109,7 @@ preprocess = [
     "rasterio"
 ]
 airborne = [
-    "hyplan"
+    "hyplan >= 1.12"
 ]
 tradespace = [
     "joblib",

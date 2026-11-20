@@ -7,9 +7,13 @@ Unit tests for the input validation shared by tatc.analysis functions.
 import warnings
 from datetime import datetime, time, timedelta, timezone
 
+import geopandas as gpd
+import pandas as pd
 from tatc.analysis import (
     DopMethod,
+    collect_airborne_ground_track,
     collect_downlinks,
+    collect_feature_observations,
     collect_ground_pixels,
     collect_ground_track,
     collect_limb_observations,
@@ -17,6 +21,7 @@ from tatc.analysis import (
     collect_observations,
     collect_orbit_track,
     collect_ro_observations,
+    compute_airborne_ground_track,
     compute_dop,
     collect_region_observations,
     compute_access_periods,
@@ -29,13 +34,16 @@ from tatc.analysis.check import (
     _check_satellite,
     _check_satellites,
     _check_time_window,
+    _check_times,
 )
 from tatc.schemas import (
+    Aircraft,
     GroundStation,
     Instrument,
     Point,
     Satellite,
     SunSynchronousOrbit,
+    Trajectory,
 )
 
 from .common import IssConstellationTestCase
@@ -166,6 +174,72 @@ class TestValidation(IssConstellationTestCase):
                     call(self.end, self.start)
                 with self.assertRaisesRegex(ValueError, "timezone-aware"):
                     call(self.start.replace(tzinfo=None), self.end)
+
+    def test_check_times(self):
+        """
+        Test that analysis times (one, several, or none) must be
+        timezone-aware datetimes, naming the first that is not.
+        """
+        _check_times(self.times)
+        _check_times(self.start)
+        _check_times(None)
+        _check_times(pd.DatetimeIndex(self.times))
+        with self.assertRaisesRegex(
+            ValueError, "time 2022-06-01T01:00:00 must be a timezone-aware"
+        ):
+            _check_times([self.start, self.end.replace(tzinfo=None)])
+        with self.assertRaisesRegex(ValueError, "timezone-aware"):
+            _check_times(pd.Timestamp("2022-06-01"))
+
+    def test_analysis_functions_check_times(self):
+        """
+        Test that analysis functions at times reject naive datetimes with a
+        clear error rather than failing within Skyfield.
+        """
+        naive = [time.replace(tzinfo=None) for time in self.times]
+        features = gpd.GeoDataFrame(
+            {"start": [self.start], "end": [self.end]},
+            geometry=[Polygon([(-10, -10), (10, -10), (10, 10), (-10, 10)])],
+            crs="EPSG:4326",
+        )
+        aircraft = Aircraft(
+            name="Test",
+            trajectory=Trajectory(
+                time=self.times,
+                latitude=[0, 0],
+                longitude=[0, 0],
+                altitude=[1000, 1000],
+                track=[0, 0],
+                ground_speed=[0, 0],
+            ),
+        )
+        calls = {
+            "collect_orbit_track": lambda: collect_orbit_track(self.satellite, naive),
+            "collect_ground_track": lambda: collect_ground_track(self.satellite, naive),
+            "compute_ground_track": lambda: compute_ground_track(self.satellite, naive),
+            "collect_ground_pixels": lambda: collect_ground_pixels(
+                self.satellite, naive
+            ),
+            "collect_feature_observations": lambda: collect_feature_observations(
+                features, self.satellite, naive
+            ),
+            "collect_limb_observations": lambda: collect_limb_observations(
+                self.satellite, naive, 0, [10e3, 50e3], timedelta(seconds=10)
+            ),
+            "compute_dop": lambda: compute_dop(
+                naive, self.point, [self.satellite], 0, DopMethod.PDOP
+            ),
+            "collect_airborne_ground_track": lambda: collect_airborne_ground_track(
+                aircraft, naive
+            ),
+            "compute_airborne_ground_track": lambda: compute_airborne_ground_track(
+                aircraft, naive
+            ),
+        }
+        for name, call in calls.items():
+            with self.subTest(name):
+                with self.assertRaisesRegex(ValueError, "must be a timezone-aware"):
+                    call()
 
     def test_check_instrument_index(self):
         """

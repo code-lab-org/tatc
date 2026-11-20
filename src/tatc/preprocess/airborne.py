@@ -198,15 +198,19 @@ def estimate_attitude(
     track `dψ/dt`, and the standard gravity `g`, and the pitch of the flight
     path, `atan2(dh/dt, V)` for a rate of climb `dh/dt` (without an angle of
     attack). The rates are computed within each part of the states between
-    gaps longer than `max_gap`, and smoothed by a centered moving average of
-    duration `smoothing` applied twice (a triangular kernel), which reduces
-    the fluctuations of sampled tracks but blurs short transitions. In a
-    wind, the roll of a turn depends on the rate of change of the heading at
-    the airspeed instead, which this does not model.
+    gaps longer than `max_gap` (a state without a neighbor within `max_gap`
+    is level), and smoothed by a centered moving average of duration
+    `smoothing` applied twice (a triangular kernel), which reduces the
+    fluctuations of sampled tracks but blurs short transitions. In a wind,
+    the roll of a turn depends on the rate of change of the heading at the
+    airspeed instead, which this does not model. The pitch is that of the
+    flight path, so that a climb or descent much faster than the ground
+    speed (as of a hovering aircraft) pitches the nose toward vertical.
 
     Args:
         states (pandas.DataFrame): The states, with columns `time`,
-            `altitude`, `track`, and `ground_speed`.
+            `altitude`, `track`, and `ground_speed`, without missing values
+            (rows missing a value can be omitted, which leaves a gap).
         smoothing (datetime.timedelta | None): The duration of the moving
             average, or `None` for no smoothing.
         max_gap (datetime.timedelta | None): The longest time between
@@ -221,6 +225,13 @@ def estimate_attitude(
     missing = {"time", "altitude", "track", "ground_speed"}.difference(states.columns)
     if missing:
         raise ValueError(f"missing required columns: {sorted(missing)}")
+    incomplete = [
+        name
+        for name in ("time", "altitude", "track", "ground_speed")
+        if states[name].isna().any()
+    ]
+    if incomplete:
+        raise ValueError(f"missing values in columns: {incomplete}")
     result = states.copy()
     time = pd.to_datetime(result["time"], utc=True)
     if not time.is_monotonic_increasing or time.duplicated().any():

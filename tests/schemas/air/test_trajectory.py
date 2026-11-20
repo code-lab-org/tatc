@@ -93,6 +93,15 @@ class TestTrajectory(unittest.TestCase):
         self.assertNotIn(data["time"][2], trajectory.time)
         self.assertIsNone(trajectory.roll)
 
+    def test_from_dataframe_repeated_times(self):
+        """
+        Tests that a data frame with a repeated time (as in a recording) is not
+        accepted.
+        """
+        data = straight_trajectory(n=3)
+        with self.assertRaisesRegex(ValidationError, "strictly increasing"):
+            Trajectory.from_dataframe(pd.concat([data, data.iloc[[1]]]))
+
     def test_non_finite_values(self):
         """
         Tests that values that are not finite are not accepted.
@@ -314,6 +323,36 @@ class TestTrajectory(unittest.TestCase):
             Trajectory.from_dataframe(
                 pd.concat([data, later.iloc[:1]]).drop(columns="track")
             )
+
+    def test_estimated_motion_across_antimeridian_and_pole(self):
+        """
+        Tests that the track and ground speed estimated from the positions are
+        those given across the anti-meridian and over the pole, where the
+        longitude jumps.
+        """
+        for track, latitude, longitude in ((90.0, 10.0, 179.995), (0.0, 89.995, 0.0)):
+            with self.subTest(latitude=latitude):
+                data = straight_trajectory(
+                    n=10, track=track, latitude=latitude, longitude=longitude
+                )
+                self.assertGreater(np.ptp(data["longitude"]), 90)
+                given = Trajectory.from_dataframe(data)
+                estimated = Trajectory.from_dataframe(
+                    data.drop(columns=["track", "ground_speed"])
+                )
+                times = _to_time(
+                    [START + timedelta(seconds=s) for s in (0.0, 4.5, 9.0)]
+                )
+                given_track = given.get_orbit_track_at_time(times)
+                estimated_track = estimated.get_orbit_track_at_time(times)
+                np.testing.assert_allclose(
+                    estimated_track.velocity.m_per_s,
+                    given_track.velocity.m_per_s,
+                    atol=0.05,
+                )
+                np.testing.assert_allclose(
+                    estimated_track.position.m, given_track.position.m, atol=0.01
+                )
 
     def test_assignment(self):
         """

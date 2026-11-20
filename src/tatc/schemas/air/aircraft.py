@@ -86,7 +86,10 @@ class _TrajectoryAttitude:
 
     def is_observing(self, orbit_track: Geocentric) -> npt.NDArray[np.bool_]:
         """
-        Determines if the instruments observe at each time of a track: always.
+        Determines if the instruments observe at each time of a track: at the
+        times that the trajectory contains (see `Trajectory.contains`), so
+        that the footprints swept over a time step are trimmed to the
+        trajectory.
 
         Args:
             orbit_track (skyfield.positionlib.Geocentric): The aircraft
@@ -95,7 +98,7 @@ class _TrajectoryAttitude:
         Returns:
             numpy.typing.NDArray: Array of indicators: `True` if the instruments observe.
         """
-        return np.ones(np.shape(orbit_track.t.tt), dtype=bool)
+        return self.trajectory.contains(orbit_track.t)
 
 
 class Aircraft(BaseModel):
@@ -148,9 +151,11 @@ class Aircraft(BaseModel):
 
     def get_instrument(self, index: int = 0) -> Instrument:
         """
-        Gets an instrument carried by this aircraft, with its views rotated
-        from the axes of the aircraft's body, if its trajectory gives an
-        attitude (see `Instrument.bind_attitude`).
+        Gets an instrument carried by this aircraft (see
+        `Instrument.bind_attitude`), with its views rotated from the axes of
+        the aircraft's body (level along the track if the trajectory gives no
+        attitude), which observes at the times that the trajectory contains
+        (see `Trajectory.contains`).
 
         Args:
             index (int): The index of the instrument.
@@ -158,10 +163,9 @@ class Aircraft(BaseModel):
         Returns:
             Instrument: the instrument
         """
-        instrument = self.instruments[index]
-        if not self.trajectory.has_attitude():
-            return instrument
-        return instrument.bind_attitude(_TrajectoryAttitude(self.trajectory))
+        return self.instruments[index].bind_attitude(
+            _TrajectoryAttitude(self.trajectory)
+        )
 
     def get_track(self, times: datetime | list[datetime] | None = None) -> Geocentric:
         """
