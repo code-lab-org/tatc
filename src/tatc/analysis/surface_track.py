@@ -6,6 +6,8 @@ Methods to collect the static tracks of instruments on fixed surface platforms.
 
 from __future__ import annotations
 
+import warnings
+
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -18,15 +20,15 @@ from .check import _check_platforms, _get_instrument_indices
 from .ground_track import _get_mask_geometry
 
 
-def _get_empty_platform_track() -> gpd.GeoDataFrame:
+def _get_empty_surface_track() -> gpd.GeoDataFrame:
     """
-    Gets an empty data frame for platform track results.
+    Gets an empty data frame for surface track results.
 
     Returns:
         geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
-        "platform": pd.Series([], dtype="str"),
+        "surface_platform": pd.Series([], dtype="str"),
         "instrument": pd.Series([], dtype="str"),
         "elevation": pd.Series([], dtype="float"),
         "valid_obs": pd.Series([], dtype="bool"),
@@ -88,13 +90,13 @@ def _clip_to_region(
     )
 
 
-def _get_platform_altaz(
+def _get_surface_platform_altaz(
     track: Geocentric, instrument: Instrument, elevation: float, empty: bool
 ) -> dict[str, float]:
     """
     Gets the altitude/azimuth angles (degrees) of a platform's instrument
     seen from the center of its view at an elevation (see
-    `collect_platform_track`).
+    `collect_surface_track`).
 
     Args:
         track (skyfield.positionlib.Geocentric): The platform's static track.
@@ -103,24 +105,24 @@ def _get_platform_altaz(
         empty (bool): `True` if the footprint is empty, without angles.
 
     Returns:
-        dict[str, float]: the angles (`platform_alt` and `platform_az`)
+        dict[str, float]: the angles (`surface_platform_alt` and `surface_platform_az`)
     """
     if empty:
-        return {"platform_alt": np.nan, "platform_az": np.nan}
+        return {"surface_platform_alt": np.nan, "surface_platform_az": np.nan}
     center = instrument.compute_footprint_center(track, elevation=elevation)
     alt, az, _ = (track - center.at(track.t)).altaz()
     return {
-        "platform_alt": float(np.ravel(alt.degrees)[0]),
-        "platform_az": float(np.ravel(az.degrees)[0]),
+        "surface_platform_alt": float(np.ravel(alt.degrees)[0]),
+        "surface_platform_az": float(np.ravel(az.degrees)[0]),
     }
 
 
-def collect_platform_track(
+def collect_surface_track(
     platforms: SurfacePlatform | list[SurfacePlatform],
     instrument_index: int | None = 0,
     elevation: float | None = None,
     mask: Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries | None = None,
-    platform_altaz: bool = False,
+    surface_platform_altaz: bool = False,
 ) -> gpd.GeoDataFrame:
     """
     Collect the static footprint of each instrument on fixed surface
@@ -156,16 +158,16 @@ def collect_platform_track(
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
                 An optional mask, always interpreted in WGS84 (lon/lat)
                 coordinates, to constrain results.
-        platform_altaz (bool): `True` to include the altitude/azimuth angles
-                (`platform_alt` and `platform_az`) of the instruments seen
+        surface_platform_altaz (bool): `True` to include the altitude/azimuth angles
+                (`surface_platform_alt` and `surface_platform_az`) of the instruments seen
                 from the center of their view at the target elevation (as
                 `sat_altaz` does for a satellite), `NaN` for an empty
                 footprint. Below the instruments, the altitude is the
                 elevation angle of the view; above them, it is negative.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame of collected platform track
-            results, with columns `platform`, `instrument`, `elevation`,
+        geopandas.GeoDataFrame: The data frame of collected surface track
+            results, with columns `surface_platform`, `instrument`, `elevation`,
             `valid_obs`, and `geometry` (and the angles requested), in the
             order of the platforms and their instruments.
     """
@@ -180,7 +182,9 @@ def collect_platform_track(
             if platform.terrain_mask is not None and target > platform.get_altitude()
             else None
         )
-        for index in _get_instrument_indices(platform, instrument_index, "platform"):
+        for index in _get_instrument_indices(
+            platform, instrument_index, "surface platform"
+        ):
             instrument = platform.get_instrument(index)
             footprint = instrument.compute_footprint(
                 track, elevation=target, ground_elevation=platform.elevation
@@ -188,21 +192,23 @@ def collect_platform_track(
             if region is not None:
                 footprint = _clip_to_region(footprint, region, target)
             record = {
-                "platform": platform.name,
+                "surface_platform": platform.name,
                 "instrument": instrument.name,
                 "elevation": target,
                 "valid_obs": not footprint.is_empty,
                 "geometry": footprint,
             }
-            if platform_altaz:
+            if surface_platform_altaz:
                 record.update(
-                    _get_platform_altaz(track, instrument, target, footprint.is_empty)
+                    _get_surface_platform_altaz(
+                        track, instrument, target, footprint.is_empty
+                    )
                 )
             records.append(record)
     if len(records) == 0:
-        track = _get_empty_platform_track()
-        if platform_altaz:
-            track[["platform_alt", "platform_az"]] = np.empty((0, 2))
+        track = _get_empty_surface_track()
+        if surface_platform_altaz:
+            track[["surface_platform_alt", "surface_platform_az"]] = np.empty((0, 2))
         return track
     track = gpd.GeoDataFrame(records, crs="EPSG:4326")
     if mask is not None:
@@ -212,7 +218,7 @@ def collect_platform_track(
     return track
 
 
-def compute_platform_track(
+def compute_surface_track(
     platforms: SurfacePlatform | list[SurfacePlatform],
     instrument_index: int | None = 0,
     elevation: float | None = None,
@@ -221,7 +227,7 @@ def compute_platform_track(
     """
     Compute the aggregated (dissolved) coverage of instruments on fixed
     surface platforms into a single composite geometry (e.g. a network
-    coverage map): unlike `collect_platform_track` (one footprint polygon per
+    coverage map): unlike `collect_surface_track` (one footprint polygon per
     platform and instrument), this dissolves the footprints of valid
     observations into one geometry.
 
@@ -240,12 +246,46 @@ def compute_platform_track(
                 coordinates, to constrain results.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame of the aggregated platform
+        geopandas.GeoDataFrame: The data frame of the aggregated surface
             track: one row with the observed area, or none if no observation
             is valid.
     """
-    track = collect_platform_track(platforms, instrument_index, elevation, mask)
+    track = collect_surface_track(platforms, instrument_index, elevation, mask)
     track = track[track["valid_obs"]]
     if track.empty:
         return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
     return track[["geometry"]].dissolve().reset_index(drop=True)
+
+
+def _warn_renamed(old: str, new: str) -> None:
+    """
+    Warns that a function was renamed.
+
+    Args:
+        old (str): The deprecated name.
+        new (str): The new name.
+    """
+    warnings.warn(
+        f"{old} is deprecated and will be removed in a future release: use {new} "
+        "(whose results name each platform in a surface_platform column)",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
+def collect_platform_track(*args, **kwargs) -> gpd.GeoDataFrame:
+    """
+    Deprecated: use `collect_surface_track`, of which this is an alias. Its
+    results name each platform in a `surface_platform` column (formerly
+    `platform`).
+    """
+    _warn_renamed("collect_platform_track", "collect_surface_track")
+    return collect_surface_track(*args, **kwargs)
+
+
+def compute_platform_track(*args, **kwargs) -> gpd.GeoDataFrame:
+    """
+    Deprecated: use `compute_surface_track`, of which this is an alias.
+    """
+    _warn_renamed("compute_platform_track", "compute_surface_track")
+    return compute_surface_track(*args, **kwargs)

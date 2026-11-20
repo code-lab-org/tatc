@@ -29,13 +29,13 @@ Collect Ground Pixels
 ----------------------
 .. autofunction:: tatc.analysis.collect_ground_pixels
 
-Collect Platform Track
-----------------------
-.. autofunction:: tatc.analysis.collect_platform_track
+Collect Surface Track
+---------------------
+.. autofunction:: tatc.analysis.collect_surface_track
 
-Compute Platform Track
-----------------------
-.. autofunction:: tatc.analysis.compute_platform_track
+Compute Surface Track
+---------------------
+.. autofunction:: tatc.analysis.compute_surface_track
 
 Collect Airborne Ground Track
 -----------------------------

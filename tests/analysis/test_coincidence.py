@@ -14,7 +14,7 @@ from tatc.analysis import (
     aggregate_observations,
     collect_ground_track,
     collect_observations,
-    collect_platform_track,
+    collect_surface_track,
     find_coincident_ground_track,
     find_coincident_observations,
 )
@@ -367,7 +367,9 @@ class TestFindCoincidentGroundTrack(IssConstellationTestCase):
         self.assertTrue(pd.isna(results.iloc[0].aircraft_1))
         self.assertEqual(results.iloc[0].aircraft_2, "A")
         self.assertTrue(pd.isna(results.iloc[0].satellite_2))
-        with self.assertRaisesRegex(ValueError, "satellite, aircraft, or platform"):
+        with self.assertRaisesRegex(
+            ValueError, "satellite, aircraft, or surface_platform"
+        ):
             find_coincident_ground_track(ground_track.drop(columns="aircraft"))
 
     def test_static_footprints(self):
@@ -377,13 +379,13 @@ class TestFindCoincidentGroundTrack(IssConstellationTestCase):
         other, after the footprints with times.
         """
         tower = {
-            "platform": "Tower",
+            "surface_platform": "Tower",
             "instrument": "Camera",
             "elevation": 300.0,
             "valid_obs": True,
             "geometry": box(1, 1, 3, 3),
         }
-        balloon = {**tower, "platform": "Balloon", "geometry": box(2, 2, 4, 4)}
+        balloon = {**tower, "surface_platform": "Balloon", "geometry": box(2, 2, 4, 4)}
         ground_track = pd.concat(
             [
                 gpd.GeoDataFrame(
@@ -402,11 +404,11 @@ class TestFindCoincidentGroundTrack(IssConstellationTestCase):
         # A and B, an hour apart, are each coincident with the tower, but not
         # with each other
         self.assertListEqual(
-            results["satellite_1"].fillna(results["platform_1"]).tolist(),
+            results["satellite_1"].fillna(results["surface_platform_1"]).tolist(),
             ["A", "B", "Tower"],
         )
         self.assertListEqual(
-            results["satellite_2"].fillna(results["platform_2"]).tolist(),
+            results["satellite_2"].fillna(results["surface_platform_2"]).tolist(),
             ["Tower", "Tower", "Balloon"],
         )
         self.assertTrue(results["time_difference"].isna().all())
@@ -420,7 +422,7 @@ class TestFindCoincidentGroundTrack(IssConstellationTestCase):
         self.assertEqual(len(static.index), 1)
         self.assertTrue(static["time_difference"].isna().all())
 
-    def test_collect_platform_track(self):
+    def test_collect_surface_track(self):
         """
         Test that the overpasses of a satellite over the view of a fixed
         platform are coincident with it.
@@ -441,11 +443,11 @@ class TestFindCoincidentGroundTrack(IssConstellationTestCase):
             instruments=[Instrument(name="Camera", field_of_regard=120.0)],
         )
         results = find_coincident_ground_track(
-            pd.concat([ground_track, collect_platform_track(tower)], ignore_index=True)
+            pd.concat([ground_track, collect_surface_track(tower)], ignore_index=True)
         )
         self.assertFalse(results.empty)
         self.assertIn(times[50], set(results["time_1"]))
-        self.assertTrue((results["platform_2"] == "Tower").all())
+        self.assertTrue((results["surface_platform_2"] == "Tower").all())
         self.assertTrue(results["time_difference"].isna().all())
 
     def test_empty(self):

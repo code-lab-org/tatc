@@ -117,7 +117,7 @@ class SurfacePlatform(Point):
         line of sight that clears both the terrain mask (if any) and the
         horizon of the ground, projected to the target elevation. Footprints
         toward a target above the instruments are clipped to this region
-        (see `tatc.analysis.collect_platform_track`).
+        (see `tatc.analysis.collect_surface_track`).
 
         Args:
             elevation (float): The target elevation (meters) above the WGS 84

@@ -37,10 +37,6 @@ from .orbit_track import (
     OrbitOutput,
     collect_orbit_track,
 )
-from .platform_track import (
-    collect_platform_track,
-    compute_platform_track,
-)
 from .point_sampling import (
     collect_multi_observations,
     collect_observations,
@@ -70,6 +66,12 @@ from .sufficiency import (
     sample_field,
     sampling_error_variance,
 )
+from .surface_track import (
+    collect_platform_track,
+    collect_surface_track,
+    compute_platform_track,
+    compute_surface_track,
+)
 
 __all__ = [
     "DopMethod",
@@ -92,9 +94,10 @@ __all__ = [
     "collect_region_observations",
     "collect_ro_observations",
     "collect_space_observations",
+    "collect_surface_track",
     "compare_sampled_means",
-    "compute_airborne_ground_track",
     "compute_access_periods",
+    "compute_airborne_ground_track",
     "compute_dop",
     "compute_ground_track",
     "compute_latencies",
@@ -104,6 +107,7 @@ __all__ = [
     "compute_region_access_periods",
     "compute_revisit_statistics",
     "compute_sample_sizes",
+    "compute_surface_track",
     "estimate_sampling_error",
     "find_coincident_ground_track",
     "find_coincident_observations",

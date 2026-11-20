@@ -253,14 +253,14 @@ def find_coincident_observations(
     )
 
 
-_PLATFORM_COLUMNS = ("satellite", "aircraft", "platform")
+_PLATFORM_COLUMNS = ("satellite", "aircraft", "surface_platform")
 """Columns that name the platform of a footprint in a ground track."""
 
 
 def _get_platforms(track: pd.DataFrame) -> np.ndarray:
     """
     Gets the platform of each footprint of a ground track, named by its
-    `satellite`, `aircraft`, or `platform` column (so that a satellite and an
+    `satellite`, `aircraft`, or `surface_platform` column (so that a satellite and an
     aircraft of the same name are different platforms).
 
     Args:
@@ -277,7 +277,7 @@ def _get_platforms(track: pd.DataFrame) -> np.ndarray:
     if platforms.isna().any():
         raise ValueError(
             "each footprint must name its platform in a satellite, aircraft, or "
-            "platform column"
+            "surface_platform column"
         )
     return platforms.to_numpy()
 
@@ -291,13 +291,13 @@ def find_coincident_ground_track(
     of different platforms, as collected by
     `tatc.analysis.ground_track.collect_ground_track` for satellites,
     `tatc.analysis.airborne_track.collect_airborne_ground_track` for
-    aircraft, and `tatc.analysis.platform_track.collect_platform_track` for
+    aircraft, and `tatc.analysis.surface_track.collect_surface_track` for
     fixed surface platforms (concatenated, for example, to find the
     underflights of a satellite by an aircraft, or the overpasses of a
     tower's view), whose times differ by at most `max_time_difference` and
     which overlap (share a positive area, in longitude/latitude
     coordinates). Each footprint's platform is named by its `satellite`,
-    `aircraft`, or `platform` column. Footprints of different instruments on
+    `aircraft`, or `surface_platform` column. Footprints of different instruments on
     the same platform are not coincident with each other. A footprint
     without a time (as of a fixed platform, whose footprint does not
     change) is static: it is coincident with the overlapping footprints of
