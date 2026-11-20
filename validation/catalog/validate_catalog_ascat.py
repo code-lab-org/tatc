@@ -34,6 +34,10 @@ Without a day, it takes that of the entry's record (or, with `--fit`, that of th
 fit). With `--write`, it writes the entry's validation record and the reduced fixture
 from which unit tests recompute the results.
 
+With `--platform metop-b`, it tests the same values on Metop-B, from its product
+(`ASCATB-L2-25km`), and adds the results to the record as a transfer, which does not
+count toward the tier.
+
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
@@ -73,7 +77,9 @@ from validation_io import (
     write_results,
 )
 
-SHORT_NAME = "ASCATC-L2-25km"
+# the product of each platform: Metop-C's, on which the entry is fitted and tested,
+# and Metop-B's, on which results are reported as a transfer
+SHORT_NAMES = {"metop-c": "ASCATC-L2-25km", "metop-b": "ASCATB-L2-25km"}
 CONFIGURATION = "swaths"
 EPOCH = datetime(1990, 1, 1, tzinfo=timezone.utc)
 CELLS = 42
@@ -135,14 +141,19 @@ def read_orbit(path: pathlib.Path, day: datetime) -> dict:
     }
 
 
-def load_day(day: datetime, directory: pathlib.Path) -> dict:
-    """Downloads and reduces the rows of a day, or loads them from a cache."""
-    cache = directory / f"ascat_{day:%Y%m%d}.npz"
+def load_day(day: datetime, directory: pathlib.Path, platform: str = "metop-c") -> dict:
+    """
+    Downloads and reduces the rows of a day of a platform, or loads them from a
+    cache.
+    """
+    # Metop-C's files keep the names they had before other platforms were read
+    name = "ascat" if platform == "metop-c" else f"ascat_{platform}"
+    cache = directory / f"{name}_{day:%Y%m%d}.npz"
     if not cache.exists():
         items = get_with_retries(
             "https://cmr.earthdata.nasa.gov/search/granules.umm_json",
             params={
-                "short_name": SHORT_NAME,
+                "short_name": SHORT_NAMES[platform],
                 "temporal": f"{day - timedelta(hours=2):%Y-%m-%dT%H:%M:%SZ},"
                 f"{day + timedelta(days=1):%Y-%m-%dT%H:%M:%SZ}",
                 "page_size": 100,
@@ -157,7 +168,7 @@ def load_day(day: datetime, directory: pathlib.Path) -> dict:
         )
         login_earthdata()
         session = earthaccess.get_requests_https_session()
-        folder = directory / f"ascat_{day:%Y%m%d}"
+        folder = directory / f"{name}_{day:%Y%m%d}"
         folder.mkdir(exist_ok=True)
 
         def download(url: str) -> pathlib.Path:
@@ -476,7 +487,8 @@ def validate(run, tle, orbit, data) -> None:
     write_results(
         run,
         CONFIGURATION,
-        reference=f"{SHORT_NAME} (wind vector cell positions and row times)",
+        reference=f"{SHORT_NAMES[run.platform]} (wind vector cell positions and row "
+        "times)",
         metrics=metrics,
         fixture={
             "tle": np.array(tle),
@@ -490,7 +502,7 @@ def validate(run, tle, orbit, data) -> None:
 def main() -> None:
     """Fits or validates the entry on a day of data."""
     run = parse_run("ascat", __doc__)
-    data = load_day(run.day, run.directory)
+    data = load_day(run.day, run.directory, run.platform)
     tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)

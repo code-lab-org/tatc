@@ -56,6 +56,7 @@ configurations:
       - The validation script was changed after a first run on 2026-11-07, without changing the entry. That run read every fourth scene, whose spans without gaps (0.8 min at most) were too short to compare the swath, and found passes within 10 km of a sample, fewer than the spacing of the samples kept (precision 59.15%); it was replaced by blocks of eight consecutive scenes in every 32 and a radius of 20 km.
 limitations:
   - The station flies in a fixed attitude relative to its orbit, without yaw steering, so the configuration uses the inertial frame. Its attitude changes for operations such as dockings, which are not modeled.
+  - The body's attitude, a yaw of 3.7876 deg and a pitch of -7.2427 deg, is fitted to ECOSTRESS's samples alone, so it holds the station's attitude and ECOSTRESS's mounting on it, which one instrument cannot separate. The other instruments' fits give other angles (EMIT a yaw of 3.7416 deg and a pitch of -7.5608 deg; GEDI, on other days, a pitch of -3.2916 deg), so configurations of instruments on the station are carried together only with an attitude that replaces theirs.
   - ECOSTRESS images scenes over land and coastal waters by plan, whereas the view observes whenever a target is in view.
   - The station's orbit decays and is reboosted often, so element sets age quickly.
   - No configuration gives sample sizes, as no published instantaneous field of view was used.

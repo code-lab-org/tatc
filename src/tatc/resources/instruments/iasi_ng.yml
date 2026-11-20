@@ -1,0 +1,46 @@
+id: iasi_ng
+name: IASI-NG
+aliases: [Infrared Atmospheric Sounding Interferometer New Generation, Metop-SG IASI-NG]
+instrument_class: cross_track
+selection: Cross-track infrared sounding interferometer of EUMETSAT's second-generation polar satellites (Metop-SG), the successor to IASI, with open data products.
+platforms:
+  - id: metop-sga1
+    name: Metop-SG A1
+    norad_id: 65159
+    status: operational
+    as_of: 2026-11-17
+data_products:
+  - name: IASI-NG Level 1c, Metop-SG, in BUFR (EO:EUM:DAT:0892)
+    provider: EUMETSAT Data Store
+    url: https://data.eumetsat.int/product/EO:EUM:DAT:0892
+    access: registration
+default_configuration: swath
+configurations:
+  swath:
+    grade: timing
+    description: The swath scanned between the outermost centers of fields of regard, with a view tailored to the analysis time step.
+    platforms: [metop-sga1]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: IASI-NG
+          cross_track_field_of_view: 93.259
+          roll_angle: -0.1191
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          cross_track_field_of_view: &measured
+            kind: measured
+            source: validate_catalog_iasi_ng.py --fit, between the outermost centers of the 14 fields of regard (46.51 deg left and 46.75 deg right of nadir, in an Earth-fixed frame), over 810 scans of the first 3.5 hours of the day
+            platforms: [metop-sga1]
+            period: "2026-10-19"
+          roll_angle: *measured
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+limitations:
+  - The product does not record the satellite's position, so the fit used positions from an element set of 2026-10-17, two days before the data, whose error enters the fitted angles.
+  - Each field of regard holds 16 pixels in an array of four by four, which is not represented; positions are those of its center.
+  - A day of the product is about 40 GB, so tests use the first 3.5 hours (about two orbits) of a day. The Data Store holds the product for about 30 days, so a test can only use recent days.

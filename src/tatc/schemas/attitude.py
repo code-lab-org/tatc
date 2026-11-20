@@ -61,11 +61,13 @@ class Attitude(BaseModel):
     satellite's argument of latitude.
 
     The instruments of a space system point relative to its body: their
-    roll and pitch angles, scan azimuths, and pixels are measured from the
-    body's axes. For example, a yaw angle of 180 degrees (flying backward)
-    swaps the left and right of a cross-track scanner and the fore and aft
-    of a conical scan. An instrument's field of regard remains measured from
-    nadir.
+    yaw, roll, and pitch angles, scan azimuths, and pixels are measured from
+    the body's axes. For example, a yaw angle of 180 degrees (flying
+    backward) swaps the left and right of a cross-track scanner and the fore
+    and aft of a conical scan. An instrument's field of regard remains
+    measured from nadir. The attitude is that of the body, shared by every
+    instrument it carries; an instrument's own angles (see
+    `PointedInstrument`) orient it on the body, after the body's rotation.
     """
 
     type: Literal["attitude"] = Field(

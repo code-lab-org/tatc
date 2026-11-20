@@ -535,7 +535,8 @@ class TestAmsuaFixture(_BeamScannerFixture, unittest.TestCase):
     """
 
     entry_id = "amsua"
-    sizes_key = "footprints"
+    swath_key = "swath_aqua"
+    sizes_key = "footprints_aqua"
     size_instrument = "AMSU-A"
     platform = "aqua"
     meets_published_gate = False
@@ -543,6 +544,34 @@ class TestAmsuaFixture(_BeamScannerFixture, unittest.TestCase):
 
     def time_step(self) -> float:
         return 8.0
+
+
+class TestAmsuaMetopBFixture(TestAmsuaFixture):
+    """
+    Regression tests of the AMSU-A entry's configurations of Metop-B, whose
+    footprints are published in the ATOVS Level 1b Product Guide.
+    """
+
+    fixture_name = "amsua_metop_b"
+    swath_key = "swath_metop_b"
+    sizes_key = "footprints_metop_b"
+    platform = "metop-b"
+    meets_published_gate = True
+    footprints = (
+        ("AMSU-A", 833, 98.7, 0, 47.63, 47.63),
+        ("AMSU-A", 833, 98.7, 48.33, 78.79, 146.89),
+    )
+
+
+class TestAmsuaMetopCFixture(TestAmsuaMetopBFixture):
+    """
+    Regression tests of the AMSU-A entry's configurations of Metop-C.
+    """
+
+    fixture_name = "amsua_metop_c"
+    swath_key = "swath_metop_c"
+    sizes_key = "footprints_metop_c"
+    platform = "metop-c"
 
 
 class TestAvhrrFixture(_BeamScannerFixture, unittest.TestCase):
@@ -831,6 +860,60 @@ class TestBbrFixture(_StepSwathFixture, unittest.TestCase):
     swath_key = "views"
     platform = "earthcare"
     instrument_index = 1
+
+
+class TestTropics03Fixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the TROPICS entry's configuration of TROPICS-03, at the
+    period of its scans.
+    """
+
+    entry_id = "tropics"
+    fixture_name = "tropics_03"
+    swath_key = "swath_tropics_03"
+    platform = "tropics-03"
+    step = 2.0
+
+
+class TestTropics05Fixture(TestTropics03Fixture):
+    """
+    Regression tests of the TROPICS entry's configuration of TROPICS-05.
+    """
+
+    fixture_name = "tropics_05"
+    swath_key = "swath_tropics_05"
+    platform = "tropics-05"
+
+
+class TestTropics06Fixture(TestTropics03Fixture):
+    """
+    Regression tests of the TROPICS entry's configuration of TROPICS-06.
+    """
+
+    fixture_name = "tropics_06"
+    swath_key = "swath_tropics_06"
+    platform = "tropics-06"
+
+
+class TestIasiNgFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the IASI-NG entry's configuration, at the period of its
+    scans.
+    """
+
+    entry_id = "iasi_ng"
+    platform = "metop-sga1"
+    step = 15.561
+
+
+class TestMwsFixture(_StepSwathFixture, unittest.TestCase):
+    """
+    Regression tests of the MWS entry's configuration, at the period of its scans.
+    """
+
+    entry_id = "mws"
+    platform = "metop-sga1"
+    step = 2.254
 
 
 if __name__ == "__main__":

@@ -275,7 +275,7 @@ def fit(day: datetime, reference: Reference) -> None:
     `scanner.fit`); and the slope of the scan line and the along-track angle
     at nadir, with the spacecraft placed at each beam's time, which removes the skew
     of beams sampled in sequence. The slope is that of `scanner.fit_yaw`, so
-    that the attitude's yaw angle is its negative, and its pitch angle the
+    that the instrument's yaw angle is its negative, and its pitch angle the
     along-track angle.
     """
     lon, lat, altitude = TO_GEODETIC.transform(*reference.position.T)

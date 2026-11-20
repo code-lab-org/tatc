@@ -33,7 +33,33 @@
           "value": 0.9902064346272009
         }
       ],
-      "transfers": {},
+      "transfers": {
+        "sentinel-3b": {
+          "period": "2026-11-15",
+          "metrics": [
+            {
+              "name": "pass_recall",
+              "value": 99.73853580048271
+            },
+            {
+              "name": "pass_precision",
+              "value": 99.1998399679936
+            },
+            {
+              "name": "epoch_p95",
+              "value": 0.13183128074999997
+            },
+            {
+              "name": "swath_width_median",
+              "value": 10.38562795955676
+            },
+            {
+              "name": "footprint_iou_median",
+              "value": 0.9897592491709175
+            }
+          ]
+        }
+      },
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.128510134

@@ -1,0 +1,57 @@
+id: gras
+name: GRAS
+aliases: [GNSS Receiver for Atmospheric Sounding, Metop radio occultation receiver]
+instrument_class: occultation
+selection: Radio occultation receiver of EUMETSAT's Metop satellites in sun-synchronous orbits, which tracks the signals of GPS satellites setting and rising behind the Earth's limb through antennas facing the velocity and anti-velocity, with open data products.
+platforms:
+  - id: metop-b
+    name: Metop-B
+    norad_id: 38771
+    status: extended
+    as_of: 2026-11-17
+  - id: metop-c
+    name: Metop-C
+    norad_id: 43689
+    status: operational
+    as_of: 2026-11-17
+data_products:
+  - name: Metop GRAS calibrated phase, refractivity, and atmospheric retrievals (UCAR processing), in the AWS Registry of Open Data
+    provider: UCAR COSMIC Data Analysis and Archive Center, through AWS
+    url: https://registry.opendata.aws/gnss-ro-opendata/
+    access: open
+default_configuration: occultations
+configurations:
+  occultations:
+    grade: timing
+    description: Setting and rising occultations of GPS satellites within 58 deg of the receiver's velocity or anti-velocity, with the representative point of each where the straight line between the satellites reaches 0 km, as the refracted signal reaches the reference point of UCAR's profiles (about 13 km above the surface).
+    platforms: [metop-b, metop-c]
+    velocity_frame: inertial
+    sounding:
+      type: occultation
+      constellations: [gps]
+      max_yaw: 58
+      range_elevation: [-200000, 60000]
+      sample_elevation: 0
+      provenance:
+        constellations:
+          kind: nominal
+          source: GRAS tracks the signals of GPS satellites only
+        max_yaw:
+          kind: measured
+          source: validate_catalog_gras.py --fit, the largest yaw of the recorded occultations at the sample elevation (57.6 deg), rounded up
+          platforms: [metop-b, metop-c]
+          period: "2026-05-13"
+        range_elevation:
+          kind: derived
+          source: TAT-C's default, from 60 km above the surface to 200 km below it along the straight line, which spans recorded profiles
+        sample_elevation:
+          kind: measured
+          source: validate_catalog_gras.py --fit, the median elevation of the straight line when the refracted signal's tangent point is at the reference point of UCAR's refractivity profiles (0.16 km, from their impact parameters and bending angles), rounded to the nearest kilometer
+          platforms: [metop-b, metop-c]
+          period: "2026-05-13"
+    limitations:
+      - Every occultation of the transmitters is predicted, whereas GRAS records only some of them, so counts are upper bounds on those recorded.
+      - Refraction is not modeled, so the sample elevation is that of the straight line, not of the refracted signal, and the representative point is that of the straight line, not the refracted signal's tangent point at the profile's reference point, from which it was 11.4 km (median) on the held-out day.
+limitations:
+  - The fitting and held-out days are the days on which UCAR's processing holds both receivers' occultations 30 days apart (2026-05-13 and 2026-06-12).
+  - The transmitters are the satellites of an analysis, whose element sets the entry does not hold.

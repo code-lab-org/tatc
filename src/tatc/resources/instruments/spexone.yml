@@ -45,5 +45,6 @@ configurations:
       - SPEXone views each place at five angles along track (-50, -20, 0, 20, and 50 deg), over about four minutes; only the nadir view is modeled. The other views lie over the same ground, at other times.
 limitations:
   - PACE flies with yaw steering, so the configuration uses the Earth-fixed frame.
+  - OCI's configuration gives PACE's body the tilt schedule of OCI, which tilts by itself, so this configuration is not carried with OCI's.
   - SPEXone images the sunlit part of each orbit, whereas the view observes whenever a target is in view, unless a solar limit is added.
   - No configuration gives sample sizes, as no published instantaneous field of view was used.

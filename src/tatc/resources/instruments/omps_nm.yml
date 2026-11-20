@@ -31,9 +31,6 @@ configurations:
     description: The swath imaged between the outermost samples of NOAA-21's Nadir Mapper, with a view tailored to the analysis time step.
     platforms: [noaa-21]
     velocity_frame: inertial
-    attitude:
-      yaw_angle: -0.1848
-      pitch_angle: 0.0544
     instruments:
       - type: pointed
         parameters:
@@ -42,7 +39,9 @@ configurations:
           cross_track_field_of_view: 109.9998
           along_track_field_of_view: {tailor: time_step}
           is_swept: true
+          yaw_angle: -0.184491
           roll_angle: 0.3252
+          pitch_angle: 0.0544
           is_rectangular: true
         provenance:
           field_of_regard:
@@ -54,19 +53,22 @@ configurations:
             platforms: [noaa-21]
             period: "2026-10-01"
           roll_angle: *measured_noaa_21
+          yaw_angle: &converted_noaa_21
+            kind: measured
+            source: validate_catalog_omps.py --fit, the slope of the samples' along-track on their cross-track tangents and the along-track angle of the sample nearest nadir (a yaw of -0.1848 deg and pitch of 0.0544 deg of the body, inertial frame), converted to the instrument's yaw before its roll
+            platforms: [noaa-21]
+            period: "2026-10-01"
+          pitch_angle: *converted_noaa_21
           is_rectangular:
             kind: derived
             source: Models an imaged swath as a rectangular view
     limitations:
-      - The yaw of -0.1848 deg and pitch of 0.0544 deg are measured with validate_catalog_omps.py --fit on 2026-10-01, from the slope of the samples' along-track on their cross-track tangents (the same within 0.001 deg at every latitude) and the along-track angle of the sample nearest nadir, in the inertial frame.
+      - The instrument's yaw and pitch were measured as a yaw of -0.1848 deg and a pitch of 0.0544 deg of the body, and converted to the instrument's own angles (a yaw of -0.184491 deg, before its roll, gives the same view within 0.0001 deg), so that the configuration shares the body's attitude of the platform's other instruments. They were measured with validate_catalog_omps.py --fit on 2026-10-01, from the slope of the samples' along-track on their cross-track tangents (the same within 0.001 deg at every latitude) and the along-track angle of the sample nearest nadir, in the inertial frame.
   swath_noaa_20:
     grade: timing
     description: The swath imaged between the outermost samples of NOAA-20's Nadir Mapper, with a view tailored to the analysis time step.
     platforms: [noaa-20]
     velocity_frame: inertial
-    attitude:
-      yaw_angle: -0.2944
-      pitch_angle: 0.1859
     instruments:
       - type: pointed
         parameters:
@@ -75,7 +77,9 @@ configurations:
           cross_track_field_of_view: 108.6016
           along_track_field_of_view: {tailor: time_step}
           is_swept: true
+          yaw_angle: -0.295144
           roll_angle: -0.2294
+          pitch_angle: 0.1859
           is_rectangular: true
         provenance:
           field_of_regard:
@@ -87,19 +91,22 @@ configurations:
             platforms: [noaa-20]
             period: "2026-10-01"
           roll_angle: *measured_noaa_20
+          yaw_angle: &converted_noaa_20
+            kind: measured
+            source: validate_catalog_omps.py --fit, the slope of the samples' along-track on their cross-track tangents and the along-track angle of the sample nearest nadir (a yaw of -0.2944 deg and pitch of 0.1859 deg of the body, inertial frame), converted to the instrument's yaw before its roll
+            platforms: [noaa-20]
+            period: "2026-10-01"
+          pitch_angle: *converted_noaa_20
           is_rectangular:
             kind: derived
             source: Models an imaged swath as a rectangular view
     limitations:
-      - The yaw of -0.2944 deg and pitch of 0.1859 deg are measured with validate_catalog_omps.py --fit on 2026-10-01, from the slope of the samples' along-track on their cross-track tangents (the same within 0.02 deg at every latitude) and the along-track angle of the sample nearest nadir, in the inertial frame.
+      - The instrument's yaw and pitch were measured as a yaw of -0.2944 deg and a pitch of 0.1859 deg of the body, and converted to the instrument's own angles (a yaw of -0.295144 deg, before its roll, gives the same view within 0.0001 deg), so that the configuration shares the body's attitude of the platform's other instruments. They were measured with validate_catalog_omps.py --fit on 2026-10-01, from the slope of the samples' along-track on their cross-track tangents (the same within 0.02 deg at every latitude) and the along-track angle of the sample nearest nadir, in the inertial frame.
   swath_suomi_npp:
     grade: timing
     description: The swath imaged between the outermost samples of Suomi NPP's Nadir Mapper, with a view tailored to the analysis time step.
     platforms: [suomi-npp]
     velocity_frame: inertial
-    attitude:
-      yaw_angle: -0.0911
-      pitch_angle: 0.0739
     instruments:
       - type: pointed
         parameters:
@@ -108,7 +115,9 @@ configurations:
           cross_track_field_of_view: 107.3326
           along_track_field_of_view: {tailor: time_step}
           is_swept: true
+          yaw_angle: -0.090851
           roll_angle: 0.1934
+          pitch_angle: 0.0739
           is_rectangular: true
         provenance:
           field_of_regard:
@@ -120,11 +129,17 @@ configurations:
             platforms: [suomi-npp]
             period: "2026-10-01"
           roll_angle: *measured_suomi_npp
+          yaw_angle: &converted_suomi_npp
+            kind: measured
+            source: validate_catalog_omps.py --fit, the slope of the samples' along-track on their cross-track tangents and the along-track angle of the sample nearest nadir (a yaw of -0.0911 deg and pitch of 0.0739 deg of the body, inertial frame), converted to the instrument's yaw before its roll
+            platforms: [suomi-npp]
+            period: "2026-10-01"
+          pitch_angle: *converted_suomi_npp
           is_rectangular:
             kind: derived
             source: Models an imaged swath as a rectangular view
     limitations:
-      - The yaw of -0.0911 deg and pitch of 0.0739 deg are measured with validate_catalog_omps.py --fit on 2026-10-01, from the slope of the samples' along-track on their cross-track tangents (the same within 0.02 deg at every latitude on ascending passes) and the along-track angle of the sample nearest nadir, in the inertial frame.
+      - The instrument's yaw and pitch were measured as a yaw of -0.0911 deg and a pitch of 0.0739 deg of the body, and converted to the instrument's own angles (a yaw of -0.090851 deg, before its roll, gives the same view within 0.0001 deg), so that the configuration shares the body's attitude of the platform's other instruments. They were measured with validate_catalog_omps.py --fit on 2026-10-01, from the slope of the samples' along-track on their cross-track tangents (the same within 0.02 deg at every latitude on ascending passes) and the along-track angle of the sample nearest nadir, in the inertial frame.
       - On data held out on 2026-08-25, epochs were within 20.2 s (95th percentile) and swath widths within 5.5 km (median), as the samples bow aft as on NOAA-20 and NOAA-21, and 98.2% of observed passes were predicted. The passes not predicted lie at the swath's edges (54 deg from nadir, median), within the 40 km of the outermost samples in which a pass is observed but beyond their centers, between which the view lies; Suomi NPP's samples are wider (35 across the swath) than NOAA-20's and NOAA-21's.
       - Suomi NPP was retired on 2026-11-02, when NOAA stopped delivering its data.
 limitations:
@@ -133,3 +148,4 @@ limitations:
   - The Nadir Mapper images the sunlit part of each orbit, whereas the view observes whenever a target is in view, unless a solar limit is added.
   - No configuration gives sample sizes, as no published instantaneous field of view was used.
   - Each platform has its own configuration, fitted to its own data; NOAA-20 images fewer, wider samples than NOAA-21, and Suomi NPP fewer and wider still.
+  - The yaw and pitch of the swath_noaa_21, swath_noaa_20, and swath_suomi_npp configurations were given to the body's attitude when tested, and then to the instrument, which gives the same views within 3 cm on the ground, so that the platform's instruments share the body's attitude. The records were rescored on the same held-out data, with swath widths changed by up to 6 m, as they are now measured with the instrument's yaw, and epochs by less than 0.0001 s, and every other result unchanged.

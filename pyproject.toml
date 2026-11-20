@@ -97,6 +97,7 @@ examples = [
 ]
 osse = [
     "tatc[examples]",
+    "h5py",
     "netcdf4",
     "pydap",
     "rioxarray",
@@ -121,6 +122,8 @@ validation = [
     "tatc[examples,preprocess]",
     "awsgnssroutils",
     "earthaccess",
+    "eccodes",
+    "eumdac >= 4",
     "h5py",
     "hatanaka",
     "metpy",

@@ -35,10 +35,29 @@ class PointedInstrument(Instrument):
     """
     Remote sensing instrument with an optional off-nadir (roll/pitch)
     pointing offset and a rectangular or elliptical pixel array.
+
+    The view is rotated from the axes of the space system's body (see
+    `tatc.schemas.Attitude`), or from the nadir frame without an attitude,
+    by the instrument's own angles: first by its yaw angle about the nadir
+    axis, then (in scan geometry) by the tilt of the scan plane, then by
+    its roll angle about the along-track axis, then (in frame geometry) by
+    its pitch angle about the rolled cross-track axis. The body's attitude
+    is shared by the instruments it carries, while these angles orient
+    each instrument on the body, as its mounting does.
     """
 
     type: Literal["pointed"] = Field(
         default="pointed", description="Instrument type discriminator."
+    )
+    yaw_angle: float = Field(
+        default=0,
+        description="Rotation (degrees) of the view about the body's nadir axis, "
+        + "before its roll and pitch, positive turning its along-track axis to "
+        + "the left of the direction of motion, as an attitude's yaw angle turns "
+        + "the body (for example, an instrument whose scan line is rotated on "
+        + "the body).",
+        ge=-180,
+        le=180,
     )
     cross_track_field_of_view: float = Field(
         ...,
@@ -271,6 +290,7 @@ class PointedInstrument(Instrument):
                 nadir_reference=self.nadir_reference,
                 tilt_angle=self.get_pitch_angle(orbit_track),
                 attitude=self._attitude,
+                yaw_angle=self.yaw_angle,
             )
         return compute_ground_sample_size(
             orbit_track,
@@ -282,6 +302,7 @@ class PointedInstrument(Instrument):
             self.get_pitch_angle(orbit_track),
             self.nadir_reference,
             attitude=self._attitude,
+            yaw_angle=self.yaw_angle,
         )
 
     def get_cross_track_instantaneous_field_of_view(self) -> float:
@@ -344,6 +365,7 @@ class PointedInstrument(Instrument):
             view_geometry=self.view_geometry,
             ground_elevation=ground_elevation,
             attitude=self._attitude,
+            yaw_angle=self.yaw_angle,
         )
 
     def compute_swept_footprints(
@@ -381,6 +403,7 @@ class PointedInstrument(Instrument):
             nadir_reference=self.nadir_reference,
             view_geometry=self.view_geometry,
             attitude=self._attitude,
+            yaw_angle=self.yaw_angle,
         )
 
     @field_validator("roll_angle_profile", "pitch_angle_profile")
@@ -477,6 +500,7 @@ class PointedInstrument(Instrument):
                 self.nadir_reference,
                 self.get_pitch_angle(orbit_track),
                 attitude=self._attitude,
+                yaw_angle=self.yaw_angle,
             )
             # angular offsets from the view center, normalized by the half widths
             cross_offset = (
@@ -492,6 +516,7 @@ class PointedInstrument(Instrument):
                 self.get_pitch_angle(orbit_track),
                 self.nadir_reference,
                 attitude=self._attitude,
+                yaw_angle=self.yaw_angle,
             )
             # offsets from the view center, normalized by the view half widths
             along_offset = along / np.tan(
@@ -538,6 +563,7 @@ class PointedInstrument(Instrument):
             nadir_reference=self.nadir_reference,
             ground_elevation=ground_elevation,
             attitude=self._attitude,
+            yaw_angle=self.yaw_angle,
         )
 
     def compute_projected_pixel_position(
@@ -579,6 +605,7 @@ class PointedInstrument(Instrument):
                 tilt_angle=self.get_pitch_angle(orbit_track),
                 ground_elevation=ground_elevation,
                 attitude=self._attitude,
+                yaw_angle=self.yaw_angle,
             )
         cone, clock = self.get_pixel_cone_and_clock_angle(
             cross_track_index, along_track_index
@@ -602,6 +629,7 @@ class PointedInstrument(Instrument):
             nadir_reference=self.nadir_reference,
             ground_elevation=ground_elevation,
             attitude=self._attitude,
+            yaw_angle=self.yaw_angle,
         )
 
     def _get_pixel_offsets(

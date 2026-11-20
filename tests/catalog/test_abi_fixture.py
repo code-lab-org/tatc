@@ -1,8 +1,9 @@
 """
 Regression tests that recompute the results of the geostationary entries from
 reduced fixtures of pixels: GOES-19 ABI pixels, written by
-`validation/catalog/validate_catalog_abi.py`, and Himawari-9 AHI pixels, written by
-`validation/catalog/validate_catalog_ahi.py`.
+`validation/catalog/validate_catalog_abi.py`, Himawari-9 AHI pixels, written by
+`validation/catalog/validate_catalog_ahi.py`, and Meteosat-12 FCI pixels, written by
+`validation/catalog/validate_catalog_fci.py`.
 
 These detect changes in TAT-C's results without network access. They do not
 themselves establish agreement with the reference data, which the scripts do.
@@ -133,6 +134,17 @@ class TestAhiFixture(_GeostationaryFixture, unittest.TestCase):
     platform = "himawari-9"
     limit_keys = ("cloud_top_height",)
     passing_keys = ()
+
+
+class TestFciFixture(_GeostationaryFixture, unittest.TestCase):
+    """
+    Regression tests of the FCI entry, on Meteosat-12.
+    """
+
+    entry_id = "fci"
+    platform = "meteosat-12"
+    limit_keys = ("lst_retrieved", "sst_acceptable_quality")
+    passing_keys = limit_keys
 
 
 if __name__ == "__main__":

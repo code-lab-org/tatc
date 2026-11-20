@@ -24,6 +24,10 @@ and only some of its products are distributed, whose gaps are left out.
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
 
+With `--platform sentinel-3b`, it tests the same values on Sentinel-3B, from its
+product (`S3B_OL_1_EFR`), and adds the results to the record as a transfer, which does
+not count toward the tier.
+
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
@@ -135,12 +139,17 @@ def read_olci(_product, url: str, session, day: datetime, _directory) -> dict:
     }
 
 
-PRODUCT = Product(
-    short_name="S3A_OL_1_EFR",
-    version="1",
-    read=read_olci,
-    host="https://data.laadsdaac",
-)
+# the product of each platform: Sentinel-3A's, on which the entry is fitted and
+# tested, and Sentinel-3B's, on which results are reported as a transfer
+PRODUCTS = {
+    platform: Product(
+        short_name=f"S3{code}_OL_1_EFR",
+        version="1",
+        read=read_olci,
+        host="https://data.laadsdaac",
+    )
+    for platform, code in (("sentinel-3a", "A"), ("sentinel-3b", "B"))
+}
 SETUP = Setup(
     swath="swath",
     beams=None,
@@ -155,15 +164,19 @@ SETUP = Setup(
 )
 
 
-def load_reference(day: datetime, directory: pathlib.Path) -> Reference:
-    """Loads a reduced day."""
-    return Reference(day, load_day(PRODUCT, day, directory), LINE_STRIDE * LINE_PERIOD)
+def load_reference(
+    day: datetime, directory: pathlib.Path, platform: str = "sentinel-3a"
+) -> Reference:
+    """Loads a reduced day of a platform."""
+    return Reference(
+        day, load_day(PRODUCTS[platform], day, directory), LINE_STRIDE * LINE_PERIOD
+    )
 
 
 def main() -> None:
     """Validates the entry on a day of data, or fits its angles."""
     run = parse_run("olci", __doc__)
-    reference = load_reference(run.day, run.directory)
+    reference = load_reference(run.day, run.directory, run.platform)
     print(
         f"{run.day:%Y-%m-%d}: {len(reference.time)} lines from {reference.time[0]}, "
         f"{len(reference.gaps)} gaps over a minute, median altitude "

@@ -1,0 +1,76 @@
+id: fci
+name: FCI
+aliases: [Flexible Combined Imager, MTG FCI]
+instrument_class: geostationary
+selection: Imager of the Meteosat Third Generation geostationary weather satellites at 0 deg longitude, which completes, with ABI and AHI, a ring of geostationary imagers around the equator, with open data products.
+platforms:
+  - id: meteosat-12
+    name: Meteosat-12 (MTG-I1)
+    norad_id: 54743
+    status: operational
+    as_of: 2026-11-17
+data_products:
+  - name: FCI Level 2 cloud mask, 0 deg (EO:EUM:DAT:0678)
+    provider: EUMETSAT Data Store
+    url: https://data.eumetsat.int/product/EO:EUM:DAT:0678
+    access: registration
+  - name: LSA SAF MTG land surface temperature (EO:EUM:DAT:1088)
+    provider: EUMETSAT Data Store
+    url: https://data.eumetsat.int/product/EO:EUM:DAT:1088
+    access: registration
+  - name: OSI SAF FCI Level 3C sea surface temperature (EO:EUM:DAT:0694)
+    provider: EUMETSAT Data Store
+    url: https://data.eumetsat.int/product/EO:EUM:DAT:0694
+    access: registration
+default_configuration: full_disk
+configurations:
+  full_disk:
+    grade: coverage
+    description: The Earth's disk, as imaged by a full-disk scan.
+    platforms: [meteosat-12]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: instrument
+        parameters:
+          name: FCI
+          field_of_regard: 17.4
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Spans the Earth's disk from geostationary altitude
+    limitations:
+      - A larger field of regard would pass the same test, which shows that the disk is observed rather than the value of the field of regard.
+  lst_retrieved:
+    grade: coverage
+    description: Where the land surface temperature is retrieved (local zenith angle up to 70 degrees).
+    platforms: [meteosat-12]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: instrument
+        parameters:
+          name: FCI LST
+          field_of_regard: 16.32854681232439
+        provenance:
+          field_of_regard:
+            kind: measured
+            source: compute_field_of_regard(35786e3, 90 - 70), from the bound beyond which the product retrieves no land surface temperature (validate_catalog_fci.py --fit), which the product does not declare
+            platforms: [meteosat-12]
+            period: "2026-10-16"
+  sst_acceptable_quality:
+    grade: coverage
+    description: Where the sea surface temperature is of acceptable quality or better (quality levels 4 and 5, local zenith angle up to 65 degrees).
+    platforms: [meteosat-12]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: instrument
+        parameters:
+          name: FCI SST
+          field_of_regard: 15.744688480917766
+        provenance:
+          field_of_regard:
+            kind: measured
+            source: compute_field_of_regard(35786e3, 90 - 65), from the bound beyond which the product gives no sea surface temperature of acceptable quality or better (validate_catalog_fci.py --fit), which the product does not declare
+            platforms: [meteosat-12]
+            period: "2026-10-16"
+limitations:
+  - The scan is not modeled. Every point is available at any time, without the 10 minute cadence of a full-disk scan or the rapid scans of Europe.

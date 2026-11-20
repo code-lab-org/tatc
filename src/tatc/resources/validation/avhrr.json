@@ -2,8 +2,8 @@
   "entry_id": "avhrr",
   "configurations": {
     "pixels": {
-      "digest": "dcfebefeca4069deec30f6a8c67926425d988e24586907d48c43d7a6695f952e",
-      "standard_version": 5,
+      "digest": "34a1e8f4d7eae2e12df992ad35bf7fb21262837547b4e01bbba9bf53f1f6d67d",
+      "standard_version": 6,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_avhrr.py",
       "reference": "Footprint published by the NWP SAF; sample positions of AVHRRF_MC-STAR-L2P version 2.80",
@@ -30,7 +30,7 @@
         },
         {
           "name": "spacing_along_ratio_median",
-          "value": 1.0001617303232877
+          "value": 1.00016173032339
         },
         {
           "name": "spacing_cross_ratio_median",
@@ -63,13 +63,13 @@
       "fixture_metrics": {
         "sample_size_within_3pct": 0.0,
         "pixel_position_median": 0.4312066820797901,
-        "spacing_along_ratio_median": 1.0005238732532653,
+        "spacing_along_ratio_median": 1.0005238732533668,
         "spacing_cross_ratio_median": 0.9995554502485684
       }
     },
     "swath": {
-      "digest": "bf446fbb3e2739c9e8abeb1755bccd57cf220b8259840979cdb26d3fca1f6edd",
-      "standard_version": 5,
+      "digest": "11e2a8d2411f852081c13727d3c2110c6ad22d146949881b9a495e9559816ac4",
+      "standard_version": 6,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_catalog_avhrr.py",
       "reference": "AVHRRF_MC-STAR-L2P version 2.80 (sample positions and times)",
