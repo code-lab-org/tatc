@@ -23,8 +23,31 @@ from tatc.catalog.standard import (
 # (metric, limit, at most) by class and grade. These thresholds are frozen: they
 # must test new instruments rather than follow their results. A change needs a
 # new STANDARD_VERSION, with its reason, in docs/validation/standard.rst.
-FROZEN_VERSION = 6
+FROZEN_VERSION = 7
 FROZEN_GATES = {
+    # version 7 added the limb and occultation classes, and changed no other gate
+    ("limb", "coverage"): [
+        ("tangent_position_median", 10, True),
+        ("scan_period_error", 1, True),
+        ("latitude_extent_error", 0.5, True),
+        ("epoch_p95", 3, True),
+    ],
+    ("limb", "timing"): [
+        ("tangent_position_median", 10, True),
+        ("scan_period_error", 1, True),
+        ("latitude_extent_error", 0.5, True),
+        ("epoch_p95", 1, True),
+    ],
+    ("occultation", "coverage"): [
+        ("occultation_recall", 99, False),
+        ("tangent_position_median", 2, True),
+        ("epoch_p95", 3, True),
+    ],
+    ("occultation", "timing"): [
+        ("occultation_recall", 99, False),
+        ("tangent_position_median", 2, True),
+        ("epoch_p95", 1, True),
+    ],
     # version 6 added the profiler class, with the gates of the altimeter class,
     # and changed no other gate
     ("profiler", "coverage"): [

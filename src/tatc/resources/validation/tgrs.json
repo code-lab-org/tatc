@@ -1,0 +1,78 @@
+{
+  "entry_id": "tgrs",
+  "configurations": {
+    "occultations": {
+      "digest": "68d5439784bd91a7daf95cb43a028a11d0b5b674f3f82e3e22628d39409a8fd0",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_tgrs.py",
+      "reference": "UCAR COSMIC-2 occultations (AWS GNSS RO database, v1.1) and calibrated phase files (receiver and transmitter positions), and refractivity profiles",
+      "period": "2026-11-15",
+      "platforms": [
+        "formosat-7-1",
+        "formosat-7-2",
+        "formosat-7-5",
+        "formosat-7-6"
+      ],
+      "metrics": [
+        {
+          "name": "occultation_recall",
+          "value": 100.0
+        },
+        {
+          "name": "tangent_position_median",
+          "value": 0.5132392116830935
+        },
+        {
+          "name": "tangent_position_p95",
+          "value": 1.2973008344624195
+        },
+        {
+          "name": "epoch_median",
+          "value": -0.00671
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.24088810000000002
+        },
+        {
+          "name": "observed_occultations",
+          "value": 4989.0
+        },
+        {
+          "name": "predicted_occultations",
+          "value": 7206.0
+        },
+        {
+          "name": "tangent_points_compared",
+          "value": 299.0
+        },
+        {
+          "name": "sample_elevation_error",
+          "value": 0.013586234517395497
+        },
+        {
+          "name": "profile_position_median",
+          "value": 13.380194258805213
+        },
+        {
+          "name": "recorded_share_galileo",
+          "value": 42.68292682926829
+        },
+        {
+          "name": "recorded_share_gps",
+          "value": 82.19037871033777
+        },
+        {
+          "name": "recorded_share_glonass",
+          "value": 84.29752066115702
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "tangent_position_median": 0.5559538506134095,
+        "epoch_p95": 0.21250439999999998
+      }
+    }
+  }
+}

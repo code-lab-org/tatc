@@ -57,6 +57,12 @@ The schemas of the files of entries.
 
 .. autopydantic_model:: tatc.catalog.schemas.TiltSchedule
 
+.. autopydantic_model:: tatc.catalog.schemas.LimbScan
+
+.. autopydantic_model:: tatc.catalog.schemas.ScanStart
+
+.. autopydantic_model:: tatc.catalog.schemas.Occultation
+
 Records
 -------
 

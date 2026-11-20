@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from .records import ConfigurationRecord
     from .schemas import InstrumentEntry
 
-STANDARD_VERSION = 6
+STANDARD_VERSION = 7
 """The version of the thresholds in `get_gates`."""
 
 _LAST_THRESHOLD_CHANGE = 1
@@ -51,6 +51,8 @@ class InstrumentClass(str, Enum):
     ALTIMETER = "altimeter"
     SCATTEROMETER = "scatterometer"
     PROFILER = "profiler"
+    LIMB = "limb"
+    OCCULTATION = "occultation"
 
 
 # the version of the standard that added each class's gates
@@ -65,6 +67,8 @@ _CLASS_VERSIONS: dict[InstrumentClass, int] = {
     InstrumentClass.SCATTEROMETER: 4,
     InstrumentClass.GEOSTATIONARY_REGIONAL: 5,
     InstrumentClass.PROFILER: 6,
+    InstrumentClass.LIMB: 7,
+    InstrumentClass.OCCULTATION: 7,
 }
 
 
@@ -198,6 +202,24 @@ _TRACK_OFFSET = Gate("track_offset_median", 0.5, True, "km", "Track offset, medi
 _FIELD_OF_REGARD_IOU = Gate(
     "field_of_regard_iou", 0.95, False, "", "Field of regard IoU"
 )
+# version 7: limb sounders, whose scans are started at the times of the reference's
+# scans and whose representative points (at the sample elevation) are compared
+# with the reference's tangent points at that elevation; the period of their cycle
+# of scans; and the extent in latitude of a day of representative points
+_LIMB_POSITION = Gate(
+    "tangent_position_median", 10, True, "km", "Tangent point position, median"
+)
+_SCAN_PERIOD = Gate("scan_period_error", 1, True, "%", "Scan cycle period, error")
+_LATITUDE_EXTENT = Gate(
+    "latitude_extent_error", 0.5, True, "deg", "Latitude extent, error"
+)
+# version 7: radio occultation receivers, whose observed occultations are
+# predicted, with tangent points (at the sample elevation) compared with those of
+# the straight line between the recorded positions of receiver and transmitter
+_OCCULTATION_RECALL = Gate("occultation_recall", 99, False, "%", "Occultation recall")
+_OCCULTATION_POSITION = Gate(
+    "tangent_position_median", 2, True, "km", "Tangent point position, median"
+)
 
 # gates of the coverage and timing grades that do not depend on epoch accuracy
 _SWEEP_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
@@ -225,6 +247,12 @@ _SWEEP_GATES: dict[InstrumentClass, tuple[Gate, ...]] = {
         _IOU_SAR,
         _IOU_SAR_LOW,
     ),
+    # version 7: limb sounders profile the atmosphere beside or ahead of their
+    # track, in scans whose phase depends on the instrument's clock
+    InstrumentClass.LIMB: (_LIMB_POSITION, _SCAN_PERIOD, _LATITUDE_EXTENT),
+    # version 7: receivers track transmitters selectively, so predicted
+    # occultations that were not recorded are not errors (no precision gate)
+    InstrumentClass.OCCULTATION: (_OCCULTATION_RECALL, _OCCULTATION_POSITION),
 }
 
 # the gates of each class at each of its grades
@@ -292,7 +320,8 @@ def is_compatible(instrument_class: InstrumentClass, version: int) -> bool:
     Checks whether results tested under a version of the standard apply to a
     class: the version is compatible and has the class's gates. Version 2 added
     the lidar class, 3 the altimeter class, 4 the scatterometer class, 5 the
-    regional geostationary class, and 6 the profiler class.
+    regional geostationary class, 6 the profiler class, and 7 the limb and
+    occultation classes.
 
     Args:
         instrument_class (InstrumentClass): The class of the instrument.

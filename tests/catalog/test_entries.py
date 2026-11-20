@@ -85,8 +85,12 @@ EXPECTED_STATUS = {
     "amsua": (
         "partial",
         {
-            "swath": ("validated", None, []),
-            "footprints": ("partial", None, ["sample_size_within_3pct"]),
+            "swath_aqua": ("validated", None, []),
+            "footprints_aqua": ("partial", None, ["sample_size_within_3pct"]),
+            "swath_metop_b": ("validated", None, []),
+            "footprints_metop_b": ("validated", 30, []),
+            "swath_metop_c": ("validated", None, []),
+            "footprints_metop_c": ("validated", 30, []),
         },
         [],
     ),
@@ -214,6 +218,15 @@ EXPECTED_STATUS = {
         },
         [],
     ),
+    "fci": (
+        "partial",
+        {
+            "full_disk": ("partial", None, ["product_limit"]),
+            "lst_retrieved": ("validated", 32, []),
+            "sst_acceptable_quality": ("validated", 32, []),
+        },
+        [],
+    ),
     "gedi": (
         "partial",
         {
@@ -226,6 +239,13 @@ EXPECTED_STATUS = {
         {
             "feeds": ("validated", 75, []),
             "sample_size": ("validated", 75, []),
+        },
+        [],
+    ),
+    "gras": (
+        "validated",
+        {
+            "occultations": ("validated", 30, []),
         },
         [],
     ),
@@ -243,6 +263,13 @@ EXPECTED_STATUS = {
             "pixels": ("partial", 32, ["sample_size_within_3pct"]),
         },
         [],
+    ),
+    "iasi_ng": (
+        "partial",
+        {
+            "swath": ("validated", 30, []),
+        },
+        ["no configuration at the sample_size grade"],
     ),
     "karin": (
         "validated",
@@ -272,6 +299,13 @@ EXPECTED_STATUS = {
         },
         [],
     ),
+    "mls": (
+        "validated",
+        {
+            "scans": ("validated", 93, []),
+        },
+        [],
+    ),
     "modis": (
         "validated",
         {
@@ -286,6 +320,13 @@ EXPECTED_STATUS = {
             "swath": ("validated", 38, []),
         },
         [],
+    ),
+    "mws": (
+        "partial",
+        {
+            "swath": ("validated", 30, []),
+        },
+        ["no configuration at the sample_size grade"],
     ),
     "oci": (
         "partial",
@@ -340,6 +381,14 @@ EXPECTED_STATUS = {
         },
         [],
     ),
+    "saber": (
+        "partial",
+        {
+            "north_viewing": ("partial", 34, ["tangent_position_median"]),
+            "south_viewing": ("partial", 53, ["tangent_position_median"]),
+        },
+        [],
+    ),
     "smap_radiometer": (
         "partial",
         {
@@ -369,6 +418,13 @@ EXPECTED_STATUS = {
         },
         [],
     ),
+    "tgrs": (
+        "validated",
+        {
+            "occultations": ("validated", 185, []),
+        },
+        [],
+    ),
     "tmi": (
         "validated",
         {
@@ -384,6 +440,19 @@ EXPECTED_STATUS = {
             "beams": ("partial", 39, ["sample_size_within_3pct"]),
         },
         [],
+    ),
+    "tropics": (
+        "partial",
+        {
+            "swath_tropics_03": ("partial", 47, ["swath_width_median"]),
+            "swath_tropics_05": ("partial", 47, ["swath_width_median"]),
+            "swath_tropics_06": (
+                "partial",
+                47,
+                ["pass_recall", "pass_precision", "swath_width_median", "epoch_p95"],
+            ),
+        },
+        ["no configuration at the sample_size grade"],
     ),
     "tropomi": (
         "validated",
@@ -461,7 +530,9 @@ class TestLoading(unittest.TestCase):
                         entry.select_configuration(name, platform=platform), key
                     )
                 named.append(entry.id)
-        self.assertEqual(named, ["atms", "ceres", "cris", "omps_nm", "viirs"])
+        self.assertEqual(
+            named, ["amsua", "atms", "ceres", "cris", "omps_nm", "tropics", "viirs"]
+        )
 
     def test_alias_lookup(self):
         """
@@ -487,7 +558,7 @@ class TestLoading(unittest.TestCase):
         )
         self.assertEqual(
             [e.id for e in list_entries(instrument_class="geostationary")],
-            ["abi", "ahi"],
+            ["abi", "ahi", "fci"],
         )
         self.assertEqual(
             [e.id for e in list_entries("conical", "validated")], ["gmi", "tmi"]
@@ -939,17 +1010,38 @@ class TestEntryStatus(unittest.TestCase):
     def test_atms_noaa21_models_yaw(self):
         """
         Test that NOAA-21's ATMS configurations model the measured rotation of the
-        scan line in their attitude, and that NOAA-20's do not.
+        scan line with their instruments' angles, not the body's attitude, and that
+        NOAA-20's do not model one.
         """
         entry = get_entry("atms")
-        for key in ("swath_noaa_21", "beams_noaa_21"):
-            self.assertEqual(
-                entry.configurations[key].attitude,
-                {"yaw_angle": 0.9341, "pitch_angle": -0.1362},
-                key,
-            )
+        for key, yaw in (("swath_noaa_21", 0.9341), ("beams_noaa_21", 0.934304)):
+            configuration = entry.configurations[key]
+            self.assertEqual(configuration.attitude, {}, key)
+            for instrument in configuration.instruments:
+                self.assertEqual(instrument.parameters["yaw_angle"], yaw, key)
+                self.assertEqual(instrument.parameters["pitch_angle"], -0.1362, key)
         for key in ("swath_noaa_20", "beams_noaa_20"):
-            self.assertEqual(entry.configurations[key].attitude, {}, key)
+            configuration = entry.configurations[key]
+            self.assertEqual(configuration.attitude, {}, key)
+            for instrument in configuration.instruments:
+                self.assertNotIn("yaw_angle", instrument.parameters, key)
+
+    def test_body_attitudes(self):
+        """
+        Test that only configurations whose body is known to turn its instruments
+        (the ISS's, and OCO-2's glint mode) give the body an attitude, so that
+        angles fitted to one instrument are its own.
+        """
+        with_attitude = {
+            f"{entry_id}:{key}"
+            for entry_id in get_entry_ids()
+            for key, configuration in get_entry(entry_id).configurations.items()
+            if configuration.attitude
+        }
+        self.assertEqual(
+            with_attitude,
+            {"ecostress:swath", "emit:swath", "gedi:beams", "oco2:glint"},
+        )
 
     def test_entry_lists_every_gap(self):
         """
@@ -1018,15 +1110,20 @@ class TestEntryStatus(unittest.TestCase):
         platforms.
         """
         transfers = {
-            "atms": "noaa-21",
-            "cris": "noaa-21",
-            "viirs": "noaa-21",
-            "mhs": "metop-b",
-            "avhrr": "metop-b",
-            "csar": "sentinel-1d",
-            "modis": "aqua",
-            "oli": "landsat-8",
-            "poseidon4": "sentinel-6b",
+            "abi": {"goes-18"},
+            "amsua": {"metop-b", "metop-c"},
+            "ascat": {"metop-b"},
+            "atms": {"noaa-21"},
+            "cris": {"noaa-21"},
+            "iasi": {"metop-c"},
+            "viirs": {"noaa-21"},
+            "mhs": {"metop-b"},
+            "avhrr": {"metop-b"},
+            "csar": {"sentinel-1d"},
+            "modis": {"aqua"},
+            "oli": {"landsat-8"},
+            "olci": {"sentinel-3b"},
+            "poseidon4": {"sentinel-6b"},
         }
         recorded = {
             entry.id: {
@@ -1036,23 +1133,19 @@ class TestEntryStatus(unittest.TestCase):
             }
             for entry in list_entries()
         }
-        self.assertEqual(
-            {k: v for k, v in recorded.items() if v},
-            {k: {v} for k, v in transfers.items()},
-        )
-        for entry_id, platform in transfers.items():
+        self.assertEqual({k: v for k, v in recorded.items() if v}, transfers)
+        for entry_id, platforms in transfers.items():
             entry = get_entry(entry_id)
             for key, record in entry.record.configurations.items():
-                if platform not in record.transfers:
-                    continue
-                self.assertNotIn(platform, entry.configurations[key].platforms, key)
-                with self.assertWarns(UserWarning):
-                    entry.build(
-                        configuration=key,
-                        orbit=GeneralPerturbationsOrbit.from_tle(GPM_TLE),
-                        time_step=10,
-                        platform=platform,
-                    )
+                for platform in platforms & set(record.transfers):
+                    self.assertNotIn(platform, entry.configurations[key].platforms, key)
+                    with self.assertWarns(UserWarning):
+                        entry.build(
+                            configuration=key,
+                            orbit=GeneralPerturbationsOrbit.from_tle(GPM_TLE),
+                            time_step=10,
+                            platform=platform,
+                        )
 
     def test_gmi_reports_spacing_limitation(self):
         """
@@ -1269,6 +1362,46 @@ class TestBuildPayload(unittest.TestCase):
             build_payload(["viirs", "oco2:glint"], orbit=self.orbit, time_step=10)
         with self.assertRaises(ValueError):
             build_payload([], orbit=self.orbit)
+
+    def test_jpss_payloads(self):
+        """
+        Test that the configurations of the instruments of each JPSS satellite
+        share the body's attitude, so that the satellite carries them together,
+        each with its own angles.
+        """
+        for platform, references in (
+            (
+                "noaa-20",
+                ["atms:swath", "cris:swath", "viirs:swath", "omps_nm:swath", "ceres"],
+            ),
+            ("noaa-21", ["atms:swath", "cris:swath", "viirs:swath", "omps_nm:swath"]),
+            (
+                "suomi-npp",
+                ["atms:swath", "cris:swath", "viirs:swath", "omps_nm:swath", "ceres"],
+            ),
+        ):
+            payload = build_payload(
+                references, orbit=self.orbit, time_step=10, platform=platform
+            )
+            self.assertEqual(len(payload.instruments), len(references), platform)
+            self.assertEqual(
+                payload.attitude.velocity_frame, VelocityFrame.INERTIAL, platform
+            )
+            self.assertEqual(
+                (payload.attitude.yaw_angle, payload.attitude.pitch_angle),
+                (0, 0),
+                platform,
+            )
+        omps = build_payload(
+            ["atms:swath", "omps_nm:swath"],
+            orbit=self.orbit,
+            time_step=10,
+            platform="noaa-20",
+        ).instruments[1]
+        self.assertEqual(
+            (omps.yaw_angle, omps.roll_angle, omps.pitch_angle),
+            (-0.295144, -0.2294, 0.1859),
+        )
 
     def test_names_grade_and_attitude(self):
         """

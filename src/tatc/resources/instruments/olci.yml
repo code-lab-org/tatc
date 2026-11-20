@@ -9,10 +9,19 @@ platforms:
     norad_id: 41335
     status: operational
     as_of: 2026-11-04
+  - id: sentinel-3b
+    name: Sentinel-3B
+    norad_id: 43437
+    status: operational
+    as_of: 2026-11-17
 data_products:
   - name: OLCI/Sentinel-3A Level 1 Full Resolution Top of Atmosphere Reflectance (S3A_OL_1_EFR)
     provider: NASA LAADS DAAC
     url: https://ladsweb.modaps.eosdis.nasa.gov/missions-and-measurements/products/S3A_OL_1_EFR
+    access: registration
+  - name: OLCI/Sentinel-3B Level 1 Full Resolution Top of Atmosphere Reflectance (S3B_OL_1_EFR), whose tie points test the transfer to Sentinel-3B
+    provider: NASA LAADS DAAC
+    url: https://ladsweb.modaps.eosdis.nasa.gov/missions-and-measurements/products/S3B_OL_1_EFR
     access: registration
 default_configuration: swath
 configurations:
@@ -51,4 +60,4 @@ configurations:
 limitations:
   - Sentinel-3 flies with yaw steering, and the image lines are perpendicular to the Earth-fixed ground track (a fitted yaw of 0.000 deg), so the configuration uses the Earth-fixed frame.
   - OLCI images the sunlit part of each orbit, whereas the view observes whenever a target is in view, unless a solar limit is added.
-  - The configuration was tested on Sentinel-3A. OLCI also flies on Sentinel-3B, on which it was not tested.
+  - The angles were fitted and tested on Sentinel-3A. On Sentinel-3B, recorded as a transfer (2026-11-15, from the tie points of S3B_OL_1_EFR, with an element set of 2026-11-18, the nearest public one), the swath met the gates of the timing grade as on Sentinel-3A (pass recall 99.7%, epochs within 0.13 s at the 95th percentile, IoU 0.990), with a swath width within 10.4 km (9.9 km on Sentinel-3A). Using the configuration on Sentinel-3B warns, as for any platform on which it was not validated.

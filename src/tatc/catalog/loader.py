@@ -182,8 +182,9 @@ def build_payload(
     for payload in payloads[1:]:
         if payload.attitude != attitude:
             raise ValueError(
-                "the configurations have different attitudes, so they cannot be "
-                f"carried together: {references}"
+                "the configurations have different attitudes of the body, so they "
+                f"cannot be carried together: {references} (give an attitude to "
+                "replace theirs)"
             )
     instruments = [
         instrument

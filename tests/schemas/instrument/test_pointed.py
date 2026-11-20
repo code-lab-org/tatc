@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from skyfield.api import EarthSatellite, wgs84
 
 from tatc.constants import timescale
-from tatc.schemas import CircularOrbit, PointedInstrument
+from tatc.schemas import Attitude, CircularOrbit, PointedInstrument
 from tatc.utils import field_of_regard_to_swath_width, geodesic_distance
 from tatc.utils.projection import (
     VelocityFrame,
@@ -1163,3 +1163,201 @@ class TestScanViewGeometry(unittest.TestCase):
             self.assertAlmostEqual(
                 pixel.longitude.degrees, ray.longitude.degrees, places=8
             )
+
+
+class TestInstrumentYaw(unittest.TestCase):
+    """
+    Unit tests for the yaw angle of a PointedInstrument: a rotation of its view
+    about the body's nadir axis, before its tilt, roll, and pitch, as the yaw
+    of a body rotates the instruments it carries.
+    """
+
+    def setUp(self):
+        epoch = datetime(2026, 10, 4, tzinfo=timezone.utc)
+        satellite = EarthSatellite.from_satrec(
+            CircularOrbit(mean_altitude=824e3, inclination=98.7, epoch=epoch)
+            .to_gp_orbit()
+            .elements[0]
+            .to_satrec(),
+            timescale,
+        )
+        self.track = satellite.at(
+            timescale.from_datetimes(
+                [epoch + timedelta(minutes=m) for m in (0, 20, 40, 60)]
+            )
+        )
+        self.base = dict(
+            name="scanner",
+            field_of_regard=110,
+            cross_track_field_of_view=100,
+            along_track_field_of_view=2,
+            roll_angle=-0.4,
+            is_rectangular=True,
+            cross_track_pixels=5,
+            along_track_pixels=3,
+            velocity_frame=VelocityFrame.INERTIAL,
+        )
+
+    def _assert_same_positions(self, first, second, tolerance=1e-3):
+        """Asserts that positions lie within a distance (meters) of each other."""
+        self.assertLess(
+            np.max(
+                geodesic_distance(
+                    np.atleast_1d(first.longitude.degrees),
+                    np.atleast_1d(first.latitude.degrees),
+                    np.atleast_1d(second.longitude.degrees),
+                    np.atleast_1d(second.latitude.degrees),
+                )
+            ),
+            tolerance,
+        )
+
+    def _pair(self, yaw, **fields):
+        """
+        Gets an instrument yawed on an unrotated body, and the same instrument
+        without a yaw on a body yawed by the same angle.
+        """
+        mounted = PointedInstrument(**{**self.base, **fields}, yaw_angle=yaw)
+        carried = PointedInstrument(**{**self.base, **fields})
+        return (
+            mounted.bind_attitude(Attitude(velocity_frame=VelocityFrame.INERTIAL)),
+            carried.bind_attitude(
+                Attitude(velocity_frame=VelocityFrame.INERTIAL, yaw_angle=yaw)
+            ),
+        )
+
+    def test_default_is_unrotated(self):
+        """
+        Test that the yaw angle defaults to zero, and that an explicit zero
+        gives the same footprint as the default.
+        """
+        default = PointedInstrument(**self.base)
+        self.assertEqual(default.yaw_angle, 0)
+        zero = PointedInstrument(**self.base, yaw_angle=0)
+        self.assertTrue(
+            default.compute_footprint(self.track)[0].equals_exact(
+                zero.compute_footprint(self.track)[0], 0
+            )
+        )
+
+    def test_yaw_bounds(self):
+        """
+        Test that a yaw angle beyond 180 degrees is rejected.
+        """
+        with self.assertRaises(ValidationError):
+            PointedInstrument(**self.base, yaw_angle=180.5)
+
+    def test_serialization(self):
+        """
+        Test that the yaw angle survives serialization.
+        """
+        instrument = PointedInstrument(**self.base, yaw_angle=0.9343)
+        copied = PointedInstrument.model_validate_json(instrument.model_dump_json())
+        self.assertEqual(copied.yaw_angle, 0.9343)
+
+    def test_frame_matches_body_yaw(self):
+        """
+        Test that, in frame geometry, an instrument's yaw gives the pixels,
+        footprints, swept footprints, field of view, and sample sizes of a body
+        yawed by the same angle.
+        """
+        for yaw in (0.3, -1.3, 25):
+            mounted, carried = self._pair(yaw)
+            for i in range(5):
+                for j in range(3):
+                    self._assert_same_positions(
+                        mounted.compute_projected_pixel_position(self.track, i, j),
+                        carried.compute_projected_pixel_position(self.track, i, j),
+                    )
+            self._assert_same_positions(
+                mounted.compute_footprint_center(self.track),
+                carried.compute_footprint_center(self.track),
+            )
+            for a, b in zip(
+                mounted.compute_footprint(self.track),
+                carried.compute_footprint(self.track),
+            ):
+                self.assertLess(a.symmetric_difference(b).area / a.area, 1e-9)
+            for a, b in zip(
+                mounted.compute_swept_footprints(self.track, [2, 2]),
+                carried.compute_swept_footprints(self.track, [2, 2]),
+            ):
+                self.assertLess(a.symmetric_difference(b).area / a.area, 1e-9)
+            pixel = carried.compute_projected_pixel_position(self.track, 4, 0)
+            target = wgs84.latlon(pixel.latitude.degrees, pixel.longitude.degrees)
+            np.testing.assert_array_equal(
+                mounted.is_in_field_of_view(self.track, target),
+                carried.is_in_field_of_view(self.track, target),
+            )
+            np.testing.assert_allclose(
+                mounted.compute_sample_size(self.track, target),
+                carried.compute_sample_size(self.track, target),
+                rtol=1e-9,
+            )
+
+    def test_scan_matches_body_yaw(self):
+        """
+        Test that, in scan geometry, an instrument's yaw comes before the tilt
+        of its scan plane, as a body's yaw does.
+        """
+        mounted, carried = self._pair(
+            0.9341, view_geometry=ViewGeometry.SCAN, pitch_angle=-0.1362
+        )
+        for i in range(5):
+            self._assert_same_positions(
+                mounted.compute_projected_pixel_position(self.track, i, 1),
+                carried.compute_projected_pixel_position(self.track, i, 1),
+            )
+        for a, b in zip(
+            mounted.compute_footprint(self.track), carried.compute_footprint(self.track)
+        ):
+            self.assertLess(a.symmetric_difference(b).area / a.area, 1e-9)
+        pixel = carried.compute_projected_pixel_position(self.track, 0, 0)
+        target = wgs84.latlon(pixel.latitude.degrees, pixel.longitude.degrees)
+        np.testing.assert_array_equal(
+            mounted.is_in_field_of_view(self.track, target),
+            carried.is_in_field_of_view(self.track, target),
+        )
+
+    def test_yaw_composes_with_body(self):
+        """
+        Test that an instrument's yaw adds to a body's yaw about the same nadir
+        axis.
+        """
+        mounted = PointedInstrument(**self.base, yaw_angle=0.4).bind_attitude(
+            Attitude(velocity_frame=VelocityFrame.INERTIAL, yaw_angle=0.6)
+        )
+        carried = PointedInstrument(**self.base).bind_attitude(
+            Attitude(velocity_frame=VelocityFrame.INERTIAL, yaw_angle=1.0)
+        )
+        for i in (0, 4):
+            self._assert_same_positions(
+                mounted.compute_projected_pixel_position(self.track, i, 0),
+                carried.compute_projected_pixel_position(self.track, i, 0),
+            )
+
+    def test_yaw_180_swaps_sides(self):
+        """
+        Test that a yaw of 180 degrees swaps the left and right, and the fore
+        and aft, of an unrolled view.
+        """
+        fields = {**self.base, "roll_angle": 0}
+        yawed = PointedInstrument(**fields, yaw_angle=180)
+        plain = PointedInstrument(**fields)
+        for i in range(5):
+            for j in range(3):
+                self._assert_same_positions(
+                    yawed.compute_projected_pixel_position(self.track, i, j),
+                    plain.compute_projected_pixel_position(self.track, 4 - i, 2 - j),
+                )
+
+    def test_yaw_before_roll(self):
+        """
+        Test that the yaw turns the view about the nadir axis before the roll,
+        so that a view rolled to the left and yawed by 90 degrees looks aft.
+        """
+        yawed = PointedInstrument(**{**self.base, "roll_angle": 30}, yaw_angle=90)
+        aft = compute_projected_ray_position(
+            self.track, 0, 0, 0, -30, velocity_frame=VelocityFrame.INERTIAL
+        )
+        self._assert_same_positions(yawed.compute_footprint_center(self.track), aft)

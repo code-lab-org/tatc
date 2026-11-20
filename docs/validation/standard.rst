@@ -7,7 +7,7 @@ entry must show before it is called validated, so that entries can be compared
 and the claim means the same for each. An entry's tier is computed from its
 results and these thresholds, and cannot be declared.
 
-This is version 6 of the standard. The thresholds of version 1 were drafted from
+This is version 7 of the standard. The thresholds of version 1 were drafted from
 the earlier results below, so they can show little about those instruments. They
 were frozen before validating instruments new to TAT-C, which are their first real
 test. Changing a threshold requires a new version and a stated reason here.
@@ -58,6 +58,20 @@ Versions
        class, so that a class filter does not mix the two. No threshold of earlier
        versions changed, so their results still apply. The gates were adopted
        before any profiler data were analyzed.
+   * - 7
+     - Adds the limb and occultation classes, for limb sounders (Aura MLS, TIMED
+       SABER) and radio occultation receivers (COSMIC-2's TGRS), whose observations
+       are tangent points of lines of sight through the atmosphere rather than
+       points on the ground, analyzed with
+       :func:`~tatc.analysis.collect_limb_observations` and
+       :func:`~tatc.analysis.collect_ro_observations`. No threshold of earlier
+       versions changed, so their results still apply. The gates were drafted
+       knowing earlier results (:doc:`limb_and_space/ValidateLimbMLS`: tangent
+       points within about 2 km at matched times and altitudes;
+       :doc:`limb_and_space/ValidateLimbSABER`: about 35 km, from SABER's own
+       geolocation; :doc:`limb_and_space/ValidateROCOSMIC2`: every recorded
+       occultation predicted, with tangent points within about 0.4 km), and
+       frozen before any data were analyzed for the catalog.
 
 Rules
 =====
@@ -227,6 +241,42 @@ observes a track displaced from the ground track by the Earth's rotation:
      -
      - ≥ 0.95
 
+Limb sounders and radio occultation receivers have gates of their own, as their
+observations are tangent points in the atmosphere:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 50 25 25
+
+   * - Metric
+     - Limb
+     - Occultation
+   * - Tangent point position, median: distance of the representative point (at
+       the sample elevation) from the reference's tangent point
+     - ≤ 10 km
+     - ≤ 2 km
+   * - Scan cycle period, error
+     - ≤ 1%
+     -
+   * - Latitude extent, error: of a day of representative points
+     - ≤ 0.5 deg
+     -
+   * - Occultation recall: share of recorded occultations that were predicted
+     -
+     - ≥ 99%
+   * - Epoch, 95th percentile (coverage)
+     - ≤ 3 s
+     - ≤ 3 s
+   * - Epoch, 95th percentile (timing)
+     - ≤ 1 s
+     - ≤ 1 s
+
+Limb sounders view the atmosphere over hundreds of kilometers along their lines of
+sight, so their tangent point gate is looser than an occultation's, whose straight
+line is fixed by the recorded positions of two satellites. Occultation receivers
+have no precision gate, as they track transmitters selectively, so a predicted
+occultation that was not recorded is not an error of geometry.
+
 Pushbroom imagers, SAR, and lidar have no precision gate because they acquire or
 point according to plans, so a predicted observation that was not made is not an
 error of geometry. Nor do altimeters, whose products omit measurements by surface
@@ -365,6 +415,37 @@ line for pushbroom imagers, and the time of the measurement for lidar, altimeter
 and profilers. The gate takes the 95th percentile of the absolute differences, in
 seconds: up to 3 s at the coverage grade, and up to 1 s at the timing grade, for
 uses that need the time of each observation.
+
+Sounders
+--------
+
+Limb sounders are tested on a day of the reference's scans, with the tangent
+point of each sample. Their scans are started at the start times of the
+reference's scans (with the reference's directions), as the phase of their cycle
+of scans follows the instrument's clock, which the entry does not model.
+
+* **Tangent point position, median** is the horizontal distance of each scan's
+  representative point (its `position`, at the sample elevation) from the
+  reference's tangent point at that elevation, interpolated along the scan; the
+  **epoch** compares their times.
+* **Scan cycle period, error** compares the period of the entry's cycle of scans
+  with the median period of the reference's cycles, as a share of it.
+* **Latitude extent, error** compares a day of scans repeating from midnight, as an
+  analysis plans them, with the reference's tangent points at the sample elevation:
+  the larger of the errors of the least and greatest latitudes, in degrees.
+
+Radio occultation receivers are tested on a day of recorded occultations. Their
+receivers and transmitters are identified by the satellites whose element sets
+reproduce the positions their files record, and each recorded occultation's time at
+the sample elevation is computed from these orbits.
+
+* **Occultation recall** is the share of recorded occultations that a prediction of
+  the same receiver, transmitter, and direction (setting or rising) matches within
+  60 s, with every identified transmitter of the constellations tracked.
+* **Tangent point position, median** and the **epoch** compare, for a sample of
+  occultations, the predicted occultation's `position` and `time` with the point
+  and time at which the straight line between the recorded positions of receiver
+  and transmitter reaches the sample elevation.
 
 Sample size
 -----------

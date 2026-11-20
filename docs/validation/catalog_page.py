@@ -108,6 +108,18 @@ def render_configuration(entry, key: str) -> str:
             "Its tilt is scheduled by day: build it with the start and end of the "
             "analysis (``start`` and ``end``).\n"
         )
+    if configuration.sounding is not None and configuration.sounding.type == "limb":
+        parts.append(
+            "It is a limb sounding: collect its observations with "
+            "``build(...).sounding.collect_observations(satellite, start, end)``.\n"
+        )
+    elif configuration.sounding is not None:
+        parts.append(
+            "It is a radio occultation sounding: collect its observations with "
+            "``build(...).sounding.collect_observations(receivers, transmitters, "
+            "start, end)``, with the satellites of the constellations it tracks as "
+            "transmitters.\n"
+        )
     if record is not None:
         if validation.holdout_gap_days is None:
             gap = "no fitted values"
@@ -309,7 +321,7 @@ limitations.
 Name the platform analyzed: it selects the configuration tested on it, and
 using a configuration on a platform on which it was not tested gives a
 warning. Where an entry has configurations fitted on more than one platform
-(ATMS, CrIS, VIIRS, the OMPS Nadir Mapper, and CERES), each configuration's
+(ATMS, CrIS, VIIRS, the OMPS Nadir Mapper, CERES, and TROPICS), each configuration's
 name ends with its platform, such as ``swath_noaa_21``, and the name without
 it (``swath``) selects the one tested on the platform. A grade (``coverage``,
 ``timing``, or ``sample_size``) selects a configuration for that use. Analyze
@@ -322,6 +334,11 @@ frame can misplace its swath edges by tens of kilometers. Pass the start and
 end of the analysis to configurations whose tilt is scheduled by day, such as
 OCI's. The entries hold no element sets, as they age; supply a recent one for
 the analysis period.
+
+Limb sounders (MLS and SABER) and radio occultation receivers (TGRS, of
+COSMIC-2) have no views to analyze: their configurations hold the sounding with
+which their analysis is called, as ``build(...).sounding.collect_observations``,
+and ``to_satellite`` builds the satellite that carries them.
 
 """
     body = "\n".join(render_entry(entry) for entry in entries)

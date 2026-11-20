@@ -14,11 +14,15 @@ import json
 import warnings
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
+import geopandas as gpd
 import numpy as np
+import pandas as pd
 from pydantic import Field, model_validator
 
+from ..analysis import collect_limb_observations, collect_ro_observations
+from ..analysis.limb_sampling import ScanDirection
 from ..schemas import (
     Attitude,
     AttitudeSchedule,
@@ -65,6 +69,11 @@ _DEFAULT_PROVENANCE = {
         "source": "Models the view as sweeping along track, so that its swaths are "
         "the strips its cross-track line sweeps, as observations of points do",
     },
+}
+# the kind of sounding of the classes of sounders, by class
+_SOUNDING_TYPES = {
+    InstrumentClass.LIMB: "limb",
+    InstrumentClass.OCCULTATION: "occultation",
 }
 # the attitudes that a configuration may give, by their `type`
 _ATTITUDE_TYPES = {
@@ -402,9 +411,235 @@ class TiltSchedule(_CatalogModel):
         )
 
 
+class ScanStart(_CatalogModel):
+    """
+    The start of a vertical scan in a limb sounder's cycle of scans.
+    """
+
+    offset: float = Field(
+        ..., ge=0, description="The time (seconds) from the start of the cycle."
+    )
+    direction: ScanDirection = Field(
+        ..., description="Whether the scan sweeps `upward` or `downward`."
+    )
+
+
+class LimbScan(_CatalogModel):
+    """
+    The vertical scans of a limb sounder, with which `collect_limb_observations`
+    is called: scans of the same elevations, in a cycle of scans (one or more,
+    such as alternating upward and downward scans) that repeats from the start of
+    an analysis. The phase of the cycle, which depends on the instrument's clock,
+    is not modeled.
+    """
+
+    type: Literal["limb"] = Field("limb", description="The kind of sounding.")
+    scan_azimuth: float = Field(
+        ...,
+        ge=0,
+        lt=360,
+        description="The viewing azimuth (degrees) from the inertial velocity, in "
+        + "the local horizontal plane (0 forward, 90 to the left, toward the orbit "
+        + "normal).",
+    )
+    scan_elevations: tuple[float, ...] = Field(
+        ...,
+        min_length=2,
+        description="The tangent point elevations (meters) of the samples of a scan.",
+    )
+    scan_duration: float = Field(
+        ..., gt=0, description="The time (seconds) to sweep the elevations."
+    )
+    scans: tuple[ScanStart, ...] = Field(
+        ..., min_length=1, description="The starts of the scans of a cycle."
+    )
+    cycle_period: float = Field(
+        ..., gt=0, description="The time (seconds) between starts of the cycle."
+    )
+    sample_elevation: float = Field(
+        ...,
+        description="The tangent point elevation (meters) of the representative "
+        + "position and time of each scan.",
+    )
+    provenance: dict[str, Provenance] = Field(
+        ..., description="The origin of each value."
+    )
+
+    @model_validator(mode="after")
+    def _check_scans(self) -> "LimbScan":
+        _check_provenance(
+            set(type(self).model_fields) - {"type", "provenance"}, self.provenance
+        )
+        offsets = [scan.offset for scan in self.scans]
+        if offsets != sorted(set(offsets)) or offsets[-1] >= self.cycle_period:
+            raise ValueError(
+                "scans start at increasing offsets within the cycle period"
+            )
+        if (
+            not min(self.scan_elevations)
+            <= self.sample_elevation
+            <= max(self.scan_elevations)
+        ):
+            raise ValueError("the sample elevation is within the scan's elevations")
+        return self
+
+    def get_scan_times(
+        self, start: datetime, end: datetime
+    ) -> dict[ScanDirection, list[datetime]]:
+        """
+        Gets the start times of the scans of each direction, in cycles that repeat
+        from the start of an analysis until its end.
+
+        Args:
+            start (datetime.datetime): The start of the analysis.
+            end (datetime.datetime): The end of the analysis.
+
+        Returns:
+            dict[ScanDirection, list[datetime.datetime]]: The start times, by
+            direction.
+        """
+        times = {scan.direction: [] for scan in self.scans}
+        cycles = int((end - start).total_seconds() // self.cycle_period) + 1
+        for cycle in range(cycles):
+            for scan in self.scans:
+                time_ = start + timedelta(
+                    seconds=cycle * self.cycle_period + scan.offset
+                )
+                if time_ < end:
+                    times[scan.direction].append(time_)
+        return times
+
+    def collect_observations(
+        self,
+        satellites: Satellite | list[Satellite],
+        start: datetime,
+        end: datetime,
+    ) -> gpd.GeoDataFrame:
+        """
+        Collects the limb sounding observations of scans that repeat from the start
+        of an analysis (see `tatc.analysis.collect_limb_observations`).
+
+        Args:
+            satellites (Satellite | list[Satellite]): The satellites that carry the
+                sounder.
+            start (datetime.datetime): The start of the analysis.
+            end (datetime.datetime): The end of the analysis.
+
+        Returns:
+            geopandas.GeoDataFrame: The observations of the scans, by time.
+        """
+        frames = [
+            collect_limb_observations(
+                satellites,
+                times,
+                self.scan_azimuth,
+                list(self.scan_elevations),
+                timedelta(seconds=self.scan_duration),
+                scan_direction=direction,
+                sample_elevation=self.sample_elevation,
+            )
+            for direction, times in self.get_scan_times(start, end).items()
+            if times
+        ]
+        if len(frames) == 1:
+            return frames[0]
+        return gpd.GeoDataFrame(
+            pd.concat(frames, ignore_index=True), crs="EPSG:4326"
+        ).sort_values("time", kind="stable", ignore_index=True)
+
+
+class Occultation(_CatalogModel):
+    """
+    The radio occultations of a receiver of signals of navigation satellites, with
+    which `collect_ro_observations` is called.
+    """
+
+    type: Literal["occultation"] = Field(
+        "occultation", description="The kind of sounding."
+    )
+    constellations: tuple[str, ...] = Field(
+        ...,
+        min_length=1,
+        description="The constellations of transmitters tracked (such as `gps`, "
+        + "`glonass`, `galileo`, or `beidou`), whose satellites are the "
+        + "transmitters of an analysis.",
+    )
+    max_yaw: float = Field(
+        ...,
+        gt=0,
+        lt=90,
+        description="The maximum yaw (degrees) of a transmitter from the "
+        + "receiver's velocity or anti-velocity, for a valid occultation.",
+    )
+    range_elevation: tuple[float, float] = Field(
+        ...,
+        description="The lower and upper tangent point elevations (meters) of a "
+        + "valid occultation.",
+    )
+    sample_elevation: float = Field(
+        ...,
+        description="The tangent point elevation (meters, of the straight line, "
+        + "without refraction) of the representative position and time.",
+    )
+    provenance: dict[str, Provenance] = Field(
+        ..., description="The origin of each value."
+    )
+
+    @model_validator(mode="after")
+    def _check_values(self) -> "Occultation":
+        _check_provenance(
+            set(type(self).model_fields) - {"type", "provenance"}, self.provenance
+        )
+        lower, upper = self.range_elevation
+        if not lower < self.sample_elevation < upper:
+            raise ValueError("the sample elevation is within the range of elevations")
+        return self
+
+    def collect_observations(
+        self,
+        receivers: Satellite | list[Satellite],
+        transmitters: Satellite | list[Satellite],
+        start: datetime,
+        end: datetime,
+        time_step: timedelta = timedelta(seconds=10),
+    ) -> gpd.GeoDataFrame:
+        """
+        Collects the radio occultation observations of receivers (see
+        `tatc.analysis.collect_ro_observations`).
+
+        Args:
+            receivers (Satellite | list[Satellite]): The satellites that carry the
+                receiver.
+            transmitters (Satellite | list[Satellite]): The satellites of the
+                constellations tracked.
+            start (datetime.datetime): The start of the analysis.
+            end (datetime.datetime): The end of the analysis.
+            time_step (datetime.timedelta): The time step with which each
+                occultation is sampled.
+
+        Returns:
+            geopandas.GeoDataFrame: The occultations.
+        """
+        return collect_ro_observations(
+            receivers,
+            transmitters,
+            start,
+            end,
+            time_step=time_step,
+            sample_elevation=self.sample_elevation,
+            max_yaw=self.max_yaw,
+            range_elevation=self.range_elevation,
+        )
+
+
+AllSoundings = Annotated[LimbScan | Occultation, Field(discriminator="type")]
+
+
 class Configuration(_CatalogModel):
     """
-    A way of modeling an instrument for a use, as it was validated.
+    A way of modeling an instrument for a use, as it was validated: instruments
+    whose views are analyzed, or a sounding (of a limb sounder or radio
+    occultation receiver), whose analysis it calls.
     """
 
     grade: Grade = Field(..., description="The use for which it is validated.")
@@ -417,7 +652,12 @@ class Configuration(_CatalogModel):
     )
     attitude: dict[str, Any] = Field(
         default_factory=dict,
-        description="Other fields of the attitude of the space system.",
+        description="Other fields of the attitude of the space system: that of "
+        + "its body, which every instrument it carries shares, so that "
+        + "configurations carried together (see `build_payload`) must have the "
+        + "same. Angles that orient one instrument on the body, such as the yaw "
+        + "of its scan line, are its instrument's parameters (`yaw_angle`, "
+        + "`roll_angle`, and `pitch_angle` of a pointed instrument).",
     )
     tilt_schedule: TiltSchedule | None = Field(
         default=None,
@@ -425,7 +665,12 @@ class Configuration(_CatalogModel):
         + "schedule of attitudes is built for the period of an analysis.",
     )
     instruments: tuple[InstrumentSpecification, ...] = Field(
-        ..., min_length=1, description="The instruments."
+        default=(), description="The instruments, unless a sounding is analyzed."
+    )
+    sounding: AllSoundings | None = Field(
+        default=None,
+        description="The sounding of a limb sounder or radio occultation receiver, "
+        + "whose analysis is called instead of analyzing views of instruments.",
     )
     instrument_index: int = Field(
         default=0,
@@ -445,6 +690,21 @@ class Configuration(_CatalogModel):
 
     @model_validator(mode="after")
     def _check_instruments(self) -> "Configuration":
+        if self.sounding is not None:
+            if self.instruments or self.attitude or self.tilt_schedule is not None:
+                raise ValueError(
+                    "a sounding is analyzed without instruments or an attitude"
+                )
+            if self.velocity_frame != VelocityFrame.INERTIAL:
+                raise ValueError(
+                    "a sounding's azimuths are measured from the inertial velocity, "
+                    "so its velocity_frame is inertial"
+                )
+            if self.instrument_index or self.grouping is not None:
+                raise ValueError("a sounding has no instrument_index or grouping")
+            return self
+        if not self.instruments:
+            raise ValueError("a configuration needs instruments or a sounding")
         names = [i.parameters["name"] for i in self.instruments]
         if len(set(names)) != len(names):
             # compute_sample_sizes finds instruments by name
@@ -489,6 +749,8 @@ class Configuration(_CatalogModel):
         ]
         if self.tilt_schedule is not None:
             provenances += list(self.tilt_schedule.provenance.values())
+        if self.sounding is not None:
+            provenances += list(self.sounding.provenance.values())
         return [
             provenance for provenance in provenances if provenance.kind == "measured"
         ]
@@ -526,6 +788,10 @@ class Configuration(_CatalogModel):
             # keyed as when the field was named `attitude_schedule`, so that the
             # digests of the records stay those of the configurations they tested
             content["attitude_schedule"] = self.tilt_schedule.model_dump(
+                mode="json", exclude={"provenance"}
+            )
+        if self.sounding is not None:
+            content["sounding"] = self.sounding.model_dump(
                 mode="json", exclude={"provenance"}
             )
         encoded = json.dumps(content, sort_keys=True, separators=(",", ":"))
@@ -604,11 +870,18 @@ class InstrumentPayload:
     transferred: bool
     """Whether a configuration was not tested on the platform modeled."""
     limitations: tuple[str, ...]
+    sounding: LimbScan | Occultation | None = None
+    """
+    The sounding whose analysis is called (with `collect_observations`), instead
+    of analyzing views of instruments, if any.
+    """
 
     def to_satellite(self, orbit: AllOrbits, *, name: str) -> Satellite:
         """
         Builds a satellite that carries the instruments with their attitude.
-        Analyze it with the `instrument_index` of this payload.
+        Analyze it with the `instrument_index` of this payload, or, for a
+        sounding, with the sounding's `collect_observations`, for which the
+        satellite carries TAT-C's default instrument.
 
         Args:
             orbit (AllOrbits): The orbit.
@@ -617,6 +890,8 @@ class InstrumentPayload:
         Returns:
             Satellite: The satellite.
         """
+        if not self.instruments:
+            return Satellite(name=name, orbit=orbit)
         return Satellite(
             name=name, orbit=orbit, instruments=self.instruments, attitude=self.attitude
         )
@@ -663,6 +938,18 @@ class InstrumentEntry(_CatalogModel):
                 raise ValueError(f"{key}: unknown platforms {sorted(unknown)}")
             # checks that the class has gates at this grade
             get_gates(self.instrument_class, configuration.grade)
+            kind = _SOUNDING_TYPES.get(self.instrument_class)
+            if configuration.sounding is None and kind is not None:
+                raise ValueError(
+                    f"{key}: a {kind} sounder's configuration has a sounding"
+                )
+            if configuration.sounding is not None and (
+                configuration.sounding.type != kind
+            ):
+                raise ValueError(
+                    f"{key}: a {configuration.sounding.type} sounding belongs to "
+                    f"the {configuration.sounding.type} class"
+                )
         if len({c.platforms for c in self.configurations.values()}) > 1:
             # references may name a configuration without its platform
             for key, configuration in self.configurations.items():
@@ -874,18 +1161,32 @@ class InstrumentEntry(_CatalogModel):
             attitude = selected.tilt_schedule.build_schedule(
                 orbit, start, end, selected.velocity_frame, selected.attitude
             )
+        if selected.sounding is not None and attitude is not None:
+            raise ValueError(
+                f"configuration {key!r} of {self.id!r} is a sounding, analyzed "
+                "without an attitude"
+            )
         return InstrumentPayload(
             instruments=[
                 instrument.construct_instrument(tailored)
                 for instrument in selected.instruments
             ],
-            attitude=self._build_attitude(selected, attitude),
+            attitude=(
+                None
+                if selected.sounding is not None
+                else self._build_attitude(selected, attitude)
+            ),
             instrument_index=(
                 None if selected.grouping == "union" else selected.instrument_index
             ),
             references=(f"{self.id}:{key}",),
             transferred=transferred,
             limitations=(*self.limitations, *selected.limitations),
+            sounding=(
+                None
+                if selected.sounding is None
+                else selected.sounding.model_copy(deep=True)
+            ),
         )
 
     @staticmethod

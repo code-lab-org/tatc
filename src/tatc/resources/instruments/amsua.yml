@@ -9,16 +9,30 @@ platforms:
     norad_id: 27424
     status: extended
     as_of: 2026-11-05
+  - id: metop-b
+    name: Metop-B
+    norad_id: 38771
+    status: extended
+    as_of: 2026-11-17
+  - id: metop-c
+    name: Metop-C
+    norad_id: 43689
+    status: operational
+    as_of: 2026-11-17
 data_products:
   - name: AIRS/Aqua L1B AMSU (A1/A2) geolocated and calibrated brightness temperatures (AIRABRAD), version 005
     provider: NASA GES DISC
     url: https://disc.gsfc.nasa.gov/datasets/AIRABRAD_005/summary
     access: registration
-default_configuration: swath
+  - name: AMSU-A Level 1B, Metop (EPS native format)
+    provider: EUMETSAT Data Store
+    url: https://data.eumetsat.int/product/EO:EUM:DAT:METOP:AMSUL1
+    access: registration
+default_configuration: swath_aqua
 configurations:
-  swath:
+  swath_aqua:
     grade: coverage
-    description: The swath scanned between the outermost footprint centers, with a view tailored to the analysis time step.
+    description: Aqua's swath scanned between the outermost footprint centers, with a view tailored to the analysis time step.
     platforms: [aqua]
     velocity_frame: inertial
     instruments:
@@ -35,19 +49,20 @@ configurations:
             kind: nominal
             source: The outermost of AMSU-A's 30 footprints, spaced 3.333 deg, are 48.33 deg from nadir
           cross_track_field_of_view: *nominal_extent
-          is_rectangular:
+          is_rectangular: &rectangular_swath
             kind: derived
             source: Models a scanned swath as a rectangular view
     limitations:
+      - Aqua does not steer its yaw, so the configuration uses the inertial frame.
       - TAT-C observes all pixels of a view at one instant, whereas AMSU-A steps through its 30 footprints over about 5.9 s of each 8 s scan. Epochs are tested at the coverage grade; on the validation day, their 95th percentile was 2.18 s.
-  footprints:
+  footprints_aqua:
     grade: sample_size
-    description: The 30 footprint positions of a scan, whose sizes and spacing `compute_sample_sizes` gives.
+    description: The 30 footprint positions of a scan of Aqua's AMSU-A, whose sizes and spacing `compute_sample_sizes` gives.
     platforms: [aqua]
     velocity_frame: inertial
     instruments:
       - type: pointed
-        parameters:
+        parameters: &footprint_parameters
           name: AMSU-A
           field_of_regard: 100.0
           cross_track_field_of_view: 100.0
@@ -57,7 +72,7 @@ configurations:
           cross_track_oversampling: -0.010101
           along_track_oversampling: -0.010101
           scan_period: 8.0
-        provenance:
+        provenance: &footprint_provenance
           field_of_regard: &nominal_spacing
             kind: nominal
             source: AMSU-A's 30 footprints are spaced 3.333 deg
@@ -77,8 +92,84 @@ configurations:
             kind: nominal
             source: AMSU-A scans every 8 s
     limitations:
+      - Aqua does not steer its yaw, so the configuration uses the inertial frame.
       - Pixels are projected at the time the scan looks at nadir, whereas AMSU-A samples its footprints up to 2.94 s before or after it.
       - The product's documentation gives a footprint 45 km in diameter at nadir, about 10% larger than its published beam width of 3.3 deg gives at Aqua's nominal altitude of 705 km (about 40.6 km), so the published footprint fails the gate.
+  swath_metop_b:
+    grade: timing
+    description: Metop-B's swath scanned between the outermost footprint centers, with a view tailored to the analysis time step.
+    platforms: [metop-b]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters: &metop_swath_parameters
+          name: AMSU-A
+          field_of_regard: 96.6666667
+          cross_track_field_of_view: 96.6666667
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance: &metop_swath_provenance
+          field_of_regard: *nominal_extent
+          cross_track_field_of_view: *nominal_extent
+          is_rectangular: *rectangular_swath
+    limitations:
+      - &metop_frame Metop steers its yaw to compensate the Earth's rotation, so the configuration uses the Earth-fixed frame, in which the scan's fitted field of regard is the nominal one (validate_catalog_amsua.py --fit, 96.664 deg on 2026-10-18).
+      - &metop_timing The product gives each scan the time of the start of its record, and no time for each footprint. The footprints are taken to be sampled from it at the published sampling interval of 200 ms, so that the scan looks at nadir 2.9 s after it, which agrees with the 2.95 s by which the record's time leads nadir along the element set's track.
+  footprints_metop_b:
+    grade: sample_size
+    description: The 30 footprint positions of a scan of Metop-B's AMSU-A, whose sizes and spacing `compute_sample_sizes` gives.
+    platforms: [metop-b]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          <<: *footprint_parameters
+          yaw_angle: 1.2496
+        provenance:
+          <<: *footprint_provenance
+          yaw_angle:
+            kind: measured
+            source: validate_catalog_amsua.py --fit, the slope of the scan line in the Earth-fixed frame
+            platforms: [metop-b]
+            period: "2026-10-18"
+    limitations:
+      - *metop_frame
+      - *metop_timing
+      - &metop_yaw Pixels are projected at the time the scan looks at nadir, whereas AMSU-A samples its footprints up to 2.9 s before or after it, as the spacecraft moves about 20 km along its track. The instrument's yaw, measured as the slope of the scan line (constant within 0.03 deg over the day, and alike on Metop-B and Metop-C), models the resulting skew of the scan line, not an attitude of the spacecraft.
+  swath_metop_c:
+    grade: timing
+    description: Metop-C's swath scanned between the outermost footprint centers, with a view tailored to the analysis time step.
+    platforms: [metop-c]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters: *metop_swath_parameters
+        provenance: *metop_swath_provenance
+    limitations:
+      - *metop_frame
+      - *metop_timing
+  footprints_metop_c:
+    grade: sample_size
+    description: The 30 footprint positions of a scan of Metop-C's AMSU-A, whose sizes and spacing `compute_sample_sizes` gives.
+    platforms: [metop-c]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          <<: *footprint_parameters
+          yaw_angle: 1.2509
+        provenance:
+          <<: *footprint_provenance
+          yaw_angle:
+            kind: measured
+            source: validate_catalog_amsua.py --fit, the slope of the scan line in the Earth-fixed frame
+            platforms: [metop-c]
+            period: "2026-10-18"
+    limitations:
+      - *metop_frame
+      - *metop_timing
+      - *metop_yaw
 limitations:
-  - Aqua does not steer its yaw, so the configurations use the inertial frame.
-  - These configurations were tested on Aqua. AMSU-A also flies on other satellites, on which they were not tested.
+  - Aqua's configurations, tested on Metop-B and Metop-C as transfers (2026-11-17), covered the same passes (pass recall 99.95% and 99.97%, swath IoU 0.971 and 0.997, swath width within 0.41 km), but their epochs differed by up to 8.7 s (95th percentile) and their footprints were 14 km (median) and 63 km (95th percentile) from their projected positions, as the inertial frame they take from Aqua does not follow Metop's yaw steering. Metop's own configurations are selected on Metop.
+  - The product of Metop's AMSU-A records no position of the spacecraft other than its altitude, so its ground position was taken as the midpoint of the two central footprints, which lie either side of nadir.

@@ -1,0 +1,106 @@
+id: tropics
+name: TROPICS
+aliases: [Time-Resolved Observations of Precipitation structure and storm Intensity with a Constellation of Smallsats]
+instrument_class: cross_track
+selection: Microwave sounders on a constellation of CubeSats in low-inclination orbits, which revisit the tropics about hourly, with open data products; the catalog's first constellation of small satellites.
+platforms:
+  - id: tropics-03
+    name: TROPICS-03
+    norad_id: 56753
+    status: retired
+    as_of: 2025-12-11
+  - id: tropics-05
+    name: TROPICS-05
+    norad_id: 56442
+    status: retired
+    as_of: 2025-12-04
+  - id: tropics-06
+    name: TROPICS-06
+    norad_id: 56444
+    status: retired
+    as_of: 2025-10-25
+data_products:
+  - name: TROPICS Level 1B orbital geolocated native-resolution brightness temperatures (TROPICS0nBRTTL1B)
+    provider: NASA GES DISC
+    url: https://disc.gsfc.nasa.gov/datasets?keywords=TROPICS
+    access: registration
+default_configuration: swath_tropics_03
+configurations:
+  swath_tropics_03:
+    grade: coverage
+    description: TROPICS-03's swath scanned between the outermost spot centers of the 118 GHz band, with a view tailored to the analysis time step.
+    platforms: [tropics-03]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: TROPICS
+          cross_track_field_of_view: 119.9266
+          roll_angle: -2.0254
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          cross_track_field_of_view: &measured_03
+            kind: measured
+            source: validate_catalog_tropics.py --fit, between the outermost spots of the median scan (57.9729 deg left and 61.9536 deg right of the geodetic nadir, in the inertial frame of the motion)
+            platforms: [tropics-03]
+            period: "2024-08-15"
+          roll_angle: *measured_03
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+  swath_tropics_05:
+    grade: coverage
+    description: TROPICS-05's swath scanned between the outermost spot centers of the 118 GHz band, with a view tailored to the analysis time step.
+    platforms: [tropics-05]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: TROPICS
+          cross_track_field_of_view: 120.0089
+          roll_angle: 1.6739
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          cross_track_field_of_view: &measured_05
+            kind: measured
+            source: validate_catalog_tropics.py --fit, between the outermost spots of the median scan (61.7064 deg left and 58.3025 deg right of the geodetic nadir, in the inertial frame of the motion)
+            platforms: [tropics-05]
+            period: "2024-08-15"
+          roll_angle: *measured_05
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+  swath_tropics_06:
+    grade: coverage
+    description: TROPICS-06's swath scanned between the outermost spot centers of the 118 GHz band, with a view tailored to the analysis time step.
+    platforms: [tropics-06]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: TROPICS
+          cross_track_field_of_view: 119.9572
+          roll_angle: -0.1555
+          along_track_field_of_view: {tailor: time_step}
+          is_swept: true
+          is_rectangular: true
+        provenance:
+          cross_track_field_of_view: &measured_06
+            kind: measured
+            source: validate_catalog_tropics.py --fit, between the outermost spots of the median scan (59.8489 deg left and 60.1083 deg right of the geodetic nadir, in the inertial frame of the motion)
+            platforms: [tropics-06]
+            period: "2024-08-15"
+          roll_angle: *measured_06
+          is_rectangular:
+            kind: derived
+            source: Models a scanned swath as a rectangular view
+limitations:
+  - Each satellite's scan is off center by up to about 2 deg, on a side that differs between satellites, so each has its own configuration.
+  - The satellites' pointing varies from scan to scan, the roll of the scan's edges by about 1.2 deg between the 5th and 95th percentiles, and by about 0.15 deg between days, which moves the edges of the swath by several kilometers, so swath widths differ from the view's by about 6 to 11 km (median), and the configurations are at the coverage grade, as epochs are within about 1.5 s (95th percentile).
+  - On the held-out day (2024-10-01), TROPICS-06's product places the satellite about 21 km (about 2.8 s) ahead of every element set of the day, which agreed with its positions to within 1.4 km on the fitting day, so its passes and epochs carry this offset of the reference's times.
+  - TROPICS-03 flew with its scan reversed in about 4% of the scans of the fitting day, when its swath's offset lies on the other side of the track.
+  - The constellation's satellites reentered in 2025; TROPICS-07 returned data only from June to August 2023, and the Pathfinder flew in a different (sun-synchronous) orbit, so neither is cataloged.

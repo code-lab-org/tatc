@@ -1,0 +1,43 @@
+{
+  "entry_id": "iasi_ng",
+  "configurations": {
+    "swath": {
+      "digest": "c60d7e9bc6823291d316da572a770f35f06dcbcbf0af2e650f01aa1fd3cee1fc",
+      "standard_version": 7,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_catalog_iasi_ng.py",
+      "reference": "IASI-NG Level 1c (EO:EUM:DAT:0892, BUFR), centers of the fields of regard, first 3.5 hours of the day",
+      "period": "2026-11-18",
+      "platforms": [
+        "metop-sga1"
+      ],
+      "metrics": [
+        {
+          "name": "pass_recall",
+          "value": 99.87834549878346
+        },
+        {
+          "name": "pass_precision",
+          "value": 99.63592233009709
+        },
+        {
+          "name": "epoch_p95",
+          "value": 0.460309525
+        },
+        {
+          "name": "swath_width_median",
+          "value": 2.024793806780246
+        },
+        {
+          "name": "footprint_iou_median",
+          "value": 0.9964255717655046
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "passes_found": 100.0,
+        "epoch_p95": 0.44443466504999996
+      }
+    }
+  }
+}

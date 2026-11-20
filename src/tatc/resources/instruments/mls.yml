@@ -1,0 +1,70 @@
+id: mls
+name: MLS
+aliases: [Microwave Limb Sounder, Aura MLS]
+instrument_class: limb
+selection: Forward-looking microwave limb sounder of NASA's Aura, which profiles the temperature and composition of the stratosphere and mesosphere in a vertical scan about every 25 s, with open data products.
+platforms:
+  - id: aura
+    name: Aura
+    norad_id: 28376
+    status: extended
+    as_of: 2026-11-15
+data_products:
+  - name: MLS/Aura Level 1B orbit and attitude (ML1OA), version 6
+    provider: NASA GES DISC
+    url: https://disc.gsfc.nasa.gov/datasets/ML1OA_006/summary
+    access: registration
+  - name: MLS/Aura Level 2 temperature (ML2T), version 6
+    provider: NASA GES DISC
+    url: https://disc.gsfc.nasa.gov/datasets/ML2T_006/summary
+    access: registration
+default_configuration: scans
+configurations:
+  scans:
+    grade: timing
+    description: Upward scans ahead of the satellite, one each major frame, with the representative point of each at the elevation of the Level 2 profiles.
+    platforms: [aura]
+    velocity_frame: inertial
+    sounding:
+      type: limb
+      scan_azimuth: 0
+      scan_elevations: [1273, 10392, 19512, 25153, 28632, 37751, 46871, 55990, 65110, 74230, 83349, 92469]
+      scan_duration: 44.845
+      scans:
+        - offset: 0
+          direction: upward
+      cycle_period: 24.6448
+      sample_elevation: 25153
+      provenance:
+        scan_azimuth:
+          kind: derived
+          source: MLS views forward, along the flight direction
+        scan_elevations:
+          kind: measured
+          source: validate_catalog_mls.py --fit, the bottom and top of the median upward sweep (GHz tangent points), 11 even steps between them, and the sample elevation
+          platforms: [aura]
+          period: "2026-08-14"
+        scan_duration:
+          kind: measured
+          source: validate_catalog_mls.py --fit, so that a scan at a constant angular rate reaches the sample elevation when the median sweep does
+          platforms: [aura]
+          period: "2026-08-14"
+        scans:
+          kind: derived
+          source: One upward sweep at the start of each major frame
+        cycle_period:
+          kind: measured
+          source: validate_catalog_mls.py --fit, the median period of consecutive nominal major frames
+          platforms: [aura]
+          period: "2026-08-14"
+        sample_elevation:
+          kind: measured
+          source: validate_catalog_mls.py --fit, the median altitude of the GHz tangent points nearest the positions of the Level 2 temperature profiles (quartiles 24.9 and 25.5 km)
+          platforms: [aura]
+          period: "2026-08-14"
+    limitations:
+      - The scan sweeps at a constant angular rate, whereas MLS dwells in the troposphere and lower stratosphere and then sweeps quickly to the top in about 20.5 s, so only the representative point is placed and timed as MLS's are. The scan's other samples are late, and its end (about 45 s from its start) follows the start of the next scan.
+      - The cycle of scans starts at the start of an analysis, whereas MLS's major frames follow its clock, so scans are placed along the track as MLS's are only to within a scan's spacing of about 165 km.
+limitations:
+  - The view is ideal, along the flight direction, whereas MLS's line of sight lies about 1.7 km from the orbit plane, and further during attitude maneuvers, in which no profiles are retrieved.
+  - Refraction is not modeled, which MLS's own geolocation also omits.
