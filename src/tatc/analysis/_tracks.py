@@ -32,6 +32,7 @@ from ..utils.glint import compute_glint_angle
 from ..utils.time import _index_orbit_track, _to_time, _to_time_from_offsets
 from .check import (
     _PlatformKind,
+    _check_distinct_names,
     _check_platforms,
     _check_times,
     _combine_results,
@@ -91,7 +92,6 @@ def _get_empty_track(
     kind: _PlatformKind,
     angles: list[str] | tuple[str, ...] = (),
     timed: bool = True,
-    extra: dict[str, str] | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for the track of a platform's instruments.
@@ -102,8 +102,6 @@ def _get_empty_track(
         angles (list[str] | tuple[str, ...]): The angle columns requested
             (see `_get_angle_columns`).
         timed (bool): `True` to include a `time` column.
-        extra (dict[str, str] | None): Other columns (and their types),
-            after `instrument`.
 
     Returns:
         geopandas.GeoDataFrame: Empty data frame.
@@ -113,8 +111,6 @@ def _get_empty_track(
         columns["time"] = pd.Series([], dtype="datetime64[ns, utc]")
     columns[kind.column] = pd.Series([], dtype="str")
     columns["instrument"] = pd.Series([], dtype="str")
-    for name, dtype in (extra or {}).items():
-        columns[name] = pd.Series([], dtype=dtype)
     columns["valid_obs"] = pd.Series([], dtype="bool")
     columns["geometry"] = pd.Series([], dtype="object")
     for name in angles:
@@ -156,12 +152,11 @@ def _collect_tracks(
         [Any, int, Polygon | MultiPolygon | None], gpd.GeoDataFrame | None
     ],
     timed: bool = True,
-    extra: dict[str, str] | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Collects the tracks (or pixels) of the instruments of platforms of a
-    kind: checks the platforms (see `_check_platforms`) and times (see
-    `_check_times`), splits the mask (see `_get_mask_geometry`), collects
+    kind: checks the platforms (see `_check_platforms`, with distinct names,
+    see `_check_distinct_names`) and times (see `_check_times`), splits the mask (see `_get_mask_geometry`), collects
     the track of each platform's instruments, and combines them (see
     `_combine_results`): for a single platform and instrument, its track;
     otherwise, those of each platform and instrument, concatenated and
@@ -183,19 +178,18 @@ def _collect_tracks(
             Collects the track of a platform's instrument (by index), with
             the split mask, or `None` if it is empty.
         timed (bool): `True` if the tracks have a `time` column.
-        extra (dict[str, str] | None): Other columns (and their types) of
-            the tracks, after `instrument`.
 
     Returns:
         geopandas.GeoDataFrame: the tracks
     """
     single = _is_single(platforms, instrument_index=instrument_index)
     checked = _check_platforms(platforms, kind, stacklevel=6)
+    _check_distinct_names(checked, kind, kind.argument)
     _check_times(times)
     angles = _get_angle_columns(platform_altaz, solar_altaz)
 
     def empty() -> gpd.GeoDataFrame:
-        return _get_empty_track(kind, angles, timed=timed, extra=extra)
+        return _get_empty_track(kind, angles, timed=timed)
 
     if times is not None and len(times) == 0:
         return empty()
@@ -460,7 +454,6 @@ def _assemble_track(
     solar_altaz: bool,
     represent: list[datetime | None] | None = None,
     ground_elevation: float = 0,
-    extra: dict[str, object] | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Assembles the track of a platform's instrument (a satellite, an aircraft,
@@ -494,7 +487,6 @@ def _assemble_track(
             `_compute_step_footprints`).
         ground_elevation (float): The elevation (meters) of the ground, which
             blocks rays toward an elevation above the instrument.
-        extra (dict[str, object] | None): Other columns, after `instrument`.
 
     Returns:
         geopandas.GeoDataFrame: the track
@@ -531,7 +523,6 @@ def _assemble_track(
             **({} if times is None else {"time": list(times)}),
             kind.column: platform.name,
             "instrument": instrument.name,
-            **(extra or {}),
             "valid_obs": valid_obs,
         },
         geometry=list(geometries),
@@ -551,7 +542,6 @@ def _assemble_pixels(
     platform_altaz: bool,
     solar_altaz: bool,
     ground_elevation: float = 0,
-    extra: dict[str, float] | None = None,
     region: Polygon | MultiPolygon | None = None,
 ) -> gpd.GeoDataFrame | None:
     """
@@ -579,7 +569,6 @@ def _assemble_pixels(
         solar_altaz (bool): `True` to include the solar and glint angles.
         ground_elevation (float): The elevation (meters) of the ground, which
             blocks rays toward an elevation above the instrument.
-        extra (dict[str, float] | None): Other columns, after `instrument`.
         region (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):
             A region (such as that visible over a terrain mask) outside which
             pixels are omitted.
@@ -616,7 +605,6 @@ def _assemble_pixels(
             **timed,
             kind.column: platform.name,
             "instrument": instrument.name,
-            **(extra or {}),
             "valid_obs": valid_obs,
         },
         geometry=list(points),

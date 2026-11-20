@@ -38,7 +38,6 @@ class TestRadarAnalysis(unittest.TestCase):
             [
                 "radar_station",
                 "band",
-                "elevation",
                 "inner_ground_range",
                 "outer_ground_range",
                 "valid_obs",
@@ -178,3 +177,17 @@ class TestRadarAnalysis(unittest.TestCase):
             collect_radar_track(
                 self.station, elevation=3048, times=[start.replace(tzinfo=None)]
             )
+        # times are keyword-only, after the released (stations, elevation,
+        # mask) arguments
+        with self.assertRaises(TypeError):
+            collect_radar_track(  # pylint: disable=too-many-function-args
+                self.stations, 3048, None, times  # type: ignore
+            )
+
+    def test_collect_radar_track_distinct_names(self):
+        """
+        Test that stations must have distinct names, which name their
+        footprints.
+        """
+        with self.assertRaisesRegex(ValueError, "more than one radar station"):
+            collect_radar_track([self.station, self.station], elevation=3048)

@@ -80,6 +80,7 @@ class TestValidation(IssConstellationTestCase):
         self.assertEqual(_check_satellites(self.satellite), [self.satellite])
         members = self.constellation.generate_members()
         self.assertEqual(_check_satellites(members), members)
+        self.assertEqual(_check_satellites(tuple(members)), members)
         with self.assertRaisesRegex(TypeError, "generate_members"):
             _check_satellites(self.constellation)
         with self.assertRaisesRegex(TypeError, r"satellites\[1\]"):

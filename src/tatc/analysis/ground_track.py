@@ -140,10 +140,10 @@ def collect_ground_track(
 
     Args:
         satellites (Satellite | list[Satellite]): The observing satellite(s).
+        times (list[datetime.datetime]): The times to sample.
         instrument_index (int | None): The index of the observing instrument
-                in each satellite, or `None` for every instrument of each
+                on each satellite, or `None` for every instrument of each
                 satellite.
-        times (typing.List[datetime.datetime]): The list of datetimes to sample.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate ground track.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
@@ -175,23 +175,63 @@ def collect_ground_track(
             `instrument_index`), sorted by time; otherwise, those of each
             satellite and instrument, concatenated and sorted by time.
     """
-    platform_altaz = _get_platform_altaz(platform_altaz, sat_altaz)
+    return _collect_satellites(
+        satellites,
+        times,
+        instrument_index,
+        elevation,
+        mask,
+        _get_platform_altaz(platform_altaz, sat_altaz),
+        solar_altaz,
+        time_step,
+    )
+
+
+def _collect_satellites(
+    satellites: Satellite | list[Satellite],
+    times: list[datetime],
+    instrument_index: int | None,
+    elevation: float,
+    mask: Mask | None,
+    platform_altaz: bool,
+    solar_altaz: bool,
+    time_step: timedelta | None,
+    pixels: bool = False,
+) -> gpd.GeoDataFrame:
+    """
+    Collect the footprints (see `collect_ground_track`) or, if `pixels`, the
+    pixels (see `collect_ground_pixels`) of instruments on satellites.
+    """
 
     @cache
-    def shared() -> tuple[Time, npt.NDArray]:
-        # the times, shared by every satellite (with their Earth orientation),
-        # and the span of each time's step, over which a swept instrument's
+    def shared() -> Time:
+        # the times, shared by every satellite (with their Earth orientation)
+        return _to_time(times)
+
+    @cache
+    def half_spans() -> npt.NDArray:
+        # the span of each time's step, over which a swept instrument's
         # footprint sweeps
-        return _to_time(times), _get_step_half_spans(times, time_step)
+        return _get_step_half_spans(times, time_step)
 
     def collect(satellite: Satellite, index: int, mask: Polygon | MultiPolygon | None):
-        t, half_spans = shared()
+        if pixels:
+            return _collect_ground_pixels(
+                satellite,
+                index,
+                times,
+                shared(),
+                elevation,
+                mask,
+                platform_altaz,
+                solar_altaz,
+            )
         return _collect_ground_track(
             satellite,
             index,
             times,
-            t,
-            half_spans,
+            shared(),
+            half_spans(),
             elevation,
             mask,
             platform_altaz,
@@ -414,10 +454,10 @@ def collect_ground_pixels(
 
     Args:
         satellites (Satellite | list[Satellite]): The observing satellite(s).
+        times (list[datetime.datetime]): The times to sample.
         instrument_index (int | None): The index of the observing instrument
-                in each satellite, or `None` for every instrument of each
+                on each satellite, or `None` for every instrument of each
                 satellite.
-        times (typing.List[datetime.datetime]): The list of datetimes to sample.
         elevation (float): The elevation (meters) above the datum in the
                 WGS 84 coordinate system for which to calculate ground pixels.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
@@ -442,34 +482,16 @@ def collect_ground_pixels(
             `instrument_index`), sorted by time; otherwise, those of each
             satellite and instrument, concatenated and sorted by time.
     """
-    platform_altaz = _get_platform_altaz(platform_altaz, sat_altaz)
-
-    @cache
-    def shared() -> Time:
-        # the times, shared by every satellite (with their Earth orientation)
-        return _to_time(times)
-
-    def collect(satellite: Satellite, index: int, mask: Polygon | MultiPolygon | None):
-        return _collect_ground_pixels(
-            satellite,
-            index,
-            times,
-            shared(),
-            elevation,
-            mask,
-            platform_altaz,
-            solar_altaz,
-        )
-
-    return _collect_tracks(
+    return _collect_satellites(
         satellites,
-        SATELLITE,
         times,
         instrument_index,
+        elevation,
         mask,
-        platform_altaz,
+        _get_platform_altaz(platform_altaz, sat_altaz),
         solar_altaz,
-        collect,
+        None,
+        pixels=True,
     )
 
 

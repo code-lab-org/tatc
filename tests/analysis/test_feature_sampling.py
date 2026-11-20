@@ -22,6 +22,7 @@ from tatc.schemas import (
     RadarStation,
     Satellite,
     SunSynchronousOrbit,
+    SurfacePlatform,
     Trajectory,
 )
 from tatc.utils import compute_along_track_field_of_view
@@ -253,6 +254,32 @@ class TestFeatureObservationsOtherPlatforms(unittest.TestCase):
             delta=0.01,
         )
         self.assertNotIn("satellite", observations.columns)
+
+    def test_surface_platform_ground_elevation(self):
+        """
+        Test that the viewing geometry of a surface platform's observation is
+        seen from its footprint, at the platform's ground elevation by
+        default, and that platforms of a kind must have distinct names.
+        """
+        tower = SurfacePlatform(
+            name="Tower",
+            latitude=35.1,
+            longitude=-109.9,
+            elevation=500,
+            height=100,
+            instruments=[Instrument(name="camera", field_of_regard=60)],
+        )
+        observations = collect_feature_observations(
+            self.features, tower, self.times[:1]
+        )
+        self.assertEqual(len(observations), 1)
+        # looking down from 100 m above the ground, at the ground
+        self.assertAlmostEqual(observations["platform_height"].iloc[0], 600, delta=1e-3)
+        self.assertAlmostEqual(observations["platform_range"].iloc[0], 100, delta=1)
+        self.assertAlmostEqual(observations["platform_alt"].iloc[0], 90, delta=1)
+        twin = tower.model_copy(update={"latitude": 35.15})
+        with self.assertRaisesRegex(ValueError, "distinct names"):
+            collect_feature_observations(self.features, [tower, twin], self.times)
 
     def test_radar_requires_elevation(self):
         """

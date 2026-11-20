@@ -18,11 +18,13 @@ import shapely
 from pyproj import Geod
 from skyfield.api import wgs84
 
-from ..schemas import AllPlatforms, SurfacePlatform
+from ..schemas import AllPlatforms
 from .check import (
     SATELLITE,
     _PlatformKind,
     _check_times,
+    _get_instruments,
+    _get_platform_key,
     _get_platform_kinds,
     _get_platforms,
     _group_platforms,
@@ -152,8 +154,10 @@ def collect_feature_observations(
     groups = _group_platforms(platforms)
     _check_times(times)
     kinds = [kind for kind, members in groups.items() if members]
+    # each platform, by its key in the footprints (platforms of a kind have
+    # distinct names, see `_group_platforms`)
     lookup = {
-        f"{kind.column}: {platform.name}": platform
+        _get_platform_key(kind.column, platform.name): platform
         for kind, members in groups.items()
         for platform in members
     }
@@ -167,6 +171,14 @@ def collect_feature_observations(
     track = track[track["valid_obs"].eq(True).to_numpy()].reset_index(drop=True)
     if len(track) == 0:
         return _get_empty_feature_observations(kinds)
+    # the elevation of each footprint: the height of its (non-empty)
+    # geometry, projected at a constant elevation
+    coordinates, row = shapely.get_coordinates(
+        track.geometry.to_numpy(), include_z=True, return_index=True
+    )
+    rows, first = np.unique(row, return_index=True)
+    heights = np.full(len(track), np.nan)
+    heights[rows] = coordinates[first, 2]
     footprints = shapely.force_2d(track.geometry.to_numpy())
     shapes = features.geometry.to_numpy()
     # the pieces: each feature's overlap with each footprint while it exists
@@ -179,11 +191,7 @@ def collect_feature_observations(
         & (time[footprint] < pd.DatetimeIndex(features["end"])[feature])
     )
     feature, footprint = feature[exists], footprint[exists]
-    instruments = (
-        track["instrument"].to_numpy()
-        if "instrument" in track.columns
-        else np.full(len(track), None, dtype=object)
-    )
+    instruments = _get_instruments(track)
     pieces = pd.DataFrame(
         {
             "feature": feature,
@@ -191,6 +199,7 @@ def collect_feature_observations(
             "kind": _get_platform_kinds(track)[footprint],
             "instrument": instruments[footprint],
             "time": time[footprint],
+            "height": heights[footprint],
             "geometry": shapely.intersection(shapes[feature], footprints[footprint]),
         }
     )
@@ -206,6 +215,7 @@ def collect_feature_observations(
         .agg(
             kind=("kind", "first"),
             time=("time", "first"),
+            height=("height", "first"),
             geometry=("geometry", shapely.union_all),
         )
         .reset_index()
@@ -234,12 +244,9 @@ def collect_feature_observations(
         index = group.index.to_numpy()
         observer = lookup[platform]
         platform_track = observer.get_track(list(group["time"]))
-        height = (
-            elevation
-            if elevation is not None
-            else observer.elevation if isinstance(observer, SurfacePlatform) else 0
+        target = wgs84.latlon(
+            latitude[index], longitude[index], group["height"].to_numpy()
         )
-        target = wgs84.latlon(latitude[index], longitude[index], height)
         altitude, azimuth, distance = (
             platform_track - target.at(platform_track.t)
         ).altaz()

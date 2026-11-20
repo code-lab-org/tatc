@@ -138,8 +138,8 @@ def collect_surface_track(
     Returns:
         geopandas.GeoDataFrame: The data frame of collected surface track
             results, with columns `surface_platform`, `instrument`,
-            `elevation`, `valid_obs`, and `geometry` (and the angles
-            requested): without `times`, in the order of the platforms and
+            `valid_obs`, and `geometry` (whose z-coordinate is the target
+            elevation), and the angles requested: without `times`, in the order of the platforms and
             their instruments; with `times`, also `time`, for a single
             platform and instrument (an integer `instrument_index`) sorted
             by time, otherwise those of each platform and instrument,
@@ -201,7 +201,6 @@ def _collect_surface(
         solar_altaz,
         collect,
         timed=times is not None,
-        extra={"elevation": "float"},
     )
 
 
@@ -247,7 +246,6 @@ def _collect_surface_track(
             platform_altaz,
             solar_altaz,
             ground_elevation=platform.elevation,
-            extra={"elevation": target},
             region=region,
         )
     footprint = instrument.compute_footprint(
@@ -266,7 +264,6 @@ def _collect_surface_track(
         platform_altaz,
         solar_altaz,
         ground_elevation=platform.elevation,
-        extra={"elevation": target},
     )
 
 

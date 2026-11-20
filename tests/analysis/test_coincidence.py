@@ -381,7 +381,6 @@ class TestFindCoincidentGroundTrack(IssConstellationTestCase):
         tower = {
             "surface_platform": "Tower",
             "instrument": "Camera",
-            "elevation": 300.0,
             "valid_obs": True,
             "geometry": box(1, 1, 3, 3),
         }

@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
+import shapely
 from pyproj import Geod
 from shapely.geometry import Polygon, box
 from skyfield.api import wgs84
@@ -91,7 +92,7 @@ class TestPlatformAnalysis(IssConstellationTestCase):
         self.assertTrue(track.empty)
         self.assertListEqual(
             list(track.columns),
-            ["surface_platform", "instrument", "elevation", "valid_obs", "geometry"],
+            ["surface_platform", "instrument", "valid_obs", "geometry"],
         )
 
     def test_collect_surface_track_singular_matches_list(self):
@@ -114,7 +115,11 @@ class TestPlatformAnalysis(IssConstellationTestCase):
             list(track.surface_platform), ["Balloon", "Balloon", "Tower"]
         )
         self.assertListEqual(list(track.instrument), ["Camera", "Oblique", "Camera"])
-        self.assertListEqual(list(track.elevation), [300, 300, 310])
+        # each footprint is at its platform's ground elevation (its z)
+        self.assertListEqual(
+            [shapely.get_coordinates(g, include_z=True)[0, 2] for g in track.geometry],
+            [300, 300, 310],
+        )
         track = collect_surface_track(self.platform, instrument_index=1)
         self.assertListEqual(list(track.instrument), ["Oblique"])
 
@@ -137,7 +142,9 @@ class TestPlatformAnalysis(IssConstellationTestCase):
                 distances, height * np.tan(np.radians(30)), atol=0.1
             )
             elevations = [z for *_, z in track.geometry.iloc[0].exterior.coords]
-            np.testing.assert_allclose(elevations, track.elevation.iloc[0])
+            np.testing.assert_allclose(
+                elevations, self.platform.elevation if elevation is None else elevation
+            )
 
     def test_collect_surface_track_horizon(self):
         """
@@ -537,9 +544,9 @@ class TestPlatformAnalysis(IssConstellationTestCase):
                 "time",
                 "surface_platform",
                 "instrument",
-                "elevation",
                 "valid_obs",
                 "geometry",
+                "platform_alt",
             ],
         )
         self.assertListEqual(list(track["time"]), [times[0]] * 2 + [times[1]] * 2)

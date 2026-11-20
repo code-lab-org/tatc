@@ -225,6 +225,27 @@ class TestFootprints(IssConstellationTestCase):
         with self.assertRaisesRegex(TypeError, "generate_members"):
             collect_footprints(self.constellation, self.times)
         self.assertTrue(collect_footprints([]).empty)
+        # platforms of a kind must have distinct names (of different kinds,
+        # they need not)
+        twin = self.tower.model_copy(update={"latitude": 35.1})
+        with self.assertRaisesRegex(ValueError, "more than one surface platform"):
+            collect_footprints([self.tower, twin])
+        with self.assertRaisesRegex(ValueError, "more than one aircraft"):
+            collect_airborne_ground_track([self.aircraft, self.aircraft])
+        renamed = self.radar.model_copy(update={"name": "Tower"})
+        self.assertEqual(
+            len(
+                collect_footprints(
+                    [self.tower, renamed], elevation=0, instrument_index=None
+                )
+            ),
+            3,
+        )
+        # a tuple of platforms, of any kind, is a list of them
+        self.assertEqual(
+            len(collect_ground_track((self.leo,), self.times[:2])),
+            len(collect_ground_track([self.leo], self.times[:2])),
+        )
 
     def test_collect_footprints_pixels(self):
         """

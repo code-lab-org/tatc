@@ -123,14 +123,38 @@ def _group_platforms(platforms: object) -> dict[_PlatformKind, list]:
                 f"not a {type(platform).__name__}{_get_constellation_hint(platform)}"
             )
         groups[kind].append(platform)
+    for kind, members in groups.items():
+        _check_distinct_names(members, kind, "platforms")
     return groups
+
+
+def _check_platform(platform: object, kind: _PlatformKind, name: str) -> object:
+    """
+    Checks that `platform` is a platform of a kind (for example, an
+    `Aircraft`), raising a `TypeError` otherwise (directing a constellation
+    to its `generate_members` method, see `_get_constellation_hint`).
+
+    Args:
+        platform (object): The value to check.
+        kind (_PlatformKind): The kind of platform.
+        name (str): The argument name to report in the error message.
+
+    Returns:
+        object: the checked platform.
+    """
+    if isinstance(platform, kind.type):
+        return platform
+    article = "an" if kind.type.__name__[0] in "AEIOU" else "a"
+    raise TypeError(
+        f"{name} must be {article} {kind.type.__name__}, "
+        f"not a {type(platform).__name__}{_get_constellation_hint(platform)}"
+    )
 
 
 def _check_satellite(satellite: object, name: str = "satellite") -> Satellite:
     """
     Checks that `satellite` is a `Satellite`, raising a `TypeError` otherwise
-    (directing a constellation to its `generate_members` method, see
-    `_get_constellation_hint`).
+    (see `_check_platform`).
 
     Args:
         satellite (object): the value to check.
@@ -139,41 +163,71 @@ def _check_satellite(satellite: object, name: str = "satellite") -> Satellite:
     Returns:
         Satellite: the checked satellite.
     """
-    if isinstance(satellite, Satellite):
-        return satellite
-    raise TypeError(
-        f"{name} must be a Satellite, not a {type(satellite).__name__}"
-        + _get_constellation_hint(satellite)
-    )
+    return _check_platform(satellite, SATELLITE, name)  # type: ignore
 
 
-def _check_platforms(value: object, kind: _PlatformKind, stacklevel: int = 5) -> list:
+def _check_distinct_names(platforms: list, kind: _PlatformKind, name: str) -> None:
     """
-    Checks that `value` is a platform of a kind (for example, an `Aircraft`)
-    or a list of them, raising a `TypeError` otherwise. Satellites are
-    checked by `_check_satellites`, which also warns of low perigees.
+    Checks that platforms of a kind have distinct names, raising a
+    `ValueError` otherwise: results name each platform in the column of its
+    kind (see `_get_platforms`), so platforms of the same name would be
+    merged (as in coincidences) or lost.
+
+    Args:
+        platforms (list): The platforms of the kind.
+        kind (_PlatformKind): The kind of platform.
+        name (str): The argument name to report in the error message.
+    """
+    seen = set()
+    for platform in platforms:
+        if platform.name in seen:
+            raise ValueError(
+                f"{name} must have distinct names: more than one {kind.label} "
+                f"is named {platform.name!r}"
+            )
+        seen.add(platform.name)
+
+
+def _check_platforms(
+    value: object,
+    kind: _PlatformKind,
+    name: str | None = None,
+    allow_single: bool = True,
+    stacklevel: int = 4,
+) -> list:
+    """
+    Checks that `value` is a list (or tuple) of platforms of a kind (for
+    example, `Aircraft`) or, if `allow_single`, a single one, raising a
+    `TypeError` otherwise (see `_check_platform`), and warns of satellites
+    with low perigees (see `_warn_low_perigees`).
 
     Args:
         value (object): The value to check.
         kind (_PlatformKind): The kind of platform.
+        name (str | None): The argument name to report in the error
+            message, by default that of the kind (see `_PlatformKind`).
+        allow_single (bool): `True`, to also accept a single platform.
         stacklevel (int): The stack level of a warning of low perigees,
             relative to `_warn_low_perigees`.
 
     Returns:
         list: the checked platforms, as a list.
     """
+    name = kind.argument if name is None else name
+    if isinstance(value, (list, tuple)):
+        checked = [
+            _check_platform(platform, kind, f"{name}[{i}]")
+            for i, platform in enumerate(value)
+        ]
+    elif allow_single:
+        checked = [_check_platform(value, kind, name)]
+    else:
+        raise TypeError(
+            f"{name} must be a list of {kind.type.__name__}s, "
+            f"not a {type(value).__name__}{_get_constellation_hint(value)}"
+        )
     if kind is SATELLITE:
-        return _check_satellites(value, kind.argument, stacklevel=stacklevel)
-    is_list = isinstance(value, (list, tuple))
-    checked = list(value) if is_list else [value]  # type: ignore
-    for i, platform in enumerate(checked):
-        if not isinstance(platform, kind.type):
-            label = f"{kind.argument}[{i}]" if is_list else kind.argument
-            article = "an" if kind.type.__name__[0] in "AEIOU" else "a"
-            raise TypeError(
-                f"{label} must be {article} {kind.type.__name__}, "
-                f"not a {type(platform).__name__}"
-            )
+        _warn_low_perigees(checked, stacklevel)
     return checked
 
 
@@ -184,10 +238,9 @@ def _check_satellites(
     stacklevel: int = 4,
 ) -> list[Satellite]:
     """
-    Checks that `satellites` is a list of `Satellite`s (or, if
-    `allow_single`, a single `Satellite`), raising a `TypeError` otherwise
-    (see `_check_satellite`), and warns of low perigees (see
-    `_warn_low_perigees`).
+    Checks that `satellites` is a list (or tuple) of `Satellite`s (or, if
+    `allow_single`, a single `Satellite`), raising a `TypeError` otherwise,
+    and warns of low perigees (see `_check_platforms`).
 
     Args:
         satellites (object): the value to check.
@@ -199,21 +252,7 @@ def _check_satellites(
     Returns:
         list[Satellite]: the checked satellites, as a list.
     """
-    if isinstance(satellites, list):
-        checked = [
-            _check_satellite(satellite, f"{name}[{i}]")
-            for i, satellite in enumerate(satellites)
-        ]
-        _warn_low_perigees(checked, stacklevel)
-        return checked
-    if allow_single:
-        checked = [_check_satellite(satellites, name)]
-        _warn_low_perigees(checked, stacklevel)
-        return checked
-    raise TypeError(
-        f"{name} must be a list of Satellites, not a {type(satellites).__name__}"
-        + _get_constellation_hint(satellites)
-    )
+    return _check_platforms(satellites, SATELLITE, name, allow_single, stacklevel + 1)
 
 
 def _warn_low_perigees(satellites: list[Satellite], stacklevel: int = 4) -> None:
@@ -458,8 +497,44 @@ def _get_platforms(frame: pd.DataFrame) -> np.ndarray:
     names = np.empty(len(frame), dtype=object)
     for column in pd.unique(kinds):
         rows = kinds == column
-        names[rows] = (column + ": " + frame.loc[rows, column].astype(str)).to_numpy()
+        names[rows] = _get_platform_key(
+            column, frame.loc[rows, column].astype(str)
+        ).to_numpy()
     return names
+
+
+def _get_platform_key(column: str, name: str | pd.Series) -> str | pd.Series:
+    """
+    Gets the key that identifies a platform (or each of a series of
+    platforms) of a kind across kinds: its kind's column and its name (see
+    `_get_platforms`).
+
+    Args:
+        column (str): The column of the platform's kind (see
+            `_PLATFORM_COLUMNS`).
+        name (str | pandas.Series): The platform's name, or a series of names.
+
+    Returns:
+        str | pandas.Series: the key(s)
+    """
+    return column + ": " + name
+
+
+def _get_instruments(frame: pd.DataFrame) -> np.ndarray:
+    """
+    Gets the instrument of each row of a result: its `instrument` column, or
+    `None` for every row if it has none (as for the footprints of radar
+    stations alone).
+
+    Args:
+        frame (pandas.DataFrame): The result.
+
+    Returns:
+        numpy.ndarray: the instrument of each row
+    """
+    if "instrument" in frame.columns:
+        return frame["instrument"].to_numpy()
+    return np.full(len(frame), None, dtype=object)
 
 
 def _join_names(names: pd.Series) -> str | None:

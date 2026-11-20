@@ -14,7 +14,13 @@ import pandas as pd
 
 from ..schemas import RadarStation
 from ._tracks import Mask, _clip_track, _get_mask_geometry
-from .check import RADAR_STATION, _check_platforms, _check_times, _dissolve_footprints
+from .check import (
+    RADAR_STATION,
+    _check_distinct_names,
+    _check_platforms,
+    _check_times,
+    _dissolve_footprints,
+)
 
 
 def _get_empty_radar_track(timed: bool = False) -> gpd.GeoDataFrame:
@@ -31,7 +37,6 @@ def _get_empty_radar_track(timed: bool = False) -> gpd.GeoDataFrame:
         **({"time": pd.Series([], dtype="datetime64[ns, utc]")} if timed else {}),
         "radar_station": pd.Series([], dtype="str"),
         "band": pd.Series([], dtype="str"),
-        "elevation": pd.Series([], dtype="float"),
         "inner_ground_range": pd.Series([], dtype="float"),
         "outer_ground_range": pd.Series([], dtype="float"),
         "valid_obs": pd.Series([], dtype="bool"),
@@ -44,6 +49,7 @@ def collect_radar_track(
     stations: RadarStation | list[RadarStation],
     elevation: float,
     mask: Mask | None = None,
+    *,
     times: list[datetime] | None = None,
 ) -> gpd.GeoDataFrame:
     """
@@ -70,17 +76,19 @@ def collect_radar_track(
                 coordinates, to constrain results.
         times (list[datetime.datetime] | None): The times at which to sample
                 the coverage, or `None` for a static footprint of each
-                station.
+                station (keyword-only).
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected radar track
-            results, with columns `radar_station`, `band`, `elevation`,
+            results, with columns `radar_station`, `band`,
             `inner_ground_range`, `outer_ground_range`, `valid_obs`, and
-            `geometry`: without `times`, in the order of the stations; with
+            `geometry` (whose z-coordinate is the target elevation): without
+            `times`, in the order of the stations; with
             `times`, also `time` (first), sorted by time and then in the
             order of the stations.
     """
     stations = _check_platforms(stations, RADAR_STATION)
+    _check_distinct_names(stations, RADAR_STATION, RADAR_STATION.argument)
     _check_times(times)
     timed = times is not None
     if len(stations) == 0 or (timed and len(times) == 0):  # type: ignore
@@ -93,7 +101,6 @@ def collect_radar_track(
             {
                 "radar_station": station.name,
                 "band": station.band.value if station.band is not None else None,
-                "elevation": elevation,
                 "inner_ground_range": ranges[0] if ranges is not None else None,
                 "outer_ground_range": ranges[1] if ranges is not None else None,
                 "valid_obs": not footprint.is_empty,
