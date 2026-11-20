@@ -6,15 +6,19 @@ Object schemas for ground-based radar stations.
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 
 import numpy as np
 from pydantic import Field, model_validator
 from shapely.geometry import MultiPolygon, Polygon
+from skyfield.positionlib import Geocentric
 
 from ... import config
+from ...utils.projection import compute_static_track
 from ...utils.radar import compute_radar_footprint, compute_radar_footprint_profile
 from ...utils.radar import compute_radar_ground_range_bounds
+from ...utils.time import _to_time
 from .point import Point
 from .terrain import TerrainMask
 
@@ -360,4 +364,28 @@ class RadarStation(Point):
             [outer for _, _, outer in profile],
             inner_ground_range,
             elevation,
+        )
+
+    def get_track(self, times: datetime | list[datetime] | None = None) -> Geocentric:
+        """
+        Gets the static track of the radar antenna (see
+        `tatc.utils.compute_static_track`), as `tatc.schemas.Satellite.get_track`,
+        `tatc.schemas.Aircraft.get_track`, and
+        `tatc.schemas.SurfacePlatform.get_track` get those of other
+        platforms, for example to compute the viewing geometry of its
+        observations.
+
+        Args:
+            times (datetime.datetime | list[datetime.datetime] | None): The
+                time(s). Defaults to 2020-01-01 00:00:00 UTC.
+
+        Returns:
+            skyfield.positionlib.Geocentric: The position/velocity.
+        """
+        return compute_static_track(
+            self.longitude,
+            self.latitude,
+            self.elevation,
+            0,
+            None if times is None else _to_time(times),
         )

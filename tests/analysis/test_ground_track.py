@@ -151,7 +151,7 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
                 max_distance, expected_radius, delta=expected_radius * 0.05
             )
 
-    def test_collect_ground_track_sat_altaz_is_zenith_at_footprint_center(self):
+    def test_collect_ground_track_platform_altaz_is_zenith_at_footprint_center(self):
         """
         Test that the satellite appears at zenith (90 deg altitude) as seen
         from its own footprint center, since this is a nadir-pointing
@@ -161,9 +161,40 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
             datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
             for i in range(10)
         ]
-        results = collect_ground_track(self.satellite, times, sat_altaz=True)
-        for sat_alt in results.sat_alt:
-            self.assertAlmostEqual(sat_alt, 90.0, places=1)
+        results = collect_ground_track(self.satellite, times, platform_altaz=True)
+        for alt in results.platform_alt:
+            self.assertAlmostEqual(alt, 90.0, places=1)
+
+    def test_collect_ground_track_sat_altaz_deprecated(self):
+        """
+        Test that the deprecated `sat_altaz` warns and includes the
+        satellite's angles, now named `platform_alt` and `platform_az`.
+        """
+        times = [datetime(2022, 6, 1, tzinfo=timezone.utc)]
+        with self.assertWarnsRegex(DeprecationWarning, "platform_altaz"):
+            results = collect_ground_track(self.satellite, times, sat_altaz=True)
+        self.assertIn("platform_alt", results.columns)
+        self.assertNotIn("sat_alt", results.columns)
+        with self.assertWarns(DeprecationWarning):
+            pixels = collect_ground_pixels(
+                self.satellite.model_copy(
+                    update={
+                        "instruments": [
+                            PointedInstrument(
+                                name="imager",
+                                cross_track_field_of_view=10,
+                                along_track_field_of_view=10,
+                                is_rectangular=True,
+                                cross_track_pixels=3,
+                                along_track_pixels=1,
+                            )
+                        ]
+                    }
+                ),
+                times,
+                sat_altaz=True,
+            )
+        self.assertIn("platform_az", pixels.columns)
 
     def test_collect_ground_track_solar_altaz_valid_range(self):
         """
@@ -197,11 +228,17 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
             instruments=[Instrument(name="Narrow", field_of_regard=20)],
         )
         results = collect_ground_track(
-            satellite, times, elevation=1e7, sat_altaz=True, solar_altaz=True
+            satellite, times, elevation=1e7, platform_altaz=True, solar_altaz=True
         )
         self.assertTrue(results.geometry.is_empty.all())
         self.assertFalse(results["valid_obs"].any())
-        for column in ("sat_alt", "sat_az", "solar_alt", "solar_az", "glint_angle"):
+        for column in (
+            "platform_alt",
+            "platform_az",
+            "solar_alt",
+            "solar_az",
+            "glint_angle",
+        ):
             self.assertTrue(results[column].isna().all(), column)
 
     def test_collect_ground_track_mask_limits_footprints_to_region(self):
@@ -524,7 +561,7 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
             )
             self.assertAlmostEqual(min_distance, 0.0, delta=1.0)
 
-    def test_collect_ground_pixels_sat_altaz_center_pixel_is_zenith(self):
+    def test_collect_ground_pixels_platform_altaz_center_pixel_is_zenith(self):
         """
         Test that the center pixel's satellite altitude is at zenith
         (90 deg), since it coincides with the nadir sub-satellite point.
@@ -542,9 +579,9 @@ class TestGroundTrackAnalysis(IssConstellationTestCase):
             datetime(2022, 6, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
             for i in range(3)
         ]
-        results = collect_ground_pixels(satellite, times, sat_altaz=True)
+        results = collect_ground_pixels(satellite, times, platform_altaz=True)
         for _, rows in results.groupby("time"):
-            self.assertAlmostEqual(rows.sat_alt.max(), 90.0, places=1)
+            self.assertAlmostEqual(rows.platform_alt.max(), 90.0, places=1)
 
     def test_collect_ground_pixels_solar_altaz_valid_range(self):
         """

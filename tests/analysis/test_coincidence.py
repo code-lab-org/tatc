@@ -489,3 +489,65 @@ class TestFindCoincidentGroundTrack(IssConstellationTestCase):
             ):
                 footprint = footprints.loc[(time, satellite)]
                 self.assertTrue(footprint.buffer(1e-9).contains(result.geometry))
+
+    def test_between(self):
+        """
+        Test that `between` keeps only the pairs of two kinds of platforms,
+        with the first kind first, whatever its time.
+        """
+        aircraft = _make_footprint(None, 0, box(1, 1, 3, 3))
+        aircraft["aircraft"] = "P-3"
+        ground_track = gpd.GeoDataFrame(
+            [
+                aircraft,
+                _make_footprint("A", 1, box(0, 0, 2, 2)),
+                _make_footprint("B", 1, box(0, 0, 2, 2)),
+            ],
+            crs="EPSG:4326",
+        )
+        difference = timedelta(minutes=1)
+        self.assertEqual(len(find_coincident_ground_track(ground_track, difference)), 3)
+        results = find_coincident_ground_track(
+            ground_track, difference, between=("satellite", "aircraft")
+        )
+        self.assertListEqual(list(results.satellite_1), ["A", "B"])
+        self.assertListEqual(list(results.aircraft_2), ["P-3", "P-3"])
+        self.assertTrue((results.time_difference == -difference).all())
+        reverse = find_coincident_ground_track(
+            ground_track, difference, between=("aircraft", "satellite")
+        )
+        self.assertListEqual(list(reverse.satellite_2), ["A", "B"])
+        self.assertTrue((reverse.time_difference == difference).all())
+        same = find_coincident_ground_track(
+            ground_track, difference, between=("satellite", "satellite")
+        )
+        self.assertListEqual(
+            list(zip(same.satellite_1, same.satellite_2)), [("A", "B")]
+        )
+        self.assertTrue(
+            find_coincident_ground_track(
+                ground_track, difference, between=("satellite", "radar_station")
+            ).empty
+        )
+        for between in ("satellite", ("satellite",), ("satellite", "station")):
+            with self.subTest(between=between):
+                with self.assertRaisesRegex(ValueError, "between"):
+                    find_coincident_ground_track(ground_track, between=between)
+
+    def test_many_platforms(self):
+        """
+        Test that the footprints of many platforms pair as those of each pair
+        of platforms do.
+        """
+        footprints = [
+            _make_footprint(name, time, box(x, 0, x + 2, 2))
+            for name, x in (("A", 0), ("B", 1), ("C", 1.5), ("D", 10))
+            for time in (0, 1)
+        ]
+        ground_track = gpd.GeoDataFrame(footprints, crs="EPSG:4326")
+        results = find_coincident_ground_track(ground_track)
+        self.assertListEqual(
+            sorted(zip(results.satellite_1, results.satellite_2)),
+            sorted([("A", "B"), ("A", "C"), ("B", "C")] * 2),
+        )
+        self.assertTrue((results.time_difference == timedelta(0)).all())

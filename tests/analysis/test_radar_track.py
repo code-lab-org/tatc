@@ -5,6 +5,7 @@ Unit tests for radar analysis functions.
 """
 
 import unittest
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -152,3 +153,28 @@ class TestRadarAnalysis(unittest.TestCase):
             collect_radar_track(self.stations)  # pylint: disable=no-value-for-parameter
         with self.assertRaises(TypeError):
             compute_radar_track(self.stations)  # pylint: disable=no-value-for-parameter
+
+    def test_collect_radar_track_times(self):
+        """
+        Test that, with times, each station's static footprint is repeated
+        at each time, sorted by time and then by station, as for surface
+        platforms.
+        """
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        times = [start + timedelta(minutes=minutes) for minutes in (5, 0)]
+        static = collect_radar_track(self.stations, elevation=3048)
+        track = collect_radar_track(self.stations, elevation=3048, times=times)
+        self.assertEqual(list(track.columns), ["time", *static.columns])
+        self.assertListEqual(list(track.time), [times[1]] * 2 + [times[0]] * 2)
+        self.assertListEqual(list(track.radar_station), ["Station 1", "Station 2"] * 2)
+        for row in range(4):
+            self.assertTrue(
+                track.geometry.iloc[row].equals(static.geometry.iloc[row % 2])
+            )
+        empty = collect_radar_track(self.stations, elevation=3048, times=[])
+        self.assertTrue(empty.empty)
+        self.assertIn("time", empty.columns)
+        with self.assertRaisesRegex(ValueError, "timezone-aware"):
+            collect_radar_track(
+                self.station, elevation=3048, times=[start.replace(tzinfo=None)]
+            )

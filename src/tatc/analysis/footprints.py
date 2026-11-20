@@ -15,75 +15,35 @@ import numpy as np
 import pandas as pd
 import shapely
 from shapely import geometry as geo
-from shapely.geometry import MultiPolygon, Polygon
 
-from ..schemas import Aircraft, Point, RadarStation, Satellite, SurfacePlatform
-from ..schemas.space.base_constellation import BaseConstellation
+from ..schemas import AllPlatforms, Point
 from ..utils.geometry import _get_point_coordinates, _hash_geometries
+from ._tracks import Mask
 from .airborne_track import _collect_airborne
 from .check import (
+    AIRCRAFT,
+    RADAR_STATION,
+    SATELLITE,
+    SURFACE_PLATFORM,
     _check_times,
     _dissolve_footprints,
     _get_empty_observation_frame,
     _get_platform_columns,
     _get_platforms,
+    _group_platforms,
     _is_single,
 )
 from .ground_track import collect_ground_pixels, collect_ground_track
 from .radar_track import collect_radar_track
 from .surface_track import _collect_surface
 
-_PLATFORM_TYPES = (Satellite, Aircraft, SurfacePlatform, RadarStation)
-"""The kinds of observing platforms, in the order their results are combined."""
-
-
-def _group_platforms(
-    platforms: object,
-) -> dict[type, list[Satellite | Aircraft | SurfacePlatform | RadarStation]]:
-    """
-    Groups observing platforms by kind (see `_PLATFORM_TYPES`), raising a
-    `TypeError` for any other value.
-
-    Args:
-        platforms (object): A platform or a list of them.
-
-    Returns:
-        dict[type, list[Satellite | Aircraft | SurfacePlatform | RadarStation]]:
-            the platforms of each kind, in their order
-    """
-    is_list = isinstance(platforms, (list, tuple))
-    groups: dict[type, list] = {kind: [] for kind in _PLATFORM_TYPES}
-    for i, platform in enumerate(platforms if is_list else [platforms]):  # type: ignore
-        kind = next(
-            (kind for kind in _PLATFORM_TYPES if isinstance(platform, kind)), None
-        )
-        if kind is None:
-            label = f"platforms[{i}]" if is_list else "platforms"
-            hint = (
-                "; use its generate_members() method to pass its member satellites"
-                if isinstance(platform, BaseConstellation)
-                else ""
-            )
-            raise TypeError(
-                f"{label} must be a Satellite, Aircraft, SurfacePlatform, or "
-                f"RadarStation, not a {type(platform).__name__}{hint}"
-            )
-        groups[kind].append(platform)
-    return groups
-
 
 def collect_footprints(
-    platforms: (
-        Satellite
-        | Aircraft
-        | SurfacePlatform
-        | RadarStation
-        | list[Satellite | Aircraft | SurfacePlatform | RadarStation]
-    ),
+    platforms: AllPlatforms | list[AllPlatforms],
     times: list[datetime] | None = None,
     instrument_index: int | None = 0,
     elevation: float | None = None,
-    mask: Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries | None = None,
+    mask: Mask | None = None,
     platform_altaz: bool = False,
     solar_altaz: bool = False,
     time_step: timedelta | None = None,
@@ -104,17 +64,17 @@ def collect_footprints(
     (`satellite`, `aircraft`, `surface_platform`, or `radar_station`), and
     has the other columns of its kind's results (missing for the
     footprints of other kinds). A footprint without a time (of a surface
-    platform without `times`, or of a radar station, which does not change)
-    is static.
+    platform or a radar station without `times`, whose footprint does not
+    change) is static.
 
     Args:
-        platforms (Satellite | Aircraft | SurfacePlatform | RadarStation | list[Satellite | Aircraft | SurfacePlatform | RadarStation]):
-                The observing platform(s), of any kinds.
+        platforms (AllPlatforms | list[AllPlatforms]): The observing
+                platform(s), of any kinds (see `tatc.schemas.AllPlatforms`).
         times (list[datetime.datetime] | None): The times to sample:
                 required for satellites; for an aircraft, those that its
                 trajectory contains (by default, the times of its
-                trajectory); for a surface platform, `None` for a static
-                footprint. Radar stations are static.
+                trajectory); for a surface platform or a radar station,
+                `None` for a static footprint.
         instrument_index (int | None): The index of the observing instrument
                 on each platform, or `None` for every instrument of each
                 platform (a radar station has none).
@@ -128,9 +88,9 @@ def collect_footprints(
                 An optional mask, always interpreted in WGS84 (lon/lat)
                 coordinates, to constrain results.
         platform_altaz (bool): `True` to include the altitude/azimuth angles
-                of each platform seen from the footprint center (`sat_alt`
-                and `sat_az`, `aircraft_alt` and `aircraft_az`, or
-                `surface_platform_alt` and `surface_platform_az`).
+                of each platform seen from the footprint center
+                (`platform_alt` and `platform_az`; `NaN` for radar
+                stations, whose footprints are at many elevation angles).
         solar_altaz (bool): `True` to include the solar altitude/azimuth
                 angles (`solar_alt` and `solar_az`) and the glint angle
                 (`glint_angle`) at the footprint center: requires `times` for
@@ -156,8 +116,8 @@ def collect_footprints(
     single = _is_single(platforms, instrument_index=instrument_index)
     groups = _group_platforms(platforms)
     _check_times(times)
-    satellites, aircraft = groups[Satellite], groups[Aircraft]
-    surface, stations = groups[SurfacePlatform], groups[RadarStation]
+    satellites, aircraft = groups[SATELLITE], groups[AIRCRAFT]
+    surface, stations = groups[SURFACE_PLATFORM], groups[RADAR_STATION]
     if satellites and times is None:
         raise ValueError("times are required to collect the footprints of satellites")
     if stations and pixels:
@@ -220,7 +180,9 @@ def collect_footprints(
             )
         )
     if stations:
-        frames.append(collect_radar_track(stations, elevation, mask))  # type: ignore
+        frames.append(
+            collect_radar_track(stations, elevation, mask, times)  # type: ignore
+        )
     if len(frames) == 0:
         return gpd.GeoDataFrame(geometry=gpd.GeoSeries([], crs="EPSG:4326"))
     if single or len(frames) == 1:
@@ -316,15 +278,21 @@ def collect_footprint_observations(
     if "time" not in footprints.columns or footprints["time"].isna().any():
         raise ValueError(
             "each footprint must have a time: collect the footprints of surface "
-            "platforms with times (radar stations have none)"
+            "platforms and radar stations with times"
         )
     frame = footprints.reset_index(drop=True)
     platforms = _get_platforms(frame)
     times = pd.DatetimeIndex(frame["time"]).tz_convert("UTC").as_unit("ns")
+    # the instrument of each footprint (none for a radar station)
+    instruments = (
+        frame["instrument"].to_numpy()
+        if "instrument" in frame.columns
+        else np.full(len(frame), None, dtype=object)
+    )
     # the track of each platform's instrument, and the position of each
     # footprint in it (in time order)
     track, _ = pd.factorize(
-        pd.Series(platforms) + "\x00" + frame["instrument"].astype(str).to_numpy()
+        pd.Series(platforms) + "\x00" + pd.Series(instruments).astype(str).to_numpy()
     )
     order = np.lexsort((times.asi8, track))
     position = np.empty(len(frame), dtype=int)
@@ -369,7 +337,7 @@ def collect_footprint_observations(
                 column: frame[column].to_numpy()[row[first]]
                 for column in platform_columns
             },
-            "instrument": frame["instrument"].to_numpy()[row[first]],
+            "instrument": instruments[row[first]],
             "start": start,
             "epoch": start + (end - start) / 2,
             "end": end,

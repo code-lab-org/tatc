@@ -132,7 +132,7 @@ def predict(satellite, time, latitude, longitude) -> tuple[np.ndarray, np.ndarra
         )
         if observations.empty:
             return False, np.nan
-        return True, float(observations.sat_alt.iloc[0])
+        return True, float(observations.platform_alt.iloc[0])
 
     with concurrent.futures.ThreadPoolExecutor(8) as pool:
         results = list(pool.map(evaluate, range(len(latitude))))

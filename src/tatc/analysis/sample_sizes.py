@@ -19,7 +19,7 @@ from ..utils.time import _to_time
 from .check import _check_satellites
 
 _COLUMNS = [
-    "sat_range",
+    "platform_range",
     "scan_angle",
     "sample_along",
     "sample_cross",
@@ -49,7 +49,7 @@ def compute_sample_sizes(
     `beam_width` and `scan_sample_spacing` are given), and `NaN` for other
     instruments, whose samples are not defined.
 
-    Also computes the satellite's slant range from the target (`sat_range`,
+    Also computes the satellite's slant range from the target (`platform_range`,
     meters) and the target's scan angle (`scan_angle`, degrees): its angle
     across track from nadir, positive to the left of the direction of motion
     (see `tatc.utils.compute_view_angles`), measured from the body's axes
@@ -108,7 +108,7 @@ def compute_sample_sizes(
         orbit_track = satellite.get_track(_to_time(list(group[time_column])))
         target = wgs84.latlon(latitude[index], longitude[index], elevation[index])
         distance = (orbit_track - target.at(orbit_track.t)).altaz()[2]
-        result.iloc[index, result.columns.get_loc("sat_range")] = np.atleast_1d(
+        result.iloc[index, result.columns.get_loc("platform_range")] = np.atleast_1d(
             distance.m
         )
         velocity_frame = (

@@ -694,9 +694,9 @@ def add_local_incidence_angles(
     Adds the terrain slope and aspect (see `compute_terrain_slope_aspect`)
     and the local incidence angle (see
     `tatc.utils.compute_local_incidence_angle`) at each target of a data
-    frame of observations with point geometries and satellite angles, such
+    frame of observations with point geometries and platform angles, such
     as the ground pixels of `tatc.analysis.collect_ground_pixels` (with
-    `sat_altaz=True`) or the observations of
+    `platform_altaz=True`) or the observations of
     `tatc.analysis.collect_observations`. Observations may then be
     constrained by their local incidence angle, for example, for
     side-looking instruments over mountainous terrain (an angle above 90
@@ -705,8 +705,8 @@ def add_local_incidence_angles(
     Args:
         observations (geopandas.GeoDataFrame): The observations, with point
             geometries (longitude and latitude, in degrees) and the
-            satellite's elevation angle and azimuth (`sat_alt` and
-            `sat_az` columns, in degrees) at each.
+            platform's elevation angle and azimuth (`platform_alt` and
+            `platform_az` columns, in degrees) at each.
         dem_paths (str | list[str]): One or more DEM raster sources (see
             `compute_terrain_mask`), covering the points.
         baseline (float): See `compute_terrain_slope_aspect`.
@@ -718,14 +718,18 @@ def add_local_incidence_angles(
         do not cover a target with valid data).
 
     Raises:
-        ValueError: If the observations lack the `sat_alt` or `sat_az`
-            columns, or have geometries other than points.
+        ValueError: If the observations lack the platform angles, or have
+            geometries other than points.
     """
-    missing = [c for c in ["sat_alt", "sat_az"] if c not in observations.columns]
+    missing = [
+        column
+        for column in ["platform_alt", "platform_az"]
+        if column not in observations.columns
+    ]
     if missing:
         raise ValueError(
             f"observations lack the column(s) {missing}; collect ground pixels "
-            "with sat_altaz=True."
+            "with platform_altaz=True."
         )
     result = observations.copy()
     columns = ["terrain_slope", "terrain_aspect", "local_incidence_angle"]
@@ -741,6 +745,6 @@ def add_local_incidence_angles(
     result["terrain_slope"] = slope
     result["terrain_aspect"] = aspect
     result["local_incidence_angle"] = compute_local_incidence_angle(
-        result.sat_alt.values, result.sat_az.values, slope, aspect
+        result.platform_alt.values, result.platform_az.values, slope, aspect
     )
     return result

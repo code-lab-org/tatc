@@ -17,9 +17,11 @@ import pandas as pd
 import shapely
 
 from .check import (
+    _PLATFORM_COLUMNS,
     _aggregate_names,
     _get_empty_observation_frame,
     _get_platform_columns,
+    _get_platform_kinds,
     _get_platforms,
 )
 from .coverage_metrics import _get_target_keys
@@ -256,9 +258,34 @@ def find_coincident_observations(
     )
 
 
+def _check_between(between: tuple[str, str] | None) -> tuple[str, str] | None:
+    """
+    Checks the kinds of platforms between which to find coincident footprints.
+
+    Args:
+        between (tuple[str, str] | None): The platform columns of the two
+            kinds, or `None` for any.
+
+    Returns:
+        tuple[str, str] | None: the platform columns
+    """
+    if between is None:
+        return None
+    if isinstance(between, str) or len(between) != 2:
+        raise ValueError(f"between must be a pair of platform columns, not {between!r}")
+    for column in between:
+        if column not in _PLATFORM_COLUMNS:
+            raise ValueError(
+                f"between must name platform columns ({', '.join(_PLATFORM_COLUMNS)}), "
+                f"not {column!r}"
+            )
+    return (between[0], between[1])
+
+
 def find_coincident_ground_track(
     ground_track: gpd.GeoDataFrame,
     max_time_difference: timedelta = timedelta(0),
+    between: tuple[str, str] | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Find coincident observations of ground tracks: the pairs of footprints
@@ -288,6 +315,14 @@ def find_coincident_ground_track(
     its geometry. Dissolving the result (for example, after selecting the
     pairs of valid observations) gives the area observed in common.
 
+    With `between`, only the pairs of a footprint of one kind of platform
+    and one of another (or of two platforms of one kind) are found, for
+    example `("satellite", "aircraft")` for the underflights of satellites
+    by aircraft, without the pairs of two satellites. The footprint of the
+    first kind is then first (suffixed `_1`, for example `satellite_1` and
+    `aircraft_2`), whatever its time, so that `time_difference` is negative
+    if it is later.
+
     Footprints are first matched by overlap, then by time, so the cost
     grows with the number of times each area is observed.
 
@@ -295,12 +330,17 @@ def find_coincident_ground_track(
         ground_track (geopandas.GeoDataFrame): The collected ground track.
         max_time_difference (datetime.timedelta): The maximum time
                 difference between coincident footprints.
+        between (tuple[str, str] | None): The platform columns (`satellite`,
+                `aircraft`, `surface_platform`, or `radar_station`) of the
+                two kinds of platforms between which to find coincident
+                footprints, or `None` for any platforms.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of coincident footprints,
             sorted by `time_1` and `time_2` (static footprints last).
     """
     max_time_difference = _check_max_time_difference(max_time_difference)
+    between = _check_between(between)
     track = ground_track
     if "time" not in track.columns:
         # every footprint is static
@@ -311,23 +351,38 @@ def find_coincident_ground_track(
     track = track.sort_values("time", kind="stable", na_position="last")
     track = track.reset_index(drop=True)
     geometries = track.geometry.to_numpy()
-    platforms = _get_platforms(track)
+    kinds = _get_platform_kinds(track)
+    platforms, names = pd.factorize(_get_platforms(track))
     times = pd.DatetimeIndex(track["time"])
-    # find the overlapping footprints of each pair of platforms
+    # the footprints of each platform (in time order), and their spatial
+    # index (built once)
+    order = np.argsort(platforms, kind="stable")
+    rows = np.split(order, np.cumsum(np.bincount(platforms, minlength=len(names)))[:-1])
+    trees: dict[int, shapely.STRtree] = {}
+    # find the overlapping footprints of each pair of platforms (of the kinds
+    # between which to find them)
     first, second = [np.array([], dtype=int)], [np.array([], dtype=int)]
-    for platform_1, platform_2 in combinations(pd.unique(platforms), 2):
-        index_1 = np.flatnonzero(platforms == platform_1)
-        index_2 = np.flatnonzero(platforms == platform_2)
-        tree = shapely.STRtree(geometries[index_2])
-        query_1, query_2 = tree.query(geometries[index_1], predicate="intersects")
-        first.append(index_1[query_1])
-        second.append(index_2[query_2])
+    for code_1, code_2 in combinations(range(len(rows)), 2):
+        pair = (kinds[rows[code_1][0]], kinds[rows[code_2][0]])
+        if between is not None and pair not in (between, between[::-1]):
+            continue
+        if code_2 not in trees:
+            trees[code_2] = shapely.STRtree(geometries[rows[code_2]])
+        query_1, query_2 = trees[code_2].query(
+            geometries[rows[code_1]], predicate="intersects"
+        )
+        first.append(rows[code_1][query_1])
+        second.append(rows[code_2][query_2])
     first, second = np.concatenate(first), np.concatenate(second)
-    # order each pair by time (rows are sorted by time, static ones last)
+    # order each pair by time (rows are sorted by time, static ones last) or,
+    # with `between`, by kind
     first, second = np.minimum(first, second), np.maximum(first, second)
+    if between is not None:
+        swap = kinds[first] != between[0]
+        first, second = np.where(swap, second, first), np.where(swap, first, second)
     time_difference = times[second] - times[first]
     # a static footprint is coincident at any time
-    selected = np.asarray(time_difference <= max_time_difference) | np.asarray(
+    selected = np.asarray(abs(time_difference) <= max_time_difference) | np.asarray(
         time_difference.isna()
     )
     first, second = first[selected], second[selected]

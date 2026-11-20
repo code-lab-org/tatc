@@ -564,7 +564,7 @@ class TestTerrainSlopeAspect(unittest.TestCase):
         west-facing slope, and on flat terrain.
         """
         observations = gpd.GeoDataFrame(
-            {"sat_alt": [40.0, 40.0], "sat_az": [270.0, 90.0]},
+            {"platform_alt": [40.0, 40.0], "platform_az": [270.0, 90.0]},
             geometry=[Point(0, 0), Point(0.01, 0.01)],
             crs="EPSG:4326",
         )
@@ -589,7 +589,7 @@ class TestTerrainSlopeAspect(unittest.TestCase):
         with self.assertRaises(ValueError):
             add_local_incidence_angles(
                 gpd.GeoDataFrame(
-                    {"sat_alt": [40.0], "sat_az": [0.0]},
+                    {"platform_alt": [40.0], "platform_az": [0.0]},
                     geometry=[box(0, 0, 0.01, 0.01)],
                     crs="EPSG:4326",
                 ),
@@ -597,7 +597,7 @@ class TestTerrainSlopeAspect(unittest.TestCase):
             )
         empty = add_local_incidence_angles(
             gpd.GeoDataFrame(
-                {"sat_alt": [], "sat_az": []}, geometry=[], crs="EPSG:4326"
+                {"platform_alt": [], "platform_az": []}, geometry=[], crs="EPSG:4326"
             ),
             self.west_path,
         )

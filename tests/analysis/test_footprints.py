@@ -117,7 +117,8 @@ class TestFootprints(IssConstellationTestCase):
     def test_collect_footprints_mixed(self):
         """
         Test that the footprints of platforms of every kind are combined,
-        sorted by time, with static footprints last.
+        sorted by time, with the footprints of fixed platforms at each time,
+        and static without times.
         """
         footprints = collect_footprints(
             [self.radar, self.tower, self.aircraft, self.leo],
@@ -135,18 +136,38 @@ class TestFootprints(IssConstellationTestCase):
                 "satellite": 10,
                 "aircraft": 10,
                 "surface_platform": 10,
-                "radar_station": 1,
+                "radar_station": 10,
             },
         )
-        for column in ("sat_alt", "aircraft_alt", "surface_platform_alt"):
-            self.assertIn(column, footprints.columns)
-        # sorted by time, with the radar (without a time) last
-        timed = footprints["time"].iloc[:-1]
-        self.assertTrue(timed.is_monotonic_increasing)
-        self.assertTrue(pd.isna(footprints["time"].iloc[-1]))
-        self.assertEqual(footprints["radar_station"].iloc[-1], "KXXX")
+        # one set of angle columns for every kind of platform, with no angles
+        # for radar stations
+        self.assertListEqual(
+            [column for column in footprints.columns if column.endswith("_alt")],
+            ["platform_alt"],
+        )
+        angled = footprints["radar_station"].isna() & footprints["valid_obs"]
+        self.assertTrue(footprints.loc[angled, "platform_alt"].notna().all())
+        self.assertTrue(
+            footprints.loc[footprints["radar_station"].notna(), "platform_alt"]
+            .isna()
+            .all()
+        )
+        # sorted by time, with a time for every footprint
+        self.assertFalse(footprints["time"].isna().any())
+        self.assertTrue(footprints["time"].is_monotonic_increasing)
         # no beam of the radar reaches the ground at its own elevation
-        self.assertFalse(footprints["valid_obs"].iloc[-1])
+        radar = footprints[footprints["radar_station"].notna()]
+        self.assertFalse(radar["valid_obs"].any())
+        # without times, the footprints of fixed platforms are static, after
+        # those of moving platforms
+        static = collect_footprints(
+            [self.radar, self.aircraft, self.tower], elevation=0
+        )
+        self.assertTrue(static["time"].iloc[-2:].isna().all())
+        self.assertListEqual(
+            list(static["radar_station"].iloc[-2:].fillna(static["surface_platform"])),
+            ["Tower", "KXXX"],
+        )
         # the aircraft passes over the tower's view
         pairs = find_coincident_ground_track(footprints, timedelta(seconds=5))
         self.assertTrue(
@@ -170,6 +191,21 @@ class TestFootprints(IssConstellationTestCase):
         pairs = find_coincident_ground_track(footprints)
         self.assertIn(self.times[60], set(pairs["time_1"]))
         self.assertTrue((pairs["radar_station_2"] == "KXXX").all())
+        # with times, the radar's coverage samples the points that the
+        # satellite observes, at the same times (outside the radar's cone of
+        # silence)
+        point = ShapelyPoint(center.x + 0.5, center.y)
+        observations = collect_footprint_observations(point, footprints)
+        self.assertSetEqual(set(observations["radar_station"].dropna()), {"KXXX"})
+        radar_rows = observations[observations["radar_station"].notna()]
+        self.assertTrue(radar_rows["instrument"].isna().all())
+        coincident = find_coincident_observations(observations)
+        self.assertEqual(len(coincident), 1)
+        self.assertEqual(coincident["satellite"].iloc[0], "LEO")
+        self.assertEqual(coincident["radar_station"].iloc[0], "KXXX")
+        self.assertEqual(coincident["instrument"].iloc[0], "wide")
+        self.assertLessEqual(coincident["start"].iloc[0], self.times[60])
+        self.assertGreaterEqual(coincident["end"].iloc[0], self.times[60])
 
     def test_collect_footprints_arguments(self):
         """
@@ -212,7 +248,7 @@ class TestFootprints(IssConstellationTestCase):
         tower_pixels = pixels[pixels["surface_platform"] == "Tower"]
         self.assertTrue(tower_pixels.within(footprint.buffer(1e-9)).all())
         # each pixel's elevation angle is below the zenith
-        self.assertTrue((tower_pixels["surface_platform_alt"] < 90).all())
+        self.assertTrue((tower_pixels["platform_alt"] < 90).all())
         # without times, the pixels of a fixed platform are static and valid
         static = collect_footprints(self.tower, pixels=True)
         self.assertNotIn("time", static.columns)
@@ -225,11 +261,11 @@ class TestFootprints(IssConstellationTestCase):
         """
         satellite = self.leo.model_copy(update={"instruments": [_camera("pixels")]})
         pixels = collect_ground_pixels(
-            satellite, self.times[:2], sat_altaz=True, solar_altaz=True
+            satellite, self.times[:2], platform_altaz=True, solar_altaz=True
         )
         self.assertEqual(len(pixels), 2 * 6)
         # the angles are seen from each pixel, not shared at each time
-        self.assertTrue((pixels.groupby("time")["sat_alt"].nunique() > 1).all())
+        self.assertTrue((pixels.groupby("time")["platform_alt"].nunique() > 1).all())
         self.assertTrue(pixels["glint_angle"].notna().all())
 
     def test_dissolve_footprints(self):

@@ -459,14 +459,10 @@ class TestPlatformAnalysis(IssConstellationTestCase):
         for an upward view, and NaN for an empty footprint.
         """
         results = collect_surface_track(
-            self.platform, instrument_index=None, surface_platform_altaz=True
+            self.platform, instrument_index=None, platform_altaz=True
         )
-        np.testing.assert_allclose(
-            results["surface_platform_alt"], [90.0, 30.0], atol=0.01
-        )
-        self.assertAlmostEqual(
-            results["surface_platform_az"].iloc[1], 225.0, delta=0.01
-        )
+        np.testing.assert_allclose(results["platform_alt"], [90.0, 30.0], atol=0.01)
+        self.assertAlmostEqual(results["platform_az"].iloc[1], 225.0, delta=0.01)
         upward = self.platforms[1].model_copy(
             update={
                 "instruments": [
@@ -480,17 +476,15 @@ class TestPlatformAnalysis(IssConstellationTestCase):
             }
         )
         above = collect_surface_track(
-            upward, instrument_index=None, elevation=2340, surface_platform_altaz=True
+            upward, instrument_index=None, elevation=2340, platform_altaz=True
         )
-        self.assertAlmostEqual(above["surface_platform_alt"].iloc[0], -90.0, delta=0.01)
+        self.assertAlmostEqual(above["platform_alt"].iloc[0], -90.0, delta=0.01)
         # the nadir view of a target above is blocked by the ground
         self.assertFalse(above["valid_obs"].iloc[1])
-        self.assertTrue(
-            above[["surface_platform_alt", "surface_platform_az"]].iloc[1].isna().all()
-        )
-        empty = collect_surface_track([], surface_platform_altaz=True)
+        self.assertTrue(above[["platform_alt", "platform_az"]].iloc[1].isna().all())
+        empty = collect_surface_track([], platform_altaz=True)
         self.assertTrue(empty.empty)
-        self.assertIn("surface_platform_alt", empty.columns)
+        self.assertIn("platform_alt", empty.columns)
 
     def test_compute_surface_track_dissolves(self):
         """
@@ -534,7 +528,7 @@ class TestPlatformAnalysis(IssConstellationTestCase):
             platform,
             times,
             instrument_index=None,
-            surface_platform_altaz=True,
+            platform_altaz=True,
             solar_altaz=True,
         )
         self.assertListEqual(
@@ -553,13 +547,13 @@ class TestPlatformAnalysis(IssConstellationTestCase):
         self.assertGreater(track["solar_alt"].iloc[0], 60)
         self.assertLess(track["solar_alt"].iloc[2], 0)
         static = collect_surface_track(
-            platform, instrument_index=None, surface_platform_altaz=True
+            platform, instrument_index=None, platform_altaz=True
         )
         for i in range(2):
             self.assertTrue(track.geometry.iloc[i].equals(static.geometry.iloc[i]))
             self.assertAlmostEqual(
-                track["surface_platform_alt"].iloc[i],
-                static["surface_platform_alt"].iloc[i],
+                track["platform_alt"].iloc[i],
+                static["platform_alt"].iloc[i],
             )
         # the coverage of valid observations at any time
         self.assertEqual(len(compute_surface_track(platform, times[1:], None)), 1)

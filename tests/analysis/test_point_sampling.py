@@ -971,17 +971,17 @@ class TestCoverageAnalysis(IssConstellationTestCase):
     def test_aggregate_observations_drops_per_observation_columns(self):
         """
         Test that per-observation columns that lose their meaning once
-        merged across satellites (sat_alt, sat_az, sat_sunlit, solar_alt,
+        merged across satellites (platform_alt, platform_az, sat_sunlit, solar_alt,
         solar_az, solar_time) are dropped, even if present on the input.
         """
         t0 = datetime(2022, 6, 1, tzinfo=timezone.utc)
         record = self._make_observation(0, "A", "Test", t0, t0 + timedelta(minutes=10))
-        record["sat_alt"] = 45.0
-        record["sat_az"] = 180.0
+        record["platform_alt"] = 45.0
+        record["platform_az"] = 180.0
         record["solar_alt"] = 10.0
         observations = gpd.GeoDataFrame([record], crs="EPSG:4326")
         results = aggregate_observations(observations)
-        for column in ("sat_alt", "sat_az", "solar_alt"):
+        for column in ("platform_alt", "platform_az", "solar_alt"):
             self.assertNotIn(column, results.columns)
 
     def test_aggregate_observations(self):
@@ -1350,7 +1350,7 @@ class TestCollectObservationsGeometry(IssConstellationTestCase):
             self.start,
             self.end,
         )
-        columns = ["start", "end", "epoch", "sat_alt", "sat_az"]
+        columns = ["start", "end", "epoch", "platform_alt", "platform_az"]
         self.assertGreater(len(expected.index), 0)
         pd.testing.assert_frame_equal(expected[columns], actual[columns])
 
@@ -1601,7 +1601,7 @@ class TestGrazingPasses(unittest.TestCase):
             self.point, self.satellite, self.start, self.start + timedelta(days=1)
         )
         self.assertEqual(len(observations), 1)
-        self.assertTrue((observations.sat_alt > 0).all())
+        self.assertTrue((observations.platform_alt > 0).all())
 
 
 class TestBatchObservations(unittest.TestCase):

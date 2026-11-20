@@ -44,8 +44,8 @@ def _get_empty_coverage_frame(omit_solar: bool) -> gpd.GeoDataFrame:
         "start": pd.Series([], dtype="datetime64[ns, utc]"),
         "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
         "end": pd.Series([], dtype="datetime64[ns, utc]"),
-        "sat_alt": pd.Series(dtype="float"),
-        "sat_az": pd.Series(dtype="float"),
+        "platform_alt": pd.Series(dtype="float"),
+        "platform_az": pd.Series(dtype="float"),
     }
     if not omit_solar:
         columns = {
@@ -133,9 +133,9 @@ def _build_observation_frame(
         orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track(gdf.epoch.tolist())
     ts = orbit_track.t
     # append satellite altitude/azimuth columns
-    sat_altaz = (orbit_track - topos.at(ts)).altaz()
-    gdf["sat_alt"] = sat_altaz[0].degrees  # type: ignore
-    gdf["sat_az"] = sat_altaz[1].degrees  # type: ignore
+    altaz = (orbit_track - topos.at(ts)).altaz()
+    gdf["platform_alt"] = altaz[0].degrees  # type: ignore
+    gdf["platform_az"] = altaz[1].degrees  # type: ignore
     if not omit_solar:
         # append satellite sunlit column
         gdf["sat_sunlit"] = orbit_track.is_sunlit(de421)

@@ -308,27 +308,27 @@ class TestAirborneTrack(unittest.TestCase):
         data = straight_trajectory(n=5, roll=10.0, track=0.0)
         results = collect_airborne_ground_track(
             _aircraft(data, [Instrument(field_of_regard=10.0)]),
-            aircraft_altaz=True,
+            platform_altaz=True,
             solar_altaz=True,
         )
         for column in (
-            "aircraft_alt",
-            "aircraft_az",
+            "platform_alt",
+            "platform_az",
             "solar_alt",
             "solar_az",
             "glint_angle",
         ):
             self.assertIn(column, results.columns)
         # a generic instrument observes about nadir: the aircraft is overhead
-        np.testing.assert_allclose(results["aircraft_alt"], 90.0, atol=1e-3)
+        np.testing.assert_allclose(results["platform_alt"], 90.0, atol=1e-3)
         self.assertTrue(
             ((results["solar_alt"] > 0) & (results["solar_alt"] < 90)).all()
         )
-        rolled = collect_airborne_ground_track(_aircraft(data), aircraft_altaz=True)
+        rolled = collect_airborne_ground_track(_aircraft(data), platform_altaz=True)
         # rolled right wing down, the scan centers to the left (west) of a
         # northward track, from which the aircraft is seen to the east
-        np.testing.assert_allclose(rolled["aircraft_alt"], 80.0, atol=0.05)
-        np.testing.assert_allclose(rolled["aircraft_az"], 90.0, atol=0.5)
+        np.testing.assert_allclose(rolled["platform_alt"], 80.0, atol=0.05)
+        np.testing.assert_allclose(rolled["platform_az"], 90.0, atol=0.5)
 
     def test_compute(self):
         """
@@ -440,14 +440,14 @@ class TestAirborneTrack(unittest.TestCase):
             3000.0,
         )
         above = collect_airborne_ground_track(
-            aircraft, elevation=9000.0, aircraft_altaz=True, solar_altaz=True
+            aircraft, elevation=9000.0, platform_altaz=True, solar_altaz=True
         )
         self.assertFalse(above["valid_obs"].any())
         self.assertTrue(above.geometry.is_empty.all())
         # without a footprint, the angles at its center are not defined
         for column in (
-            "aircraft_alt",
-            "aircraft_az",
+            "platform_alt",
+            "platform_az",
             "solar_alt",
             "solar_az",
             "glint_angle",

@@ -112,8 +112,8 @@ def _get_empty_latency_frame() -> gpd.GeoDataFrame:
         "geometry": pd.Series([], dtype="object"),
         "satellite": pd.Series([], dtype="str"),
         "instrument": pd.Series([], dtype="str"),
-        "sat_alt": pd.Series([], dtype="float"),
-        "sat_az": pd.Series([], dtype="float"),
+        "platform_alt": pd.Series([], dtype="float"),
+        "platform_az": pd.Series([], dtype="float"),
         "station": pd.Series([], dtype="str"),
         "downlinked": pd.Series([], dtype="datetime64[ns, utc]"),
         "latency": pd.Series([], dtype="timedelta64[ns]"),
@@ -156,8 +156,8 @@ def compute_latencies(
         - 'geometry' (geometry): Geometry representing the observation point.
         - 'satellite' (object): Name or identifier of the satellite.
         - 'instrument' (object): Name or identifier of the instrument.
-        - 'sat_alt' (float64): Altitude of the satellite at the time of observation.
-        - 'sat_az' (float64): Azimuth of the satellite at the time of observation.
+        - 'platform_alt' (float64): Altitude of the satellite at the time of observation.
+        - 'platform_az' (float64): Azimuth of the satellite at the time of observation.
         - 'station' (object): Name or identifier of the ground station for downlink.
         - 'downlinked' (datetime64[ns, UTC]): Timestamp when the observation data was downlinked.
         - 'latency' (timedelta64[ns]): Latency between observation and downlink.
@@ -226,8 +226,8 @@ def compute_latencies(
             "geometry",
             "satellite",
             "instrument",
-            "sat_alt",
-            "sat_az",
+            "platform_alt",
+            "platform_az",
             "station",
             "downlinked",
             "latency",

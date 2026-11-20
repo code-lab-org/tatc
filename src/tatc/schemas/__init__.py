@@ -42,10 +42,17 @@ from .surface import (
     TerrainMask,
 )
 
+AllPlatforms = Satellite | Aircraft | SurfacePlatform | RadarStation
+"""
+Observing platforms: satellites, aircraft, fixed surface platforms, and
+radar stations (see `tatc.analysis.collect_footprints`).
+"""
+
 __all__ = [
     "Aircraft",
     "AllInstruments",
     "AllOrbits",
+    "AllPlatforms",
     "AllSpaceObjects",
     "AllSurfaceObjects",
     "Architecture",

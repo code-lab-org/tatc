@@ -230,7 +230,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
 
     def test_compute_latency_columns_present_and_correct(self):
         """
-        Regression test: `sat_alt`/`sat_az`/`station` must survive
+        Regression test: `platform_alt`/`platform_az`/`station` must survive
         `compute_latencies` with their real values -- these columns are
         never suffixed by the underlying `merge_asof` (each exists in only
         one of `observations`/`downlinks`), unlike `epoch`/`geometry`
@@ -250,10 +250,10 @@ class TestLatencyAnalysis(IssConstellationTestCase):
             datetime(2022, 6, 10, tzinfo=timezone.utc),
         )
         results = compute_latencies(observations, downlinks)
-        self.assertIn("sat_alt", results.columns)
-        self.assertIn("sat_az", results.columns)
+        self.assertIn("platform_alt", results.columns)
+        self.assertIn("platform_az", results.columns)
         self.assertIn("station", results.columns)
-        for column in ("sat_alt", "sat_az"):
+        for column in ("platform_alt", "platform_az"):
             self.assertTrue((results[column] == observations[column]).all())
         matched = results.station.notna()
         self.assertTrue(matched.any())
@@ -299,8 +299,8 @@ class TestLatencyAnalysis(IssConstellationTestCase):
                     "start": pd.Timestamp("2022-06-01T10:00", tz="UTC"),
                     "epoch": pd.Timestamp("2022-06-01T10:01", tz="UTC"),
                     "end": pd.Timestamp("2022-06-01T10:02", tz="UTC"),
-                    "sat_alt": 45.0,
-                    "sat_az": 90.0,
+                    "platform_alt": 45.0,
+                    "platform_az": 90.0,
                 },
                 {
                     "target_hash": 0,
@@ -310,8 +310,8 @@ class TestLatencyAnalysis(IssConstellationTestCase):
                     "start": pd.Timestamp("2022-06-01T20:00", tz="UTC"),
                     "epoch": pd.Timestamp("2022-06-01T20:01", tz="UTC"),
                     "end": pd.Timestamp("2022-06-01T20:02", tz="UTC"),
-                    "sat_alt": 30.0,
-                    "sat_az": 100.0,
+                    "platform_alt": 30.0,
+                    "platform_az": 100.0,
                 },
             ],
             crs="EPSG:4326",
@@ -351,8 +351,8 @@ class TestLatencyAnalysis(IssConstellationTestCase):
             "start": t_0 + pd.Timedelta(minutes=start),
             "epoch": t_0 + pd.Timedelta(minutes=epoch),
             "end": t_0 + pd.Timedelta(minutes=end),
-            "sat_alt": 45.0,
-            "sat_az": 90.0,
+            "platform_alt": 45.0,
+            "platform_az": 90.0,
         }
 
     @staticmethod

@@ -77,7 +77,7 @@ class TestSampleSizes(unittest.TestCase):
         np.testing.assert_allclose(sizes.spacing_along, sizes.sample_along)
         self.assertTrue((sizes.scan_angle.abs() <= 105.6 / 2 + 0.1).all())
         # the slant range is at least the satellite's altitude
-        self.assertTrue((sizes.sat_range > 800e3).all())
+        self.assertTrue((sizes.platform_range > 800e3).all())
 
     def test_instrument_without_pixels(self):
         """
@@ -91,7 +91,7 @@ class TestSampleSizes(unittest.TestCase):
         self.assertGreater(len(sizes), 0)
         self.assertTrue(sizes.sample_along.isna().all())
         self.assertTrue(sizes.spacing_cross.isna().all())
-        self.assertTrue(sizes.sat_range.notna().all())
+        self.assertTrue(sizes.platform_range.notna().all())
         self.assertTrue(sizes.scan_angle.notna().all())
 
     def test_feature_observations(self):
@@ -124,7 +124,9 @@ class TestSampleSizes(unittest.TestCase):
         observations = collect_feature_observations(features, satellite, times)
         sizes = compute_sample_sizes(observations, satellite)
         self.assertGreater(len(sizes), 0)
-        np.testing.assert_allclose(sizes.sat_range, observations.sat_range, rtol=1e-9)
+        np.testing.assert_allclose(
+            sizes.platform_range, observations.platform_range, rtol=1e-9
+        )
         self.assertTrue((sizes.sample_cross > 0).all())
 
     def test_unknown_satellite(self):
