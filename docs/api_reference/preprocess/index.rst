@@ -96,3 +96,13 @@ Instrument from Sensor
 ----------------------
 
 .. autofunction:: tatc.preprocess.instrument_from_sensor
+
+Trajectory from Waypoints
+-------------------------
+
+.. autofunction:: tatc.preprocess.trajectory_from_waypoints
+
+Aircraft from HyPlan
+--------------------
+
+.. autofunction:: tatc.preprocess.aircraft_from_hyplan

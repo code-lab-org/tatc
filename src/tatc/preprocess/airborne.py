@@ -4,13 +4,17 @@ states of a `tatc.schemas.Trajectory` and the `tatc.schemas.PointedInstrument`
 of a sensor) from flight plans, flight recordings, and sensor models, such as
 those of HyPlan (https://github.com/ryanpavlick/hyplan, installed with
 `pip install tatc[airborne]`). These utilities read HyPlan's outputs (data
-frames and sensor objects) without importing it.
+frames, aircraft, and sensor objects) without importing it: HyPlan catalogs
+aircraft (their performance) and sensors, so TAT-C adapts them rather than
+cataloging its own (see `aircraft_from_hyplan` and
+`trajectory_from_waypoints`).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -18,7 +22,8 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-from ..schemas import PointedInstrument
+from .._warnings import warn
+from ..schemas import Aircraft, PointedInstrument, Trajectory
 from ..schemas.air.trajectory import (
     _TIME_TOLERANCE,
     _get_radius_of_curvature,
@@ -456,4 +461,136 @@ def _get_along_track_field_of_view(sensor: Any) -> float:
     raise ValueError(
         f"the along-track field of view of sensor {getattr(sensor, 'name', '')!r} "
         "is unknown: give along_track_field_of_view"
+    )
+
+
+def _to_quantity(like: Any, value: float, unit: str) -> Any:
+    """
+    Creates a quantity of the unit registry of another quantity (as of a HyPlan
+    aircraft), without importing it.
+
+    Args:
+        like (Any): A quantity of the registry.
+        value (float): The magnitude.
+        unit (str): The unit.
+
+    Returns:
+        Any: the quantity
+    """
+    return like.__class__(value, unit)
+
+
+def trajectory_from_waypoints(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    aircraft: Any,
+    waypoints: Sequence[tuple[float, float]],
+    start: datetime,
+    altitude: float,
+    geoid_height: float | None = None,
+    time_step: timedelta = timedelta(seconds=1),
+) -> Trajectory:
+    """
+    Gets the trajectory of an aircraft of HyPlan (such as `hyplan.NASA_P3()`)
+    flying through waypoints at its cruise speed at an altitude, for a study
+    without a flight plan (see `tatc.schemas.Trajectory.from_waypoints`, and,
+    for a flight plan with climbs, descents, and turns, `sample_flight_plan`):
+    its ground speed is the aircraft's true airspeed at the altitude
+    (`cruise_speed_at`), without wind. An altitude above the aircraft's service
+    ceiling is an error, and a flight longer than its endurance or range is
+    warned of.
+
+    Args:
+        aircraft (Any): The aircraft.
+        waypoints (Sequence[tuple[float, float]]): The waypoints, as (longitude,
+            latitude) pairs (decimal degrees).
+        start (datetime.datetime): The time (timezone-aware) at the first
+            waypoint.
+        altitude (float): The altitude (meters above mean sea level, as HyPlan
+            gives altitudes).
+        geoid_height (float | None): The height (meters) of the geoid above the
+            WGS 84 ellipsoid with which to convert the altitude, or `None` (the
+            default) for the EGM2008 geoid at each waypoint (see
+            `tatc.utils.compute_geoid_height`).
+        time_step (datetime.timedelta): The time between states.
+
+    Returns:
+        Trajectory: the trajectory, at altitudes above the WGS 84 ellipsoid
+    """
+    ceiling = aircraft.service_ceiling.m_as("meter")
+    if altitude > ceiling:
+        raise ValueError(
+            f"altitude ({altitude:.0f} m) is above the service ceiling of "
+            f"{aircraft.aircraft_type} ({ceiling:.0f} m)"
+        )
+    speed = aircraft.cruise_speed_at(
+        _to_quantity(aircraft.service_ceiling, altitude, "meter")
+    ).m_as("meter / second")
+    points = np.asarray(waypoints, dtype=float)[:, :2]
+    if geoid_height is None:
+        geoid = np.asarray(compute_geoid_height(points[:, 0], points[:, 1]))
+    else:
+        geoid = np.full(len(points), geoid_height)
+    trajectory = Trajectory.from_waypoints(
+        [tuple(point) for point in points],
+        start=start,
+        speed=float(speed),
+        altitude=list(altitude + geoid),
+        time_step=time_step,
+    )
+    duration = (trajectory.time[-1] - trajectory.time[0]).total_seconds()
+    distance = duration * float(speed)
+    endurance = getattr(aircraft, "endurance", None)
+    if endurance is not None and duration > endurance.m_as("second"):
+        warn(
+            f"the flight ({duration / 3600:.1f} h) is longer than the endurance "
+            f"of {aircraft.aircraft_type} ({endurance.m_as('hour'):.1f} h)"
+        )
+    range_ = getattr(aircraft, "range", None)
+    if range_ is not None and distance > range_.m_as("meter"):
+        warn(
+            f"the flight ({distance / 1e3:.0f} km) is longer than the range of "
+            f"{aircraft.aircraft_type} ({range_.m_as('kilometer'):.0f} km)"
+        )
+    return trajectory
+
+
+def aircraft_from_hyplan(
+    aircraft: Any,
+    trajectory: Trajectory,
+    sensors: Sequence[Any] = (),
+    name: str | None = None,
+) -> Aircraft:
+    """
+    Gets the `tatc.schemas.Aircraft` of an aircraft of HyPlan (such as
+    `hyplan.NASA_P3()`) flying a trajectory (see `trajectory_from_waypoints`,
+    or `sample_flight_plan` with `tatc.schemas.Trajectory.from_dataframe`) with
+    the instruments of HyPlan's sensors (see `instrument_from_sensor`). The
+    performance of an aircraft whose model HyPlan has not calibrated (its
+    `calibration_status`) is warned of, as it sets the speeds of trajectories.
+
+    Args:
+        aircraft (Any): The aircraft.
+        trajectory (Trajectory): The trajectory.
+        sensors (Sequence[Any]): The sensors (such as
+            `[hyplan.create_sensor("HyTES")]`), or none for TAT-C's default
+            instrument.
+        name (str | None): The aircraft's name. Defaults to its type and tail
+            number (such as "P-3 Orion (NASA 426)").
+
+    Returns:
+        Aircraft: the aircraft
+    """
+    if name is None:
+        name = f"{aircraft.aircraft_type} ({aircraft.tail_number})"
+    status = getattr(aircraft, "calibration_status", "calibrated")
+    if status != "calibrated":
+        warn(
+            f"HyPlan's performance model of {aircraft.aircraft_type} is "
+            f"{status}, so its speeds may differ from the aircraft's"
+        )
+    if not sensors:
+        return Aircraft(name=name, trajectory=trajectory)
+    return Aircraft(
+        name=name,
+        trajectory=trajectory,
+        instruments=[instrument_from_sensor(sensor) for sensor in sensors],
     )
