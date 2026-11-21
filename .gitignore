@@ -168,3 +168,4 @@ cython_debug/
 
 # written by docs/validation/catalog_page.py on each build
 docs/validation/catalog.rst
+docs/validation/systems.rst

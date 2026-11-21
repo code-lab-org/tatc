@@ -82,7 +82,7 @@ def render_configuration(entry, key: str) -> str:
     configuration = entry.configurations[key]
     validation = entry.validation.configurations[key]
     record = validation.record
-    names = {platform.id: platform.name for platform in entry.platforms}
+    names = {spacecraft.id: spacecraft.name for spacecraft in entry.get_spacecraft()}
     default = " (default)" if key == entry.default_configuration else ""
     parts = [
         heading(f"``{key}``{default}", "-"),
@@ -223,7 +223,7 @@ def render_entry(entry) -> str:
                     str(p.norad_id),
                     f"{p.status} as of {p.as_of.isoformat()}",
                 ]
-                for p in entry.platforms
+                for p in entry.get_spacecraft()
             ],
             [40, 20, 40],
         )
@@ -280,7 +280,7 @@ def render() -> str:
                     f"{e.validation.configurations[key].tier.value})"
                     for key, c in e.configurations.items()
                 ),
-                ", ".join(p.name for p in e.platforms),
+                ", ".join(p.name for p in e.get_spacecraft()),
             ]
             for e in entries
         ],

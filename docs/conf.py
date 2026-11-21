@@ -40,6 +40,16 @@ _catalog_page.write_catalog_page(
     pathlib.Path(__file__).parent / "validation" / "catalog.rst"
 )
 
+# write the systems page from the catalog's systems and validation records
+_spec = importlib.util.spec_from_file_location(
+    "systems_page", pathlib.Path(__file__).parent / "validation" / "systems_page.py"
+)
+_systems_page = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_systems_page)
+_systems_page.write_systems_page(
+    pathlib.Path(__file__).parent / "validation" / "systems.rst"
+)
+
 
 # -- General configuration ---------------------------------------------------
 

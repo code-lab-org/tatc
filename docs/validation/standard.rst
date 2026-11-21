@@ -565,3 +565,100 @@ no threshold was loosened to pass one of them.
 The metric definitions of some earlier results differ from the gates (for example,
 in the percentile reported). Their entries will state values computed to the
 definitions here.
+
+.. _system-standard:
+
+System Standard
+===============
+
+The systems of :mod:`tatc.catalog` (satellite programs, radar networks, and
+surface networks, see :doc:`systems`) are held to a standard of their own
+(:mod:`tatc.catalog.system_standard`, version 1). Its grades are the uses a
+pre-phase A study makes of a baseline system, and its rules are those of the
+instrument standard: tiers are computed from results, values are tested on data
+held out at least 30 days from the data to which they were fitted, records state
+the digest of the configuration they tested, and thresholds are frozen before
+testing and change only with a new version. The thresholds of version 1 were
+checked only against the fitting data (each orbit against the element set from
+which it was fitted) before they were frozen.
+
+A system's spacecraft or stations are tested together: each gate takes the worst
+value over spacecraft, and a configuration not tested on every spacecraft is not
+validated. Each spacecraft's test is held out from its own fitting data.
+
+Satellite orbits
+----------------
+
+A cataloged orbit is idealized, so that it can be built for any period rather
+than aging as an element set does. The plane grade represents the statistics of
+revisits and coverage: the planes of the orbits, with arbitrary phases. The
+ground track grade also represents where, and to about a minute when, passes
+occur, for orbits that operators maintain on a repeat ground track
+(`RepeatGroundTrackOrbit`, pinned to an ascending node fitted as the middle of
+the nodes of element sets) and for geostationary orbits (maintained at a
+longitude). Satellites in low Earth orbit need the plane grade, and geostationary
+satellites the ground track grade. Metrics compare the cataloged orbit with the
+element sets of the test period: their mean elements (with TAT-C's mean
+altitude, from the mean motion), and their ascending nodes within 6 hours of each
+set's epoch (the set propagated with its own drag) with the nearest ascending
+node of the cataloged orbit.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 45 30
+
+   * - Grade (classes)
+     - Metric (95th percentile of absolute errors)
+     - Gate
+   * - Plane (sun-synchronous, inclined)
+     - Mean altitude; inclination
+     - ≤ 10 km; ≤ 0.1 deg
+   * - Plane (sun-synchronous)
+     - Local mean solar time of the ascending node
+     - ≤ 10 min
+   * - Ground track (sun-synchronous, inclined)
+     - The plane gates; node longitude (along the equator); node time
+     - ≤ 10 km; ≤ 60 s
+   * - Ground track (geostationary)
+     - Mean subpoint longitude over a day; inclination
+     - ≤ 0.1 deg; ≤ 0.1 deg
+
+The node time gate is a minute rather than the instrument standard's 3 seconds of
+epoch: an operator keeps a ground track within a band, while the local time of
+its node drifts within its own maintenance, and the error of a node's time and
+longitude are coupled through that local time (a minute of local time moves the
+node by about 28 km at the equator, unless the time compensates). Analyses that
+need passes to seconds should build orbits from current element sets, by each
+spacecraft's NORAD catalog number.
+
+Networks
+--------
+
+A network's stations are a dated snapshot (a table), whose positions and
+membership are tested against independent sources held out from the snapshot.
+Radar networks need the coverage grade, which also tests siting, and surface
+networks the siting grade. The radius of the area an in-situ instrument
+represents is an assumption (its provenance is a placeholder), not tested.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 45 30
+
+   * - Grade (classes)
+     - Metric
+     - Gate
+   * - Siting (radar networks)
+     - Horizontal position; antenna altitude (95th percentiles)
+     - ≤ 50 m; ≤ 5 m
+   * - Siting (surface networks)
+     - Horizontal position; ground elevation (95th percentiles)
+     - ≤ 100 m; ≤ 5 m
+   * - Siting (all networks)
+     - Recall (reporting stations in the table); precision (stations of the
+       table reporting), over the test period
+     - ≥ 98%; ≥ 98%
+   * - Coverage (radar networks)
+     - The siting gates; the lowest and highest scanned elevation angles and the
+       reflectivity range of sampled volumes of the configuration's volume
+       coverage patterns, against its own (95th percentiles)
+     - ≤ 0.2 deg; ≤ 1.0 deg; ≤ 5%

@@ -2,13 +2,14 @@
 Validation
 ==========
 
-The following compare TAT-C analysis results with reference data from operational missions, or with published studies. The :doc:`summary` collects their headline results by capability, with modeling guidance and the limits of what TAT-C models. The :doc:`catalog` gives instruments of operational missions, ready to use, with their results against the :doc:`standard`.
+The following compare TAT-C analysis results with reference data from operational missions, or with published studies. The :doc:`summary` collects their headline results by capability, with modeling guidance and the limits of what TAT-C models. The :doc:`catalog` gives instruments of operational missions, ready to use, with their results against the :doc:`standard`, and the :doc:`systems` gives the satellite programs, radar networks, and surface networks of baseline systems, with their results against the system standard.
 
 .. toctree::
   :maxdepth: 1
 
   summary
   catalog
+  systems
   standard
 
 The validation notebooks are grouped by capability, as in the :doc:`summary`. Those on instruments and pointing derive the configurations of several catalog entries and explain the modeling choices behind them; the entries' results on data held out from their fits are on the :doc:`catalog` page.

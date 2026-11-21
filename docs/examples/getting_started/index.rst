@@ -11,6 +11,9 @@ in order:
 #. :doc:`UseInstrumentCatalog`: take instruments of past and present missions
    from the catalog, with the attitude they were tested with, and read how
    well each was tested.
+#. :doc:`UseSystemCatalog`: build baseline systems (satellite programs, radar
+   networks, and surface networks) from the catalog for a pre-phase A study,
+   and adapt HyPlan's aircraft and sensors.
 #. :doc:`CollectOrbitGroundTrack`: collect the orbit and ground track of a
    satellite, with a requirement that targets be sunlit, and compare a
    detailed model of VIIRS with the simple one.
@@ -23,6 +26,7 @@ in order:
 
   CollectObservations.ipynb
   UseInstrumentCatalog.ipynb
+  UseSystemCatalog.ipynb
   CollectOrbitGroundTrack.ipynb
   ComputeCoverage.ipynb
   ComputeLatency.ipynb

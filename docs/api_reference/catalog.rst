@@ -1,9 +1,10 @@
-Instrument Catalog
-==================
+Catalog
+=======
 
 .. automodule:: tatc.catalog
 
-The entries and their results are listed in :doc:`/validation/catalog`.
+The instrument entries and their results are listed in
+:doc:`/validation/catalog`, and the systems in :doc:`/validation/systems`.
 
 Entries
 -------
@@ -19,6 +20,31 @@ Entries
 .. autopydantic_model:: tatc.catalog.InstrumentEntry
 
 .. autoclass:: tatc.catalog.InstrumentPayload
+   :members:
+
+Systems
+-------
+
+.. autofunction:: tatc.catalog.get_system
+
+.. autofunction:: tatc.catalog.get_system_ids
+
+.. autofunction:: tatc.catalog.list_systems
+
+.. autofunction:: tatc.catalog.get_spacecraft
+
+.. autofunction:: tatc.catalog.get_spacecraft_system
+
+.. autofunction:: tatc.catalog.get_instrument_ids
+
+.. autopydantic_model:: tatc.catalog.SystemEntry
+
+.. autopydantic_model:: tatc.catalog.Spacecraft
+
+.. autoclass:: tatc.catalog.SystemClass
+   :members:
+
+.. autoclass:: tatc.catalog.SystemGrade
    :members:
 
 Validation Status
@@ -63,6 +89,22 @@ The schemas of the files of entries.
 
 .. autopydantic_model:: tatc.catalog.schemas.Occultation
 
+The schemas of the files of systems.
+
+.. autopydantic_model:: tatc.catalog.system_schemas.OrbitConfiguration
+
+.. autopydantic_model:: tatc.catalog.system_schemas.RadarConfiguration
+
+.. autopydantic_model:: tatc.catalog.system_schemas.SurfaceConfiguration
+
+.. autopydantic_model:: tatc.catalog.system_schemas.SunSynchronousPlane
+
+.. autopydantic_model:: tatc.catalog.system_schemas.InclinedPlane
+
+.. autopydantic_model:: tatc.catalog.system_schemas.GeostationarySlot
+
+.. autopydantic_model:: tatc.catalog.system_schemas.StationTable
+
 Records
 -------
 
@@ -85,3 +127,9 @@ Metrics
 
 .. automodule:: tatc.catalog.metrics
    :members:
+
+System Standard
+---------------
+
+.. automodule:: tatc.catalog.system_standard
+   :members: SYSTEM_STANDARD_VERSION, COMPATIBLE_SYSTEM_VERSIONS, get_system_gates, get_required_system_grades, serves_system, evaluate_system
