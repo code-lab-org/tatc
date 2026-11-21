@@ -22,10 +22,14 @@ from ..schemas.orbit import AllOrbits
 from ..schemas.space.base import AllAttitudes
 from .schemas import InstrumentEntry, InstrumentPayload
 from .standard import Grade, InstrumentClass, Tier
+from .system_schemas import Spacecraft, SystemEntry
+from .system_standard import SystemClass
 
 _RESOURCES = pathlib.Path(__file__).parents[1] / "resources"
 _ENTRIES = _RESOURCES / "instruments"
 _RECORDS = _RESOURCES / "validation"
+_SYSTEMS = _RESOURCES / "systems"
+_SYSTEM_RECORDS = _RECORDS / "systems"
 
 
 def get_entry_ids() -> list[str]:
@@ -57,7 +61,13 @@ def _load_entry(entry_id: str) -> InstrumentEntry:
     if record_path.exists():
         with open(record_path, "r", encoding="utf-8") as f:
             data["record"] = json.load(f)
-    return InstrumentEntry(**data)
+    entry = InstrumentEntry(**data)
+    unknown = sorted(set(entry.platforms) - set(_get_spacecraft_systems()))
+    if unknown:
+        raise ValueError(
+            f"entry {entry_id!r} lists platforms {unknown} of no catalog system"
+        )
+    return entry
 
 
 def get_entry(entry_id: str) -> InstrumentEntry:
@@ -205,3 +215,167 @@ def build_payload(
             dict.fromkeys(text for payload in payloads for text in payload.limitations)
         ),
     )
+
+
+def get_system_ids() -> list[str]:
+    """
+    Gets the identifiers of the catalog's systems.
+
+    Returns:
+        list[str]: The sorted identifiers.
+    """
+    return sorted(path.stem for path in _SYSTEMS.glob("*.yml"))
+
+
+@functools.lru_cache(maxsize=None)
+def _load_system(system_id: str) -> SystemEntry:
+    """
+    Loads a system and its validation record, if any, from files.
+
+    Args:
+        system_id (str): The identifier of the system.
+
+    Returns:
+        SystemEntry: The system, which callers must not modify.
+    """
+    with open(_SYSTEMS / f"{system_id}.yml", "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    if data.get("id") != system_id:
+        raise ValueError(f"the file of system {system_id!r} has id {data.get('id')!r}")
+    record_path = _SYSTEM_RECORDS / f"{system_id}.json"
+    if record_path.exists():
+        with open(record_path, "r", encoding="utf-8") as f:
+            data["record"] = json.load(f)
+    return SystemEntry(**data)
+
+
+def get_system(system_id: str) -> SystemEntry:
+    """
+    Gets a catalog system by its identifier or one of its aliases (ignoring
+    case).
+
+    Args:
+        system_id (str): The identifier or alias.
+
+    Returns:
+        SystemEntry: A copy of the system.
+
+    Raises:
+        KeyError: If there is no such system.
+    """
+    wanted = system_id.casefold()
+    for candidate in get_system_ids():
+        if wanted == candidate:
+            return _load_system(candidate).model_copy(deep=True)
+    for candidate in get_system_ids():
+        entry = _load_system(candidate)
+        if wanted in (name.casefold() for name in (entry.name, *entry.aliases)):
+            return entry.model_copy(deep=True)
+    raise KeyError(f"no catalog system {system_id!r}: {get_system_ids()}")
+
+
+def list_systems(
+    system_class: SystemClass | str | None = None,
+    tier: Tier | str | None = None,
+) -> list[SystemEntry]:
+    """
+    Lists catalog systems, optionally of one class or validation tier.
+
+    Args:
+        system_class (SystemClass | str | None): The class, if any.
+        tier (Tier | str | None): The validation tier, if any.
+
+    Returns:
+        list[SystemEntry]: Copies of the systems, sorted by identifier.
+    """
+    wanted_class = None if system_class is None else SystemClass(system_class)
+    wanted_tier = None if tier is None else Tier(tier)
+    return [
+        entry
+        for entry in map(get_system, get_system_ids())
+        if (wanted_class is None or entry.system_class == wanted_class)
+        and (wanted_tier is None or entry.validation.tier == wanted_tier)
+    ]
+
+
+@functools.lru_cache(maxsize=None)
+def _get_spacecraft_systems() -> dict[str, str]:
+    """
+    Gets the system of each spacecraft, by the spacecraft's identifier.
+
+    Returns:
+        dict[str, str]: The identifiers of the systems.
+
+    Raises:
+        ValueError: If a spacecraft belongs to several systems.
+    """
+    systems: dict[str, str] = {}
+    for system_id in get_system_ids():
+        for spacecraft in _load_system(system_id).spacecraft:
+            if spacecraft.id in systems:
+                raise ValueError(
+                    f"spacecraft {spacecraft.id!r} belongs to systems "
+                    f"{systems[spacecraft.id]!r} and {system_id!r}"
+                )
+            systems[spacecraft.id] = system_id
+    return systems
+
+
+def get_spacecraft(spacecraft_id: str) -> Spacecraft:
+    """
+    Gets a spacecraft of a catalog system, which instrument entries list by
+    identifier.
+
+    Args:
+        spacecraft_id (str): The identifier of the spacecraft.
+
+    Returns:
+        Spacecraft: The spacecraft.
+
+    Raises:
+        KeyError: If no system has such a spacecraft.
+    """
+    systems = _get_spacecraft_systems()
+    if spacecraft_id not in systems:
+        raise KeyError(f"no catalog spacecraft {spacecraft_id!r}")
+    return _load_system(systems[spacecraft_id]).get_spacecraft(spacecraft_id)
+
+
+def get_spacecraft_system(spacecraft_id: str) -> str:
+    """
+    Gets the system of a spacecraft.
+
+    Args:
+        spacecraft_id (str): The identifier of the spacecraft.
+
+    Returns:
+        str: The identifier of its system.
+
+    Raises:
+        KeyError: If no system has such a spacecraft.
+    """
+    systems = _get_spacecraft_systems()
+    if spacecraft_id not in systems:
+        raise KeyError(f"no catalog spacecraft {spacecraft_id!r}")
+    return systems[spacecraft_id]
+
+
+def get_instrument_ids(spacecraft_id: str, *, soundings: bool = True) -> list[str]:
+    """
+    Gets the instrument catalog's entries that list a spacecraft.
+
+    Args:
+        spacecraft_id (str): The identifier of the spacecraft.
+        soundings (bool): Whether to include limb sounders and radio occultation
+            receivers, whose configurations hold a sounding.
+
+    Returns:
+        list[str]: The identifiers of the entries, sorted.
+    """
+    sounders = (InstrumentClass.LIMB, InstrumentClass.OCCULTATION)
+    return [
+        entry_id
+        for entry_id in get_entry_ids()
+        if spacecraft_id in _load_entry(entry_id).platforms
+        and (soundings or _load_entry(entry_id).instrument_class not in sounders)
+    ]

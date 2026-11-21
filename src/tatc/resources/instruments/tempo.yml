@@ -3,12 +3,7 @@ name: TEMPO
 aliases: [Tropospheric Emissions Monitoring of Pollution]
 instrument_class: geostationary_regional
 selection: Geostationary ultraviolet and visible imaging spectrometer that measures air quality over North America about hourly in daylight, hosted on Intelsat 40e, with open data products.
-platforms:
-  - id: intelsat-40e
-    name: Intelsat 40e
-    norad_id: 56174
-    status: operational
-    as_of: 2026-11-09
+platforms: [intelsat-40e]
 data_products:
   - name: TEMPO geolocated Earth radiances (TEMPO_RAD_L1), version V04
     provider: NASA Langley ASDC

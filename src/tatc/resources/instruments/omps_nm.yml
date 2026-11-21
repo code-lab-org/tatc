@@ -3,22 +3,7 @@ name: OMPS Nadir Mapper
 aliases: [Ozone Mapping and Profiler Suite Nadir Mapper, OMPS NM, OMPS total column]
 instrument_class: pushbroom
 selection: Ultraviolet imaging spectrometer that maps total column ozone each day, on the operational JPSS satellites, with open data products.
-platforms:
-  - id: noaa-21
-    name: NOAA-21
-    norad_id: 54234
-    status: operational
-    as_of: 2026-11-09
-  - id: noaa-20
-    name: NOAA-20
-    norad_id: 43013
-    status: operational
-    as_of: 2026-11-09
-  - id: suomi-npp
-    name: Suomi NPP
-    norad_id: 37849
-    status: retired
-    as_of: 2026-11-02
+platforms: [noaa-21, noaa-20, suomi-npp]
 data_products:
   - name: OMPS Nadir Mapper total column geolocation (OMPS-TC-GEO)
     provider: NOAA Open Data Dissemination

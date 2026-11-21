@@ -54,7 +54,10 @@ target-version = ["py310"]
     "resources/*.npz",
     "resources/*.yml",
     "resources/instruments/*.yml",
+    "resources/systems/*.yml",
+    "resources/systems/tables/*.csv",
     "resources/validation/*.json",
+    "resources/validation/systems/*.json",
 ]
 
 [tool.pylint.main]

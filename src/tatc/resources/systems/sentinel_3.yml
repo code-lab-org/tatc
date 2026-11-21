@@ -1,0 +1,44 @@
+id: sentinel_3
+name: Copernicus Sentinel-3
+aliases: [Sentinel-3]
+system_class: sun_synchronous
+selection: Europe's ocean and land color, temperature, and altimetry constellation.
+operator: ESA and EUMETSAT
+spacecraft:
+  - id: sentinel-3a
+    name: Sentinel-3A
+    norad_id: 41335
+    status: operational
+    as_of: 2026-11-04
+  - id: sentinel-3b
+    name: Sentinel-3B
+    norad_id: 43437
+    status: operational
+    as_of: 2026-11-17
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      sentinel-3a: {type: sso, mean_altitude: 809790, equator_crossing_time: "22:00:26"}
+      sentinel-3b: {type: sso, mean_altitude: 809790, equator_crossing_time: "22:01:02"}
+    provenance:
+      sentinel-3a:
+        mean_altitude: &sentinel_3a
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-3a]
+          period: "2026-11-04"
+        equator_crossing_time: *sentinel_3a
+      sentinel-3b:
+        mean_altitude: &sentinel_3b
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-3b]
+          period: "2026-11-15"
+        equator_crossing_time: *sentinel_3b
+    limitations:
+      - The satellites' phases in their planes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

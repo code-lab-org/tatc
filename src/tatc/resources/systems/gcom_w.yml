@@ -1,0 +1,31 @@
+id: gcom_w
+name: Global Change Observation Mission - Water
+aliases: [GCOM-W, Shizuku]
+system_class: sun_synchronous
+selection: Japan's microwave imaging mission, in the afternoon constellation.
+operator: JAXA
+spacecraft:
+  - id: gcom-w
+    name: GCOM-W
+    norad_id: 38337
+    status: operational
+    as_of: 2026-11-01
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      gcom-w: {type: sso, mean_altitude: 709640, equator_crossing_time: "13:32:57"}
+    provenance:
+      gcom-w:
+        mean_altitude: &gcom_w
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gcom-w]
+          period: "2026-09-26"
+        equator_crossing_time: *gcom_w
+    limitations:
+      - The satellites' phases in their planes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

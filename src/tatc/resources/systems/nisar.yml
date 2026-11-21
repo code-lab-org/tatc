@@ -1,0 +1,31 @@
+id: nisar
+name: NASA-ISRO Synthetic Aperture Radar
+aliases: [NISAR]
+system_class: sun_synchronous
+selection: The L- and S-band radar mission for surface deformation, ecosystems, and ice.
+operator: NASA and ISRO
+spacecraft:
+  - id: nisar
+    name: NISAR
+    norad_id: 65053
+    status: operational
+    as_of: 2026-11-04
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      nisar: {type: sso, mean_altitude: 757370, equator_crossing_time: "06:01:33"}
+    provenance:
+      nisar:
+        mean_altitude: &nisar
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [nisar]
+          period: "2026-10-02"
+        equator_crossing_time: *nisar
+    limitations:
+      - The satellites' phases in their planes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

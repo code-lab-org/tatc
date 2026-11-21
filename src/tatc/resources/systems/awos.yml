@@ -1,0 +1,40 @@
+id: awos
+name: Automated Weather Observing System
+aliases: [AWOS]
+system_class: surface_network
+selection: The automated weather stations of airports of the FAA and of states and other operators, which complement ASOS at smaller airports.
+operator: FAA, states, and other operators
+stations:
+  file: awos.csv
+  as_of: 2026-11-21
+  provenance:
+    kind: measured
+    source: validate_system_surface.py --fit, the stations of the United States and its territories in HOMR's table of AWOS stations
+    platforms: [awos]
+    period: "2026-11-21"
+default_configuration: stations
+configurations:
+  stations:
+    grade: siting
+    description: Each station's in-situ instruments at screen level, representing a disk about the station.
+    height: 2
+    provenance:
+      height:
+        kind: nominal
+        source: Screen-level temperature and dew point sensors, about 2 m above the ground
+    instruments:
+      - type: in_situ
+        parameters:
+          name: AWOS
+          radius: 5000
+        provenance:
+          radius:
+            kind: placeholder
+            source: An assumption of the area a station's samples represent (a radius of 5 km, at the local scale), not a property of the sensors; give the radius for the variable of a study when building stations (build(radius=...))
+limitations:
+  - The footprint of each station's in-situ instrument is a disk of an assumed radius; its samples represent an area that depends on the variable, the terrain, and the time scale.
+  - Stations are fixed, so their footprints do not change with time; observation times follow the analysis (as for collect_surface_track with times), not the stations' reporting intervals.
+  - AWOS stations measure different variables by type (AWOS-I to AWOS-IV); ceilometers, which only some types have, are not included.
+  - Overseas military stations of HOMR's table are not included.
+  - Stations of HOMR's table without an elevation (233 of 1,130 in the United States and its territories) are not included.
+  - HOMR gives many AWOS positions to only a few hundred meters.

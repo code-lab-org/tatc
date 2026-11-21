@@ -1,0 +1,53 @@
+{
+  "entry_id": "landsat",
+  "configurations": {
+    "plane": {
+      "digest": "f7410e8a4124da0c7b5ac014fd64d90018472001f65a90adb11cbcff1d0d3173",
+      "standard_version": 1,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-11-05, 2026-11-21",
+      "platforms": [
+        "landsat-8",
+        "landsat-9"
+      ],
+      "platform_periods": {
+        "landsat-8": "2026-11-05, 2026-11-21",
+        "landsat-9": "2026-11-05, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0306,
+          "scope": "landsat-8"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0043,
+          "scope": "landsat-8"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.1263,
+          "scope": "landsat-8"
+        },
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0344,
+          "scope": "landsat-9"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0024,
+          "scope": "landsat-9"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.0893,
+          "scope": "landsat-9"
+        }
+      ]
+    }
+  }
+}

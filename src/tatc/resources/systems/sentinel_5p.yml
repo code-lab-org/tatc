@@ -1,0 +1,31 @@
+id: sentinel_5p
+name: Copernicus Sentinel-5 Precursor
+aliases: [Sentinel-5P]
+system_class: sun_synchronous
+selection: Europe's atmospheric composition satellite, flying in formation with NOAA-20.
+operator: ESA
+spacecraft:
+  - id: sentinel-5p
+    name: Sentinel-5P
+    norad_id: 42969
+    status: extended
+    as_of: 2026-11-05
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      sentinel-5p: {type: sso, mean_altitude: 834180, equator_crossing_time: "13:43:56"}
+    provenance:
+      sentinel-5p:
+        mean_altitude: &sentinel_5p
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-5p]
+          period: "2026-11-04"
+        equator_crossing_time: *sentinel_5p
+    limitations:
+      - The satellites' phases in their planes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

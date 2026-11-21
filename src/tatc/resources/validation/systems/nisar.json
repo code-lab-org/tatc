@@ -1,0 +1,36 @@
+{
+  "entry_id": "nisar",
+  "configurations": {
+    "plane": {
+      "digest": "46263c13ccb865b91673fcb79c5488afe616c69fa4d55c6ebd86d5897410f40d",
+      "standard_version": 1,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-11-01 to 2026-11-06, 2026-11-21",
+      "platforms": [
+        "nisar"
+      ],
+      "platform_periods": {
+        "nisar": "2026-11-01 to 2026-11-06, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0052,
+          "scope": "nisar"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0022,
+          "scope": "nisar"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.0326,
+          "scope": "nisar"
+        }
+      ]
+    }
+  }
+}

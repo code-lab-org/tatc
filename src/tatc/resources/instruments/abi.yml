@@ -3,17 +3,7 @@ name: ABI
 aliases: [Advanced Baseline Imager]
 instrument_class: geostationary
 selection: Imager of the GOES-R series of operational geostationary weather satellites, with open data products.
-platforms:
-  - id: goes-19
-    name: GOES-19
-    norad_id: 60133
-    status: operational
-    as_of: 2026-10-03
-  - id: goes-18
-    name: GOES-18
-    norad_id: 51850
-    status: operational
-    as_of: 2026-11-17
+platforms: [goes-19, goes-18]
 data_products:
   - name: GOES-R ABI Level 2 products
     provider: NOAA Open Data Dissemination

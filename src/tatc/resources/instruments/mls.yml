@@ -3,12 +3,7 @@ name: MLS
 aliases: [Microwave Limb Sounder, Aura MLS]
 instrument_class: limb
 selection: Forward-looking microwave limb sounder of NASA's Aura, which profiles the temperature and composition of the stratosphere and mesosphere in a vertical scan about every 25 s, with open data products.
-platforms:
-  - id: aura
-    name: Aura
-    norad_id: 28376
-    status: extended
-    as_of: 2026-11-15
+platforms: [aura]
 data_products:
   - name: MLS/Aura Level 1B orbit and attitude (ML1OA), version 6
     provider: NASA GES DISC

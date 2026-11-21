@@ -3,12 +3,7 @@ name: FCI
 aliases: [Flexible Combined Imager, MTG FCI]
 instrument_class: geostationary
 selection: Imager of the Meteosat Third Generation geostationary weather satellites at 0 deg longitude, which completes, with ABI and AHI, a ring of geostationary imagers around the equator, with open data products.
-platforms:
-  - id: meteosat-12
-    name: Meteosat-12 (MTG-I1)
-    norad_id: 54743
-    status: operational
-    as_of: 2026-11-17
+platforms: [meteosat-12]
 data_products:
   - name: FCI Level 2 cloud mask, 0 deg (EO:EUM:DAT:0678)
     provider: EUMETSAT Data Store

@@ -3,17 +3,7 @@ name: GRAS
 aliases: [GNSS Receiver for Atmospheric Sounding, Metop radio occultation receiver]
 instrument_class: occultation
 selection: Radio occultation receiver of EUMETSAT's Metop satellites in sun-synchronous orbits, which tracks the signals of GPS satellites setting and rising behind the Earth's limb through antennas facing the velocity and anti-velocity, with open data products.
-platforms:
-  - id: metop-b
-    name: Metop-B
-    norad_id: 38771
-    status: extended
-    as_of: 2026-11-17
-  - id: metop-c
-    name: Metop-C
-    norad_id: 43689
-    status: operational
-    as_of: 2026-11-17
+platforms: [metop-b, metop-c]
 data_products:
   - name: Metop GRAS calibrated phase, refractivity, and atmospheric retrievals (UCAR processing), in the AWS Registry of Open Data
     provider: UCAR COSMIC Data Analysis and Archive Center, through AWS

@@ -1,0 +1,52 @@
+id: asos
+name: Automated Surface Observing System
+aliases: [ASOS]
+system_class: surface_network
+selection: The primary surface weather observing network of the United States, at airports, operated by the National Weather Service, the FAA, and the Department of Defense.
+operator: NOAA National Weather Service, FAA, and U.S. Department of Defense
+stations:
+  file: asos.csv
+  as_of: 2026-11-21
+  provenance:
+    kind: measured
+    source: validate_system_surface.py --fit, the stations of the United States and its territories in HOMR's table of ASOS stations
+    platforms: [asos]
+    period: "2026-11-21"
+default_configuration: stations
+configurations:
+  stations:
+    grade: siting
+    description: Each station's in-situ instruments at screen level, representing a disk about the station, and its ceilometer, looking up.
+    height: 2
+    provenance:
+      height:
+        kind: nominal
+        source: Screen-level temperature and dew point sensors, about 2 m above the ground
+    instruments:
+      - type: in_situ
+        parameters:
+          name: ASOS
+          radius: 5000
+        provenance:
+          radius:
+            kind: placeholder
+            source: An assumption of the area a station's samples represent (a radius of 5 km, at the local scale), not a property of the sensors; give the radius for the variable of a study when building stations (build(radius=...))
+      - type: pointed
+        parameters:
+          name: Ceilometer
+          roll_angle: 180
+          cross_track_field_of_view: 1
+          along_track_field_of_view: 1
+        provenance:
+          roll_angle:
+            kind: nominal
+            source: The ceilometer points straight up (a roll angle of 180 deg looks at the zenith)
+          cross_track_field_of_view: &beam
+            kind: placeholder
+            source: A narrow view about the zenith, standing for the ceilometer's laser beam
+          along_track_field_of_view: *beam
+limitations:
+  - The footprint of each station's in-situ instrument is a disk of an assumed radius; its samples represent an area that depends on the variable, the terrain, and the time scale.
+  - Stations are fixed, so their footprints do not change with time; observation times follow the analysis (as for collect_surface_track with times), not the stations' reporting intervals.
+  - The ceilometer (instrument_index=1) looks straight up; give the elevation of the cloud base as the target elevation. It detects clouds only up to about 3.7 km (12,000 ft) above the ground, which footprints do not limit.
+  - Overseas military stations of HOMR's table are not included.

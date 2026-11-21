@@ -3,12 +3,7 @@ name: AMSR2
 aliases: [Advanced Microwave Scanning Radiometer 2]
 instrument_class: conical
 selection: Conically scanning microwave imager of JAXA's GCOM-W, in the afternoon constellation, whose open products include sea surface temperature, sea ice, precipitation, and soil moisture.
-platforms:
-  - id: gcom-w
-    name: GCOM-W
-    norad_id: 38337
-    status: operational
-    as_of: 2026-11-01
+platforms: [gcom-w]
 data_products:
   - name: GPM_1CGCOMW1AMSR2
     provider: NASA GES DISC

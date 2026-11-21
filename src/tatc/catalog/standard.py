@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -397,7 +397,8 @@ class ConfigurationValidation:
     """
 
     tier: Tier
-    grade: Grade
+    grade: Enum
+    """Its grade (a `Grade`, or a `SystemGrade` of a system)."""
     gates: tuple[GateResult, ...]
     evidence_gaps: tuple[str, ...]
     record: ConfigurationRecord | None
@@ -425,7 +426,7 @@ class EntryValidation:
 
     tier: Tier
     configurations: dict[str, ConfigurationValidation]
-    missing_grades: tuple[Grade, ...]
+    missing_grades: tuple[Enum, ...]
 
     @property
     def gaps(self) -> tuple[str, ...]:
@@ -478,26 +479,29 @@ class EntryValidation:
         )
 
 
-def _evaluate_configuration(
-    entry: InstrumentEntry, key: str
+def _evaluate_record(
+    configuration: Any,
+    record: ConfigurationRecord | None,
+    gates: tuple[Gate, ...],
+    evidence_gaps: tuple[str, ...] = (),
 ) -> ConfigurationValidation:
     """
-    Applies the standard to a configuration of an entry: each gate takes the
-    worst value of its metric over scopes, and the evidence has gaps if the
-    configuration changed after its test, the test's version of the standard
-    does not apply to the class, or fitted values were tested on data too close
-    to their fitting data.
+    Applies gates to the record of a configuration (of an instrument or a
+    system, with a `grade`, a `digest`, and `get_holdout_gap`): each gate takes
+    the worst value of its metric over scopes, and the evidence has gaps if the
+    configuration changed after its test, fitted values were tested on data too
+    close to their fitting data, or the caller finds other gaps
+    (`evidence_gaps`, such as a version of the standard that does not apply).
 
     Args:
-        entry (InstrumentEntry): The entry.
-        key (str): The identifier of the configuration.
+        configuration (Any): The configuration.
+        record (ConfigurationRecord | None): Its record, if any.
+        gates (tuple[Gate, ...]): The gates of its grade.
+        evidence_gaps (tuple[str, ...]): Other gaps of the evidence.
 
     Returns:
         ConfigurationValidation: Its validation status.
     """
-    configuration = entry.configurations[key]
-    gates = get_gates(entry.instrument_class, configuration.grade)
-    record = None if entry.record is None else entry.record.configurations.get(key)
     if record is None or not record.metrics:
         return ConfigurationValidation(
             Tier.NOMINAL,
@@ -514,12 +518,11 @@ def _evaluate_configuration(
     gaps = []
     if record.digest != configuration.digest:
         gaps.append("the configuration changed after it was tested")
-    if not is_compatible(entry.instrument_class, record.standard_version):
-        gaps.append(
-            f"version {record.standard_version} of the standard, of the test, "
-            f"does not apply to the {entry.instrument_class.value} class"
-        )
-    holdout = configuration.get_holdout_gap(record.period)
+    gaps.extend(evidence_gaps)
+    if record.platform_periods:
+        holdout = configuration.get_platform_holdout_gap(record.platform_periods)
+    else:
+        holdout = configuration.get_holdout_gap(record.period)
     if holdout is not None and holdout < MIN_HOLDOUT_GAP_DAYS:
         gaps.append(
             "fitted values are not tested on data at least "
@@ -533,6 +536,63 @@ def _evaluate_configuration(
         tuple(gaps),
         record,
         holdout,
+    )
+
+
+def _combine(
+    configurations: dict[str, ConfigurationValidation], missing: tuple[Enum, ...]
+) -> EntryValidation:
+    """
+    Combines the validations of an entry's configurations: an entry is only as
+    strong as its weakest configuration, is partial rather than validated if no
+    configuration serves a grade it needs (`missing`), and is partial rather
+    than nominal if any configuration was compared with reference data.
+
+    Args:
+        configurations (dict[str, ConfigurationValidation]): The validations.
+        missing (tuple[Enum, ...]): The grades it needs that none serves.
+
+    Returns:
+        EntryValidation: Its validation status.
+    """
+    tier = min((c.tier for c in configurations.values()), key=lambda t: t.rank)
+    if tier == Tier.VALIDATED and missing:
+        tier = Tier.PARTIAL
+    if tier == Tier.NOMINAL and any(
+        c.tier != Tier.NOMINAL for c in configurations.values()
+    ):
+        tier = Tier.PARTIAL
+    return EntryValidation(tier, configurations, missing)
+
+
+def _evaluate_configuration(
+    entry: InstrumentEntry, key: str
+) -> ConfigurationValidation:
+    """
+    Applies the standard to a configuration of an entry (see `_evaluate_record`).
+
+    Args:
+        entry (InstrumentEntry): The entry.
+        key (str): The identifier of the configuration.
+
+    Returns:
+        ConfigurationValidation: Its validation status.
+    """
+    configuration = entry.configurations[key]
+    record = None if entry.record is None else entry.record.configurations.get(key)
+    gaps = ()
+    if record is not None and not is_compatible(
+        entry.instrument_class, record.standard_version
+    ):
+        gaps = (
+            f"version {record.standard_version} of the standard, of the test, "
+            f"does not apply to the {entry.instrument_class.value} class",
+        )
+    return _evaluate_record(
+        configuration,
+        record,
+        get_gates(entry.instrument_class, configuration.grade),
+        gaps,
     )
 
 
@@ -557,11 +617,4 @@ def evaluate_entry(entry: InstrumentEntry) -> EntryValidation:
         for grade in get_required_grades(entry.instrument_class)
         if not any(c.serves(grade) for c in entry.configurations.values())
     )
-    tier = min((c.tier for c in configurations.values()), key=lambda t: t.rank)
-    if tier == Tier.VALIDATED and missing:
-        tier = Tier.PARTIAL
-    if tier == Tier.NOMINAL and any(
-        c.tier != Tier.NOMINAL for c in configurations.values()
-    ):
-        tier = Tier.PARTIAL
-    return EntryValidation(tier, configurations, missing)
+    return _combine(configurations, missing)

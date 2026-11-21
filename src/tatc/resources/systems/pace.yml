@@ -1,0 +1,31 @@
+id: pace
+name: Plankton, Aerosol, Cloud, ocean Ecosystem
+aliases: [PACE]
+system_class: sun_synchronous
+selection: NASA's ocean color and aerosol mission.
+operator: NASA
+spacecraft:
+  - id: pace
+    name: PACE
+    norad_id: 58928
+    status: operational
+    as_of: 2026-11-10
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      pace: {type: sso, mean_altitude: 682140, equator_crossing_time: "12:56:07"}
+    provenance:
+      pace:
+        mean_altitude: &pace
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [pace]
+          period: "2026-11-04"
+        equator_crossing_time: *pace
+    limitations:
+      - The satellites' phases in their planes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

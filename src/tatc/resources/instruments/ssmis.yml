@@ -3,12 +3,7 @@ name: SSMIS
 aliases: [Special Sensor Microwave Imager/Sounder]
 instrument_class: conical
 selection: Conical microwave imager and sounder of the DMSP satellites, continuing the SSM/I record of sea ice, precipitation, and ocean surface winds since 1987, with open data products and wide use in numerical weather prediction.
-platforms:
-  - id: dmsp-f18
-    name: DMSP F18
-    norad_id: 35951
-    status: extended
-    as_of: 2026-11-03
+platforms: [dmsp-f18]
 data_products:
   - name: GPM_1CF18SSMIS
     provider: NASA GES DISC

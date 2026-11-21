@@ -1,0 +1,42 @@
+id: goes
+name: GOES-R Series
+aliases: [GOES, Geostationary Operational Environmental Satellites]
+system_class: geostationary
+selection: The United States' geostationary weather satellites at the East and West positions.
+operator: NOAA and NASA
+spacecraft:
+  - id: goes-19
+    name: GOES-19
+    norad_id: 60133
+    status: operational
+    as_of: 2026-10-03
+  - id: goes-18
+    name: GOES-18
+    norad_id: 51850
+    status: operational
+    as_of: 2026-11-17
+default_configuration: slot
+configurations:
+  slot:
+    grade: ground_track
+    description: The longitude of each satellite's subpoint, maintained by station-keeping, from its element set.
+    orbits:
+      goes-19: {type: geosynchronous, longitude: -75.194, inclination: 0.03}
+      goes-18: {type: geosynchronous, longitude: -137.031, inclination: 0.01}
+    provenance:
+      goes-19:
+        longitude: &goes_19
+          kind: measured
+          source: validate_system_orbits.py --fit, the mean over the day after the element set nearest the middle of the day
+          platforms: [goes-19]
+          period: "2026-10-03"
+        inclination: *goes_19
+      goes-18:
+        longitude: &goes_18
+          kind: measured
+          source: validate_system_orbits.py --fit, the mean over the day after the element set nearest the middle of the day
+          platforms: [goes-18]
+          period: "2026-11-17"
+        inclination: *goes_18
+    limitations:
+      - The satellites are kept at their mean longitudes and inclinations, without the daily motion of the subpoint within the station-keeping box.

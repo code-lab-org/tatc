@@ -3,12 +3,7 @@ name: IASI-NG
 aliases: [Infrared Atmospheric Sounding Interferometer New Generation, Metop-SG IASI-NG]
 instrument_class: cross_track
 selection: Cross-track infrared sounding interferometer of EUMETSAT's second-generation polar satellites (Metop-SG), the successor to IASI, with open data products.
-platforms:
-  - id: metop-sga1
-    name: Metop-SG A1
-    norad_id: 65159
-    status: operational
-    as_of: 2026-11-17
+platforms: [metop-sga1]
 data_products:
   - name: IASI-NG Level 1c, Metop-SG, in BUFR (EO:EUM:DAT:0892)
     provider: EUMETSAT Data Store

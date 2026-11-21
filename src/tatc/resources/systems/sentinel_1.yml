@@ -1,0 +1,44 @@
+id: sentinel_1
+name: Copernicus Sentinel-1
+aliases: [Sentinel-1]
+system_class: sun_synchronous
+selection: Europe's C-band radar imaging constellation.
+operator: ESA
+spacecraft:
+  - id: sentinel-1c
+    name: Sentinel-1C
+    norad_id: 62261
+    status: operational
+    as_of: 2026-10-02
+  - id: sentinel-1d
+    name: Sentinel-1D
+    norad_id: 66315
+    status: operational
+    as_of: 2026-11-05
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      sentinel-1c: {type: sso, mean_altitude: 702900, equator_crossing_time: "18:00:14"}
+      sentinel-1d: {type: sso, mean_altitude: 702890, equator_crossing_time: "18:00:28"}
+    provenance:
+      sentinel-1c:
+        mean_altitude: &sentinel_1c
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-1c]
+          period: "2026-08-10"
+        equator_crossing_time: *sentinel_1c
+      sentinel-1d:
+        mean_altitude: &sentinel_1d
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-1d]
+          period: "2026-11-05"
+        equator_crossing_time: *sentinel_1d
+    limitations:
+      - The satellites' phases in their planes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

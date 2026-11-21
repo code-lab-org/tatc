@@ -3,12 +3,7 @@ name: OCO-2
 aliases: [Orbiting Carbon Observatory-2]
 instrument_class: pushbroom
 selection: Grating spectrometer that measures carbon dioxide in eight soundings across a narrow slit, observing at nadir or at the sun glint, with open data products.
-platforms:
-  - id: oco-2
-    name: OCO-2
-    norad_id: 40059
-    status: operational
-    as_of: 2026-11-09
+platforms: [oco-2]
 data_products:
   - name: OCO-2 Level 1B science (OCO2_L1B_Science), version 11.2
     provider: NASA GES DISC

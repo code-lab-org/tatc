@@ -3,17 +3,7 @@ name: C-SAR
 aliases: [Sentinel-1, C-band SAR, Sentinel-1 SAR]
 instrument_class: sar
 selection: Synthetic aperture radar of the Copernicus Sentinel-1 mission, whose products led NASA EOSDIS distribution by volume, with open data products.
-platforms:
-  - id: sentinel-1c
-    name: Sentinel-1C
-    norad_id: 62261
-    status: operational
-    as_of: 2026-10-02
-  - id: sentinel-1d
-    name: Sentinel-1D
-    norad_id: 66315
-    status: operational
-    as_of: 2026-11-05
+platforms: [sentinel-1c, sentinel-1d]
 data_products:
   - name: Sentinel-1 Level-1 Ground Range Detected (GRD)
     provider: Microsoft Planetary Computer

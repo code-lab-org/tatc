@@ -1,0 +1,95 @@
+id: cosmic_2
+name: FORMOSAT-7/COSMIC-2
+aliases: [COSMIC-2]
+system_class: inclined
+selection: A constellation of radio occultation receivers in low-inclination orbits.
+operator: TASA and NOAA
+spacecraft:
+  - id: formosat-7-1
+    name: FORMOSAT-7/COSMIC-2 FM1
+    norad_id: 44349
+    status: operational
+    as_of: 2026-11-15
+  - id: formosat-7-2
+    name: FORMOSAT-7/COSMIC-2 FM2
+    norad_id: 44351
+    status: operational
+    as_of: 2026-11-15
+  - id: formosat-7-3
+    name: FORMOSAT-7/COSMIC-2 FM3
+    norad_id: 44343
+    status: retired
+    as_of: 2026-11-15
+  - id: formosat-7-4
+    name: FORMOSAT-7/COSMIC-2 FM4
+    norad_id: 44350
+    status: operational
+    as_of: 2026-10-16
+  - id: formosat-7-5
+    name: FORMOSAT-7/COSMIC-2 FM5
+    norad_id: 44358
+    status: operational
+    as_of: 2026-11-15
+  - id: formosat-7-6
+    name: FORMOSAT-7/COSMIC-2 FM6
+    norad_id: 44353
+    status: operational
+    as_of: 2026-11-15
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and inclination, from its element set.
+    orbits:
+      formosat-7-1: {type: circular, mean_altitude: 583120, inclination: 23.9983}
+      formosat-7-2: {type: circular, mean_altitude: 583110, inclination: 23.9972}
+      formosat-7-3: {type: circular, mean_altitude: 540730, inclination: 23.9979}
+      formosat-7-4: {type: circular, mean_altitude: 583120, inclination: 23.9970}
+      formosat-7-5: {type: circular, mean_altitude: 583080, inclination: 23.9999}
+      formosat-7-6: {type: circular, mean_altitude: 583100, inclination: 23.9993}
+    provenance:
+      formosat-7-1:
+        mean_altitude: &formosat_7_1
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [formosat-7-1]
+          period: "2026-11-18"
+        inclination: *formosat_7_1
+      formosat-7-2:
+        mean_altitude: &formosat_7_2
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [formosat-7-2]
+          period: "2026-11-17"
+        inclination: *formosat_7_2
+      formosat-7-3:
+        mean_altitude: &formosat_7_3
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [formosat-7-3]
+          period: "2026-11-18"
+        inclination: *formosat_7_3
+      formosat-7-4:
+        mean_altitude: &formosat_7_4
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [formosat-7-4]
+          period: "2026-11-17"
+        inclination: *formosat_7_4
+      formosat-7-5:
+        mean_altitude: &formosat_7_5
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [formosat-7-5]
+          period: "2026-11-18"
+        inclination: *formosat_7_5
+      formosat-7-6:
+        mean_altitude: &formosat_7_6
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [formosat-7-6]
+          period: "2026-11-18"
+        inclination: *formosat_7_6
+    limitations:
+      - The satellites' phases in their planes and the right ascensions of their ascending nodes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

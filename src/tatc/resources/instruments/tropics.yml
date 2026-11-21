@@ -3,22 +3,7 @@ name: TROPICS
 aliases: [Time-Resolved Observations of Precipitation structure and storm Intensity with a Constellation of Smallsats]
 instrument_class: cross_track
 selection: Microwave sounders on a constellation of CubeSats in low-inclination orbits, which revisit the tropics about hourly, with open data products; the catalog's first constellation of small satellites.
-platforms:
-  - id: tropics-03
-    name: TROPICS-03
-    norad_id: 56753
-    status: retired
-    as_of: 2025-12-11
-  - id: tropics-05
-    name: TROPICS-05
-    norad_id: 56442
-    status: retired
-    as_of: 2025-12-04
-  - id: tropics-06
-    name: TROPICS-06
-    norad_id: 56444
-    status: retired
-    as_of: 2025-10-25
+platforms: [tropics-03, tropics-05, tropics-06]
 data_products:
   - name: TROPICS Level 1B orbital geolocated native-resolution brightness temperatures (TROPICS0nBRTTL1B)
     provider: NASA GES DISC

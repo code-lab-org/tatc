@@ -3,12 +3,7 @@ name: EMIT
 aliases: [Earth Surface Mineral Dust Source Investigation]
 instrument_class: pushbroom
 selection: Imaging spectrometer on the International Space Station that maps surface minerals of arid regions and detects methane and carbon dioxide plumes, with open data products.
-platforms:
-  - id: iss
-    name: International Space Station
-    norad_id: 25544
-    status: operational
-    as_of: 2026-11-09
+platforms: [iss]
 data_products:
   - name: EMIT L1B At-Sensor Calibrated Radiance and Geolocation (EMITL1BRAD) and Attitude and Ephemeris (EMITL1BATT), version 002
     provider: NASA LP DAAC

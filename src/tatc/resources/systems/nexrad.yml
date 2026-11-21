@@ -1,0 +1,62 @@
+id: nexrad
+name: NEXRAD
+aliases: [WSR-88D, Next Generation Weather Radar]
+system_class: radar_network
+selection: The United States' network of S-band Doppler weather radars (WSR-88D), whose volume scans observe precipitation and winds across the country and at overseas sites, with open Level II data.
+operator: NOAA National Weather Service, FAA, and U.S. Air Force
+stations:
+  file: nexrad.csv
+  as_of: 2026-10-15
+  provenance:
+    kind: measured
+    source: validate_system_nexrad.py --fit, the stations of NCEI's table of NEXRAD stations that recorded Level II volumes on the day, with the position, ground, and feedhorn height of each station's first volume of the day
+    platforms: [nexrad]
+    period: "2026-10-15"
+default_configuration: precipitation
+configurations:
+  precipitation:
+    grade: coverage
+    description: The volume the radars scan in precipitation mode (volume coverage patterns 12, 112, 212, and 215), from the lowest cut (0.5 deg, or a station's own lower cut) to 19.5 deg, with reflectivity to 460 km.
+    band: S
+    max_range: 460000
+    min_elevation_angle: 0.5
+    max_elevation_angle: 19.5
+    beam_width: 0.95
+    provenance:
+      band: &wsr88d
+        kind: nominal
+        source: The WSR-88D (S band, half-power beam width of about 0.95 deg)
+      beam_width: *wsr88d
+      max_range: &level2_range
+        kind: nominal
+        source: The range of NEXRAD Level II reflectivity on its lowest (surveillance) cuts
+      min_elevation_angle: &precipitation_patterns
+        kind: nominal
+        source: The lowest and highest cuts of the precipitation volume coverage patterns
+      max_elevation_angle: *precipitation_patterns
+    limitations:
+      - When few echoes are present, the radars end volumes below the highest cut (AVSET), so the highest elevation angle bounds what they observe.
+      - Coverage is continuous between the lowest and highest cuts, without the gaps between cuts at long range.
+  clear_air:
+    grade: coverage
+    description: The volume the radars scan in clear-air mode (volume coverage patterns 31, 32, and 35), from the lowest cut (0.5 deg, or a station's own lower cut) to 6.4 deg, with reflectivity to 460 km.
+    band: S
+    max_range: 460000
+    min_elevation_angle: 0.5
+    max_elevation_angle: 6.4
+    beam_width: 0.95
+    provenance:
+      band: *wsr88d
+      beam_width: *wsr88d
+      max_range: *level2_range
+      min_elevation_angle: &clear_air_patterns
+        kind: nominal
+        source: The lowest cut of the clear-air volume coverage patterns, and the highest cut of pattern 35 (patterns 31 and 32 end at 4.5 deg)
+      max_elevation_angle: *clear_air_patterns
+    limitations:
+      - Patterns 31 and 32 end at 4.5 deg, below the highest elevation angle.
+      - Coverage is continuous between the lowest and highest cuts, without the gaps between cuts at long range.
+limitations:
+  - Terrain blockage is not modeled; compute a terrain mask for each station with tatc.preprocess.compute_terrain_mask_for_station.
+  - The radars of the FAA's Terminal Doppler Weather Radar network (C band) are not included.
+  - Stations of the table that were down on the day of the snapshot are not included.

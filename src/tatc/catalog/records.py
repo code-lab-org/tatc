@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Annotated
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 
 class _CatalogModel(BaseModel):
@@ -125,6 +125,12 @@ class ConfigurationRecord(_CatalogModel):
     platforms: tuple[str, ...] = Field(
         ..., min_length=1, description="The platforms of the reference data."
     )
+    platform_periods: dict[str, Period] = Field(
+        default_factory=dict,
+        description="The period of each platform's reference data, if they differ "
+        + "(as for the spacecraft of a system), from which the gap to the data of "
+        + "each platform's fitted values is computed.",
+    )
     metrics: tuple[Metric, ...] = Field(..., description="The results.")
     transfers: dict[str, Transfer] = Field(
         default_factory=dict,
@@ -137,6 +143,13 @@ class ConfigurationRecord(_CatalogModel):
         + "regressions but do not themselves establish agreement with the "
         + "reference data.",
     )
+
+    @model_validator(mode="after")
+    def _check_platform_periods(self) -> "ConfigurationRecord":
+        unknown = set(self.platform_periods) - set(self.platforms)
+        if unknown:
+            raise ValueError(f"periods of platforms not tested: {sorted(unknown)}")
+        return self
 
 
 class ValidationRecord(_CatalogModel):

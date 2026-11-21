@@ -1,0 +1,87 @@
+{
+  "entry_id": "nexrad",
+  "configurations": {
+    "clear_air": {
+      "digest": "99711a258c540f641e2dbae0f845ff96fe85d50a159e0708db830f5414a7fb06",
+      "standard_version": 1,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_nexrad.py",
+      "reference": "NEXRAD Level II volumes (unidata-nexrad-level2 on AWS) and NCEI's table of NEXRAD stations",
+      "period": "2026-11-14 to 2026-11-20",
+      "platforms": [
+        "nexrad"
+      ],
+      "metrics": [
+        {
+          "name": "horizontal_error_p95",
+          "value": 0.7516
+        },
+        {
+          "name": "antenna_altitude_error_p95",
+          "value": 1.1734
+        },
+        {
+          "name": "membership_recall",
+          "value": 98.7421
+        },
+        {
+          "name": "membership_precision",
+          "value": 100.0
+        },
+        {
+          "name": "min_elevation_error_p95",
+          "value": 0.0605
+        },
+        {
+          "name": "max_elevation_error_p95",
+          "value": 0.0552
+        },
+        {
+          "name": "range_error_p95",
+          "value": 0.0272
+        }
+      ]
+    },
+    "precipitation": {
+      "digest": "5d9ae30b82611095c576e677da7d1cc5d1ce3c546a8cd7b21e295a49f6933e38",
+      "standard_version": 1,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_nexrad.py",
+      "reference": "NEXRAD Level II volumes (unidata-nexrad-level2 on AWS) and NCEI's table of NEXRAD stations",
+      "period": "2026-11-14 to 2026-11-20",
+      "platforms": [
+        "nexrad"
+      ],
+      "metrics": [
+        {
+          "name": "horizontal_error_p95",
+          "value": 0.7516
+        },
+        {
+          "name": "antenna_altitude_error_p95",
+          "value": 1.1734
+        },
+        {
+          "name": "membership_recall",
+          "value": 98.7421
+        },
+        {
+          "name": "membership_precision",
+          "value": 100.0
+        },
+        {
+          "name": "min_elevation_error_p95",
+          "value": 0.0605
+        },
+        {
+          "name": "max_elevation_error_p95",
+          "value": 13.1279
+        },
+        {
+          "name": "range_error_p95",
+          "value": 0.0272
+        }
+      ]
+    }
+  }
+}

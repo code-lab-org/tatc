@@ -3,17 +3,7 @@ name: OLCI
 aliases: [Ocean and Land Colour Instrument]
 instrument_class: pushbroom
 selection: Pushbroom imaging spectrometer of the Copernicus Sentinel-3 mission, the successor of Envisat MERIS for ocean color and land, with open data products.
-platforms:
-  - id: sentinel-3a
-    name: Sentinel-3A
-    norad_id: 41335
-    status: operational
-    as_of: 2026-11-04
-  - id: sentinel-3b
-    name: Sentinel-3B
-    norad_id: 43437
-    status: operational
-    as_of: 2026-11-17
+platforms: [sentinel-3a, sentinel-3b]
 data_products:
   - name: OLCI/Sentinel-3A Level 1 Full Resolution Top of Atmosphere Reflectance (S3A_OL_1_EFR)
     provider: NASA LAADS DAAC

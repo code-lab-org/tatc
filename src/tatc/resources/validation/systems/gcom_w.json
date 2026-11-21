@@ -1,0 +1,36 @@
+{
+  "entry_id": "gcom_w",
+  "configurations": {
+    "plane": {
+      "digest": "7fb6720b2d760c53f2adb9156e93e0f8bff3d2caeeee1ab37998b7914f226e6b",
+      "standard_version": 1,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-11-01, 2026-11-21",
+      "platforms": [
+        "gcom-w"
+      ],
+      "platform_periods": {
+        "gcom-w": "2026-11-01, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0534,
+          "scope": "gcom-w"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0071,
+          "scope": "gcom-w"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.1045,
+          "scope": "gcom-w"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "entry_id": "sentinel_1",
+  "configurations": {
+    "plane": {
+      "digest": "72aedf902159320f19fdb049b5afab9c7d7e592a1fcc96898dacc4364dc85e2e",
+      "standard_version": 1,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-10-02, 2026-11-10, 2026-11-21",
+      "platforms": [
+        "sentinel-1c"
+      ],
+      "platform_periods": {
+        "sentinel-1c": "2026-10-02, 2026-11-10, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0135,
+          "scope": "sentinel-1c"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0016,
+          "scope": "sentinel-1c"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.0232,
+          "scope": "sentinel-1c"
+        }
+      ]
+    }
+  }
+}

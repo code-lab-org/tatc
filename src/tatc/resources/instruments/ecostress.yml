@@ -3,12 +3,7 @@ name: ECOSTRESS
 aliases: [ECOsystem Spaceborne Thermal Radiometer Experiment on Space Station, PHyTIR]
 instrument_class: cross_track
 selection: Thermal infrared radiometer on the International Space Station, whose orbit samples each place at varying times of day, used for evapotranspiration and water stress, with open data products.
-platforms:
-  - id: iss
-    name: International Space Station
-    norad_id: 25544
-    status: operational
-    as_of: 2026-11-09
+platforms: [iss]
 data_products:
   - name: ECOSTRESS Level 1B geolocation (ECO_L1B_GEO) and attitude and ephemeris (ECO_L1B_ATT), version 002
     provider: NASA LP DAAC

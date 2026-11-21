@@ -1,0 +1,31 @@
+{
+  "entry_id": "swot",
+  "configurations": {
+    "plane": {
+      "digest": "6841dba5a270d2c9afe0f3d0df23de75e9a5e344c5938736e0ab710b9cb413f2",
+      "standard_version": 1,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-11-04, 2026-11-21",
+      "platforms": [
+        "swot"
+      ],
+      "platform_periods": {
+        "swot": "2026-11-04, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0208,
+          "scope": "swot"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0025,
+          "scope": "swot"
+        }
+      ]
+    }
+  }
+}

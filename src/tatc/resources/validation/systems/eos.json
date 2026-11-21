@@ -1,0 +1,53 @@
+{
+  "entry_id": "eos",
+  "configurations": {
+    "plane": {
+      "digest": "92920d60f25983fcd58cfdeb45684e4d887412f36c8520edc20687e2f92ce5ae",
+      "standard_version": 1,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-11-05, 2026-11-15, 2026-11-21",
+      "platforms": [
+        "terra",
+        "aura"
+      ],
+      "platform_periods": {
+        "terra": "2026-11-05, 2026-11-21",
+        "aura": "2026-11-15, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.1066,
+          "scope": "terra"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0076,
+          "scope": "terra"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 4.999,
+          "scope": "terra"
+        },
+        {
+          "name": "altitude_error_p95",
+          "value": 0.4054,
+          "scope": "aura"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0184,
+          "scope": "aura"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 9.6417,
+          "scope": "aura"
+        }
+      ]
+    }
+  }
+}

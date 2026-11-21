@@ -1,0 +1,36 @@
+{
+  "entry_id": "metop_sg",
+  "configurations": {
+    "plane": {
+      "digest": "0352782ac2a33c86107dfac5f2a7cf3cea199d8a3f18d80f7065eba609589cc0",
+      "standard_version": 1,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-11-18, 2026-11-21",
+      "platforms": [
+        "metop-sga1"
+      ],
+      "platform_periods": {
+        "metop-sga1": "2026-11-18, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0183,
+          "scope": "metop-sga1"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0324,
+          "scope": "metop-sga1"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.6159,
+          "scope": "metop-sga1"
+        }
+      ]
+    }
+  }
+}

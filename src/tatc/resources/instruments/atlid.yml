@@ -3,12 +3,7 @@ name: ATLID
 aliases: [EarthCARE ATLID, Atmospheric Lidar]
 instrument_class: profiler
 selection: High-spectral-resolution atmospheric lidar of ESA and JAXA's EarthCARE, with open profiles of cloud and aerosol backscatter along a single beam, flying with CPR, MSI, and BBR.
-platforms:
-  - id: earthcare
-    name: EarthCARE
-    norad_id: 59908
-    status: operational
-    as_of: 2026-11-07
+platforms: [earthcare]
 data_products:
   - name: ATL_NOM_1B
     provider: ESA MAAP

@@ -1,0 +1,30 @@
+id: timed
+name: TIMED
+aliases: [Thermosphere Ionosphere Mesosphere Energetics and Dynamics]
+system_class: inclined
+selection: NASA's mission of the mesosphere and lower thermosphere, in a precessing orbit.
+operator: NASA
+spacecraft:
+  - id: timed
+    name: TIMED
+    norad_id: 26998
+    status: extended
+    as_of: 2026-11-13
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and inclination, from its element set.
+    orbits:
+      timed: {type: circular, mean_altitude: 588250, inclination: 74.0671}
+    provenance:
+      timed:
+        mean_altitude: &timed
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [timed]
+          period: "2026-08-15"
+        inclination: *timed
+    limitations:
+      - The satellites' phases in their planes and the right ascensions of their ascending nodes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

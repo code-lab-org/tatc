@@ -14,7 +14,7 @@ import json
 import warnings
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import geopandas as gpd
 import numpy as np
@@ -28,6 +28,7 @@ from ..schemas import (
     AttitudeSchedule,
     ConicalInstrument,
     GlintAttitude,
+    InSituInstrument,
     Instrument,
     PointedInstrument,
     Satellite,
@@ -42,6 +43,9 @@ from ..utils import (
     compute_subsolar_latitude,
 )
 from .records import Period, ValidationRecord, _CatalogModel, _get_days_apart
+
+if TYPE_CHECKING:
+    from .system_schemas import Spacecraft
 from .standard import (
     EntryValidation,
     Grade,
@@ -54,7 +58,7 @@ from .standard import (
 # the instrument schemas, by their `type`
 _INSTRUMENT_CLASSES: dict[str, type[Instrument]] = {
     cls.model_fields["type"].default: cls  # pylint: disable=unsubscriptable-object
-    for cls in (Instrument, PointedInstrument, ConicalInstrument)
+    for cls in (Instrument, PointedInstrument, ConicalInstrument, InSituInstrument)
 }
 _TAILORED = {"tailor": "time_step"}
 _TAILORED_FIELD = "along_track_field_of_view"
@@ -133,8 +137,8 @@ class InstrumentSpecification(_CatalogModel):
 
     type: str = Field(
         ...,
-        description="The instrument class: `instrument`, `pointed`, or `conical` "
-        + "(the `type` of its schema).",
+        description="The instrument class: `instrument`, `pointed`, `conical`, or "
+        + "`in_situ` (the `type` of its schema).",
     )
     parameters: dict[str, Any] = Field(..., description="The instrument's fields.")
     provenance: dict[str, Provenance] = Field(
@@ -821,25 +825,6 @@ def _get_platform_suffix(configuration: Configuration) -> str | None:
     return "_" + configuration.platforms[0].replace("-", "_")
 
 
-class Platform(_CatalogModel):
-    """
-    A platform that carries an instrument, with its status on a date.
-    """
-
-    id: str = Field(..., description="Platform identifier.")
-    name: str = Field(..., description="Platform name.")
-    norad_id: int = Field(
-        ...,
-        gt=0,
-        description="NORAD catalog number, from which to obtain current orbital "
-        + "elements, which are not cataloged because they age.",
-    )
-    status: Literal["operational", "extended", "retired"] = Field(
-        ..., description="The status on the date `as_of`."
-    )
-    as_of: date = Field(..., description="The date of the status.")
-
-
 class DataProduct(_CatalogModel):
     """
     A data product of an instrument.
@@ -908,8 +893,11 @@ class InstrumentEntry(_CatalogModel):
     aliases: tuple[str, ...] = Field(default=(), description="Other names.")
     instrument_class: InstrumentClass = Field(..., description="Instrument class.")
     selection: str = Field(..., description="Why the instrument is cataloged.")
-    platforms: tuple[Platform, ...] = Field(
-        ..., min_length=1, description="The platforms that carry it."
+    platforms: tuple[str, ...] = Field(
+        ...,
+        min_length=1,
+        description="The spacecraft that carry it, by the identifiers of the "
+        + "catalog's systems (see `get_spacecraft`).",
     )
     data_products: tuple[DataProduct, ...] = Field(
         ..., min_length=1, description="Its principal data products."
@@ -931,7 +919,9 @@ class InstrumentEntry(_CatalogModel):
     def _check_references(self) -> "InstrumentEntry":
         if self.default_configuration not in self.configurations:
             raise ValueError("default_configuration is not a configuration")
-        platforms = {platform.id for platform in self.platforms}
+        platforms = set(self.platforms)
+        if len(platforms) != len(self.platforms):
+            raise ValueError("platforms must be distinct")
         for key, configuration in self.configurations.items():
             unknown = set(configuration.platforms) - platforms
             if unknown:
@@ -987,6 +977,20 @@ class InstrumentEntry(_CatalogModel):
         standard rather than declared (see `tatc.catalog.standard.evaluate_entry`).
         """
         return evaluate_entry(self)
+
+    def get_spacecraft(self) -> list[Spacecraft]:
+        """
+        Gets the spacecraft that carry this instrument, from the catalog's
+        systems (with their names, NORAD catalog numbers, and status).
+
+        Returns:
+            list[Spacecraft]: The spacecraft, in the order of `platforms`.
+        """
+        # deferred import, as the loader imports this module
+        # pylint: disable-next=import-outside-toplevel,cyclic-import
+        from .loader import get_spacecraft
+
+        return [get_spacecraft(platform) for platform in self.platforms]
 
     def get_variants(self, name: str) -> list[str]:
         """

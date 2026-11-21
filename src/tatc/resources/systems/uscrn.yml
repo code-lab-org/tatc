@@ -1,0 +1,38 @@
+id: uscrn
+name: U.S. Climate Reference Network
+aliases: [USCRN]
+system_class: surface_network
+selection: NOAA's network of reference climate stations, sited to represent the climate of their regions for decades, with triple-redundant temperature and precipitation measurements.
+operator: NOAA National Centers for Environmental Information
+stations:
+  file: uscrn.csv
+  as_of: 2026-11-21
+  provenance:
+    kind: measured
+    source: validate_system_surface.py --fit, the operational stations of NCEI's USCRN list, at their HOMR positions and ground elevations
+    platforms: [uscrn]
+    period: "2026-11-21"
+default_configuration: stations
+configurations:
+  stations:
+    grade: siting
+    description: Each station's in-situ instruments at screen level, representing a disk about the station.
+    height: 1.5
+    provenance:
+      height:
+        kind: nominal
+        source: USCRN measures air temperature at 1.5 m above the ground
+    instruments:
+      - type: in_situ
+        parameters:
+          name: USCRN
+          radius: 5000
+        provenance:
+          radius:
+            kind: placeholder
+            source: An assumption of the area a station's samples represent (a radius of 5 km, at the local scale), not a property of the sensors; give the radius for the variable of a study when building stations (build(radius=...))
+limitations:
+  - The footprint of each station's in-situ instrument is a disk of an assumed radius; its samples represent an area that depends on the variable, the terrain, and the time scale.
+  - Stations are fixed, so their footprints do not change with time; observation times follow the analysis (as for collect_surface_track with times), not the stations' reporting intervals.
+  - Only stations of the USCRN (not the regional USRCRN) that are operational are included.
+  - Operational stations without a WBAN identifier (15, mostly in Alaska), whose positions HOMR does not give by WBAN, are not included.

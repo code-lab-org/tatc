@@ -1,0 +1,29 @@
+id: intelsat_40e
+name: Intelsat 40e
+aliases: [IS-40e]
+system_class: geostationary
+selection: The commercial geostationary satellite that hosts TEMPO over North America.
+operator: Intelsat
+spacecraft:
+  - id: intelsat-40e
+    name: Intelsat 40e
+    norad_id: 56174
+    status: operational
+    as_of: 2026-11-09
+default_configuration: slot
+configurations:
+  slot:
+    grade: ground_track
+    description: The longitude of each satellite's subpoint, maintained by station-keeping, from its element set.
+    orbits:
+      intelsat-40e: {type: geosynchronous, longitude: -91.009, inclination: 0.01}
+    provenance:
+      intelsat-40e:
+        longitude: &intelsat_40e
+          kind: measured
+          source: validate_system_orbits.py --fit, the mean over the day after the element set nearest the middle of the day
+          platforms: [intelsat-40e]
+          period: "2026-11-08"
+        inclination: *intelsat_40e
+    limitations:
+      - The satellites are kept at their mean longitudes and inclinations, without the daily motion of the subpoint within the station-keeping box.

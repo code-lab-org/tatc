@@ -3,12 +3,7 @@ name: PR
 aliases: [TRMM PR, TRMM Precipitation Radar, Precipitation Radar]
 instrument_class: cross_track
 selection: Cross-track precipitation radar of the Tropical Rainfall Measuring Mission, the first spaceborne precipitation radar, with open three-dimensional precipitation products from 1997 to 2015, the predecessor of GPM's DPR.
-platforms:
-  - id: trmm
-    name: TRMM
-    norad_id: 25063
-    status: retired
-    as_of: 2015-04-15
+platforms: [trmm]
 data_products:
   - name: GPM_2APR
     provider: NASA GES DISC

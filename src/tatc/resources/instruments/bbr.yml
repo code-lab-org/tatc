@@ -3,12 +3,7 @@ name: BBR
 aliases: [EarthCARE BBR, Broadband Radiometer]
 instrument_class: pushbroom
 selection: Broadband radiometer of EarthCARE, which measures reflected shortwave and emitted longwave radiances in three fixed views along track (about 50 deg aft, nadir, and 50 deg fore) for top-of-atmosphere fluxes, flying with ATLID, CPR, and MSI.
-platforms:
-  - id: earthcare
-    name: EarthCARE
-    norad_id: 59908
-    status: operational
-    as_of: 2026-11-07
+platforms: [earthcare]
 data_products:
   - name: BBR_SNG_1B
     provider: ESA MAAP

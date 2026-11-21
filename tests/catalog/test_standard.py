@@ -328,16 +328,7 @@ def _entry(
         "name": "Test",
         "instrument_class": cls,
         "selection": "test",
-        "platforms": [
-            {
-                "id": platform,
-                "name": platform,
-                "norad_id": 1,
-                "status": "operational",
-                "as_of": "2026-01-01",
-            }
-            for platform in ("test", "other")
-        ],
+        "platforms": ["test", "other"],
         "data_products": [
             {"name": "T", "provider": "T", "url": "http://t", "access": "open"}
         ],

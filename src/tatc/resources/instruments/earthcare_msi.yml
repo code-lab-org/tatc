@@ -3,12 +3,7 @@ name: EarthCARE MSI
 aliases: [EarthCARE Multi-Spectral Imager]
 instrument_class: pushbroom
 selection: Multi-spectral pushbroom imager of EarthCARE, with seven visible to thermal infrared bands across a 150 km swath tilted away from the sun, which gives the scene around the profiles of ATLID and CPR.
-platforms:
-  - id: earthcare
-    name: EarthCARE
-    norad_id: 59908
-    status: operational
-    as_of: 2026-11-07
+platforms: [earthcare]
 data_products:
   - name: MSI_RGR_1C
     provider: ESA MAAP

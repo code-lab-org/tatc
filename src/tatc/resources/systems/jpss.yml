@@ -1,0 +1,86 @@
+id: jpss
+name: Joint Polar Satellite System
+aliases: [JPSS]
+system_class: sun_synchronous
+selection: The United States' polar-orbiting weather satellites in the afternoon orbit, the backbone of numerical weather prediction with Metop.
+operator: NOAA and NASA
+spacecraft:
+  - id: noaa-20
+    name: NOAA-20
+    norad_id: 43013
+    status: operational
+    as_of: 2026-11-09
+  - id: noaa-21
+    name: NOAA-21
+    norad_id: 54234
+    status: operational
+    as_of: 2026-11-09
+  - id: suomi-npp
+    name: Suomi NPP
+    norad_id: 37849
+    status: retired
+    as_of: 2026-11-02
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      noaa-20: {type: sso, mean_altitude: 834100, equator_crossing_time: "13:30:03"}
+      noaa-21: {type: sso, mean_altitude: 834010, equator_crossing_time: "13:25:24"}
+      suomi-npp: {type: sso, mean_altitude: 834140, equator_crossing_time: "13:27:42"}
+    provenance:
+      noaa-20:
+        mean_altitude: &noaa_20
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [noaa-20]
+          period: "2026-08-12"
+        equator_crossing_time: *noaa_20
+      noaa-21:
+        mean_altitude: &noaa_21
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [noaa-21]
+          period: "2026-09-01"
+        equator_crossing_time: *noaa_21
+      suomi-npp:
+        mean_altitude: &suomi_npp
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [suomi-npp]
+          period: "2025-08-26"
+        equator_crossing_time: *suomi_npp
+    limitations:
+      - The satellites' phases in their planes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.
+  ground_track:
+    grade: ground_track
+    description: Each operational satellite's orbit maintained on JPSS's repeat ground track of 227 orbits in 16 days, pinned to an ascending node fitted to its element sets.
+    orbits:
+      noaa-20: {type: repeat, revolutions: 227, days: 16, ascending_node: {time: "2026-08-23T19:25:07.759Z", longitude: -88.654078}}
+      noaa-21: {type: repeat, revolutions: 227, days: 16, ascending_node: {time: "2026-08-23T18:29:01.714Z", longitude: -75.9094}}
+    provenance:
+      noaa-20:
+        revolutions: &jpss_repeat
+          kind: nominal
+          source: JPSS's repeat ground track of 227 orbits in 16 days, shared with Suomi NPP and Aqua's afternoon constellation
+        days: *jpss_repeat
+        ascending_node:
+          kind: measured
+          source: validate_system_orbits.py --fit, the middle of the nodes of the element sets (fit_ascending_node)
+          platforms: [noaa-20]
+          period: "2026-08-24 to 2026-09-11"
+      noaa-21:
+        revolutions: *jpss_repeat
+        days: *jpss_repeat
+        ascending_node:
+          kind: measured
+          source: validate_system_orbits.py --fit, the middle of the nodes of the element sets (fit_ascending_node)
+          platforms: [noaa-21]
+          period: "2026-08-24 to 2026-09-11"
+    limitations:
+      - Passes follow the maintained ground track to within the band in which it is maintained, and their times drift with the local time of the ascending node within its maintenance (by up to about a minute over months); analyses that need passes to seconds should build orbits from current element sets (by each spacecraft's NORAD catalog number).
+      - The repeat cycle is of days of Terrestrial Time, so pass times slip from the Earth's rotation by the change of the difference between Terrestrial Time and Universal Time (a few tenths of a second a year).
+      - Suomi NPP, retired, has only its plane.

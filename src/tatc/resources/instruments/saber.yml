@@ -3,12 +3,7 @@ name: SABER
 aliases: [Sounding of the Atmosphere using Broadband Emission Radiometry, TIMED SABER]
 instrument_class: limb
 selection: Side-looking infrared limb sounder of NASA's TIMED, which profiles the temperature and composition of the mesosphere and lower thermosphere in alternating upward and downward scans, with open data products.
-platforms:
-  - id: timed
-    name: TIMED
-    norad_id: 26998
-    status: extended
-    as_of: 2026-11-13
+platforms: [timed]
 data_products:
   - name: SABER Level 2A, version 2.0
     provider: GATS, Inc.

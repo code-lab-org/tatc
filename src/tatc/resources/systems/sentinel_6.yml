@@ -1,0 +1,43 @@
+id: sentinel_6
+name: Copernicus Sentinel-6
+aliases: [Sentinel-6, Jason-CS]
+system_class: inclined
+selection: The reference ocean altimetry mission, in the non-sun-synchronous orbit of TOPEX/Poseidon and Jason.
+operator: ESA, EUMETSAT, NASA, and NOAA
+spacecraft:
+  - id: sentinel-6a
+    name: Sentinel-6 Michael Freilich
+    norad_id: 46984
+    status: operational
+    as_of: 2026-11-09
+  - id: sentinel-6b
+    name: Sentinel-6B
+    norad_id: 66514
+    status: operational
+    as_of: 2026-11-09
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and inclination, from its element set.
+    orbits:
+      sentinel-6a: {type: circular, mean_altitude: 1344860, inclination: 66.0401}
+      sentinel-6b: {type: circular, mean_altitude: 1344860, inclination: 66.0401}
+    provenance:
+      sentinel-6a:
+        mean_altitude: &sentinel_6a
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-6a]
+          period: "2026-11-07"
+        inclination: *sentinel_6a
+      sentinel-6b:
+        mean_altitude: &sentinel_6b
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-6b]
+          period: "2026-11-08"
+        inclination: *sentinel_6b
+    limitations:
+      - The satellites' phases in their planes and the right ascensions of their ascending nodes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

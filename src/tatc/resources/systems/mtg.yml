@@ -1,0 +1,29 @@
+id: mtg
+name: Meteosat Third Generation
+aliases: [MTG]
+system_class: geostationary
+selection: Europe's geostationary weather satellites, whose imagers observe Europe and Africa.
+operator: EUMETSAT
+spacecraft:
+  - id: meteosat-12
+    name: Meteosat-12 (MTG-I1)
+    norad_id: 54743
+    status: operational
+    as_of: 2026-11-17
+default_configuration: slot
+configurations:
+  slot:
+    grade: ground_track
+    description: The longitude of each satellite's subpoint, maintained by station-keeping, from its element set.
+    orbits:
+      meteosat-12: {type: geosynchronous, longitude: -0.294, inclination: 0.77}
+    provenance:
+      meteosat-12:
+        longitude: &meteosat_12
+          kind: measured
+          source: validate_system_orbits.py --fit, the mean over the day after the element set nearest the middle of the day
+          platforms: [meteosat-12]
+          period: "2026-11-18"
+        inclination: *meteosat_12
+    limitations:
+      - The satellites are kept at their mean longitudes and inclinations, without the daily motion of the subpoint within the station-keeping box.

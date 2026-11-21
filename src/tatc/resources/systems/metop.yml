@@ -1,0 +1,44 @@
+id: metop
+name: Metop
+aliases: [EUMETSAT Polar System, EPS]
+system_class: sun_synchronous
+selection: Europe's polar-orbiting weather satellites in the mid-morning orbit, complementing JPSS.
+operator: EUMETSAT
+spacecraft:
+  - id: metop-b
+    name: Metop-B
+    norad_id: 38771
+    status: extended
+    as_of: 2026-11-17
+  - id: metop-c
+    name: Metop-C
+    norad_id: 43689
+    status: operational
+    as_of: 2026-11-17
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      metop-b: {type: sso, mean_altitude: 827670, equator_crossing_time: "20:57:44"}
+      metop-c: {type: sso, mean_altitude: 827410, equator_crossing_time: "21:29:55"}
+    provenance:
+      metop-b:
+        mean_altitude: &metop_b
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [metop-b]
+          period: "2026-05-12"
+        equator_crossing_time: *metop_b
+      metop-c:
+        mean_altitude: &metop_c
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [metop-c]
+          period: "2026-05-12"
+        equator_crossing_time: *metop_c
+    limitations:
+      - The satellites' phases in their planes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

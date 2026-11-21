@@ -3,12 +3,7 @@ name: HARP2
 aliases: [Hyper-Angular Rainbow Polarimeter 2]
 instrument_class: pushbroom
 selection: Wide-angle imaging polarimeter of NASA's PACE mission, which views clouds and aerosols at up to 60 angles along track, with open data products.
-platforms:
-  - id: pace
-    name: PACE
-    norad_id: 58928
-    status: operational
-    as_of: 2026-11-09
+platforms: [pace]
 data_products:
   - name: PACE HARP2 Level 1B (PACE_HARP2_L1B_SCI), version 4
     provider: NASA OB.DAAC

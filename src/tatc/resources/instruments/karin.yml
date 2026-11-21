@@ -3,12 +3,7 @@ name: KaRIn
 aliases: [Ka-band Radar Interferometer, SWOT KaRIn]
 instrument_class: sar
 selection: Wide-swath radar interferometer of the Surface Water and Ocean Topography (SWOT) mission, which maps ocean and inland water heights in two swaths beside a nadir gap, with open data products.
-platforms:
-  - id: swot
-    name: SWOT
-    norad_id: 54754
-    status: operational
-    as_of: 2026-11-04
+platforms: [swot]
 data_products:
   - name: SWOT_L2_LR_SSH_BASIC_D
     provider: NASA PO.DAAC

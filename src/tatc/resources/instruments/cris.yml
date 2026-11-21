@@ -3,22 +3,7 @@ name: CrIS
 aliases: [Cross-track Infrared Sounder]
 instrument_class: cross_track
 selection: Cross-track infrared sounder of the Joint Polar Satellite System, with open data products and wide use in numerical weather prediction.
-platforms:
-  - id: noaa-20
-    name: NOAA-20
-    norad_id: 43013
-    status: operational
-    as_of: 2026-10-02
-  - id: noaa-21
-    name: NOAA-21
-    norad_id: 54234
-    status: operational
-    as_of: 2026-11-05
-  - id: suomi-npp
-    name: Suomi NPP
-    norad_id: 37849
-    status: retired
-    as_of: 2025-12-23
+platforms: [noaa-20, noaa-21, suomi-npp]
 data_products:
   - name: CrIS SDR geolocation (GCRSO)
     provider: NOAA Open Data Dissemination

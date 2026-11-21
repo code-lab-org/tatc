@@ -1,0 +1,57 @@
+id: sentinel_2
+name: Copernicus Sentinel-2
+aliases: [Sentinel-2]
+system_class: sun_synchronous
+selection: Europe's high-resolution multispectral imaging constellation.
+operator: ESA
+spacecraft:
+  - id: sentinel-2a
+    name: Sentinel-2A
+    norad_id: 40697
+    status: extended
+    as_of: 2026-10-03
+  - id: sentinel-2b
+    name: Sentinel-2B
+    norad_id: 42063
+    status: operational
+    as_of: 2026-10-03
+  - id: sentinel-2c
+    name: Sentinel-2C
+    norad_id: 60989
+    status: operational
+    as_of: 2026-10-03
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      sentinel-2a: {type: sso, mean_altitude: 796120, equator_crossing_time: "22:30:22"}
+      sentinel-2b: {type: sso, mean_altitude: 796110, equator_crossing_time: "22:30:04"}
+      sentinel-2c: {type: sso, mean_altitude: 796110, equator_crossing_time: "22:30:06"}
+    provenance:
+      sentinel-2a:
+        mean_altitude: &sentinel_2a
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-2a]
+          period: "2026-08-10"
+        equator_crossing_time: *sentinel_2a
+      sentinel-2b:
+        mean_altitude: &sentinel_2b
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-2b]
+          period: "2026-08-10"
+        equator_crossing_time: *sentinel_2b
+      sentinel-2c:
+        mean_altitude: &sentinel_2c
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-2c]
+          period: "2026-08-10"
+        equator_crossing_time: *sentinel_2c
+    limitations:
+      - The satellites' phases in their planes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

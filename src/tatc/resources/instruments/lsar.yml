@@ -3,12 +3,7 @@ name: L-SAR
 aliases: [NISAR, NISAR L-SAR, NISAR L-band SAR]
 instrument_class: sar
 selection: L-band synthetic aperture radar of the NASA-ISRO SAR (NISAR) mission, which images the land and ice surfaces of the Earth every 12 days, with open data products.
-platforms:
-  - id: nisar
-    name: NISAR
-    norad_id: 65053
-    status: operational
-    as_of: 2026-11-04
+platforms: [nisar]
 data_products:
   - name: NISAR Level 1 Range-Doppler Single-Look Complex (RSLC)
     provider: NASA ASF DAAC

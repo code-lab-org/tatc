@@ -3,12 +3,7 @@ name: MWS
 aliases: [Microwave Sounder, Metop-SG MWS]
 instrument_class: cross_track
 selection: Cross-track microwave sounder of EUMETSAT's second-generation polar satellites (Metop-SG), the successor to AMSU-A and MHS, with open data products.
-platforms:
-  - id: metop-sga1
-    name: Metop-SG A1
-    norad_id: 65159
-    status: operational
-    as_of: 2026-11-17
+platforms: [metop-sga1]
 data_products:
   - name: MWS Level 1b, Metop-SG, in BUFR (EO:EUM:DAT:0892)
     provider: EUMETSAT Data Store
