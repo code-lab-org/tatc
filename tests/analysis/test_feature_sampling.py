@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import shapely
 from shapely.geometry import Point as ShapelyPoint
 from shapely.geometry import box
 from skyfield.api import wgs84
@@ -294,6 +295,94 @@ class TestFeatureObservationsOtherPlatforms(unittest.TestCase):
         twin = tower.model_copy(update={"latitude": 35.15})
         with self.assertRaisesRegex(ValueError, "distinct names"):
             collect_feature_observations(self.features, [tower, twin], self.times)
+
+    def test_feature_elevation(self):
+        """
+        Test that the footprints of a feature with z-coordinates are computed
+        at its elevation, as if given, without one for radar stations.
+        """
+        features = self.features.set_geometry(
+            shapely.force_3d(self.features.geometry.to_numpy(), 3000), crs="EPSG:4326"
+        )
+        inferred = collect_feature_observations(
+            features, [self.aircraft, self.radar], self.times
+        )
+        given = collect_feature_observations(
+            self.features, [self.aircraft, self.radar], self.times, elevation=3000
+        )
+        self.assertEqual(len(inferred), 2)
+        pd.testing.assert_frame_equal(
+            pd.DataFrame(inferred.drop(columns="geometry")),
+            pd.DataFrame(given.drop(columns="geometry")),
+        )
+        self.assertTrue(inferred.geometry.geom_equals_exact(given.geometry, 1e-9).all())
+
+    def test_features_at_elevations(self):
+        """
+        Test that features at different elevations (or without one) are each
+        viewed at their own elevation, and that a given elevation applies
+        to its kind of platform.
+        """
+        shape = self.features.geometry.iloc[0]
+        features = gpd.GeoDataFrame(
+            {
+                "start": pd.DatetimeIndex([START] * 3, dtype="datetime64[ns, UTC]"),
+                "end": pd.DatetimeIndex(
+                    [START + pd.Timedelta(hours=1)] * 3, dtype="datetime64[ns, UTC]"
+                ),
+            },
+            geometry=[
+                shapely.force_3d(shape, 5000),
+                shape,
+                shapely.force_3d(shape, 2000),
+            ],
+            crs="EPSG:4326",
+            index=["high", "ground", "low"],
+        )
+        observations = collect_feature_observations(features, self.aircraft, self.times)
+        self.assertListEqual(list(observations["feature"]), ["ground", "high", "low"])
+        self.assertListEqual(
+            [geometry.exterior.coords[0][2] for geometry in observations.geometry],
+            [0, 5000, 2000],
+        )
+        # the aircraft's range to the higher feature is shorter
+        self.assertLess(
+            observations["platform_range"].iloc[1],
+            observations["platform_range"].iloc[0],
+        )
+        # a given elevation applies to its kind of platform, which warns
+        with self.assertWarnsRegex(UserWarning, "other elevations"):
+            given = collect_feature_observations(
+                features, self.aircraft, self.times, elevation={"aircraft": 0}
+            )
+        self.assertListEqual(
+            [geometry.exterior.coords[0][2] for geometry in given.geometry], [0, 0, 0]
+        )
+
+    def test_invalid_feature_elevations(self):
+        """
+        Test that a feature must be at a constant elevation, and that radar
+        stations require an elevation unless each feature has one.
+        """
+        shape = self.features.geometry.iloc[0]
+        coordinates = shapely.get_coordinates(shape)
+        sloped = shapely.Polygon(
+            np.column_stack([coordinates, np.linspace(0, 1000, len(coordinates))])
+        )
+        features = self.features.set_geometry([sloped], crs="EPSG:4326")
+        with self.assertRaisesRegex(ValueError, "constant elevation"):
+            collect_feature_observations(features, self.aircraft, self.times)
+        mixed = pd.concat(
+            [
+                self.features,
+                self.features.set_geometry(
+                    [shapely.force_3d(shape, 3000)], crs="EPSG:4326"
+                ),
+            ],
+            ignore_index=True,
+        )
+        with self.assertRaisesRegex(ValueError, "elevation is required"):
+            collect_feature_observations(mixed, self.radar, self.times)
 
     def test_radar_requires_elevation(self):
         """

@@ -19,18 +19,25 @@ import shapely
 from pyproj import Geod
 from skyfield.api import wgs84
 
+from .._warnings import warn
 from ..schemas import AllPlatforms
 from .check import (
+    RADAR_STATION,
     SATELLITE,
-    _PlatformKind,
     _check_times,
     _get_instruments,
     _get_platform_key,
     _get_platform_kinds,
     _get_platforms,
     _group_platforms,
+    _PlatformKind,
 )
-from .footprints import _get_footprint_elevations, collect_footprints
+from .footprints import (
+    _ELEVATION_TOLERANCE,
+    _get_footprint_elevations,
+    _get_kind_elevations,
+    collect_footprints,
+)
 
 _GEOD = Geod(ellps="WGS84")
 
@@ -91,6 +98,157 @@ def _check_features(features: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return features
 
 
+def _get_feature_elevations(features: gpd.GeoDataFrame) -> np.ndarray:
+    """
+    Gets the elevation of each feature: the z-coordinate of its vertices,
+    which must be constant (within a meter), or `NaN` for a feature without
+    z-coordinates.
+
+    Args:
+        features (geopandas.GeoDataFrame): The features.
+
+    Returns:
+        numpy.ndarray: the elevation (meters) of each feature
+    """
+    shapes = features.geometry.to_numpy()
+    elevations = np.full(len(shapes), np.nan)
+    rows = np.flatnonzero(shapely.has_z(shapes))
+    if len(rows) == 0:
+        return elevations
+    coordinates, index = shapely.get_coordinates(
+        shapes[rows], include_z=True, return_index=True
+    )
+    low = np.full(len(rows), np.inf)
+    high = np.full(len(rows), -np.inf)
+    np.minimum.at(low, index, coordinates[:, 2])
+    np.maximum.at(high, index, coordinates[:, 2])
+    spans = high - low > _ELEVATION_TOLERANCE
+    if np.any(spans):
+        i = np.flatnonzero(spans)[0]
+        raise ValueError(
+            "each feature must be at a constant elevation (its z-coordinate), at "
+            "which its footprints are computed, not feature "
+            f"{features.index[rows[i]]!r} from {low[i]:.0f} to {high[i]:.0f} m"
+        )
+    elevations[rows] = _get_footprint_elevations(shapes[rows])
+    return elevations
+
+
+def _get_group_elevation(
+    elevation: float | Mapping[str, float | None] | None, height: float
+) -> float | Mapping[str, float | None] | None:
+    """
+    Gets the elevation at which to compute the footprints of features at a
+    height: that given for each kind of platform, or else the height (if
+    not `NaN`).
+
+    Args:
+        elevation (float | Mapping[str, float | None] | None): The
+            elevation (meters), or that of each kind of platform by its column.
+        height (float): The elevation (meters) of the features, or `NaN`.
+
+    Returns:
+        float | Mapping[str, float | None] | None: the elevation of each kind
+    """
+    if np.isnan(height):
+        return elevation
+    return {
+        kind.column: float(height) if value is None else value
+        for kind, value in _get_kind_elevations(elevation).items()
+    }
+
+
+def _get_feature_pieces(
+    rows: np.ndarray,
+    shapes: np.ndarray,
+    starts: pd.DatetimeIndex,
+    ends: pd.DatetimeIndex,
+    platforms: list[AllPlatforms],
+    times: list[datetime],
+    instrument_index: int | None,
+    elevation: float | Mapping[str, float | None] | None,
+) -> pd.DataFrame | None:
+    """
+    Gets the pieces of features: each feature's overlap (of positive area)
+    with each valid footprint (at an elevation) while the feature exists.
+
+    Args:
+        rows (numpy.ndarray): The positions of the features.
+        shapes (numpy.ndarray): The (two-dimensional) geometry of each feature.
+        starts (pandas.DatetimeIndex): The start of each feature.
+        ends (pandas.DatetimeIndex): The end of each feature.
+        platforms (list[AllPlatforms]): The observing platforms.
+        times (list[datetime.datetime]): The times at which to sample.
+        instrument_index (int | None): The index of the observing instrument.
+        elevation (float | Mapping[str, float | None] | None): The
+            elevation of the footprints (see `collect_footprints`).
+
+    Returns:
+        pandas.DataFrame | None: the pieces: the feature (its position),
+            platform (key), kind, instrument, time, footprint elevation
+            (`height`), geometry, and area (square degrees), or `None`
+            without any
+    """
+    # the footprints, clipped to the bounds of the features
+    mask = shapely.box(*shapely.total_bounds(shapes[rows]))
+    track = collect_footprints(platforms, times, instrument_index, elevation, mask)
+    track = track[track["valid_obs"].eq(True).to_numpy()].reset_index(drop=True)
+    if len(track) == 0:
+        return None
+    # the elevation of each footprint, projected at a constant elevation
+    heights = _get_footprint_elevations(track.geometry.to_numpy())
+    footprints = shapely.force_2d(track.geometry.to_numpy())
+    # each feature's overlap with each footprint while it exists
+    feature, footprint = shapely.STRtree(footprints).query(
+        shapes[rows], predicate="intersects"
+    )
+    feature = rows[feature]
+    time = pd.DatetimeIndex(track["time"])
+    exists = np.asarray(
+        (starts[feature] <= time[footprint]) & (time[footprint] < ends[feature])
+    )
+    feature, footprint = feature[exists], footprint[exists]
+    if len(feature) == 0:
+        return None
+    pieces = pd.DataFrame(
+        {
+            "feature": feature,
+            "platform": _get_platforms(track)[footprint],
+            "kind": _get_platform_kinds(track)[footprint],
+            "instrument": _get_instruments(track)[footprint],
+            "time": time[footprint],
+            "height": heights[footprint],
+            "geometry": shapely.intersection(shapes[feature], footprints[footprint]),
+        }
+    )
+    pieces["area"] = shapely.area(pieces["geometry"].to_numpy())
+    pieces = pieces[pieces["area"] > 0]
+    return pieces if len(pieces) > 0 else None
+
+
+def _warn_feature_elevations(features: np.ndarray, footprints: np.ndarray) -> None:
+    """
+    Warns if features overlap footprints projected to other elevations.
+
+    Args:
+        features (numpy.ndarray): The elevation (meters) of each feature
+            (`NaN` if unknown).
+        footprints (numpy.ndarray): The elevation (meters) of the footprint
+            that overlaps each feature (`NaN` if unknown).
+    """
+    differs = np.abs(features - footprints) > _ELEVATION_TOLERANCE
+    if not np.any(differs):
+        return
+    i = np.flatnonzero(differs)[0]
+    warn(
+        f"features overlap footprints at other elevations (such as a feature at "
+        f"{features[i]:.0f} m and a footprint at {footprints[i]:.0f} m), which are "
+        "offset from them along the line of sight: leave elevation unset (or "
+        "unset for the kind of platform) to compute the footprints at the "
+        "elevation of each feature"
+    )
+
+
 def collect_feature_observations(
     features: gpd.GeoDataFrame,
     platforms: AllPlatforms | list[AllPlatforms],
@@ -126,10 +284,21 @@ def collect_feature_observations(
     `platform_range / platform_height` along the line of sight and, across
     it, by the secant of the zenith angle, `90 - platform_alt`.
 
+    A feature with z-coordinates (constant over its vertices, such as a cloud
+    top at its height above the WGS 84 ellipsoid) is sampled by footprints
+    computed at its elevation, for each kind of platform without a given
+    `elevation`: the footprints are computed once for each distinct
+    elevation of the features (and once for those without z-coordinates),
+    so features at many elevations (such as the continuous cloud-top heights
+    of a nature run) are faster to sample if rounded to a few levels. A
+    feature at another elevation than its footprints warns, as they are
+    offset from it along the line of sight.
+
     Args:
-        features (geopandas.GeoDataFrame): The features: their geometries,
-                and the `start` and `end` (timezone-aware) of the period in
-                which each exists.
+        features (geopandas.GeoDataFrame): The features: their geometries
+                (optionally at an elevation, their z-coordinate), and the
+                `start` and `end` (timezone-aware) of the period in which
+                each exists.
         platforms (AllPlatforms | list[AllPlatforms]): The observing
                 platform(s), of any kinds (see `tatc.schemas.AllPlatforms`).
         times (list[datetime.datetime]): The times at which to sample.
@@ -139,9 +308,11 @@ def collect_feature_observations(
         elevation (float | Mapping[str, float | None] | None): The
                 elevation (meters) above the WGS 84 ellipsoid at which to
                 compute footprints, or that of each kind of platform by its
-                column (see `collect_footprints`): by default, the ellipsoid
-                for satellites and aircraft, and the ground elevation of
-                each surface platform; required for radar stations.
+                column (see `collect_footprints`): by default, the elevation
+                of each feature (its z-coordinate), or, for a feature without
+                one, the ellipsoid for satellites and aircraft and the ground
+                elevation of each surface platform; required for radar
+                stations unless each feature has an elevation.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of observations: the feature
@@ -168,44 +339,46 @@ def collect_feature_observations(
     }
     if len(features) == 0 or len(times) == 0 or len(lookup) == 0:
         return _get_empty_feature_observations(kinds)
-    # the footprints, clipped to the bounds of the features
-    mask = shapely.box(*features.total_bounds)
-    track = collect_footprints(
-        list(lookup.values()), times, instrument_index, elevation, mask
-    )
-    track = track[track["valid_obs"].eq(True).to_numpy()].reset_index(drop=True)
-    if len(track) == 0:
+    # the elevation of each feature (NaN without z-coordinates)
+    feature_heights = _get_feature_elevations(features)
+    if (
+        groups[RADAR_STATION]
+        and _get_kind_elevations(elevation)[RADAR_STATION] is None
+        and np.isnan(feature_heights).any()
+    ):
+        raise ValueError(
+            "elevation is required to collect the footprints of radar stations, "
+            "unless each feature has an elevation (its z-coordinate)"
+        )
+    shapes = shapely.force_2d(features.geometry.to_numpy())
+    starts = pd.DatetimeIndex(features["start"])
+    ends = pd.DatetimeIndex(features["end"])
+    # the pieces of the features at each elevation (or without one), whose
+    # footprints are computed at that elevation
+    groups_of_pieces = [
+        _get_feature_pieces(
+            np.flatnonzero(
+                np.isnan(feature_heights)
+                if np.isnan(height)
+                else feature_heights == height
+            ),
+            shapes,
+            starts,
+            ends,
+            list(lookup.values()),
+            times,
+            instrument_index,
+            _get_group_elevation(elevation, height),
+        )
+        for height in pd.unique(feature_heights)
+    ]
+    groups_of_pieces = [group for group in groups_of_pieces if group is not None]
+    if len(groups_of_pieces) == 0:
         return _get_empty_feature_observations(kinds)
-    # the elevation of each footprint, projected at a constant elevation
-    heights = _get_footprint_elevations(track.geometry.to_numpy())
-    footprints = shapely.force_2d(track.geometry.to_numpy())
-    shapes = features.geometry.to_numpy()
-    # the pieces: each feature's overlap with each footprint while it exists
-    feature, footprint = shapely.STRtree(footprints).query(
-        shapes, predicate="intersects"
+    pieces = pd.concat(groups_of_pieces, ignore_index=True)
+    _warn_feature_elevations(
+        feature_heights[pieces["feature"].to_numpy()], pieces["height"].to_numpy()
     )
-    time = pd.DatetimeIndex(track["time"])
-    exists = np.asarray(
-        (pd.DatetimeIndex(features["start"])[feature] <= time[footprint])
-        & (time[footprint] < pd.DatetimeIndex(features["end"])[feature])
-    )
-    feature, footprint = feature[exists], footprint[exists]
-    instruments = _get_instruments(track)
-    pieces = pd.DataFrame(
-        {
-            "feature": feature,
-            "platform": _get_platforms(track)[footprint],
-            "kind": _get_platform_kinds(track)[footprint],
-            "instrument": instruments[footprint],
-            "time": time[footprint],
-            "height": heights[footprint],
-            "geometry": shapely.intersection(shapes[feature], footprints[footprint]),
-        }
-    )
-    pieces["area"] = shapely.area(pieces["geometry"].to_numpy())
-    pieces = pieces[pieces["area"] > 0]
-    if len(pieces) == 0:
-        return _get_empty_feature_observations(kinds)
     # each observation: the union of the pieces of a feature viewed by a
     # platform's instrument, at the time of the piece with the largest area
     # (the earliest of those as large)
