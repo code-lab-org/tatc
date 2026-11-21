@@ -6,15 +6,18 @@ Input validation and result handling shared by the analysis functions.
 
 from __future__ import annotations
 
-import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 
-from ..schemas import Satellite, SurfacePlatform
 from .. import constants
+from .._warnings import warn
+from ..schemas import Aircraft, RadarStation, Satellite, SurfacePlatform
 from ..schemas.space.base_constellation import BaseConstellation
 
 _MIN_PERIGEE_ALTITUDE = 100e3
@@ -24,13 +27,199 @@ specified in the wrong units (see `_warn_low_perigees`).
 """
 
 
+@dataclass(frozen=True)
+class _PlatformKind:
+    """
+    A kind of observing platform, and how analyses name it.
+
+    Attributes:
+        type (type): The schema of platforms of this kind.
+        column (str): The column that names a platform in results.
+        label (str): The kind, as named in errors.
+        argument (str): The argument that takes platforms of this kind in
+            the analyses of a single kind (such as `collect_ground_track`).
+        fixed (bool): `True` if platforms of this kind do not move in the
+            Earth-fixed frame, so that their footprints do not change with
+            time (and may be collected without times).
+        instrumented (bool): `True` if platforms of this kind carry
+            instruments (`instruments`), `False` if a platform is itself the
+            instrument (as a radar station is).
+        default_elevation (Callable[[Any], float] | None): Gets the elevation
+            (meters above the WGS 84 ellipsoid) at which to compute a
+            platform's footprints if none is given, or `None` if one is
+            required.
+    """
+
+    type: type
+    column: str
+    label: str
+    argument: str
+    fixed: bool = False
+    instrumented: bool = True
+    default_elevation: Callable[[Any], float] | None = None
+
+
+def _get_ellipsoid_elevation(_: Any) -> float:
+    """
+    Gets the default elevation of the footprints of a moving platform (a
+    satellite or an aircraft): the WGS 84 ellipsoid (zero), without a model
+    of the terrain below it.
+
+    Args:
+        _ (Any): The platform.
+
+    Returns:
+        float: zero
+    """
+    return 0.0
+
+
+def _get_ground_elevation(platform: Any) -> float:
+    """
+    Gets the default elevation of the footprints of a fixed surface
+    platform: the ground below it (its `elevation`).
+
+    Args:
+        platform (Any): The platform.
+
+    Returns:
+        float: the ground elevation (meters)
+    """
+    return platform.elevation
+
+
+SATELLITE = _PlatformKind(
+    Satellite,
+    "satellite",
+    "satellite",
+    "satellites",
+    default_elevation=_get_ellipsoid_elevation,
+)
+AIRCRAFT = _PlatformKind(
+    Aircraft,
+    "aircraft",
+    "aircraft",
+    "aircraft",
+    default_elevation=_get_ellipsoid_elevation,
+)
+SURFACE_PLATFORM = _PlatformKind(
+    SurfacePlatform,
+    "surface_platform",
+    "surface platform",
+    "platforms",
+    fixed=True,
+    default_elevation=_get_ground_elevation,
+)
+RADAR_STATION = _PlatformKind(
+    RadarStation,
+    "radar_station",
+    "radar station",
+    "stations",
+    fixed=True,
+    instrumented=False,
+)
+
+_PLATFORM_KINDS = (SATELLITE, AIRCRAFT, SURFACE_PLATFORM, RADAR_STATION)
+"""
+The kinds of observing platforms, in the order their results are combined
+and their columns are listed.
+"""
+
+_PLATFORM_COLUMNS = tuple(kind.column for kind in _PLATFORM_KINDS)
+"""
+Columns that name the observing platform of a result, one for each kind of
+platform: satellites, aircraft, fixed surface platforms, and radar stations.
+"""
+
+
+def _get_platform_kind(platform: object) -> _PlatformKind | None:
+    """
+    Gets the kind of an observing platform (see `_PLATFORM_KINDS`).
+
+    Args:
+        platform (object): The platform.
+
+    Returns:
+        _PlatformKind | None: the kind, or `None` if it is not a platform
+    """
+    return next(
+        (kind for kind in _PLATFORM_KINDS if isinstance(platform, kind.type)), None
+    )
+
+
+def _get_constellation_hint(value: object) -> str:
+    """
+    Gets a hint for an error about a value that is not a platform: to pass
+    the members of a constellation, which carries its lead member's name,
+    orbit, and instruments (so that, without the error, it would be silently
+    analyzed as that single satellite).
+
+    Args:
+        value (object): The value.
+
+    Returns:
+        str: the hint (beginning with a semicolon), or an empty string
+    """
+    if isinstance(value, BaseConstellation):
+        return "; use its generate_members() method to pass its member satellites"
+    return ""
+
+
+def _group_platforms(platforms: object) -> dict[_PlatformKind, list]:
+    """
+    Groups observing platforms of any kinds by kind (see `_PLATFORM_KINDS`),
+    raising a `TypeError` for any other value.
+
+    Args:
+        platforms (object): A platform or a list of them.
+
+    Returns:
+        dict[_PlatformKind, list]: the platforms of each kind, in their order
+    """
+    is_list = isinstance(platforms, (list, tuple))
+    groups: dict[_PlatformKind, list] = {kind: [] for kind in _PLATFORM_KINDS}
+    for i, platform in enumerate(platforms if is_list else [platforms]):  # type: ignore
+        kind = _get_platform_kind(platform)
+        if kind is None:
+            label = f"platforms[{i}]" if is_list else "platforms"
+            names = [kind.type.__name__ for kind in _PLATFORM_KINDS]
+            raise TypeError(
+                f"{label} must be a {', '.join(names[:-1])}, or {names[-1]}, "
+                f"not a {type(platform).__name__}{_get_constellation_hint(platform)}"
+            )
+        groups[kind].append(platform)
+    for kind, members in groups.items():
+        _check_distinct_names(members, kind, "platforms")
+    return groups
+
+
+def _check_platform(platform: object, kind: _PlatformKind, name: str) -> object:
+    """
+    Checks that `platform` is a platform of a kind (for example, an
+    `Aircraft`), raising a `TypeError` otherwise (directing a constellation
+    to its `generate_members` method, see `_get_constellation_hint`).
+
+    Args:
+        platform (object): The value to check.
+        kind (_PlatformKind): The kind of platform.
+        name (str): The argument name to report in the error message.
+
+    Returns:
+        object: the checked platform.
+    """
+    if isinstance(platform, kind.type):
+        return platform
+    article = "an" if kind.type.__name__[0] in "AEIOU" else "a"
+    raise TypeError(
+        f"{name} must be {article} {kind.type.__name__}, "
+        f"not a {type(platform).__name__}{_get_constellation_hint(platform)}"
+    )
+
+
 def _check_satellite(satellite: object, name: str = "satellite") -> Satellite:
     """
-    Checks that `satellite` is a `Satellite`, raising a `TypeError` otherwise.
-
-    A constellation carries its lead member's name, orbit, and instruments,
-    so without this check it would be silently analyzed as that single
-    satellite; the error instead directs to its `generate_members` method.
+    Checks that `satellite` is a `Satellite`, raising a `TypeError` otherwise
+    (see `_check_platform`).
 
     Args:
         satellite (object): the value to check.
@@ -39,23 +228,80 @@ def _check_satellite(satellite: object, name: str = "satellite") -> Satellite:
     Returns:
         Satellite: the checked satellite.
     """
-    if isinstance(satellite, Satellite):
-        return satellite
-    if isinstance(satellite, BaseConstellation):
+    return _check_platform(satellite, SATELLITE, name)  # type: ignore
+
+
+def _check_distinct_names(platforms: list, kind: _PlatformKind, name: str) -> None:
+    """
+    Checks that platforms of a kind have distinct names, raising a
+    `ValueError` otherwise: results name each platform in the column of its
+    kind (see `_get_platforms`), so platforms of the same name would be
+    merged (as in coincidences) or lost.
+
+    Args:
+        platforms (list): The platforms of the kind.
+        kind (_PlatformKind): The kind of platform.
+        name (str): The argument name to report in the error message.
+    """
+    seen = set()
+    for platform in platforms:
+        if platform.name in seen:
+            raise ValueError(
+                f"{name} must have distinct names: more than one {kind.label} "
+                f"is named {platform.name!r}"
+            )
+        seen.add(platform.name)
+
+
+def _check_platforms(
+    value: object,
+    kind: _PlatformKind,
+    name: str | None = None,
+    allow_single: bool = True,
+) -> list:
+    """
+    Checks that `value` is a list (or tuple) of platforms of a kind (for
+    example, `Aircraft`) or, if `allow_single`, a single one, raising a
+    `TypeError` otherwise (see `_check_platform`), and warns of satellites
+    with low perigees (see `_warn_low_perigees`).
+
+    Args:
+        value (object): The value to check.
+        kind (_PlatformKind): The kind of platform.
+        name (str | None): The argument name to report in the error
+            message, by default that of the kind (see `_PlatformKind`).
+        allow_single (bool): `True`, to also accept a single platform.
+
+    Returns:
+        list: the checked platforms, as a list.
+    """
+    name = kind.argument if name is None else name
+    if isinstance(value, (list, tuple)):
+        checked = [
+            _check_platform(platform, kind, f"{name}[{i}]")
+            for i, platform in enumerate(value)
+        ]
+    elif allow_single:
+        checked = [_check_platform(value, kind, name)]
+    else:
         raise TypeError(
-            f"{name} must be a Satellite, not a {type(satellite).__name__}; "
-            "use its generate_members() method to pass its member satellites"
+            f"{name} must be a list of {kind.type.__name__}s, "
+            f"not a {type(value).__name__}{_get_constellation_hint(value)}"
         )
-    raise TypeError(f"{name} must be a Satellite, not a {type(satellite).__name__}")
+    if kind is SATELLITE:
+        _warn_low_perigees(checked)
+    return checked
 
 
 def _check_satellites(
-    satellites: object, name: str = "satellites", allow_single: bool = True
+    satellites: object,
+    name: str = "satellites",
+    allow_single: bool = True,
 ) -> list[Satellite]:
     """
-    Checks that `satellites` is a list of `Satellite`s (or, if
-    `allow_single`, a single `Satellite`), raising a `TypeError` otherwise
-    (see `_check_satellite`).
+    Checks that `satellites` is a list (or tuple) of `Satellite`s (or, if
+    `allow_single`, a single `Satellite`), raising a `TypeError` otherwise,
+    and warns of low perigees (see `_check_platforms`).
 
     Args:
         satellites (object): the value to check.
@@ -65,28 +311,10 @@ def _check_satellites(
     Returns:
         list[Satellite]: the checked satellites, as a list.
     """
-    if isinstance(satellites, list):
-        checked = [
-            _check_satellite(satellite, f"{name}[{i}]")
-            for i, satellite in enumerate(satellites)
-        ]
-        _warn_low_perigees(checked)
-        return checked
-    if allow_single:
-        checked = [_check_satellite(satellites, name)]
-        _warn_low_perigees(checked)
-        return checked
-    if isinstance(satellites, BaseConstellation):
-        raise TypeError(
-            f"{name} must be a list of Satellites, not a "
-            f"{type(satellites).__name__}; use its generate_members() method"
-        )
-    raise TypeError(
-        f"{name} must be a list of Satellites, not a {type(satellites).__name__}"
-    )
+    return _check_platforms(satellites, SATELLITE, name, allow_single)
 
 
-def _warn_low_perigees(satellites: list[Satellite], stacklevel: int = 4) -> None:
+def _warn_low_perigees(satellites: list[Satellite]) -> None:
     """
     Warns (once, for all of them) if any satellites have a perigee altitude
     below 100 km, as from an orbit altitude specified in kilometers rather
@@ -96,9 +324,9 @@ def _warn_low_perigees(satellites: list[Satellite], stacklevel: int = 4) -> None
     members or conversions to general perturbations orbits).
 
     Args:
-        satellites (list[Satellite]): the satellites to check.
-        stacklevel (int): the stack level of the warning, so that it refers
-            to the analysis function's caller.
+        satellites (list[Satellite]): the satellites to check. The warning
+            refers to the code that called the analysis (see
+            `tatc._warnings.warn`).
     """
     low = {}
     for satellite in satellites:
@@ -113,13 +341,43 @@ def _warn_low_perigees(satellites: list[Satellite], stacklevel: int = 4) -> None
         names = ", ".join(repr(name) for name in list(low)[:3])
         if len(low) > 3:
             names += f", and {len(low) - 3} more"
-        warnings.warn(
+        warn(
             f"satellites ({names}) have a perigee altitude below "
             f"{_MIN_PERIGEE_ALTITUDE / 1e3:.0f} km (as low as "
             f"{min(low.values()) / 1e3:.1f} km): check that orbit altitudes and "
-            "semimajor axes are in meters",
-            stacklevel=stacklevel,
+            "semimajor axes are in meters"
         )
+
+
+def _check_aware(name: str, value: datetime) -> None:
+    """
+    Checks that a datetime is timezone-aware, raising a `ValueError` otherwise
+    (a naive datetime would otherwise fail deep within Skyfield).
+
+    Args:
+        name (str): the name of the datetime, for the error message.
+        value (datetime): the datetime.
+    """
+    if isinstance(value, datetime) and value.utcoffset() is None:
+        raise ValueError(
+            f"{name} must be a timezone-aware datetime, "
+            "e.g. datetime(2025, 1, 1, tzinfo=timezone.utc)"
+        )
+
+
+def _check_times(times: datetime | Iterable[datetime] | None) -> None:
+    """
+    Checks that the times of an analysis are timezone-aware datetimes,
+    raising a `ValueError` naming the first that is not.
+
+    Args:
+        times (datetime | Iterable[datetime] | None): the time(s), or `None`.
+    """
+    if times is None:
+        return
+    for value in [times] if isinstance(times, datetime) else times:
+        if isinstance(value, datetime):
+            _check_aware(f"time {value.isoformat()}", value)
 
 
 def _check_time_window(start: datetime, end: datetime) -> None:
@@ -133,12 +391,8 @@ def _check_time_window(start: datetime, end: datetime) -> None:
         start (datetime): the start of the time window.
         end (datetime): the end of the time window.
     """
-    for name, value in (("start", start), ("end", end)):
-        if isinstance(value, datetime) and value.utcoffset() is None:
-            raise ValueError(
-                f"{name} must be a timezone-aware datetime, "
-                "e.g. datetime(2025, 1, 1, tzinfo=timezone.utc)"
-            )
+    _check_aware("start", start)
+    _check_aware("end", end)
     if end < start:
         raise ValueError(
             f"end ({end.isoformat()}) is before start ({start.isoformat()})"
@@ -146,27 +400,26 @@ def _check_time_window(start: datetime, end: datetime) -> None:
 
 
 def _check_instrument_index(
-    satellite: Satellite | SurfacePlatform,
-    instrument_index: int,
-    kind: str = "satellite",
+    platform: Satellite | Aircraft | SurfacePlatform, instrument_index: int
 ) -> int:
     """
-    Checks that `instrument_index` indexes one of a satellite's (or other
-    platform's) instruments, raising an `IndexError` that names it otherwise.
+    Checks that `instrument_index` indexes one of a platform's instruments,
+    raising an `IndexError` that names the platform otherwise.
 
     Args:
-        satellite (Satellite | SurfacePlatform): the satellite or platform.
+        platform (Satellite | Aircraft | SurfacePlatform): the platform.
         instrument_index (int): the instrument index.
-        kind (str): the kind of platform, as named in the error.
 
     Returns:
         int: the checked instrument index.
     """
-    count = len(satellite.instruments)
+    count = len(platform.instruments)
     if not -count <= instrument_index < count:
+        kind = _get_platform_kind(platform)
         raise IndexError(
-            f"instrument_index {instrument_index} is out of range for {kind} "
-            f"{satellite.name!r}, which has {count} "
+            f"instrument_index {instrument_index} is out of range for "
+            f"{kind.label if kind is not None else 'platform'} "
+            f"{platform.name!r}, which has {count} "
             f"instrument{'' if count == 1 else 's'}"
         )
     return instrument_index
@@ -194,27 +447,23 @@ def _is_single(*values: object, instrument_index: int | None = 0) -> bool:
 
 
 def _get_instrument_indices(
-    satellite: Satellite | SurfacePlatform,
-    instrument_index: int | None,
-    kind: str = "satellite",
+    platform: Satellite | Aircraft | SurfacePlatform, instrument_index: int | None
 ) -> range | list[int]:
     """
-    Gets the indices of a satellite's (or other platform's) observing
-    instruments: the given index (see `_check_instrument_index`), or every
-    instrument's if None.
+    Gets the indices of a platform's observing instruments: the given index
+    (see `_check_instrument_index`), or every instrument's if None.
 
     Args:
-        satellite (Satellite | SurfacePlatform): The satellite or platform.
+        platform (Satellite | Aircraft | SurfacePlatform): The platform.
         instrument_index (int | None): The instrument index (None for every
             instrument).
-        kind (str): the kind of platform, as named in an error.
 
     Returns:
         range | list[int]: the instrument indices
     """
     if instrument_index is None:
-        return range(len(satellite.instruments))
-    return [_check_instrument_index(satellite, instrument_index, kind)]
+        return range(len(platform.instruments))
+    return [_check_instrument_index(platform, instrument_index)]
 
 
 def _combine_results(
@@ -248,4 +497,294 @@ def _combine_results(
         pd.concat(results)
         .sort_values(sort_by, kind="stable" if stable else "quicksort")
         .reset_index(drop=True)
+    )
+
+
+def _get_platform_columns(frame: pd.DataFrame) -> list[str]:
+    """
+    Gets the columns of a result that name its observing platforms (see
+    `_PLATFORM_COLUMNS`), in their standard order.
+
+    Args:
+        frame (pandas.DataFrame): The result.
+
+    Returns:
+        list[str]: the platform columns
+    """
+    return [column for column in _PLATFORM_COLUMNS if column in frame.columns]
+
+
+def _get_platform_kinds(frame: pd.DataFrame) -> np.ndarray:
+    """
+    Gets the kind of the observing platform of each row of a result: the
+    first of its `satellite`, `aircraft`, `surface_platform`, or
+    `radar_station` columns (see `_PLATFORM_COLUMNS`) that names it.
+
+    Args:
+        frame (pandas.DataFrame): The result.
+
+    Returns:
+        numpy.ndarray: the platform column of each row
+    """
+    kinds = pd.Series(None, index=frame.index, dtype=object)
+    for column in _get_platform_columns(frame):
+        kinds[kinds.isna() & frame[column].notna()] = column
+    if kinds.isna().any():
+        raise ValueError(
+            "each row must name its platform in a "
+            + ", ".join(_PLATFORM_COLUMNS[:-1])
+            + f", or {_PLATFORM_COLUMNS[-1]} column"
+        )
+    return kinds.to_numpy()
+
+
+def _get_platforms(frame: pd.DataFrame) -> np.ndarray:
+    """
+    Gets the observing platform of each row of a result, named by its
+    `satellite`, `aircraft`, `surface_platform`, or `radar_station` column
+    (see `_get_platform_kinds`), as its kind and name (so that a satellite
+    and an aircraft of the same name are different platforms).
+
+    Args:
+        frame (pandas.DataFrame): The result.
+
+    Returns:
+        numpy.ndarray: the platform (kind and name) of each row
+    """
+    kinds = _get_platform_kinds(frame)
+    names = np.empty(len(frame), dtype=object)
+    for column in pd.unique(kinds):
+        rows = kinds == column
+        names[rows] = _get_platform_key(
+            column, frame.loc[rows, column].astype(str)
+        ).to_numpy()
+    return names
+
+
+def _get_platform_key(column: str, name: str | pd.Series) -> str | pd.Series:
+    """
+    Gets the key that identifies a platform (or each of a series of
+    platforms) of a kind across kinds: its kind's column and its name (see
+    `_get_platforms`).
+
+    Args:
+        column (str): The column of the platform's kind (see
+            `_PLATFORM_COLUMNS`).
+        name (str | pandas.Series): The platform's name, or a series of names.
+
+    Returns:
+        str | pandas.Series: the key(s)
+    """
+    return column + ": " + name
+
+
+def _get_platform_lookup(platforms: object) -> dict[str, Any]:
+    """
+    Gets each observing platform of any kind by its key in results (see
+    `_get_platforms`), checking the platforms (see `_group_platforms`).
+
+    Args:
+        platforms (object): A platform or a list of them.
+
+    Returns:
+        dict[str, Any]: the platform of each key
+    """
+    return {
+        _get_platform_key(kind.column, platform.name): platform
+        for kind, members in _group_platforms(platforms).items()
+        for platform in members
+    }
+
+
+def _check_platform_lookup(lookup: dict[str, Any], keys: Iterable[str]) -> None:
+    """
+    Checks that platforms (see `_get_platform_lookup`) include the platform
+    of each row of a result (by its key, see `_get_platforms`), raising a
+    `ValueError` otherwise.
+
+    Args:
+        lookup (dict[str, Any]): The platform of each key.
+        keys (Iterable[str]): The key of the platform of each row.
+    """
+    missing = sorted(set(keys) - set(lookup))
+    if missing:
+        column, name = missing[0].split(": ", 1)
+        raise ValueError(
+            "platforms must include the platform of each row, such as the "
+            f"{column.replace('_', ' ')} named {name!r}"
+        )
+
+
+def _get_instruments(frame: pd.DataFrame) -> np.ndarray:
+    """
+    Gets the instrument of each row of a result: its `instrument` column, or
+    `None` for every row if it has none (as for the footprints of radar
+    stations alone).
+
+    Args:
+        frame (pandas.DataFrame): The result.
+
+    Returns:
+        numpy.ndarray: the instrument of each row
+    """
+    if "instrument" in frame.columns:
+        return frame["instrument"].to_numpy()
+    return np.full(len(frame), None, dtype=object)
+
+
+def _join_names(names: pd.Series) -> str | None:
+    """
+    Joins the names of the contributors to a combined result (such as the
+    platforms of a coincident observation), comma-separated, omitting missing
+    names (as of the platforms of another kind).
+
+    Args:
+        names (pandas.Series): The names.
+
+    Returns:
+        str | None: the joined names, or `None` if all are missing
+    """
+    present = names.dropna()
+    return ", ".join(present) if len(present) > 0 else None
+
+
+def _aggregate_names(
+    grouped: pd.core.groupby.DataFrameGroupBy, column: str
+) -> pd.Series:
+    """
+    Joins the names in a column of each group of a result (see
+    `_join_names`), quickly if no name is missing.
+
+    Args:
+        grouped (pandas.core.groupby.DataFrameGroupBy): The grouped result.
+        column (str): The column of names.
+
+    Returns:
+        pandas.Series: the joined names of each group
+    """
+    names = grouped[column]
+    if names.obj.notna().all():
+        return names.agg(", ".join)
+    return names.agg(_join_names)
+
+
+def _dissolve_footprints(
+    track: gpd.GeoDataFrame, by: str | list[str] | None = None
+) -> gpd.GeoDataFrame:
+    """
+    Dissolves the footprints of valid observations (`valid_obs`, if given)
+    of a track into one geometry, or one for each group of `by` (see
+    `tatc.analysis.footprints.dissolve_footprints`).
+
+    Args:
+        track (geopandas.GeoDataFrame): The track.
+        by (str | list[str] | None): The column(s) by which to group the
+            footprints, or `None` for one geometry.
+
+    Returns:
+        geopandas.GeoDataFrame: the dissolved footprints
+    """
+    columns = [] if by is None else [by] if isinstance(by, str) else list(by)
+    crs = track.crs if track.crs is not None else "EPSG:4326"
+    if "valid_obs" in track.columns:
+        track = track[track["valid_obs"].eq(True).to_numpy()]
+    if track.empty:
+        return gpd.GeoDataFrame(
+            {
+                column: pd.Series(
+                    [], dtype=track[column].dtype if column in track else "object"
+                )
+                for column in columns
+            },
+            geometry=gpd.GeoSeries([], crs=crs),
+            crs=crs,
+        )
+    geometry = track.geometry.name
+    if not columns:
+        return track[[geometry]].dissolve().reset_index(drop=True)
+    dissolved = track[[*columns, geometry]].dissolve(by=columns, dropna=False)
+    return dissolved.reset_index()[[*columns, geometry]]
+
+
+def _get_empty_observation_frame(
+    platform_columns: list[str] | None = None,
+) -> gpd.GeoDataFrame:
+    """
+    Gets an empty data frame of observations of targets (such as aggregated
+    or coincident observations), with the columns that name their platforms.
+
+    Args:
+        platform_columns (list[str] | None): The columns that name the
+            platforms (see `_PLATFORM_COLUMNS`), by default `satellite`.
+
+    Returns:
+        geopandas.GeoDataFrame: Empty data frame.
+    """
+    columns = {
+        "target_hash": pd.Series([], dtype="str"),
+        "geometry": pd.Series([], dtype="object"),
+        **{
+            column: pd.Series([], dtype="str")
+            for column in platform_columns or ["satellite"]
+        },
+        "instrument": pd.Series([], dtype="str"),
+        "start": pd.Series([], dtype="datetime64[ns, utc]"),
+        "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
+        "end": pd.Series([], dtype="datetime64[ns, utc]"),
+    }
+    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
+
+
+_TIME_COLUMNS = ("epoch", "time", "closest_time")
+"""
+Columns that give the time of an observation, in order of preference: the
+`epoch` of observations of points, footprints, and regions, the `time` of
+observations of features and of limb and radio occultation profiles, and the
+`closest_time` of observations in space.
+"""
+
+
+def _get_observation_times(
+    observations: pd.DataFrame, time_column: str | None = None
+) -> pd.Series:
+    """
+    Gets the time of each observation: that of a given column or, by default,
+    of the first of its `epoch`, `time`, or `closest_time` columns (see
+    `_TIME_COLUMNS`) that gives one, or else the midpoint of its `start` and
+    `end`, for each observation (so that observations of different kinds,
+    concatenated, each have their own).
+
+    Args:
+        observations (pandas.DataFrame): The observations.
+        time_column (str | None): The column of the times, or `None` to
+            find it.
+
+    Returns:
+        pandas.Series: the time of each observation (UTC)
+    """
+    if time_column is not None:
+        if time_column not in observations.columns:
+            raise ValueError(f"observations have no {time_column!r} column")
+        return pd.to_datetime(observations[time_column], utc=True)
+    columns = [column for column in _TIME_COLUMNS if column in observations.columns]
+    periods = "start" in observations.columns and "end" in observations.columns
+    if columns:
+        first = pd.to_datetime(observations[columns[0]], utc=True)
+        if not first.isna().any():
+            return first
+    if columns or periods:
+        times = pd.Series(pd.NaT, index=observations.index, dtype="datetime64[ns, UTC]")
+        for column in columns:
+            times = times.fillna(
+                pd.to_datetime(observations[column], utc=True).dt.as_unit("ns")
+            )
+        if periods:
+            start = pd.to_datetime(observations["start"], utc=True).dt.as_unit("ns")
+            end = pd.to_datetime(observations["end"], utc=True).dt.as_unit("ns")
+            times = times.fillna(start + (end - start) / 2)
+        return times
+    raise ValueError(
+        "observations must have a time: an "
+        + ", ".join(repr(column) for column in _TIME_COLUMNS)
+        + ", or 'start' and 'end' column"
     )

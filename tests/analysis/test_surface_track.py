@@ -5,9 +5,10 @@ Unit tests for surface platform analysis functions.
 """
 
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
+import shapely
 from pyproj import Geod
 from shapely.geometry import Polygon, box
 from skyfield.api import wgs84
@@ -16,7 +17,9 @@ from skyfield.framelib import itrs
 from tatc.analysis import (
     collect_ground_track,
     collect_platform_track,
+    collect_surface_track,
     compute_platform_track,
+    compute_surface_track,
 )
 from tatc.schemas import (
     Instrument,
@@ -81,76 +84,85 @@ class TestPlatformAnalysis(IssConstellationTestCase):
             ),
         ]
 
-    def test_collect_platform_track_empty(self):
+    def test_collect_surface_track_empty(self):
         """
         Test that an empty platform list produces an empty data frame.
         """
-        track = collect_platform_track([])
+        track = collect_surface_track([])
         self.assertTrue(track.empty)
         self.assertListEqual(
-            list(track.columns), ["platform", "instrument", "elevation", "geometry"]
+            list(track.columns),
+            ["surface_platform", "instrument", "valid_obs", "geometry"],
         )
 
-    def test_collect_platform_track_singular_matches_list(self):
+    def test_collect_surface_track_singular_matches_list(self):
         """
         Test that passing a single platform produces the same result as
         passing a list containing that one platform.
         """
-        singular = collect_platform_track(self.platform)
-        as_list = collect_platform_track([self.platform])
+        singular = collect_surface_track(self.platform)
+        as_list = collect_surface_track([self.platform])
         self.assertEqual(len(singular), 1)
         self.assertTrue(singular.geometry.iloc[0].equals(as_list.geometry.iloc[0]))
 
-    def test_collect_platform_track_instruments(self):
+    def test_collect_surface_track_instruments(self):
         """
         Test that collecting every instrument of several platforms produces
         one row per platform and instrument, in order.
         """
-        track = collect_platform_track(self.platforms, instrument_index=None)
-        self.assertListEqual(list(track.platform), ["Balloon", "Balloon", "Tower"])
+        track = collect_surface_track(self.platforms, instrument_index=None)
+        self.assertListEqual(
+            list(track.surface_platform), ["Balloon", "Balloon", "Tower"]
+        )
         self.assertListEqual(list(track.instrument), ["Camera", "Oblique", "Camera"])
-        self.assertListEqual(list(track.elevation), [300, 300, 310])
-        track = collect_platform_track(self.platform, instrument_index=1)
+        # each footprint is at its platform's ground elevation (its z)
+        self.assertListEqual(
+            [shapely.get_coordinates(g, include_z=True)[0, 2] for g in track.geometry],
+            [300, 300, 310],
+        )
+        track = collect_surface_track(self.platform, instrument_index=1)
         self.assertListEqual(list(track.instrument), ["Oblique"])
 
-    def test_collect_platform_track_instrument_index_out_of_range(self):
+    def test_collect_surface_track_instrument_index_out_of_range(self):
         """
         Test that an instrument index out of range names the platform.
         """
         with self.assertRaisesRegex(IndexError, "platform 'Tower'"):
-            collect_platform_track(self.platforms, instrument_index=1)
+            collect_surface_track(self.platforms, instrument_index=1)
 
-    def test_collect_platform_track_nadir_footprint(self):
+    def test_collect_surface_track_nadir_footprint(self):
         """
         Test that a nadir cone projects to a circle of radius height times the
         tangent of the half angle at the ground or a target elevation.
         """
         for elevation, height in [(None, 500), (600, 200)]:
-            track = collect_platform_track(self.platform, elevation=elevation)
+            track = collect_surface_track(self.platform, elevation=elevation)
             distances = _distances(self.platform, track.geometry.iloc[0])
             np.testing.assert_allclose(
                 distances, height * np.tan(np.radians(30)), atol=0.1
             )
             elevations = [z for *_, z in track.geometry.iloc[0].exterior.coords]
-            np.testing.assert_allclose(elevations, track.elevation.iloc[0])
+            np.testing.assert_allclose(
+                elevations, self.platform.elevation if elevation is None else elevation
+            )
 
-    def test_collect_platform_track_horizon(self):
+    def test_collect_surface_track_horizon(self):
         """
         Test that a hemispheric view projects to the horizon.
         """
         platform = self.platform.model_copy(
             update={"instruments": [Instrument(field_of_regard=180)]}
         )
-        track = collect_platform_track(platform)
+        track = collect_surface_track(platform)
         distances = _distances(platform, track.geometry.iloc[0])
         np.testing.assert_allclose(distances, np.sqrt(2 * 6371e3 * 500), rtol=0.005)
 
-    def test_collect_platform_track_oblique_footprint(self):
+    def test_collect_surface_track_oblique_footprint(self):
         """
         Test that a forward-pitched view projects ahead of the platform,
         toward its heading, between the near and far edges of the view.
         """
-        footprint = collect_platform_track(
+        footprint = collect_surface_track(
             self.platform, instrument_index=1
         ).geometry.iloc[0]
         azimuth, _, distance = GEOD.inv(
@@ -164,7 +176,7 @@ class TestPlatformAnalysis(IssConstellationTestCase):
         self.assertLess(distance, 500 * np.tan(np.radians(75)))
         self.assertAlmostEqual(min(_distances(self.platform, footprint)), 500, delta=1)
 
-    def test_collect_platform_track_scan_geometry(self):
+    def test_collect_surface_track_scan_geometry(self):
         """
         Test that a scanning view rolled to the left of the heading projects
         to the left.
@@ -182,7 +194,7 @@ class TestPlatformAnalysis(IssConstellationTestCase):
                 ]
             }
         )
-        footprint = collect_platform_track(platform).geometry.iloc[0]
+        footprint = collect_surface_track(platform).geometry.iloc[0]
         azimuth, _, _ = GEOD.inv(
             platform.longitude,
             platform.latitude,
@@ -191,7 +203,7 @@ class TestPlatformAnalysis(IssConstellationTestCase):
         )
         self.assertAlmostEqual(azimuth % 360, 315, delta=0.1)
 
-    def test_collect_platform_track_zenith_footprint(self):
+    def test_collect_surface_track_zenith_footprint(self):
         """
         Test that a zenith cone projects to a circle of radius the height of
         a target above the instruments times the tangent of the half angle.
@@ -207,7 +219,7 @@ class TestPlatformAnalysis(IssConstellationTestCase):
                 ]
             }
         )
-        track = collect_platform_track(platform, elevation=1340)
+        track = collect_surface_track(platform, elevation=1340)
         distances = _distances(platform, track.geometry.iloc[0])
         # geodesic distances on the ellipsoid, below the target elevation, to
         # the points on the circle and between them (on great circles)
@@ -217,7 +229,7 @@ class TestPlatformAnalysis(IssConstellationTestCase):
         elevations = [z for *_, z in track.geometry.iloc[0].exterior.coords]
         np.testing.assert_allclose(elevations, 1340)
 
-    def test_collect_platform_track_ground_horizon(self):
+    def test_collect_surface_track_ground_horizon(self):
         """
         Test that a view toward a target above the instruments that is partly
         blocked by the ground is clipped to the horizon, spanning the view's
@@ -235,7 +247,7 @@ class TestPlatformAnalysis(IssConstellationTestCase):
                 ]
             }
         )
-        footprint = collect_platform_track(platform, elevation=1310).geometry.iloc[0]
+        footprint = collect_surface_track(platform, elevation=1310).geometry.iloc[0]
         self.assertEqual(footprint.geom_type, "Polygon")
         self.assertTrue(footprint.is_valid)
         distances = _distances(platform, footprint)
@@ -257,7 +269,7 @@ class TestPlatformAnalysis(IssConstellationTestCase):
         self.assertAlmostEqual(min(azimuths), -110, delta=0.5)
         self.assertAlmostEqual(max(azimuths), -70, delta=0.5)
 
-    def test_collect_platform_track_ground_horizon_tilted(self):
+    def test_collect_surface_track_ground_horizon_tilted(self):
         """
         Test that tilted views toward a target above the instruments that are
         partly blocked by the ground project to valid polygons.
@@ -276,11 +288,11 @@ class TestPlatformAnalysis(IssConstellationTestCase):
                     ]
                 }
             )
-            footprint = collect_platform_track(platform, elevation=1310).geometry
+            footprint = collect_surface_track(platform, elevation=1310).geometry
             self.assertEqual(footprint.iloc[0].geom_type, "Polygon")
             self.assertTrue(footprint.iloc[0].is_valid)
 
-    def test_collect_platform_track_ground_blocked(self):
+    def test_collect_surface_track_ground_blocked(self):
         """
         Test that a view about nadir toward a target above the instruments
         is blocked by the ground: entirely, with an empty footprint, or
@@ -294,10 +306,19 @@ class TestPlatformAnalysis(IssConstellationTestCase):
                 ]
             }
         )
-        footprints = collect_platform_track(
-            platform, instrument_index=None, elevation=1310
-        ).geometry
+        results = collect_surface_track(platform, instrument_index=None, elevation=1310)
+        footprints = results.geometry
         self.assertTrue(footprints.iloc[0].is_empty)
+        # an empty footprint is not a valid observation
+        self.assertListEqual(results["valid_obs"].tolist(), [False, True])
+        coverage = compute_surface_track(
+            platform, instrument_index=None, elevation=1310
+        )
+        self.assertEqual(len(coverage), 1)
+        self.assertAlmostEqual(coverage.geometry.iloc[0].area, footprints.iloc[1].area)
+        blocked = compute_surface_track(platform, elevation=1310)
+        self.assertTrue(blocked.empty)
+        self.assertListEqual(list(blocked.columns), ["geometry"])
         annulus = footprints.iloc[1]
         self.assertTrue(annulus.is_valid)
         self.assertEqual(len(annulus.interiors), 1)
@@ -312,7 +333,7 @@ class TestPlatformAnalysis(IssConstellationTestCase):
             rtol=0.005,
         )
 
-    def test_collect_platform_track_ground_blocked_hemisphere(self):
+    def test_collect_surface_track_ground_blocked_hemisphere(self):
         """
         Test that a view of 180 degrees about nadir toward a target above the
         instruments is an annulus wherever the platform is: the edge of the
@@ -328,11 +349,11 @@ class TestPlatformAnalysis(IssConstellationTestCase):
                         "instruments": [Instrument(field_of_regard=180)],
                     }
                 )
-                annulus = collect_platform_track(platform, elevation=1310).geometry
+                annulus = collect_surface_track(platform, elevation=1310).geometry
                 self.assertEqual(annulus.iloc[0].geom_type, "Polygon")
                 self.assertEqual(len(annulus.iloc[0].interiors), 1)
 
-    def test_collect_platform_track_terrain_mask(self):
+    def test_collect_surface_track_terrain_mask(self):
         """
         Test that a terrain mask clips footprints toward a target above the
         instruments to the region visible over it, but not footprints toward
@@ -355,12 +376,12 @@ class TestPlatformAnalysis(IssConstellationTestCase):
             }
         )
         unmasked = platform.model_copy(update={"terrain_mask": None})
-        footprint = collect_platform_track(platform, elevation=1310).geometry.iloc[0]
+        footprint = collect_surface_track(platform, elevation=1310).geometry.iloc[0]
         self.assertTrue(footprint.is_valid)
         self.assertTrue(footprint.has_z)
         self.assertTrue(
             footprint.equals(
-                collect_platform_track(unmasked, elevation=1310)
+                collect_surface_track(unmasked, elevation=1310)
                 .geometry.iloc[0]
                 .intersection(platform.compute_visible_region(1310))
             )
@@ -369,30 +390,34 @@ class TestPlatformAnalysis(IssConstellationTestCase):
         self.assertLess(max(_distances(platform, footprint)), 30000)
         # but not toward a target below the instruments
         self.assertTrue(
-            collect_platform_track(platform)
+            collect_surface_track(platform)
             .geometry.iloc[0]
-            .equals(collect_platform_track(unmasked).geometry.iloc[0])
+            .equals(collect_surface_track(unmasked).geometry.iloc[0])
         )
 
-    def test_collect_platform_track_elevation_at_instruments(self):
+    def test_collect_surface_track_elevation_at_instruments(self):
         """
         Test that a target elevation at a platform's instruments raises a
         ValueError.
         """
         with self.assertRaisesRegex(ValueError, "Tower"):
-            collect_platform_track(self.platforms, elevation=340)
+            collect_surface_track(self.platforms, elevation=340)
         with self.assertRaises(ValueError):
-            collect_platform_track(self.platform, elevation=800)
+            collect_surface_track(self.platform, elevation=800)
 
-    def test_collect_platform_track_mask(self):
+    def test_collect_surface_track_mask(self):
         """
         Test that a mask clips results to the intersecting platform(s) only,
         in order.
         """
         far = self.platform.model_copy(update={"name": "Far", "longitude": -100})
         mask = box(-113, 33, -112, 34)
-        track = collect_platform_track([far, *self.platforms], None, mask=mask)
-        self.assertListEqual(list(track.platform), ["Balloon", "Balloon", "Tower"])
+        track = collect_surface_track(
+            [far, *self.platforms], instrument_index=None, mask=mask
+        )
+        self.assertListEqual(
+            list(track.surface_platform), ["Balloon", "Balloon", "Tower"]
+        )
         self.assertListEqual(list(track.index), [0, 1, 2])
 
     def test_matches_satellite_ground_track(self):
@@ -426,29 +451,160 @@ class TestPlatformAnalysis(IssConstellationTestCase):
             heading=np.degrees(np.arctan2(np.dot(v, east), np.dot(v, north))) % 360,
             instruments=[instrument],
         )
-        footprint = collect_platform_track(platform).geometry.iloc[0]
+        footprint = collect_surface_track(platform).geometry.iloc[0]
         np.testing.assert_allclose(
             np.array(footprint.exterior.coords),
             np.array(expected.exterior.coords),
             atol=1e-6,
         )
 
-    def test_compute_platform_track_dissolves(self):
+    def test_collect_surface_track_altaz(self):
         """
-        Test that compute_platform_track dissolves footprints into a single
+        Test the altitude/azimuth angles of the instruments seen from the
+        centers of their views: overhead for a nadir view, at the complement
+        of the pitch angle back along the heading for an oblique view, below
+        for an upward view, and NaN for an empty footprint.
+        """
+        results = collect_surface_track(
+            self.platform, instrument_index=None, platform_altaz=True
+        )
+        np.testing.assert_allclose(results["platform_alt"], [90.0, 30.0], atol=0.01)
+        self.assertAlmostEqual(results["platform_az"].iloc[1], 225.0, delta=0.01)
+        upward = self.platforms[1].model_copy(
+            update={
+                "instruments": [
+                    PointedInstrument(
+                        cross_track_field_of_view=40,
+                        along_track_field_of_view=40,
+                        roll_angle=180,
+                    ),
+                    Instrument(field_of_regard=60),
+                ]
+            }
+        )
+        above = collect_surface_track(
+            upward, instrument_index=None, elevation=2340, platform_altaz=True
+        )
+        self.assertAlmostEqual(above["platform_alt"].iloc[0], -90.0, delta=0.01)
+        # the nadir view of a target above is blocked by the ground
+        self.assertFalse(above["valid_obs"].iloc[1])
+        self.assertTrue(above[["platform_alt", "platform_az"]].iloc[1].isna().all())
+        empty = collect_surface_track([], platform_altaz=True)
+        self.assertTrue(empty.empty)
+        self.assertIn("platform_alt", empty.columns)
+
+    def test_compute_surface_track_dissolves(self):
+        """
+        Test that compute_surface_track dissolves footprints into a single
         geometry.
         """
-        merged = compute_platform_track(self.platforms, instrument_index=None)
+        merged = compute_surface_track(self.platforms, instrument_index=None)
         self.assertEqual(len(merged), 1)
         self.assertListEqual(list(merged.columns), ["geometry"])
-        individual = collect_platform_track(self.platforms, instrument_index=None)
+        individual = collect_surface_track(self.platforms, instrument_index=None)
         self.assertTrue(merged.geometry.iloc[0].covers(individual.union_all()))
 
-    def test_compute_platform_track_empty(self):
+    def test_compute_surface_track_empty(self):
         """
-        Test that an empty platform list produces an empty data frame.
+        Test that an empty platform list produces an empty data frame with
+        the columns of a dissolved track.
         """
-        self.assertTrue(compute_platform_track([]).empty)
+        empty = compute_surface_track([])
+        self.assertTrue(empty.empty)
+        self.assertListEqual(list(empty.columns), ["geometry"])
+
+    def test_collect_surface_track_times(self):
+        """
+        Test that, with times, the static footprint of each instrument is
+        repeated at each time, sorted by time, with its validity (such as a
+        sunlit target) and solar angles evaluated at each time.
+        """
+        sunlit = PointedInstrument(
+            name="Sunlit",
+            cross_track_field_of_view=40,
+            along_track_field_of_view=30,
+            min_target_solar_elevation=10,
+        )
+        platform = self.platform.model_copy(
+            update={"instruments": [self.camera, sunlit]}
+        )
+        # local noon and midnight in Phoenix (UTC-7)
+        noon = datetime(2026, 6, 1, 19, tzinfo=timezone.utc)
+        times = [noon, noon + timedelta(hours=12)]
+        track = collect_surface_track(
+            platform,
+            times,
+            instrument_index=None,
+            platform_altaz=True,
+            solar_altaz=True,
+        )
+        self.assertListEqual(
+            list(track.columns[:6]),
+            [
+                "time",
+                "surface_platform",
+                "instrument",
+                "valid_obs",
+                "geometry",
+                "platform_alt",
+            ],
+        )
+        self.assertListEqual(list(track["time"]), [times[0]] * 2 + [times[1]] * 2)
+        self.assertListEqual(list(track["valid_obs"]), [True, True, True, False])
+        self.assertGreater(track["solar_alt"].iloc[0], 60)
+        self.assertLess(track["solar_alt"].iloc[2], 0)
+        static = collect_surface_track(
+            platform, instrument_index=None, platform_altaz=True
+        )
+        for i in range(2):
+            self.assertTrue(track.geometry.iloc[i].equals(static.geometry.iloc[i]))
+            self.assertAlmostEqual(
+                track["platform_alt"].iloc[i],
+                static["platform_alt"].iloc[i],
+            )
+        # the coverage of valid observations at any time
+        self.assertEqual(len(compute_surface_track(platform, times[1:], None)), 1)
+        self.assertTrue(collect_surface_track(platform, []).empty)
+        self.assertIn("time", collect_surface_track(platform, []).columns)
+
+    def test_collect_surface_track_solar_altaz_requires_times(self):
+        """
+        Test that the solar angles require times.
+        """
+        with self.assertRaisesRegex(ValueError, "requires times"):
+            collect_surface_track(self.platform, solar_altaz=True)
+        with self.assertRaisesRegex(ValueError, "timezone-aware"):
+            collect_surface_track(self.platform, [datetime(2026, 1, 1)])
+
+    def test_deprecated_names_former_arguments(self):
+        """
+        Test that the former names of the functions keep their former order
+        of arguments (without times).
+        """
+        with self.assertWarns(DeprecationWarning):
+            track = collect_platform_track(self.platforms, None)
+        self.assertEqual(len(track), 3)
+        with self.assertWarns(DeprecationWarning):
+            coverage = compute_platform_track(self.platforms, None)
+        self.assertEqual(len(coverage), 1)
+
+    def test_deprecated_names(self):
+        """
+        Test that the former names of the functions warn that they are
+        deprecated and give the same results.
+        """
+        for old, new in (
+            (collect_platform_track, collect_surface_track),
+            (compute_platform_track, compute_surface_track),
+        ):
+            with self.subTest(old.__name__):
+                with self.assertWarnsRegex(DeprecationWarning, new.__name__):
+                    result = old(self.platforms, instrument_index=None)
+                self.assertTrue(
+                    result.geometry.geom_equals(
+                        new(self.platforms, instrument_index=None).geometry
+                    ).all()
+                )
 
 
 if __name__ == "__main__":

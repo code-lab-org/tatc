@@ -7,16 +7,20 @@ Unit tests for the input validation shared by tatc.analysis functions.
 import warnings
 from datetime import datetime, time, timedelta, timezone
 
+import geopandas as gpd
+import pandas as pd
 from tatc.analysis import (
     DopMethod,
+    collect_airborne_ground_track,
     collect_downlinks,
+    collect_feature_observations,
     collect_ground_pixels,
     collect_ground_track,
     collect_limb_observations,
-    collect_multi_observations,
     collect_observations,
     collect_orbit_track,
     collect_ro_observations,
+    compute_airborne_ground_track,
     compute_dop,
     collect_region_observations,
     compute_access_periods,
@@ -29,13 +33,16 @@ from tatc.analysis.check import (
     _check_satellite,
     _check_satellites,
     _check_time_window,
+    _check_times,
 )
 from tatc.schemas import (
+    Aircraft,
     GroundStation,
     Instrument,
     Point,
     Satellite,
     SunSynchronousOrbit,
+    Trajectory,
 )
 
 from .common import IssConstellationTestCase
@@ -72,6 +79,7 @@ class TestValidation(IssConstellationTestCase):
         self.assertEqual(_check_satellites(self.satellite), [self.satellite])
         members = self.constellation.generate_members()
         self.assertEqual(_check_satellites(members), members)
+        self.assertEqual(_check_satellites(tuple(members)), members)
         with self.assertRaisesRegex(TypeError, "generate_members"):
             _check_satellites(self.constellation)
         with self.assertRaisesRegex(TypeError, r"satellites\[1\]"):
@@ -88,9 +96,6 @@ class TestValidation(IssConstellationTestCase):
         """
         calls = {
             "collect_observations": lambda c: collect_observations(
-                self.point, c, self.start, self.end
-            ),
-            "collect_multi_observations": lambda c: collect_multi_observations(
                 self.point, c, self.start, self.end
             ),
             "collect_downlinks": lambda c: collect_downlinks(
@@ -167,6 +172,72 @@ class TestValidation(IssConstellationTestCase):
                 with self.assertRaisesRegex(ValueError, "timezone-aware"):
                     call(self.start.replace(tzinfo=None), self.end)
 
+    def test_check_times(self):
+        """
+        Test that analysis times (one, several, or none) must be
+        timezone-aware datetimes, naming the first that is not.
+        """
+        _check_times(self.times)
+        _check_times(self.start)
+        _check_times(None)
+        _check_times(pd.DatetimeIndex(self.times))
+        with self.assertRaisesRegex(
+            ValueError, "time 2022-06-01T01:00:00 must be a timezone-aware"
+        ):
+            _check_times([self.start, self.end.replace(tzinfo=None)])
+        with self.assertRaisesRegex(ValueError, "timezone-aware"):
+            _check_times(pd.Timestamp("2022-06-01"))
+
+    def test_analysis_functions_check_times(self):
+        """
+        Test that analysis functions at times reject naive datetimes with a
+        clear error rather than failing within Skyfield.
+        """
+        naive = [time.replace(tzinfo=None) for time in self.times]
+        features = gpd.GeoDataFrame(
+            {"start": [self.start], "end": [self.end]},
+            geometry=[Polygon([(-10, -10), (10, -10), (10, 10), (-10, 10)])],
+            crs="EPSG:4326",
+        )
+        aircraft = Aircraft(
+            name="Test",
+            trajectory=Trajectory(
+                time=self.times,
+                latitude=[0, 0],
+                longitude=[0, 0],
+                altitude=[1000, 1000],
+                track=[0, 0],
+                ground_speed=[0, 0],
+            ),
+        )
+        calls = {
+            "collect_orbit_track": lambda: collect_orbit_track(self.satellite, naive),
+            "collect_ground_track": lambda: collect_ground_track(self.satellite, naive),
+            "compute_ground_track": lambda: compute_ground_track(self.satellite, naive),
+            "collect_ground_pixels": lambda: collect_ground_pixels(
+                self.satellite, naive
+            ),
+            "collect_feature_observations": lambda: collect_feature_observations(
+                features, self.satellite, naive
+            ),
+            "collect_limb_observations": lambda: collect_limb_observations(
+                self.satellite, naive, 0, [10e3, 50e3], timedelta(seconds=10)
+            ),
+            "compute_dop": lambda: compute_dop(
+                naive, self.point, [self.satellite], 0, DopMethod.PDOP
+            ),
+            "collect_airborne_ground_track": lambda: collect_airborne_ground_track(
+                aircraft, naive
+            ),
+            "compute_airborne_ground_track": lambda: compute_airborne_ground_track(
+                aircraft, naive
+            ),
+        }
+        for name, call in calls.items():
+            with self.subTest(name):
+                with self.assertRaisesRegex(ValueError, "must be a timezone-aware"):
+                    call()
+
     def test_check_instrument_index(self):
         """
         Test that an instrument index out of range raises an IndexError
@@ -216,3 +287,71 @@ class TestValidation(IssConstellationTestCase):
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             _check_satellites([self.satellite])
+
+    def test_warnings_refer_to_caller(self):
+        """
+        Test that an analysis's warning refers to the line that called it,
+        however deeply within TAT-C it is issued, and that an analysis that
+        checks its satellites at several depths warns once (at that line).
+        """
+        low = Satellite(
+            name="Low",
+            orbit=SunSynchronousOrbit(
+                altitude=700, equator_crossing_time=time(10, 30), epoch=self.start
+            ),
+            instruments=[Instrument(name="Test", field_of_regard=30)],
+        )
+        features = gpd.GeoDataFrame(
+            {"start": [pd.Timestamp(self.start)], "end": [pd.Timestamp(self.end)]},
+            geometry=[Polygon([(0, 0), (1, 0), (1, 1)])],
+            crs="EPSG:4326",
+        )
+        calls = {
+            "compute_ground_track": lambda: compute_ground_track(low, self.times),
+            "collect_feature_observations": lambda: collect_feature_observations(
+                features, low, self.times
+            ),
+            "collect_ground_track with sat_altaz": lambda: collect_ground_track(
+                low, self.times, sat_altaz=True
+            ),
+        }
+        for name, call in calls.items():
+            with self.subTest(name):
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("default")
+                    call()
+                messages = [w for w in caught if "perigee" in str(w.message)]
+                self.assertEqual(len(messages), 1)
+                self.assertEqual(messages[0].filename, __file__)
+                deprecated = [w for w in caught if w.category is DeprecationWarning]
+                for warning in deprecated:
+                    self.assertEqual(warning.filename, __file__)
+
+
+class TestObservationTimes(IssConstellationTestCase):
+    """
+    Unit tests for the times of observations of different kinds.
+    """
+
+    def test_each_row(self):
+        """
+        Test that each observation has the time of its first time column that
+        gives one, or else the midpoint of its period.
+        """
+        from tatc.analysis.check import _get_observation_times
+
+        start = pd.Timestamp("2026-01-01", tz="UTC")
+        hour = pd.Timedelta(hours=1)
+        observations = pd.DataFrame(
+            {
+                "epoch": [start, pd.NaT, pd.NaT],
+                "time": [pd.NaT, start + hour, pd.NaT],
+                "start": [start, start, start],
+                "end": [start, start + hour, start + 4 * hour],
+            }
+        )
+        times = _get_observation_times(observations)
+        self.assertListEqual(list(times), [start, start + hour, start + 2 * hour])
+        self.assertTrue(
+            _get_observation_times(observations, "time").iloc[[0, 2]].isna().all()
+        )

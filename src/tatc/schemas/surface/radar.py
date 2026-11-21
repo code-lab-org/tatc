@@ -6,15 +6,19 @@ Object schemas for ground-based radar stations.
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 
 import numpy as np
 from pydantic import Field, model_validator
 from shapely.geometry import MultiPolygon, Polygon
+from skyfield.positionlib import Geocentric
 
 from ... import config
+from ...utils.projection import compute_static_track
 from ...utils.radar import compute_radar_footprint, compute_radar_footprint_profile
 from ...utils.radar import compute_radar_ground_range_bounds
+from ...utils.time import _to_time
 from .point import Point
 from .terrain import TerrainMask
 
@@ -75,14 +79,19 @@ class RadarStation(Point):
     name: str = Field(..., description="Radar station name", examples=["KOUN"])
     elevation: float = Field(
         default=0,
-        description="Elevation (meters) of the radar antenna, including "
-        + "tower height. Coverage depends only on target elevations "
-        + "relative to this value, so it must use the same vertical "
-        + "reference as target elevations and any terrain mask: heights "
-        + "above mean sea level (as in NOAA's NEXRAD station tables and "
-        + "digital elevation models such as Copernicus DEM GLO-30) are "
-        + "recommended, noting that they differ from heights above the "
-        + "WGS 84 ellipsoid by the local geoid undulation.",
+        description="Elevation (meters) of the ground below the radar antenna "
+        + "above the WGS 84 ellipsoid, as for a `SurfacePlatform`: a height "
+        + "above mean sea level (as in NEXRAD Level II metadata) plus the "
+        + "geoid height (see `tatc.utils.compute_geoid_height`).",
+    )
+    height: float = Field(
+        default=0,
+        description="Height (meters) of the radar antenna above the ground "
+        + "(for example, of its tower or feedhorn), so that the antenna is at "
+        + "`elevation + height` (see `get_altitude`). A table of antenna "
+        + "elevations (as NOAA's NEXRAD station table) gives their sum.",
+        ge=0,
+        examples=[19],
     )
     max_range: float = Field(
         default=460000,
@@ -238,8 +247,9 @@ class RadarStation(Point):
 
         Args:
             elevation (float): The elevation (meters) of the observed
-                target, in the same vertical reference as this station's
-                `elevation`.
+                target above the WGS 84 ellipsoid, as this station's
+                `elevation`: an absolute elevation, not a height above the
+                antenna (see `get_altitude`).
 
         Returns:
             tuple[float, float] | None: The `(inner_ground_range,
@@ -251,7 +261,7 @@ class RadarStation(Point):
             self.get_effective_max_elevation_angle(),
             self.max_range,
             elevation,
-            self.elevation,
+            self.get_altitude(),
         )
 
     def compute_ground_range_profile(
@@ -263,8 +273,9 @@ class RadarStation(Point):
 
         Args:
             elevation (float): The elevation (meters) of the observed
-                target, in the same vertical reference as this station's
-                `elevation`.
+                target above the WGS 84 ellipsoid, as this station's
+                `elevation`: an absolute elevation, not a height above the
+                antenna (see `get_altitude`).
             number_points (int | None): The number of azimuth samples to
                 generate (evenly spaced over one full revolution).
                 Defaults to the runtime configuration.
@@ -301,7 +312,7 @@ class RadarStation(Point):
                     self.get_effective_max_elevation_angle(),
                     self.max_range,
                     elevation,
-                    self.elevation,
+                    self.get_altitude(),
                 ) or (0.0, 0.0)
             inner_ground_range, outer_ground_range = bounds[min_elevation_angle]
             profile.append((float(azimuth), inner_ground_range, outer_ground_range))
@@ -319,8 +330,9 @@ class RadarStation(Point):
 
         Args:
             elevation (float): The elevation (meters) of the observed
-                target, in the same vertical reference as this station's
-                `elevation`.
+                target above the WGS 84 ellipsoid, as this station's
+                `elevation`: an absolute elevation, not a height above the
+                antenna (see `get_altitude`).
             number_points (int | None): The number of azimuth samples used
                 when this station has a `terrain_mask` (ignored otherwise,
                 since the symmetric case uses a faster closed-form circle/
@@ -363,4 +375,39 @@ class RadarStation(Point):
             [outer for _, _, outer in profile],
             inner_ground_range,
             elevation,
+        )
+
+    def get_altitude(self) -> float:
+        """
+        Gets the elevation of the radar antenna: the ground elevation plus
+        the antenna height, as `tatc.schemas.SurfacePlatform.get_altitude`
+        gets that of a platform's instruments.
+
+        Returns:
+            float: the elevation (meters) above the WGS 84 ellipsoid
+        """
+        return self.elevation + self.height
+
+    def get_track(self, times: datetime | list[datetime] | None = None) -> Geocentric:
+        """
+        Gets the static track of the radar antenna (see
+        `tatc.utils.compute_static_track`), as `tatc.schemas.Satellite.get_track`,
+        `tatc.schemas.Aircraft.get_track`, and
+        `tatc.schemas.SurfacePlatform.get_track` get those of other
+        platforms, for example to compute the viewing geometry of its
+        observations.
+
+        Args:
+            times (datetime.datetime | list[datetime.datetime] | None): The
+                time(s). Defaults to 2020-01-01 00:00:00 UTC.
+
+        Returns:
+            skyfield.positionlib.Geocentric: The position/velocity.
+        """
+        return compute_static_track(
+            self.longitude,
+            self.latitude,
+            self.get_altitude(),
+            0,
+            None if times is None else _to_time(times),
         )

@@ -66,7 +66,7 @@ class _GeostationaryFixture:
         ]
         observed = np.array([not r.empty for r in results])
         elevation = np.array(
-            [float(r.sat_alt.iloc[0]) if not r.empty else np.nan for r in results]
+            [float(r.platform_alt.iloc[0]) if not r.empty else np.nan for r in results]
         )
         return rows[:, 2], observed, elevation
 

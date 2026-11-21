@@ -1,46 +1,126 @@
 Ground and Orbit Track
 ======================
 
-Orbit Coordinate
------------------
+Track functions collect the footprints of instruments on observing platforms
+at times (one row per platform, instrument, and time), and compute their
+aggregated (dissolved) coverage. Each footprint names its platform in the
+column of its kind: ``satellite``, ``aircraft``, ``surface_platform``, or
+``radar_station``.
+
+.. list-table:: Analysis functions by kind of platform
+  :header-rows: 1
+  :stub-columns: 1
+
+  * - Analysis
+    - Satellite
+    - Aircraft
+    - Surface platform
+    - Radar station
+    - Any platforms
+  * - Footprints
+    - ``collect_ground_track``
+    - ``collect_airborne_ground_track``
+    - ``collect_surface_track``
+    - ``collect_radar_track``
+    - ``collect_footprints``
+  * - Coverage
+    - ``compute_ground_track``
+    - ``compute_airborne_ground_track``
+    - ``compute_surface_track``
+    - ``compute_radar_track``
+    - ``dissolve_footprints``
+  * - Pixels
+    - ``collect_ground_pixels``
+    -
+    -
+    -
+    - ``collect_footprints(pixels=True)``
+  * - Observations of points
+    - ``collect_observations``
+    -
+    -
+    -
+    - ``collect_footprint_observations``
+  * - Observations of regions
+    - ``collect_region_observations``
+    -
+    -
+    -
+    - ``collect_footprint_observations``
+  * - Observations of features
+    -
+    -
+    -
+    -
+    - ``collect_feature_observations``
+  * - Coincident footprints
+    -
+    -
+    -
+    -
+    - ``find_coincident_ground_track``
+  * - Coincident observations
+    -
+    -
+    -
+    -
+    - ``find_coincident_observations``
+
+``collect_observations`` and ``collect_region_observations`` search a
+satellite's orbit for the periods when it observes points and regions;
+``collect_footprint_observations`` samples the observations of points and
+regions from footprints collected at times, for any platforms (with the
+angles of the observations of points, given the platforms). Fixed
+platforms (surface platforms and radar stations) give static footprints
+without times, or the same footprint at each of the times given; in
+coincident footprints, another platform's footprint pairs only with the copy
+nearest in time.
+
+Any Platforms
+-------------
+
+.. autofunction:: tatc.analysis.collect_footprints
+
+.. autofunction:: tatc.analysis.dissolve_footprints
+
+.. autofunction:: tatc.analysis.collect_footprint_observations
+
+Satellites
+----------
+
 .. autoclass:: tatc.analysis.OrbitCoordinate
   :members:
   :undoc-members:
 
-Orbit Output
--------------
 .. autoclass:: tatc.analysis.OrbitOutput
   :members:
   :undoc-members:
 
-Collect Orbit Track
--------------------
 .. autofunction:: tatc.analysis.collect_orbit_track
 
-Collect Ground Track
---------------------
 .. autofunction:: tatc.analysis.collect_ground_track
 
-Compute Ground Track
---------------------
 .. autofunction:: tatc.analysis.compute_ground_track
 
-Collect Ground Pixels
-----------------------
 .. autofunction:: tatc.analysis.collect_ground_pixels
 
-Collect Platform Track
-----------------------
-.. autofunction:: tatc.analysis.collect_platform_track
+Aircraft
+--------
 
-Compute Platform Track
-----------------------
-.. autofunction:: tatc.analysis.compute_platform_track
+.. autofunction:: tatc.analysis.collect_airborne_ground_track
 
-Collect Radar Track
--------------------
+.. autofunction:: tatc.analysis.compute_airborne_ground_track
+
+Surface Platforms
+-----------------
+
+.. autofunction:: tatc.analysis.collect_surface_track
+
+.. autofunction:: tatc.analysis.compute_surface_track
+
+Radar Stations
+--------------
+
 .. autofunction:: tatc.analysis.collect_radar_track
 
-Compute Radar Track
--------------------
 .. autofunction:: tatc.analysis.compute_radar_track

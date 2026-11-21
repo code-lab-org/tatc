@@ -748,15 +748,16 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         )
         self.assertTrue(results.empty)
 
-    def test_collect_multi_observations(self):
+    def test_collect_observations_of_constellation(self):
         """
         Test that observations can be collected for multiple satellites and a single point.
         """
-        collect_multi_observations(
+        collect_observations(
             self.point,
             self.constellation.generate_members(),
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 2, tzinfo=timezone.utc),
+            instrument_index=None,
         )
 
     def test_collect_multi_observations_null(self):
@@ -766,11 +767,12 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         """
         start = datetime(2022, 6, 1, 0, 10, tzinfo=timezone.utc)
         end = datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc)
-        results = collect_multi_observations(
+        results = collect_observations(
             self.point,
             self.constellation.generate_members(),
             start,
             end,
+            instrument_index=None,
         )
         self.assertTrue(results.empty)
 
@@ -780,11 +782,12 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         DataFrame with the expected columns, not raise (there is nothing to
         concatenate when no satellite/instrument pair ever runs).
         """
-        results = collect_multi_observations(
+        results = collect_observations(
             self.point,
             [],
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 2, tzinfo=timezone.utc),
+            instrument_index=None,
         )
         self.assertTrue(results.empty)
         self.assertIn("start", results.columns)
@@ -831,15 +834,16 @@ class TestCoverageAnalysis(IssConstellationTestCase):
     def test_collect_observations_of_every_instrument(self):
         """
         Test that observations by every instrument (`instrument_index=None`)
-        equal those of `collect_multi_observations`, and that a list of one
+        equal those of the deprecated `collect_multi_observations`, and that a list of one
         point gives the observations of that point.
         """
         start = datetime(2022, 6, 1, tzinfo=timezone.utc)
         end = datetime(2022, 6, 2, tzinfo=timezone.utc)
         members = self.constellation.generate_members()
+        with self.assertWarns(DeprecationWarning):
+            multi = collect_multi_observations(self.point, members, start, end)
         pd.testing.assert_frame_equal(
-            collect_observations(self.point, members, start, end, None),
-            collect_multi_observations(self.point, members, start, end),
+            collect_observations(self.point, members, start, end, None), multi
         )
         pd.testing.assert_frame_equal(
             collect_observations([self.point], self.satellite, start, end),
@@ -971,28 +975,29 @@ class TestCoverageAnalysis(IssConstellationTestCase):
     def test_aggregate_observations_drops_per_observation_columns(self):
         """
         Test that per-observation columns that lose their meaning once
-        merged across satellites (sat_alt, sat_az, sat_sunlit, solar_alt,
+        merged across satellites (platform_alt, platform_az, sat_sunlit, solar_alt,
         solar_az, solar_time) are dropped, even if present on the input.
         """
         t0 = datetime(2022, 6, 1, tzinfo=timezone.utc)
         record = self._make_observation(0, "A", "Test", t0, t0 + timedelta(minutes=10))
-        record["sat_alt"] = 45.0
-        record["sat_az"] = 180.0
+        record["platform_alt"] = 45.0
+        record["platform_az"] = 180.0
         record["solar_alt"] = 10.0
         observations = gpd.GeoDataFrame([record], crs="EPSG:4326")
         results = aggregate_observations(observations)
-        for column in ("sat_alt", "sat_az", "solar_alt"):
+        for column in ("platform_alt", "platform_az", "solar_alt"):
             self.assertNotIn(column, results.columns)
 
     def test_aggregate_observations(self):
         """
         Test that observations can be aggregated for multiple satellites and a single point.
         """
-        results = collect_multi_observations(
+        results = collect_observations(
             self.point,
             self.constellation.generate_members(),
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 2, tzinfo=timezone.utc),
+            instrument_index=None,
         )
         results = aggregate_observations(results)
         for i in range(len(results.index)):
@@ -1009,11 +1014,12 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         Test that no observations are aggregated for multiple satellites and a single point
         when the time window does not overlap with any observations.
         """
-        results = collect_multi_observations(
+        results = collect_observations(
             self.point,
             self.constellation.generate_members(),
             datetime(2022, 6, 1, 0, 10, tzinfo=timezone.utc),
             datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
+            instrument_index=None,
         )
         results = aggregate_observations(results)
         self.assertTrue(results.empty)
@@ -1087,11 +1093,12 @@ class TestCoverageAnalysis(IssConstellationTestCase):
         """
         Test that observations can be reduced for multiple satellites and a single point.
         """
-        results = collect_multi_observations(
+        results = collect_observations(
             self.point,
             self.constellation.generate_members(),
             datetime(2022, 6, 1, tzinfo=timezone.utc),
             datetime(2022, 6, 10, tzinfo=timezone.utc),
+            instrument_index=None,
         )
         aggregated_results = aggregate_observations(results)
         reduced_results = reduce_observations(aggregated_results)
@@ -1111,16 +1118,61 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             delta=timedelta(seconds=0.01),
         )
 
+    def test_reduce_observations_targets(self):
+        """
+        Test that, with targets, every target is reduced in their order: an
+        unobserved target with no samples and undefined access and revisit,
+        also without any observations.
+        """
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        far = ShapelyPoint(0, 89.9)
+        targets = gpd.GeoSeries([far, ShapelyPoint(0, 0, 0)], crs="EPSG:4326")
+        results = collect_observations(
+            self.point,
+            self.constellation.generate_members(),
+            start,
+            start + timedelta(days=2),
+            instrument_index=None,
+        )
+        aggregated = aggregate_observations(results)
+        reduced = reduce_observations(aggregated, targets=targets)
+        observed = reduce_observations(aggregated)
+        self.assertListEqual(
+            list(reduced.target_hash),
+            [hash_geometry(far), observed.target_hash.iloc[0]],
+        )
+        self.assertListEqual(list(reduced.columns), list(observed.columns))
+        self.assertEqual(reduced.samples.iloc[0], 0)
+        self.assertTrue(pd.isna(reduced.access.iloc[0]))
+        self.assertTrue(pd.isna(reduced.revisit.iloc[0]))
+        self.assertTrue(reduced.geometry.iloc[0].equals(far))
+        self.assertEqual(reduced.samples.iloc[1], observed.samples.iloc[0])
+        self.assertEqual(reduced.revisit.iloc[1], observed.revisit.iloc[0])
+        empty = reduce_observations(aggregated.iloc[:0], targets=targets)
+        self.assertListEqual(list(empty.samples), [0, 0])
+        # targets given as a data frame keep their other columns
+        frame = gpd.GeoDataFrame(
+            {"weight": [2.0, 3.0], "samples": [-1, -1]}, geometry=targets
+        )
+        weighted = reduce_observations(aggregated, targets=frame)
+        self.assertListEqual(
+            list(weighted.columns),
+            ["target_hash", "geometry", "weight", "access", "revisit", "samples"],
+        )
+        self.assertListEqual(list(weighted.weight), [2.0, 3.0])
+        self.assertListEqual(list(weighted.samples), list(reduced.samples))
+
     def test_reduce_observations_null(self):
         """
         Test that no observations are reduced for multiple satellites and a single point
         when the time window does not overlap with any observations.
         """
-        results = collect_multi_observations(
+        results = collect_observations(
             self.point,
             self.constellation.generate_members(),
             datetime(2022, 6, 1, 0, 10, tzinfo=timezone.utc),
             datetime(2022, 6, 1, 0, 30, tzinfo=timezone.utc),
+            instrument_index=None,
         )
         aggregated_results = aggregate_observations(results)
         reduced_results = reduce_observations(aggregated_results)
@@ -1299,12 +1351,11 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             places=6,
         )
 
-    def test_grid_observations_cell_without_points_is_omitted(self):
+    def test_grid_observations_cell_without_points(self):
         """
-        Documents current behavior: unlike the fully-empty
-        `reduced_observations` case (which zero-fills every cell), a cell
-        with no points inside it is simply absent from a non-empty result,
-        since the point-in-cell join is an inner join.
+        Test that a cell with no observed points inside it is gridded with no
+        samples and undefined access and revisit, as every cell is when
+        there are no observations at all.
         """
         cells = gpd.GeoDataFrame(
             [self._make_cell(0, 0, 0, 1, 1), self._make_cell(1, 2, 2, 3, 3)],
@@ -1314,9 +1365,16 @@ class TestCoverageAnalysis(IssConstellationTestCase):
             [self._make_reduced_observation(0, 0.5, 0.5, 5, 10, 100)],
             crs="EPSG:4326",
         )
-        result = grid_observations(reduced, cells)
-        self.assertEqual(len(result.index), 1)
-        self.assertEqual(result.iloc[0].cell_id, 0)
+        for result in (
+            grid_observations(reduced, cells),
+            grid_observations(reduced.iloc[:0], cells),
+        ):
+            self.assertListEqual(list(result.cell_id), [0, 1])
+            self.assertEqual(result.iloc[1].samples, 0)
+            self.assertTrue(pd.isna(result.iloc[1].access))
+            self.assertTrue(pd.isna(result.iloc[1].revisit))
+            self.assertEqual(result["access"].dtype, "timedelta64[ns]")
+        self.assertEqual(grid_observations(reduced, cells).iloc[0].samples, 100)
 
 
 class TestCollectObservationsGeometry(IssConstellationTestCase):
@@ -1350,7 +1408,7 @@ class TestCollectObservationsGeometry(IssConstellationTestCase):
             self.start,
             self.end,
         )
-        columns = ["start", "end", "epoch", "sat_alt", "sat_az"]
+        columns = ["start", "end", "epoch", "platform_alt", "platform_az"]
         self.assertGreater(len(expected.index), 0)
         pd.testing.assert_frame_equal(expected[columns], actual[columns])
 
@@ -1601,7 +1659,7 @@ class TestGrazingPasses(unittest.TestCase):
             self.point, self.satellite, self.start, self.start + timedelta(days=1)
         )
         self.assertEqual(len(observations), 1)
-        self.assertTrue((observations.sat_alt > 0).all())
+        self.assertTrue((observations.platform_alt > 0).all())
 
 
 class TestBatchObservations(unittest.TestCase):

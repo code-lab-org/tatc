@@ -10,14 +10,26 @@ from datetime import datetime, timedelta, timezone
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import shapely
 from shapely.geometry import Point as ShapelyPoint
 from shapely.geometry import box
 from skyfield.api import wgs84
 
 from tatc.analysis import collect_feature_observations
-from tatc.schemas import PointedInstrument, Satellite, SunSynchronousOrbit
+from tatc.schemas import (
+    Aircraft,
+    Instrument,
+    PointedInstrument,
+    RadarStation,
+    Satellite,
+    SunSynchronousOrbit,
+    SurfacePlatform,
+    Trajectory,
+)
 from tatc.utils import compute_along_track_field_of_view
 from tatc.utils.time import _to_time
+
+from ..schemas.air.common import START, straight_trajectory
 
 
 class TestFeatureObservations(unittest.TestCase):
@@ -93,9 +105,11 @@ class TestFeatureObservations(unittest.TestCase):
             abs(observation.time - pd.Timestamp(self.nadir_time)),
             pd.Timedelta(seconds=self.time_step),
         )
-        self.assertGreater(observation.sat_alt, 85)
+        self.assertGreater(observation.platform_alt, 85)
         # near nadir, the slant range is about the satellite's height
-        self.assertLess(abs(observation.sat_range - observation.sat_height), 5e3)
+        self.assertLess(
+            abs(observation.platform_range - observation.platform_height), 5e3
+        )
         self.assertGreater(observation.viewed_area, 0)
 
     def test_feature_between_passes(self):
@@ -181,4 +195,254 @@ class TestFeatureObservations(unittest.TestCase):
             features, self.satellite, self.times
         )
         self.assertEqual(len(observations), 0)
-        self.assertTrue(np.isin(["sat_alt", "sat_range"], observations.columns).all())
+        self.assertTrue(
+            np.isin(["platform_alt", "platform_range"], observations.columns).all()
+        )
+
+
+class TestFeatureObservationsOtherPlatforms(unittest.TestCase):
+    """
+    Unit tests for `collect_feature_observations` by aircraft and radar
+    stations.
+    """
+
+    def setUp(self):
+        data = straight_trajectory(n=120, latitude=35.0, longitude=-110.0)
+        self.aircraft = Aircraft(
+            name="P-3",
+            trajectory=Trajectory.from_dataframe(data),
+            instruments=[Instrument(name="camera", field_of_regard=60)],
+        )
+        self.radar = RadarStation(name="KXXX", latitude=35.0, longitude=-110.5)
+        self.times = list(pd.to_datetime(data["time"]).dt.to_pydatetime())
+        self.features = gpd.GeoDataFrame(
+            {
+                "start": pd.DatetimeIndex([START], dtype="datetime64[ns, UTC]"),
+                "end": pd.DatetimeIndex(
+                    [START + pd.Timedelta(hours=1)], dtype="datetime64[ns, UTC]"
+                ),
+            },
+            geometry=[ShapelyPoint(-109.9, 35.1).buffer(0.1)],
+            crs="EPSG:4326",
+        )
+
+    def test_aircraft_and_radar(self):
+        """
+        Test that an aircraft and a radar station observe a feature, each
+        named in the column of its kind, with the same viewing geometry
+        columns.
+        """
+        observations = collect_feature_observations(
+            self.features, [self.aircraft, self.radar], self.times, elevation=3000
+        )
+        self.assertEqual(len(observations), 2)
+        aircraft = observations[observations["aircraft"].notna()].iloc[0]
+        radar = observations[observations["radar_station"].notna()].iloc[0]
+        self.assertEqual(aircraft["aircraft"], "P-3")
+        self.assertEqual(aircraft["instrument"], "camera")
+        self.assertTrue(pd.isna(aircraft["radar_station"]))
+        self.assertTrue(pd.isna(radar["instrument"]))
+        # the aircraft views the feature from above, at its altitude
+        self.assertGreater(aircraft["platform_alt"], 0)
+        self.assertAlmostEqual(aircraft["platform_height"], 10000, delta=1)
+        # the radar views it from its antenna, about 50 km to the west, up
+        # to the observed level
+        self.assertAlmostEqual(radar["platform_height"], 0, delta=1e-3)
+        self.assertGreater(radar["platform_range"], 30e3)
+        self.assertAlmostEqual(
+            np.sin(np.radians(-radar["platform_alt"])),
+            3000 / radar["platform_range"],
+            delta=0.01,
+        )
+        self.assertNotIn("satellite", observations.columns)
+
+    def test_fixed_platform_time(self):
+        """
+        Test that a radar station, whose footprint is the same at each time,
+        observes a feature at the earliest time at which it exists.
+        """
+        features = self.features.assign(
+            start=pd.DatetimeIndex([self.times[30]], dtype="datetime64[ns, UTC]")
+        )
+        observations = collect_feature_observations(
+            features, self.radar, list(reversed(self.times)), elevation=3000
+        )
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations["time"].iloc[0], pd.Timestamp(self.times[30]))
+
+    def test_surface_platform_ground_elevation(self):
+        """
+        Test that the viewing geometry of a surface platform's observation is
+        seen from its footprint, at the platform's ground elevation by
+        default, and that platforms of a kind must have distinct names.
+        """
+        tower = SurfacePlatform(
+            name="Tower",
+            latitude=35.1,
+            longitude=-109.9,
+            elevation=500,
+            height=100,
+            instruments=[Instrument(name="camera", field_of_regard=60)],
+        )
+        observations = collect_feature_observations(
+            self.features, tower, self.times[:1]
+        )
+        self.assertEqual(len(observations), 1)
+        # looking down from 100 m above the ground, at the ground
+        self.assertAlmostEqual(observations["platform_height"].iloc[0], 600, delta=1e-3)
+        self.assertAlmostEqual(observations["platform_range"].iloc[0], 100, delta=1)
+        self.assertAlmostEqual(observations["platform_alt"].iloc[0], 90, delta=1)
+        twin = tower.model_copy(update={"latitude": 35.15})
+        with self.assertRaisesRegex(ValueError, "distinct names"):
+            collect_feature_observations(self.features, [tower, twin], self.times)
+
+    def test_feature_elevation(self):
+        """
+        Test that the footprints of a feature with z-coordinates are computed
+        at its elevation, as if given, without one for radar stations.
+        """
+        features = self.features.set_geometry(
+            shapely.force_3d(self.features.geometry.to_numpy(), 3000), crs="EPSG:4326"
+        )
+        inferred = collect_feature_observations(
+            features, [self.aircraft, self.radar], self.times
+        )
+        given = collect_feature_observations(
+            self.features, [self.aircraft, self.radar], self.times, elevation=3000
+        )
+        self.assertEqual(len(inferred), 2)
+        pd.testing.assert_frame_equal(
+            pd.DataFrame(inferred.drop(columns="geometry")),
+            pd.DataFrame(given.drop(columns="geometry")),
+        )
+        self.assertTrue(inferred.geometry.geom_equals_exact(given.geometry, 1e-9).all())
+
+    def test_features_at_elevations(self):
+        """
+        Test that features at different elevations (or without one) are each
+        viewed at their own elevation, and that a given elevation applies
+        to its kind of platform.
+        """
+        shape = self.features.geometry.iloc[0]
+        features = gpd.GeoDataFrame(
+            {
+                "start": pd.DatetimeIndex([START] * 3, dtype="datetime64[ns, UTC]"),
+                "end": pd.DatetimeIndex(
+                    [START + pd.Timedelta(hours=1)] * 3, dtype="datetime64[ns, UTC]"
+                ),
+            },
+            geometry=[
+                shapely.force_3d(shape, 5000),
+                shape,
+                shapely.force_3d(shape, 2000),
+            ],
+            crs="EPSG:4326",
+            index=["high", "ground", "low"],
+        )
+        observations = collect_feature_observations(features, self.aircraft, self.times)
+        self.assertListEqual(list(observations["feature"]), ["ground", "high", "low"])
+        self.assertListEqual(
+            [geometry.exterior.coords[0][2] for geometry in observations.geometry],
+            [0, 5000, 2000],
+        )
+        # the aircraft's range to the higher feature is shorter
+        self.assertLess(
+            observations["platform_range"].iloc[1],
+            observations["platform_range"].iloc[0],
+        )
+        # a given elevation applies to its kind of platform, which warns
+        with self.assertWarnsRegex(UserWarning, "other elevations"):
+            given = collect_feature_observations(
+                features, self.aircraft, self.times, elevation={"aircraft": 0}
+            )
+        self.assertListEqual(
+            [geometry.exterior.coords[0][2] for geometry in given.geometry], [0, 0, 0]
+        )
+
+    def test_invalid_feature_elevations(self):
+        """
+        Test that a feature must be at a constant elevation, and that radar
+        stations require an elevation unless each feature has one.
+        """
+        shape = self.features.geometry.iloc[0]
+        coordinates = shapely.get_coordinates(shape)
+        sloped = shapely.Polygon(
+            np.column_stack([coordinates, np.linspace(0, 1000, len(coordinates))])
+        )
+        features = self.features.set_geometry([sloped], crs="EPSG:4326")
+        with self.assertRaisesRegex(ValueError, "constant elevation"):
+            collect_feature_observations(features, self.aircraft, self.times)
+        mixed = pd.concat(
+            [
+                self.features,
+                self.features.set_geometry(
+                    [shapely.force_3d(shape, 3000)], crs="EPSG:4326"
+                ),
+            ],
+            ignore_index=True,
+        )
+        with self.assertRaisesRegex(ValueError, "elevation is required"):
+            collect_feature_observations(mixed, self.radar, self.times)
+
+    def test_radar_requires_elevation(self):
+        """
+        Test that a radar station's footprints require a target elevation.
+        """
+        with self.assertRaisesRegex(ValueError, "elevation is required"):
+            collect_feature_observations(self.features, self.radar, self.times)
+        empty = collect_feature_observations(
+            self.features.iloc[:0], [self.aircraft, self.radar], self.times
+        )
+        self.assertListEqual(
+            [column for column in empty.columns if column.endswith("_alt")],
+            ["platform_alt"],
+        )
+
+
+class TestFeatureObservationColumns(unittest.TestCase):
+    """
+    Unit tests for the columns of feature observations of several kinds of
+    platforms.
+    """
+
+    def test_dtypes_and_elevations(self):
+        """
+        Test that the platform columns of a kind without observations have
+        the dtype of the empty frame, and that the viewed parts are at the
+        elevation of the footprints.
+        """
+        data = straight_trajectory(n=120, latitude=35.0, longitude=-110.0)
+        times = list(pd.to_datetime(data["time"]).dt.to_pydatetime())
+        features = gpd.GeoDataFrame(
+            {
+                "start": pd.DatetimeIndex([START], dtype="datetime64[ns, UTC]"),
+                "end": pd.DatetimeIndex(
+                    [START + pd.Timedelta(hours=1)], dtype="datetime64[ns, UTC]"
+                ),
+            },
+            geometry=[ShapelyPoint(-109.9, 35.1).buffer(0.1)],
+            crs="EPSG:4326",
+        )
+        tower = SurfacePlatform(
+            name="Tower",
+            latitude=35.1,
+            longitude=-109.9,
+            elevation=500,
+            height=100,
+            instruments=[Instrument(name="camera", field_of_regard=60)],
+        )
+        # a radar far away, which observes nothing
+        radar = RadarStation(name="KFAR", latitude=0, longitude=0)
+        observations = collect_feature_observations(
+            features, [tower, radar], times[:1], elevation={"radar_station": 500}
+        )
+        empty = collect_feature_observations(
+            features.iloc[:0], [tower, radar], times[:1], elevation=500
+        )
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(
+            observations["radar_station"].dtype, empty["radar_station"].dtype
+        )
+        self.assertTrue(observations["radar_station"].isna().all())
+        self.assertTrue(observations.geometry.has_z.all())
+        self.assertEqual(observations.geometry.iloc[0].exterior.coords[0][2], 500)

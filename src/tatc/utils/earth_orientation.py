@@ -11,14 +11,13 @@ together. This is the only module that sets Skyfield's private
 
 from __future__ import annotations
 
-import warnings
-
 import numpy as np
 import numpy.typing as npt
 from skyfield.nutationlib import iau2000a_radians
 from skyfield.timelib import Time
 
 from .. import config, constants
+from .._warnings import warn
 
 _NUTATION_TABLES: dict[tuple[int, float], tuple[npt.NDArray, npt.NDArray]] = {}
 """
@@ -120,12 +119,11 @@ def _check_nutation_interpolation() -> bool:
     if _NUTATION_INTERPOLATION_VERIFIED is None:
         _NUTATION_INTERPOLATION_VERIFIED = _verify_nutation_interpolation()
         if not _NUTATION_INTERPOLATION_VERIFIED:
-            warnings.warn(
+            warn(
                 "Skyfield no longer uses the nutation angles set on a time "
                 "(`Time._nutation_angles_radians`) as expected, so they are "
                 "computed for every time rather than interpolated (see the "
                 "`nutation_interpolation_minutes` runtime configuration).",
-                stacklevel=3,
             )
     return _NUTATION_INTERPOLATION_VERIFIED
 

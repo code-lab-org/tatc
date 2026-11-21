@@ -16,8 +16,13 @@ from shapely import geometry as geo
 
 from ..schemas import GroundStation, Satellite
 from ..utils.computation import _run_together
-from .check import _check_satellites, _check_time_window
-from .coverage_metrics import _get_target_keys
+from .check import (
+    _check_satellites,
+    _check_time_window,
+    _get_observation_times,
+    _get_platform_columns,
+)
+from .coverage_metrics import _grid_means, _reduce_by_target
 from .point_sampling import _compute_access_periods
 
 
@@ -29,7 +34,7 @@ def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
         geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
-        "station": pd.Series([], dtype="str"),
+        "ground_station": pd.Series([], dtype="str"),
         "geometry": pd.Series([], dtype="object"),
         "satellite": pd.Series([], dtype="str"),
         "start": pd.Series([], dtype="datetime64[ns, utc]"),
@@ -58,6 +63,7 @@ def collect_downlinks(
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected downlink results,
+            each naming its ground station in a `ground_station` column,
             sorted by start time.
     """
     satellites = _check_satellites(satellites)
@@ -75,7 +81,7 @@ def collect_downlinks(
     # collect the records of ground station overpasses
     records = [
         {
-            "station": station.name,
+            "ground_station": station.name,
             "geometry": geo.Point(
                 station.longitude, station.latitude, station.elevation
             ),
@@ -100,9 +106,19 @@ def collect_downlinks(
     return gdf
 
 
-def _get_empty_latency_frame() -> gpd.GeoDataFrame:
+def _get_empty_latency_frame(
+    platform_columns: list[str] | None = None, angles: bool = True
+) -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for latency results.
+
+    Args:
+        platform_columns (list[str] | None): The columns that name the
+            observing platforms (see `_PLATFORM_COLUMNS`), by default
+            `satellite`.
+        angles (bool): `True` to include the platform's angles
+            (`platform_alt` and `platform_az`), as of observations that
+            have them.
 
     Returns:
         geopandas.GeoDataFrame: Empty data frame.
@@ -110,11 +126,20 @@ def _get_empty_latency_frame() -> gpd.GeoDataFrame:
     columns = {
         "target_hash": pd.Series([], dtype="str"),
         "geometry": pd.Series([], dtype="object"),
-        "satellite": pd.Series([], dtype="str"),
+        **{
+            column: pd.Series([], dtype="str")
+            for column in platform_columns or ["satellite"]
+        },
         "instrument": pd.Series([], dtype="str"),
-        "sat_alt": pd.Series([], dtype="float"),
-        "sat_az": pd.Series([], dtype="float"),
-        "station": pd.Series([], dtype="str"),
+        **(
+            {
+                "platform_alt": pd.Series([], dtype="float"),
+                "platform_az": pd.Series([], dtype="float"),
+            }
+            if angles
+            else {}
+        ),
+        "ground_station": pd.Series([], dtype="str"),
         "downlinked": pd.Series([], dtype="datetime64[ns, utc]"),
         "latency": pd.Series([], dtype="timedelta64[ns]"),
         "observed": pd.Series([], dtype="datetime64[ns, utc]"),
@@ -141,6 +166,17 @@ def compute_latencies(
     the start of the downlink in progress. Each observation is assigned the
     earliest of these downlink times.
 
+    The observations are those of each satellite (not aggregated, see
+    `aggregate_observations`, whose periods may merge several satellites'):
+    of points (see `collect_observations` or `collect_footprint_observations`),
+    of regions (see `collect_region_observations`), or of features (see
+    `collect_feature_observations`), each at its time (its `epoch`, or else
+    its `time`), ending at its `end` (or its time, if none). Only satellites
+    downlink (see `collect_downlinks`): the observations of other platforms
+    (aircraft, fixed surface platforms, and radar stations, named in the
+    column of their kind) are kept without a downlink, as an observation
+    without a matching downlink is (`NaT` latency).
+
     Args:
         observations (geopandas.GeoDataFrame): The data frame of observations to downlink.
         downlinks (geopandas.GeoDataFrame): The data frame of downlink opportunities.
@@ -149,16 +185,19 @@ def compute_latencies(
 
     Returns:
         geopandas.GeoDataFrame: The data frame of collected latency results, sorted by the 'observed'
-        column in ascending order. It includes the following columns:
+        column in ascending order. It includes the following columns, of
+        those that the observations have (with every observation, `NaT`
+        latency without a matching downlink, as without any downlinks):
 
         - 'target_hash' (str): Hash of the observation point (see
           `tatc.utils.geometry.hash_geometry`).
         - 'geometry' (geometry): Geometry representing the observation point.
-        - 'satellite' (object): Name or identifier of the satellite.
+        - 'satellite' (object): Name or identifier of the satellite (and
+          the other platform columns of the observations, if any).
         - 'instrument' (object): Name or identifier of the instrument.
-        - 'sat_alt' (float64): Altitude of the satellite at the time of observation.
-        - 'sat_az' (float64): Azimuth of the satellite at the time of observation.
-        - 'station' (object): Name or identifier of the ground station for downlink.
+        - 'platform_alt' (float64): Altitude of the satellite at the time of observation.
+        - 'platform_az' (float64): Azimuth of the satellite at the time of observation.
+        - 'ground_station' (object): Name or identifier of the ground station for downlink.
         - 'downlinked' (datetime64[ns, UTC]): Timestamp when the observation data was downlinked.
         - 'latency' (timedelta64[ns]): Latency between observation and downlink.
         - 'observed' (datetime64[ns, UTC]): Timestamp when the observation was made.
@@ -167,12 +206,40 @@ def compute_latencies(
         raise ValueError(
             f"during_contact must be 'next', 'end', or 'immediate', not {during_contact!r}"
         )
-    if observations.empty or downlinks.empty:
-        return _get_empty_latency_frame()
+    if "revisit" in observations.columns:
+        raise ValueError(
+            "observations must be those of each satellite, not aggregated "
+            "(see aggregate_observations): compute their latencies before "
+            "aggregating them"
+        )
+    # the columns of the result, of those the observations have
+    empty = _get_empty_latency_frame(
+        _get_platform_columns(observations),
+        # (by default, those of satellites' observations of points)
+        angles="platform_alt" in observations.columns or len(observations.columns) == 0,
+    )
+    if observations.empty:
+        return empty
+    if downlinks.empty:
+        # every observation is kept without a downlink
+        downlinks = _get_empty_downlinks_frame()
 
-    obs = observations.sort_values(by="end").reset_index(drop=True)
-    contacts = downlinks[["satellite", "station", "start", "epoch", "end"]].rename(
+    obs = observations.copy()
+    # the satellite of each observation (missing for other platforms), as
+    # objects, so that it is compared with the downlinks' whatever the dtypes
+    obs["_satellite"] = (
+        obs["satellite"].astype(object) if "satellite" in obs.columns else None
+    )
+    # the time of each observation, and its end (or its time, if none)
+    obs["epoch"] = _get_observation_times(observations).dt.as_unit("ns").to_numpy()
+    if "end" not in obs.columns:
+        obs["end"] = obs["epoch"]
+    obs = obs.sort_values(by="end").reset_index(drop=True)
+    contacts = downlinks[
+        ["satellite", "ground_station", "start", "epoch", "end"]
+    ].rename(
         columns={
+            "satellite": "_satellite",
             "start": "downlink_start",
             "epoch": "downlinked",
             "end": "downlink_end",
@@ -180,13 +247,15 @@ def compute_latencies(
     )
     # merge keys must share a unit (frames may come from other sources, such as files)
     obs["end"] = obs["end"].dt.as_unit("ns")
+    contacts["_satellite"] = contacts["_satellite"].astype(object)
+    contacts["ground_station"] = contacts["ground_station"].astype(object)
     for column in ["downlink_start", "downlinked", "downlink_end"]:
         contacts[column] = contacts[column].dt.as_unit("ns")
     # pair each observation with the first downlink that starts after it ends
     obs = pd.merge_asof(
         obs,
         contacts.sort_values(by="downlink_start"),
-        by="satellite",
+        by="_satellite",
         left_on="end",
         right_on="downlink_start",
         direction="forward",
@@ -195,9 +264,9 @@ def compute_latencies(
         # find the first downlink that ends after the observation ends, which
         # is in progress if it started before the observation ends
         current = pd.merge_asof(
-            obs[["satellite", "end"]],
+            obs[["_satellite", "end"]],
             contacts.sort_values(by="downlink_end"),
-            by="satellite",
+            by="_satellite",
             left_on="end",
             right_on="downlink_end",
             direction="forward",
@@ -212,28 +281,15 @@ def compute_latencies(
         earlier = in_progress & (
             obs["downlinked"].isna() | (downlinked < obs["downlinked"])
         )
-        obs.loc[earlier, "station"] = current.loc[earlier, "station"]
+        obs.loc[earlier, "ground_station"] = current.loc[earlier, "ground_station"]
         obs.loc[earlier, "downlinked"] = downlinked[earlier]
 
     # compute latency
     obs["latency"] = obs["downlinked"] - obs["epoch"]
     obs = obs.rename(columns={"epoch": "observed"})
 
-    # select relevant columns
-    obs = obs[
-        [
-            "target_hash",
-            "geometry",
-            "satellite",
-            "instrument",
-            "sat_alt",
-            "sat_az",
-            "station",
-            "downlinked",
-            "latency",
-            "observed",
-        ]
-    ]
+    # select relevant columns, of those the observations have
+    obs = obs[[column for column in empty.columns if column in obs]]
 
     # ensure the result is a GeoDataFrame with the observations' CRS
     obs = gpd.GeoDataFrame(
@@ -251,23 +307,10 @@ def compute_latencies(
     return obs
 
 
-def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
-    """
-    Gets an empty data frame for reduced latency results.
-
-    Returns:
-        geopandas.GeoDataFrame: Empty data frame.
-    """
-    columns = {
-        "target_hash": pd.Series([], dtype="str"),
-        "geometry": pd.Series([], dtype="object"),
-        "latency": pd.Series([], dtype="timedelta64[ns]"),
-        "samples": pd.Series([], dtype="int"),
-    }
-    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
-
-
-def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+def reduce_latencies(
+    latency_observations: gpd.GeoDataFrame,
+    targets: gpd.GeoDataFrame | gpd.GeoSeries | None = None,
+) -> gpd.GeoDataFrame:
     """
     Reduce observation latencies: for each unique target (`target_hash`,
     see `tatc.analysis.coverage_metrics._get_target_keys`) in
@@ -275,33 +318,21 @@ def reduce_latencies(latency_observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame
     of samples (observation/downlink pairs). An observation with no
     matching downlink has an undefined (NaT) latency (see
     `compute_latencies`), which is excluded from the mean rather than
-    counted as zero, while still counting toward `samples`.
+    counted as zero, while still counting toward `samples`. With `targets`,
+    the result has a row for every target, in their order, as for
+    `tatc.analysis.coverage_metrics.reduce_observations`: a target not
+    observed has no samples (zero) and an undefined (NaT) latency.
 
     Args:
         latency_observations (geopandas.GeoDataFrame): The latency observations.
+        targets (geopandas.GeoDataFrame | geopandas.GeoSeries | None): The
+            targets, including those not observed, with the other columns of
+            a data frame of targets, or `None` for those observed.
 
     Returns:
         geopandas.GeoDataFrame: The data frame with reduced latencies.
     """
-    if latency_observations.empty:
-        return _get_empty_reduce_frame()
-    # operate on a copy of the dataframe
-    gdf = latency_observations.copy()
-    # convert latency to a numeric value before aggregation
-    gdf["latency"] = gdf["latency"].dt.total_seconds()
-    # assign each record to one observation
-    gdf["samples"] = 1
-    # perform the aggregation operation
-    gdf = gdf.dissolve(
-        _get_target_keys(gdf),
-        aggfunc={
-            "latency": "mean",
-            "samples": "sum",
-        },
-    ).reset_index()
-    # convert latency from numeric values after aggregation
-    gdf["latency"] = pd.to_timedelta(gdf["latency"], unit="s")
-    return gdf
+    return _reduce_by_target(latency_observations, targets, ["latency"])
 
 
 def grid_latencies(
@@ -310,43 +341,17 @@ def grid_latencies(
     """
     Grid reduced latencies to cells: for every cell, sums the number of
     samples across every point it contains, and combines those points'
-    latency into a single sample-weighted arithmetic mean per cell.
+    latency into a single sample-weighted arithmetic mean per cell. Every
+    cell is gridded: a cell that contains no observed point has no samples
+    (zero) and an undefined (NaT) latency.
 
     Args:
         reduced_latencies (geopandas.GeoDataFrame): The reduced latencies.
-        cells (geopandas.GeoDataFrame): The cell specification.
+        cells (geopandas.GeoDataFrame): The cell specification, with a
+            `cell_id` column.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame with gridded latencies.
+        geopandas.GeoDataFrame: The cells, with the `samples` and `latency`
+            of each.
     """
-    if reduced_latencies.empty:
-        gdf = cells.copy()
-        gdf["samples"] = 0
-        gdf["latency"] = None
-        return gdf
-    # operate on a copy of the data frame
-    gdf = reduced_latencies.copy()
-    # convert latency to numeric values before aggregation
-    gdf["latency"] = gdf["latency"].dt.total_seconds()
-    # pre-multiply so the sample-weighted mean below reduces to a plain sum:
-    # groupby().agg() with a dict of {column: function} only ever hands a
-    # custom callable its own column's Series, never a sibling column like
-    # "samples" needed to compute a weighted statistic within the callable
-    gdf["latency_x_samples"] = gdf["latency"] * gdf["samples"]
-    gdf = (
-        cells.sjoin(gdf, how="inner", predicate="contains")
-        .dissolve(
-            by="cell_id",
-            aggfunc={
-                "samples": "sum",
-                "latency_x_samples": "sum",
-            },
-        )
-        .reset_index()
-    )
-    # finish the weighted mean
-    gdf["latency"] = gdf["latency_x_samples"] / gdf["samples"]
-    gdf = gdf.drop(columns=["latency_x_samples"])
-    # convert latency from numeric values after aggregation
-    gdf["latency"] = pd.to_timedelta(gdf["latency"], unit="s")
-    return gdf
+    return _grid_means(reduced_latencies, cells, ["latency"])

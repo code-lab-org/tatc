@@ -9,6 +9,13 @@ TAT-C uses pydantic to specify schemas in a format compatible with JavaScript Ob
   :maxdepth: 1
 
   surface
+  air
   orbit
   space
   mission
+
+Observing Platforms
+-------------------
+
+.. autodata:: tatc.schemas.AllPlatforms
+  :annotation:

@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
+import pandas as pd
 from shapely.geometry import Point as ShapelyPoint
 
 from tatc.analysis import DopMethod, compute_dop
@@ -63,6 +64,28 @@ class TestDopAnalysis(unittest.TestCase):
         )
         np.testing.assert_array_equal(actual.dop.values, expected.dop.values)
         self.assertTrue(actual.geometry.equals(expected.geometry))
+
+    def test_compute_every_dop(self):
+        """
+        Test that, without a method, every method is computed at once, equal
+        to the values of each method, with the time and the number of visible
+        satellites of each row, and that an unknown method raises a
+        `ValueError`.
+        """
+        satellites = self.gps_constellation.generate_members()
+        every = compute_dop(self.times, self.null_island, satellites, 10)
+        self.assertListEqual(
+            list(every.columns),
+            ["time", "gdop", "pdop", "hdop", "vdop", "tdop", "visible", "geometry"],
+        )
+        self.assertEqual(len(every), len(self.times))
+        self.assertTrue((every.visible >= 4).all())
+        for method in DopMethod:
+            single = compute_dop(self.times, self.null_island, satellites, 10, method)
+            np.testing.assert_allclose(every[method.value], single.dop.values)
+        self.assertEqual(every.time.iloc[0], pd.Timestamp(self.times[0]))
+        with self.assertRaises(ValueError):
+            compute_dop(self.times, self.null_island, satellites, 10, "xdop")
 
     def test_compute_gdop(self):
         """

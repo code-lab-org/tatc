@@ -10,6 +10,10 @@ sample:
 #. :doc:`FindCoincidentObservations`: find when two or more satellites
    observe the same place at nearly the same time, as points and as ground
    tracks.
+#. :doc:`CombineObservingPlatforms`: plan an aircraft underflight of a
+   satellite's overpass, and find where and when the satellite, the
+   aircraft, and a ground-based weather radar observe the same places and a
+   storm cell, from the footprints of all three together.
 #. :doc:`AssessSamplingSufficiency`: assess whether a constellation samples a
    varying field sufficiently, from the error of its estimates, its revisits,
    and the times of day it sees, and test the estimates with a synthetic
@@ -23,4 +27,5 @@ The AssessSamplingSufficiency example also requires xarray
 
   GenerateRandomPoints.ipynb
   FindCoincidentObservations.ipynb
+  CombineObservingPlatforms.ipynb
   AssessSamplingSufficiency.ipynb

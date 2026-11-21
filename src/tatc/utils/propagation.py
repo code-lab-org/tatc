@@ -10,7 +10,6 @@ together).
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, NamedTuple
@@ -25,6 +24,7 @@ from skyfield.sgp4lib import EarthSatellite
 from skyfield.toposlib import GeographicPosition
 
 from .. import config, constants
+from .._warnings import warn
 from .computation import TimeRequest
 from .earth_orientation import _interpolate_nutation
 
@@ -216,11 +216,10 @@ def _search_repeat_cycle(
     # to search for one
     perigee = drag_free.get_semimajor_axis() * (1 - drag_free.eccentricity)
     if perigee < constants.EARTH_POLAR_RADIUS:
-        warnings.warn(
+        warn(
             "General perturbations elements with a perigee below the Earth's "
             f"surface ({perigee / 1e3:.0f} km from its center) have no repeat "
             "cycle: check that their mean motion is in radians per minute.",
-            stacklevel=2,
         )
         return None
     # analytic repeat ground track candidates: how many nodal days (D)

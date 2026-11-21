@@ -114,6 +114,41 @@ class TestLatencyAnalysis(IssConstellationTestCase):
             ),
         )
 
+    def test_compute_latency_of_regions_and_features(self):
+        """
+        Test that the latencies of observations without angles (of regions,
+        at their epochs) and of observations without ends (of features, at
+        their times) are computed, with the columns that they have, and that
+        aggregated observations raise a `ValueError`.
+        """
+        from tatc.analysis import aggregate_observations, collect_region_observations
+
+        start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        end = datetime(2022, 6, 4, tzinfo=timezone.utc)
+        downlinks = collect_downlinks(self.stations, self.satellite, start, end)
+        regions = collect_region_observations(
+            box(-10, -10, 10, 10), self.satellite, start, end
+        )
+        latencies = compute_latencies(regions, downlinks)
+        self.assertEqual(len(latencies), len(regions))
+        self.assertNotIn("platform_alt", latencies.columns)
+        self.assertListEqual(
+            sorted(latencies.observed), sorted(regions.epoch.dt.as_unit("ns"))
+        )
+        # those observed before the last downlink are downlinked after them
+        downlinked = latencies.latency.dropna()
+        self.assertGreater(len(downlinked), 0)
+        self.assertTrue((downlinked >= timedelta(0)).all())
+        features = regions.drop(columns=["start", "epoch", "end"]).assign(
+            time=regions.epoch
+        )
+        pd.testing.assert_series_equal(
+            compute_latencies(features, downlinks).latency,
+            compute_latencies(regions.assign(end=regions.epoch), downlinks).latency,
+        )
+        with self.assertRaisesRegex(ValueError, "not aggregated"):
+            compute_latencies(aggregate_observations(regions), downlinks)
+
     def test_compute_latency_empty(self):
         """
         Test that latency computation returns an empty DataFrame when no latencies are available.
@@ -137,16 +172,19 @@ class TestLatencyAnalysis(IssConstellationTestCase):
 
     def test_compute_latency_no_downlinks(self):
         """
-        Test that latency computation returns an empty DataFrame when no downlinks are available.
+        Test that, without downlinks, every observation is kept without a
+        downlink (`NaT` latency), as an observation without a matching
+        downlink is.
         """
+        observations = collect_observations(
+            self.point,
+            self.satellite,
+            datetime(2022, 6, 1, tzinfo=timezone.utc),
+            datetime(2022, 6, 10, tzinfo=timezone.utc),
+            instrument_index=0,
+        )
         results = compute_latencies(
-            collect_observations(
-                self.point,
-                self.satellite,
-                datetime(2022, 6, 1, tzinfo=timezone.utc),
-                datetime(2022, 6, 10, tzinfo=timezone.utc),
-                instrument_index=0,
-            ),
+            observations,
             collect_downlinks(
                 self.station,
                 self.satellite,
@@ -154,7 +192,10 @@ class TestLatencyAnalysis(IssConstellationTestCase):
                 datetime(2022, 6, 1, 1, tzinfo=timezone.utc),
             ),
         )
-        self.assertTrue(results.empty)
+        self.assertEqual(len(results), len(observations))
+        self.assertGreater(len(results), 0)
+        self.assertTrue(results.latency.isna().all())
+        self.assertTrue(results.ground_station.isna().all())
 
     def test_compute_latency_multi_station(self):
         """
@@ -179,7 +220,8 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         # every observation is downlinked to one of the stations, no earlier
         # than it is observed
         self.assertTrue(
-            set(results.station.dropna()) <= {station.name for station in self.stations}
+            set(results.ground_station.dropna())
+            <= {station.name for station in self.stations}
         )
         self.assertTrue((results.latency.dropna() >= pd.Timedelta(0)).all())
 
@@ -230,7 +272,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
 
     def test_compute_latency_columns_present_and_correct(self):
         """
-        Regression test: `sat_alt`/`sat_az`/`station` must survive
+        Regression test: `platform_alt`/`platform_az`/`ground_station` must survive
         `compute_latencies` with their real values -- these columns are
         never suffixed by the underlying `merge_asof` (each exists in only
         one of `observations`/`downlinks`), unlike `epoch`/`geometry`
@@ -250,14 +292,14 @@ class TestLatencyAnalysis(IssConstellationTestCase):
             datetime(2022, 6, 10, tzinfo=timezone.utc),
         )
         results = compute_latencies(observations, downlinks)
-        self.assertIn("sat_alt", results.columns)
-        self.assertIn("sat_az", results.columns)
-        self.assertIn("station", results.columns)
-        for column in ("sat_alt", "sat_az"):
+        self.assertIn("platform_alt", results.columns)
+        self.assertIn("platform_az", results.columns)
+        self.assertIn("ground_station", results.columns)
+        for column in ("platform_alt", "platform_az"):
             self.assertTrue((results[column] == observations[column]).all())
-        matched = results.station.notna()
+        matched = results.ground_station.notna()
         self.assertTrue(matched.any())
-        self.assertTrue((results.station[matched] == self.station.name).all())
+        self.assertTrue((results.ground_station[matched] == self.station.name).all())
 
     def test_reduce_latencies_separates_points(self):
         """
@@ -299,8 +341,8 @@ class TestLatencyAnalysis(IssConstellationTestCase):
                     "start": pd.Timestamp("2022-06-01T10:00", tz="UTC"),
                     "epoch": pd.Timestamp("2022-06-01T10:01", tz="UTC"),
                     "end": pd.Timestamp("2022-06-01T10:02", tz="UTC"),
-                    "sat_alt": 45.0,
-                    "sat_az": 90.0,
+                    "platform_alt": 45.0,
+                    "platform_az": 90.0,
                 },
                 {
                     "target_hash": 0,
@@ -310,8 +352,8 @@ class TestLatencyAnalysis(IssConstellationTestCase):
                     "start": pd.Timestamp("2022-06-01T20:00", tz="UTC"),
                     "epoch": pd.Timestamp("2022-06-01T20:01", tz="UTC"),
                     "end": pd.Timestamp("2022-06-01T20:02", tz="UTC"),
-                    "sat_alt": 30.0,
-                    "sat_az": 100.0,
+                    "platform_alt": 30.0,
+                    "platform_az": 100.0,
                 },
             ],
             crs="EPSG:4326",
@@ -319,7 +361,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         downlinks = gpd.GeoDataFrame(
             [
                 {
-                    "station": "S1",
+                    "ground_station": "S1",
                     "geometry": ShapelyPoint(1, 1),
                     "satellite": "A",
                     "start": pd.Timestamp("2022-06-01T00:00", tz="UTC"),
@@ -351,8 +393,8 @@ class TestLatencyAnalysis(IssConstellationTestCase):
             "start": t_0 + pd.Timedelta(minutes=start),
             "epoch": t_0 + pd.Timedelta(minutes=epoch),
             "end": t_0 + pd.Timedelta(minutes=end),
-            "sat_alt": 45.0,
-            "sat_az": 90.0,
+            "platform_alt": 45.0,
+            "platform_az": 90.0,
         }
 
     @staticmethod
@@ -363,7 +405,7 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         """
         t_0 = pd.Timestamp("2022-06-01T00:00", tz="UTC")
         return {
-            "station": station,
+            "ground_station": station,
             "geometry": ShapelyPoint(1, 1),
             "satellite": "A",
             "start": t_0 + pd.Timedelta(minutes=start),
@@ -396,7 +438,55 @@ class TestLatencyAnalysis(IssConstellationTestCase):
             gpd.GeoDataFrame(downlinks, crs="EPSG:4326"),
             during_contact=during_contact,
         ).set_index("target_hash")
-        return latencies.latency.dt.total_seconds() / 60, latencies.station
+        return latencies.latency.dt.total_seconds() / 60, latencies.ground_station
+
+    def test_compute_latencies_of_other_platforms(self):
+        """
+        Test that the observations of other platforms than satellites are kept
+        without a downlink, named in the columns of their kinds, whatever the
+        dtypes of the satellite columns.
+        """
+        satellite = self._make_observation("0", 0, 1, 2)
+        aircraft = {**self._make_observation("1", 0, 1, 2), "aircraft": "P-3"}
+        del aircraft["satellite"]
+        downlinks = gpd.GeoDataFrame(
+            [self._make_downlink("G", 10, 20)], crs="EPSG:4326"
+        )
+        downlinks["satellite"] = downlinks["satellite"].astype("str")
+        mixed = gpd.GeoDataFrame([satellite, aircraft], crs="EPSG:4326")
+        latencies = compute_latencies(mixed, downlinks)
+        self.assertIn("aircraft", latencies.columns)
+        flown = latencies[latencies["aircraft"].notna()].iloc[0]
+        self.assertEqual(flown["aircraft"], "P-3")
+        self.assertTrue(pd.isna(flown["latency"]))
+        self.assertTrue(pd.isna(flown["ground_station"]))
+        orbited = latencies[latencies["satellite"].notna()].iloc[0]
+        self.assertEqual(orbited["latency"], pd.Timedelta(minutes=14))
+        # without a satellite column, or with one of only missing names
+        alone = compute_latencies(
+            gpd.GeoDataFrame([aircraft], crs="EPSG:4326"), downlinks
+        )
+        self.assertListEqual(list(alone["aircraft"]), ["P-3"])
+        self.assertNotIn("satellite", alone.columns)
+        self.assertTrue(alone["latency"].isna().all())
+        missing = mixed.assign(satellite=pd.Series([None, None], dtype=object))
+        self.assertTrue(compute_latencies(missing, downlinks)["latency"].isna().all())
+        # without any downlinks, and with the columns of the observations
+        # whether empty or not (here, without the platform's angles)
+        aircraft = {
+            key: value
+            for key, value in aircraft.items()
+            if key not in ("platform_alt", "platform_az")
+        }
+        none = compute_latencies(
+            gpd.GeoDataFrame([aircraft], crs="EPSG:4326"), downlinks.iloc[:0]
+        )
+        self.assertListEqual(list(none["aircraft"]), ["P-3"])
+        empty = compute_latencies(
+            gpd.GeoDataFrame([aircraft], crs="EPSG:4326").iloc[:0], downlinks
+        )
+        self.assertListEqual(list(empty.columns), list(none.columns))
+        self.assertNotIn("platform_alt", empty.columns)
 
     def test_compute_latencies_during_contact_next(self):
         """
@@ -512,6 +602,50 @@ class TestLatencyAnalysis(IssConstellationTestCase):
             "latency": pd.Timedelta(seconds=latency_seconds),
             "samples": samples,
         }
+
+    def test_reduce_latencies_targets(self):
+        """
+        Test that, with targets, every target is reduced in their order: an
+        unobserved target with no samples and an undefined latency.
+        """
+        latencies = gpd.GeoDataFrame(
+            [
+                {
+                    "target_hash": hash_geometry(ShapelyPoint(0, 0)),
+                    "geometry": ShapelyPoint(0, 0),
+                    "latency": pd.Timedelta(minutes=10),
+                }
+            ],
+            crs="EPSG:4326",
+        )
+        targets = gpd.GeoSeries([ShapelyPoint(5, 5), ShapelyPoint(0, 0)])
+        reduced = reduce_latencies(latencies, targets=targets)
+        self.assertListEqual(list(reduced.samples), [0, 1])
+        self.assertTrue(pd.isna(reduced.latency.iloc[0]))
+        self.assertEqual(reduced.latency.iloc[1], pd.Timedelta(minutes=10))
+
+    def test_grid_latencies_cell_without_points(self):
+        """
+        Test that a cell with no points inside it is gridded with no samples
+        and an undefined latency, and that points without a latency do not
+        weigh on the mean of their cell.
+        """
+        cells = gpd.GeoDataFrame(
+            [self._make_cell(0, 0, 0, 1, 1), self._make_cell(1, 2, 2, 3, 3)],
+            crs="EPSG:4326",
+        )
+        reduced = gpd.GeoDataFrame(
+            [
+                self._make_reduced_latency("a", 0.5, 0.5, 600, 2),
+                {**self._make_reduced_latency("b", 0.6, 0.6, 0, 3), "latency": pd.NaT},
+            ],
+            crs="EPSG:4326",
+        )
+        result = grid_latencies(reduced, cells)
+        self.assertListEqual(list(result.cell_id), [0, 1])
+        self.assertListEqual(list(result.samples), [5, 0])
+        self.assertEqual(result.latency.iloc[0], pd.Timedelta(seconds=600))
+        self.assertTrue(pd.isna(result.latency.iloc[1]))
 
     def test_grid_latencies_empty_reduced_latencies(self):
         """

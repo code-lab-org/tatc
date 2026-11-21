@@ -5,10 +5,13 @@ Unit tests for the Satellite schema.
 """
 
 import unittest
+from datetime import datetime, timedelta, timezone
 
+import numpy as np
 from pydantic import ValidationError
 
 from tatc.schemas import CircularOrbit, Instrument, Satellite
+from tatc.utils.time import _to_time
 
 
 class TestSatellite(unittest.TestCase):
@@ -72,3 +75,21 @@ class TestSatellite(unittest.TestCase):
         sat = Satellite(name="Test Satellite", orbit=self.test_data["orbit"])
         self.assertEqual(len(sat.instruments), 1)
         self.assertEqual(sat.instruments[0], Instrument())
+
+    def test_get_track(self):
+        """
+        Test that the track of a satellite is that of its orbit, at a time,
+        at times, or at Skyfield times.
+        """
+        times = [
+            datetime(2000, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
+            for i in range(3)
+        ]
+        expected = self.test_sat.orbit.to_gp_orbit().get_orbit_track_at_time(
+            _to_time(times)
+        )
+        for value in (times, _to_time(times)):
+            track = self.test_sat.get_track(value)
+            np.testing.assert_allclose(track.position.m, expected.position.m)
+        single = self.test_sat.get_track(times[1])
+        np.testing.assert_allclose(single.position.m, expected.position.m[:, 1])

@@ -17,6 +17,7 @@ from shapely import geometry as geo
 from skyfield.api import wgs84
 from skyfield.framelib import itrs
 
+from .._warnings import warn
 from ..constants import EARTH_POLAR_RADIUS, timescale
 from ..schemas import (
     ConicalInstrument,
@@ -76,7 +77,7 @@ def _get_elevation_angles(
     topos = wgs84.latlon(latitude, longitude, elevation)
     t_track, t_topos = _to_time(times), timescale.from_datetimes(times)
     yield [t_track, t_topos]
-    orbit_track = satellite.orbit.to_gp_orbit().get_orbit_track_at_time(t_track)
+    orbit_track = satellite.get_track(t_track)
     return np.atleast_1d((orbit_track - topos.at(t_topos)).altaz()[0].degrees)
 
 
@@ -242,7 +243,7 @@ def compute_access_periods(
         pandas.Series: the access periods (`pandas.Interval` of UTC
             timestamps), in time order.
     """
-    _warn_low_perigees([_check_satellite(satellite)], stacklevel=3)
+    _warn_low_perigees([_check_satellite(satellite)])
     _check_time_window(start, end)
     return _run(
         _compute_access_periods(point, satellite, start, end, min_elevation_angle)
@@ -1011,7 +1012,12 @@ def collect_observations(
     elevation as its z coordinate) as their geometry, identified by its
     hash, `target_hash` (see `tatc.utils.geometry.hash_geometry`); a TAT-C
     point's `id` is not recorded. For a region, see
-    `tatc.analysis.region_sampling.collect_region_observations`.
+    `tatc.analysis.region_sampling.collect_region_observations`. For
+    aircraft, fixed surface platforms, and radar stations (or satellites
+    together with them), see
+    `tatc.analysis.footprints.collect_footprint_observations`, which samples
+    the observations of points and regions from the footprints of any
+    platforms at times, with the columns of these observations.
 
     Each observation spans a period when the point lies within the
     instrument's field of regard (when its angle from nadir is at most half
@@ -1098,8 +1104,8 @@ def collect_multi_observations(
     """
     Collect multiple satellite observations of a geodetic point of interest
     by every instrument on every satellite in `satellites`: equivalent to
-    `collect_observations` with `instrument_index=None`, kept for backwards
-    compatibility.
+    `collect_observations` with `instrument_index=None`. Deprecated: use
+    `collect_observations` with `instrument_index=None`.
 
     Args:
         point (Point | shapely.geometry.Point): The ground point of interest
@@ -1113,4 +1119,9 @@ def collect_multi_observations(
     Returns:
         geopandas.GeoDataFrame: The data frame with all recorded observations.
     """
+    warn(
+        "collect_multi_observations is deprecated and will be removed in a future release: use "
+        "collect_observations with instrument_index=None",
+        DeprecationWarning,
+    )
     return collect_observations(point, satellites, start, end, None, omit_solar)

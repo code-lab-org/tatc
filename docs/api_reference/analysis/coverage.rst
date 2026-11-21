@@ -5,10 +5,6 @@ Collect Observations
 --------------------
 .. autofunction:: tatc.analysis.collect_observations
 
-Collect Multi Observations
---------------------------
-.. autofunction:: tatc.analysis.collect_multi_observations
-
 Compute Access Periods
 ----------------------
 .. autofunction:: tatc.analysis.compute_access_periods
@@ -16,10 +12,6 @@ Compute Access Periods
 Collect Region Observations
 ---------------------------
 .. autofunction:: tatc.analysis.collect_region_observations
-
-Collect Multi Region Observations
----------------------------------
-.. autofunction:: tatc.analysis.collect_multi_region_observations
 
 Compute Region Access Periods
 -----------------------------
@@ -38,5 +30,15 @@ Reduce Observations
 .. autofunction:: tatc.analysis.reduce_observations
 
 Grid Observations
--------------------
+-----------------
 .. autofunction:: tatc.analysis.grid_observations
+
+Count Observations
+------------------
+.. autofunction:: tatc.analysis.count_observations
+
+Deprecated
+----------
+.. autofunction:: tatc.analysis.collect_multi_observations
+
+.. autofunction:: tatc.analysis.collect_multi_region_observations

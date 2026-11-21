@@ -4,7 +4,10 @@ Ground-based radar utility functions.
 Heights in this module may use any vertical reference (e.g. mean sea
 level or the WGS 84 ellipsoid), as long as station, target, and terrain
 heights all use the same one: the geometry depends only on height
-differences.
+differences. Elsewhere, TAT-C's heights are above the WGS 84 ellipsoid (see
+`tatc.schemas.RadarStation.get_altitude`, and
+`tatc.utils.compute_geoid_height` to convert heights above mean sea
+level).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """

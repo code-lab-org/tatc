@@ -41,6 +41,8 @@ Note: the following optional dependencies are available with bracket notation:
  * :console:`pip install -e ".[examples]"`: for running optional examples in :console:`docs/examples`
  * :console:`pip install -e ".[osse]"`: for running optional observing system simulation experiment (OSSE) examples
  * :console:`pip install -e ".[preprocess]"`: for preprocessing functions (e.g., terrain masks)
+ * :console:`pip install -e ".[airborne]"`: for planning flights and modeling sensors with `HyPlan <https://github.com/ryanpavlick/hyplan>`_, whose outputs the airborne preprocessing functions read (these functions do not require HyPlan)
+ * :console:`pip install -e ".[tradespace]"`: for parallel trade studies and searches with optimizers (joblib, Optuna, and pymoo)
  * :console:`pip install -e ".[validation]"`: for running validation notebooks in :console:`docs/validation` and catalog validation scripts in :console:`validation/catalog` (includes :console:`examples` and :console:`preprocess`)
 
 Multiple optional dependencies can be installed with a comma-separated list (e.g., :console:`pip install -e ".[dev,examples]"`)

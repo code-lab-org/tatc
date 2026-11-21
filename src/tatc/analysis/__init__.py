@@ -2,17 +2,27 @@
 Defines analysis functions.
 """
 
+from .airborne_track import (
+    collect_airborne_ground_track,
+    compute_airborne_ground_track,
+)
 from .coincidence import (
     find_coincident_ground_track,
     find_coincident_observations,
 )
 from .coverage_metrics import (
     aggregate_observations,
+    count_observations,
     grid_observations,
     reduce_observations,
 )
 from .dop_sampling import DopMethod, compute_dop
 from .feature_sampling import collect_feature_observations
+from .footprints import (
+    collect_footprint_observations,
+    collect_footprints,
+    dissolve_footprints,
+)
 from .ground_track import (
     collect_ground_pixels,
     collect_ground_track,
@@ -32,10 +42,6 @@ from .orbit_track import (
     OrbitCoordinate,
     OrbitOutput,
     collect_orbit_track,
-)
-from .platform_track import (
-    collect_platform_track,
-    compute_platform_track,
 )
 from .point_sampling import (
     collect_multi_observations,
@@ -66,6 +72,12 @@ from .sufficiency import (
     sample_field,
     sampling_error_variance,
 )
+from .surface_track import (
+    collect_platform_track,
+    collect_surface_track,
+    compute_platform_track,
+    compute_surface_track,
+)
 
 __all__ = [
     "DopMethod",
@@ -73,8 +85,11 @@ __all__ = [
     "OrbitOutput",
     "ScanDirection",
     "aggregate_observations",
+    "collect_airborne_ground_track",
     "collect_downlinks",
     "collect_feature_observations",
+    "collect_footprint_observations",
+    "collect_footprints",
     "collect_ground_pixels",
     "collect_ground_track",
     "collect_limb_observations",
@@ -87,8 +102,10 @@ __all__ = [
     "collect_region_observations",
     "collect_ro_observations",
     "collect_space_observations",
+    "collect_surface_track",
     "compare_sampled_means",
     "compute_access_periods",
+    "compute_airborne_ground_track",
     "compute_dop",
     "compute_ground_track",
     "compute_latencies",
@@ -98,6 +115,9 @@ __all__ = [
     "compute_region_access_periods",
     "compute_revisit_statistics",
     "compute_sample_sizes",
+    "compute_surface_track",
+    "count_observations",
+    "dissolve_footprints",
     "estimate_sampling_error",
     "find_coincident_ground_track",
     "find_coincident_observations",

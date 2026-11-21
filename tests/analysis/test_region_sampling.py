@@ -217,13 +217,21 @@ class TestCollectRegionObservations(IssConstellationTestCase):
         """
         members = self.constellation.generate_members()
         region = box(-114.8, 31.3, -109.0, 37.0)
-        observations = collect_multi_region_observations(
-            region, members, self.start, self.end
+        observations = collect_region_observations(
+            region, members, self.start, self.end, instrument_index=None
         )
         self.assertGreater(len(observations.index), 0)
         self.assertEqual(
             list(observations.columns),
-            ["target_hash", "geometry", "satellite", "instrument", "start", "end"],
+            [
+                "target_hash",
+                "geometry",
+                "satellite",
+                "instrument",
+                "start",
+                "epoch",
+                "end",
+            ],
         )
         self.assertTrue((observations.target_hash == hash_geometry(region)).all())
         self.assertTrue(observations.start.is_monotonic_increasing)
@@ -235,7 +243,7 @@ class TestCollectRegionObservations(IssConstellationTestCase):
         computed together, equal those of each region and satellite,
         concatenated and sorted by start, and that observations by every
         instrument (`instrument_index=None`) equal those of
-        `collect_multi_region_observations`.
+        the deprecated `collect_multi_region_observations`.
         """
         members = self.constellation.generate_members()
         regions = [box(-114.8, 31.3, -109.0, 37.0), box(-10, 50, 0, 55)]
@@ -265,13 +273,15 @@ class TestCollectRegionObservations(IssConstellationTestCase):
                 observations.geometry.values, expected.geometry.values, 1e-9
             ).all()
         )
+        with self.assertWarns(DeprecationWarning):
+            multi = collect_multi_region_observations(
+                regions[0], members, self.start, self.end
+            )
         pd.testing.assert_frame_equal(
             collect_region_observations(
                 regions[0], members, self.start, self.end, None
             ).drop(columns="geometry"),
-            collect_multi_region_observations(
-                regions[0], members, self.start, self.end
-            ).drop(columns="geometry"),
+            multi.drop(columns="geometry"),
         )
 
     def test_observations_reject_non_regions(self):

@@ -26,7 +26,7 @@ from ..utils.ellipsoid import (
 )
 from ..utils.orbital import compute_vnb_frame
 from ..utils.time import _to_time_from_offsets
-from .check import _check_satellites
+from .check import _check_satellites, _check_times
 from .sampling import _interpolate_profile_point
 
 
@@ -352,6 +352,7 @@ def collect_limb_observations(
             (`(min + max) / 2`) when `None`.
     """
     satellites = _check_satellites(satellites)
+    _check_times(times)
     if scan_direction is None:
         scan_direction = _default_scan_direction(scan_azimuth)
     scan_elevations = sorted(
