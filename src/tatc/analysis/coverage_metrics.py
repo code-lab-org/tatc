@@ -16,10 +16,12 @@ import shapely
 
 from ..utils.geometry import _hash_geometries
 from .check import (
+    _PLATFORM_COLUMNS,
     _aggregate_names,
     _check_time_window,
     _get_empty_observation_frame,
     _get_platform_columns,
+    _get_platform_kinds,
 )
 
 
@@ -202,8 +204,10 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     of `tatc.analysis.footprints.collect_footprint_observations`, `aircraft`,
     `surface_platform`, or `radar_station`) and `instrument` record every
     contributor to that period, comma-separated (each platform column only
-    those of its kind, missing if there are none), and the geometry is the
-    union of theirs (for a
+    those of its kind, missing if there are none), in order of their kind
+    (in the order of the columns) and then of their start time, so that the
+    instruments pair with the names of the platform columns in turn (radar
+    stations, last, have none), and the geometry is the union of theirs (for a
     region, the part of it observed during the period). `epoch` is reassigned to
     the midpoint of the merged period's `start`/`end` (a representative
     instant), not the mean of the constituent observations' own epochs.
@@ -243,11 +247,17 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     members = np.split(gdf.geometry.to_numpy(), np.cumsum(counts)[:-1])
     for g in np.flatnonzero(counts > 1):
         geometry[g] = shapely.union_all(members[g])
+    # the contributors of each group, in order of their kind and start
+    named = grouped
+    if len(platform_columns) > 1:
+        rank = pd.Index(_PLATFORM_COLUMNS).get_indexer(_get_platform_kinds(gdf))
+        by_kind = np.lexsort((rank, group))
+        named = gdf.iloc[by_kind].groupby(group[by_kind], sort=False)
     aggregated = gpd.GeoDataFrame(
         {
             "target_hash": grouped["target_hash"].first(),
             **{
-                column: _aggregate_names(grouped, column).astype(gdf[column].dtype)
+                column: _aggregate_names(named, column).astype(gdf[column].dtype)
                 for column in [*platform_columns, "instrument"]
             },
             "start": grouped["start"].min(),

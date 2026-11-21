@@ -326,3 +326,32 @@ class TestValidation(IssConstellationTestCase):
                 deprecated = [w for w in caught if w.category is DeprecationWarning]
                 for warning in deprecated:
                     self.assertEqual(warning.filename, __file__)
+
+
+class TestObservationTimes(IssConstellationTestCase):
+    """
+    Unit tests for the times of observations of different kinds.
+    """
+
+    def test_each_row(self):
+        """
+        Test that each observation has the time of its first time column that
+        gives one, or else the midpoint of its period.
+        """
+        from tatc.analysis.check import _get_observation_times
+
+        start = pd.Timestamp("2026-01-01", tz="UTC")
+        hour = pd.Timedelta(hours=1)
+        observations = pd.DataFrame(
+            {
+                "epoch": [start, pd.NaT, pd.NaT],
+                "time": [pd.NaT, start + hour, pd.NaT],
+                "start": [start, start, start],
+                "end": [start, start + hour, start + 4 * hour],
+            }
+        )
+        times = _get_observation_times(observations)
+        self.assertListEqual(list(times), [start, start + hour, start + 2 * hour])
+        self.assertTrue(
+            _get_observation_times(observations, "time").iloc[[0, 2]].isna().all()
+        )

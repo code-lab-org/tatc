@@ -341,3 +341,84 @@ class TestSampleField(unittest.TestCase):
         np.testing.assert_allclose(comparison.error[:2], [0, 0], atol=1e-9)
         self.assertEqual(list(comparison.samples), [2, 1, 0])
         self.assertTrue(np.isnan(comparison.sampled_mean[2]))
+
+
+class TestSampleInterval(unittest.TestCase):
+    """
+    Unit tests for sampling long observations at an interval.
+    """
+
+    def setUp(self):
+        point = Point(0, 0)
+        # a fixed platform's continuous view for a day, and a satellite's
+        # five-minute pass
+        self.observations = gpd.GeoDataFrame(
+            {
+                "target_hash": [hash_geometry(point)] * 2,
+                "start": [START, START + timedelta(hours=6)],
+                "epoch": [
+                    START + timedelta(hours=12),
+                    START + timedelta(hours=6, minutes=2.5),
+                ],
+                "end": [START + DAY, START + timedelta(hours=6, minutes=5)],
+            },
+            geometry=[point, point],
+            crs="EPSG:4326",
+        )
+
+    def test_revisit_statistics(self):
+        """
+        Test that a continuous observation is sampled every interval, while
+        a short one is a single sample.
+        """
+        once = compute_revisit_statistics(
+            self.observations.iloc[:1], START, START + DAY
+        )
+        self.assertEqual(once.samples[0], 1)
+        self.assertEqual(once.max_gap[0], timedelta(hours=12))
+        hourly = compute_revisit_statistics(
+            self.observations, START, START + DAY, sample_interval=timedelta(hours=1)
+        )
+        self.assertEqual(hourly.samples[0], 25 + 1)
+        self.assertEqual(hourly.max_gap[0], timedelta(hours=1))
+
+    def test_sampling_error_and_local_time(self):
+        """
+        Test that a continuous observation is worth the samples of the
+        interval in the sampling error and the local time coverage.
+        """
+        kwargs = {"decorrelation_time": timedelta(hours=6)}
+        once = estimate_sampling_error(
+            self.observations.iloc[:1], START, START + DAY, **kwargs
+        )
+        hourly = estimate_sampling_error(
+            self.observations.iloc[:1],
+            START,
+            START + DAY,
+            sample_interval=timedelta(hours=1),
+            **kwargs,
+        )
+        self.assertEqual(once.effective_samples[0], 1)
+        self.assertGreater(hourly.effective_samples[0], 2)
+        self.assertLess(hourly.relative_error[0], once.relative_error[0])
+        coverage = compute_local_time_coverage(
+            self.observations.iloc[:1], sample_interval=timedelta(hours=1)
+        )
+        self.assertEqual(coverage.local_bins_sampled[0], 8)
+        with self.assertRaisesRegex(ValueError, "positive"):
+            compute_local_time_coverage(self.observations, sample_interval=timedelta(0))
+
+    def test_merged(self):
+        """
+        Test that merged observations are sampled over their merged period.
+        """
+        merged = compute_revisit_statistics(
+            self.observations,
+            START,
+            START + DAY,
+            merge_overlapping=True,
+            sample_interval=timedelta(hours=1),
+        )
+        # every hour from the midpoint of the epochs (09:01:15) within the day
+        self.assertEqual(merged.samples[0], 24)
+        self.assertLessEqual(merged.max_gap[0], timedelta(hours=1))

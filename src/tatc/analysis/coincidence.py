@@ -135,9 +135,10 @@ def find_coincident_observations(
     `min_platforms` widened periods overlap, even as the platforms
     observing change; the platform columns (such as `satellite`) and
     `instrument` record every contributor to that period, comma-separated,
-    in order of their start time: each platform column names the
-    contributors of its kind (missing if there are none), so that, with
-    platforms of one kind, its names and the instruments are paired.
+    in order of their kind (in the order of the columns) and then of their
+    start time: each platform column names the contributors of its kind
+    (missing if there are none), so that the instruments pair with the
+    names of the platform columns in turn (radar stations, last, have none).
     `epoch` is the midpoint of the coincident period.
 
     With `instantaneous`, each observation is reduced to its `epoch` (for a
@@ -204,6 +205,7 @@ def find_coincident_observations(
             "widened_start": start,
             "widened_end": end,
             "start": naive_utc(observed_start),
+            "rank": pd.Index(_PLATFORM_COLUMNS).get_indexer(_get_platform_kinds(gdf)),
             "platform": platform,
             **{column: gdf[column].to_numpy() for column in platform_columns},
             "instrument": gdf["instrument"].to_numpy(),
@@ -226,7 +228,7 @@ def find_coincident_observations(
         period_start = contributors.groupby("period")["start"].min().to_numpy()
         period_end = contributors.groupby("period")["start"].max().to_numpy()
     contributors = (
-        contributors.sort_values(["period", "start"], kind="stable")
+        contributors.sort_values(["period", "rank", "start"], kind="stable")
         .drop_duplicates(["period", "platform", "instrument"])
         .groupby("period")
     )
@@ -311,6 +313,104 @@ def _keep_nearest_copies(
     return keep
 
 
+def _query_fixed_pairs(
+    rows_1: np.ndarray,
+    rows_2: np.ndarray,
+    second_fixed: bool,
+    geometries: np.ndarray,
+    instruments: np.ndarray,
+    times: pd.DatetimeIndex,
+    max_time_difference: pd.Timedelta,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Finds the candidate pairs of the footprints of two platforms, one of them
+    fixed (see `_PlatformKind.fixed`): those whose bounds overlap at times
+    within the maximum time difference (or static), as for other platforms
+    (see `find_coincident_ground_track`), but of the timed copies of the
+    fixed platform's footprint only the nearest in time of each instrument
+    and geometry (which `_keep_nearest_copies` then reduces to the nearest of
+    each instrument). The copies of each instrument and geometry share one
+    entry of a spatial index, so that the number of candidates grows with
+    the number of footprints rather than with the product of their numbers.
+
+    Args:
+        rows_1 (numpy.ndarray): The rows of the footprints of the first
+            platform.
+        rows_2 (numpy.ndarray): The rows of the footprints of the second.
+        second_fixed (bool): `True` if the copies are those of the second
+            platform (fixed), otherwise of the first.
+        geometries (numpy.ndarray): The geometry of each row.
+        instruments (numpy.ndarray): The instrument code of each row.
+        times (pandas.DatetimeIndex): The time of each row (`NaT` if static).
+        max_time_difference (pandas.Timedelta): The maximum time difference.
+
+    Returns:
+        tuple[numpy.ndarray, numpy.ndarray]: the rows of the first and second
+            footprints of each candidate pair
+    """
+    copies, others = (rows_2, rows_1) if second_fixed else (rows_1, rows_2)
+    static = np.asarray(times.isna())
+    nanoseconds = times.as_unit("ns").asi8
+    pair_others, pair_copies = [np.array([], dtype=int)], [np.array([], dtype=int)]
+
+    def query(query_rows: np.ndarray, tree_rows: np.ndarray) -> None:
+        # every pair whose bounds overlap
+        if len(query_rows) > 0 and len(tree_rows) > 0:
+            found, tree = shapely.STRtree(geometries[tree_rows]).query(
+                geometries[query_rows]
+            )
+            pair_others.append(query_rows[found])
+            pair_copies.append(tree_rows[tree])
+
+    # a static footprint is coincident at any time: a static copy with every
+    # footprint of the other platform, and a static footprint of the other
+    # platform with every timed copy
+    timed_copies = copies[~static[copies]]
+    timed_others = others[~static[others]]
+    query(others, copies[static[copies]])
+    query(others[static[others]], timed_copies)
+    if len(timed_copies) > 0 and len(timed_others) > 0:
+        # the groups of copies of the same instrument and geometry, each in
+        # order of time
+        shape, _ = pd.factorize(shapely.to_wkb(geometries[timed_copies]))
+        group, _ = pd.factorize(
+            instruments[timed_copies].astype(np.int64) * (int(shape.max()) + 1) + shape
+        )
+        groups = int(group.max()) + 1
+        order = np.lexsort((nanoseconds[timed_copies], group))
+        sorted_rows = timed_copies[order]
+        bounds = np.searchsorted(group[order], np.arange(groups + 1))
+        # the groups whose bounds overlap each timed footprint of the other
+        # platform, and the nearest copy of each (the earlier of two as near)
+        found, found_group = shapely.STRtree(
+            geometries[sorted_rows[bounds[:-1]]]
+        ).query(geometries[timed_others])
+        other = timed_others[found]
+        nearest = np.empty(len(other), dtype=int)
+        by_group = np.argsort(found_group, kind="stable")
+        splits = np.searchsorted(found_group[by_group], np.arange(groups + 1))
+        for g in np.flatnonzero(np.diff(splits) > 0):
+            index = by_group[splits[g] : splits[g + 1]]
+            members = sorted_rows[bounds[g] : bounds[g + 1]]
+            member_times = nanoseconds[members]
+            other_times = nanoseconds[other[index]]
+            position = np.searchsorted(member_times, other_times)
+            before = np.clip(position - 1, 0, len(members) - 1)
+            after = np.clip(position, 0, len(members) - 1)
+            later = np.abs(member_times[after] - other_times) < np.abs(
+                member_times[before] - other_times
+            )
+            nearest[index] = members[np.where(later, after, before)]
+        within = (
+            np.abs(nanoseconds[nearest] - nanoseconds[other])
+            <= max_time_difference.value
+        )
+        pair_others.append(other[within])
+        pair_copies.append(nearest[within])
+    other, copy = np.concatenate(pair_others), np.concatenate(pair_copies)
+    return (other, copy) if second_fixed else (copy, other)
+
+
 def _check_between(between: tuple[str, str] | None) -> tuple[str, str] | None:
     """
     Checks the kinds of platforms between which to find coincident footprints.
@@ -386,7 +486,11 @@ def find_coincident_ground_track(
     if it is later.
 
     Footprints whose bounds overlap are first matched by time, so that
-    only those within `max_time_difference` are tested for overlap.
+    only those within `max_time_difference` are tested for overlap. The
+    timed copies of a fixed platform's footprint are indexed once (for each
+    instrument and geometry), so that the time to pair them grows with the
+    number of footprints rather than with the product of the numbers of
+    footprints of the two platforms.
 
     Args:
         ground_track (geopandas.GeoDataFrame): The collected ground track.
@@ -431,19 +535,30 @@ def find_coincident_ground_track(
         pair = (kinds[rows[code_1][0]], kinds[rows[code_2][0]])
         if between is not None and pair not in (between, between[::-1]):
             continue
-        if code_2 not in trees:
-            trees[code_2] = shapely.STRtree(geometries[rows[code_2]])
-        query_1, query_2 = trees[code_2].query(geometries[rows[code_1]])
-        row_1, row_2 = rows[code_1][query_1], rows[code_2][query_2]
-        time_difference = times[row_2] - times[row_1]
-        # a static footprint is coincident at any time
-        selected = np.asarray(abs(time_difference) <= max_time_difference) | np.asarray(
-            time_difference.isna()
-        )
-        row_1, row_2 = row_1[selected], row_2[selected]
         if fixed[rows[code_1][0]] or fixed[rows[code_2][0]]:
+            # the copies of a fixed platform's footprint nearest in time
+            row_1, row_2 = _query_fixed_pairs(
+                rows[code_1],
+                rows[code_2],
+                bool(fixed[rows[code_2][0]]),
+                geometries,
+                instruments,
+                times,
+                max_time_difference,
+            )
             nearest = _keep_nearest_copies(row_1, row_2, fixed, instruments, times)
             row_1, row_2 = row_1[nearest], row_2[nearest]
+        else:
+            if code_2 not in trees:
+                trees[code_2] = shapely.STRtree(geometries[rows[code_2]])
+            query_1, query_2 = trees[code_2].query(geometries[rows[code_1]])
+            row_1, row_2 = rows[code_1][query_1], rows[code_2][query_2]
+            time_difference = times[row_2] - times[row_1]
+            # a static footprint is coincident at any time
+            selected = np.asarray(
+                abs(time_difference) <= max_time_difference
+            ) | np.asarray(time_difference.isna())
+            row_1, row_2 = row_1[selected], row_2[selected]
         selected = shapely.intersects(geometries[row_1], geometries[row_2])
         first.append(row_1[selected])
         second.append(row_2[selected])

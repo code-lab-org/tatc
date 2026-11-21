@@ -434,6 +434,38 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         ).set_index("target_hash")
         return latencies.latency.dt.total_seconds() / 60, latencies.ground_station
 
+    def test_compute_latencies_of_other_platforms(self):
+        """
+        Test that the observations of other platforms than satellites are kept
+        without a downlink, named in the columns of their kinds, whatever the
+        dtypes of the satellite columns.
+        """
+        satellite = self._make_observation("0", 0, 1, 2)
+        aircraft = {**self._make_observation("1", 0, 1, 2), "aircraft": "P-3"}
+        del aircraft["satellite"]
+        downlinks = gpd.GeoDataFrame(
+            [self._make_downlink("G", 10, 20)], crs="EPSG:4326"
+        )
+        downlinks["satellite"] = downlinks["satellite"].astype("str")
+        mixed = gpd.GeoDataFrame([satellite, aircraft], crs="EPSG:4326")
+        latencies = compute_latencies(mixed, downlinks)
+        self.assertIn("aircraft", latencies.columns)
+        flown = latencies[latencies["aircraft"].notna()].iloc[0]
+        self.assertEqual(flown["aircraft"], "P-3")
+        self.assertTrue(pd.isna(flown["latency"]))
+        self.assertTrue(pd.isna(flown["ground_station"]))
+        orbited = latencies[latencies["satellite"].notna()].iloc[0]
+        self.assertEqual(orbited["latency"], pd.Timedelta(minutes=14))
+        # without a satellite column, or with one of only missing names
+        alone = compute_latencies(
+            gpd.GeoDataFrame([aircraft], crs="EPSG:4326"), downlinks
+        )
+        self.assertListEqual(list(alone["aircraft"]), ["P-3"])
+        self.assertNotIn("satellite", alone.columns)
+        self.assertTrue(alone["latency"].isna().all())
+        missing = mixed.assign(satellite=pd.Series([None, None], dtype=object))
+        self.assertTrue(compute_latencies(missing, downlinks)["latency"].isna().all())
+
     def test_compute_latencies_during_contact_next(self):
         """
         Test that an observation that ends during a downlink waits for the

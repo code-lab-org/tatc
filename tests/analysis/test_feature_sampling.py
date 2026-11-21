@@ -308,3 +308,52 @@ class TestFeatureObservationsOtherPlatforms(unittest.TestCase):
             [column for column in empty.columns if column.endswith("_alt")],
             ["platform_alt"],
         )
+
+
+class TestFeatureObservationColumns(unittest.TestCase):
+    """
+    Unit tests for the columns of feature observations of several kinds of
+    platforms.
+    """
+
+    def test_dtypes_and_elevations(self):
+        """
+        Test that the platform columns of a kind without observations have
+        the dtype of the empty frame, and that the viewed parts are at the
+        elevation of the footprints.
+        """
+        data = straight_trajectory(n=120, latitude=35.0, longitude=-110.0)
+        times = list(pd.to_datetime(data["time"]).dt.to_pydatetime())
+        features = gpd.GeoDataFrame(
+            {
+                "start": pd.DatetimeIndex([START], dtype="datetime64[ns, UTC]"),
+                "end": pd.DatetimeIndex(
+                    [START + pd.Timedelta(hours=1)], dtype="datetime64[ns, UTC]"
+                ),
+            },
+            geometry=[ShapelyPoint(-109.9, 35.1).buffer(0.1)],
+            crs="EPSG:4326",
+        )
+        tower = SurfacePlatform(
+            name="Tower",
+            latitude=35.1,
+            longitude=-109.9,
+            elevation=500,
+            height=100,
+            instruments=[Instrument(name="camera", field_of_regard=60)],
+        )
+        # a radar far away, which observes nothing
+        radar = RadarStation(name="KFAR", latitude=0, longitude=0)
+        observations = collect_feature_observations(
+            features, [tower, radar], times[:1], elevation={"radar_station": 500}
+        )
+        empty = collect_feature_observations(
+            features.iloc[:0], [tower, radar], times[:1], elevation=500
+        )
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(
+            observations["radar_station"].dtype, empty["radar_station"].dtype
+        )
+        self.assertTrue(observations["radar_station"].isna().all())
+        self.assertTrue(observations.geometry.has_z.all())
+        self.assertEqual(observations.geometry.iloc[0].exterior.coords[0][2], 500)

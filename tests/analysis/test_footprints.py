@@ -4,11 +4,13 @@ Unit tests for the analysis of the footprints of any platforms.
 @author Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import warnings
 from datetime import datetime, timedelta, timezone
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import shapely
 from shapely.geometry import Point as ShapelyPoint
 from shapely.geometry import box
 
@@ -194,7 +196,7 @@ class TestFootprints(IssConstellationTestCase):
         # with times, the radar's coverage samples the points that the
         # satellite observes, at the same times (outside the radar's cone of
         # silence)
-        point = ShapelyPoint(center.x + 0.5, center.y)
+        point = ShapelyPoint(center.x + 0.5, center.y, 3000)
         observations = collect_footprint_observations(point, footprints)
         self.assertSetEqual(set(observations["radar_station"].dropna()), {"KXXX"})
         radar_rows = observations[observations["radar_station"].notna()]
@@ -206,6 +208,31 @@ class TestFootprints(IssConstellationTestCase):
         self.assertEqual(coincident["instrument"].iloc[0], "wide")
         self.assertLessEqual(coincident["start"].iloc[0], self.times[60])
         self.assertGreaterEqual(coincident["end"].iloc[0], self.times[60])
+
+    def test_collect_footprints_elevation_by_kind(self):
+        """
+        Test that an elevation may be given for each kind of platform, and
+        that footprints of different kinds at different elevations warn.
+        """
+        with self.assertWarnsRegex(UserWarning, "different elevations"):
+            footprints = collect_footprints(
+                [self.leo, self.radar], self.times, elevation={"radar_station": 3000}
+            )
+        heights = footprints.geometry.apply(lambda g: g.exterior.coords[0][2])
+        self.assertTrue((heights[footprints.satellite.notna()] == 0).all())
+        self.assertTrue((heights[footprints.radar_station.notna()] == 3000).all())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            same = collect_footprints(
+                [self.leo, self.radar], self.times, elevation=3000
+            )
+        self.assertEqual(len(same), len(footprints))
+        with self.assertRaisesRegex(ValueError, "platform columns"):
+            collect_footprints(self.radar, elevation={"radar": 3000})
+        with self.assertRaisesRegex(ValueError, "elevation is required"):
+            collect_footprints(
+                [self.leo, self.radar], self.times, elevation={"satellite": 0}
+            )
 
     def test_collect_footprints_arguments(self):
         """
@@ -380,6 +407,49 @@ class TestFootprintObservations(IssConstellationTestCase):
         self.assertListEqual(seconds("start"), [0, 1, 3, 5])
         self.assertListEqual(seconds("end"), [1, 1, 3, 5])
         self.assertListEqual(seconds("epoch"), [0.5, 1, 3, 5])
+
+    def test_runs_break_at_gaps(self):
+        """
+        Test that a run does not span the times without footprints of its
+        track (as those a mask culled), unless they are within `max_gap`.
+        """
+        inside = box(0, 0, 2, 2)
+        footprints = self._footprints(
+            [("A", "camera", s, True, inside) for s in (0, 1, 2, 100, 101)]
+            + [("B", "camera", s, True, inside) for s in (0, 10, 20)]
+        )
+        observations = collect_footprint_observations(ShapelyPoint(1, 1), footprints)
+        seconds = lambda column: list(  # noqa: E731
+            (observations[column] - START).dt.total_seconds()
+        )
+        # the time step of A is 1 second, and of B 10 seconds
+        self.assertListEqual(list(observations["aircraft"]), ["A", "B", "A"])
+        self.assertListEqual(seconds("start"), [0, 0, 100])
+        self.assertListEqual(seconds("end"), [2, 20, 101])
+        merged = collect_footprint_observations(
+            ShapelyPoint(1, 1), footprints, max_gap=timedelta(seconds=100)
+        )
+        self.assertEqual(len(merged), 2)
+        with self.assertRaisesRegex(ValueError, "non-negative"):
+            collect_footprint_observations(
+                ShapelyPoint(1, 1), footprints, max_gap=timedelta(seconds=-1)
+            )
+
+    def test_elevation_warning(self):
+        """
+        Test that a point within footprints at another elevation warns.
+        """
+        footprints = self._footprints(
+            [("A", "camera", 0, True, shapely.force_3d(box(0, 0, 2, 2), 500))]
+        )
+        with self.assertWarnsRegex(UserWarning, "other elevations"):
+            collect_footprint_observations(ShapelyPoint(1, 1), footprints)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            observations = collect_footprint_observations(
+                ShapelyPoint(1, 1, 500), footprints
+            )
+        self.assertEqual(len(observations), 1)
 
     def test_empty_and_static(self):
         """

@@ -661,7 +661,9 @@ def _get_observation_times(
     """
     Gets the time of each observation: that of a given column or, by default,
     of the first of its `epoch`, `time`, or `closest_time` columns (see
-    `_TIME_COLUMNS`), or else the midpoint of its `start` and `end`.
+    `_TIME_COLUMNS`) that gives one, or else the midpoint of its `start` and
+    `end`, for each observation (so that observations of different kinds,
+    concatenated, each have their own).
 
     Args:
         observations (pandas.DataFrame): The observations.
@@ -671,19 +673,27 @@ def _get_observation_times(
     Returns:
         pandas.Series: the time of each observation (UTC)
     """
-    if time_column is None:
-        time_column = next(
-            (column for column in _TIME_COLUMNS if column in observations.columns),
-            None,
-        )
     if time_column is not None:
         if time_column not in observations.columns:
             raise ValueError(f"observations have no {time_column!r} column")
         return pd.to_datetime(observations[time_column], utc=True)
-    if "start" in observations.columns and "end" in observations.columns:
-        start = pd.to_datetime(observations["start"], utc=True)
-        end = pd.to_datetime(observations["end"], utc=True)
-        return start + (end - start) / 2
+    columns = [column for column in _TIME_COLUMNS if column in observations.columns]
+    periods = "start" in observations.columns and "end" in observations.columns
+    if columns:
+        first = pd.to_datetime(observations[columns[0]], utc=True)
+        if not first.isna().any():
+            return first
+    if columns or periods:
+        times = pd.Series(pd.NaT, index=observations.index, dtype="datetime64[ns, UTC]")
+        for column in columns:
+            times = times.fillna(
+                pd.to_datetime(observations[column], utc=True).dt.as_unit("ns")
+            )
+        if periods:
+            start = pd.to_datetime(observations["start"], utc=True).dt.as_unit("ns")
+            end = pd.to_datetime(observations["end"], utc=True).dt.as_unit("ns")
+            times = times.fillna(start + (end - start) / 2)
+        return times
     raise ValueError(
         "observations must have a time: an "
         + ", ".join(repr(column) for column in _TIME_COLUMNS)

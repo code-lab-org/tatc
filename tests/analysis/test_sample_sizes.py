@@ -224,6 +224,46 @@ class TestSampleSizes(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "aircraft named 'P-3'"):
             compute_sample_sizes(observations, radar)
 
+    def test_feature_elevation(self):
+        """
+        Test that the observations of features are sized at the elevation of
+        the footprints that viewed them (a surface platform's ground).
+        """
+        from shapely.geometry import box
+
+        from tatc.schemas import SurfacePlatform
+
+        camera = PointedInstrument(
+            name="camera",
+            field_of_regard=60,
+            cross_track_field_of_view=60,
+            along_track_field_of_view=60,
+            cross_track_pixels=600,
+            along_track_pixels=600,
+            is_rectangular=True,
+        )
+        tower = SurfacePlatform(
+            name="Tower",
+            latitude=35.0,
+            longitude=-100.0,
+            elevation=1500,
+            height=100,
+            instruments=[camera],
+        )
+        features = gpd.GeoDataFrame(
+            {
+                "start": pd.DatetimeIndex([self.start], dtype="datetime64[ns, UTC]"),
+                "end": pd.DatetimeIndex([self.end], dtype="datetime64[ns, UTC]"),
+            },
+            geometry=[box(-100.0002, 34.9998, -99.9998, 35.0002)],
+            crs="EPSG:4326",
+        )
+        observations = collect_feature_observations(features, tower, [self.start])
+        sizes = compute_sample_sizes(observations, tower)
+        self.assertAlmostEqual(sizes.platform_range.iloc[0], 100, delta=1)
+        # a 0.1 degree pixel from 100 m is about 17 cm wide
+        self.assertAlmostEqual(sizes.sample_cross.iloc[0], 0.17, delta=0.02)
+
     def test_conical_observations(self):
         """
         Test that the samples of a conical scanner with a beam width are

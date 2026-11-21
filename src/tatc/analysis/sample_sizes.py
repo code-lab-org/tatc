@@ -26,6 +26,7 @@ from .check import (
     _get_platforms,
     _group_platforms,
 )
+from .footprints import _get_footprint_elevations
 
 _COLUMNS = [
     "platform_range",
@@ -111,7 +112,8 @@ def compute_sample_sizes(
     its kind: those of points (see `collect_observations` and
     `collect_footprint_observations`) and of features (see
     `collect_feature_observations`), whose target is the centroid of the
-    viewed part, each at its time (see `epoch` or `time`).
+    viewed part, each at its time (see `epoch` or `time`) and elevation (its
+    z-coordinate, as of the footprints that viewed a feature, or zero).
 
     With `instrument`, the samples are those of another instrument at the
     same observations, as of a sensor whose pixels differ from the swath
@@ -151,7 +153,15 @@ def compute_sample_sizes(
     is_point = shapely.get_type_id(geometry) == shapely.GeometryType.POINT
     centroid = shapely.centroid(geometry)
     longitude, latitude = shapely.get_x(centroid), shapely.get_y(centroid)
-    elevation = np.where(is_point, np.nan_to_num(shapely.get_z(geometry)), 0)
+    # at the elevation of the target: its z-coordinate (as of the footprints
+    # that observed a region, see `collect_feature_observations`), or zero
+    elevation = np.nan_to_num(
+        np.where(
+            is_point,
+            shapely.get_z(np.where(is_point, geometry, None)),
+            _get_footprint_elevations(geometry),
+        )
+    )
     keys = _get_platforms(observations)
     names = _get_instruments(observations)
     position = np.arange(len(observations))

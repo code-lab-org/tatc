@@ -9,6 +9,7 @@ observing platforms.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 
 import geopandas as gpd
@@ -29,7 +30,7 @@ from .check import (
     _get_platforms,
     _group_platforms,
 )
-from .footprints import collect_footprints
+from .footprints import _get_footprint_elevations, collect_footprints
 
 _GEOD = Geod(ellps="WGS84")
 
@@ -95,7 +96,7 @@ def collect_feature_observations(
     platforms: AllPlatforms | list[AllPlatforms],
     times: list[datetime],
     instrument_index: int | None = None,
-    elevation: float | None = None,
+    elevation: float | Mapping[str, float | None] | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Collect the observations of features: regions that exist for a period
@@ -135,17 +136,19 @@ def collect_feature_observations(
         instrument_index (int | None): The index of the observing instrument
                 on each platform, or `None` (default) for every instrument
                 of each platform.
-        elevation (float | None): The elevation (meters) above the WGS 84
-                ellipsoid at which to compute footprints (see
-                `collect_footprints`): by default, the ellipsoid for
-                satellites and aircraft, and the ground elevation of each
-                surface platform; required for radar stations.
+        elevation (float | Mapping[str, float | None] | None): The
+                elevation (meters) above the WGS 84 ellipsoid at which to
+                compute footprints, or that of each kind of platform by its
+                column (see `collect_footprints`): by default, the ellipsoid
+                for satellites and aircraft, and the ground elevation of
+                each surface platform; required for radar stations.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of observations: the feature
             (its index label in `features`), the platform (named in the
             column of its kind, such as `satellite`), instrument (`None` for
-            a radar station), time, the viewed part (geometry), its fraction
+            a radar station), time, the viewed part (geometry, whose
+            z-coordinate is the elevation of the footprints), its fraction
             of the feature's area (`viewed_fraction`), its area on the WGS 84
             ellipsoid (square meters, `viewed_area`), and the viewing
             geometry (`platform_alt`, `platform_az`, `platform_range`, and
@@ -173,14 +176,8 @@ def collect_feature_observations(
     track = track[track["valid_obs"].eq(True).to_numpy()].reset_index(drop=True)
     if len(track) == 0:
         return _get_empty_feature_observations(kinds)
-    # the elevation of each footprint: the height of its (non-empty)
-    # geometry, projected at a constant elevation
-    coordinates, row = shapely.get_coordinates(
-        track.geometry.to_numpy(), include_z=True, return_index=True
-    )
-    rows, first = np.unique(row, return_index=True)
-    heights = np.full(len(track), np.nan)
-    heights[rows] = coordinates[first, 2]
+    # the elevation of each footprint, projected at a constant elevation
+    heights = _get_footprint_elevations(track.geometry.to_numpy())
     footprints = shapely.force_2d(track.geometry.to_numpy())
     shapes = features.geometry.to_numpy()
     # the pieces: each feature's overlap with each footprint while it exists
@@ -262,8 +259,17 @@ def collect_feature_observations(
     # the feature's index label in the features
     observations["feature"] = features.index.to_numpy()[observations["feature"]]
     observations["time"] = pd.DatetimeIndex(observations["time"]).as_unit("ns")
+    # the viewed part at the elevation of the footprints, as they are
+    observations["geometry"] = shapely.force_3d(
+        shapely.force_2d(viewed), np.nan_to_num(observations["height"].to_numpy())
+    )
+    # the names of the empty frame's dtypes (a kind without observations, or
+    # radar stations without instruments, would otherwise be of objects)
+    empty = _get_empty_feature_observations(kinds)
+    for column in [*(kind.column for kind in kinds), "instrument"]:
+        observations[column] = observations[column].astype(empty[column].dtype)
     observations = gpd.GeoDataFrame(
-        observations[list(_get_empty_feature_observations(kinds).columns)],
+        observations[list(empty.columns)],
         geometry="geometry",
         crs="EPSG:4326",
     )

@@ -8,6 +8,8 @@ radar stations.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 import geopandas as gpd
@@ -16,11 +18,13 @@ import pandas as pd
 import shapely
 from shapely import geometry as geo
 
+from .._warnings import warn
 from ..schemas import AllPlatforms, Point
 from ..utils.geometry import _get_point_coordinates, _hash_geometries
 from ._tracks import Mask, _collect_tracks, _FootprintRequest
 from .airborne_track import _collect_aircraft
 from .check import (
+    _PLATFORM_KINDS,
     AIRCRAFT,
     RADAR_STATION,
     SATELLITE,
@@ -32,6 +36,7 @@ from .check import (
     _get_platforms,
     _group_platforms,
     _is_single,
+    _PlatformKind,
 )
 from .ground_track import _collect_satellite
 from .radar_track import _collect_radar_station, _get_empty_radar_track
@@ -54,7 +59,7 @@ def collect_footprints(
     platforms: AllPlatforms | list[AllPlatforms],
     times: list[datetime] | None = None,
     instrument_index: int | None = 0,
-    elevation: float | None = None,
+    elevation: float | Mapping[str, float | None] | None = None,
     mask: Mask | None = None,
     platform_altaz: bool = False,
     solar_altaz: bool = False,
@@ -90,12 +95,17 @@ def collect_footprints(
         instrument_index (int | None): The index of the observing instrument
                 on each platform, or `None` for every instrument of each
                 platform (a radar station has none).
-        elevation (float | None): The elevation (meters) above the WGS 84
-                ellipsoid at which to compute footprints: by default, the
-                ellipsoid (zero) for satellites and aircraft, and the ground
-                elevation of each surface platform. Required for radar
-                stations, for which it is in the vertical reference of
-                their elevations (see `collect_radar_track`).
+        elevation (float | Mapping[str, float | None] | None): The
+                elevation (meters) above the WGS 84 ellipsoid at which to
+                compute footprints, or that of each kind of platform, by its
+                column (for example, `{"radar_station": 3000}`, the others
+                by default): by default, the ellipsoid (zero) for satellites
+                and aircraft, and the ground elevation of each surface
+                platform. Required for radar stations (see
+                `collect_radar_track`). Footprints of several kinds at
+                different elevations warn: they are compared in longitude
+                and latitude (as by `find_coincident_ground_track`), and a
+                view off nadir is offset between elevations.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
                 An optional mask, always interpreted in WGS84 (lon/lat)
                 coordinates, to constrain results.
@@ -127,11 +137,12 @@ def collect_footprints(
     """
     single = _is_single(platforms, instrument_index=instrument_index)
     groups = _group_platforms(platforms)
+    elevations = _get_kind_elevations(elevation)
     if groups[SATELLITE] and times is None:
         raise ValueError("times are required to collect the footprints of satellites")
     if groups[RADAR_STATION] and pixels:
         raise ValueError("radar stations have no pixels")
-    if groups[RADAR_STATION] and elevation is None:
+    if groups[RADAR_STATION] and elevations[RADAR_STATION] is None:
         raise ValueError(
             "elevation is required to collect the footprints of radar stations "
             "(see collect_radar_track)"
@@ -139,7 +150,7 @@ def collect_footprints(
     request = _FootprintRequest.create(
         times,
         instrument_index,
-        elevation,
+        None,
         mask,
         platform_altaz,
         solar_altaz,
@@ -147,7 +158,12 @@ def collect_footprints(
         pixels,
     )
     frames = [
-        _collect_tracks(members, kind, request, *_COLLECTORS[kind])
+        _collect_tracks(
+            members,
+            kind,
+            replace(request, elevation=elevations[kind]),
+            *_COLLECTORS[kind],
+        )
         for kind, members in groups.items()
         if members
     ]
@@ -155,6 +171,7 @@ def collect_footprints(
         return gpd.GeoDataFrame(geometry=gpd.GeoSeries([], crs="EPSG:4326"))
     if single or len(frames) == 1:
         return frames[0]
+    _warn_kind_elevations(frames)
     filled = [frame for frame in frames if not frame.empty]
     combined = pd.concat(filled if filled else frames, ignore_index=True)
     if "time" in combined.columns:
@@ -193,6 +210,7 @@ def collect_footprint_observations(
         Point | geo.Point | list[Point | geo.Point] | gpd.GeoDataFrame | gpd.GeoSeries
     ),
     footprints: gpd.GeoDataFrame,
+    max_gap: timedelta | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Collect the observations of points by the footprints of any platforms
@@ -210,6 +228,17 @@ def collect_footprint_observations(
     see `tatc.utils.compute_along_track_field_of_view`) for the runs to be
     unbroken.
 
+    Footprints are consecutive if no other footprint of the track lies
+    between them and their times are at most `max_gap` apart, so that a run
+    does not span the times without footprints (as those a mask culled, or
+    a gap in an aircraft's trajectory). By default, `max_gap` is 1.5 times
+    the shortest time between the footprints of each track (its time step).
+
+    A point is compared with the footprints in longitude and latitude: a
+    footprint projected to another elevation than the point's (its
+    z-coordinate, or zero) is offset from it along the line of sight, which
+    warns (see `collect_footprints` for the elevation of footprints).
+
     The observations have the columns of `collect_observations` (without
     angles), with each platform named in the column of its kind, so that
     `aggregate_observations`, `reduce_observations`, and
@@ -223,6 +252,9 @@ def collect_footprint_observations(
         footprints (geopandas.GeoDataFrame): The footprints, each with a
                 time: of satellites, aircraft, or surface platforms with
                 times.
+        max_gap (datetime.timedelta | None): The longest time between
+                consecutive footprints of a run, or `None` for 1.5 times the
+                time step of each track.
 
     Returns:
         geopandas.GeoDataFrame: The data frame of observations, with columns
@@ -261,6 +293,7 @@ def collect_footprint_observations(
     order = np.lexsort((times.asi8, track))
     position = np.empty(len(frame), dtype=int)
     position[order] = np.arange(len(frame))
+    limit = _get_max_gaps(track[order], times.asi8[order], max_gap)
     # the valid footprints that contain each point
     valid = (
         frame["valid_obs"].eq(True).to_numpy()
@@ -277,6 +310,10 @@ def collect_footprint_observations(
     row = rows[row]
     if len(point) == 0:
         return _get_empty_observation_frame(platform_columns)
+    _warn_elevations(
+        np.array([z for _, _, z in coordinates])[point],
+        _get_footprint_elevations(frame.geometry.to_numpy()[row]),
+    )
     # the runs of consecutive footprints of each track that contain each point
     pairs = np.lexsort((position[row], point))
     point, row = point[pairs], row[pairs]
@@ -285,6 +322,7 @@ def collect_footprint_observations(
         (point[1:] != point[:-1])
         | (track[row[1:]] != track[row[:-1]])
         | (position[row[1:]] != position[row[:-1]] + 1)
+        | (times.asi8[row[1:]] - times.asi8[row[:-1]] > limit[track[row[1:]]])
     )
     first = np.flatnonzero(new)
     last = np.append(first[1:], len(row)) - 1
@@ -309,3 +347,158 @@ def collect_footprint_observations(
         crs="EPSG:4326",
     )
     return observations.sort_values("start", kind="stable").reset_index(drop=True)
+
+
+_MAX_GAP_STEPS = 1.5
+"""
+The default longest time between consecutive footprints of a run, in time
+steps of their track (see `collect_footprint_observations`).
+"""
+
+_ELEVATION_TOLERANCE = 1.0
+"""
+The difference (meters) between the elevations of a point and of a footprint
+that contains it above which `collect_footprint_observations` warns.
+"""
+
+
+def _get_max_gaps(
+    track: np.ndarray, nanoseconds: np.ndarray, max_gap: timedelta | None
+) -> np.ndarray:
+    """
+    Gets the longest time (nanoseconds) between consecutive footprints of
+    each track: `max_gap`, or 1.5 times the shortest positive time between
+    the footprints of the track (infinite without one).
+
+    Args:
+        track (numpy.ndarray): The track code (from zero) of each footprint,
+            in order of track and time.
+        nanoseconds (numpy.ndarray): The time (nanoseconds) of each
+            footprint, in the same order.
+        max_gap (datetime.timedelta | None): The longest time, or `None` for
+            that of each track's time step.
+
+    Returns:
+        numpy.ndarray: the longest time (nanoseconds) of each track code
+    """
+    count = int(track.max()) + 1 if len(track) > 0 else 0
+    if max_gap is not None:
+        if max_gap < timedelta(0):
+            raise ValueError(f"max_gap must be non-negative, not {max_gap}")
+        return np.full(count, pd.Timedelta(max_gap).value, dtype=float)
+    step = np.full(count, np.inf)
+    gaps = np.diff(nanoseconds).astype(float)
+    within = (track[1:] == track[:-1]) & (gaps > 0)
+    np.minimum.at(step, track[1:][within], gaps[within])
+    return _MAX_GAP_STEPS * step
+
+
+def _get_footprint_elevations(geometries: np.ndarray) -> np.ndarray:
+    """
+    Gets the elevation of each footprint: the z-coordinate of its first
+    vertex (footprints are projected to a constant elevation), or `NaN` if
+    it is empty or has none.
+
+    Args:
+        geometries (numpy.ndarray): The footprints.
+
+    Returns:
+        numpy.ndarray: the elevation (meters) of each footprint
+    """
+    elevations = np.full(len(geometries), np.nan)
+    if len(geometries) == 0:
+        return elevations
+    coordinates, index = shapely.get_coordinates(
+        geometries, include_z=True, return_index=True
+    )
+    rows, first = np.unique(index, return_index=True)
+    elevations[rows] = coordinates[first, 2]
+    return elevations
+
+
+def _warn_elevations(points: np.ndarray, footprints: np.ndarray) -> None:
+    """
+    Warns if points lie within footprints projected to other elevations
+    (see `collect_footprint_observations`).
+
+    Args:
+        points (numpy.ndarray): The elevation (meters) of each point.
+        footprints (numpy.ndarray): The elevation (meters) of the footprint
+            that contains each point (`NaN` if unknown).
+    """
+    differs = np.abs(points - footprints) > _ELEVATION_TOLERANCE
+    if not np.any(differs):
+        return
+    i = np.flatnonzero(differs)[0]
+    warn(
+        f"points lie within footprints at other elevations (such as a point at "
+        f"{points[i]:.0f} m within a footprint at {footprints[i]:.0f} m), which "
+        "are offset from them along the line of sight: give the points the "
+        "elevation of the footprints (as a z-coordinate), or collect the "
+        "footprints at the elevation of the points (see collect_footprints)"
+    )
+
+
+def _get_kind_elevations(
+    elevation: float | Mapping[str, float | None] | None,
+) -> dict[_PlatformKind, float | None]:
+    """
+    Gets the elevation at which to compute the footprints of each kind of
+    platform (see `collect_footprints`): the elevation, or that given for
+    the kind's column, or `None` for the default of the kind.
+
+    Args:
+        elevation (float | Mapping[str, float | None] | None): The elevation
+            (meters), or that of each kind of platform by its column.
+
+    Returns:
+        dict[_PlatformKind, float | None]: the elevation of each kind
+    """
+    if not isinstance(elevation, Mapping):
+        return {kind: elevation for kind in _PLATFORM_KINDS}
+    columns = [kind.column for kind in _PLATFORM_KINDS]
+    for column in elevation:
+        if column not in columns:
+            raise ValueError(
+                f"elevation must be given for platform columns ({', '.join(columns)}), "
+                f"not {column!r}"
+            )
+    return {kind: elevation.get(kind.column) for kind in _PLATFORM_KINDS}
+
+
+def _warn_kind_elevations(frames: list[gpd.GeoDataFrame]) -> None:
+    """
+    Warns if the footprints of different kinds of platforms are at different
+    elevations (see `collect_footprints`).
+
+    Args:
+        frames (list[geopandas.GeoDataFrame]): The footprints of each kind.
+    """
+    ranges = {}
+    for frame in frames:
+        elevations = _get_footprint_elevations(frame.geometry.to_numpy())
+        if frame.empty or np.all(np.isnan(elevations)):
+            continue
+        ranges[_get_platform_columns(frame)[0]] = (
+            np.nanmin(elevations),
+            np.nanmax(elevations),
+        )
+    if len(ranges) < 2:
+        return
+    lows, highs = zip(*ranges.values())
+    if max(highs) - min(lows) <= _ELEVATION_TOLERANCE:
+        return
+    described = ", ".join(
+        (
+            f"{column} at {low:.0f} m"
+            if high - low <= _ELEVATION_TOLERANCE
+            else f"{column} at {low:.0f} to {high:.0f} m"
+        )
+        for column, (low, high) in ranges.items()
+    )
+    warn(
+        f"footprints of different kinds of platforms are at different elevations "
+        f"({described}), which are offset from each other along their lines of "
+        "sight: give elevation (or one for each kind of platform) to compare "
+        "them at the same elevation"
+    )

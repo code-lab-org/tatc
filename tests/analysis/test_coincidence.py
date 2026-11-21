@@ -605,6 +605,46 @@ class TestFindCoincidentGroundTrack(IssConstellationTestCase):
         self.assertEqual(len(fixed), 20)
         self.assertTrue((abs(fixed.time_difference) <= timedelta(minutes=5)).all())
 
+    def test_fixed_platform_copies_of_other_geometries(self):
+        """
+        Test that a footprint pairs with the nearest copy of a fixed
+        platform's instrument among copies of different geometries (as of
+        footprints collected at other elevations), and with its static
+        footprints at any time.
+        """
+
+        def tower(time, geometry, name="Tower"):
+            footprint = _make_footprint(None, 0 if time is None else time, geometry)
+            del footprint["satellite"]
+            if time is None:
+                footprint["time"] = pd.NaT
+            return {**footprint, "surface_platform": name}
+
+        ground_track = gpd.GeoDataFrame(
+            [
+                _make_footprint("A", 5, box(0, 0, 2, 2)),
+                *[tower(time, box(0, 0, 2, 2)) for time in (0, 1, 2)],
+                *[tower(time, box(1, 1, 3, 3)) for time in (4, 8)],
+                tower(None, box(1, 0, 3, 2), name="Static"),
+            ],
+            crs="EPSG:4326",
+        )
+        ground_track["time"] = pd.to_datetime(ground_track["time"], utc=True)
+        results = find_coincident_ground_track(
+            ground_track,
+            timedelta(minutes=10),
+            between=("satellite", "surface_platform"),
+        )
+        self.assertListEqual(list(results.surface_platform_2), ["Tower", "Static"])
+        # the copy at 4 minutes is nearer than those at 0 to 2 minutes
+        self.assertEqual(results.time_2.iloc[0], pd.Timestamp(_minutes(4)))
+        self.assertTrue(pd.isna(results.time_2.iloc[1]))
+        # beyond the maximum time difference of every copy, none
+        none = find_coincident_ground_track(
+            ground_track.iloc[[0, 1, 2, 3]], timedelta(minutes=2)
+        )
+        self.assertTrue(none.empty)
+
     def test_valid_pairs(self):
         """
         Test that a pair is a valid observation if both footprints are, so
