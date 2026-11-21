@@ -33,12 +33,16 @@ from tatc.catalog.system_standard import (
     get_system_gates,
     serves_system,
 )
+from shapely.geometry import box
+
 from tatc.schemas import (
     CircularOrbit,
+    InSituInstrument,
     GeosynchronousOrbit,
     RepeatGroundTrackOrbit,
     SunSynchronousOrbit,
 )
+from tatc.utils import compute_geoid_height
 
 # the validation status of each system: its tier, and for each configuration its
 # tier, the days between its fitting data and its test (`None` without fitted
@@ -715,6 +719,41 @@ class TestBuild(unittest.TestCase):
             get_system("goes").configurations["slot"].orbits["goes-19"].longitude,
             delta=0.05,
         )
+
+    def test_radar_stations(self):
+        """
+        Test that radar stations are built in the order of the members, at their
+        ground elevations above the ellipsoid, with a station's own lowest
+        elevation angle.
+        """
+        stations = get_system("nexrad").build(members=["KIWA", "KFSX"])
+        self.assertEqual([s.name for s in stations], ["KIWA", "KFSX"])
+        kiwa, kfsx = stations
+        self.assertEqual(kiwa.min_elevation_angle, 0.5)
+        self.assertLess(kfsx.min_elevation_angle, 0)
+        self.assertEqual(kiwa.max_elevation_angle, 19.5)
+        table = get_system("nexrad").stations.load().set_index("id")
+        self.assertAlmostEqual(
+            kiwa.elevation,
+            table.ground["KIWA"] + compute_geoid_height(kiwa.longitude, kiwa.latitude),
+        )
+        self.assertEqual(kiwa.height, 19)
+        with self.assertRaisesRegex(ValueError, "no stations"):
+            get_system("nexrad").build(members=["KXXX"])
+
+    def test_surface_stations(self):
+        """
+        Test that surface stations are built within a region, with their in-situ
+        instrument at the cataloged or given radius.
+        """
+        stations = get_system("uscrn").build(region=box(-98, 35.5, -96.5, 36.5))
+        self.assertGreater(len(stations), 0)
+        self.assertIsInstance(stations[0].instruments[0], InSituInstrument)
+        self.assertEqual(stations[0].instruments[0].radius, 5000)
+        (station,) = get_system("uscrn").build(members=[stations[0].name], radius=20000)
+        self.assertEqual(station.instruments[0].radius, 20000)
+        with self.assertRaisesRegex(ValueError, "radius"):
+            get_system("nexrad").build(radius=1000)
 
     def test_build_errors(self):
         """

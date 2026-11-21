@@ -839,8 +839,9 @@ class SystemEntry(_CatalogModel):
                 grade.
             grade (SystemGrade | str | None): The grade of the use, if any.
             members (Sequence[str] | None): The identifiers of the spacecraft or
-                stations to build. By default, the operational and extended
-                spacecraft of the configuration, or every station.
+                stations to build, in the order of the platforms. By default,
+                the operational and extended spacecraft of the configuration, or
+                every station (in the order of the table).
             region (shapely.geometry.base.BaseGeometry | None): A region
                 (longitude and latitude) within which to build stations.
             epoch (datetime | None): The epoch of orbits at the plane grade or
@@ -888,7 +889,8 @@ class SystemEntry(_CatalogModel):
             unknown = set(members) - set(table["id"])
             if unknown:
                 raise ValueError(f"{self.id} has no stations {sorted(unknown)}")
-            table = table[table["id"].isin(members)]
+            # in the order of the members
+            table = table.set_index("id", drop=False).loc[list(members)]
         if region is not None:
             table = table[
                 [
