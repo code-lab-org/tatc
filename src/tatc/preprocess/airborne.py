@@ -291,17 +291,25 @@ def states_from_iwg1(
     pitch. Rows missing a value are omitted, and an attitude angle without
     any value is left out.
 
+    The altitude above the WGS 84 ellipsoid is that recorded (IWG1's "WGS84
+    Altitude", in a column `altitude_wgs84_ft`, which HyPlan does not read:
+    add it, in feet, to use it), or otherwise the GPS altitude above mean
+    sea level plus the geoid height. The recorded altitude avoids the
+    difference between the geoid model of the receiver, which gave the
+    altitude above mean sea level, and that added back.
+
     Args:
         data (pandas.DataFrame): The recording, with columns `timestamp`
             (UTC), `latitude`, `longitude`, `altitude_gps_ft` (feet above
-            mean sea level), `groundspeed` (knots), and `track`, and
+            mean sea level) or `altitude_wgs84_ft` (feet above the WGS 84
+            ellipsoid), or both, `groundspeed` (knots), and `track`, and
             optionally `true_heading`, `roll_deg`, and `pitch_deg`.
         geoid_height (float | None): The height (meters) of the geoid above
             the WGS 84 ellipsoid, added to the altitudes above mean sea level
-            to give altitudes above the ellipsoid: a constant (for example,
-            about -30 meters near Phoenix, Arizona), or `None` for the
-            EGM2008 geoid at each state (see
-            `tatc.utils.compute_geoid_height`).
+            (where no altitude above the ellipsoid is recorded) to give
+            altitudes above the ellipsoid: a constant (for example, about -30
+            meters near Phoenix, Arizona), or `None` for the EGM2008 geoid at
+            each state (see `tatc.utils.compute_geoid_height`).
 
     Returns:
         pandas.DataFrame: The states, with columns `time`, `latitude`,
@@ -314,10 +322,11 @@ def states_from_iwg1(
         "timestamp",
         "latitude",
         "longitude",
-        "altitude_gps_ft",
         "groundspeed",
         "track",
     }.difference(data.columns)
+    if not {"altitude_gps_ft", "altitude_wgs84_ft"} & set(data.columns):
+        missing.add("altitude_gps_ft")
     if missing:
         raise ValueError(f"missing required columns: {sorted(missing)}")
     states = pd.DataFrame(
@@ -325,8 +334,7 @@ def states_from_iwg1(
             "time": pd.to_datetime(data["timestamp"], utc=True),
             "latitude": data["latitude"],
             "longitude": data["longitude"],
-            "altitude": data["altitude_gps_ft"] * _METERS_PER_FOOT
-            + _get_geoid_height(data["longitude"], data["latitude"], geoid_height),
+            "altitude": _get_iwg1_altitude(data, geoid_height),
             "track": data["track"],
             "ground_speed": data["groundspeed"] * _METERS_PER_SECOND_PER_KNOT,
         }
@@ -339,6 +347,32 @@ def states_from_iwg1(
         if column in data.columns and data[column].notna().any():
             states[name] = data[column]
     return states.dropna().reset_index(drop=True)
+
+
+def _get_iwg1_altitude(data: pd.DataFrame, geoid_height: float | None) -> pd.Series:
+    """
+    Gets the altitudes (meters) above the WGS 84 ellipsoid of a flight
+    recording (see `states_from_iwg1`): those recorded above the ellipsoid
+    (`altitude_wgs84_ft`), where given, or otherwise those above mean sea
+    level (`altitude_gps_ft`) plus the geoid height.
+
+    Args:
+        data (pandas.DataFrame): The recording.
+        geoid_height (float | None): The height (meters) of the geoid above
+            the ellipsoid, or `None` for that of the EGM2008 geoid.
+
+    Returns:
+        pandas.Series: the altitudes (meters), `NaN` where none is recorded
+    """
+    altitude = pd.Series(np.nan, index=data.index)
+    if "altitude_gps_ft" in data.columns:
+        altitude = data["altitude_gps_ft"].astype(float) * _METERS_PER_FOOT + (
+            _get_geoid_height(data["longitude"], data["latitude"], geoid_height)
+        )
+    if "altitude_wgs84_ft" in data.columns:
+        recorded = data["altitude_wgs84_ft"].astype(float) * _METERS_PER_FOOT
+        altitude = recorded.fillna(altitude)
+    return altitude
 
 
 def instrument_from_sensor(

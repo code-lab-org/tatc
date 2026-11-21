@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Any
+from typing import Any, Protocol
 
 import geopandas as gpd
 import numpy as np
@@ -46,6 +46,32 @@ from .check import (
 
 Mask = Polygon | MultiPolygon | gpd.GeoDataFrame | gpd.GeoSeries
 """A mask, in WGS84 (lon/lat) coordinates, to constrain the results of an analysis."""
+
+
+class _Platform(Protocol):
+    """
+    An observing platform of any kind (`Satellite`, `Aircraft`,
+    `SurfacePlatform`, or `RadarStation`): named in results, with a track
+    (its position and velocity at times) from which its instruments project
+    their views.
+    """
+
+    name: str
+
+    def get_track(self, times: Any) -> Geocentric:
+        """Gets the platform's track at times."""
+        ...  # pylint: disable=unnecessary-ellipsis
+
+
+class _InstrumentedPlatform(_Platform, Protocol):
+    """
+    An observing platform that carries instruments (a `Satellite`,
+    `Aircraft`, or `SurfacePlatform`).
+    """
+
+    def get_instrument(self, index: int = 0) -> Instrument:
+        """Gets an instrument, bound to the platform's attitude."""
+        ...  # pylint: disable=unnecessary-ellipsis
 
 
 def _get_platform_altaz(platform_altaz: bool, sat_altaz: bool | None) -> bool:
@@ -223,19 +249,29 @@ class _FootprintRequest:
         """The angle columns requested (see `_get_angle_columns`)."""
         return _get_angle_columns(self.platform_altaz, self.solar_altaz)
 
-    def get_elevation(self, default: float = 0) -> float:
+    def get_elevation(self, platform: _Platform) -> float:
         """
-        Gets the elevation at which to compute footprints: the requested
-        elevation, or a default (such as the ellipsoid for satellites and
-        aircraft).
+        Gets the elevation at which to compute a platform's footprints: the
+        requested elevation or, if `None`, the default of the platform's
+        kind (see `tatc.analysis.check._PlatformKind.default_elevation`):
+        the WGS 84 ellipsoid for satellites and aircraft, and the ground
+        elevation of a surface platform. A radar station has no default.
 
         Args:
-            default (float): The default elevation (meters).
+            platform (_Platform): The platform.
 
         Returns:
-            float: the elevation (meters)
+            float: the elevation (meters) above the WGS 84 ellipsoid
         """
-        return default if self.elevation is None else self.elevation
+        if self.elevation is not None:
+            return self.elevation
+        kind = _get_platform_kind(platform)
+        if kind is None or kind.default_elevation is None:
+            label = "these platforms" if kind is None else f"{kind.label}s"
+            raise ValueError(
+                f"elevation is required to collect the footprints of {label}"
+            )
+        return kind.default_elevation(platform)
 
     @cached_property
     def skyfield_times(self) -> Time:
@@ -371,7 +407,7 @@ def _get_step_half_spans(
 
 
 def _get_observing_runs(
-    platform: Any,
+    platform: _Platform,
     instrument: PointedInstrument,
     offsets: list[npt.NDArray],
     observing: list[npt.NDArray],
@@ -445,7 +481,7 @@ def _get_observing_runs(
 
 
 def _compute_step_footprints(
-    platform: Any,
+    platform: _Platform,
     instrument: AllInstruments,
     times: list[datetime],
     half_spans: npt.NDArray,
@@ -559,7 +595,7 @@ def _compute_step_footprints(
 
 
 def _assemble_track(
-    platform: Any,
+    platform: _Platform,
     instrument: Instrument,
     times: list[datetime] | pd.DatetimeIndex | None,
     track: Geocentric,
@@ -647,7 +683,7 @@ def _assemble_track(
 
 
 def _assemble_pixels(
-    platform: Any,
+    platform: _Platform,
     instrument: Instrument,
     times: list[datetime] | pd.DatetimeIndex | None,
     track: Geocentric,
@@ -722,6 +758,73 @@ def _assemble_pixels(
     )
     _add_altaz_columns(frame, rows, target, request.platform_altaz, request.solar_altaz)
     return _clip_track(frame, request.mask)
+
+
+def _assemble(
+    platform: _Platform,
+    instrument: Instrument,
+    times: list[datetime] | pd.DatetimeIndex | None,
+    track: Geocentric,
+    elevation: float,
+    request: _FootprintRequest,
+    geometries: list[Polygon | MultiPolygon] | None = None,
+    represent: list[datetime | None] | None = None,
+    ground_elevation: float = 0,
+    region: Polygon | MultiPolygon | None = None,
+) -> gpd.GeoDataFrame | None:
+    """
+    Assembles the pixels (see `_assemble_pixels`) of a platform's instrument
+    if the request is of pixels, or otherwise its track from its footprints
+    (see `_assemble_track`).
+
+    Args:
+        platform (_Platform): The platform.
+        instrument (Instrument): The instrument, bound to the platform's
+            attitude.
+        times (list[datetime.datetime] | pandas.DatetimeIndex | None): The
+            times, or `None` for a fixed platform without times.
+        track (skyfield.positionlib.Geocentric): The platform's track at the
+            times.
+        elevation (float): The elevation (meters) of the footprints or
+            pixels.
+        request (_FootprintRequest): The request.
+        geometries (list[shapely.geometry.Polygon | shapely.geometry.MultiPolygon] | None):
+            The footprint at each time (unused for pixels).
+        represent (list[datetime.datetime | None] | None): For each
+            footprint, the time at which to evaluate its validity if not its
+            own (see `_compute_step_footprints`).
+        ground_elevation (float): The elevation (meters) of the ground, which
+            blocks rays toward an elevation above the instrument.
+        region (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):
+            A region outside which pixels are omitted (footprints are
+            clipped to it beforehand).
+
+    Returns:
+        geopandas.GeoDataFrame | None: the track, or the pixels (`None` if
+            there are none)
+    """
+    if request.pixels:
+        return _assemble_pixels(
+            platform,
+            instrument,
+            times,
+            track,
+            elevation,
+            request,
+            ground_elevation=ground_elevation,
+            region=region,
+        )
+    return _assemble_track(
+        platform,
+        instrument,
+        times,
+        track,
+        geometries,  # type: ignore
+        elevation,
+        request,
+        represent=represent,
+        ground_elevation=ground_elevation,
+    )
 
 
 def _check_pixel_instrument(instrument: Instrument) -> None:

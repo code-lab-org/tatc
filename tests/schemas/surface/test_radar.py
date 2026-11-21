@@ -65,6 +65,28 @@ class TestRadarStation(unittest.TestCase):
         self.assertEqual(o.max_elevation_angle, 19.5)
         self.assertEqual(o.beam_width, 0.95)
 
+    def test_height(self):
+        """
+        Test that the antenna is the height above the ground elevation (by
+        default, at it), and that its coverage depends only on their sum.
+        """
+        self.assertEqual(
+            RadarStation(name="test", latitude=0, longitude=0, elevation=400).height, 0
+        )
+        split = RadarStation(
+            name="test", latitude=0, longitude=0, elevation=385, height=19
+        )
+        whole = RadarStation(name="test", latitude=0, longitude=0, elevation=404)
+        self.assertEqual(split.get_altitude(), 404)
+        self.assertEqual(
+            split.compute_ground_ranges(3000), whole.compute_ground_ranges(3000)
+        )
+        self.assertTrue(
+            split.compute_footprint(3000).equals(whole.compute_footprint(3000))
+        )
+        with self.assertRaises(ValidationError):
+            RadarStation(name="test", latitude=0, longitude=0, height=-1)
+
     def test_bad_beam_width_negative(self):
         """
         Test that a negative beam_width is rejected.
@@ -573,9 +595,9 @@ class TestRadarStationTrack(unittest.TestCase):
         or more times.
         """
         station = RadarStation(
-            name="KIWA", latitude=33.289, longitude=-111.67, elevation=400
+            name="KIWA", latitude=33.289, longitude=-111.67, elevation=385, height=19
         )
-        expected = wgs84.latlon(33.289, -111.67, 400).itrs_xyz.m
+        expected = wgs84.latlon(33.289, -111.67, 404).itrs_xyz.m
         position, _ = station.get_track().frame_xyz_and_velocity(itrs)
         np.testing.assert_allclose(position.m, expected, atol=1e-3)
         times = [datetime(2020, 6, 1, hour, tzinfo=timezone.utc) for hour in (0, 12)]

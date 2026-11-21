@@ -22,7 +22,6 @@ from skyfield.api import wgs84
 from .._warnings import warn
 from ..schemas import AllPlatforms
 from .check import (
-    RADAR_STATION,
     SATELLITE,
     _check_times,
     _get_instruments,
@@ -36,6 +35,7 @@ from .footprints import (
     _ELEVATION_TOLERANCE,
     _get_footprint_elevations,
     _get_kind_elevations,
+    _get_kind_without_elevation,
     collect_footprints,
 )
 
@@ -341,13 +341,10 @@ def collect_feature_observations(
         return _get_empty_feature_observations(kinds)
     # the elevation of each feature (NaN without z-coordinates)
     feature_heights = _get_feature_elevations(features)
-    if (
-        groups[RADAR_STATION]
-        and _get_kind_elevations(elevation)[RADAR_STATION] is None
-        and np.isnan(feature_heights).any()
-    ):
+    missing = _get_kind_without_elevation(groups, _get_kind_elevations(elevation))
+    if missing is not None and np.isnan(feature_heights).any():
         raise ValueError(
-            "elevation is required to collect the footprints of radar stations, "
+            f"elevation is required to collect the footprints of {missing.label}s, "
             "unless each feature has an elevation (its z-coordinate)"
         )
     shapes = shapely.force_2d(features.geometry.to_numpy())

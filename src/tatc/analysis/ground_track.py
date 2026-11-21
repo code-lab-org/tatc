@@ -19,8 +19,7 @@ from ..schemas import AllInstruments, Satellite
 from ..utils.time import _index_orbit_track
 from ._tracks import (
     Mask,
-    _assemble_pixels,
-    _assemble_track,
+    _assemble,
     _check_pixel_instrument,
     _collect_tracks,
     _compute_step_footprints,
@@ -119,7 +118,7 @@ def collect_ground_track(
     satellites: Satellite | list[Satellite],
     times: list[datetime],
     instrument_index: int | None = 0,
-    elevation: float = 0,
+    elevation: float | None = None,
     mask: Mask | None = None,
     platform_altaz: bool = False,
     solar_altaz: bool = False,
@@ -142,8 +141,9 @@ def collect_ground_track(
         instrument_index (int | None): The index of the observing instrument
                 on each satellite, or `None` for every instrument of each
                 satellite.
-        elevation (float): The elevation (meters) above the datum in the
-                WGS 84 coordinate system for which to calculate ground track.
+        elevation (float | None): The elevation (meters) above the WGS 84
+                ellipsoid at which to compute footprints, or `None` for the
+                ellipsoid (zero).
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
                 An optional mask, always interpreted in WGS84 (lon/lat)
                 coordinates, to constrain results. Providing a mask limits
@@ -207,8 +207,9 @@ def _collect_satellite(
     """
     instrument = satellite.get_instrument(instrument_index)
     times: list[datetime] = request.times  # type: ignore
-    elevation = request.get_elevation()
+    elevation = request.get_elevation(satellite)
     if request.pixels:
+        # before propagating the orbit
         _check_pixel_instrument(instrument)
     # pixel arrays are views at an instant (steps of no span)
     half_spans = np.zeros(len(times)) if request.pixels else request.half_spans
@@ -231,20 +232,15 @@ def _collect_satellite(
                 satellite, instrument, times, half_spans, elevation, orbit_track
             )
         )
-    track_times = orbit_track.t.utc_datetime()
-    if request.pixels:
-        return _assemble_pixels(
-            satellite, instrument, track_times, orbit_track, elevation, request  # type: ignore
-        )
-    return _assemble_track(
+    return _assemble(
         satellite,
         instrument,
-        track_times,  # type: ignore
+        orbit_track.t.utc_datetime(),  # type: ignore
         orbit_track,
-        geometries,
         elevation,
         request,
-        represent=represent,
+        geometries,
+        represent,
     )
 
 
@@ -312,7 +308,7 @@ def compute_ground_track(
     satellites: Satellite | list[Satellite],
     times: list[datetime],
     instrument_index: int | None = 0,
-    elevation: float = 0,
+    elevation: float | None = None,
     mask: Mask | None = None,
     dissolve_orbits: bool = True,
     time_step: timedelta | None = None,
@@ -330,8 +326,9 @@ def compute_ground_track(
         instrument_index (int | None): The index of the observing instrument
                 on each satellite, or `None` for every instrument of each
                 satellite.
-        elevation (float): The elevation (meters) above the WGS 84 ellipsoid
-                at which to compute footprints.
+        elevation (float | None): The elevation (meters) above the WGS 84
+                ellipsoid at which to compute footprints, or `None` for the
+                ellipsoid (zero).
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
                 An optional mask, always interpreted in WGS84 (lon/lat)
                 coordinates, to constrain results.
@@ -383,7 +380,7 @@ def collect_ground_pixels(
     satellites: Satellite | list[Satellite],
     times: list[datetime],
     instrument_index: int | None = 0,
-    elevation: float = 0,
+    elevation: float | None = None,
     mask: Mask | None = None,
     platform_altaz: bool = False,
     solar_altaz: bool = False,
@@ -404,8 +401,9 @@ def collect_ground_pixels(
         instrument_index (int | None): The index of the observing instrument
                 on each satellite, or `None` for every instrument of each
                 satellite.
-        elevation (float): The elevation (meters) above the datum in the
-                WGS 84 coordinate system for which to calculate ground pixels.
+        elevation (float | None): The elevation (meters) above the WGS 84
+                ellipsoid at which to compute pixels, or `None` for the
+                ellipsoid (zero).
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
                 An optional mask, always interpreted in WGS84 (lon/lat)
                 coordinates, to constrain results. Providing a mask limits

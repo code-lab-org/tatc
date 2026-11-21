@@ -107,10 +107,11 @@ def collect_footprints(
                 elevation (meters) above the WGS 84 ellipsoid at which to
                 compute footprints, or that of each kind of platform, by its
                 column (for example, `{"radar_station": 3000}`, the others
-                by default): by default, the ellipsoid (zero) for satellites
-                and aircraft, and the ground elevation of each surface
-                platform. Required for radar stations (see
-                `collect_radar_track`). Footprints of several kinds at
+                by default): by default, that of each kind (see
+                `tatc.analysis.check._PlatformKind.default_elevation`): the
+                ellipsoid (zero) for satellites and aircraft, and the ground
+                elevation of each surface platform. Required for radar
+                stations (see `collect_radar_track`). Footprints of several kinds at
                 different elevations warn: they are compared in longitude
                 and latitude (as by `find_coincident_ground_track`), and a
                 view off nadir is offset between elevations.
@@ -150,10 +151,11 @@ def collect_footprints(
         raise ValueError("times are required to collect the footprints of satellites")
     if groups[RADAR_STATION] and pixels:
         raise ValueError("radar stations have no pixels")
-    if groups[RADAR_STATION] and elevations[RADAR_STATION] is None:
+    missing = _get_kind_without_elevation(groups, elevations)
+    if missing is not None:
         raise ValueError(
-            "elevation is required to collect the footprints of radar stations "
-            "(see collect_radar_track)"
+            f"elevation is required to collect the footprints of {missing.label}s: "
+            f"give elevation, or one for the {missing.column} column"
         )
     request = _FootprintRequest.create(
         times,
@@ -710,6 +712,35 @@ def _get_kind_elevations(
                 f"not {column!r}"
             )
     return {kind: elevation.get(kind.column) for kind in _PLATFORM_KINDS}
+
+
+def _get_kind_without_elevation(
+    groups: Mapping[_PlatformKind, list],
+    elevations: Mapping[_PlatformKind, float | None],
+) -> _PlatformKind | None:
+    """
+    Gets the first kind of the platforms given without an elevation at
+    which to compute their footprints and without a default (see
+    `tatc.analysis.check._PlatformKind.default_elevation`), as radar
+    stations, if any.
+
+    Args:
+        groups (Mapping[_PlatformKind, list]): The platforms of each kind
+            (see `tatc.analysis.check._group_platforms`).
+        elevations (Mapping[_PlatformKind, float | None]): The elevation of
+            each kind (see `_get_kind_elevations`).
+
+    Returns:
+        _PlatformKind | None: the kind, or `None` if every kind has one
+    """
+    return next(
+        (
+            kind
+            for kind, members in groups.items()
+            if members and elevations[kind] is None and kind.default_elevation is None
+        ),
+        None,
+    )
 
 
 def _warn_kind_elevations(frames: list[gpd.GeoDataFrame]) -> None:

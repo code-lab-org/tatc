@@ -16,8 +16,7 @@ import pandas as pd
 from ..schemas import Aircraft
 from ._tracks import (
     Mask,
-    _assemble_pixels,
-    _assemble_track,
+    _assemble,
     _collect_tracks,
     _compute_step_footprints,
     _FootprintRequest,
@@ -30,7 +29,7 @@ def collect_airborne_ground_track(
     aircraft: Aircraft | list[Aircraft],
     times: list[datetime] | None = None,
     instrument_index: int | None = 0,
-    elevation: float = 0,
+    elevation: float | None = None,
     mask: Mask | None = None,
     platform_altaz: bool = False,
     solar_altaz: bool = False,
@@ -65,9 +64,15 @@ def collect_airborne_ground_track(
             trajectory.
         instrument_index (int | None): The index of the observing instrument
             on each aircraft, or `None` for every instrument of each aircraft.
-        elevation (float): The elevation (meters) above the WGS 84 ellipsoid
-            at which to compute footprints, in the same reference as the
-            aircraft's altitudes.
+        elevation (float | None): The elevation (meters) above the WGS 84
+            ellipsoid (as the aircraft's altitudes) at which to compute
+            footprints, or `None` for the ellipsoid (zero). The ellipsoid
+            is neither sea level nor the ground: for footprints on the
+            ground, give its elevation above the ellipsoid (for example,
+            from a DEM with `tatc.preprocess.sample_dem_elevation` and
+            `above_ellipsoid=True`), or, over the ocean, the geoid height
+            (see `tatc.utils.compute_geoid_height`). The width of a
+            footprint scales with the aircraft's height above it.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
             An optional mask, always interpreted in WGS84 (lon/lat)
             coordinates, to constrain results.
@@ -138,32 +143,31 @@ def _collect_aircraft(
         return None
     instrument = aircraft.get_instrument(instrument_index)
     track = aircraft.get_track(times)
-    elevation = request.get_elevation()
-    timestamps = pd.to_datetime(times, utc=True)
-    if request.pixels:
-        return _assemble_pixels(
-            aircraft, instrument, timestamps, track, elevation, request
-        )
+    elevation = request.get_elevation(aircraft)
     # the instrument observes at each time (which the trajectory contains), so
     # each footprint's validity is evaluated at its own time unless it is
     # swept beyond the trajectory
-    geometries, represent = _compute_step_footprints(
-        aircraft,
-        instrument,
-        times,
-        _get_step_half_spans(times, request.time_step),
-        elevation,
-        track,
+    geometries, represent = (
+        (None, None)
+        if request.pixels
+        else _compute_step_footprints(
+            aircraft,
+            instrument,
+            times,
+            _get_step_half_spans(times, request.time_step),
+            elevation,
+            track,
+        )
     )
-    return _assemble_track(
+    return _assemble(
         aircraft,
         instrument,
-        timestamps,
+        pd.to_datetime(times, utc=True),
         track,
-        geometries,
         elevation,
         request,
-        represent=represent,
+        geometries,
+        represent,
     )
 
 
@@ -171,7 +175,7 @@ def compute_airborne_ground_track(
     aircraft: Aircraft | list[Aircraft],
     times: list[datetime] | None = None,
     instrument_index: int | None = 0,
-    elevation: float = 0,
+    elevation: float | None = None,
     mask: Mask | None = None,
     time_step: timedelta | None = None,
 ) -> gpd.GeoDataFrame:
@@ -188,8 +192,9 @@ def compute_airborne_ground_track(
             aircraft's trajectory.
         instrument_index (int | None): The index of the observing instrument
             on each aircraft, or `None` for every instrument of each aircraft.
-        elevation (float): The elevation (meters) above the WGS 84 ellipsoid
-            at which to compute footprints.
+        elevation (float | None): The elevation (meters) above the WGS 84
+            ellipsoid at which to compute footprints, or `None` for the
+            ellipsoid (see `collect_airborne_ground_track`).
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
             An optional mask, always interpreted in WGS84 (lon/lat)
             coordinates, to constrain results.

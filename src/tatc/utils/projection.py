@@ -728,8 +728,8 @@ def compute_projected_ray_position(  # pylint: disable=too-many-branches,too-man
 ) -> GeographicPosition:
     """
     Get the location of a projected ray from an instrument. The ray is cast
-    from the satellite position toward the WGS 84 geoid at the specified
-    elevation; if it misses the geoid entirely (e.g. an off-nadir angle
+    from the satellite position toward the WGS 84 ellipsoid raised to the
+    specified elevation; if it misses it entirely (e.g. an off-nadir angle
     pointing past the horizon), the projected position instead falls back
     to the nearest point on the visible Earth limb. Toward an elevation
     above the instrument (for example, from a surface platform), a ray
@@ -1010,13 +1010,13 @@ def _project_rays(
             (meters) of the projected rays (shape (3, M)), and whether each
             ray is blocked by the ground
     """
-    # find the intersections of the rays and the WGS 84 geoid (at the
-    # elevation), vectorized across rays
+    # find the intersections of the rays and the WGS 84 ellipsoid (raised to
+    # the elevation), vectorized across rays
     points, found = compute_ellipsoid_intersection(position, direction, elevation)
     geos = np.array(rectangular_to_geodetic(points))
     miss = ~found
     if np.any(miss):
-        # projected points do not fall on the WGS 84 geoid surface: use the
+        # projected points do not fall on the raised ellipsoid's surface: use the
         # points of its limb on the plane of each ray
         geos[:, miss] = np.array(
             rectangular_to_geodetic(

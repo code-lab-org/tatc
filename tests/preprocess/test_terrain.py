@@ -10,6 +10,7 @@ deterministic regardless of connectivity.
 
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 
 import geopandas as gpd
@@ -317,28 +318,55 @@ class TestComputeTerrainMask(unittest.TestCase):
         """
         Test that the RadarStation convenience wrapper produces the same
         result as calling compute_terrain_mask directly with the station's
-        own longitude/latitude/elevation, above the ellipsoid.
+        own longitude/latitude and antenna elevation (its ground elevation
+        plus its antenna height), above the ellipsoid.
         """
-        station = RadarStation(name="test", latitude=0.0, longitude=0.0, elevation=0)
+        ground = compute_geoid_height(0.0, 0.0)  # the DEM is at sea level here
+        station = RadarStation(
+            name="test", latitude=0.0, longitude=0.0, elevation=ground, height=20
+        )
+        kwargs = {"search_radius": 50000, "number_azimuths": 36}
+        kwargs["number_range_samples"] = 50
         direct = compute_terrain_mask(
-            self.dem_path,
-            station.longitude,
-            station.latitude,
-            station.elevation,
-            search_radius=50000,
-            number_azimuths=36,
-            number_range_samples=50,
-            above_ellipsoid=True,
+            self.dem_path, 0.0, 0.0, ground + 20, above_ellipsoid=True, **kwargs
         )
-        wrapped = compute_terrain_mask_for_station(
-            self.dem_path,
-            station,
-            search_radius=50000,
-            number_azimuths=36,
-            number_range_samples=50,
-        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            wrapped = compute_terrain_mask_for_station(self.dem_path, station, **kwargs)
         self.assertEqual(direct.azimuth, wrapped.azimuth)
         self.assertEqual(direct.min_elevation_angle, wrapped.min_elevation_angle)
+        # without refraction, as for a surface platform
+        straight = compute_terrain_mask_for_station(
+            self.dem_path, station, effective_earth_radius_factor=1, **kwargs
+        )
+        self.assertLess(straight.min_elevation_angle[9], wrapped.min_elevation_angle[9])
+
+    def test_platform_terrain_masks_warn_of_other_ground(self):
+        """
+        Test that the terrain masks of a station and a platform whose ground
+        elevation differs from the DEM's (above the ellipsoid), as a height
+        above mean sea level or the default of zero, warn.
+        """
+        kwargs = {"search_radius": 20000, "number_azimuths": 4}
+        kwargs["number_range_samples"] = 10
+        geoid_height = compute_geoid_height(0.0, 0.0)
+        self.assertGreater(abs(geoid_height), 15)
+        for platform, compute in (
+            (
+                RadarStation(name="r", latitude=0.0, longitude=0.0, height=20),
+                compute_terrain_mask_for_station,
+            ),
+            (
+                SurfacePlatform(name="p", latitude=0.0, longitude=0.0, height=30),
+                compute_terrain_mask_for_platform,
+            ),
+        ):
+            with self.assertWarnsRegex(UserWarning, "ground elevation of"):
+                compute(self.dem_path, platform, **kwargs)
+            above = platform.model_copy(update={"elevation": geoid_height + 5})
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                compute(self.dem_path, above, **kwargs)
 
     def test_above_ellipsoid(self):
         """
@@ -374,16 +402,24 @@ class TestComputeTerrainMask(unittest.TestCase):
     def test_compute_terrain_mask_for_platform_matches_direct_call(self):
         """
         Test that the SurfacePlatform convenience wrapper places the
-        instruments a platform height above the DEM ground, without
-        refraction by default.
+        instruments a platform height above its ground elevation (above the
+        ellipsoid, as the DEM converted to it), without refraction by
+        default.
         """
+        ground = compute_geoid_height(0.0, 0.0)  # the DEM is at sea level here
         platform = SurfacePlatform(
-            name="test", latitude=0.0, longitude=0.0, elevation=-30, height=30
+            name="test", latitude=0.0, longitude=0.0, elevation=ground, height=30
         )
         kwargs = {"search_radius": 50000, "number_azimuths": 36}
         kwargs["number_range_samples"] = 50
         direct = compute_terrain_mask(
-            self.dem_path, 0.0, 0.0, 30, effective_earth_radius_factor=1, **kwargs
+            self.dem_path,
+            0.0,
+            0.0,
+            ground + 30,
+            effective_earth_radius_factor=1,
+            above_ellipsoid=True,
+            **kwargs,
         )
         wrapped = compute_terrain_mask_for_platform(self.dem_path, platform, **kwargs)
         self.assertEqual(direct.azimuth, wrapped.azimuth)

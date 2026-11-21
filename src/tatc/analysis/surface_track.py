@@ -17,30 +17,30 @@ from .._warnings import warn
 from ..schemas import SurfacePlatform
 from ._tracks import (
     Mask,
-    _assemble_pixels,
-    _assemble_track,
+    _assemble,
     _collect_tracks,
     _FootprintRequest,
 )
 from .check import SURFACE_PLATFORM, _dissolve_footprints
 
 
-def _get_target_elevation(platform: SurfacePlatform, elevation: float | None) -> float:
+def _get_target_elevation(
+    platform: SurfacePlatform, request: _FootprintRequest
+) -> float:
     """
-    Gets the elevation at which to project a platform's footprints: the
-    given elevation, or the platform's ground elevation if None, which must
-    differ from the elevation of its instruments (below them, looking down,
-    or above them, looking up).
+    Gets the elevation at which to project a platform's footprints (see
+    `_FootprintRequest.get_elevation`: by default, the platform's ground
+    elevation), which must differ from the elevation of its instruments
+    (below them, looking down, or above them, looking up).
 
     Args:
         platform (SurfacePlatform): The platform.
-        elevation (float | None): The target elevation (meters) above the
-            WGS 84 ellipsoid, or None for the platform's ground elevation.
+        request (_FootprintRequest): The request.
 
     Returns:
-        float: the target elevation (meters).
+        float: the target elevation (meters) above the WGS 84 ellipsoid
     """
-    target = platform.elevation if elevation is None else elevation
+    target = request.get_elevation(platform)
     if target == platform.get_altitude():
         raise ValueError(
             f"target elevation ({target} m) must differ from the elevation of "
@@ -183,7 +183,7 @@ def _collect_surface_platform(
             "solar_altaz requires times: the solar angles of a fixed "
             "platform's footprint change with time"
         )
-    target = _get_target_elevation(platform, request.elevation)
+    target = _get_target_elevation(platform, request)
     # the static track, from which the footprints are projected
     static = platform.get_track()
     # the track at each time (or at the time of the static track, without
@@ -199,31 +199,24 @@ def _collect_surface_platform(
         else None
     )
     instrument = platform.get_instrument(instrument_index)
-    if request.pixels:
-        return _assemble_pixels(
-            platform,
-            instrument,
-            timestamps,
-            track,
-            target,
-            request,
-            ground_elevation=platform.elevation,
-            region=region,
-        )
-    footprint = instrument.compute_footprint(
-        static, elevation=target, ground_elevation=platform.elevation
-    )[0]
-    if region is not None:
-        footprint = _clip_to_region(footprint, region, target)
-    return _assemble_track(
+    geometries = None
+    if not request.pixels:
+        footprint = instrument.compute_footprint(
+            static, elevation=target, ground_elevation=platform.elevation
+        )[0]
+        if region is not None:
+            footprint = _clip_to_region(footprint, region, target)
+        geometries = [footprint] * (1 if times is None else len(times))
+    return _assemble(
         platform,
         instrument,
         timestamps,
         track,
-        [footprint] * (1 if times is None else len(times)),
         target,
         request,
+        geometries,
         ground_elevation=platform.elevation,
+        region=region,
     )
 
 

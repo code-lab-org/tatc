@@ -31,8 +31,7 @@ def generate_cells_uniform_spacing(
 
     Args:
         distance (float):  The typical surface distance (meters) between points.
-        elevation (float): The elevation (meters) above the datum in the WGS 84
-            coordinate system.
+        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  An optional mask to constrain cells
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
         strips (str | None): Option to generate strip-cells along latitude (`"lat"`),
@@ -70,8 +69,7 @@ def generate_cells_uniform_angular_spacing(
             between cell centroids.
         theta_latitude (float): The angular difference in latitude (degrees)
             between cell centroids.
-        elevation (float): The elevation (meters) above the datum in the WGS 84
-            coordinate system.
+        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  An optional mask to constrain cells
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
         strips (str | None): Option to generate strip-cells along latitude (`"lat"`),

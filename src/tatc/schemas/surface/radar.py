@@ -79,11 +79,19 @@ class RadarStation(Point):
     name: str = Field(..., description="Radar station name", examples=["KOUN"])
     elevation: float = Field(
         default=0,
-        description="Elevation (meters) of the radar antenna, including "
-        + "tower height, above the WGS 84 ellipsoid, as for target "
-        + "elevations and other platforms: a height above mean sea level "
-        + "(as in NOAA's NEXRAD station tables) plus the geoid height (see "
-        + "`tatc.utils.compute_geoid_height`).",
+        description="Elevation (meters) of the ground below the radar antenna "
+        + "above the WGS 84 ellipsoid, as for a `SurfacePlatform`: a height "
+        + "above mean sea level (as in NEXRAD Level II metadata) plus the "
+        + "geoid height (see `tatc.utils.compute_geoid_height`).",
+    )
+    height: float = Field(
+        default=0,
+        description="Height (meters) of the radar antenna above the ground "
+        + "(for example, of its tower or feedhorn), so that the antenna is at "
+        + "`elevation + height` (see `get_altitude`). A table of antenna "
+        + "elevations (as NOAA's NEXRAD station table) gives their sum.",
+        ge=0,
+        examples=[19],
     )
     max_range: float = Field(
         default=460000,
@@ -240,7 +248,8 @@ class RadarStation(Point):
         Args:
             elevation (float): The elevation (meters) of the observed
                 target above the WGS 84 ellipsoid, as this station's
-                `elevation`.
+                `elevation`: an absolute elevation, not a height above the
+                antenna (see `get_altitude`).
 
         Returns:
             tuple[float, float] | None: The `(inner_ground_range,
@@ -252,7 +261,7 @@ class RadarStation(Point):
             self.get_effective_max_elevation_angle(),
             self.max_range,
             elevation,
-            self.elevation,
+            self.get_altitude(),
         )
 
     def compute_ground_range_profile(
@@ -265,7 +274,8 @@ class RadarStation(Point):
         Args:
             elevation (float): The elevation (meters) of the observed
                 target above the WGS 84 ellipsoid, as this station's
-                `elevation`.
+                `elevation`: an absolute elevation, not a height above the
+                antenna (see `get_altitude`).
             number_points (int | None): The number of azimuth samples to
                 generate (evenly spaced over one full revolution).
                 Defaults to the runtime configuration.
@@ -302,7 +312,7 @@ class RadarStation(Point):
                     self.get_effective_max_elevation_angle(),
                     self.max_range,
                     elevation,
-                    self.elevation,
+                    self.get_altitude(),
                 ) or (0.0, 0.0)
             inner_ground_range, outer_ground_range = bounds[min_elevation_angle]
             profile.append((float(azimuth), inner_ground_range, outer_ground_range))
@@ -321,7 +331,8 @@ class RadarStation(Point):
         Args:
             elevation (float): The elevation (meters) of the observed
                 target above the WGS 84 ellipsoid, as this station's
-                `elevation`.
+                `elevation`: an absolute elevation, not a height above the
+                antenna (see `get_altitude`).
             number_points (int | None): The number of azimuth samples used
                 when this station has a `terrain_mask` (ignored otherwise,
                 since the symmetric case uses a faster closed-form circle/
@@ -366,6 +377,17 @@ class RadarStation(Point):
             elevation,
         )
 
+    def get_altitude(self) -> float:
+        """
+        Gets the elevation of the radar antenna: the ground elevation plus
+        the antenna height, as `tatc.schemas.SurfacePlatform.get_altitude`
+        gets that of a platform's instruments.
+
+        Returns:
+            float: the elevation (meters) above the WGS 84 ellipsoid
+        """
+        return self.elevation + self.height
+
     def get_track(self, times: datetime | list[datetime] | None = None) -> Geocentric:
         """
         Gets the static track of the radar antenna (see
@@ -385,7 +407,7 @@ class RadarStation(Point):
         return compute_static_track(
             self.longitude,
             self.latitude,
-            self.elevation,
+            self.get_altitude(),
             0,
             None if times is None else _to_time(times),
         )

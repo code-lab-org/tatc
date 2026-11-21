@@ -391,6 +391,32 @@ class TestStatesFromIwg1(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "altitude_gps_ft"):
             states_from_iwg1(data.drop(columns="altitude_gps_ft"))
 
+    def test_altitude_above_ellipsoid(self):
+        """
+        Tests that an altitude recorded above the ellipsoid is used where
+        given, without the geoid height, and the altitude above mean sea
+        level plus the geoid height elsewhere.
+        """
+        data = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-10-15 17:00", periods=3, freq="s"),
+                "latitude": [33.0, 33.001, 33.002],
+                "longitude": -112.0,
+                "altitude_gps_ft": 20000.0,
+                "altitude_wgs84_ft": [19900.0, np.nan, 19900.0],
+                "groundspeed": 300.0,
+                "track": 1.0,
+            }
+        )
+        states = states_from_iwg1(data, geoid_height=-30.0)
+        np.testing.assert_allclose(
+            states["altitude"],
+            [19900 * 0.3048, 20000 * 0.3048 - 30.0, 19900 * 0.3048],
+        )
+        only = states_from_iwg1(data.drop(columns="altitude_gps_ft"))
+        self.assertEqual(len(only), 2)
+        np.testing.assert_allclose(only["altitude"], 19900 * 0.3048)
+
 
 class TestInstrumentFromSensor(unittest.TestCase):
     """

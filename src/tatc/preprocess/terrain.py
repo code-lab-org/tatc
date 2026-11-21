@@ -35,6 +35,7 @@ except ImportError as error:
     ) from error
 
 from .. import constants
+from .._warnings import warn
 from ..schemas.surface import RadarStation, SurfacePlatform, TerrainMask
 from ..utils.geoid import compute_geoid_height
 from ..utils.geometry import geodesic_destination
@@ -127,7 +128,8 @@ def sample_dem_elevation(
     height (up to about 107 m in magnitude). With `above_ellipsoid`, the
     EGM2008 geoid height (see `tatc.utils.compute_geoid_height`) is added
     to give the elevation above the WGS 84 ellipsoid, as for the
-    `elevation` of a `tatc.schemas.SurfacePlatform`.
+    `elevation` (of the ground) of a `tatc.schemas.SurfacePlatform` or a
+    `tatc.schemas.RadarStation`.
 
     Args:
         dem_paths (str | list[str]): One or more DEM raster sources, each
@@ -343,10 +345,10 @@ def compute_terrain_mask(
             (mean sea level for Copernicus DEM GLO-30 and most public
             global DEMs; NOAA's NEXRAD station tables report antenna
             heights above mean sea level), or, with `above_ellipsoid`,
-            above the WGS 84 ellipsoid (as the `elevation` of a
-            `RadarStation`). This should include antenna tower height, not
-            just bare-ground elevation; see `sample_dem_elevation` to
-            determine the ground elevation at the station's location.
+            above the WGS 84 ellipsoid (as `RadarStation.get_altitude`).
+            This should include antenna tower height, not just bare-ground
+            elevation; see `sample_dem_elevation` to determine the ground
+            elevation at the station's location.
         search_radius (float): The maximum ground distance (meters) to
             examine for obstructions.
         min_range (float): The minimum ground distance (meters) to
@@ -438,6 +440,65 @@ def compute_terrain_mask(
     )
 
 
+_GROUND_TOLERANCE = 15.0
+"""
+The difference (meters) between the ground elevation of a fixed platform and
+that of a DEM below it (converted to the WGS 84 ellipsoid) above which the
+terrain masks of the platform warn (see `_compute_platform_terrain_mask`):
+more than the error of a DEM at a graded site, and less than the geoid
+height in most places, so that a height above mean sea level (or a default
+of zero) given as the elevation warns.
+"""
+
+
+def _compute_platform_terrain_mask(
+    dem_paths: str | list[str],
+    platform: RadarStation | SurfacePlatform,
+    **kwargs,
+) -> TerrainMask:
+    """
+    Computes the terrain mask of a fixed platform (see `compute_terrain_mask`)
+    from the elevation of its antenna or instruments (see `get_altitude`),
+    above the WGS 84 ellipsoid, converting the DEM's elevations (taken to be
+    above the EGM2008 geoid, as those of Copernicus DEM GLO-30) to the
+    ellipsoid. Warns if the platform's ground elevation (its `elevation`)
+    differs from that of the DEM at its location by more than
+    `_GROUND_TOLERANCE`, as for a height above mean sea level or a default of
+    zero.
+
+    Args:
+        dem_paths (str | list[str]): See `compute_terrain_mask`.
+        platform (RadarStation | SurfacePlatform): The platform.
+        **kwargs: The other arguments of `compute_terrain_mask`.
+
+    Returns:
+        TerrainMask: The resulting azimuthal terrain blockage mask.
+    """
+    try:
+        ground = sample_dem_elevation(
+            dem_paths, platform.longitude, platform.latitude, above_ellipsoid=True
+        )
+    except ValueError:
+        ground = None  # no DEM data at the platform: nothing to compare
+    if ground is not None and abs(platform.elevation - ground) > _GROUND_TOLERANCE:
+        warn(
+            f"the ground elevation of {platform.name!r} ({platform.elevation:.0f} m "
+            "above the WGS 84 ellipsoid) differs from that of the DEM below it "
+            f"({ground:.0f} m, above mean sea level plus the geoid height): give "
+            "the elevation of the ground above the ellipsoid (for example, from "
+            "sample_dem_elevation with above_ellipsoid=True) and the height of "
+            "the antenna or instruments above it as the height"
+        )
+    return compute_terrain_mask(
+        dem_paths,
+        platform.longitude,
+        platform.latitude,
+        platform.get_altitude(),
+        above_ellipsoid=True,
+        **kwargs,
+    )
+
+
 def compute_terrain_mask_for_station(
     dem_paths: str | list[str],
     station: RadarStation,
@@ -446,39 +507,44 @@ def compute_terrain_mask_for_station(
     number_azimuths: int = 360,
     number_range_samples: int = 400,
     range_spacing: str = "geometric",
+    effective_earth_radius_factor: float = constants.EFFECTIVE_EARTH_RADIUS_FACTOR,
 ) -> TerrainMask:
     """
-    Convenience wrapper around `compute_terrain_mask` that reads station
-    location and elevation directly from a `RadarStation`. The station's
-    `elevation` is above the WGS 84 ellipsoid, so the DEM's elevations,
-    taken to be above the EGM2008 geoid (mean sea level, as those of
-    Copernicus DEM GLO-30), are converted to the ellipsoid (see
-    `compute_terrain_mask`'s `above_ellipsoid`).
+    Convenience wrapper around `compute_terrain_mask` for the antenna of a
+    `RadarStation`, at its `get_altitude` (the ground `elevation` plus the
+    antenna `height`) above the WGS 84 ellipsoid, as
+    `compute_terrain_mask_for_platform` does for a `SurfacePlatform`. The
+    DEM's elevations, taken to be above the EGM2008 geoid (mean sea level, as
+    those of Copernicus DEM GLO-30), are converted to the ellipsoid (see
+    `compute_terrain_mask`'s `above_ellipsoid`). Warns if the station's
+    ground elevation differs from that of the DEM at its location by more
+    than 15 m (as for an antenna elevation given as the ground elevation, or
+    a height above mean sea level).
 
     Args:
         dem_paths (str | list[str]): See `compute_terrain_mask`.
         station (RadarStation): The radar station (its `longitude`,
-            `latitude`, and `elevation` are used).
+            `latitude`, `elevation`, and `height` are used).
         search_radius (float): See `compute_terrain_mask`.
         min_range (float): See `compute_terrain_mask`.
         number_azimuths (int): See `compute_terrain_mask`.
         number_range_samples (int): See `compute_terrain_mask`.
         range_spacing (str): See `compute_terrain_mask`.
+        effective_earth_radius_factor (float): See `compute_terrain_mask`.
+            Defaults to 4/3, for radio waves in a standard atmosphere.
 
     Returns:
         TerrainMask: The resulting azimuthal terrain blockage mask.
     """
-    return compute_terrain_mask(
+    return _compute_platform_terrain_mask(
         dem_paths,
-        station.longitude,
-        station.latitude,
-        station.elevation,
+        station,
         search_radius=search_radius,
         min_range=min_range,
         number_azimuths=number_azimuths,
         number_range_samples=number_range_samples,
         range_spacing=range_spacing,
-        above_ellipsoid=True,
+        effective_earth_radius_factor=effective_earth_radius_factor,
     )
 
 
@@ -494,16 +560,19 @@ def compute_terrain_mask_for_platform(
 ) -> TerrainMask:
     """
     Convenience wrapper around `compute_terrain_mask` for the instruments of
-    a `SurfacePlatform`, a `height` above the ground at its location. The
-    ground elevation is sampled from the DEM (see `sample_dem_elevation`),
-    in the DEM's own vertical datum, rather than taken from the platform's
-    `elevation` (above the WGS 84 ellipsoid), so the instruments' height
-    above the surrounding terrain does not depend on the geoid undulation.
+    a `SurfacePlatform`, at its `get_altitude` (the ground `elevation` plus
+    the instruments' `height`) above the WGS 84 ellipsoid, as its footprints
+    are projected (see `tatc.analysis.collect_surface_track`). The DEM's
+    elevations, taken to be above the EGM2008 geoid (mean sea level, as
+    those of Copernicus DEM GLO-30), are converted to the ellipsoid (see
+    `compute_terrain_mask`'s `above_ellipsoid`). Warns if the platform's
+    ground elevation differs from that of the DEM at its location by more
+    than 15 m (as for the default of zero, or a height above mean sea level).
 
     Args:
         dem_paths (str | list[str]): See `compute_terrain_mask`.
         platform (SurfacePlatform): The platform (its `longitude`,
-            `latitude`, and `height` are used).
+            `latitude`, `elevation`, and `height` are used).
         search_radius (float): See `compute_terrain_mask`.
         min_range (float): See `compute_terrain_mask`.
         number_azimuths (int): See `compute_terrain_mask`.
@@ -516,12 +585,9 @@ def compute_terrain_mask_for_platform(
     Returns:
         TerrainMask: The resulting azimuthal terrain blockage mask.
     """
-    ground = sample_dem_elevation(dem_paths, platform.longitude, platform.latitude)
-    return compute_terrain_mask(
+    return _compute_platform_terrain_mask(
         dem_paths,
-        platform.longitude,
-        platform.latitude,
-        ground + platform.height,
+        platform,
         search_radius=search_radius,
         min_range=min_range,
         number_azimuths=number_azimuths,

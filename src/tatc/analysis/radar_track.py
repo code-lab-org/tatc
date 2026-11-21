@@ -61,7 +61,8 @@ def collect_radar_track(
         stations (RadarStation | list[RadarStation]): The radar station(s).
         elevation (float): The elevation (meters) of the observed target
                 for which to compute coverage, above the WGS 84
-                ellipsoid (as the stations' elevations): an absolute
+                ellipsoid (as the stations' antennas, see
+                `RadarStation.get_altitude`): an absolute
                 elevation, common to all stations, not a height relative
                 to each station.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):
@@ -104,7 +105,7 @@ def _collect_radar_station(
     Returns:
         geopandas.GeoDataFrame: the footprint(s)
     """
-    elevation: float = request.elevation  # type: ignore
+    elevation = request.get_elevation(station)
     ranges = station.compute_ground_ranges(elevation)
     footprint = station.compute_footprint(elevation)
     times = [None] if request.times is None else request.times
@@ -144,7 +145,8 @@ def compute_radar_track(
         stations (RadarStation | list[RadarStation]): The radar station(s).
         elevation (float): The elevation (meters) of the observed target
                 for which to compute coverage, above the WGS 84
-                ellipsoid (as the stations' elevations): an absolute
+                ellipsoid (as the stations' antennas, see
+                `RadarStation.get_altitude`): an absolute
                 elevation, common to all stations, not a height relative
                 to each station.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | geopandas.GeoDataFrame | geopandas.GeoSeries | None):

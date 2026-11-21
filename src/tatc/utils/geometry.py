@@ -101,7 +101,7 @@ def project_polygon_to_elevation(
 
     Args:
         polygon (shapely.geometry.Polygon | shapely.geometry.MultiPolygon): The polygon to project.
-        elevation (float): The elevation (meters) above the WGS 84 geoid to
+        elevation (float): The elevation (meters) above the WGS 84 ellipsoid to
             assign to every coordinate.
 
     Returns:

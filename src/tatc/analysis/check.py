@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 import geopandas as gpd
 import numpy as np
@@ -43,6 +44,10 @@ class _PlatformKind:
         instrumented (bool): `True` if platforms of this kind carry
             instruments (`instruments`), `False` if a platform is itself the
             instrument (as a radar station is).
+        default_elevation (Callable[[Any], float] | None): Gets the elevation
+            (meters above the WGS 84 ellipsoid) at which to compute a
+            platform's footprints if none is given, or `None` if one is
+            required.
     """
 
     type: type
@@ -51,12 +56,59 @@ class _PlatformKind:
     argument: str
     fixed: bool = False
     instrumented: bool = True
+    default_elevation: Callable[[Any], float] | None = None
 
 
-SATELLITE = _PlatformKind(Satellite, "satellite", "satellite", "satellites")
-AIRCRAFT = _PlatformKind(Aircraft, "aircraft", "aircraft", "aircraft")
+def _get_ellipsoid_elevation(_: Any) -> float:
+    """
+    Gets the default elevation of the footprints of a moving platform (a
+    satellite or an aircraft): the WGS 84 ellipsoid (zero), without a model
+    of the terrain below it.
+
+    Args:
+        _ (Any): The platform.
+
+    Returns:
+        float: zero
+    """
+    return 0.0
+
+
+def _get_ground_elevation(platform: Any) -> float:
+    """
+    Gets the default elevation of the footprints of a fixed surface
+    platform: the ground below it (its `elevation`).
+
+    Args:
+        platform (Any): The platform.
+
+    Returns:
+        float: the ground elevation (meters)
+    """
+    return platform.elevation
+
+
+SATELLITE = _PlatformKind(
+    Satellite,
+    "satellite",
+    "satellite",
+    "satellites",
+    default_elevation=_get_ellipsoid_elevation,
+)
+AIRCRAFT = _PlatformKind(
+    Aircraft,
+    "aircraft",
+    "aircraft",
+    "aircraft",
+    default_elevation=_get_ellipsoid_elevation,
+)
 SURFACE_PLATFORM = _PlatformKind(
-    SurfacePlatform, "surface_platform", "surface platform", "platforms", fixed=True
+    SurfacePlatform,
+    "surface_platform",
+    "surface platform",
+    "platforms",
+    fixed=True,
+    default_elevation=_get_ground_elevation,
 )
 RADAR_STATION = _PlatformKind(
     RadarStation,

@@ -63,8 +63,7 @@ def generate_points_fibonacci_lattice(
     Args:
         distance (float | None): The typical surface distance (meters) between
             points, or `None` for a `count` of points.
-        elevation (float): The elevation (meters) above the datum in the WGS 84
-            coordinate system.
+        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):
             An optional mask to constrain points using WGS84 (EPSG:4326)
             geodetic coordinates in a Polygon or MultiPolygon.
@@ -228,8 +227,7 @@ def generate_points_uniform_spacing(
 
     Args:
         distance (float):  The typical surface distance (meters) between points.
-        elevation (float): The elevation (meters) above the datum in the WGS 84
-            coordinate system.
+        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  An optional mask to constrain points
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
@@ -264,8 +262,7 @@ def generate_points_uniform_angular_distance(
             between points.
         theta_latitude (float): The angular difference in latitude (degrees)
             between points.
-        elevation (float): The elevation (meters) above the datum in the WGS 84
-            coordinate system.
+        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  An optional mask to constrain points
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
 
@@ -387,8 +384,7 @@ def generate_points_random(
 
     Args:
         count (int): The number of points to generate.
-        elevation (float): The elevation (meters) above the datum in the WGS 84
-            coordinate system.
+        elevation (float): The elevation (meters) above the WGS 84 ellipsoid.
         mask (shapely.geometry.Polygon | shapely.geometry.MultiPolygon | None):  An optional mask to constrain points
             using WGS84 (EPSG:4326) geodetic coordinates in a Polygon or MultiPolygon.
         weights (numpy.typing.ArrayLike | None): An optional two-dimensional

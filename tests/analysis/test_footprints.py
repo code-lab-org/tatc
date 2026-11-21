@@ -118,6 +118,41 @@ class TestFootprints(IssConstellationTestCase):
             )
         )
 
+    def test_default_elevations(self):
+        """
+        Test that, without an elevation, the footprints of satellites and
+        aircraft are on the ellipsoid and those of a surface platform at its
+        ground elevation, by each kind's analysis and together, and that a
+        radar station requires one.
+        """
+        times = self.times[:3]
+        tower = self.tower.model_copy(update={"elevation": 250})
+
+        def heights(frame):
+            return set(
+                np.round(shapely.get_coordinates(frame.geometry, include_z=True)[:, 2])
+            )
+
+        self.assertEqual(
+            heights(collect_ground_track(self.leo, times, elevation=None)), {0}
+        )
+        self.assertEqual(
+            heights(
+                collect_airborne_ground_track(self.aircraft, times, elevation=None)
+            ),
+            {0},
+        )
+        self.assertEqual(heights(collect_surface_track(tower)), {250})
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            footprints = collect_footprints([self.aircraft, tower], times)
+        self.assertEqual(heights(footprints[footprints.aircraft.notna()]), {0})
+        self.assertEqual(
+            heights(footprints[footprints.surface_platform.notna()]), {250}
+        )
+        with self.assertRaisesRegex(ValueError, "radar stations"):
+            collect_radar_track(self.radar, None)  # type: ignore
+
     def test_collect_footprints_mixed(self):
         """
         Test that the footprints of platforms of every kind are combined,
