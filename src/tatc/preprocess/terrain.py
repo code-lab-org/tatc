@@ -36,6 +36,7 @@ except ImportError as error:
 
 from .. import constants
 from ..schemas.surface import RadarStation, SurfacePlatform, TerrainMask
+from ..utils.geoid import compute_geoid_height
 from ..utils.geometry import geodesic_destination
 from ..utils.observation import compute_local_incidence_angle
 from ..utils.radar import compute_terrain_elevation_angle
@@ -111,7 +112,10 @@ def _normalize_dem_path(path: str) -> str:
 
 
 def sample_dem_elevation(
-    dem_paths: str | list[str], longitude: float, latitude: float
+    dem_paths: str | list[str],
+    longitude: float,
+    latitude: float,
+    above_ellipsoid: bool = False,
 ) -> float:
     """
     Samples terrain elevation at a specified longitude/latitude, from the
@@ -120,7 +124,10 @@ def sample_dem_elevation(
     whatever vertical datum the DEM uses: for most public global DEMs,
     including Copernicus DEM GLO-30, this is mean sea level (the EGM2008
     geoid), which differs from the WGS 84 ellipsoid by the local geoid
-    undulation (up to about 100 m in magnitude).
+    height (up to about 107 m in magnitude). With `above_ellipsoid`, the
+    EGM2008 geoid height (see `tatc.utils.compute_geoid_height`) is added
+    to give the elevation above the WGS 84 ellipsoid, as for the
+    `elevation` of a `tatc.schemas.SurfacePlatform`.
 
     Args:
         dem_paths (str | list[str]): One or more DEM raster sources, each
@@ -128,6 +135,9 @@ def sample_dem_elevation(
             Optimized GeoTIFF (COG), tried in order.
         longitude (float): Longitude (decimal degrees) of the sample point.
         latitude (float): Latitude (decimal degrees) of the sample point.
+        above_ellipsoid (bool): `True` to give the elevation above the WGS
+            84 ellipsoid, of a DEM whose elevations are above the EGM2008
+            geoid (as those of Copernicus DEM GLO-30).
 
     Returns:
         float: The sampled terrain elevation (meters).
@@ -144,6 +154,8 @@ def sample_dem_elevation(
                 continue
             value = next(dataset.sample([(longitude, latitude)]))[0]
             if dataset.nodata is None or value != dataset.nodata:
+                if above_ellipsoid:
+                    return float(value) + compute_geoid_height(longitude, latitude)
                 return float(value)
     raise ValueError(
         f"No DEM data available at ({longitude}, {latitude}) from the provided source(s)."
@@ -287,6 +299,7 @@ def compute_terrain_mask(
     number_range_samples: int = 400,
     range_spacing: str = "geometric",
     effective_earth_radius_factor: float = constants.EFFECTIVE_EARTH_RADIUS_FACTOR,
+    above_ellipsoid: bool = False,
 ) -> TerrainMask:
     """
     Computes a `TerrainMask` for a ground-based radar station (or other
@@ -328,11 +341,12 @@ def compute_terrain_mask(
         station_elevation (float): Elevation (meters) of the radar
             station's antenna, above the same vertical datum as the DEM
             (mean sea level for Copernicus DEM GLO-30 and most public
-            global DEMs, not the WGS 84 ellipsoid; NOAA's NEXRAD station
-            tables report antenna heights above mean sea level). This
-            should include antenna tower height, not just
-            bare-ground elevation; see `sample_dem_elevation` to determine
-            the ground elevation at the station's location.
+            global DEMs; NOAA's NEXRAD station tables report antenna
+            heights above mean sea level), or, with `above_ellipsoid`,
+            above the WGS 84 ellipsoid (as the `elevation` of a
+            `RadarStation`). This should include antenna tower height, not
+            just bare-ground elevation; see `sample_dem_elevation` to
+            determine the ground elevation at the station's location.
         search_radius (float): The maximum ground distance (meters) to
             examine for obstructions.
         min_range (float): The minimum ground distance (meters) to
@@ -351,6 +365,11 @@ def compute_terrain_mask(
             (see `tatc.utils.compute_terrain_elevation_angle`): 4/3 for radio
             waves in a standard atmosphere (the default), or 1 for straight
             lines of sight (as for the footprints of a `SurfacePlatform`).
+        above_ellipsoid (bool): `True` if `station_elevation` is above the
+            WGS 84 ellipsoid, adding the EGM2008 geoid height (see
+            `tatc.utils.compute_geoid_height`) at each sample to the
+            elevations of a DEM above the EGM2008 geoid (as those of
+            Copernicus DEM GLO-30).
 
     Returns:
         TerrainMask: The resulting azimuthal terrain blockage mask. An
@@ -404,6 +423,10 @@ def compute_terrain_mask(
         range_grid,
     )
     terrain_elevations = _lookup_elevations(tiles, sample_longitudes, sample_latitudes)
+    if above_ellipsoid:
+        terrain_elevations = terrain_elevations + compute_geoid_height(
+            sample_longitudes, sample_latitudes
+        )
     angles = compute_terrain_elevation_angle(
         range_grid, terrain_elevations, station_elevation, effective_earth_radius_factor
     )
@@ -426,7 +449,11 @@ def compute_terrain_mask_for_station(
 ) -> TerrainMask:
     """
     Convenience wrapper around `compute_terrain_mask` that reads station
-    location and elevation directly from a `RadarStation`.
+    location and elevation directly from a `RadarStation`. The station's
+    `elevation` is above the WGS 84 ellipsoid, so the DEM's elevations,
+    taken to be above the EGM2008 geoid (mean sea level, as those of
+    Copernicus DEM GLO-30), are converted to the ellipsoid (see
+    `compute_terrain_mask`'s `above_ellipsoid`).
 
     Args:
         dem_paths (str | list[str]): See `compute_terrain_mask`.
@@ -451,6 +478,7 @@ def compute_terrain_mask_for_station(
         number_azimuths=number_azimuths,
         number_range_samples=number_range_samples,
         range_spacing=range_spacing,
+        above_ellipsoid=True,
     )
 
 
@@ -666,9 +694,9 @@ def add_local_incidence_angles(
     Adds the terrain slope and aspect (see `compute_terrain_slope_aspect`)
     and the local incidence angle (see
     `tatc.utils.compute_local_incidence_angle`) at each target of a data
-    frame of observations with point geometries and satellite angles, such
+    frame of observations with point geometries and platform angles, such
     as the ground pixels of `tatc.analysis.collect_ground_pixels` (with
-    `sat_altaz=True`) or the observations of
+    `platform_altaz=True`) or the observations of
     `tatc.analysis.collect_observations`. Observations may then be
     constrained by their local incidence angle, for example, for
     side-looking instruments over mountainous terrain (an angle above 90
@@ -677,8 +705,8 @@ def add_local_incidence_angles(
     Args:
         observations (geopandas.GeoDataFrame): The observations, with point
             geometries (longitude and latitude, in degrees) and the
-            satellite's elevation angle and azimuth (`sat_alt` and
-            `sat_az` columns, in degrees) at each.
+            platform's elevation angle and azimuth (`platform_alt` and
+            `platform_az` columns, in degrees) at each.
         dem_paths (str | list[str]): One or more DEM raster sources (see
             `compute_terrain_mask`), covering the points.
         baseline (float): See `compute_terrain_slope_aspect`.
@@ -690,14 +718,18 @@ def add_local_incidence_angles(
         do not cover a target with valid data).
 
     Raises:
-        ValueError: If the observations lack the `sat_alt` or `sat_az`
-            columns, or have geometries other than points.
+        ValueError: If the observations lack the platform angles, or have
+            geometries other than points.
     """
-    missing = [c for c in ["sat_alt", "sat_az"] if c not in observations.columns]
+    missing = [
+        column
+        for column in ["platform_alt", "platform_az"]
+        if column not in observations.columns
+    ]
     if missing:
         raise ValueError(
             f"observations lack the column(s) {missing}; collect ground pixels "
-            "with sat_altaz=True."
+            "with platform_altaz=True."
         )
     result = observations.copy()
     columns = ["terrain_slope", "terrain_aspect", "local_incidence_angle"]
@@ -713,6 +745,6 @@ def add_local_incidence_angles(
     result["terrain_slope"] = slope
     result["terrain_aspect"] = aspect
     result["local_incidence_angle"] = compute_local_incidence_angle(
-        result.sat_alt.values, result.sat_az.values, slope, aspect
+        result.platform_alt.values, result.platform_az.values, slope, aspect
     )
     return result

@@ -14,16 +14,14 @@ from shapely.geometry import MultiPolygon, Polygon
 from skyfield.positionlib import Geocentric
 
 from ...utils.projection import (
-    VelocityFrame,
     _compute_horizon_region,
     compute_static_track,
 )
 from ...utils.time import _to_time
 from ..instrument import (
     AllInstruments,
-    ConicalInstrument,
     Instrument,
-    PointedInstrument,
+    _check_platform_instruments,
 )
 from .point import Point
 from .terrain import TerrainMask
@@ -51,8 +49,8 @@ class SurfacePlatform(Point):
     elevation: float = Field(
         default=0,
         description="Elevation (meters) of the ground below the platform above "
-        + "the WGS 84 ellipsoid (which differs from a height above mean sea "
-        + "level by the local geoid undulation).",
+        + "the WGS 84 ellipsoid: a height above mean sea level plus the geoid "
+        + "height (see `tatc.utils.compute_geoid_height`).",
     )
     height: float = Field(
         ...,
@@ -95,27 +93,9 @@ class SurfacePlatform(Point):
         orbit's argument of latitude) or an inertial velocity frame (aligned
         with an orbit plane).
         """
-        for instrument in self.instruments:
-            if isinstance(instrument, ConicalInstrument):
-                raise ValueError(
-                    f"instrument {instrument.name!r}: a ConicalInstrument is not "
-                    "supported on a surface platform"
-                )
-            if isinstance(instrument, PointedInstrument):
-                if (
-                    instrument.roll_angle_profile is not None
-                    or instrument.pitch_angle_profile is not None
-                ):
-                    raise ValueError(
-                        f"instrument {instrument.name!r}: roll and pitch angle "
-                        "profiles are not supported on a surface platform"
-                    )
-                if instrument.velocity_frame != VelocityFrame.EARTH_FIXED:
-                    raise ValueError(
-                        f"instrument {instrument.name!r}: a surface platform's "
-                        "heading defines the along-track direction, which "
-                        "requires velocity_frame='earth_fixed'"
-                    )
+        _check_platform_instruments(
+            self.instruments, "a surface platform", "heading", allow_conical=False
+        )
         return self
 
     def get_altitude(self) -> float:
@@ -137,7 +117,7 @@ class SurfacePlatform(Point):
         line of sight that clears both the terrain mask (if any) and the
         horizon of the ground, projected to the target elevation. Footprints
         toward a target above the instruments are clipped to this region
-        (see `tatc.analysis.collect_platform_track`).
+        (see `tatc.analysis.collect_surface_track`).
 
         Args:
             elevation (float): The target elevation (meters) above the WGS 84
@@ -171,6 +151,22 @@ class SurfacePlatform(Point):
             azimuths,
             angles,
         )
+
+    def get_instrument(self, index: int = 0) -> Instrument:
+        """
+        Gets an instrument carried by this platform, whose views are rotated
+        from the axes of the platform (see `get_track`), as
+        `tatc.schemas.Satellite.get_instrument` and
+        `tatc.schemas.Aircraft.get_instrument` get those of a satellite and
+        an aircraft.
+
+        Args:
+            index (int): The index of the instrument.
+
+        Returns:
+            Instrument: the instrument
+        """
+        return self.instruments[index]
 
     def get_track(self, times: datetime | list[datetime] | None = None) -> Geocentric:
         """

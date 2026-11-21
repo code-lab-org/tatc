@@ -57,6 +57,26 @@ class TestSurfacePlatform(unittest.TestCase):
         self.assertIsInstance(o.instruments[1], PointedInstrument)
         self.assertEqual(o.get_altitude(), 330)
 
+    def test_get_instrument(self):
+        """
+        Test that a platform gets its instruments by index.
+        """
+        cone = Instrument(name="Cone", field_of_regard=60)
+        pointed = PointedInstrument(
+            name="Pointed", cross_track_field_of_view=40, along_track_field_of_view=30
+        )
+        o = SurfacePlatform(
+            name="Tower",
+            latitude=0,
+            longitude=0,
+            height=30,
+            instruments=[cone, pointed],
+        )
+        self.assertEqual(o.get_instrument(), cone)
+        self.assertEqual(o.get_instrument(1), pointed)
+        with self.assertRaises(IndexError):
+            o.get_instrument(2)
+
     def test_default_instrument(self):
         """
         Test that a platform hosts a default instrument.

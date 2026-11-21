@@ -34,6 +34,7 @@ from .ellipsoid import (
     geodetic_to_rectangular,
     rectangular_to_geodetic,
 )
+from .earth_orientation import _interpolate_nutation
 from .geometry import (
     _build_split_polygons,
     project_polygon_to_elevation,
@@ -1498,7 +1499,9 @@ def compute_swept_footprints(
     `tatc.analysis.collect_observations` when the view sweeps over a point.
     Unlike the footprint of a view at an instant (see `compute_footprint`),
     the strip does not depend on the along-track field of view, so a swath of
-    consecutive spans does not depend on their length.
+    consecutive spans does not depend on their length. Toward an elevation
+    above the instrument (as from an aircraft below a cloud layer), a span
+    whose line is entirely below the horizon has an empty footprint.
 
     Args:
         orbit_track (skyfield.positionlib.Geocentric): The satellite
@@ -1577,13 +1580,21 @@ def compute_swept_footprints(
             attitude=attitude,
             yaw_angle=yaw_angle,
         )
-    geos, _ = _project_rays(*(np.reshape(x, (3, -1)) for x in rays[:4]), elevation)
+    geos, blocked = _project_rays(
+        *(np.reshape(x, (3, -1)) for x in rays[:4]), elevation
+    )
     # longitudes and latitudes with shape (points across the line, times)
     lon, lat = np.reshape(geos[:2], (2, number_points, -1))
     if lon.shape[1] != np.sum(counts):
         raise ValueError("the counts must sum to the number of times")
     footprints = np.empty(len(counts), dtype=object)
     starts = np.concatenate([[0], np.cumsum(counts)[:-1]])
+    # spans whose line is entirely blocked by the ground, toward an elevation
+    # above the instrument (as for a downward view from an aircraft below it),
+    # observe nothing
+    hidden = np.logical_and.reduceat(
+        np.reshape(blocked, (number_points, -1)).all(axis=0), starts
+    )
     # build the rings of spans with the same number of times together
     for count in np.unique(counts):
         index = np.flatnonzero(counts == count)
@@ -1605,6 +1616,7 @@ def compute_swept_footprints(
                 )
             )
         footprints[index] = _build_split_polygons(*rings)
+    footprints[hidden] = Polygon()
     # project the footprints to the elevation
     return list(shapely.force_3d(footprints, elevation))
 
@@ -1735,6 +1747,31 @@ def compute_static_track(
     if np.ndim(t.tt) > 0:
         position = np.repeat(position[:, np.newaxis], np.size(t.tt), axis=1)
         velocity = np.repeat(velocity[:, np.newaxis], np.size(t.tt), axis=1)
+    return _earth_fixed_to_geocentric(position, velocity, t)
+
+
+def _earth_fixed_to_geocentric(
+    position: npt.NDArray, velocity: npt.NDArray, t: Time
+) -> Geocentric:
+    """
+    Converts Earth-fixed (ITRS) positions and velocities (relative to the
+    rotating Earth) to a track in the form of a satellite's orbit track, from
+    which instruments project their views (see `compute_footprint`).
+
+    Args:
+        position (numpy.typing.NDArray): The positions (meters), with shape
+            (3,) for a scalar time or (3, N) for N times.
+        velocity (numpy.typing.NDArray): The velocities (meters per second)
+            relative to the Earth-fixed frame, with the shape of the positions.
+        t (skyfield.timelib.Time): The time(s).
+
+    Returns:
+        skyfield.positionlib.Geocentric: The position/velocity.
+    """
+    # the conversion to the inertial frame (here) and back to the Earth-fixed
+    # frame (to project views) needs the Earth's orientation at each time, of
+    # which the nutation angles are costly (see _interpolate_nutation)
+    _interpolate_nutation(t)
     r_au = position / AU_M
     v_au_per_d = velocity / AU_M * DAY_S
     # invert Skyfield's conversion to the Earth-fixed frame (see

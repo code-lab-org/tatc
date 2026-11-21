@@ -6,15 +6,19 @@ Object schemas for ground-based radar stations.
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 
 import numpy as np
 from pydantic import Field, model_validator
 from shapely.geometry import MultiPolygon, Polygon
+from skyfield.positionlib import Geocentric
 
 from ... import config
+from ...utils.projection import compute_static_track
 from ...utils.radar import compute_radar_footprint, compute_radar_footprint_profile
 from ...utils.radar import compute_radar_ground_range_bounds
+from ...utils.time import _to_time
 from .point import Point
 from .terrain import TerrainMask
 
@@ -76,13 +80,10 @@ class RadarStation(Point):
     elevation: float = Field(
         default=0,
         description="Elevation (meters) of the radar antenna, including "
-        + "tower height. Coverage depends only on target elevations "
-        + "relative to this value, so it must use the same vertical "
-        + "reference as target elevations and any terrain mask: heights "
-        + "above mean sea level (as in NOAA's NEXRAD station tables and "
-        + "digital elevation models such as Copernicus DEM GLO-30) are "
-        + "recommended, noting that they differ from heights above the "
-        + "WGS 84 ellipsoid by the local geoid undulation.",
+        + "tower height, above the WGS 84 ellipsoid, as for target "
+        + "elevations and other platforms: a height above mean sea level "
+        + "(as in NOAA's NEXRAD station tables) plus the geoid height (see "
+        + "`tatc.utils.compute_geoid_height`).",
     )
     max_range: float = Field(
         default=460000,
@@ -238,7 +239,7 @@ class RadarStation(Point):
 
         Args:
             elevation (float): The elevation (meters) of the observed
-                target, in the same vertical reference as this station's
+                target above the WGS 84 ellipsoid, as this station's
                 `elevation`.
 
         Returns:
@@ -263,7 +264,7 @@ class RadarStation(Point):
 
         Args:
             elevation (float): The elevation (meters) of the observed
-                target, in the same vertical reference as this station's
+                target above the WGS 84 ellipsoid, as this station's
                 `elevation`.
             number_points (int | None): The number of azimuth samples to
                 generate (evenly spaced over one full revolution).
@@ -319,7 +320,7 @@ class RadarStation(Point):
 
         Args:
             elevation (float): The elevation (meters) of the observed
-                target, in the same vertical reference as this station's
+                target above the WGS 84 ellipsoid, as this station's
                 `elevation`.
             number_points (int | None): The number of azimuth samples used
                 when this station has a `terrain_mask` (ignored otherwise,
@@ -363,4 +364,28 @@ class RadarStation(Point):
             [outer for _, _, outer in profile],
             inner_ground_range,
             elevation,
+        )
+
+    def get_track(self, times: datetime | list[datetime] | None = None) -> Geocentric:
+        """
+        Gets the static track of the radar antenna (see
+        `tatc.utils.compute_static_track`), as `tatc.schemas.Satellite.get_track`,
+        `tatc.schemas.Aircraft.get_track`, and
+        `tatc.schemas.SurfacePlatform.get_track` get those of other
+        platforms, for example to compute the viewing geometry of its
+        observations.
+
+        Args:
+            times (datetime.datetime | list[datetime.datetime] | None): The
+                time(s). Defaults to 2020-01-01 00:00:00 UTC.
+
+        Returns:
+            skyfield.positionlib.Geocentric: The position/velocity.
+        """
+        return compute_static_track(
+            self.longitude,
+            self.latitude,
+            self.elevation,
+            0,
+            None if times is None else _to_time(times),
         )

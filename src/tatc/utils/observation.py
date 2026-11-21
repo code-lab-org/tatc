@@ -400,8 +400,9 @@ def compute_local_incidence_angle(
     sensor's view).
 
     The satellite's elevation angle and azimuth are measured from the
-    target's local (geodetic) horizon, as by the `sat_alt` and `sat_az`
-    columns of observations and ground pixels with satellite angles (see
+    target's local (geodetic) horizon, as by the `platform_alt` and
+    `platform_az` columns of observations and ground pixels with platform
+    angles (see
     `tatc.analysis.collect_observations` and
     `tatc.analysis.collect_ground_pixels`). See
     `tatc.preprocess.compute_terrain_slope_aspect` for the slope and aspect

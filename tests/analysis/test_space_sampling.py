@@ -289,6 +289,38 @@ class TestCollectSpaceObservations(unittest.TestCase):
             np.testing.assert_array_equal(forward.start, backward.start)
             np.testing.assert_array_equal(forward.end, backward.end)
 
+    def test_undirected(self):
+        """
+        Test that, not directed, each pair of satellites is observed once,
+        from the satellite given first, with the periods of that direction.
+        """
+        satellites = [self.leader, self.near, self.polar]
+        directed = collect_space_observations(satellites, self.start, self.end)
+        undirected = collect_space_observations(
+            satellites, self.start, self.end, directed=False
+        )
+        order = {satellite.name: i for i, satellite in enumerate(satellites)}
+        pairs = set(zip(undirected.from_satellite, undirected.to_satellite))
+        self.assertEqual(len(pairs), 3)
+        self.assertTrue(all(order[a] < order[b] for a, b in pairs))
+        forward = directed[
+            directed.from_satellite.map(order) < directed.to_satellite.map(order)
+        ].reset_index(drop=True)
+        pd.testing.assert_frame_equal(undirected, forward)
+        # with other observed satellites, a satellite in both lists pairs once
+        mixed = collect_space_observations(
+            [self.leader, self.near],
+            self.start,
+            self.end,
+            [self.near, self.polar],
+            directed=False,
+        )
+        self.assertEqual(
+            set(zip(mixed.from_satellite, mixed.to_satellite)),
+            {("leader", "near"), ("leader", "polar"), ("near", "polar")}
+            & set(zip(directed.from_satellite, directed.to_satellite)),
+        )
+
     def test_equal_satellites_not_paired(self):
         copy = self.leader.model_copy(deep=True)
         observations = collect_space_observations(

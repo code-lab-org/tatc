@@ -20,6 +20,7 @@ from rasterio.transform import from_origin
 from shapely.geometry import Point, box
 
 from tatc import constants
+from tatc.utils import compute_geoid_height
 from tatc.preprocess import (
     add_local_incidence_angles,
     compute_terrain_mask,
@@ -147,6 +148,16 @@ class TestSampleDemElevation(unittest.TestCase):
         """
         self.assertAlmostEqual(
             sample_dem_elevation([self.dem_path], 0.25, 0.0), 2000.0, delta=1e-6
+        )
+
+    def test_above_ellipsoid(self):
+        """
+        Test that the elevation above the ellipsoid adds the geoid height.
+        """
+        self.assertAlmostEqual(
+            sample_dem_elevation(self.dem_path, 0.25, 0.0, above_ellipsoid=True),
+            2000.0 + compute_geoid_height(0.25, 0.0),
+            delta=1e-6,
         )
 
     def test_raises_outside_coverage(self):
@@ -306,7 +317,7 @@ class TestComputeTerrainMask(unittest.TestCase):
         """
         Test that the RadarStation convenience wrapper produces the same
         result as calling compute_terrain_mask directly with the station's
-        own longitude/latitude/elevation.
+        own longitude/latitude/elevation, above the ellipsoid.
         """
         station = RadarStation(name="test", latitude=0.0, longitude=0.0, elevation=0)
         direct = compute_terrain_mask(
@@ -317,6 +328,7 @@ class TestComputeTerrainMask(unittest.TestCase):
             search_radius=50000,
             number_azimuths=36,
             number_range_samples=50,
+            above_ellipsoid=True,
         )
         wrapped = compute_terrain_mask_for_station(
             self.dem_path,
@@ -327,6 +339,37 @@ class TestComputeTerrainMask(unittest.TestCase):
         )
         self.assertEqual(direct.azimuth, wrapped.azimuth)
         self.assertEqual(direct.min_elevation_angle, wrapped.min_elevation_angle)
+
+    def test_above_ellipsoid(self):
+        """
+        Test that a station elevation above the ellipsoid, with the DEM
+        converted to the ellipsoid, gives nearly the mask of the same
+        station above mean sea level (the geoid height varies little
+        around the station).
+        """
+        kwargs = {"search_radius": 50000, "number_azimuths": 36}
+        geoid_height = compute_geoid_height(0.0, 0.0)
+        mean_sea_level = compute_terrain_mask(self.dem_path, 0.0, 0.0, 0, **kwargs)
+        ellipsoid = compute_terrain_mask(
+            self.dem_path, 0.0, 0.0, geoid_height, above_ellipsoid=True, **kwargs
+        )
+        unconverted = compute_terrain_mask(
+            self.dem_path, 0.0, 0.0, geoid_height, **kwargs
+        )
+        np.testing.assert_allclose(
+            ellipsoid.min_elevation_angle, mean_sea_level.min_elevation_angle, atol=0.02
+        )
+        self.assertGreater(
+            np.max(
+                np.abs(
+                    np.subtract(
+                        unconverted.min_elevation_angle,
+                        mean_sea_level.min_elevation_angle,
+                    )
+                )
+            ),
+            0.1,
+        )
 
     def test_compute_terrain_mask_for_platform_matches_direct_call(self):
         """
@@ -521,7 +564,7 @@ class TestTerrainSlopeAspect(unittest.TestCase):
         west-facing slope, and on flat terrain.
         """
         observations = gpd.GeoDataFrame(
-            {"sat_alt": [40.0, 40.0], "sat_az": [270.0, 90.0]},
+            {"platform_alt": [40.0, 40.0], "platform_az": [270.0, 90.0]},
             geometry=[Point(0, 0), Point(0.01, 0.01)],
             crs="EPSG:4326",
         )
@@ -546,7 +589,7 @@ class TestTerrainSlopeAspect(unittest.TestCase):
         with self.assertRaises(ValueError):
             add_local_incidence_angles(
                 gpd.GeoDataFrame(
-                    {"sat_alt": [40.0], "sat_az": [0.0]},
+                    {"platform_alt": [40.0], "platform_az": [0.0]},
                     geometry=[box(0, 0, 0.01, 0.01)],
                     crs="EPSG:4326",
                 ),
@@ -554,7 +597,7 @@ class TestTerrainSlopeAspect(unittest.TestCase):
             )
         empty = add_local_incidence_angles(
             gpd.GeoDataFrame(
-                {"sat_alt": [], "sat_az": []}, geometry=[], crs="EPSG:4326"
+                {"platform_alt": [], "platform_az": []}, geometry=[], crs="EPSG:4326"
             ),
             self.west_path,
         )

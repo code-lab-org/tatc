@@ -27,7 +27,8 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 
-from ..utils.geometry import _hash_geometries
+from .check import _get_observation_times
+from .coverage_metrics import _get_naive_utc, _get_targets, _group_overlapping
 
 
 def _get_points(geometries: gpd.GeoSeries) -> tuple[np.ndarray, np.ndarray]:
@@ -47,24 +48,109 @@ def _get_seconds(times: pd.Series | pd.Index, origin: datetime) -> np.ndarray:
     return np.asarray((times - pd.Timestamp(origin)).total_seconds(), dtype=float)
 
 
-def _get_targets(
-    observations: pd.DataFrame, targets: gpd.GeoDataFrame | gpd.GeoSeries | None
-) -> gpd.GeoDataFrame:
+def _get_samples(
+    observations: pd.DataFrame,
+    time_column: str | None,
+    merge_overlapping: bool,
+    value: str | None = None,
+    sample_interval: timedelta | None = None,
+) -> pd.DataFrame:
     """
-    Gets the targets: those given (identified by the hash of their geometry),
-    or those observed.
+    Gets the samples of observations: the `target_hash`, time (see
+    `_get_observation_times`), and longitude of each (and a value, if
+    named). With `merge_overlapping`, the overlapping observations of a
+    target (by their `start` and `end`, if given, as by several platforms at
+    once) are one sample, as `tatc.analysis.aggregate_observations` merges
+    them: at the midpoint of the first and last of their times, with the
+    mean of their values. With `sample_interval`, an observation (or merged
+    observations) whose period (`start` to `end`) is longer is sampled every
+    interval from its time, earlier and later, within its period.
+
+    Args:
+        observations (pandas.DataFrame): The observations.
+        time_column (str | None): The column of the times, or `None` to find
+            it.
+        merge_overlapping (bool): `True` to merge overlapping observations.
+        value (str | None): The column of a value of each observation.
+        sample_interval (datetime.timedelta | None): The interval at which to
+            sample long observations, or `None` for one sample each.
+
+    Returns:
+        pandas.DataFrame: the samples
     """
-    if targets is None:
-        first = ~observations["target_hash"].duplicated().to_numpy()
-        result = observations.loc[first, ["target_hash", "geometry"]]
-        result = result.reset_index(drop=True)
-        return result if result.crs is not None else result.set_crs("EPSG:4326")
-    geometry = targets if isinstance(targets, gpd.GeoSeries) else targets.geometry
-    return gpd.GeoDataFrame(
-        {"target_hash": _hash_geometries(geometry)},
-        geometry=geometry.to_numpy(),
-        crs="EPSG:4326",
+    if sample_interval is not None and sample_interval <= timedelta(0):
+        raise ValueError(f"sample_interval must be positive, not {sample_interval}")
+    longitude, _ = _get_points(observations.geometry)
+    samples = pd.DataFrame(
+        {
+            "target_hash": observations["target_hash"].to_numpy(),
+            "time": _get_observation_times(observations, time_column).to_numpy(),
+            "longitude": longitude,
+            **({} if value is None else {"value": observations[value].to_numpy()}),
+        }
     )
+    periods = (
+        len(samples) > 0
+        and "start" in observations.columns
+        and "end" in observations.columns
+    )
+    if not periods:
+        return samples
+    samples["start"] = _get_naive_utc(observations["start"])
+    samples["end"] = _get_naive_utc(observations["end"])
+    if merge_overlapping:
+        target, _ = pd.factorize(samples["target_hash"])
+        order, group = _group_overlapping(
+            target, samples["start"].to_numpy(), samples["end"].to_numpy()
+        )
+        grouped = samples.iloc[order].reset_index(drop=True).groupby(group, sort=False)
+        first, last = grouped["time"].min(), grouped["time"].max()
+        samples = pd.DataFrame(
+            {
+                "target_hash": grouped["target_hash"].first(),
+                "time": first + (last - first) / 2,
+                "longitude": grouped["longitude"].first(),
+                **({} if value is None else {"value": grouped["value"].mean()}),
+                "start": grouped["start"].min(),
+                "end": grouped["end"].max(),
+            }
+        ).reset_index(drop=True)
+    if sample_interval is not None:
+        samples = _sample_periods(samples, sample_interval)
+    return samples.drop(columns=["start", "end"])
+
+
+def _sample_periods(samples: pd.DataFrame, interval: timedelta) -> pd.DataFrame:
+    """
+    Samples the periods of samples (their naive UTC `start` and `end`) every
+    interval from their times, earlier and later, within their periods (see
+    `_get_samples`): each sample is repeated at each of those times.
+
+    Args:
+        samples (pandas.DataFrame): The samples, with a `time`, `start`, and
+            `end` each.
+        interval (datetime.timedelta): The interval.
+
+    Returns:
+        pandas.DataFrame: the samples
+    """
+    step = pd.Timedelta(interval).value
+    time = pd.DatetimeIndex(pd.to_datetime(samples["time"], utc=True))
+    epoch = time.tz_localize(None).as_unit("ns").asi8
+    start = pd.DatetimeIndex(samples["start"]).as_unit("ns").asi8
+    end = pd.DatetimeIndex(samples["end"]).as_unit("ns").asi8
+    # the multiples of the interval from the time within the period (at
+    # least the time itself), none for a sample without a period
+    known = ~(pd.isna(samples["start"]).to_numpy() | pd.isna(samples["end"]).to_numpy())
+    first = np.where(known, np.minimum(-((epoch - start) // step), 0), 0)
+    last = np.where(known, np.maximum((end - epoch) // step, 0), 0)
+    counts = (last - first + 1).astype(int)
+    index = np.repeat(np.arange(len(samples)), counts)
+    offset = np.arange(np.sum(counts)) - np.repeat(np.cumsum(counts) - counts, counts)
+    multiple = first[index] + offset
+    expanded = samples.iloc[index].reset_index(drop=True)
+    expanded["time"] = time[index] + pd.to_timedelta(multiple * step, unit="ns")
+    return expanded
 
 
 def _exponential_integral(t: np.ndarray, length: float, scale: float) -> np.ndarray:
@@ -193,7 +279,9 @@ def estimate_sampling_error(
     decorrelation_time: timedelta | Mapping[str, timedelta] | pd.Series,
     standard_deviation: float | Mapping[str, float] | pd.Series = 1.0,
     targets: gpd.GeoDataFrame | gpd.GeoSeries | None = None,
-    time_column: str = "epoch",
+    time_column: str | None = None,
+    merge_overlapping: bool = False,
+    sample_interval: timedelta | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Estimates the sampling error of each target: the error of estimating the
@@ -218,7 +306,7 @@ def estimate_sampling_error(
     Args:
         observations (geopandas.GeoDataFrame): The observations (see
             `collect_observations`), with the `target_hash` and the time
-            (`time_column`) of each sample.
+            (`time_column`) of each.
         start (datetime.datetime): The start of the period.
         end (datetime.datetime): The end of the period.
         decorrelation_time (datetime.timedelta | Mapping | pandas.Series): The
@@ -228,17 +316,40 @@ def estimate_sampling_error(
         standard_deviation (float | Mapping | pandas.Series): The standard
             deviation of the field, or of each target (by `target_hash`).
         targets (geopandas.GeoDataFrame | geopandas.GeoSeries | None): The
-            targets, including those not observed, or `None` for those
+            targets, including those not observed, with the other columns of
+            a data frame of targets (such as a `point_id` or a weight,
+            except those named as the results), or `None` for those
             observed.
-        time_column (str): The column of the times of the samples.
+        time_column (str | None): The column of the times of the samples,
+            or `None` (default) for the first of `epoch`, `time`, or
+            `closest_time`, or else the midpoint of `start` and `end` (as of
+            the observations of regions).
+        merge_overlapping (bool): `False` (default) to count each
+            observation as a sample, as a study that averages every
+            observation does (samples that repeat each other are accounted
+            for by their correlation); `True` to count the overlapping
+            observations of a target (as by several platforms at once) as one
+            sample, at the midpoint of their times, as `aggregate_observations`
+            merges them (so that `samples` counts the same looks as
+            `reduce_observations`).
+        sample_interval (datetime.timedelta | None): The interval at which
+            to sample observations whose periods (`start` to `end`) are
+            longer, such as those of a fixed platform that observes a
+            target continuously (see `collect_footprint_observations`):
+            every interval from the time of the observation, earlier and
+            later, within its period; or `None` (default) for one sample
+            per observation (or merged observations), however long.
 
     Returns:
         geopandas.GeoDataFrame: a row per target
     """
     length = (end - start).total_seconds()
     result = _get_targets(observations, targets)
-    seconds = _get_seconds(observations[time_column], start)
-    codes, keys = pd.factorize(observations["target_hash"].to_numpy())
+    samples = _get_samples(
+        observations, time_column, merge_overlapping, sample_interval=sample_interval
+    )
+    seconds = _get_seconds(samples["time"], start)
+    codes, keys = pd.factorize(samples["target_hash"].to_numpy())
     # the decorrelation time of each observed target
     if isinstance(decorrelation_time, (Mapping, pd.Series)):
         scales = {
@@ -255,7 +366,7 @@ def estimate_sampling_error(
     index = pd.Index(keys).get_indexer(result["target_hash"].to_numpy())
     found = index >= 0
     picked = np.where(found, index, 0)
-    samples = np.where(found, counts[picked], 0).astype(int)
+    sample_counts = np.where(found, counts[picked], 0).astype(int)
     relative_error = np.sqrt(np.where(found, variance[picked], np.nan))
     with np.errstate(divide="ignore"):
         effective = np.where(found, 1 / pairs[picked], 0.0)
@@ -264,7 +375,7 @@ def estimate_sampling_error(
     else:
         sigma = float(standard_deviation)
     return result.assign(
-        samples=samples,
+        samples=sample_counts,
         relative_error=relative_error,
         sampling_error=relative_error * sigma,
         effective_samples=effective,
@@ -277,7 +388,9 @@ def compute_revisit_statistics(
     end: datetime,
     quantiles: Sequence[float] = (0.5, 0.9),
     targets: gpd.GeoDataFrame | gpd.GeoSeries | None = None,
-    time_column: str = "epoch",
+    time_column: str | None = None,
+    merge_overlapping: bool = False,
+    sample_interval: timedelta | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Computes statistics of the revisits of each target over a period: the
@@ -288,25 +401,56 @@ def compute_revisit_statistics(
     sample to the end, which a mean revisit hides. Targets without samples
     have a gap of the whole period.
 
+    Each observation is a sample, by default, and its revisit is the time
+    from the previous sample's time (such as its `epoch`) to its own, so that
+    clusters of samples (as of satellites minutes apart) show in the
+    quantiles. `reduce_observations` instead merges overlapping observations
+    (see `aggregate_observations`) and measures each revisit from the end of
+    one merged period to the start of the next; `merge_overlapping` counts
+    samples as it does.
+
     Args:
         observations (geopandas.GeoDataFrame): The observations (see
             `collect_observations`), with the `target_hash` and the time
-            (`time_column`) of each sample.
+            (`time_column`) of each.
         start (datetime.datetime): The start of the period.
         end (datetime.datetime): The end of the period.
         quantiles (Sequence[float]): The quantiles of the revisits.
         targets (geopandas.GeoDataFrame | geopandas.GeoSeries | None): The
-            targets, including those not observed, or `None` for those
+            targets, including those not observed, with the other columns of
+            a data frame of targets (such as a `point_id` or a weight,
+            except those named as the results), or `None` for those
             observed.
-        time_column (str): The column of the times of the samples.
+        time_column (str | None): The column of the times of the samples,
+            or `None` (default) for the first of `epoch`, `time`, or
+            `closest_time`, or else the midpoint of `start` and `end` (as of
+            the observations of regions).
+        merge_overlapping (bool): `False` (default) to count each
+            observation as a sample, as a study that averages every
+            observation does (samples that repeat each other are accounted
+            for by their correlation); `True` to count the overlapping
+            observations of a target (as by several platforms at once) as one
+            sample, at the midpoint of their times, as `aggregate_observations`
+            merges them (so that `samples` counts the same looks as
+            `reduce_observations`).
+        sample_interval (datetime.timedelta | None): The interval at which
+            to sample observations whose periods (`start` to `end`) are
+            longer, such as those of a fixed platform that observes a
+            target continuously (see `collect_footprint_observations`):
+            every interval from the time of the observation, earlier and
+            later, within its period; or `None` (default) for one sample
+            per observation (or merged observations), however long.
 
     Returns:
         geopandas.GeoDataFrame: a row per target
     """
     length = (end - start).total_seconds()
     result = _get_targets(observations, targets)
-    seconds = _get_seconds(observations[time_column], start)
-    codes, keys = pd.factorize(observations["target_hash"].to_numpy())
+    samples = _get_samples(
+        observations, time_column, merge_overlapping, sample_interval=sample_interval
+    )
+    seconds = _get_seconds(samples["time"], start)
+    codes, keys = pd.factorize(samples["target_hash"].to_numpy())
     groups = len(keys)
     # the samples of each target in order of time, and the gaps between them
     order = np.lexsort((seconds, codes))
@@ -366,7 +510,9 @@ def compute_local_time_coverage(
     observations: gpd.GeoDataFrame,
     bins: int = 8,
     targets: gpd.GeoDataFrame | gpd.GeoSeries | None = None,
-    time_column: str = "epoch",
+    time_column: str | None = None,
+    merge_overlapping: bool = False,
+    sample_interval: timedelta | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Computes the distribution of the samples of each target in local (mean
@@ -380,12 +526,32 @@ def compute_local_time_coverage(
     Args:
         observations (geopandas.GeoDataFrame): The observations (see
             `collect_observations`), with the `target_hash` and the time
-            (`time_column`) of each sample.
+            (`time_column`) of each.
         bins (int): The number of intervals of the day.
         targets (geopandas.GeoDataFrame | geopandas.GeoSeries | None): The
-            targets, including those not observed, or `None` for those
+            targets, including those not observed, with the other columns of
+            a data frame of targets (such as a `point_id` or a weight,
+            except those named as the results), or `None` for those
             observed.
-        time_column (str): The column of the times of the samples.
+        time_column (str | None): The column of the times of the samples,
+            or `None` (default) for the first of `epoch`, `time`, or
+            `closest_time`, or else the midpoint of `start` and `end` (as of
+            the observations of regions).
+        merge_overlapping (bool): `False` (default) to count each
+            observation as a sample, as a study that averages every
+            observation does (samples that repeat each other are accounted
+            for by their correlation); `True` to count the overlapping
+            observations of a target (as by several platforms at once) as one
+            sample, at the midpoint of their times, as `aggregate_observations`
+            merges them (so that `samples` counts the same looks as
+            `reduce_observations`).
+        sample_interval (datetime.timedelta | None): The interval at which
+            to sample observations whose periods (`start` to `end`) are
+            longer, such as those of a fixed platform that observes a
+            target continuously (see `collect_footprint_observations`):
+            every interval from the time of the observation, earlier and
+            later, within its period; or `None` (default) for one sample
+            per observation (or merged observations), however long.
 
     Returns:
         geopandas.GeoDataFrame: a row per target
@@ -393,14 +559,16 @@ def compute_local_time_coverage(
     if bins < 1:
         raise ValueError("bins must be at least 1")
     result = _get_targets(observations, targets)
-    longitude, _ = _get_points(observations.geometry)
-    times = pd.to_datetime(observations[time_column], utc=True)
+    samples = _get_samples(
+        observations, time_column, merge_overlapping, sample_interval=sample_interval
+    )
+    times = pd.to_datetime(samples["time"], utc=True)
     hours = (
         times.dt.hour + times.dt.minute / 60 + times.dt.second / 3600
-    ).to_numpy() + longitude / 15
+    ).to_numpy() + samples["longitude"].to_numpy() / 15
     index = np.floor((hours % 24) / (24 / bins)).astype(int) % bins
     counts = (
-        pd.crosstab(observations["target_hash"].to_numpy(), index)
+        pd.crosstab(samples["target_hash"].to_numpy(), index)
         .reindex(columns=range(bins), fill_value=0)
         .reindex(result["target_hash"], fill_value=0)
     )
@@ -451,7 +619,7 @@ def sample_field(
     field: Any,
     name: str | None = None,
     method: str = "nearest",
-    time_column: str = "epoch",
+    time_column: str | None = None,
     dimensions: Mapping[str, str] | None = None,
 ) -> gpd.GeoDataFrame:
     """
@@ -471,7 +639,9 @@ def sample_field(
         name (str | None): The column of the sampled values, or `None` for the
             field's name (or `"value"`).
         method (str): `"nearest"` or `"linear"`.
-        time_column (str): The column of the times of the samples.
+        time_column (str | None): The column of the times of the samples,
+            or `None` (default) for the first of `epoch`, `time`, or
+            `closest_time`, or else the midpoint of `start` and `end`.
         dimensions (Mapping[str, str] | None): The names of the field's
             dimensions of `time`, `lat`, and `lon`, if not the defaults.
 
@@ -495,7 +665,10 @@ def sample_field(
     longitude, latitude = _get_points(observations.geometry)
     where = {
         time_dim: xr.DataArray(
-            _field_times(field, time_dim, observations[time_column]), dims="sample"
+            _field_times(
+                field, time_dim, _get_observation_times(observations, time_column)
+            ),
+            dims="sample",
         ),
         lat_dim: xr.DataArray(latitude, dims="sample"),
         lon_dim: xr.DataArray(
@@ -523,6 +696,7 @@ def compare_sampled_means(
     targets: gpd.GeoDataFrame | gpd.GeoSeries | None = None,
     method: str = "nearest",
     dimensions: Mapping[str, str] | None = None,
+    merge_overlapping: bool = False,
 ) -> gpd.GeoDataFrame:
     """
     Compares the mean of each target's samples of a field (see
@@ -543,11 +717,17 @@ def compare_sampled_means(
         name (str | None): The column of the sampled values, or `None` for the
             field's name (or `"value"`).
         targets (geopandas.GeoDataFrame | geopandas.GeoSeries | None): The
-            targets, including those not observed, or `None` for those
+            targets, including those not observed, with the other columns of
+            a data frame of targets (such as a `point_id` or a weight,
+            except those named as the results), or `None` for those
             observed.
         method (str): `"nearest"` or `"linear"`, for the field at the targets.
         dimensions (Mapping[str, str] | None): The names of the field's
             dimensions of `time`, `lat`, and `lon`, if not the defaults.
+        merge_overlapping (bool): `False` (default) to count each sample;
+            `True` to count the overlapping samples of a target (as by
+            several platforms at once) as one sample, with the mean of their
+            values (see `estimate_sampling_error`).
 
     Returns:
         geopandas.GeoDataFrame: a row per target
@@ -576,7 +756,8 @@ def compare_sampled_means(
         else period.interp(where)
     )
     result["true_mean"] = at_targets.mean(dim=time_dim).to_numpy().astype(float)
-    groups = sampled.groupby("target_hash")[name]
+    samples = _get_samples(sampled, None, merge_overlapping, value=name)
+    groups = samples.groupby("target_hash")["value"]
     result["samples"] = result["target_hash"].map(groups.count()).fillna(0).astype(int)
     result["sampled_mean"] = result["target_hash"].map(groups.mean()).astype(float)
     result["error"] = result["sampled_mean"] - result["true_mean"]

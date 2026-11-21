@@ -18,6 +18,7 @@ from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 
 from .. import config
+from .._warnings import warn
 from ..constants import (
     EARTH_ECCENTRICITY,
     EARTH_EQUATORIAL_RADIUS,
@@ -293,7 +294,7 @@ def compute_region_access_periods(
         pandas.Series: the access periods (`pandas.Interval` of UTC
             timestamps), in time order.
     """
-    _warn_low_perigees([_check_satellite(satellite)], stacklevel=3)
+    _warn_low_perigees([_check_satellite(satellite)])
     _check_time_window(start, end)
     if not isinstance(region, (geo.Polygon, geo.MultiPolygon)):
         raise TypeError(
@@ -385,6 +386,7 @@ def _get_empty_region_frame() -> gpd.GeoDataFrame:
         "satellite": pd.Series([], dtype="str"),
         "instrument": pd.Series([], dtype="str"),
         "start": pd.Series([], dtype="datetime64[ns, utc]"),
+        "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
         "end": pd.Series([], dtype="datetime64[ns, utc]"),
     }
     return gpd.GeoDataFrame(columns, crs="EPSG:4326")
@@ -915,6 +917,7 @@ def _collect_region_observations(
                 "satellite": satellite.name,
                 "instrument": instrument.name,
                 "start": period.left,
+                "epoch": period.left + (period.right - period.left) / 2,
                 "end": period.right,
             }
             for period, swath in zip(periods, swaths)
@@ -986,8 +989,8 @@ def collect_region_observations(
     Returns:
         geopandas.GeoDataFrame: The data frame of observations, with the
             region's `target_hash`, the swath (`geometry`), the `satellite`
-            and `instrument` names, and the `start` and `end` of each
-            observation: for a single region, satellite, and instrument (an
+            and `instrument` names, and the `start`, `epoch` (the midpoint),
+            and `end` of each observation: for a single region, satellite, and instrument (an
             integer `instrument_index`), in time order; otherwise, those of
             each region, satellite, and instrument, concatenated and sorted
             by start time.
@@ -1024,8 +1027,8 @@ def collect_multi_region_observations(
     """
     Collect multiple satellite observations of a region of interest by every
     instrument on every satellite in `satellites`: equivalent to
-    `collect_region_observations` with `instrument_index=None`, kept for
-    backwards compatibility.
+    `collect_region_observations` with `instrument_index=None`. Deprecated: use
+    `collect_region_observations` with `instrument_index=None`.
 
     Args:
         region (shapely.geometry.Polygon | shapely.geometry.MultiPolygon):
@@ -1038,4 +1041,9 @@ def collect_multi_region_observations(
     Returns:
         geopandas.GeoDataFrame: The data frame with all recorded observations.
     """
+    warn(
+        "collect_multi_region_observations is deprecated and will be removed in a future release: use "
+        "collect_region_observations with instrument_index=None",
+        DeprecationWarning,
+    )
     return collect_region_observations(region, satellites, start, end, None)

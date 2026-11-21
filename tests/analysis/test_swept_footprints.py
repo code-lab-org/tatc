@@ -30,8 +30,10 @@ from tatc.utils import (
     VelocityFrame,
     ViewGeometry,
     compute_along_track_field_of_view,
+    compute_static_track,
     compute_swept_footprints,
 )
+from tatc.utils.time import _to_time
 
 # NOAA-20, in a sun-synchronous orbit at about 830 km
 NOAA_20_TLE = [
@@ -413,6 +415,21 @@ class TestComputeSweptFootprints(unittest.TestCase):
         with self.assertRaises(ValueError):
             compute_swept_footprints(self.track, [2, 3], 20)
         self.assertEqual(compute_swept_footprints(self.track, [], 20), [])
+
+    def test_hidden_above_the_instrument(self):
+        """
+        Test that a view toward an elevation above the instrument, entirely
+        below the horizon, sweeps nothing, while a view looking up does.
+        """
+        track = compute_static_track(
+            -110.0, 35.0, 1000.0, 0.0, _to_time(get_times(1, duration=4))
+        )
+        down = compute_swept_footprints(track, [2, 2], 40, elevation=2000.0)
+        self.assertTrue(all(footprint.is_empty for footprint in down))
+        up = compute_swept_footprints(
+            track, [2, 2], 40, roll_angle=180, elevation=2000.0
+        )
+        self.assertFalse(any(footprint.is_empty for footprint in up))
 
     def test_strips_share_their_bounds(self):
         """

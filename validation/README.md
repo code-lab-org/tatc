@@ -52,3 +52,9 @@ Write the entry's YAML file, then a script `validate_catalog_<entry>.py` that re
 - EarthCARE (ATLID, BBR, CPR, MSI): an ESA MAAP offline token in `ESA_MAAP_KEY`.
 
 Each script's docstring states what it needs.
+
+## Geoid
+
+`geoid/build_geoid_grid.py` builds the 0.25-degree grid of EGM2008 geoid heights bundled with TAT-C (`src/tatc/resources/egm2008_15.npz`, read by `tatc.utils.compute_geoid_height`) from the 2.5-minute EGM2008 grid of the National Geospatial-Intelligence Agency (public domain), as distributed by PROJ (https://cdn.proj.org/us_nga_egm08_25.tif). It reports the interpolation errors of grids of other spacings and compares the bundled grid with PROJ's transformation of heights:
+
+    python validation/geoid/build_geoid_grid.py path/to/us_nga_egm08_25.tif

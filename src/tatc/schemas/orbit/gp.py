@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import csv
 import json
-import warnings
 from datetime import datetime, timedelta
 from typing import Annotated, Literal, overload
 
@@ -21,10 +20,11 @@ from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
 from ... import config, constants, utils
+from ..._warnings import warn
 from ...utils.cache import get_cached
-from ...utils.geometry import _get_point_coordinates
 from ...utils.computation import TimeRequest, _run
 from ...utils.earth_orientation import _interpolate_nutation
+from ...utils.geometry import _get_point_coordinates
 from ...utils.propagation import _find_events, _RepeatTrack
 from ...utils.time import _index_time, _to_time
 from ..surface import Point
@@ -962,7 +962,7 @@ class GeneralPerturbationsOrbit(BaseModel):
         )
         limit = timedelta(days=config.get_rc().repeat_cycle_search_duration_days)
         if np.max(np.abs(offsets)) > np.timedelta64(limit):
-            warnings.warn(
+            warn(
                 "Propagating general perturbations elements with drag, "
                 + "without a repeat cycle, more than "
                 + f"{limit.total_seconds() / 86400:g} days from their "
@@ -970,7 +970,6 @@ class GeneralPerturbationsOrbit(BaseModel):
                 + "from an orbit maintained against drag. To model a "
                 + "maintained orbit, set `remove_drag=True` and "
                 + '`repeat_cycle="auto"` (or declare its repeat cycle).',
-                stacklevel=3,
             )
 
     def _get_boundary_events(

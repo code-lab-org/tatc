@@ -12,6 +12,7 @@ from .ellipsoid import (
     rectangular_to_geodetic,
 )
 from .formatting import zero_pad
+from .geoid import compute_geoid_height
 from .geometry import (
     geodesic_destination,
     geodesic_distance,
@@ -87,6 +88,7 @@ from .surface import compute_number_samples
 from .time import to_datetime64_ns
 
 __all__ = [
+    "compute_geoid_height",
     "compute_along_track_field_of_view",
     "NadirReference",
     "VelocityFrame",

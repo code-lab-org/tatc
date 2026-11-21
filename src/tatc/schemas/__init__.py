@@ -2,6 +2,7 @@
 Defines object schemas.
 """
 
+from .air import Aircraft, Trajectory
 from .architecture import Architecture
 from .attitude import (
     Attitude,
@@ -41,9 +42,17 @@ from .surface import (
     TerrainMask,
 )
 
+AllPlatforms = Satellite | Aircraft | SurfacePlatform | RadarStation
+"""
+Observing platforms: satellites, aircraft, fixed surface platforms, and
+radar stations (see `tatc.analysis.collect_footprints`).
+"""
+
 __all__ = [
+    "Aircraft",
     "AllInstruments",
     "AllOrbits",
+    "AllPlatforms",
     "AllSpaceObjects",
     "AllSurfaceObjects",
     "Architecture",
@@ -70,6 +79,7 @@ __all__ = [
     "TargetAttitude",
     "GlintAttitude",
     "TerrainMask",
+    "Trajectory",
     "TrainConstellation",
     "TundraOrbit",
     "TwoLineElements",

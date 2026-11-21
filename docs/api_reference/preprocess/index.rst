@@ -2,9 +2,11 @@
 Preprocessing Functions
 =======================
 
-Preprocessing functions derive TAT-C model inputs from external geospatial
-datasets. They require the optional `preprocess` dependencies
-(``pip install tatc[preprocess]``).
+Preprocessing functions derive TAT-C model inputs from external datasets and
+tools. The terrain and raster functions require the optional `preprocess`
+dependencies (``pip install tatc[preprocess]``); the airborne functions read
+the outputs of HyPlan, installed with the optional `airborne` dependencies
+(``pip install tatc[airborne]``).
 
 Terrain Masks
 =============
@@ -63,3 +65,34 @@ Read Raster Weights
 -------------------
 
 .. autofunction:: tatc.preprocess.read_raster_weights
+
+Aircraft
+========
+
+The states of an aircraft's trajectory (read by
+:meth:`tatc.schemas.Trajectory.from_dataframe`) and the instruments it carries
+are derived from flight plans, flight recordings, and sensor models, such as
+those of `HyPlan <https://github.com/ryanpavlick/hyplan>`_. Altitudes above
+mean sea level are converted to altitudes above the WGS 84 ellipsoid with the
+EGM2008 geoid (:func:`tatc.utils.compute_geoid_height`) or a constant geoid
+height.
+
+Sample Flight Plan
+------------------
+
+.. autofunction:: tatc.preprocess.sample_flight_plan
+
+Estimate Attitude
+-----------------
+
+.. autofunction:: tatc.preprocess.estimate_attitude
+
+States from IWG1
+----------------
+
+.. autofunction:: tatc.preprocess.states_from_iwg1
+
+Instrument from Sensor
+----------------------
+
+.. autofunction:: tatc.preprocess.instrument_from_sensor

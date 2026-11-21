@@ -11,6 +11,7 @@ The following provide examples of TAT-C use in a Jupyter notebook environment, g
   coverage/index
   limb_and_space/index
   ground_systems/index
+  airborne/index
   osse/index
   tradespace/index
 
@@ -18,7 +19,11 @@ Note that running the above examples in a local Python environment requires addi
 
   pip install tatc[examples]
 
-using the pip package manager. The observing system simulation experiments require::
+using the pip package manager. The airborne examples require::
+
+  pip install tatc[airborne]
+  
+the observing system simulation experiments require::
 
   pip install tatc[osse]
 
