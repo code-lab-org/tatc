@@ -172,16 +172,19 @@ class TestLatencyAnalysis(IssConstellationTestCase):
 
     def test_compute_latency_no_downlinks(self):
         """
-        Test that latency computation returns an empty DataFrame when no downlinks are available.
+        Test that, without downlinks, every observation is kept without a
+        downlink (`NaT` latency), as an observation without a matching
+        downlink is.
         """
+        observations = collect_observations(
+            self.point,
+            self.satellite,
+            datetime(2022, 6, 1, tzinfo=timezone.utc),
+            datetime(2022, 6, 10, tzinfo=timezone.utc),
+            instrument_index=0,
+        )
         results = compute_latencies(
-            collect_observations(
-                self.point,
-                self.satellite,
-                datetime(2022, 6, 1, tzinfo=timezone.utc),
-                datetime(2022, 6, 10, tzinfo=timezone.utc),
-                instrument_index=0,
-            ),
+            observations,
             collect_downlinks(
                 self.station,
                 self.satellite,
@@ -189,7 +192,10 @@ class TestLatencyAnalysis(IssConstellationTestCase):
                 datetime(2022, 6, 1, 1, tzinfo=timezone.utc),
             ),
         )
-        self.assertTrue(results.empty)
+        self.assertEqual(len(results), len(observations))
+        self.assertGreater(len(results), 0)
+        self.assertTrue(results.latency.isna().all())
+        self.assertTrue(results.ground_station.isna().all())
 
     def test_compute_latency_multi_station(self):
         """
@@ -465,6 +471,22 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         self.assertTrue(alone["latency"].isna().all())
         missing = mixed.assign(satellite=pd.Series([None, None], dtype=object))
         self.assertTrue(compute_latencies(missing, downlinks)["latency"].isna().all())
+        # without any downlinks, and with the columns of the observations
+        # whether empty or not (here, without the platform's angles)
+        aircraft = {
+            key: value
+            for key, value in aircraft.items()
+            if key not in ("platform_alt", "platform_az")
+        }
+        none = compute_latencies(
+            gpd.GeoDataFrame([aircraft], crs="EPSG:4326"), downlinks.iloc[:0]
+        )
+        self.assertListEqual(list(none["aircraft"]), ["P-3"])
+        empty = compute_latencies(
+            gpd.GeoDataFrame([aircraft], crs="EPSG:4326").iloc[:0], downlinks
+        )
+        self.assertListEqual(list(empty.columns), list(none.columns))
+        self.assertNotIn("platform_alt", empty.columns)
 
     def test_compute_latencies_during_contact_next(self):
         """

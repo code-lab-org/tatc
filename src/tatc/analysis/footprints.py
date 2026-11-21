@@ -27,7 +27,12 @@ from ..utils.geometry import (
     project_polygon_to_elevation,
     split_polygon,
 )
-from ._tracks import Mask, _collect_tracks, _FootprintRequest
+from ._tracks import (
+    Mask,
+    _collect_tracks,
+    _FootprintRequest,
+    _get_viewing_geometry,
+)
 from .airborne_track import _collect_aircraft
 from .check import (
     _PLATFORM_KINDS,
@@ -39,11 +44,12 @@ from .check import (
     _get_empty_observation_frame,
     _get_instruments,
     _get_platform_columns,
-    _get_platform_key,
     _get_platforms,
     _group_platforms,
     _is_single,
     _PlatformKind,
+    _check_platform_lookup,
+    _get_platform_lookup,
 )
 from .ground_track import _collect_satellite
 from .radar_track import _collect_radar_station, _get_empty_radar_track
@@ -315,12 +321,7 @@ def collect_footprint_observations(
     frame = footprints.reset_index(drop=True)
     keys = _get_platforms(frame)
     if lookup is not None:
-        missing = sorted(set(keys) - set(lookup))
-        if missing:
-            raise ValueError(
-                "platforms must include the platform of each footprint, such as "
-                f"{missing[0]!r}"
-            )
+        _check_platform_lookup(lookup, keys)
     times = pd.DatetimeIndex(frame["time"]).tz_convert("UTC").as_unit("ns")
     # the instrument of each footprint (none for a radar station)
     instruments = _get_instruments(frame)
@@ -509,26 +510,6 @@ def _get_swath(
     return swath
 
 
-def _get_platform_lookup(
-    platforms: AllPlatforms | list[AllPlatforms],
-) -> dict[str, AllPlatforms]:
-    """
-    Gets each platform by its key in results (see
-    `tatc.analysis.check._get_platforms`).
-
-    Args:
-        platforms (AllPlatforms | list[AllPlatforms]): The platforms.
-
-    Returns:
-        dict[str, AllPlatforms]: the platform of each key
-    """
-    return {
-        _get_platform_key(kind.column, platform.name): platform
-        for kind, members in _group_platforms(platforms).items()
-        for platform in members
-    }
-
-
 _ANGLE_COLUMNS = ("platform_alt", "platform_az")
 """
 The columns of the angles of observations of points by footprints (see
@@ -584,15 +565,16 @@ def _add_point_angles(
     for key in pd.unique(keys[points]):
         index = np.flatnonzero(points & (keys == key))
         geometries = targets.geometries[observed[index]]
-        platform_track = lookup[key].get_track(list(epoch[index].to_pydatetime()))
-        topos = wgs84.latlon(
-            shapely.get_y(geometries),
-            shapely.get_x(geometries),
-            targets.elevations[observed[index]],
+        geometry = _get_viewing_geometry(
+            lookup[key].get_track(list(epoch[index].to_pydatetime())),
+            wgs84.latlon(
+                shapely.get_y(geometries),
+                shapely.get_x(geometries),
+                targets.elevations[observed[index]],
+            ),
         )
-        altitude, azimuth, _ = (platform_track - topos.at(platform_track.t)).altaz()
-        angles["platform_alt"][index] = np.atleast_1d(altitude.degrees)
-        angles["platform_az"][index] = np.atleast_1d(azimuth.degrees)
+        for column in _ANGLE_COLUMNS:
+            angles[column][index] = geometry[column]
     for column, values in angles.items():
         observations[column] = values
 

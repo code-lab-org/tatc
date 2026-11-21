@@ -64,7 +64,8 @@ def compute_geoid_height(
 
     Returns:
         float | numpy.typing.NDArray: The geoid height(s) (meters), a float
-            for scalar coordinates.
+            for scalar coordinates; `NaN` where a coordinate is `NaN`
+            (such as a missing position).
     """
     heights, spacing = _load_geoid()
     lon, lat = np.broadcast_arrays(
@@ -72,6 +73,9 @@ def compute_geoid_height(
     )
     if np.any(np.abs(lat) > 90):
         raise ValueError("latitudes must be from -90 to 90 degrees")
+    # unknown positions (NaN) are interpolated at (0, 0), then left unknown
+    unknown = ~(np.isfinite(lon) & np.isfinite(lat))
+    lon, lat = np.where(unknown, 0.0, lon), np.where(unknown, 0.0, lat)
     row = (90 - lat) / spacing
     column = np.mod(lon + 180, 360) / spacing
     i = np.clip(np.floor(row).astype(int), 0, heights.shape[0] - 2)
@@ -83,4 +87,5 @@ def compute_geoid_height(
         + u * (1 - v) * heights[i + 1, j]
         + u * v * heights[i + 1, j + 1]
     )
+    result = np.where(unknown, np.nan, result)
     return float(result) if result.ndim == 0 else result

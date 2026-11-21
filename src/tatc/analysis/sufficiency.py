@@ -57,8 +57,8 @@ def _get_samples(
 ) -> pd.DataFrame:
     """
     Gets the samples of observations: the `target_hash`, time (see
-    `_get_observation_times`), and longitude of each (and a value, if
-    named). With `merge_overlapping`, the overlapping observations of a
+    `_get_observation_times`), longitude, and latitude of each (and a value,
+    if named). With `merge_overlapping`, the overlapping observations of a
     target (by their `start` and `end`, if given, as by several platforms at
     once) are one sample, as `tatc.analysis.aggregate_observations` merges
     them: at the midpoint of the first and last of their times, with the
@@ -80,12 +80,13 @@ def _get_samples(
     """
     if sample_interval is not None and sample_interval <= timedelta(0):
         raise ValueError(f"sample_interval must be positive, not {sample_interval}")
-    longitude, _ = _get_points(observations.geometry)
+    longitude, latitude = _get_points(observations.geometry)
     samples = pd.DataFrame(
         {
             "target_hash": observations["target_hash"].to_numpy(),
             "time": _get_observation_times(observations, time_column).to_numpy(),
             "longitude": longitude,
+            "latitude": latitude,
             **({} if value is None else {"value": observations[value].to_numpy()}),
         }
     )
@@ -110,6 +111,7 @@ def _get_samples(
                 "target_hash": grouped["target_hash"].first(),
                 "time": first + (last - first) / 2,
                 "longitude": grouped["longitude"].first(),
+                "latitude": grouped["latitude"].first(),
                 **({} if value is None else {"value": grouped["value"].mean()}),
                 "start": grouped["start"].min(),
                 "end": grouped["end"].max(),
@@ -614,6 +616,60 @@ def _field_longitudes(field: Any, dimension: str, longitude: np.ndarray) -> np.n
     return (longitude + 180) % 360 - 180
 
 
+def _sample_values(
+    field: Any,
+    times: pd.Series,
+    longitude: np.ndarray,
+    latitude: np.ndarray,
+    method: str,
+    dimensions: Mapping[str, str] | None,
+) -> np.ndarray:
+    """
+    Samples a field at times and places (see `sample_field`): its nearest
+    value (`NaN` outside the period of the field) or its linear
+    interpolation in time and space.
+
+    Args:
+        field (xarray.DataArray): The field.
+        times (pandas.Series): The times of the samples.
+        longitude (numpy.ndarray): The longitudes (degrees) of the samples.
+        latitude (numpy.ndarray): The latitudes (degrees) of the samples.
+        method (str): `"nearest"` or `"linear"`.
+        dimensions (Mapping[str, str] | None): The names of the field's
+            dimensions of `time`, `lat`, and `lon`, if not the defaults.
+
+    Returns:
+        numpy.ndarray: the values
+    """
+    # pylint: disable=import-outside-toplevel
+    import xarray as xr
+
+    if method not in ("nearest", "linear"):
+        raise ValueError(f"method must be 'nearest' or 'linear', not {method!r}")
+    dimensions = dict(dimensions or {})
+    time_dim = _get_dimension(field, ["time"], dimensions.get("time"))
+    lat_dim = _get_dimension(field, ["lat", "latitude"], dimensions.get("lat"))
+    lon_dim = _get_dimension(field, ["lon", "longitude"], dimensions.get("lon"))
+    where = {
+        time_dim: xr.DataArray(
+            _field_times(field, time_dim, pd.Series(times)), dims="sample"
+        ),
+        lat_dim: xr.DataArray(latitude, dims="sample"),
+        lon_dim: xr.DataArray(
+            _field_longitudes(field, lon_dim, longitude), dims="sample"
+        ),
+    }
+    if method == "linear":
+        return field.interp(where).to_numpy().astype(float)
+    values = field.sel(where, method="nearest").to_numpy().astype(float)
+    sample_times = where[time_dim].to_numpy()
+    coordinate = field[time_dim].to_numpy()
+    values[(sample_times < coordinate.min()) | (sample_times > coordinate.max())] = (
+        np.nan
+    )
+    return values
+
+
 def sample_field(
     observations: gpd.GeoDataFrame,
     field: Any,
@@ -648,42 +704,22 @@ def sample_field(
     Returns:
         geopandas.GeoDataFrame: the observations, with the sampled values
     """
-    # pylint: disable=import-outside-toplevel
-    import xarray as xr
-
     if method not in ("nearest", "linear"):
         raise ValueError(f"method must be 'nearest' or 'linear', not {method!r}")
-    dimensions = dict(dimensions or {})
-    time_dim = _get_dimension(field, ["time"], dimensions.get("time"))
-    lat_dim = _get_dimension(field, ["lat", "latitude"], dimensions.get("lat"))
-    lon_dim = _get_dimension(field, ["lon", "longitude"], dimensions.get("lon"))
     name = name or field.name or "value"
     result = observations.copy()
     if len(observations) == 0:
         result[name] = pd.Series(dtype=float)
         return result
     longitude, latitude = _get_points(observations.geometry)
-    where = {
-        time_dim: xr.DataArray(
-            _field_times(
-                field, time_dim, _get_observation_times(observations, time_column)
-            ),
-            dims="sample",
-        ),
-        lat_dim: xr.DataArray(latitude, dims="sample"),
-        lon_dim: xr.DataArray(
-            _field_longitudes(field, lon_dim, longitude), dims="sample"
-        ),
-    }
-    if method == "nearest":
-        values = field.sel(where, method="nearest").to_numpy().astype(float)
-        times = where[time_dim].to_numpy()
-        coordinate = field[time_dim].to_numpy()
-        outside = (times < coordinate.min()) | (times > coordinate.max())
-        values[outside] = np.nan
-    else:
-        values = field.interp(where).to_numpy().astype(float)
-    result[name] = values
+    result[name] = _sample_values(
+        field,
+        _get_observation_times(observations, time_column),
+        longitude,
+        latitude,
+        method,
+        dimensions,
+    )
     return result
 
 
@@ -697,6 +733,8 @@ def compare_sampled_means(
     method: str = "nearest",
     dimensions: Mapping[str, str] | None = None,
     merge_overlapping: bool = False,
+    time_column: str | None = None,
+    sample_interval: timedelta | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Compares the mean of each target's samples of a field (see
@@ -728,6 +766,15 @@ def compare_sampled_means(
             `True` to count the overlapping samples of a target (as by
             several platforms at once) as one sample, with the mean of their
             values (see `estimate_sampling_error`).
+        time_column (str | None): The column of the times of the samples,
+            or `None` (default) for the first of `epoch`, `time`, or
+            `closest_time`, or else the midpoint of `start` and `end`.
+        sample_interval (datetime.timedelta | None): The interval at which
+            to sample observations longer than it (as the continuous
+            observations of fixed platforms), as for
+            `estimate_sampling_error`, with the field sampled again (by
+            `method`) at each of their times, or `None` (default) for one
+            sample (the sampled value) of each observation.
 
     Returns:
         geopandas.GeoDataFrame: a row per target
@@ -756,7 +803,19 @@ def compare_sampled_means(
         else period.interp(where)
     )
     result["true_mean"] = at_targets.mean(dim=time_dim).to_numpy().astype(float)
-    samples = _get_samples(sampled, None, merge_overlapping, value=name)
+    samples = _get_samples(
+        sampled, time_column, merge_overlapping, name, sample_interval
+    )
+    if sample_interval is not None and len(samples) > 0:
+        # the field at each time of a long observation
+        samples["value"] = _sample_values(
+            field,
+            samples["time"],
+            samples["longitude"].to_numpy(),
+            samples["latitude"].to_numpy(),
+            method,
+            dimensions,
+        )
     groups = samples.groupby("target_hash")["value"]
     result["samples"] = result["target_hash"].map(groups.count()).fillna(0).astype(int)
     result["sampled_mean"] = result["target_hash"].map(groups.mean()).astype(float)

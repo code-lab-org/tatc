@@ -18,13 +18,14 @@ from skyfield.api import wgs84
 
 from ..schemas import AllInstruments, AllPlatforms, ConicalInstrument, PointedInstrument
 from ..utils.projection import VelocityFrame, compute_view_angles
+from ._tracks import _get_viewing_geometry
 from .check import (
+    _check_platform_lookup,
     _get_instruments,
     _get_observation_times,
-    _get_platform_key,
     _get_platform_kind,
+    _get_platform_lookup,
     _get_platforms,
-    _group_platforms,
 )
 from .footprints import _get_footprint_elevations
 
@@ -136,12 +137,7 @@ def compute_sample_sizes(
         geopandas.GeoDataFrame: the observations, with the sample sizes,
             spacings, slant ranges, and scan angles.
     """
-    groups = _group_platforms(platforms)
-    lookup = {
-        _get_platform_key(kind.column, platform.name): platform
-        for kind, members in groups.items()
-        for platform in members
-    }
+    lookup = _get_platform_lookup(platforms)
     result = observations.copy()
     for column in _COLUMNS:
         result[column] = np.nan
@@ -163,6 +159,7 @@ def compute_sample_sizes(
         )
     )
     keys = _get_platforms(observations)
+    _check_platform_lookup(lookup, keys)
     names = _get_instruments(observations)
     position = np.arange(len(observations))
     columns = {column: result.columns.get_loc(column) for column in _COLUMNS}
@@ -171,17 +168,13 @@ def compute_sample_sizes(
         .groupby(["key", "name"], sort=False, dropna=False)
         .indices.items()
     ):
-        platform = lookup.get(key)
-        if platform is None:
-            column, platform_name = key.split(": ", 1)
-            raise ValueError(
-                f"no {column.replace('_', ' ')} named {platform_name!r} in platforms"
-            )
+        platform = lookup[key]
         index = position[index]
         track = platform.get_track(list(pd.DatetimeIndex(times[index], tz="UTC")))
         target = wgs84.latlon(latitude[index], longitude[index], elevation[index])
-        distance = (track - target.at(track.t)).altaz()[2]
-        result.iloc[index, columns["platform_range"]] = np.atleast_1d(distance.m)
+        result.iloc[index, columns["platform_range"]] = _get_viewing_geometry(
+            track, target
+        )["platform_range"]
         sized = _get_sized_instrument(platform, name, instrument)
         if sized is None:
             continue

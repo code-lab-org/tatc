@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import Point as ShapelyPoint, box
+from shapely.geometry import Point as ShapelyPoint, Polygon, box
 
 from tatc.analysis import (
     aggregate_observations,
@@ -604,6 +604,76 @@ class TestFindCoincidentGroundTrack(IssConstellationTestCase):
         # each radar footprint with the nearest copy of each tower instrument
         self.assertEqual(len(fixed), 20)
         self.assertTrue((abs(fixed.time_difference) <= timedelta(minutes=5)).all())
+
+    def test_fixed_platform_copies_overlap_and_validity(self):
+        """
+        Test that a footprint pairs with the nearest copy of a fixed
+        platform's instrument that overlaps it (not a nearer copy whose
+        bounds only overlap), and with a valid copy in preference to a nearer
+        invalid one.
+        """
+
+        def tower(time, geometry, valid=True):
+            footprint = _make_footprint(None, time, geometry)
+            del footprint["satellite"]
+            return {**footprint, "surface_platform": "Tower", "valid_obs": valid}
+
+        # an L-shaped copy whose bounds, but not its shape, overlap the footprint
+        corner = Polygon([(3, 0), (3, 3), (0, 3), (0, 2.5), (2.5, 2.5), (2.5, 0)])
+        ground_track = gpd.GeoDataFrame(
+            [
+                _make_footprint("A", 5, box(0, 0, 2, 2)),
+                tower(4, corner),
+                tower(0, box(1, 1, 3, 3)),
+            ],
+            crs="EPSG:4326",
+        )
+        results = find_coincident_ground_track(ground_track, timedelta(minutes=10))
+        self.assertListEqual(list(results.time_1), [_minutes(0)])
+        ground_track = gpd.GeoDataFrame(
+            [
+                _make_footprint("A", 5, box(0, 0, 2, 2)),
+                tower(5, box(1, 1, 3, 3), valid=False),
+                tower(6, box(1, 1, 3, 3)),
+            ],
+            crs="EPSG:4326",
+        )
+        results = find_coincident_ground_track(ground_track, timedelta(minutes=10))
+        self.assertListEqual(list(results.time_2), [_minutes(6)])
+        self.assertListEqual(list(results.valid_obs), [True])
+
+    def test_fixed_platforms_in_any_order(self):
+        """
+        Test that the pairs of two fixed platforms do not depend on the order
+        of their footprints.
+        """
+        radar = [
+            {
+                "time": pd.Timestamp(_minutes(t)),
+                "radar_station": "KXXX",
+                "valid_obs": True,
+                "geometry": box(1, 1, 3, 3),
+            }
+            for t in range(10)
+        ]
+        tower = []
+        for t in (0, 11):
+            for instrument in "XY":
+                footprint = _make_footprint(None, t, box(0, 0, 2, 2), instrument)
+                del footprint["satellite"]
+                tower.append({**footprint, "surface_platform": "Tower"})
+        for between in (None, ("radar_station", "surface_platform")):
+            counts = {
+                len(
+                    find_coincident_ground_track(
+                        gpd.GeoDataFrame(rows, crs="EPSG:4326"),
+                        timedelta(minutes=10),
+                        between=between,
+                    )
+                )
+                for rows in (radar + tower, tower + radar)
+            }
+            self.assertEqual(len(counts), 1)
 
     def test_fixed_platform_copies_of_other_geometries(self):
         """

@@ -221,11 +221,17 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         observations (geopandas.GeoDataFrame): The collected observations.
 
     Returns:
-        geopandas.GeoDataFrame: The data frame with aggregated observations.
+        geopandas.GeoDataFrame: The data frame with aggregated observations:
+            `target_hash`, `geometry`, the platform columns, `instrument`,
+            `start`, `epoch`, `end`, `access`, and `revisit` (also when
+            empty).
     """
     platform_columns = _get_platform_columns(observations)
     if observations.empty:
-        return _get_empty_observation_frame(platform_columns)
+        empty = _get_empty_observation_frame(platform_columns)
+        empty["access"] = pd.Series([], dtype="timedelta64[ns]")
+        empty["revisit"] = pd.Series([], dtype="timedelta64[ns]")
+        return empty
     # targets (in sorted order of their keys), with each target's observations
     # sorted by start (stably), for all targets together, grouped by their
     # overlapping periods
@@ -267,15 +273,17 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
             geometry, index=grouped["start"].min().index, crs=observations.crs
         ),
     )
-    aggregated = aggregated[
-        ["geometry", "target_hash", *platform_columns, "instrument", "start", "end"]
-    ]
     # reassign epoch to the midpoint of the merged period, as a single
     # representative instant, rather than the mean of the constituent
     # observations' own (pre-merge) epochs
     aggregated["epoch"] = (
         aggregated["start"] + (aggregated["end"] - aggregated["start"]) / 2
     )
+    # the columns of the observations (see `_get_empty_observation_frame`)
+    aggregated = aggregated[
+        ["target_hash", "geometry", *platform_columns, "instrument"]
+        + ["start", "epoch", "end"]
+    ]
     # compute access and revisit metrics (the revisit of each target's first
     # period is undefined)
     aggregated["access"] = aggregated["end"] - aggregated["start"]
@@ -286,21 +294,121 @@ def aggregate_observations(observations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return aggregated.reset_index(drop=True)
 
 
-def _get_empty_reduce_frame() -> gpd.GeoDataFrame:
+def _get_empty_reduce_frame(columns: list[str]) -> gpd.GeoDataFrame:
     """
-    Gets an empty data frame for reduced coverage analysis results.
+    Gets an empty data frame of reduced results (see `_reduce_by_target`).
+
+    Args:
+        columns (list[str]): The columns of the mean durations.
 
     Returns:
         geopandas.GeoDataFrame: Empty data frame.
     """
-    columns = {
-        "target_hash": pd.Series([], dtype="str"),
-        "geometry": pd.Series([], dtype="object"),
-        "access": pd.Series([], dtype="timedelta64[ns]"),
-        "revisit": pd.Series([], dtype="timedelta64[ns]"),
-        "samples": pd.Series([], dtype="int"),
-    }
-    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
+    return gpd.GeoDataFrame(
+        {
+            "target_hash": pd.Series([], dtype="str"),
+            "geometry": pd.Series([], dtype="object"),
+            **{column: pd.Series([], dtype="timedelta64[ns]") for column in columns},
+            "samples": pd.Series([], dtype="int"),
+        },
+        crs="EPSG:4326",
+    )
+
+
+def _reduce_by_target(
+    frame: gpd.GeoDataFrame,
+    targets: gpd.GeoDataFrame | gpd.GeoSeries | None,
+    columns: list[str],
+) -> gpd.GeoDataFrame:
+    """
+    Reduces results (such as aggregated observations or latencies) for each
+    target (see `_get_target_keys`): the mean of each duration column (of
+    those defined, a `NaT` being excluded rather than counted as zero), and
+    the number of rows (`samples`), with the union of their geometries. With
+    `targets`, a row for every target, in their order (see
+    `_include_targets`): a target without rows has no samples (zero) and
+    undefined (NaT) means.
+
+    Args:
+        frame (geopandas.GeoDataFrame): The results.
+        targets (geopandas.GeoDataFrame | geopandas.GeoSeries | None): The
+            targets, or `None` for those of the results.
+        columns (list[str]): The columns of durations to average.
+
+    Returns:
+        geopandas.GeoDataFrame: the reduced results
+    """
+    if targets is not None:
+        return _include_targets(
+            _reduce_by_target(frame, None, columns), targets, ["samples"]
+        )
+    if frame.empty:
+        return _get_empty_reduce_frame(columns)
+    gdf = frame.copy()
+    # durations as numeric values for the means, and one sample per row
+    for column in columns:
+        gdf[column] = pd.to_timedelta(gdf[column]).dt.total_seconds()
+    gdf["samples"] = 1
+    gdf = gdf.dissolve(
+        _get_target_keys(gdf),
+        aggfunc={**{column: "mean" for column in columns}, "samples": "sum"},
+    ).reset_index()
+    for column in columns:
+        gdf[column] = pd.to_timedelta(gdf[column], unit="s")
+    return gdf
+
+
+def _grid_means(
+    reduced: gpd.GeoDataFrame,
+    cells: gpd.GeoDataFrame,
+    arithmetic: list[str],
+    harmonic: list[str] = (),  # type: ignore
+) -> gpd.GeoDataFrame:
+    """
+    Grids reduced results (see `_reduce_by_target`) to cells: for every cell,
+    the sum of the samples of the points it contains and, of the durations,
+    the sample-weighted arithmetic mean (for `arithmetic` columns) or
+    harmonic mean (for `harmonic` columns) over the points with one. A cell
+    that contains no point (or none with a duration) has no samples (zero)
+    and an undefined (NaT) mean.
+
+    Args:
+        reduced (geopandas.GeoDataFrame): The reduced results.
+        cells (geopandas.GeoDataFrame): The cells, with a `cell_id` column.
+        arithmetic (list[str]): The columns of arithmetic means.
+        harmonic (list[str]): The columns of harmonic means.
+
+    Returns:
+        geopandas.GeoDataFrame: The cells, with the `samples` and the means
+            of each.
+    """
+    gdf = reduced.copy()
+    samples = gdf["samples"]
+    # pre-transform so that the means reduce to plain sums: the arithmetic
+    # mean is sum(samples x value) / sum(samples), and the harmonic mean
+    # sum(samples) / sum(samples / value), over the points with a value
+    sums = ["samples"]
+    for column in [*arithmetic, *harmonic]:
+        value = pd.to_timedelta(gdf[column]).dt.total_seconds()
+        gdf[f"{column}_weight"] = samples.where(value.notna(), 0)
+        gdf[f"{column}_sum"] = (
+            samples * value if column in arithmetic else samples / value
+        ).fillna(0)
+        sums += [f"{column}_weight", f"{column}_sum"]
+    totals = _sum_by_cell(gdf, cells, sums)
+    result = cells.copy()
+    result["samples"] = totals["samples"].to_numpy().astype(int)
+    for column in [*arithmetic, *harmonic]:
+        weight = totals[f"{column}_weight"].to_numpy()
+        total = totals[f"{column}_sum"].to_numpy()
+        with np.errstate(divide="ignore", invalid="ignore"):
+            mean = (
+                np.where(weight > 0, total / weight, np.nan)
+                if column in arithmetic
+                else np.where(total > 0, weight / total, np.nan)
+            )
+        result[column] = pd.to_timedelta(mean, unit="s").as_unit("ns")
+    return result
 
 
 def reduce_observations(
@@ -340,32 +448,7 @@ def reduce_observations(
     Returns:
         geopandas.GeoDataFrame: The data frame with reduced observations.
     """
-    if targets is not None:
-        return _include_targets(
-            reduce_observations(aggregated_observations), targets, ["samples"]
-        )
-    if aggregated_observations.empty:
-        return _get_empty_reduce_frame()
-    # operate on a copy of the data frame
-    gdf = aggregated_observations.copy()
-    # convert access and revisit to numeric values before aggregation
-    gdf["access"] = gdf["access"].dt.total_seconds()
-    gdf["revisit"] = gdf["revisit"].dt.total_seconds()
-    # assign each record to one observation
-    gdf["samples"] = 1
-    # perform the aggregation operation for each target
-    gdf = gdf.dissolve(
-        _get_target_keys(gdf),
-        aggfunc={
-            "access": "mean",
-            "revisit": "mean",
-            "samples": "sum",
-        },
-    ).reset_index()
-    # convert access and revisit from numeric values after aggregation
-    gdf["access"] = pd.to_timedelta(gdf["access"], unit="s")
-    gdf["revisit"] = pd.to_timedelta(gdf["revisit"], unit="s")
-    return gdf
+    return _reduce_by_target(aggregated_observations, targets, ["access", "revisit"])
 
 
 def grid_observations(
@@ -393,38 +476,7 @@ def grid_observations(
         geopandas.GeoDataFrame: The cells, with the `samples`, `access`, and
             `revisit` of each.
     """
-    # operate on a copy of the data frame
-    gdf = reduced_observations.copy()
-    # convert access and revisit to numeric values before aggregation
-    access = pd.to_timedelta(gdf["access"]).dt.total_seconds()
-    revisit = pd.to_timedelta(gdf["revisit"]).dt.total_seconds()
-    # pre-transform so the means below reduce to plain sums. The weighted
-    # harmonic mean of revisit is sum(samples) / sum(samples/revisit), over
-    # the points with a revisit.
-    gdf["access_x_samples"] = access * gdf["samples"]
-    gdf["revisit_samples"] = gdf["samples"].where(revisit.notna(), 0)
-    gdf["samples_over_revisit"] = (gdf["samples"] / revisit).fillna(0)
-    sums = _sum_by_cell(
-        gdf,
-        cells,
-        ["samples", "access_x_samples", "revisit_samples", "samples_over_revisit"],
-    )
-    result = cells.copy()
-    samples = sums["samples"].to_numpy()
-    result["samples"] = samples.astype(int)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        # finish the aggregation: sample-weighted arithmetic mean for access,
-        # sample-weighted harmonic mean for revisit
-        mean_access = np.where(
-            samples > 0, sums["access_x_samples"].to_numpy() / samples, np.nan
-        )
-        rate = sums["samples_over_revisit"].to_numpy()
-        mean_revisit = np.where(
-            rate > 0, sums["revisit_samples"].to_numpy() / rate, np.nan
-        )
-    result["access"] = pd.to_timedelta(mean_access, unit="s").as_unit("ns")
-    result["revisit"] = pd.to_timedelta(mean_revisit, unit="s").as_unit("ns")
-    return result
+    return _grid_means(reduced_observations, cells, ["access"], ["revisit"])
 
 
 def count_observations(
@@ -487,7 +539,7 @@ def count_observations(
         codes = np.zeros(len(first), dtype=int)
         labels = pd.Index(["observations"])
     # count the starts and ends of the overlapped steps, and accumulate them
-    changes = np.zeros((count + 1, len(labels)), dtype=int)
+    changes = np.zeros((count + 1, len(labels)), dtype=np.int64)
     np.add.at(changes, (first, codes), 1)
     np.add.at(changes, (last + 1, codes), -1)
     counts = np.cumsum(changes[:-1], axis=0)

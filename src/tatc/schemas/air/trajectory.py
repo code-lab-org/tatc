@@ -39,7 +39,7 @@ _ATTITUDE_COLUMNS = ("heading", "roll", "pitch")
 
 # speed (meters per second) below which the direction of motion is taken from
 # the track rather than from the interpolated velocity (as when stationary)
-_MIN_SPEED = 1e-3
+_MIN_DIRECTION_SPEED = 1e-3
 
 # tolerance (seconds) of the times at the ends of the parts of a trajectory,
 # which absorbs their rounding
@@ -154,6 +154,87 @@ def _get_radius_of_curvature(
     meridian = EARTH_EQUATORIAL_RADIUS * (1 - e2) / w**1.5
     prime = EARTH_EQUATORIAL_RADIUS / np.sqrt(w)
     return 1 / (np.cos(azi) ** 2 / meridian + np.sin(azi) ** 2 / prime)
+
+
+def _split_at_gaps(seconds: npt.ArrayLike, max_gap: timedelta | None) -> list:
+    """
+    Splits states (in increasing order of time) into the parts between gaps
+    longer than a maximum gap, as those of a trajectory (see
+    `Trajectory.max_gap`).
+
+    Args:
+        seconds (numpy.typing.ArrayLike): The time (seconds) of each state.
+        max_gap (datetime.timedelta | None): The longest time between
+            consecutive states of a part, or `None` for no gaps.
+
+    Returns:
+        list[numpy.typing.NDArray]: the indices of the states of each part
+    """
+    seconds = np.asarray(seconds, dtype=float)
+    index = np.arange(len(seconds))
+    if max_gap is None:
+        return [index]
+    return np.split(
+        index, np.flatnonzero(np.diff(seconds) > max_gap.total_seconds()) + 1
+    )
+
+
+def _sample_geodesics(
+    longitude: npt.ArrayLike, latitude: npt.ArrayLike, distance: npt.ArrayLike
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
+    """
+    Samples a path through vertices (longitudes and latitudes) at distances
+    along it, following the geodesics (on the WGS 84 ellipsoid) between
+    consecutive distinct vertices: at each distance, the position and the
+    direction of the path (its track). A distance beyond either end extends
+    the first or last geodesic.
+
+    Args:
+        longitude (numpy.typing.ArrayLike): The longitudes (degrees) of the
+            vertices.
+        latitude (numpy.typing.ArrayLike): The latitudes (degrees) of the
+            vertices.
+        distance (numpy.typing.ArrayLike): The distances (meters) along the
+            path.
+
+    Returns:
+        tuple[numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray, numpy.typing.NDArray]:
+            the longitudes, latitudes, and tracks (degrees clockwise from
+            north) at the distances, and the cumulative length (meters) of
+            the path at each distinct vertex (from zero); for a path without
+            length, its first vertex and a track of zero
+    """
+    longitude = np.asarray(longitude, dtype=float)
+    latitude = np.asarray(latitude, dtype=float)
+    distance = np.asarray(distance, dtype=float)
+    azimuth, _, length = _GEOD.inv(
+        longitude[:-1], latitude[:-1], longitude[1:], latitude[1:]
+    )
+    keep = np.asarray(length) > 0
+    if not np.any(keep):
+        return (
+            np.full(distance.shape, longitude[0]),
+            np.full(distance.shape, latitude[0]),
+            np.zeros(distance.shape),
+            np.zeros(1),
+        )
+    azimuth, length = np.asarray(azimuth)[keep], np.asarray(length)[keep]
+    cumulative = np.concatenate([[0.0], np.cumsum(length)])
+    leg = np.clip(
+        np.searchsorted(cumulative, distance, side="right") - 1, 0, len(length) - 1
+    )
+    sample_longitude, sample_latitude, back_azimuth = _GEOD.fwd(
+        longitude[:-1][keep][leg],
+        latitude[:-1][keep][leg],
+        azimuth[leg],
+        distance - cumulative[leg],
+    )
+    return (
+        np.asarray(sample_longitude, dtype=float),
+        np.asarray(sample_latitude, dtype=float),
+        np.mod(np.asarray(back_azimuth) + 180, 360),
+        cumulative,
+    )
 
 
 class Trajectory(BaseModel):
@@ -384,17 +465,19 @@ class Trajectory(BaseModel):
             np.searchsorted(leg_start, seconds, side="right") - 1, 0, len(length) - 1
         )
         fraction = np.clip((seconds - leg_start[leg]) / leg_seconds[leg], 0, 1)
-        state_longitude, state_latitude, back_azimuth = _GEOD.fwd(
-            longitude[leg], latitude[leg], azimuth[leg], fraction * length[leg]
+        state_longitude, state_latitude, track, _ = _sample_geodesics(
+            longitude,
+            latitude,
+            np.concatenate([[0], np.cumsum(length)])[leg] + fraction * length[leg],
         )
         return cls(
             time=[start + timedelta(seconds=float(value)) for value in seconds],
-            latitude=np.asarray(state_latitude).tolist(),
-            longitude=np.asarray(state_longitude).tolist(),
+            latitude=state_latitude.tolist(),
+            longitude=state_longitude.tolist(),
             altitude=(
                 altitudes[leg] + fraction * (altitudes[leg + 1] - altitudes[leg])
             ).tolist(),
-            track=((np.asarray(back_azimuth) + 180) % 360).tolist(),
+            track=track.tolist(),
             ground_speed=[float(speed)] * len(seconds),
             max_gap=None,
         )
@@ -417,15 +500,10 @@ class Trajectory(BaseModel):
         Returns:
             list[numpy.typing.NDArray]: the indices of each part
         """
-        index = np.arange(len(self.time))
-        if self.max_gap is None:
-            return [index]
-        gaps = [
-            i + 1
-            for i, (a, b) in enumerate(zip(self.time[:-1], self.time[1:]))
-            if b - a > self.max_gap
-        ]
-        return np.split(index, gaps)
+        return _split_at_gaps(
+            [(time - self.time[0]).total_seconds() for time in self.time],
+            self.max_gap,
+        )
 
     def contains(
         self, times: datetime | list[datetime] | Time
@@ -469,11 +547,12 @@ class Trajectory(BaseModel):
             latitude = np.asarray(self.latitude, dtype=float)
             position = geodetic_to_rectangular(longitude, latitude, self.altitude)
             east, north = _get_local_axes(longitude, latitude)
+            parts = self._get_parts()
             if self.track is None or self.ground_speed is None:
                 # the horizontal velocity, by finite differences of the
                 # positions within each part of the trajectory
                 velocity = np.zeros_like(position)
-                for part in self._get_parts():
+                for part in parts:
                     velocity[:, part] = np.gradient(
                         position[:, part], seconds[part], axis=1
                     )
@@ -506,10 +585,12 @@ class Trajectory(BaseModel):
                 )
             )
             self._states = {
+                # the first time (TT), from which seconds are counted
+                "start": np.array([t.whole[0], t.tt_fraction[0]]),
                 "seconds": seconds,
-                "part_first": np.array([seconds[p[0]] for p in self._get_parts()])
+                "part_first": np.array([seconds[p[0]] for p in parts])
                 - _TIME_TOLERANCE,
-                "part_last": np.array([seconds[p[-1]] for p in self._get_parts()])
+                "part_last": np.array([seconds[p[-1]] for p in parts])
                 + _TIME_TOLERANCE,
                 "position": position,
                 "velocity": direction * speed,
@@ -539,9 +620,9 @@ class Trajectory(BaseModel):
         Returns:
             numpy.typing.NDArray: the seconds (with the shape of the times)
         """
-        t0 = _to_time(self.time[0])
-        return (np.asarray(t.whole) - t0.whole) * DAY_S + (
-            np.asarray(t.tt_fraction) - t0.tt_fraction
+        whole, fraction = self._get_states()["start"]
+        return (np.asarray(t.whole) - whole) * DAY_S + (
+            np.asarray(t.tt_fraction) - fraction
         ) * DAY_S
 
     def get_angles(self, t: Time) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
@@ -592,13 +673,13 @@ class Trajectory(BaseModel):
         altitude = np.interp(seconds, s, states["altitude"])
         position = geodetic_to_rectangular(longitude, latitude, altitude)
         # where (nearly) stationary, move slowly along the interpolated track
-        slow = np.linalg.norm(velocity, axis=0) < _MIN_SPEED
+        slow = np.linalg.norm(velocity, axis=0) < _MIN_DIRECTION_SPEED
         if np.any(slow):
             direction = np.array(
                 [np.interp(seconds[slow], s, states["direction"][k]) for k in range(3)]
             )
             velocity[:, slow] = (
-                _MIN_SPEED * direction / np.linalg.norm(direction, axis=0)
+                _MIN_DIRECTION_SPEED * direction / np.linalg.norm(direction, axis=0)
             )
         if np.ndim(t.tt) == 0:
             position, velocity = position[:, 0], velocity[:, 0]

@@ -221,7 +221,7 @@ class TestSampleSizes(unittest.TestCase):
         self.assertEqual(len(station), 1)
         self.assertGreater(station.platform_range.iloc[0], 20e3)
         self.assertTrue(station[["scan_angle", "sample_along"]].isna().all(axis=None))
-        with self.assertRaisesRegex(ValueError, "aircraft named 'P-3'"):
+        with self.assertRaisesRegex(ValueError, "the aircraft named 'P-3'"):
             compute_sample_sizes(observations, radar)
 
     def test_feature_elevation(self):

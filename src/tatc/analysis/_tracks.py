@@ -842,6 +842,33 @@ def _check_pixel_instrument(instrument: Instrument) -> None:
         )
 
 
+def _get_viewing_geometry(
+    track: Geocentric, target: GeographicPosition
+) -> dict[str, npt.NDArray]:
+    """
+    Gets the viewing geometry of a platform from targets, for any kind of
+    platform: its elevation angle (`platform_alt`) and azimuth
+    (`platform_az`, degrees) seen from each target, its slant range
+    (`platform_range`), and its height above the WGS 84 ellipsoid
+    (`platform_height`, meters).
+
+    Args:
+        track (skyfield.positionlib.Geocentric): The platform's track (see
+            `get_track`) at the time of each target.
+        target (skyfield.toposlib.GeographicPosition): The targets.
+
+    Returns:
+        dict[str, numpy.typing.NDArray]: the geometry, by column
+    """
+    altitude, azimuth, distance = (track - target.at(track.t)).altaz()
+    return {
+        "platform_alt": np.atleast_1d(altitude.degrees),  # type: ignore
+        "platform_az": np.atleast_1d(azimuth.degrees),  # type: ignore
+        "platform_range": np.atleast_1d(distance.m),  # type: ignore
+        "platform_height": np.atleast_1d(wgs84.height_of(track).m),  # type: ignore
+    }
+
+
 def _add_altaz_columns(
     track: gpd.GeoDataFrame,
     orbit_track: Geocentric,
@@ -869,9 +896,9 @@ def _add_altaz_columns(
     """
     angles = {}
     if platform_altaz:
-        alt, az, _ = (orbit_track - target.at(orbit_track.t)).altaz()
-        angles["platform_alt"] = alt.degrees  # type: ignore
-        angles["platform_az"] = az.degrees  # type: ignore
+        geometry = _get_viewing_geometry(orbit_track, target)
+        angles["platform_alt"] = geometry["platform_alt"]
+        angles["platform_az"] = geometry["platform_az"]
     if solar_altaz:
         alt, az, _ = (
             (de421["earth"] + target)

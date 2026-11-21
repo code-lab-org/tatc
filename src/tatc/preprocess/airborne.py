@@ -17,16 +17,20 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-from pyproj import Geod
 
 from ..schemas import PointedInstrument
+from ..schemas.air.trajectory import (
+    _TIME_TOLERANCE,
+    _get_radius_of_curvature,
+    _sample_geodesics,
+    _split_at_gaps,
+)
 from ..utils.geoid import compute_geoid_height
 
-_GEOD = Geod(ellps="WGS84")
 _METERS_PER_FOOT = 0.3048
 _METERS_PER_SECOND_PER_KNOT = 1852 / 3600
 _GRAVITY = 9.80665  # standard gravity (meters per second squared)
-_MIN_SPEED = 1e-6  # meters per second, below which the pitch is level
+_MIN_PITCH_SPEED = 1e-6  # meters per second, below which the pitch is level
 
 _STATE_COLUMNS = ["time", "latitude", "longitude", "altitude", "track", "ground_speed"]
 
@@ -43,7 +47,11 @@ def sample_flight_plan(
     with its path as a line string, its duration in minutes, and its
     altitudes in feet above mean sea level). Each segment is flown at a
     constant speed along its path (including the turns of connecting
-    segments), with the altitude changing linearly. The track is the
+    segments), with the altitude changing linearly. The states are sampled
+    at each time step from the takeoff and at the end of the plan, and the
+    ground speed is the horizontal speed at the aircraft's altitude (see
+    `tatc.schemas.Trajectory.ground_speed`), as for
+    `tatc.schemas.Trajectory.from_waypoints`. The track is the
     direction of the path at each state, and the heading the track plus the
     crab angle that HyPlan computes for a flight line in a wind (or the
     track elsewhere). The roll and pitch are not given (see
@@ -54,8 +62,9 @@ def sample_flight_plan(
             `time_to_segment`, `start_altitude`, and `end_altitude`, and
             optionally `segment_type`, `segment_name`, and `crab_angle_deg`.
             Segments without altitudes are skipped (their time elapses).
-        takeoff_time (datetime.datetime): The time at which the plan starts
-            (the takeoff time given to `hyplan.compute_flight_plan`).
+        takeoff_time (datetime.datetime): The time (timezone-aware) at
+            which the plan starts (the takeoff time given to
+            `hyplan.compute_flight_plan`).
         time_step (datetime.timedelta): The time between states.
         geoid_height (float | None): The height (meters) of the geoid above
             the WGS 84 ellipsoid, added to the altitudes above mean sea level
@@ -74,10 +83,17 @@ def sample_flight_plan(
     step = time_step.total_seconds()
     if step <= 0:
         raise ValueError(f"time_step must be positive, not {time_step}")
+    if takeoff_time.utcoffset() is None:
+        raise ValueError("takeoff_time must be a timezone-aware datetime")
     duration = pd.to_numeric(plan["time_to_segment"]).fillna(0.0).to_numpy() * 60.0
     ends = np.cumsum(duration)
     starts = ends - duration
-    seconds = np.arange(0.0, ends[-1] + 1e-9, step) if len(ends) > 0 else []
+    seconds = np.arange(0.0, ends[-1], step) if len(ends) > 0 else np.array([])
+    if len(ends) > 0 and (
+        len(seconds) == 0 or ends[-1] - seconds[-1] > _TIME_TOLERANCE
+    ):
+        # the end of the plan
+        seconds = np.append(seconds, ends[-1])
     # the segment of each time (the later one at a boundary, except the end)
     segment = np.clip(np.searchsorted(ends, seconds, side="right"), 0, len(plan) - 1)
     parts = []
@@ -88,10 +104,17 @@ def sample_flight_plan(
         if pd.isna(row.start_altitude) or pd.isna(row.end_altitude):
             continue
         fraction = (t - starts[i]) / duration[i]
-        lon, lat, track, length = _sample_path(row.geometry, fraction)
+        vertices = np.asarray(row.geometry.coords)[:, :2]
+        _, _, _, cumulative = _sample_geodesics(vertices[:, 0], vertices[:, 1], [])
+        lon, lat, track, _ = _sample_geodesics(
+            vertices[:, 0], vertices[:, 1], fraction * cumulative[-1]
+        )
         altitude = _METERS_PER_FOOT * (
             row.start_altitude + fraction * (row.end_altitude - row.start_altitude)
         ) + _get_geoid_height(lon, lat, geoid_height)
+        # the speed over the ellipsoid, scaled to the aircraft's altitude
+        # (with the radius of curvature of the ellipsoid along the track)
+        radius = _get_radius_of_curvature(lat, track)
         crab = getattr(row, "crab_angle_deg", np.nan)
         heading = track + (0.0 if pd.isna(crab) else float(crab))
         parts.append(
@@ -102,7 +125,10 @@ def sample_flight_plan(
                     "longitude": lon,
                     "altitude": altitude,
                     "track": track,
-                    "ground_speed": length / duration[i],
+                    "ground_speed": cumulative[-1]
+                    / duration[i]
+                    * (radius + altitude)
+                    / radius,
                     "heading": np.mod(heading, 360.0),
                     "segment_type": getattr(row, "segment_type", None),
                     "segment_name": getattr(row, "segment_name", None),
@@ -123,8 +149,8 @@ def _get_geoid_height(
 ) -> float | npt.NDArray:
     """
     Gets the height (meters) of the geoid above the WGS 84 ellipsoid: a
-    constant, or, if `None`, that of the EGM2008 geoid at positions (where
-    given; see `tatc.utils.compute_geoid_height`).
+    constant, or, if `None`, that of the EGM2008 geoid at positions (`NaN`
+    where unknown; see `tatc.utils.compute_geoid_height`).
 
     Args:
         longitude (numpy.typing.ArrayLike): The longitudes (degrees).
@@ -136,53 +162,7 @@ def _get_geoid_height(
     """
     if geoid_height is not None:
         return geoid_height
-    longitude = np.asarray(longitude, dtype=float)
-    latitude = np.asarray(latitude, dtype=float)
-    known = np.isfinite(longitude) & np.isfinite(latitude)
-    result = np.full(longitude.shape, np.nan)
-    result[known] = compute_geoid_height(longitude[known], latitude[known])
-    return result
-
-
-def _sample_path(
-    path: Any, fraction: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
-    """
-    Samples a path (a line string of longitudes and latitudes) at fractions
-    of its length along the geodesics between its vertices.
-
-    Args:
-        path (shapely.LineString): The path.
-        fraction (numpy.ndarray): The fractions (0 to 1) of its length.
-
-    Returns:
-        tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray, float]: the
-            longitudes, latitudes, and directions (degrees clockwise from
-            north) at the fractions, and the length (meters) of the path
-    """
-    lon, lat = np.asarray(path.coords)[:, :2].T
-    azimuth, _, length = _GEOD.inv(lon[:-1], lat[:-1], lon[1:], lat[1:])
-    keep = np.asarray(length) > 0
-    if not np.any(keep):
-        # a path without length (as a hold): stationary at its start
-        n = len(fraction)
-        return np.full(n, lon[0]), np.full(n, lat[0]), np.zeros(n), 0.0
-    azimuth, length = np.asarray(azimuth)[keep], np.asarray(length)[keep]
-    start_lon, start_lat = lon[:-1][keep], lat[:-1][keep]
-    cumulative = np.concatenate([[0.0], np.cumsum(length)])
-    along = fraction * cumulative[-1]
-    k = np.clip(
-        np.searchsorted(cumulative, along, side="right") - 1, 0, len(length) - 1
-    )
-    sample_lon, sample_lat, back = _GEOD.fwd(
-        start_lon[k], start_lat[k], azimuth[k], along - cumulative[k]
-    )
-    return (
-        np.asarray(sample_lon),
-        np.asarray(sample_lat),
-        np.mod(np.asarray(back) + 180.0, 360.0),
-        float(cumulative[-1]),
-    )
+    return compute_geoid_height(longitude, latitude)
 
 
 def estimate_attitude(
@@ -233,17 +213,15 @@ def estimate_attitude(
     if incomplete:
         raise ValueError(f"missing values in columns: {incomplete}")
     result = states.copy()
+    if len(result) == 0:
+        # as of a flight plan without altitudes (see `sample_flight_plan`)
+        return result.assign(roll=pd.Series(dtype=float), pitch=pd.Series(dtype=float))
     time = pd.to_datetime(result["time"], utc=True)
     if not time.is_monotonic_increasing or time.duplicated().any():
         raise ValueError("times must be strictly increasing")
     seconds = (time - time.iloc[0]).dt.total_seconds().to_numpy()
     turn_rate, climb_rate = np.zeros(len(result)), np.zeros(len(result))
-    breaks = (
-        np.flatnonzero(np.diff(seconds) > max_gap.total_seconds()) + 1
-        if max_gap is not None
-        else []
-    )
-    for part in np.split(np.arange(len(result)), breaks):
+    for part in _split_at_gaps(seconds, max_gap):
         if len(part) < 2:
             continue
         t = seconds[part]
@@ -253,7 +231,9 @@ def estimate_attitude(
         climb_rate[part] = _smooth(np.gradient(altitude, t), time.iloc[part], smoothing)
     speed = result["ground_speed"].to_numpy(dtype=float)
     result["roll"] = np.degrees(np.arctan(speed * turn_rate / _GRAVITY))
-    result["pitch"] = np.degrees(np.arctan2(climb_rate, np.maximum(speed, _MIN_SPEED)))
+    result["pitch"] = np.degrees(
+        np.arctan2(climb_rate, np.maximum(speed, _MIN_PITCH_SPEED))
+    )
     return result
 
 

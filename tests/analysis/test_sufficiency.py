@@ -342,6 +342,44 @@ class TestSampleField(unittest.TestCase):
         self.assertEqual(list(comparison.samples), [2, 1, 0])
         self.assertTrue(np.isnan(comparison.sampled_mean[2]))
 
+    def test_compare_means_at_interval(self):
+        """
+        A long observation is sampled every interval, with the field at each
+        time, counting the samples as `estimate_sampling_error` does.
+        """
+        point = Point(10, 2)
+        observations = gpd.GeoDataFrame(
+            {
+                "target_hash": [hash_geometry(point)],
+                "start": [START + timedelta(hours=6)],
+                "epoch": [START + timedelta(hours=12)],
+                "end": [START + timedelta(hours=18)],
+            },
+            geometry=[point],
+            crs="EPSG:4326",
+        )
+        sampled = sample_field(observations, self.field)
+        interval = timedelta(hours=3)
+        comparison = compare_sampled_means(
+            sampled, self.field, START, START + DAY, sample_interval=interval
+        )
+        errors = estimate_sampling_error(
+            observations,
+            START,
+            START + DAY,
+            timedelta(hours=1),
+            sample_interval=interval,
+        )
+        self.assertEqual(list(comparison.samples), [5])
+        self.assertEqual(list(comparison.samples), list(errors.samples))
+        # hours 6, 9, 12, 15, and 18, whose mean is that at hour 12
+        self.assertAlmostEqual(comparison.sampled_mean[0], 12 + 20 + 1.0)
+        # at a later time than the epoch
+        later = compare_sampled_means(
+            sampled, self.field, START, START + DAY, time_column="end"
+        )
+        self.assertAlmostEqual(later.sampled_mean[0], 12 + 20 + 1.0)
+
 
 class TestSampleInterval(unittest.TestCase):
     """

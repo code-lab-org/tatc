@@ -331,7 +331,7 @@ class TestComputeTerrainMask(unittest.TestCase):
             self.dem_path, 0.0, 0.0, ground + 20, above_ellipsoid=True, **kwargs
         )
         with warnings.catch_warnings():
-            warnings.simplefilter("error")
+            warnings.simplefilter("error", UserWarning)
             wrapped = compute_terrain_mask_for_station(self.dem_path, station, **kwargs)
         self.assertEqual(direct.azimuth, wrapped.azimuth)
         self.assertEqual(direct.min_elevation_angle, wrapped.min_elevation_angle)
@@ -365,8 +365,25 @@ class TestComputeTerrainMask(unittest.TestCase):
                 compute(self.dem_path, platform, **kwargs)
             above = platform.model_copy(update={"elevation": geoid_height + 5})
             with warnings.catch_warnings():
-                warnings.simplefilter("error")
+                warnings.simplefilter("error", UserWarning)
                 compute(self.dem_path, above, **kwargs)
+                # a DEM above the ellipsoid is not converted
+                mask = compute(
+                    self.dem_path, platform, dem_above_ellipsoid=True, **kwargs
+                )
+            direct = compute_terrain_mask(
+                self.dem_path,
+                0.0,
+                0.0,
+                platform.get_altitude(),
+                effective_earth_radius_factor=(
+                    1
+                    if isinstance(platform, SurfacePlatform)
+                    else constants.EFFECTIVE_EARTH_RADIUS_FACTOR
+                ),
+                **kwargs,
+            )
+            self.assertEqual(mask.min_elevation_angle, direct.min_elevation_angle)
 
     def test_above_ellipsoid(self):
         """

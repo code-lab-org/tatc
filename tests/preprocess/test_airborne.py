@@ -25,6 +25,7 @@ from tatc.preprocess import (
     states_from_iwg1,
 )
 from tatc.schemas import Aircraft, Trajectory
+from tatc.schemas.air.trajectory import _get_radius_of_curvature
 from tatc.utils import compute_geoid_height
 
 GEOD = Geod(ellps="WGS84")
@@ -95,16 +96,25 @@ class TestSampleFlightPlan(unittest.TestCase):
 
     def test_states(self):
         """
-        Tests the states sampled along the segments of a plan.
+        Tests the states sampled along the segments of a plan, and that the
+        takeoff time is timezone-aware.
         """
+        with self.assertRaisesRegex(ValueError, "timezone-aware"):
+            sample_flight_plan(_plan(), TAKEOFF.to_pydatetime().replace(tzinfo=None))
         states = sample_flight_plan(_plan(), TAKEOFF, geoid_height=-30.0)
         self.assertEqual(len(states), 91)
         self.assertEqual(states["time"].iloc[0], TAKEOFF)
         self.assertEqual(states["time"].iloc[-1], TAKEOFF + timedelta(seconds=90))
         line = states["segment_name"] == "Line 1"
         self.assertEqual(line.sum(), 60)
-        np.testing.assert_allclose(states.loc[line, "ground_speed"], 200.0, rtol=1e-6)
-        np.testing.assert_allclose(states.loc[~line, "ground_speed"], 200.0, rtol=1e-6)
+        # 200 m/s over the ellipsoid, at the aircraft's altitude
+        radius = _get_radius_of_curvature(states["latitude"], states["track"])
+        np.testing.assert_allclose(
+            states["ground_speed"],
+            200.0 * (radius + states["altitude"]) / radius,
+            rtol=1e-6,
+        )
+        self.assertGreater(states["ground_speed"].min(), 200.0)
         np.testing.assert_allclose(
             np.mod(states.loc[line, "track"] + 180, 360) - 180, 0.0, atol=1e-6
         )
@@ -223,7 +233,11 @@ class TestSampleFlightPlan(unittest.TestCase):
         )
         states = sample_flight_plan(plan, TAKEOFF)
         duration = plan["time_to_segment"].sum() * 60
-        self.assertAlmostEqual(len(states), duration, delta=1.0)
+        # at each second, and at the end of the plan
+        self.assertEqual(len(states), int(np.ceil(duration)) + 1)
+        self.assertAlmostEqual(
+            (states["time"].iloc[-1] - TAKEOFF).total_seconds(), duration, places=3
+        )
         self.assertEqual(set(states["segment_name"]), set(plan["segment_name"]))
         for name, track in (("A", 0.0), ("B", 180.0)):
             line = states["segment_name"] == name
@@ -300,6 +314,16 @@ class TestEstimateAttitude(unittest.TestCase):
         np.testing.assert_allclose(gapped["roll"].iloc[:60], 0.0, atol=1e-12)
         with self.assertRaisesRegex(ValueError, "ground_speed"):
             estimate_attitude(states.drop(columns="ground_speed"))
+
+    def test_empty_states(self):
+        """
+        Tests that empty states (as of a flight plan without altitudes) give
+        empty states with roll and pitch.
+        """
+        result = estimate_attitude(self._turn(n=10).iloc[:0])
+        self.assertEqual(len(result), 0)
+        self.assertIn("roll", result.columns)
+        self.assertIn("pitch", result.columns)
 
     def test_invalid_states(self):
         """

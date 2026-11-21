@@ -21,7 +21,13 @@ from tatc.constants import (
     EARTH_FLATTENING,
     EARTH_POLAR_RADIUS,
 )
-from tatc.schemas import Aircraft, Instrument, PointedInstrument, Trajectory
+from tatc.schemas import (
+    Aircraft,
+    ConicalInstrument,
+    Instrument,
+    PointedInstrument,
+    Trajectory,
+)
 from tatc.schemas.air.aircraft import _to_body_angles
 from tatc.utils.ellipsoid import geodetic_to_rectangular
 from tatc.utils.projection import _rotate_view_axes
@@ -196,6 +202,18 @@ class TestAircraft(unittest.TestCase):
                             )
                         ],
                     )
+        with self.assertRaises(ValidationError):
+            Aircraft(
+                name="a",
+                trajectory=trajectory,
+                instruments=[
+                    ConicalInstrument(
+                        cone_angle=45,
+                        along_track_field_of_view=2,
+                        velocity_frame="inertial",
+                    )
+                ],
+            )
 
     def test_serialization(self):
         """

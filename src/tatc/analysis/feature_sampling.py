@@ -21,12 +21,13 @@ from skyfield.api import wgs84
 
 from .._warnings import warn
 from ..schemas import AllPlatforms
+from ._tracks import _get_viewing_geometry
 from .check import (
     SATELLITE,
     _check_times,
     _get_instruments,
-    _get_platform_key,
     _get_platform_kinds,
+    _get_platform_lookup,
     _get_platforms,
     _group_platforms,
     _PlatformKind,
@@ -332,11 +333,7 @@ def collect_feature_observations(
     kinds = [kind for kind, members in groups.items() if members]
     # each platform, by its key in the footprints (platforms of a kind have
     # distinct names, see `_group_platforms`)
-    lookup = {
-        _get_platform_key(kind.column, platform.name): platform
-        for kind, members in groups.items()
-        for platform in members
-    }
+    lookup = _get_platform_lookup(platforms)
     if len(features) == 0 or len(times) == 0 or len(lookup) == 0:
         return _get_empty_feature_observations(kinds)
     # the elevation of each feature (NaN without z-coordinates)
@@ -412,20 +409,12 @@ def collect_feature_observations(
     longitude, latitude = shapely.get_x(centroid), shapely.get_y(centroid)
     for platform, group in observations.groupby("platform"):
         index = group.index.to_numpy()
-        observer = lookup[platform]
-        platform_track = observer.get_track(list(group["time"]))
-        target = wgs84.latlon(
-            latitude[index], longitude[index], group["height"].to_numpy()
+        geometry = _get_viewing_geometry(
+            lookup[platform].get_track(list(group["time"])),
+            wgs84.latlon(latitude[index], longitude[index], group["height"].to_numpy()),
         )
-        altitude, azimuth, distance = (
-            platform_track - target.at(platform_track.t)
-        ).altaz()
-        observations.loc[index, "platform_alt"] = np.atleast_1d(altitude.degrees)
-        observations.loc[index, "platform_az"] = np.atleast_1d(azimuth.degrees)
-        observations.loc[index, "platform_range"] = np.atleast_1d(distance.m)
-        observations.loc[index, "platform_height"] = np.atleast_1d(
-            wgs84.height_of(platform_track).m
-        )
+        for column in _VIEWING_GEOMETRY:
+            observations.loc[index, column] = geometry[column]
     # the feature's index label in the features
     observations["feature"] = features.index.to_numpy()[observations["feature"]]
     observations["time"] = pd.DatetimeIndex(observations["time"]).as_unit("ns")

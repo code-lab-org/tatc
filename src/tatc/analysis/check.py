@@ -578,6 +578,43 @@ def _get_platform_key(column: str, name: str | pd.Series) -> str | pd.Series:
     return column + ": " + name
 
 
+def _get_platform_lookup(platforms: object) -> dict[str, Any]:
+    """
+    Gets each observing platform of any kind by its key in results (see
+    `_get_platforms`), checking the platforms (see `_group_platforms`).
+
+    Args:
+        platforms (object): A platform or a list of them.
+
+    Returns:
+        dict[str, Any]: the platform of each key
+    """
+    return {
+        _get_platform_key(kind.column, platform.name): platform
+        for kind, members in _group_platforms(platforms).items()
+        for platform in members
+    }
+
+
+def _check_platform_lookup(lookup: dict[str, Any], keys: Iterable[str]) -> None:
+    """
+    Checks that platforms (see `_get_platform_lookup`) include the platform
+    of each row of a result (by its key, see `_get_platforms`), raising a
+    `ValueError` otherwise.
+
+    Args:
+        lookup (dict[str, Any]): The platform of each key.
+        keys (Iterable[str]): The key of the platform of each row.
+    """
+    missing = sorted(set(keys) - set(lookup))
+    if missing:
+        column, name = missing[0].split(": ", 1)
+        raise ValueError(
+            "platforms must include the platform of each row, such as the "
+            f"{column.replace('_', ' ')} named {name!r}"
+        )
+
+
 def _get_instruments(frame: pd.DataFrame) -> np.ndarray:
     """
     Gets the instrument of each row of a result: its `instrument` column, or

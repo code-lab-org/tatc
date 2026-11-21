@@ -78,21 +78,22 @@ def _check_platform_instruments(
                 f"instrument {instrument.name!r}: a ConicalInstrument is not "
                 f"supported on {platform}"
             )
-        if isinstance(instrument, PointedInstrument):
-            if (
-                instrument.roll_angle_profile is not None
-                or instrument.pitch_angle_profile is not None
-            ):
-                raise ValueError(
-                    f"instrument {instrument.name!r}: roll and pitch angle "
-                    f"profiles are not supported on {platform}"
-                )
-            if instrument.velocity_frame != VelocityFrame.EARTH_FIXED:
-                raise ValueError(
-                    f"instrument {instrument.name!r}: the {direction} of "
-                    f"{platform} defines the along-track direction, which "
-                    "requires velocity_frame='earth_fixed'"
-                )
+        if isinstance(instrument, PointedInstrument) and (
+            instrument.roll_angle_profile is not None
+            or instrument.pitch_angle_profile is not None
+        ):
+            raise ValueError(
+                f"instrument {instrument.name!r}: roll and pitch angle "
+                f"profiles are not supported on {platform}"
+            )
+        # of a PointedInstrument or a ConicalInstrument
+        velocity_frame = getattr(instrument, "velocity_frame", None)
+        if velocity_frame not in (None, VelocityFrame.EARTH_FIXED):
+            raise ValueError(
+                f"instrument {instrument.name!r}: the {direction} of "
+                f"{platform} defines the along-track direction, which "
+                "requires velocity_frame='earth_fixed'"
+            )
 
 
 __all__ = ["AllInstruments", "ConicalInstrument", "Instrument", "PointedInstrument"]

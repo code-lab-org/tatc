@@ -9,6 +9,7 @@ heights (EPSG:4979 to EPSG:4326+3855) with the 2.5-minute EGM2008 grid
 """
 
 import unittest
+import warnings
 
 import numpy as np
 
@@ -59,6 +60,18 @@ class TestGeoid(unittest.TestCase):
         self.assertAlmostEqual(
             compute_geoid_height(180.0, -17.0), compute_geoid_height(-180.0, -17.0)
         )
+
+    def test_unknown_positions(self):
+        """
+        Tests that an unknown (NaN) coordinate gives an unknown geoid
+        height, without a warning.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            heights = compute_geoid_height([0.0, np.nan, 0.0], [0.0, 0.0, np.nan])
+            self.assertTrue(np.isnan(compute_geoid_height(np.nan, 0.0)))
+        self.assertAlmostEqual(heights[0], compute_geoid_height(0.0, 0.0))
+        self.assertTrue(np.isnan(heights[1:]).all())
 
     def test_latitude_range(self):
         """
