@@ -41,6 +41,12 @@ column of its kind: ``satellite``, ``aircraft``, ``surface_platform``, or
     -
     -
     - ``collect_footprint_observations``
+  * - Observations of regions
+    - ``collect_region_observations``
+    -
+    -
+    -
+    - ``collect_footprint_observations``
   * - Observations of features
     -
     -
@@ -60,9 +66,11 @@ column of its kind: ``satellite``, ``aircraft``, ``surface_platform``, or
     -
     - ``find_coincident_observations``
 
-``collect_observations`` searches a satellite's orbit for the periods when it
-observes points; ``collect_footprint_observations`` samples the observations
-of points from footprints collected at times, for any platforms. Fixed
+``collect_observations`` and ``collect_region_observations`` search a
+satellite's orbit for the periods when it observes points and regions;
+``collect_footprint_observations`` samples the observations of points and
+regions from footprints collected at times, for any platforms (with the
+angles of the observations of points, given the platforms). Fixed
 platforms (surface platforms and radar stations) give static footprints
 without times, or the same footprint at each of the times given; in
 coincident footprints, another platform's footprint pairs only with the copy

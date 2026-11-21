@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import shapely
 from shapely.geometry import Point as ShapelyPoint
-from shapely.geometry import box
+from shapely.geometry import LineString, box
 
 from tatc.analysis import (
     aggregate_observations,
@@ -23,6 +23,7 @@ from tatc.analysis import (
     collect_ground_track,
     collect_observations,
     collect_radar_track,
+    collect_region_observations,
     collect_surface_track,
     dissolve_footprints,
     find_coincident_ground_track,
@@ -38,6 +39,7 @@ from tatc.schemas import (
     SurfacePlatform,
     Trajectory,
 )
+from tatc.utils.geometry import hash_geometry
 
 from ..schemas.air.common import START, straight_trajectory
 from .common import IssConstellationTestCase
@@ -349,7 +351,7 @@ class TestFootprints(IssConstellationTestCase):
 
 class TestFootprintObservations(IssConstellationTestCase):
     """
-    Unit tests for observations of points by footprints.
+    Unit tests for observations of points and regions by footprints.
     """
 
     @staticmethod
@@ -465,8 +467,8 @@ class TestFootprintObservations(IssConstellationTestCase):
             collect_footprint_observations(
                 ShapelyPoint(1, 1), footprints.drop(columns="time")
             )
-        with self.assertRaises(TypeError):
-            collect_footprint_observations(box(0, 0, 1, 1), footprints)
+        with self.assertRaisesRegex(TypeError, "Polygon"):
+            collect_footprint_observations(LineString([(0, 0), (1, 1)]), footprints)
 
     def test_coverage_metrics(self):
         """
@@ -524,3 +526,144 @@ class TestFootprintObservations(IssConstellationTestCase):
             )
         combined = aggregate_observations(pd.concat([sampled, observed]))
         self.assertTrue(np.all(combined["satellite"].str.startswith("Test")))
+
+    def test_regions(self):
+        """
+        Test that each observation of a region spans a run of consecutive
+        valid footprints of an instrument that overlap it in a positive area,
+        with the part of the region they cover as its swath.
+        """
+        region = box(0.5, 0.5, 1.5, 1.5)
+        footprints = self._footprints(
+            [
+                ("A", "camera", 0, True, box(0, 0, 1, 2)),
+                ("A", "camera", 1, True, box(1, 0, 2, 2)),
+                ("A", "camera", 2, True, box(5, 5, 6, 6)),
+                ("A", "camera", 3, True, box(0, 0, 1, 2)),
+                # touches the region along an edge: not an observation
+                ("A", "camera", 4, True, box(1.5, 0, 3, 2)),
+                ("A", "camera", 5, True, box(0, 0, 2, 2)),
+            ]
+        )
+        observations = collect_footprint_observations(region, footprints)
+        seconds = lambda column: list(  # noqa: E731
+            (observations[column] - START).dt.total_seconds()
+        )
+        self.assertListEqual(seconds("start"), [0, 3, 5])
+        self.assertListEqual(seconds("end"), [1, 3, 5])
+        self.assertListEqual(seconds("epoch"), [0.5, 3, 5])
+        self.assertTrue(observations.geometry.iloc[0].equals(region))
+        self.assertTrue(observations.geometry.iloc[1].equals(box(0.5, 0.5, 1, 1.5)))
+        self.assertSetEqual(set(observations["target_hash"]), {hash_geometry(region)})
+        # a region at an elevation has its swaths at its elevation, and one at
+        # another elevation than the footprints warns
+        raised = shapely.force_3d(region, 500)
+        footprints["geometry"] = shapely.force_3d(footprints.geometry.to_numpy(), 500)
+        with self.assertWarnsRegex(UserWarning, "other elevations"):
+            collect_footprint_observations(region, footprints)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            observations = collect_footprint_observations(raised, footprints)
+        self.assertEqual(len(observations), 3)
+        elevations = shapely.get_coordinates(
+            observations.geometry.iloc[0], include_z=True
+        )[:, 2]
+        self.assertTrue(np.allclose(elevations, 500))
+        self.assertSetEqual(set(observations["target_hash"]), {hash_geometry(raised)})
+
+    def test_points_and_regions(self):
+        """
+        Test that points and regions are observed together, as each alone.
+        """
+        point, region = ShapelyPoint(1, 1), box(0.5, 0.5, 1.5, 1.5)
+        footprints = self._footprints(
+            [("A", "camera", s, True, box(0, 0, 2, 2)) for s in (0, 1, 2)]
+        )
+        observations = collect_footprint_observations(
+            gpd.GeoSeries([point, region]), footprints
+        )
+        self.assertEqual(len(observations), 2)
+        for target in (point, region):
+            alone = collect_footprint_observations(target, footprints)
+            self.assertIn(
+                alone["target_hash"].iloc[0], set(observations["target_hash"])
+            )
+        aggregated = aggregate_observations(observations)
+        self.assertEqual(len(aggregated), 2)
+        self.assertTrue((aggregated["access"] == timedelta(seconds=2)).all())
+
+    def test_point_angles(self):
+        """
+        Test that, with the platforms, the observations of points have the
+        angles of their platforms seen from the points at their epochs, and
+        those of regions have none.
+        """
+        aircraft = Aircraft(
+            name="P-3",
+            trajectory=Trajectory.from_dataframe(straight_trajectory(n=120)),
+            instruments=[_camera()],
+        )
+        tower = SurfacePlatform(
+            name="Tower",
+            latitude=35,
+            longitude=-110,
+            height=100,
+            instruments=[_camera()],
+        )
+        times = list(pd.date_range(START, periods=120, freq="1s").to_pydatetime())
+        footprints = collect_footprints(aircraft, times)
+        center = footprints.geometry.iloc[60].centroid
+        point = ShapelyPoint(center.x, center.y)
+        region = center.buffer(0.001)
+        observations = collect_footprint_observations(
+            [point, region], footprints, platforms=[aircraft, tower]
+        )
+        self.assertListEqual(
+            list(observations.columns[-2:]), ["platform_alt", "platform_az"]
+        )
+        points = observations[observations.geometry.geom_type == "Point"]
+        self.assertEqual(len(points), 1)
+        # the nadir camera's run over the point centers on the time of its
+        # footprint, when the aircraft is overhead
+        self.assertLess(abs((points["epoch"].iloc[0] - times[60]).total_seconds()), 1)
+        self.assertGreater(points["platform_alt"].iloc[0], 85)
+        regions = observations[observations.geometry.geom_type != "Point"]
+        self.assertEqual(len(regions), 1)
+        self.assertTrue(regions[["platform_alt", "platform_az"]].isna().all(axis=None))
+        # without the platforms, the observations have no angles
+        self.assertNotIn(
+            "platform_alt", collect_footprint_observations(point, footprints).columns
+        )
+        empty = collect_footprint_observations(
+            ShapelyPoint(0, 0), footprints, platforms=aircraft
+        )
+        self.assertTrue(empty.empty)
+        self.assertIn("platform_alt", empty.columns)
+        with self.assertRaisesRegex(ValueError, "P-3"):
+            collect_footprint_observations(point, footprints, platforms=tower)
+
+    def test_matches_collect_region_observations_targets(self):
+        """
+        Test that a region observed by a satellite's footprints has the target
+        hash of its observations by `collect_region_observations`, so that
+        both combine.
+        """
+        satellite = Satellite(
+            name="Test",
+            orbit=self.orbit,
+            instruments=[Instrument(name="Test", field_of_regard=120.0)],
+        )
+        times = [T0 + timedelta(minutes=i) for i in range(0, 180)]
+        footprints = collect_ground_track(satellite, times)
+        center = footprints.geometry.iloc[30].centroid
+        region = box(center.x - 1, center.y - 1, center.x + 1, center.y + 1)
+        sampled = collect_footprint_observations(region, footprints)
+        self.assertFalse(sampled.empty)
+        observed = collect_region_observations(region, satellite, times[0], times[-1])
+        self.assertSetEqual(set(sampled["target_hash"]), set(observed["target_hash"]))
+        # each sampled swath lies within the region
+        self.assertTrue(
+            all(region.buffer(1e-9).contains(swath) for swath in sampled.geometry)
+        )
+        combined = aggregate_observations(pd.concat([sampled, observed]))
+        self.assertEqual(len(combined), 1)

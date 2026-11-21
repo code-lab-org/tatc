@@ -940,7 +940,11 @@ def collect_region_observations(
     coordinates (meters above the WGS 84 ellipsoid), if any, or otherwise
     zero. Regions are split along the anti-meridian and poles (see
     `tatc.utils.geometry.split_polygon`). For a point, see
-    `tatc.analysis.point_sampling.collect_observations`.
+    `tatc.analysis.point_sampling.collect_observations`. For aircraft, fixed
+    surface platforms, and radar stations (or satellites together with
+    them), see `tatc.analysis.footprints.collect_footprint_observations`,
+    which samples the observations of points and regions from the footprints
+    of any platforms at times, with the columns of these observations.
 
     Each observation spans a period when the instrument can observe any part
     of the region, from its start to its end (refined to a millisecond):

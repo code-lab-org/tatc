@@ -1012,7 +1012,12 @@ def collect_observations(
     elevation as its z coordinate) as their geometry, identified by its
     hash, `target_hash` (see `tatc.utils.geometry.hash_geometry`); a TAT-C
     point's `id` is not recorded. For a region, see
-    `tatc.analysis.region_sampling.collect_region_observations`.
+    `tatc.analysis.region_sampling.collect_region_observations`. For
+    aircraft, fixed surface platforms, and radar stations (or satellites
+    together with them), see
+    `tatc.analysis.footprints.collect_footprint_observations`, which samples
+    the observations of points and regions from the footprints of any
+    platforms at times, with the columns of these observations.
 
     Each observation spans a period when the point lies within the
     instrument's field of regard (when its angle from nadir is at most half
