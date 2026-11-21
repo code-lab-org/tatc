@@ -13,9 +13,11 @@ from typing import Annotated, Literal, overload
 
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
 from pydantic import AwareDatetime, BaseModel, Field, model_validator
 from shapely.geometry import Point as ShapelyPoint
 from skyfield.api import Time, wgs84
+from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 from skyfield.toposlib import GeographicPosition
 
@@ -937,6 +939,68 @@ class GeneralPerturbationsOrbit(BaseModel):
             skyfield.toposlib.GeographicPosition: the geodetic position
         """
         return self.get_geographic_position_at_time(_to_time(times))
+
+    def get_ascending_nodes(self, start: datetime, end: datetime) -> pd.DataFrame:
+        """
+        Gets the ascending nodes of this orbit from a start time (inclusive)
+        to an end time (exclusive): the times at which the satellite crosses
+        the Earth's equatorial plane from south to north in the Earth-fixed
+        (ITRS) frame, as propagated by `get_orbit_track_at_time`, and the
+        longitudes of the crossings. Crossings are bracketed at intervals of
+        one fortieth of the shortest orbit period of the elements and refined
+        with Newton's method (from the Earth-fixed vertical velocity) to
+        within a microsecond. An equatorial orbit has no ascending nodes.
+
+        Args:
+            start (datetime): The start time.
+            end (datetime): The end time.
+
+        Returns:
+            pandas.DataFrame: the nodes' times (`time`) and longitudes
+                (`longitude`, decimal degrees)
+        """
+        start_time, end_time = _to_time(start), _to_time(end)
+        step = (
+            min(self.get_orbit_period(i) for i in range(len(self.elements)))
+            / 40
+            / timedelta(days=1)
+        )
+        tt = np.append(np.arange(start_time.tt, end_time.tt, step), end_time.tt)
+        position, _ = self.get_orbit_track_at_time(
+            constants.timescale.tt_jd(tt)
+        ).frame_xyz_and_velocity(itrs)
+        z = position.m[2]
+        index = np.flatnonzero((z[:-1] < 0) & (z[1:] >= 0))
+        # linear interpolation between the bracketing samples
+        guess = tt[index] + (tt[index + 1] - tt[index]) * (
+            -z[index] / (z[index + 1] - z[index])
+        )
+        for _ in range(10):
+            if len(guess) == 0:
+                break
+            position, velocity = self.get_orbit_track_at_time(
+                constants.timescale.tt_jd(guess)
+            ).frame_xyz_and_velocity(itrs)
+            correction_s = position.m[2] / velocity.m_per_s[2]
+            guess = guess - correction_s / 86400
+            if np.max(np.abs(correction_s)) < 1e-6:
+                break
+        guess = guess[(guess >= start_time.tt) & (guess < end_time.tt)]
+        if len(guess) == 0:
+            return pd.DataFrame(
+                {
+                    "time": pd.Series([], dtype="datetime64[ns, UTC]"),
+                    "longitude": pd.Series([], dtype=float),
+                }
+            )
+        nodes = constants.timescale.tt_jd(guess)
+        position, _ = self.get_orbit_track_at_time(nodes).frame_xyz_and_velocity(itrs)
+        return pd.DataFrame(
+            {
+                "time": pd.to_datetime(nodes.utc_datetime(), utc=True),
+                "longitude": np.degrees(np.arctan2(position.m[1], position.m[0])),
+            }
+        )
 
     def _warn_if_propagating_with_drag(self, t: Time, sources: npt.NDArray) -> None:
         """

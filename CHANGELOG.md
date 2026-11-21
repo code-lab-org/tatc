@@ -67,6 +67,8 @@ Added:
  - `compute_sample_sizes` takes `instrument`: the samples of another instrument (or of one for each observing instrument, by name) at the same observations, as of a proposed sensor flown on the same platforms, bound to each platform's attitude.
  - Coincident footprints (`find_coincident_ground_track`) have a `valid_obs` column, `True` if both footprints are valid observations, so that `dissolve_footprints` dissolves the area validly observed in common.
 
+ - Orbit `RepeatGroundTrackOrbit` (`type: repeat`): a circular orbit maintained on a repeat ground track of `revolutions` orbits in `days` days, pinned by one of its ascending nodes (`AscendingNode`, a time and longitude), sun-synchronous unless given an `inclination`, so that it can be built for any time, including years from its node. Its altitude, inclination, and local time of ascending node (`get_local_time_ascending_node`) are derived.
+ - `GeneralPerturbationsOrbit.get_ascending_nodes`: the times and longitudes of an orbit's ascending nodes between two times.
 Changed:
  - The viewing geometry of a platform has the same columns for every kind of platform and analysis: `platform_alt` and `platform_az` (formerly `sat_alt` and `sat_az`) in the observations of points (`collect_observations`, `compute_latencies`), in footprints and pixels (with `platform_altaz` in `collect_ground_track`, `collect_ground_pixels`, `collect_airborne_ground_track`, `collect_surface_track`, and `collect_footprints`; `NaN` for radar stations), and in `preprocess.add_local_incidence_angles`; `platform_range` (formerly `sat_range`) in `compute_sample_sizes`. `sat_altaz` remains a deprecated keyword of `collect_ground_track` and `collect_ground_pixels`, which warns and will be removed in a future release.
  - `find_coincident_ground_track` pairs the footprints of satellites, aircraft, and fixed surface platforms (named by their `satellite`, `aircraft`, or `surface_platform` column), so that concatenated ground tracks give the underflights of a satellite or the overpasses of a tower's view. A footprint without a time (of `collect_surface_track`) is static: it is coincident with overlapping footprints at any time, with a `time_difference` of `NaT`. It indexes the footprints of each platform once, rather than once for each pair of platforms.
@@ -115,6 +117,8 @@ Changed:
  - Warnings of analyses (such as of satellites with a low perigee, or of deprecated arguments) refer to the line that called TAT-C rather than a line within it, so that each is shown once for the call.
  - `collect_multi_observations` and `collect_multi_region_observations` are deprecated (with a `DeprecationWarning`): use `collect_observations` and `collect_region_observations` with `instrument_index=None`, of which they are aliases.
 Fixed:
+ - `GeosynchronousOrbit` is propagated as maintained at its longitude, on a repeat ground track of one orbit per nodal day; previously, the Earth's oblateness and the Moon and Sun moved its longitude by tenths of a degree within a month.
+ - Comparing orbits (or elements) with cached values could raise a `RecursionError`; cached values no longer affect whether objects are equal.
  - An aircraft no longer accepts a `ConicalInstrument` with an inertial `velocity_frame`, as it rejects a `PointedInstrument` with one.
  - `estimate_attitude` of empty states (as of a flight plan without altitudes) gives empty states rather than raising an `IndexError`.
  - `compute_geoid_height` gives `NaN` for an unknown (`NaN`) coordinate without a warning.

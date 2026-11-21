@@ -347,9 +347,11 @@ class GeneralPerturbationsElements(BaseModel):
         sun-synchronous orbit, its inclination is also adjusted so that its
         nodal day is exactly a mean solar day, as for an orbit maintained at
         a constant local time of ascending node. A satellite propagated with
-        the copy returns to its initial Earth-fixed position after each
-        repeat cycle, so that repeated cycles have no discontinuity at their
-        ends. The copy is cached.
+        a circular copy returns to its initial Earth-fixed position after
+        each repeat cycle, so that repeated cycles have no discontinuity at
+        their ends; with eccentricity, the precession of the argument of
+        perigee leaves a small discontinuity (up to about twice the
+        eccentricity times the semimajor axis). The copy is cached.
 
         A single element's mean motion reflects the satellite's position
         within its maintenance band (between maneuvers), so it differs

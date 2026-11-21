@@ -214,6 +214,23 @@ class TestGeosynchronousOrbit(unittest.TestCase):
             delta=1.0,
         )
 
+    def test_longitude_maintained(self):
+        """
+        Test that the orbit is propagated as maintained at its longitude, as
+        by station-keeping: without it, the Earth's oblateness and the Moon
+        and Sun move the longitude by tenths of a degree within a month.
+        """
+        gp_orbit = self.test_orbit.to_gp_orbit()
+        self.assertTrue(gp_orbit.remove_drag)
+        self.assertEqual(gp_orbit.repeat_cycle, timedelta(days=1))
+        epoch = self.test_data["epoch"]
+        times = [epoch + timedelta(days=d) for d in (0, 10.25, 30.5, 365, 3650)]
+        longitudes = [
+            gp_orbit.get_geographic_position(t).longitude.degrees for t in times
+        ]
+        for longitude in longitudes:
+            self.assertAlmostEqual(longitude, self.test_data["longitude"], delta=0.01)
+
 
 if __name__ == "__main__":
     unittest.main()
