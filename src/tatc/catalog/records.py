@@ -7,7 +7,8 @@ write, and of the periods of data they cite.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from collections.abc import Iterable
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
@@ -59,6 +60,36 @@ def get_period_days(period: str) -> tuple[tuple[date, date], ...]:
             raise ValueError(f"the range {item.strip()!r} ends before it starts")
         intervals.append((start, end))
     return tuple(intervals)
+
+
+def format_period(days: Iterable[date | str]) -> str:
+    """
+    Formats days as a period (the inverse of `get_period_days`), with runs of
+    consecutive days as ranges, such as `2026-10-02, 2026-10-05 to 2026-10-07`.
+
+    Args:
+        days (Iterable[datetime.date | str]): The days, as dates or in ISO 8601,
+            in any order and with any repeats.
+
+    Returns:
+        str: The period.
+
+    Raises:
+        ValueError: If there are no days.
+    """
+    runs: list[list[date]] = []
+    for day in sorted(
+        {d if isinstance(d, date) else date.fromisoformat(d) for d in days}
+    ):
+        if runs and day - runs[-1][-1] == timedelta(days=1):
+            runs[-1].append(day)
+        else:
+            runs.append([day])
+    if not runs:
+        raise ValueError("a period has at least one day")
+    return ", ".join(
+        f"{run[0]}" if len(run) == 1 else f"{run[0]} to {run[-1]}" for run in runs
+    )
 
 
 def _check_period(period: str) -> str:
@@ -128,8 +159,8 @@ class ConfigurationRecord(_CatalogModel):
     platform_periods: dict[str, Period] = Field(
         default_factory=dict,
         description="The period of each platform's reference data, if they differ "
-        + "(as for the spacecraft of a system), from which the gap to the data of "
-        + "each platform's fitted values is computed.",
+        + "(as for the spacecraft of a system, whose values are fitted to each "
+        + "spacecraft's own data), for every platform tested or for none.",
     )
     metrics: tuple[Metric, ...] = Field(..., description="The results.")
     transfers: dict[str, Transfer] = Field(
@@ -146,9 +177,11 @@ class ConfigurationRecord(_CatalogModel):
 
     @model_validator(mode="after")
     def _check_platform_periods(self) -> "ConfigurationRecord":
-        unknown = set(self.platform_periods) - set(self.platforms)
-        if unknown:
-            raise ValueError(f"periods of platforms not tested: {sorted(unknown)}")
+        if self.platform_periods and set(self.platform_periods) != set(self.platforms):
+            raise ValueError(
+                "platform_periods gives the period of every platform tested, or of "
+                f"none: {sorted(self.platform_periods)} of {list(self.platforms)}"
+            )
         return self
 
 

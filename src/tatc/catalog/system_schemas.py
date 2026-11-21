@@ -14,14 +14,14 @@ import functools
 import hashlib
 import json
 import pathlib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime, time
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, ClassVar, Literal
 
 import numpy as np
 import pandas as pd
-from pydantic import Field, model_validator
-from shapely.geometry import Point as ShapelyPoint
+import shapely
+from pydantic import Field, TypeAdapter, model_validator
 from shapely.geometry.base import BaseGeometry
 
 from ..schemas import (
@@ -34,11 +34,12 @@ from ..schemas import (
     SunSynchronousOrbit,
     SurfacePlatform,
 )
+from ..schemas.orbit import AllOrbits
 from ..schemas.surface.radar import RadarBand
 from ..utils import compute_geoid_height
 from .records import ValidationRecord, _CatalogModel, _get_days_apart
 from .schemas import InstrumentSpecification, Provenance, _check_provenance
-from .standard import EntryValidation
+from .standard import EntryValidation, InstrumentClass
 from .system_standard import (
     SystemClass,
     SystemGrade,
@@ -75,11 +76,13 @@ class SunSynchronousPlane(_CatalogModel):
     """
     The plane of a sun-synchronous orbit, at the plane grade: its mean altitude
     and the local time of its ascending node, and, for an orbit whose local time
-    is no longer maintained (and drifts), its inclination. Built at an epoch,
-    with an arbitrary phase, as a `SunSynchronousOrbit` (whose inclination is
-    sun-synchronous, so that its local time stays constant), or, with an
-    inclination, as a `CircularOrbit` with the local time at the epoch, which
-    drifts at the rate of its inclination during an analysis.
+    is no longer maintained (and drifts), its inclination. Built at an epoch as
+    a `SunSynchronousOrbit` (whose inclination is sun-synchronous, so that its
+    local time stays constant), or, with an inclination, as a `CircularOrbit`
+    with the local time at the epoch, which drifts at the rate of its inclination
+    during an analysis. Its phase is that of a constellation whose operator
+    maintains the satellites' relative phases, or else is spaced evenly among
+    the satellites built (see `OrbitConfiguration.build_orbits`).
     """
 
     type: Literal["sso"] = Field(default="sso", description="Orbit discriminator.")
@@ -96,20 +99,31 @@ class SunSynchronousPlane(_CatalogModel):
         description="Inclination (degrees) of an orbit whose local time drifts, or "
         + "None (the default) for the sun-synchronous inclination.",
     )
+    phase: float | None = Field(
+        default=None,
+        ge=0,
+        lt=360,
+        description="Argument of latitude (degrees) at the epoch, relative to the "
+        + "other satellites of the configuration, for a constellation whose "
+        + "operator maintains their relative phases, or None (the default) for an "
+        + "arbitrary phase.",
+    )
 
     def build(
-        self, epoch: datetime, true_anomaly: float = 0
+        self, epoch: datetime, phase: float | None = None
     ) -> SunSynchronousOrbit | CircularOrbit:
         """
         Builds the orbit at an epoch.
 
         Args:
             epoch (datetime): The epoch.
-            true_anomaly (float): The true anomaly (degrees) at the epoch.
+            phase (float | None): The argument of latitude (degrees) at the
+                epoch, if not the cataloged one (or zero).
 
         Returns:
             SunSynchronousOrbit | CircularOrbit: The orbit.
         """
+        true_anomaly = _get_value(phase, self.phase)
         orbit = SunSynchronousOrbit(
             mean_altitude=self.mean_altitude,
             equator_crossing_time=self.equator_crossing_time,
@@ -126,12 +140,42 @@ class SunSynchronousPlane(_CatalogModel):
             true_anomaly=true_anomaly,
         )
 
+    def describe(self) -> str:
+        """
+        Describes the orbit.
+
+        Returns:
+            str: The description.
+        """
+        text = (
+            f"Sun-synchronous, {self.mean_altitude / 1e3:.2f} km, ascending node "
+            f"at {self.equator_crossing_time:%H:%M:%S}"
+        )
+        if self.inclination is not None:
+            text += f", drifting at {self.inclination} deg"
+        if self.phase is not None:
+            text += f", phase {self.phase:g} deg"
+        return text
+
+
+def _get_value(given: float | None, cataloged: float | None) -> float:
+    """
+    Gets an angle given to build an orbit, or else its cataloged value, or else
+    zero.
+    """
+    if given is not None:
+        return given
+    return 0 if cataloged is None else cataloged
+
 
 class InclinedPlane(_CatalogModel):
     """
     The plane of an inclined circular orbit, at the plane grade: its mean
-    altitude and inclination. Built as a `CircularOrbit` at an epoch, with an
-    arbitrary right ascension of ascending node and phase.
+    altitude and inclination. Built as a `CircularOrbit` at an epoch. Its right
+    ascension of ascending node and phase are those of a constellation whose
+    operator maintains the satellites' relative planes and phases, or else are
+    spaced evenly among the satellites built (see
+    `OrbitConfiguration.build_orbits`).
     """
 
     type: Literal["circular"] = Field(
@@ -141,15 +185,38 @@ class InclinedPlane(_CatalogModel):
         ..., gt=0, description="Mean altitude (meters), as TAT-C defines it."
     )
     inclination: float = Field(..., gt=0, lt=180, description="Inclination (degrees).")
+    right_ascension_ascending_node: float | None = Field(
+        default=None,
+        ge=0,
+        lt=360,
+        description="Right ascension of ascending node (degrees) at the epoch, "
+        + "relative to the other satellites of the configuration, or None (the "
+        + "default) for an arbitrary one.",
+    )
+    phase: float | None = Field(
+        default=None,
+        ge=0,
+        lt=360,
+        description="Argument of latitude (degrees) at the epoch, relative to the "
+        + "other satellites of the configuration, or None (the default) for an "
+        + "arbitrary phase.",
+    )
 
-    def build(self, epoch: datetime, true_anomaly: float = 0) -> CircularOrbit:
+    def build(
+        self,
+        epoch: datetime,
+        phase: float | None = None,
+        right_ascension_ascending_node: float | None = None,
+    ) -> CircularOrbit:
         """
-        Builds the orbit at an epoch, with a right ascension of ascending node of
-        zero.
+        Builds the orbit at an epoch.
 
         Args:
             epoch (datetime): The epoch.
-            true_anomaly (float): The true anomaly (degrees) at the epoch.
+            phase (float | None): The argument of latitude (degrees) at the
+                epoch, if not the cataloged one (or zero).
+            right_ascension_ascending_node (float | None): The right ascension
+                of ascending node (degrees), if not the cataloged one (or zero).
 
         Returns:
             CircularOrbit: The orbit.
@@ -157,10 +224,26 @@ class InclinedPlane(_CatalogModel):
         return CircularOrbit(
             mean_altitude=self.mean_altitude,
             inclination=self.inclination,
-            right_ascension_ascending_node=0,
+            right_ascension_ascending_node=_get_value(
+                right_ascension_ascending_node, self.right_ascension_ascending_node
+            ),
             epoch=epoch,
-            true_anomaly=true_anomaly,
+            true_anomaly=_get_value(phase, self.phase),
         )
+
+    def describe(self) -> str:
+        """
+        Describes the orbit.
+
+        Returns:
+            str: The description.
+        """
+        text = f"{self.mean_altitude / 1e3:.2f} km, {self.inclination} deg"
+        if self.right_ascension_ascending_node is not None:
+            text += f", node {self.right_ascension_ascending_node:g} deg"
+        if self.phase is not None:
+            text += f", phase {self.phase:g} deg"
+        return text
 
 
 class GeostationarySlot(_CatalogModel):
@@ -179,21 +262,28 @@ class GeostationarySlot(_CatalogModel):
         default=0, ge=0, lt=180, description="Inclination (degrees)."
     )
 
-    def build(self, epoch: datetime, true_anomaly: float = 0) -> GeosynchronousOrbit:
+    def build(self, epoch: datetime) -> GeosynchronousOrbit:
         """
         Builds the orbit at an epoch.
 
         Args:
             epoch (datetime): The epoch.
-            true_anomaly (float): Not used (the longitude sets the position).
 
         Returns:
             GeosynchronousOrbit: The orbit.
         """
-        del true_anomaly
         return GeosynchronousOrbit(
             longitude=self.longitude, inclination=self.inclination, epoch=epoch
         )
+
+    def describe(self) -> str:
+        """
+        Describes the orbit.
+
+        Returns:
+            str: The description.
+        """
+        return f"Geostationary at {self.longitude} deg, {self.inclination} deg"
 
 
 CatalogOrbit = Annotated[
@@ -212,16 +302,38 @@ _ORBIT_TYPES = {
 }
 
 
+# the optional values of orbits at the plane grade, which a configuration gives
+# for every orbit or for none
+_RELATIVE_VALUES = ("phase", "right_ascension_ascending_node")
+
+
+def describe_orbit(orbit: CatalogOrbit) -> str:
+    """
+    Describes an orbit of a configuration, such as "Sun-synchronous, 834.10 km,
+    ascending node at 13:30:03".
+
+    Args:
+        orbit (CatalogOrbit): The orbit.
+
+    Returns:
+        str: The description.
+    """
+    if isinstance(orbit, RepeatGroundTrackOrbit):
+        node = orbit.ascending_node
+        return (
+            f"Repeat of {orbit.revolutions} orbits in {orbit.days} days "
+            f"({orbit.get_mean_altitude() / 1e3:.2f} km), ascending node at "
+            f"{node.longitude} deg on {node.time:%Y-%m-%d %H:%M:%S} UTC"
+        )
+    return orbit.describe()
+
+
 def _get_values(orbit: Any) -> set[str]:
     """
     Gets the values of an orbit that need provenance: its fields, without its
-    `type` or an unset (derived) inclination.
+    `type` or unset optional values (such as a derived inclination).
     """
-    return {
-        field
-        for field, value in orbit
-        if field != "type" and not (field == "inclination" and value is None)
-    }
+    return {field for field, value in orbit if field != "type" and value is not None}
 
 
 class _SystemConfiguration(_CatalogModel):
@@ -235,42 +347,36 @@ class _SystemConfiguration(_CatalogModel):
         default=(), description="What it does not represent."
     )
 
-    def _get_measured(self) -> list[Provenance]:
+    def get_measured(self) -> list[Provenance]:
         """
         Gets the provenance of the values fitted to reference data.
         """
         raise NotImplementedError
 
-    def get_holdout_gap(self, period: str) -> int | None:
+    def get_content(self) -> dict[str, Any]:
+        """
+        Gets the values that affect analysis results.
+        """
+        raise NotImplementedError
+
+    def get_holdout_gap(
+        self, period: str, platform_periods: Mapping[str, str] | None = None
+    ) -> int | None:
         """
         Gets the days between the data to which values were fitted and the data
         of a test: between the nearest days of the periods.
 
         Args:
             period (str): The period of the data of the test (see `Period`).
+            platform_periods (Mapping[str, str] | None): The period of each
+                platform's data, if they differ, with which the values fitted to
+                a spacecraft's own data are compared.
 
         Returns:
             int | None: The days, or `None` if no value was fitted.
         """
-        measured = self._get_measured()
-        if not measured:
-            return None
-        return min(_get_days_apart(p.period, period) for p in measured)
-
-    def _get_content(self) -> dict[str, Any]:
-        """
-        Gets the values that affect analysis results.
-        """
-        raise NotImplementedError
-
-    @property
-    def digest(self) -> str:
-        """
-        A digest of the values that affect analysis results, with which a
-        validation record identifies the configuration it tested.
-        """
-        encoded = json.dumps(self._get_content(), sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        del platform_periods
+        return _get_gap(self.get_measured(), period)
 
     def get_members(self) -> list[str]:
         """
@@ -296,6 +402,23 @@ class _SystemConfiguration(_CatalogModel):
         return serves_system(self.grade, grade)
 
 
+def _get_gap(measured: list[Provenance], period: str) -> int | None:
+    """
+    Gets the least days between the periods of fitted values and a period.
+    """
+    if not measured:
+        return None
+    return min(_get_days_apart(p.period, period) for p in measured)
+
+
+def _get_digest(content: dict[str, Any]) -> str:
+    """
+    Gets the digest of the values that affect analysis results.
+    """
+    encoded = json.dumps(content, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 class OrbitConfiguration(_SystemConfiguration):
     """
     The orbits of a satellite system's spacecraft, as validated for a use.
@@ -316,34 +439,104 @@ class OrbitConfiguration(_SystemConfiguration):
             raise ValueError("each orbit needs provenance, by spacecraft")
         for spacecraft, orbit in self.orbits.items():
             _check_provenance(_get_values(orbit), self.provenance[spacecraft])
+        for field in _RELATIVE_VALUES:
+            given = {
+                getattr(orbit, field) is not None
+                for orbit in self.orbits.values()
+                if field in type(orbit).model_fields
+            }
+            if len(given) > 1:
+                raise ValueError(f"{field} is given for every orbit or for none")
         return self
+
+    def build_orbits(
+        self, members: Sequence[str], epoch: datetime | None = None
+    ) -> list[AllOrbits]:
+        """
+        Builds the orbits of spacecraft. An orbit at the plane grade is built at
+        the epoch with its cataloged phase (and, for an inclined orbit, right
+        ascension of ascending node), if any, or else with phases (and nodes)
+        spaced evenly among the orbits built at the plane grade, so that
+        satellites that share a plane are not built at the same position.
+
+        Args:
+            members (Sequence[str]): The identifiers of the spacecraft.
+            epoch (datetime | None): The epoch of orbits at the plane grade or of
+                geostationary orbits.
+
+        Returns:
+            list[AllOrbits]: The orbits, in the order of the members.
+
+        Raises:
+            ValueError: If a spacecraft has no orbit, or an orbit needs an epoch.
+        """
+        unknown = [m for m in members if m not in self.orbits]
+        if unknown:
+            raise ValueError(f"no orbits of {unknown} in this configuration")
+        planes = [
+            m
+            for m in members
+            if isinstance(self.orbits[m], (SunSynchronousPlane, InclinedPlane))
+        ]
+        spread = {m: 360 * i / len(planes) for i, m in enumerate(planes)}
+        orbits = []
+        for member in members:
+            orbit = self.orbits[member]
+            if isinstance(orbit, RepeatGroundTrackOrbit):
+                orbits.append(orbit)
+                continue
+            if epoch is None:
+                raise ValueError(f"{member}'s orbit is built at an epoch (or start)")
+            if isinstance(orbit, GeostationarySlot):
+                orbits.append(orbit.build(epoch))
+            elif isinstance(orbit, InclinedPlane):
+                orbits.append(
+                    orbit.build(
+                        epoch,
+                        phase=_get_value(orbit.phase, spread[member]),
+                        right_ascension_ascending_node=_get_value(
+                            orbit.right_ascension_ascending_node, spread[member]
+                        ),
+                    )
+                )
+            else:
+                orbits.append(
+                    orbit.build(epoch, phase=_get_value(orbit.phase, spread[member]))
+                )
+        return orbits
 
     def get_members(self) -> list[str]:
         return list(self.orbits)
 
-    def get_platform_holdout_gap(self, periods: dict[str, str]) -> int | None:
+    def get_holdout_gap(
+        self, period: str, platform_periods: Mapping[str, str] | None = None
+    ) -> int | None:
         """
-        Gets the days between the data to which each spacecraft's values were
-        fitted and the data of its test: the least, over spacecraft, of the days
-        between the nearest days of its periods.
+        Gets the days between the data to which values were fitted and the data
+        of a test: the least, over spacecraft, of the days between the nearest
+        days of the periods of the data to which its values were fitted and of
+        its own test data (from `platform_periods`, if given, or else `period`).
 
         Args:
-            periods (dict[str, str]): The period of the data of each spacecraft's
-                test (see `Period`), by identifier.
+            period (str): The period of the data of the test (see `Period`).
+            platform_periods (Mapping[str, str] | None): The period of each
+                tested spacecraft's data, if they differ (see
+                `ConfigurationRecord.platform_periods`).
 
         Returns:
             int | None: The days, or `None` if no tested spacecraft has fitted
             values.
         """
+        periods = platform_periods or dict.fromkeys(self.orbits, period)
         gaps = [
-            _get_days_apart(provenance.period, period)
-            for spacecraft, period in periods.items()
+            _get_days_apart(provenance.period, test_period)
+            for spacecraft, test_period in periods.items()
             for provenance in self.provenance.get(spacecraft, {}).values()
             if provenance.kind == "measured"
         ]
         return min(gaps) if gaps else None
 
-    def _get_measured(self) -> list[Provenance]:
+    def get_measured(self) -> list[Provenance]:
         return [
             provenance
             for values in self.provenance.values()
@@ -351,7 +544,7 @@ class OrbitConfiguration(_SystemConfiguration):
             if provenance.kind == "measured"
         ]
 
-    def _get_content(self) -> dict[str, Any]:
+    def get_content(self) -> dict[str, Any]:
         return {
             "orbits": {
                 key: orbit.model_dump(mode="json", exclude_none=True)
@@ -365,6 +558,14 @@ class RadarConfiguration(_SystemConfiguration):
     The scanning of a radar network's stations, as validated for a use, such as
     a volume coverage pattern of weather radars.
     """
+
+    _VALUES: ClassVar[tuple[str, ...]] = (
+        "band",
+        "max_range",
+        "min_elevation_angle",
+        "max_elevation_angle",
+        "beam_width",
+    )
 
     band: RadarBand = Field(..., description="The frequency band.")
     max_range: float = Field(..., gt=0, description="Maximum slant range (meters).")
@@ -381,56 +582,28 @@ class RadarConfiguration(_SystemConfiguration):
     beam_width: float = Field(
         ..., ge=0, le=180, description="Half-power beam width (degrees)."
     )
+    volume_coverage_patterns: tuple[int, ...] = Field(
+        default=(),
+        description="The volume coverage patterns that the configuration "
+        + "represents, by number (such as 12 and 212), with which its coverage is "
+        + "compared with the volumes the radars scanned.",
+    )
     provenance: dict[str, Provenance] = Field(
         ..., description="The origin of each value, by field."
-    )
-    table_digest: str = Field(
-        default="",
-        description="The digest of the stations' table, set by the system.",
-        exclude=True,
-    )
-    table_provenance: Provenance | None = Field(
-        default=None,
-        description="The provenance of the stations' table, set by the system.",
-        exclude=True,
     )
 
     @model_validator(mode="after")
     def _check_values(self) -> RadarConfiguration:
-        _check_provenance(
-            {
-                "band",
-                "max_range",
-                "min_elevation_angle",
-                "max_elevation_angle",
-                "beam_width",
-            },
-            self.provenance,
-        )
+        _check_provenance(set(self._VALUES), self.provenance)
         if self.max_elevation_angle < self.min_elevation_angle:
             raise ValueError("max_elevation_angle is below min_elevation_angle")
         return self
 
-    def _get_measured(self) -> list[Provenance]:
-        provenances = list(self.provenance.values())
-        if self.table_provenance is not None:
-            provenances.append(self.table_provenance)
-        return [p for p in provenances if p.kind == "measured"]
+    def get_measured(self) -> list[Provenance]:
+        return [p for p in self.provenance.values() if p.kind == "measured"]
 
-    def _get_content(self) -> dict[str, Any]:
-        return {
-            "radar": self.model_dump(
-                mode="json",
-                include={
-                    "band",
-                    "max_range",
-                    "min_elevation_angle",
-                    "max_elevation_angle",
-                    "beam_width",
-                },
-            ),
-            "table": self.table_digest,
-        }
+    def get_content(self) -> dict[str, Any]:
+        return {"radar": self.model_dump(mode="json", include=set(self._VALUES))}
 
 
 class SurfaceConfiguration(_SystemConfiguration):
@@ -447,67 +620,27 @@ class SurfaceConfiguration(_SystemConfiguration):
     provenance: dict[str, Provenance] = Field(
         ..., description="The origin of the height (`height`)."
     )
-    table_digest: str = Field(
-        default="",
-        description="The digest of the stations' table, set by the system.",
-        exclude=True,
-    )
-    table_provenance: Provenance | None = Field(
-        default=None,
-        description="The provenance of the stations' table, set by the system.",
-        exclude=True,
-    )
 
     @model_validator(mode="after")
     def _check_values(self) -> SurfaceConfiguration:
         _check_provenance({"height"}, self.provenance)
         return self
 
-    def _get_measured(self) -> list[Provenance]:
+    def get_measured(self) -> list[Provenance]:
         provenances = list(self.provenance.values()) + [
             provenance
             for instrument in self.instruments
             for provenance in instrument.provenance.values()
         ]
-        if self.table_provenance is not None:
-            provenances.append(self.table_provenance)
         return [p for p in provenances if p.kind == "measured"]
 
-    def _get_content(self) -> dict[str, Any]:
+    def get_content(self) -> dict[str, Any]:
         return {
             "height": self.height,
             "instruments": [
                 {"type": i.type, "parameters": i.parameters} for i in self.instruments
             ],
-            "table": self.table_digest,
         }
-
-
-# the columns of the tables of stations, by class (those after the first five
-# are optional)
-_TABLE_COLUMNS = {
-    SystemClass.RADAR_NETWORK: (
-        "id",
-        "name",
-        "latitude",
-        "longitude",
-        "ground",
-        "height",
-        "min_elevation_angle",
-    ),
-    SystemClass.SURFACE_NETWORK: (
-        "id",
-        "name",
-        "latitude",
-        "longitude",
-        "ground",
-        "wban",
-    ),
-}
-_REQUIRED_COLUMNS = {
-    SystemClass.RADAR_NETWORK: 6,
-    SystemClass.SURFACE_NETWORK: 5,
-}
 
 
 @functools.lru_cache(maxsize=None)
@@ -543,6 +676,12 @@ class StationTable(_CatalogModel):
         + "membership are held out from it.",
     )
 
+    @model_validator(mode="after")
+    def _check_file(self) -> StationTable:
+        if not (_TABLES / self.file).is_file():
+            raise ValueError(f"no packaged table {self.file!r}")
+        return self
+
     def load(self) -> pd.DataFrame:
         """
         Loads the table.
@@ -571,9 +710,10 @@ class StationTable(_CatalogModel):
 
 class SystemEntry(_CatalogModel):
     """
-    A system of a past or present program (a satellite program, a radar network,
-    or a surface network), in configurations validated against reference data,
-    from which to build the platforms of baseline systems in pre-phase A studies.
+    A system of a past or present program, in configurations validated against
+    reference data, from which to build the platforms of baseline systems in
+    pre-phase A studies: a `SatelliteSystem`, a `RadarNetwork`, or a
+    `SurfaceNetwork` (parsed by its `system_class` with `parse_system`).
     """
 
     id: str = Field(..., description="Entry identifier.")
@@ -582,18 +722,12 @@ class SystemEntry(_CatalogModel):
     system_class: SystemClass = Field(..., description="System class.")
     selection: str = Field(..., description="Why the system is cataloged.")
     operator: str = Field(..., description="The organizations that operate it.")
-    spacecraft: tuple[Spacecraft, ...] = Field(
-        default=(), description="The satellites of a satellite system."
-    )
-    stations: StationTable | None = Field(
-        default=None, description="The stations of a network."
-    )
     default_configuration: str = Field(
         ..., description="The configuration used if none is specified."
     )
-    configurations: dict[
-        str, OrbitConfiguration | RadarConfiguration | SurfaceConfiguration
-    ] = Field(..., min_length=1, description="The ways of modeling it, by identifier.")
+    configurations: dict[str, _SystemConfiguration] = Field(
+        ..., min_length=1, description="The ways of modeling it, by identifier."
+    )
     limitations: tuple[str, ...] = Field(
         default=(), description="What no configuration represents."
     )
@@ -601,113 +735,24 @@ class SystemEntry(_CatalogModel):
         default=None, description="The results of its validation."
     )
 
-    @model_validator(mode="before")
-    @classmethod
-    def _parse_configurations(cls, data: Any) -> Any:
-        """
-        Parses the configurations as those of the class, with the digest of the
-        stations' table of a network.
-        """
-        if not isinstance(data, dict) or not isinstance(
-            data.get("configurations"), dict
-        ):
-            return data
-        system_class = SystemClass(data.get("system_class"))
-        if system_class.is_satellite():
-            schema: type[_SystemConfiguration] = OrbitConfiguration
-        elif system_class == SystemClass.RADAR_NETWORK:
-            schema = RadarConfiguration
-        else:
-            schema = SurfaceConfiguration
-        stations = data.get("stations")
-        table = {}
-        if stations is not None:
-            stations = (
-                stations
-                if isinstance(stations, StationTable)
-                else StationTable(**stations)
-            )
-            try:
-                digest = stations.digest
-            except FileNotFoundError:
-                raise ValueError(f"no packaged table {stations.file!r}") from None
-            table = {"table_digest": digest, "table_provenance": stations.provenance}
-        configurations = {}
-        for key, value in data["configurations"].items():
-            if isinstance(value, _SystemConfiguration):
-                value = value.model_dump()
-            if not isinstance(value, dict):
-                raise ValueError(f"{key}: a configuration is a mapping")
-            value = {**value, **table}
-            configurations[key] = schema(**value)
-        return {**data, "configurations": configurations}
-
     @model_validator(mode="after")
-    def _check_references(self) -> SystemEntry:
+    def _check_entry(self) -> SystemEntry:
         if self.default_configuration not in self.configurations:
             raise ValueError("default_configuration is not a configuration")
-        satellite = self.system_class.is_satellite()
-        if satellite and (not self.spacecraft or self.stations is not None):
-            raise ValueError("a satellite system has spacecraft and no stations")
-        if not satellite and (self.spacecraft or self.stations is None):
-            raise ValueError("a network has stations and no spacecraft")
-        spacecraft = {s.id for s in self.spacecraft}
-        if len(spacecraft) != len(self.spacecraft):
-            raise ValueError("spacecraft identifiers must be distinct")
-        for key, configuration in self.configurations.items():
+        for configuration in self.configurations.values():
             # checks that the class has gates at this grade
             get_system_gates(self.system_class, configuration.grade)
-            if isinstance(configuration, OrbitConfiguration):
-                unknown = set(configuration.orbits) - spacecraft
-                if unknown:
-                    raise ValueError(f"{key}: unknown spacecraft {sorted(unknown)}")
-                wanted = _ORBIT_TYPES[self.system_class, configuration.grade]
-                for name, orbit in configuration.orbits.items():
-                    if orbit.type != wanted:
-                        raise ValueError(
-                            f"{key}: {name}'s orbit at the "
-                            f"{configuration.grade.value} grade of a "
-                            f"{self.system_class.value} system is of type {wanted}"
-                        )
-                    if isinstance(orbit, RepeatGroundTrackOrbit) and (
-                        orbit.is_sun_synchronous()
-                        != (self.system_class == SystemClass.SUN_SYNCHRONOUS)
-                    ):
-                        raise ValueError(
-                            f"{key}: {name}'s repeat orbit has an inclination only "
-                            "if it is not sun-synchronous"
-                        )
-        if self.stations is not None:
-            self._check_table()
         if self.record is not None:
-            self._check_record(spacecraft)
+            self._check_record()
         return self
 
-    def _check_table(self) -> None:
+    def _get_platforms(self) -> set[str]:
         """
-        Checks the columns and values of the table of stations.
+        Gets the platforms that a record may name.
         """
-        table = self.stations.load()
-        columns = _TABLE_COLUMNS[self.system_class]
-        required = columns[: _REQUIRED_COLUMNS[self.system_class]]
-        missing = [c for c in required if c not in table.columns]
-        unknown = [c for c in table.columns if c not in columns]
-        if missing or unknown:
-            raise ValueError(
-                f"the table of stations has columns {list(table.columns)}: "
-                f"missing {missing}, unknown {unknown}"
-            )
-        if table["id"].duplicated().any() or table["id"].isna().any():
-            raise ValueError("stations need distinct identifiers")
-        if table[list(required)].isna().any().any():
-            raise ValueError(f"stations need values of {list(required)}")
-        if (
-            not (table.latitude.abs() <= 90).all()
-            or not (table.longitude.abs() <= 180).all()
-        ):
-            raise ValueError("stations need latitudes and longitudes in degrees")
+        return {self.id}
 
-    def _check_record(self, spacecraft: set[str]) -> None:
+    def _check_record(self) -> None:
         """
         Checks that the record is of this system's configurations and platforms.
         """
@@ -716,7 +761,7 @@ class SystemEntry(_CatalogModel):
         unknown = set(self.record.configurations) - set(self.configurations)
         if unknown:
             raise ValueError(f"records of unknown {sorted(unknown)}")
-        platforms = spacecraft if spacecraft else {self.id}
+        platforms = self._get_platforms()
         for key, record in self.record.configurations.items():
             if not set(record.platforms) <= platforms:
                 raise ValueError(
@@ -734,6 +779,72 @@ class SystemEntry(_CatalogModel):
         `tatc.catalog.system_standard.evaluate_system`).
         """
         return evaluate_system(self)
+
+    def get_digest(self, configuration: str) -> str:
+        """
+        Gets the digest of the values of a configuration that affect analysis
+        results, with which a validation record identifies the configuration it
+        tested.
+
+        Args:
+            configuration (str): The identifier of the configuration.
+
+        Returns:
+            str: The digest.
+        """
+        return _get_digest(self.configurations[configuration].get_content())
+
+    def get_holdout_gap(
+        self,
+        configuration: str,
+        period: str,
+        platform_periods: Mapping[str, str] | None = None,
+    ) -> int | None:
+        """
+        Gets the days between the data to which a configuration's values were
+        fitted and the data of a test (see `get_holdout_gap` of its class).
+
+        Args:
+            configuration (str): The identifier of the configuration.
+            period (str): The period of the data of the test (see `Period`).
+            platform_periods (Mapping[str, str] | None): The period of each
+                platform's data, if they differ.
+
+        Returns:
+            int | None: The days, or `None` if no value was fitted.
+        """
+        return self.configurations[configuration].get_holdout_gap(
+            period, platform_periods
+        )
+
+    def get_members(self) -> list[str]:
+        """
+        Gets the identifiers of the system's members: its spacecraft, or its
+        stations.
+
+        Returns:
+            list[str]: The identifiers.
+        """
+        raise NotImplementedError
+
+    def summarize(self) -> dict[str, Any]:
+        """
+        Summarizes the system, as a row of a table of systems (such as
+        `pandas.DataFrame([s.summarize() for s in list_systems()])`).
+
+        Returns:
+            dict[str, Any]: Its `system` (identifier), `name`, `class`,
+            validation `tier`, `configurations` (comma-separated), and number
+            of `members` (spacecraft or stations).
+        """
+        return {
+            "system": self.id,
+            "name": self.name,
+            "class": self.system_class.value,
+            "tier": self.validation.tier.value,
+            "configurations": ", ".join(self.configurations),
+            "members": len(self.get_members()),
+        }
 
     def select_configuration(
         self,
@@ -782,6 +893,55 @@ class SystemEntry(_CatalogModel):
             f"{SystemGrade(grade).value} grade"
         )
 
+
+class SatelliteSystem(SystemEntry):
+    """
+    A satellite program: its spacecraft, and the orbits of its configurations.
+    """
+
+    system_class: Literal[
+        SystemClass.SUN_SYNCHRONOUS, SystemClass.INCLINED, SystemClass.GEOSTATIONARY
+    ] = Field(..., description="System class.")
+    spacecraft: tuple[Spacecraft, ...] = Field(
+        ..., min_length=1, description="The satellites of the system."
+    )
+    configurations: dict[str, OrbitConfiguration] = Field(
+        ..., min_length=1, description="The ways of modeling it, by identifier."
+    )
+
+    @model_validator(mode="after")
+    def _check_orbits(self) -> SatelliteSystem:
+        spacecraft = {s.id for s in self.spacecraft}
+        if len(spacecraft) != len(self.spacecraft):
+            raise ValueError("spacecraft identifiers must be distinct")
+        for key, configuration in self.configurations.items():
+            unknown = set(configuration.orbits) - spacecraft
+            if unknown:
+                raise ValueError(f"{key}: unknown spacecraft {sorted(unknown)}")
+            wanted = _ORBIT_TYPES[self.system_class, configuration.grade]
+            for name, orbit in configuration.orbits.items():
+                if orbit.type != wanted:
+                    raise ValueError(
+                        f"{key}: {name}'s orbit at the "
+                        f"{configuration.grade.value} grade of a "
+                        f"{self.system_class.value} system is of type {wanted}"
+                    )
+                if isinstance(orbit, RepeatGroundTrackOrbit) and (
+                    orbit.is_sun_synchronous()
+                    != (self.system_class == SystemClass.SUN_SYNCHRONOUS)
+                ):
+                    raise ValueError(
+                        f"{key}: {name}'s repeat orbit has an inclination only "
+                        "if it is not sun-synchronous"
+                    )
+        return self
+
+    def _get_platforms(self) -> set[str]:
+        return {s.id for s in self.spacecraft}
+
+    def get_members(self) -> list[str]:
+        return [s.id for s in self.spacecraft]
+
     def get_spacecraft(self, spacecraft_id: str) -> Spacecraft:
         """
         Gets a spacecraft of this system.
@@ -803,87 +963,201 @@ class SystemEntry(_CatalogModel):
             f"{[s.id for s in self.spacecraft]}"
         )
 
+    def get_payload_references(self, spacecraft_id: str) -> list[str]:
+        """
+        Gets the instrument catalog's entries that list a spacecraft of this
+        system, except those of limb sounders and radio occultation receivers,
+        whose soundings are analyzed with their own methods (see
+        `tatc.catalog.InstrumentPayload.sounding`).
+
+        Args:
+            spacecraft_id (str): The identifier of the spacecraft.
+
+        Returns:
+            list[str]: The identifiers of the entries.
+        """
+        self.get_spacecraft(spacecraft_id)
+        sounders = (InstrumentClass.LIMB, InstrumentClass.OCCULTATION)
+        return [
+            entry.id
+            for entry in _loader().list_entries(platform=spacecraft_id)
+            if entry.instrument_class not in sounders
+        ]
+
     def build(  # pylint: disable=too-many-arguments,too-many-locals
         self,
         configuration: str | None = None,
         *,
         grade: SystemGrade | str | None = None,
         members: Sequence[str] | None = None,
-        region: BaseGeometry | None = None,
         epoch: datetime | None = None,
-        payload: bool | Sequence[str] = True,
-        time_step: float | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
-        radius: float | None = None,
-    ) -> list[Satellite] | list[RadarStation] | list[SurfacePlatform]:
+        payload: bool | Sequence[str] = True,
+        time_step: float | None = None,
+    ) -> list[Satellite]:
         """
-        Builds the platforms of a configuration (see `select_configuration`):
-        the satellites of a satellite system, or the stations of a network.
-
-        Satellites are named by their spacecraft's `name` and carry the
-        instruments of the instrument catalog's entries that list them (with
-        `payload`, see `get_payload_references`), built with
-        `tatc.catalog.build_payload` for the spacecraft. An orbit at the plane
-        grade is built at the `epoch` (by default, the `start`), with an
-        arbitrary phase (and, for an inclined orbit, node); an orbit maintained
-        on a repeat ground track is pinned to its ascending node, at any epoch.
-
-        Stations are named by their identifier (such as an ICAO code), at the
-        elevation of their ground above the WGS 84 ellipsoid (the table's height
-        above mean sea level plus the EGM2008 geoid height). Terrain masks are
-        not built (see `tatc.preprocess.compute_terrain_mask_for_station`).
+        Builds the satellites of a configuration (see `select_configuration`),
+        named by their spacecraft's `name`, with the orbits of
+        `OrbitConfiguration.build_orbits`: an orbit at the plane grade is built
+        at the `epoch` (by default, the `start`), with the relative phases of a
+        constellation whose operator maintains them, or else with phases (and,
+        for inclined orbits, nodes) spaced evenly among the satellites built; an
+        orbit maintained on a repeat ground track is pinned to its ascending
+        node, at any epoch. Satellites carry the instruments of the instrument
+        catalog's entries that list them (with `payload`, see
+        `get_payload_references`), built with `tatc.catalog.build_payload` for
+        the spacecraft.
 
         Args:
             configuration (str | None): The configuration, if not selected by
                 grade.
             grade (SystemGrade | str | None): The grade of the use, if any.
-            members (Sequence[str] | None): The identifiers of the spacecraft or
-                stations to build, in the order of the platforms. By default,
-                the operational and extended spacecraft of the configuration, or
-                every station (in the order of the table).
-            region (shapely.geometry.base.BaseGeometry | None): A region
-                (longitude and latitude) within which to build stations.
-            epoch (datetime | None): The epoch of orbits at the plane grade or
-                of geostationary orbits.
+            members (Sequence[str] | None): The identifiers of the spacecraft to
+                build, in the order of the satellites. By default, the
+                operational and extended spacecraft of the configuration.
+            epoch (datetime | None): The epoch of orbits at the plane grade or of
+                geostationary orbits.
+            start (datetime | None): The start of the analysis, for instruments
+                that schedule their tilt by day, and the default epoch.
+            end (datetime | None): The end of the analysis, for instruments that
+                schedule their tilt by day.
             payload (bool | Sequence[str]): Whether satellites carry their
                 cataloged instruments, or the references of the instrument
                 catalog to carry (such as `["viirs", "atms"]`).
             time_step (float | None): The analysis time step (seconds), for
                 instruments that tailor a field of view to it.
-            start (datetime | None): The start of the analysis, for instruments
-                that schedule their tilt by day, and the default epoch.
-            end (datetime | None): The end of the analysis, for instruments that
-                schedule their tilt by day.
-            radius (float | None): The radius (meters) of the area that the
-                in-situ instruments of a surface network represent, for the
-                variable of a study, instead of the cataloged assumption.
 
         Returns:
-            list[Satellite] | list[RadarStation] | list[SurfacePlatform]: The
-            platforms.
+            list[Satellite]: The satellites.
 
         Raises:
-            ValueError: If an argument does not apply to the system, a member is
-                unknown, or an orbit needs an epoch.
+            ValueError: If a member has no orbit in the configuration, an orbit
+                needs an epoch, or every spacecraft of the configuration is
+                retired (and no members are given).
+            KeyError: If a member is not a spacecraft of the system.
         """
         key = self.select_configuration(configuration, grade=grade)
         selected = self.configurations[key]
-        if isinstance(selected, OrbitConfiguration):
-            if region is not None or radius is not None:
-                raise ValueError("region and radius apply to the stations of a network")
-            return self._build_satellites(
-                selected, members, epoch or start, payload, time_step, start, end
+        if members is None:
+            members = [
+                s.id
+                for s in self.spacecraft
+                if s.id in selected.orbits and s.status != "retired"
+            ]
+            if not members:
+                raise ValueError(
+                    f"every spacecraft of {self.id}:{key} is retired; give members"
+                )
+        spacecraft = [self.get_spacecraft(member) for member in members]
+        orbits = selected.build_orbits(members, epoch or start)
+        satellites = []
+        for member, orbit in zip(spacecraft, orbits):
+            references = (
+                self.get_payload_references(member.id)
+                if payload is True
+                else list(payload or [])
             )
-        if epoch is not None or payload is not True or time_step is not None:
+            if not references:
+                satellites.append(Satellite(name=member.name, orbit=orbit))
+                continue
+            satellites.append(
+                _loader()
+                .build_payload(
+                    references,
+                    orbit=orbit,
+                    time_step=time_step,
+                    platform=member.id,
+                    start=start,
+                    end=end,
+                )
+                .to_satellite(orbit, name=member.name)
+            )
+        return satellites
+
+
+class _NetworkSystem(SystemEntry):
+    """
+    Base class of networks of stations, whose positions are in a table.
+    """
+
+    # the columns of the table that every station gives, and those it may give
+    _REQUIRED_COLUMNS: ClassVar[tuple[str, ...]] = (
+        "id",
+        "name",
+        "latitude",
+        "longitude",
+        "ground",
+    )
+    _OPTIONAL_COLUMNS: ClassVar[tuple[str, ...]] = ()
+
+    stations: StationTable = Field(..., description="The stations of the network.")
+
+    @model_validator(mode="after")
+    def _check_table(self) -> _NetworkSystem:
+        table = self.stations.load()
+        required = self._REQUIRED_COLUMNS
+        missing = [c for c in required if c not in table.columns]
+        unknown = [
+            c for c in table.columns if c not in required + self._OPTIONAL_COLUMNS
+        ]
+        if missing or unknown:
             raise ValueError(
-                "epoch, payload, and time_step apply to the satellites of a "
-                "satellite system"
+                f"the table of stations has columns {list(table.columns)}: "
+                f"missing {missing}, unknown {unknown}"
             )
-        if radius is not None and not isinstance(selected, SurfaceConfiguration):
-            raise ValueError(
-                "radius applies to the in-situ instruments of a surface network"
-            )
+        if table["id"].duplicated().any() or table["id"].isna().any():
+            raise ValueError("stations need distinct identifiers")
+        if table[list(required)].isna().any().any():
+            raise ValueError(f"stations need values of {list(required)}")
+        if (
+            not (table.latitude.abs() <= 90).all()
+            or not (table.longitude.abs() <= 180).all()
+        ):
+            raise ValueError("stations need latitudes and longitudes in degrees")
+        return self
+
+    def get_members(self) -> list[str]:
+        return list(self.stations.load()["id"])
+
+    def get_station_names(self) -> dict[str, str]:
+        """
+        Gets the names of the stations (such as "Stillwater 2 W") by their
+        identifiers, by which they are built.
+
+        Returns:
+            dict[str, str]: The names, by identifier, in the order of the table.
+        """
+        table = self.stations.load()
+        return dict(zip(table["id"], table["name"]))
+
+    def get_digest(self, configuration: str) -> str:
+        return _get_digest(
+            {
+                **self.configurations[configuration].get_content(),
+                "table": self.stations.digest,
+            }
+        )
+
+    def get_holdout_gap(
+        self,
+        configuration: str,
+        period: str,
+        platform_periods: Mapping[str, str] | None = None,
+    ) -> int | None:
+        del platform_periods
+        measured = self.configurations[configuration].get_measured()
+        if self.stations.provenance.kind == "measured":
+            measured.append(self.stations.provenance)
+        return _get_gap(measured, period)
+
+    def _select_stations(
+        self, members: Sequence[str] | None, region: BaseGeometry | None
+    ) -> tuple[pd.DataFrame, np.ndarray]:
+        """
+        Selects the rows of stations to build, with the elevations (meters) of
+        their ground above the WGS 84 ellipsoid.
+        """
         table = self.stations.load()
         if members is not None:
             unknown = set(members) - set(table["id"])
@@ -893,19 +1167,130 @@ class SystemEntry(_CatalogModel):
             table = table.set_index("id", drop=False).loc[list(members)]
         if region is not None:
             table = table[
-                [
-                    region.intersects(ShapelyPoint(lon, lat))
-                    for lon, lat in zip(table.longitude, table.latitude)
-                ]
+                shapely.intersects_xy(
+                    region, table.longitude.to_numpy(), table.latitude.to_numpy()
+                )
             ]
         ground = table.ground.to_numpy() + compute_geoid_height(
             table.longitude.to_numpy(), table.latitude.to_numpy()
         )
-        if isinstance(selected, RadarConfiguration):
-            return [
-                _build_radar(selected, row, elevation)
-                for row, elevation in zip(table.itertuples(), ground)
-            ]
+        return table, np.atleast_1d(ground)
+
+
+class RadarNetwork(_NetworkSystem):
+    """
+    A network of weather radars: its stations, and their scanning in each
+    configuration.
+    """
+
+    _REQUIRED_COLUMNS: ClassVar[tuple[str, ...]] = (
+        *_NetworkSystem._REQUIRED_COLUMNS,
+        "height",
+    )
+    _OPTIONAL_COLUMNS: ClassVar[tuple[str, ...]] = ("min_elevation_angle",)
+
+    system_class: Literal[SystemClass.RADAR_NETWORK] = Field(
+        ..., description="System class."
+    )
+    configurations: dict[str, RadarConfiguration] = Field(
+        ..., min_length=1, description="The ways of modeling it, by identifier."
+    )
+
+    def build(
+        self,
+        configuration: str | None = None,
+        *,
+        grade: SystemGrade | str | None = None,
+        members: Sequence[str] | None = None,
+        region: BaseGeometry | None = None,
+    ) -> list[RadarStation]:
+        """
+        Builds the radar stations of a configuration (see
+        `select_configuration`), named by their identifiers, at the elevations
+        of their ground above the WGS 84 ellipsoid (the table's height above
+        mean sea level plus the EGM2008 geoid height). Terrain masks are not
+        built (see `tatc.preprocess.compute_terrain_mask_for_station`).
+
+        Args:
+            configuration (str | None): The configuration, if not selected by
+                grade.
+            grade (SystemGrade | str | None): The grade of the use, if any.
+            members (Sequence[str] | None): The identifiers of the stations to
+                build, in the order of the stations. By default, every station
+                (in the order of the table).
+            region (shapely.geometry.base.BaseGeometry | None): A region
+                (longitude and latitude) within which to build stations.
+
+        Returns:
+            list[RadarStation]: The stations.
+
+        Raises:
+            ValueError: If a member is unknown.
+        """
+        selected = self.configurations[
+            self.select_configuration(configuration, grade=grade)
+        ]
+        table, ground = self._select_stations(members, region)
+        return [
+            _build_radar(selected, row, elevation)
+            for row, elevation in zip(table.itertuples(), ground)
+        ]
+
+
+class SurfaceNetwork(_NetworkSystem):
+    """
+    A network of surface stations: its stations, and their instruments in each
+    configuration.
+    """
+
+    _OPTIONAL_COLUMNS: ClassVar[tuple[str, ...]] = ("wban",)
+
+    system_class: Literal[SystemClass.SURFACE_NETWORK] = Field(
+        ..., description="System class."
+    )
+    configurations: dict[str, SurfaceConfiguration] = Field(
+        ..., min_length=1, description="The ways of modeling it, by identifier."
+    )
+
+    def build(
+        self,
+        configuration: str | None = None,
+        *,
+        grade: SystemGrade | str | None = None,
+        members: Sequence[str] | None = None,
+        region: BaseGeometry | None = None,
+        radius: float | None = None,
+    ) -> list[SurfacePlatform]:
+        """
+        Builds the surface stations of a configuration (see
+        `select_configuration`), named by their identifiers (such as ICAO
+        codes; see `get_station_names`), at the elevations of their ground above
+        the WGS 84 ellipsoid (the table's height above mean sea level plus the
+        EGM2008 geoid height).
+
+        Args:
+            configuration (str | None): The configuration, if not selected by
+                grade.
+            grade (SystemGrade | str | None): The grade of the use, if any.
+            members (Sequence[str] | None): The identifiers of the stations to
+                build, in the order of the stations. By default, every station
+                (in the order of the table).
+            region (shapely.geometry.base.BaseGeometry | None): A region
+                (longitude and latitude) within which to build stations.
+            radius (float | None): The radius (meters) of the area that the
+                in-situ instruments represent, for the variable of a study,
+                instead of the cataloged assumption.
+
+        Returns:
+            list[SurfacePlatform]: The stations.
+
+        Raises:
+            ValueError: If a member is unknown.
+        """
+        selected = self.configurations[
+            self.select_configuration(configuration, grade=grade)
+        ]
+        table, ground = self._select_stations(members, region)
         instruments = [spec.construct_instrument(None) for spec in selected.instruments]
         if radius is not None:
             instruments = [
@@ -928,82 +1313,44 @@ class SystemEntry(_CatalogModel):
             for row, elevation in zip(table.itertuples(), ground)
         ]
 
-    def _build_satellites(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-        self,
-        configuration: OrbitConfiguration,
-        members: Sequence[str] | None,
-        epoch: datetime | None,
-        payload: bool | Sequence[str],
-        time_step: float | None,
-        start: datetime | None,
-        end: datetime | None,
-    ) -> list[Satellite]:
-        """
-        Builds the satellites of a configuration (see `build`).
-        """
-        if members is None:
-            members = [
-                s.id
-                for s in self.spacecraft
-                if s.id in configuration.orbits and s.status != "retired"
-            ]
-        satellites = []
-        for spacecraft_id in members:
-            spacecraft = self.get_spacecraft(spacecraft_id)
-            if spacecraft_id not in configuration.orbits:
-                raise ValueError(
-                    f"{self.id} has no orbit of {spacecraft_id} in this configuration"
-                )
-            orbit = configuration.orbits[spacecraft_id]
-            if not isinstance(orbit, RepeatGroundTrackOrbit):
-                if epoch is None:
-                    raise ValueError(
-                        f"{spacecraft.name}'s orbit is built at an epoch (or start)"
-                    )
-                orbit = orbit.build(epoch)
-            references = (
-                self.get_payload_references(spacecraft_id)
-                if payload is True
-                else list(payload or [])
-            )
-            if not references:
-                satellites.append(Satellite(name=spacecraft.name, orbit=orbit))
-                continue
-            # deferred import, as the loader imports this module
-            # pylint: disable-next=import-outside-toplevel,cyclic-import
-            from .loader import build_payload
 
-            satellites.append(
-                build_payload(
-                    references,
-                    orbit=orbit,
-                    time_step=time_step,
-                    platform=spacecraft_id,
-                    start=start,
-                    end=end,
-                ).to_satellite(orbit, name=spacecraft.name)
-            )
-        return satellites
+AnySystem = Annotated[
+    SatelliteSystem | RadarNetwork | SurfaceNetwork,
+    Field(discriminator="system_class"),
+]
+"""A catalog system, by its `system_class`."""
 
-    def get_payload_references(self, spacecraft_id: str) -> list[str]:
-        """
-        Gets the instrument catalog's entries that list a spacecraft of this
-        system, except those of limb sounders and radio occultation receivers,
-        whose soundings are analyzed with their own methods (see
-        `tatc.catalog.InstrumentPayload.sounding`).
+_SYSTEM_ADAPTER: TypeAdapter[SatelliteSystem | RadarNetwork | SurfaceNetwork] = (
+    TypeAdapter(AnySystem)
+)
 
-        Args:
-            spacecraft_id (str): The identifier of the spacecraft.
 
-        Returns:
-            list[str]: The identifiers of the entries.
-        """
-        self.get_spacecraft(spacecraft_id)
-        # deferred import, as the loader imports this module
-        # pylint: disable-next=import-outside-toplevel,cyclic-import
-        from .loader import get_instrument_ids
+def parse_system(data: Mapping[str, Any]) -> SystemEntry:
+    """
+    Parses a system as the schema of its class: a `SatelliteSystem`, a
+    `RadarNetwork`, or a `SurfaceNetwork`.
 
-        return get_instrument_ids(spacecraft_id, soundings=False)
+    Args:
+        data (Mapping[str, Any]): The system's fields.
+
+    Returns:
+        SystemEntry: The system.
+
+    Raises:
+        pydantic.ValidationError: If the data are not of a valid system.
+    """
+    return _SYSTEM_ADAPTER.validate_python(data)
+
+
+def _loader() -> Any:
+    """
+    Gets the catalog's loader, whose entries satellites carry; deferred, as the
+    loader imports this module.
+    """
+    # pylint: disable-next=import-outside-toplevel,cyclic-import
+    from . import loader
+
+    return loader
 
 
 def _build_radar(

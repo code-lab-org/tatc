@@ -22,6 +22,7 @@ configurations:
     min_elevation_angle: 0.5
     max_elevation_angle: 19.5
     beam_width: 0.95
+    volume_coverage_patterns: [12, 112, 212, 215]
     provenance:
       band: &wsr88d
         kind: nominal
@@ -45,6 +46,7 @@ configurations:
     min_elevation_angle: 0.5
     max_elevation_angle: 6.4
     beam_width: 0.95
+    volume_coverage_patterns: [31, 32, 35]
     provenance:
       band: *wsr88d
       beam_width: *wsr88d

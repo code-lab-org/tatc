@@ -12,6 +12,7 @@ import copy
 import hashlib
 import json
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from typing import TYPE_CHECKING, Annotated, Any, Literal
@@ -43,9 +44,6 @@ from ..utils import (
     compute_subsolar_latitude,
 )
 from .records import Period, ValidationRecord, _CatalogModel, _get_days_apart
-
-if TYPE_CHECKING:
-    from .system_schemas import Spacecraft
 from .standard import (
     EntryValidation,
     Grade,
@@ -54,6 +52,9 @@ from .standard import (
     get_gates,
     serves,
 )
+
+if TYPE_CHECKING:
+    from .system_schemas import Spacecraft
 
 # the instrument schemas, by their `type`
 _INSTRUMENT_CLASSES: dict[str, type[Instrument]] = {
@@ -759,17 +760,25 @@ class Configuration(_CatalogModel):
             provenance for provenance in provenances if provenance.kind == "measured"
         ]
 
-    def get_holdout_gap(self, period: str) -> int | None:
+    def get_holdout_gap(
+        self, period: str, platform_periods: Mapping[str, str] | None = None
+    ) -> int | None:
         """
         Gets the days between the data to which values were fitted and the data
-        of a test: between the nearest days of the periods.
+        of a test: between the nearest days of the periods. An instrument's
+        fitted values apply on every platform, so the period of the test (of
+        every platform's data) is compared with them.
 
         Args:
             period (str): The period of the data of the test (see `Period`).
+            platform_periods (Mapping[str, str] | None): The period of each
+                platform's data, if they differ (within `period`), which does
+                not change the gap.
 
         Returns:
             int | None: The days, or `None` if no value was fitted.
         """
+        del platform_periods
         measured = self._get_measured()
         if not measured:
             return None
@@ -988,9 +997,9 @@ class InstrumentEntry(_CatalogModel):
         """
         # deferred import, as the loader imports this module
         # pylint: disable-next=import-outside-toplevel,cyclic-import
-        from .loader import get_spacecraft
+        from . import loader
 
-        return [get_spacecraft(platform) for platform in self.platforms]
+        return [loader.get_spacecraft(platform) for platform in self.platforms]
 
     def get_variants(self, name: str) -> list[str]:
         """

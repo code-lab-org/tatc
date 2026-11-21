@@ -52,7 +52,7 @@ configurations:
           period: "2025-08-26"
         equator_crossing_time: *suomi_npp
     limitations:
-      - The satellites' phases in their planes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The satellites' phases in their planes are arbitrary (spaced evenly among the satellites built, from zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
       - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
       - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.
   ground_track:

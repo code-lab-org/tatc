@@ -23,10 +23,10 @@ configurations:
           kind: measured
           source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
           platforms: [dmsp-f18]
-          period: "2026-11-03"
+          period: "2026-11-08"
         equator_crossing_time: *dmsp_f18
         inclination: *dmsp_f18
     limitations:
-      - The satellites' phases in their planes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The satellites' phases in their planes are arbitrary (spaced evenly among the satellites built, from zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
       - The satellites' local times are no longer maintained, so each orbit has its own inclination, at which its local time drifts during an analysis from the cataloged one (at the epoch), which is that of the element set.
       - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

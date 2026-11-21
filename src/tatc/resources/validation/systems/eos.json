@@ -7,14 +7,14 @@
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
-      "period": "2026-11-05, 2026-11-15, 2026-11-21",
+      "period": "2026-11-07, 2026-11-18, 2026-11-21",
       "platforms": [
         "terra",
         "aura"
       ],
       "platform_periods": {
-        "terra": "2026-11-05, 2026-11-21",
-        "aura": "2026-11-15, 2026-11-21"
+        "terra": "2026-11-07, 2026-11-21",
+        "aura": "2026-11-18, 2026-11-21"
       },
       "metrics": [
         {

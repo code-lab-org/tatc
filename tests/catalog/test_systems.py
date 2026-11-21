@@ -14,17 +14,21 @@ import yaml
 from pydantic import ValidationError
 
 from tatc.catalog import (
-    SystemEntry,
+    RadarNetwork,
+    SatelliteSystem,
+    SurfaceNetwork,
     get_entry,
     get_entry_ids,
-    get_instrument_ids,
     get_spacecraft,
     get_spacecraft_system,
     get_system,
     get_system_ids,
+    list_entries,
     list_systems,
     loader,
 )
+from tatc.catalog.records import ConfigurationRecord
+from tatc.catalog.system_schemas import describe_orbit, parse_system
 from tatc.catalog.system_standard import (
     COMPATIBLE_SYSTEM_VERSIONS,
     SystemClass,
@@ -113,6 +117,7 @@ EXPECTED_SYSTEM_STATUS = {
         "validated",
         {
             "plane": ("validated", 31, []),
+            "ground_track": ("validated", 30, []),
         },
         [],
     ),
@@ -126,21 +131,22 @@ EXPECTED_SYSTEM_STATUS = {
     "gcom_w": (
         "validated",
         {
-            "plane": ("validated", 36, []),
+            "plane": ("validated", 35, []),
+            "ground_track": ("validated", 35, []),
         },
         [],
     ),
     "goes": (
         "partial",
         {
-            "slot": ("partial", 49, ["not tested on goes-18"]),
+            "slot": ("partial", 48, ["not tested on goes-18"]),
         },
         [],
     ),
     "gpm": (
         "validated",
         {
-            "plane": ("validated", 80, []),
+            "plane": ("validated", 81, []),
         },
         [],
     ),
@@ -248,6 +254,7 @@ EXPECTED_SYSTEM_STATUS = {
         "validated",
         {
             "plane": ("validated", 30, []),
+            "ground_track": ("validated", 30, []),
         },
         [],
     ),
@@ -287,13 +294,15 @@ EXPECTED_SYSTEM_STATUS = {
         "partial",
         {
             "plane": ("partial", 53, ["not tested on sentinel-1d"]),
+            "ground_track": ("validated", 52, []),
         },
         [],
     ),
     "sentinel_2": (
         "validated",
         {
-            "plane": ("validated", 54, []),
+            "plane": ("validated", 55, []),
+            "ground_track": ("validated", 54, []),
         },
         [],
     ),
@@ -347,21 +356,21 @@ EXPECTED_SYSTEM_STATUS = {
     "smap": (
         "validated",
         {
-            "plane": ("validated", 35, []),
+            "plane": ("validated", 36, []),
         },
         [],
     ),
     "swot": (
         "validated",
         {
-            "plane": ("validated", 34, []),
+            "plane": ("validated", 35, []),
         },
         [],
     ),
     "timed": (
         "validated",
         {
-            "plane": ("validated", 37, []),
+            "plane": ("validated", 47, []),
         },
         [],
     ),
@@ -434,7 +443,7 @@ class TestLoading(unittest.TestCase):
                 continue
             for key, record in system.record.configurations.items():
                 self.assertEqual(
-                    record.digest, system.configurations[key].digest, (system.id, key)
+                    record.digest, system.get_digest(key), (system.id, key)
                 )
                 self.assertIn(record.standard_version, COMPATIBLE_SYSTEM_VERSIONS)
 
@@ -480,7 +489,7 @@ class TestLoading(unittest.TestCase):
         of an instrument entry is a cataloged spacecraft.
         """
         self.assertEqual(get_spacecraft("noaa-20").norad_id, 43013)
-        self.assertEqual(get_spacecraft_system("noaa-20"), "jpss")
+        self.assertEqual(get_spacecraft_system("noaa-20").id, "jpss")
         with self.assertRaises(KeyError):
             get_spacecraft("unknown")
         for entry_id in get_entry_ids():
@@ -489,16 +498,54 @@ class TestLoading(unittest.TestCase):
                 [s.id for s in entry.get_spacecraft()], list(entry.platforms)
             )
 
-    def test_instrument_ids(self):
+    def test_entries_of_spacecraft(self):
         """
         Test that the instrument entries of a spacecraft are those that list it,
-        with or without the soundings of limb sounders and occultation receivers.
+        and that its payload omits the soundings of limb sounders and occultation
+        receivers.
         """
         self.assertEqual(
-            get_instrument_ids("noaa-20"), ["atms", "ceres", "cris", "omps_nm", "viirs"]
+            [e.id for e in list_entries(platform="noaa-20")],
+            ["atms", "ceres", "cris", "omps_nm", "viirs"],
         )
-        self.assertIn("gras", get_instrument_ids("metop-b"))
-        self.assertNotIn("gras", get_instrument_ids("metop-b", soundings=False))
+        self.assertIn("gras", [e.id for e in list_entries(platform="metop-b")])
+        self.assertNotIn("gras", get_system("metop").get_payload_references("metop-b"))
+
+    def test_classes(self):
+        """
+        Test that systems are parsed as the schemas of their classes.
+        """
+        self.assertIsInstance(get_system("jpss"), SatelliteSystem)
+        self.assertIsInstance(get_system("nexrad"), RadarNetwork)
+        self.assertIsInstance(get_system("uscrn"), SurfaceNetwork)
+        data = _system_data("nexrad")
+        data["system_class"] = "surface_network"
+        with self.assertRaises(ValidationError):
+            parse_system(data)
+
+    def test_summaries(self):
+        """
+        Test the summaries of systems, the names of stations, and the
+        descriptions of orbits.
+        """
+        summary = get_system("jpss").summarize()
+        self.assertEqual(summary["members"], 3)
+        self.assertEqual(summary["configurations"], "plane, ground_track")
+        uscrn = get_system("uscrn")
+        names = uscrn.get_station_names()
+        self.assertEqual(len(names), uscrn.summarize()["members"])
+        self.assertEqual(list(names), uscrn.get_members())
+        orbits = get_system("jpss").configurations
+        self.assertTrue(
+            describe_orbit(orbits["plane"].orbits["noaa-20"]).startswith(
+                "Sun-synchronous, 834.10 km"
+            )
+        )
+        self.assertTrue(
+            describe_orbit(orbits["ground_track"].orbits["noaa-20"]).startswith(
+                "Repeat of 227 orbits in 16 days"
+            )
+        )
 
 
 class TestSystemStatus(unittest.TestCase):
@@ -542,13 +589,13 @@ class TestStrictFiles(unittest.TestCase):
 
     def _assert_invalid(self, message: str = ""):
         with self.assertRaisesRegex(ValidationError, message):
-            SystemEntry(**self.data)
+            parse_system(self.data)
 
     def test_baseline_valid(self):
         """
         Test that the unmodified data is valid.
         """
-        SystemEntry(**self.data)
+        parse_system(self.data)
 
     def test_unknown_field(self):
         """
@@ -612,6 +659,30 @@ class TestStrictFiles(unittest.TestCase):
         ] = 1
         self._assert_invalid()
 
+    def test_phases_of_every_orbit_or_none(self):
+        """
+        Test that a configuration gives the phases of every orbit or of none,
+        each with its provenance.
+        """
+        plane = self.data["configurations"]["plane"]
+        plane["orbits"]["noaa-20"]["phase"] = 90
+        self._assert_invalid("provenance")
+        plane["provenance"]["noaa-20"]["phase"] = {"kind": "nominal", "source": "x"}
+        self._assert_invalid("every orbit or for none")
+
+    def test_platform_periods_of_every_platform(self):
+        """
+        Test that a record gives the period of every platform tested, or of
+        none.
+        """
+        record = get_system("jpss").record.configurations["plane"]
+        data = record.model_dump(mode="json")
+        del data["platform_periods"]["noaa-21"]
+        with self.assertRaisesRegex(ValidationError, "every platform"):
+            ConfigurationRecord(**data)
+        data["platform_periods"] = {}
+        ConfigurationRecord(**data)
+
     def test_networks_have_stations(self):
         """
         Test that a satellite system has no stations, and a network no
@@ -658,6 +729,35 @@ class TestBuild(unittest.TestCase):
         self.assertEqual(orbit.mean_altitude, plane.mean_altitude)
         retired = system.build(epoch=EPOCH, payload=False, members=["suomi-npp"])
         self.assertEqual([s.name for s in retired], ["Suomi NPP"])
+
+    def test_constellation_phases(self):
+        """
+        Test that satellites sharing a plane keep the operator's relative phases,
+        and that satellites without cataloged phases (and inclined planes
+        without nodes) are spaced evenly among those built, so that none is
+        built at the position of another.
+        """
+        phases = {
+            s.name: s.orbit.true_anomaly
+            for s in get_system("sentinel_2").build(epoch=EPOCH, payload=False)
+        }
+        self.assertEqual(
+            phases, {"Sentinel-2A": 324, "Sentinel-2B": 0, "Sentinel-2C": 180}
+        )
+        satellites = get_system("cosmic_2").build(epoch=EPOCH, payload=False)
+        spacing = 360 / len(satellites)
+        for index, satellite in enumerate(satellites):
+            self.assertAlmostEqual(satellite.orbit.true_anomaly, index * spacing)
+            self.assertAlmostEqual(
+                satellite.orbit.right_ascension_ascending_node, index * spacing
+            )
+        tandem = get_system("sentinel_6").build(epoch=EPOCH, payload=False)
+        self.assertEqual({s.orbit.right_ascension_ascending_node for s in tandem}, {0})
+        self.assertEqual([s.orbit.true_anomaly for s in tandem], [0, 358.4])
+        (only,) = get_system("jpss").build(
+            epoch=EPOCH, payload=False, members=["noaa-21"]
+        )
+        self.assertEqual(only.orbit.true_anomaly, 0)
 
     def test_drifting_planes(self):
         """
@@ -752,8 +852,10 @@ class TestBuild(unittest.TestCase):
         self.assertEqual(stations[0].instruments[0].radius, 5000)
         (station,) = get_system("uscrn").build(members=[stations[0].name], radius=20000)
         self.assertEqual(station.instruments[0].radius, 20000)
-        with self.assertRaisesRegex(ValueError, "radius"):
-            get_system("nexrad").build(radius=1000)
+        with self.assertRaises(TypeError):
+            get_system("nexrad").build(
+                radius=1000
+            )  # pylint: disable=unexpected-keyword-arg
 
     def test_build_errors(self):
         """
@@ -765,8 +867,12 @@ class TestBuild(unittest.TestCase):
             system.build(payload=False)
         with self.assertRaises(KeyError):
             system.build(epoch=EPOCH, payload=False, members=["metop-b"])
-        with self.assertRaisesRegex(ValueError, "region"):
-            system.build(epoch=EPOCH, payload=False, region=object())
+        with self.assertRaises(TypeError):
+            system.build(  # pylint: disable=unexpected-keyword-arg
+                epoch=EPOCH, payload=False, region=object()
+            )
+        with self.assertRaisesRegex(ValueError, "retired"):
+            get_system("tropics").build(epoch=EPOCH, payload=False)
         with self.assertRaisesRegex(ValueError, "configuration"):
             system.build("other", epoch=EPOCH)
 
@@ -827,10 +933,27 @@ class TestSystemStandard(unittest.TestCase):
         tested["platforms"] = ["noaa-20"]
         del tested["platform_periods"]["noaa-21"]
         tested["metrics"] = [m for m in tested["metrics"] if m["scope"] == "noaa-20"]
-        system = SystemEntry(**{**data, "record": record})
+        system = parse_system({**data, "record": record})
         validation = system.validation.configurations["ground_track"]
         self.assertIn("not tested on noaa-21", validation.gaps)
         self.assertNotEqual(validation.tier.value, "validated")
+
+    def test_holdout_by_spacecraft(self):
+        """
+        Test that each spacecraft's fitted values are held out from its own test
+        data, or from the record's period if the record does not give each
+        platform's.
+        """
+        system = get_system("jpss")
+        configuration = system.configurations["plane"]
+        fitted = {
+            spacecraft: values["mean_altitude"].period
+            for spacecraft, values in configuration.provenance.items()
+        }
+        self.assertEqual(configuration.get_holdout_gap("2027-01-01", dict(fitted)), 0)
+        self.assertEqual(configuration.get_holdout_gap(fitted["noaa-20"]), 0)
+        later = {spacecraft: "2030-01-01" for spacecraft in fitted}
+        self.assertGreater(configuration.get_holdout_gap("2000-01-01", later), 1000)
 
     def test_changed_configuration(self):
         """
@@ -839,7 +962,7 @@ class TestSystemStandard(unittest.TestCase):
         data = _system_data("jpss")
         data["configurations"]["plane"]["orbits"]["noaa-20"]["mean_altitude"] += 1000
         data["record"] = get_system("jpss").record.model_dump(mode="json")
-        validation = SystemEntry(**data).validation.configurations["plane"]
+        validation = parse_system(data).validation.configurations["plane"]
         self.assertIn("the configuration changed after it was tested", validation.gaps)
 
 

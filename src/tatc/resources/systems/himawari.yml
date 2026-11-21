@@ -22,7 +22,7 @@ configurations:
           kind: measured
           source: validate_system_orbits.py --fit, the mean over the day after the element set nearest the middle of the day
           platforms: [himawari-9]
-          period: "2026-11-08"
+          period: "2026-11-09"
         inclination: *himawari_9
     limitations:
       - The satellites are kept at their mean longitudes and inclinations, without the daily motion of the subpoint within the station-keeping box.

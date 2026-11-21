@@ -20,24 +20,28 @@ configurations:
     grade: plane
     description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
     orbits:
-      landsat-8: {type: sso, mean_altitude: 709660, equator_crossing_time: "22:12:20"}
-      landsat-9: {type: sso, mean_altitude: 709660, equator_crossing_time: "22:12:24"}
+      landsat-8: {type: sso, mean_altitude: 709660, equator_crossing_time: "22:12:20", phase: 0}
+      landsat-9: {type: sso, mean_altitude: 709660, equator_crossing_time: "22:12:24", phase: 180}
     provenance:
       landsat-8:
         mean_altitude: &landsat_8
           kind: measured
           source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
           platforms: [landsat-8]
-          period: "2026-10-02"
+          period: "2026-10-04"
         equator_crossing_time: *landsat_8
+        phase: &landsat_phasing
+          kind: nominal
+          source: USGS's phasing of Landsat 9, 8 days (half the 16-day repeat cycle) from Landsat 8, 180 deg apart in their plane, as their element sets of 2026-11-21 show (180.2 deg)
       landsat-9:
         mean_altitude: &landsat_9
           kind: measured
           source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
           platforms: [landsat-9]
-          period: "2026-10-02"
+          period: "2026-10-04"
         equator_crossing_time: *landsat_9
+        phase: *landsat_phasing
     limitations:
-      - The satellites' phases in their planes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The satellites keep the operator's relative phases (and planes), but the constellation's phase in its plane is arbitrary (relative phases are counted from zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
       - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
       - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

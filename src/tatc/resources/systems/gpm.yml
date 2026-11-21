@@ -26,5 +26,5 @@ configurations:
           period: "2026-07-15"
         inclination: *gpm
     limitations:
-      - The satellites' phases in their planes and the right ascensions of their ascending nodes are arbitrary (zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The satellites' phases in their planes and the right ascensions of their ascending nodes are arbitrary (each spaced evenly among the satellites built, from zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
       - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

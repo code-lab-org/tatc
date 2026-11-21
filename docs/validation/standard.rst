@@ -591,7 +591,9 @@ Satellite orbits
 
 A cataloged orbit is idealized, so that it can be built for any period rather
 than aging as an element set does. The plane grade represents the statistics of
-revisits and coverage: the planes of the orbits, with arbitrary phases. The
+revisits and coverage: the planes of the orbits, with the relative phases of a
+constellation whose operator maintains them (a nominal value), or else phases
+(and, for inclined orbits, nodes) spaced evenly among the satellites built. The
 ground track grade also represents where, and to about a minute when, passes
 occur, for orbits that operators maintain on a repeat ground track
 (`RepeatGroundTrackOrbit`, pinned to an ascending node fitted as the middle of

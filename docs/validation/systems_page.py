@@ -6,61 +6,22 @@ so that the page cannot differ from them. `docs/conf.py` runs it on each build.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import importlib.util
 import pathlib
 
-from tatc.catalog import SYSTEM_STANDARD_VERSION, get_system, get_system_ids
+from catalog_page import REPOSITORY, escape, heading, list_table
+
+from tatc.catalog import (
+    SYSTEM_STANDARD_VERSION,
+    SatelliteSystem,
+    get_system,
+    get_system_ids,
+)
 from tatc.catalog.standard import MIN_HOLDOUT_GAP_DAYS
 from tatc.catalog.system_schemas import (
-    GeostationarySlot,
-    InclinedPlane,
     OrbitConfiguration,
     RadarConfiguration,
-    SunSynchronousPlane,
+    describe_orbit,
 )
-from tatc.schemas import RepeatGroundTrackOrbit
-
-_spec = importlib.util.spec_from_file_location(
-    "catalog_page", pathlib.Path(__file__).parent / "catalog_page.py"
-)
-_catalog_page = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_catalog_page)
-REPOSITORY = _catalog_page.REPOSITORY
-escape = _catalog_page.escape
-heading = _catalog_page.heading
-list_table = _catalog_page.list_table
-
-
-def describe_orbit(orbit) -> str:
-    """
-    Describes an orbit of a configuration.
-
-    Args:
-        orbit: The orbit.
-
-    Returns:
-        str: The description, as reStructuredText.
-    """
-    if isinstance(orbit, SunSynchronousPlane):
-        text = (
-            f"Sun-synchronous, {orbit.mean_altitude / 1e3:.2f} km, ascending node "
-            f"at {orbit.equator_crossing_time:%H:%M:%S}"
-        )
-        if orbit.inclination is not None:
-            text += f", drifting at {orbit.inclination} deg"
-        return text
-    if isinstance(orbit, InclinedPlane):
-        return f"{orbit.mean_altitude / 1e3:.2f} km, {orbit.inclination} deg"
-    if isinstance(orbit, GeostationarySlot):
-        return f"Geostationary at {orbit.longitude} deg, {orbit.inclination} deg"
-    if isinstance(orbit, RepeatGroundTrackOrbit):
-        node = orbit.ascending_node
-        return (
-            f"Repeat of {orbit.revolutions} orbits in {orbit.days} days "
-            f"({orbit.get_mean_altitude() / 1e3:.2f} km), ascending node at "
-            f"{node.longitude} deg on {node.time:%Y-%m-%d %H:%M:%S} UTC"
-        )
-    return escape(str(orbit))
 
 
 def render_configuration(entry, key: str) -> str:
@@ -90,7 +51,7 @@ def render_configuration(entry, key: str) -> str:
             list_table(
                 ["Spacecraft", "Orbit"],
                 [
-                    [escape(names[sid]), describe_orbit(orbit)]
+                    [escape(names[sid]), escape(describe_orbit(orbit))]
                     for sid, orbit in configuration.orbits.items()
                 ],
                 [25, 75],
@@ -179,7 +140,7 @@ def render_entry(entry) -> str:
     if entry.aliases:
         parts.append("**Also known as:** " + escape(", ".join(entry.aliases)) + ".\n")
     parts.append(escape(entry.selection) + "\n")
-    if entry.spacecraft:
+    if isinstance(entry, SatelliteSystem):
         parts.append(
             list_table(
                 ["Spacecraft", "NORAD ID", "Status"],
@@ -198,7 +159,7 @@ def render_entry(entry) -> str:
         table = entry.stations
         path = f"src/tatc/resources/systems/tables/{table.file}"
         parts.append(
-            f"**Stations:** {len(table.load())}, as of {table.as_of.isoformat()} "
+            f"**Stations:** {len(entry.get_members())}, as of {table.as_of.isoformat()} "
             f"(`{table.file} <{REPOSITORY}{path}>`_), from: "
             f"{escape(table.provenance.source)}.\n"
         )
@@ -247,8 +208,8 @@ def render() -> str:
                 ),
                 (
                     ", ".join(escape(s.name) for s in e.spacecraft)
-                    if e.spacecraft
-                    else f"{len(e.stations.load())} stations"
+                    if isinstance(e, SatelliteSystem)
+                    else f"{len(e.get_members())} stations"
                 ),
             ]
             for e in entries
@@ -290,9 +251,10 @@ least {MIN_HOLDOUT_GAP_DAYS} days from their fitting data.
 Satellites carry the instruments of the instrument catalog (:doc:`catalog`) that
 list them, and instrument entries list their satellites by the systems'
 spacecraft identifiers. Orbits are idealized, so that they do not age as
-element sets do: an orbit at the plane grade has an arbitrary phase (and, if
-inclined, node), so it represents the statistics of revisits and coverage; an
-orbit at the ground track grade follows the maintained repeat ground track, so
+element sets do: an orbit at the plane grade has the relative phases of a
+constellation whose operator maintains them, or else phases (and, if inclined,
+nodes) spaced evenly among the satellites built, so it represents the
+statistics of revisits and coverage; an orbit at the ground track grade follows the maintained repeat ground track, so
 it also represents where, and to about a minute when, passes occur. Build orbits
 from current element sets (by NORAD catalog number) for passes to seconds.
 

@@ -1,33 +1,74 @@
 {
   "entry_id": "nisar",
   "configurations": {
+    "ground_track": {
+      "digest": "3cd7395cd836cffb02418bd868e6ba835c36313f6080ab28930777d218b3125b",
+      "standard_version": 1,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-11-02 to 2026-11-03, 2026-11-05 to 2026-11-06, 2026-11-08, 2026-11-21",
+      "platforms": [
+        "nisar"
+      ],
+      "platform_periods": {
+        "nisar": "2026-11-02 to 2026-11-03, 2026-11-05 to 2026-11-06, 2026-11-08, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0064,
+          "scope": "nisar"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0021,
+          "scope": "nisar"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.0249,
+          "scope": "nisar"
+        },
+        {
+          "name": "node_longitude_error_p95",
+          "value": 0.0876,
+          "scope": "nisar"
+        },
+        {
+          "name": "node_time_error_p95",
+          "value": 1.5422,
+          "scope": "nisar"
+        }
+      ]
+    },
     "plane": {
       "digest": "46263c13ccb865b91673fcb79c5488afe616c69fa4d55c6ebd86d5897410f40d",
       "standard_version": 1,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
-      "period": "2026-11-01 to 2026-11-06, 2026-11-21",
+      "period": "2026-11-02 to 2026-11-03, 2026-11-05 to 2026-11-06, 2026-11-08, 2026-11-21",
       "platforms": [
         "nisar"
       ],
       "platform_periods": {
-        "nisar": "2026-11-01 to 2026-11-06, 2026-11-21"
+        "nisar": "2026-11-02 to 2026-11-03, 2026-11-05 to 2026-11-06, 2026-11-08, 2026-11-21"
       },
       "metrics": [
         {
           "name": "altitude_error_p95",
-          "value": 0.0052,
+          "value": 0.0034,
           "scope": "nisar"
         },
         {
           "name": "inclination_error_p95",
-          "value": 0.0022,
+          "value": 0.0021,
           "scope": "nisar"
         },
         {
           "name": "local_time_error_p95",
-          "value": 0.0326,
+          "value": 0.0331,
           "scope": "nisar"
         }
       ]

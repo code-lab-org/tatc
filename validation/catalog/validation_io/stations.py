@@ -20,9 +20,35 @@ from pyproj import Geod
 from .archives import get_with_retries
 
 LEVEL_2 = "https://unidata-nexrad-level2.s3.amazonaws.com/"
-NCEI_NEXRAD = "https://www.ncei.noaa.gov/access/homr/file/nexrad-stations.txt"
+# NCEI's Historical Observing Metadata Repository (HOMR): its tables of the
+# stations of a network (such as nexrad, asos, or awos)
+HOMR_FILE = "https://www.ncei.noaa.gov/access/homr/file/{}-stations.txt"
 GEOD = Geod(ellps="WGS84")
 FEET = 0.3048
+
+
+def cached_download(url: str, path: pathlib.Path, **params) -> bytes:
+    """
+    Downloads a file once, to a path (with the query `params`, if any), and
+    reads it.
+    """
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(get_with_retries(url, params=params or None).content)
+    return path.read_bytes()
+
+
+def read_homr_table(kind: str, directory: pathlib.Path) -> pd.DataFrame:
+    """
+    Reads HOMR's fixed-width table of a network's stations (such as `nexrad`,
+    `asos`, or `awos`), cached in a directory, as text.
+    """
+    text = cached_download(HOMR_FILE.format(kind), directory / f"{kind}-stations.txt")
+    lines = [line for line in text.decode("utf-8").splitlines() if line.strip()]
+    spans = [(m.start(), m.end()) for m in re.finditer(r"-+", lines[1])]
+    return pd.read_fwf(
+        io.StringIO("\n".join(lines)), colspecs=spans, skiprows=[1], dtype=str
+    )
 
 
 def list_level_2_stations(day: date) -> list[str]:
@@ -133,22 +159,16 @@ def describe_level_2(data: bytes) -> dict:
 
 def read_ncei_nexrad(directory: pathlib.Path) -> pd.DataFrame:
     """
-    Reads NCEI's table of NEXRAD stations (cached in a directory): its WSR-88D
+    Reads NCEI's table of NEXRAD stations (see `read_homr_table`): its WSR-88D
     radars (not the Terminal Doppler Weather Radars it also lists), indexed by
-    ICAO identifier, with the antenna's elevation in meters above mean sea level
-    (`antenna`).
+    ICAO identifier, with their positions (`LAT` and `LON`, degrees) and the
+    antenna's elevation in meters above mean sea level (`antenna`).
     """
-    path = directory / "nexrad-stations.txt"
-    if not path.exists():
-        directory.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(get_with_retries(NCEI_NEXRAD).content)
-    lines = [
-        line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
-    ]
-    spans = [(m.start(), m.end()) for m in re.finditer(r"-+", lines[1])]
-    table = pd.read_fwf(io.StringIO("\n".join(lines)), colspecs=spans, skiprows=[1])
+    table = read_homr_table("nexrad", directory)
     # the WSR-88D radars, without the FAA's Terminal Doppler Weather Radars
     table = table[table["STNTYPE"] == "NEXRAD"].copy()
+    for column in ("LAT", "LON", "ELEV"):
+        table[column] = table[column].astype(float)
     table["antenna"] = table["ELEV"] * FEET
     return table.set_index("ICAO")
 

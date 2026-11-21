@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -479,24 +479,31 @@ class EntryValidation:
         )
 
 
-def _evaluate_record(
-    configuration: Any,
+def _evaluate_record(  # pylint: disable=too-many-arguments
+    grade: Enum,
     record: ConfigurationRecord | None,
     gates: tuple[Gate, ...],
+    *,
+    digest: str,
+    holdout: int | None,
     evidence_gaps: tuple[str, ...] = (),
 ) -> ConfigurationValidation:
     """
     Applies gates to the record of a configuration (of an instrument or a
-    system, with a `grade`, a `digest`, and `get_holdout_gap`): each gate takes
-    the worst value of its metric over scopes, and the evidence has gaps if the
-    configuration changed after its test, fitted values were tested on data too
-    close to their fitting data, or the caller finds other gaps
+    system): each gate takes the worst value of its metric over scopes, and the
+    evidence has gaps if the configuration changed after its test (its `digest`
+    differs from the record's), fitted values were tested on data too close to
+    their fitting data (`holdout`), or the caller finds other gaps
     (`evidence_gaps`, such as a version of the standard that does not apply).
 
     Args:
-        configuration (Any): The configuration.
+        grade (Enum): The grade of the configuration.
         record (ConfigurationRecord | None): Its record, if any.
         gates (tuple[Gate, ...]): The gates of its grade.
+        digest (str): The digest of the configuration as cataloged.
+        holdout (int | None): The days between the data to which its values were
+            fitted and the data of the record's test, or `None` if no value was
+            fitted (or it has no record).
         evidence_gaps (tuple[str, ...]): Other gaps of the evidence.
 
     Returns:
@@ -505,7 +512,7 @@ def _evaluate_record(
     if record is None or not record.metrics:
         return ConfigurationValidation(
             Tier.NOMINAL,
-            configuration.grade,
+            grade,
             tuple(GateResult(gate, None) for gate in gates),
             ("no comparison with reference data",),
             record,
@@ -516,13 +523,9 @@ def _evaluate_record(
         worst = (max if gate.at_most else min)(values) if values else None
         results.append(GateResult(gate, worst))
     gaps = []
-    if record.digest != configuration.digest:
+    if record.digest != digest:
         gaps.append("the configuration changed after it was tested")
     gaps.extend(evidence_gaps)
-    if record.platform_periods:
-        holdout = configuration.get_platform_holdout_gap(record.platform_periods)
-    else:
-        holdout = configuration.get_holdout_gap(record.period)
     if holdout is not None and holdout < MIN_HOLDOUT_GAP_DAYS:
         gaps.append(
             "fitted values are not tested on data at least "
@@ -531,7 +534,7 @@ def _evaluate_record(
     passed = not gaps and all(result.passed for result in results)
     return ConfigurationValidation(
         Tier.VALIDATED if passed else Tier.PARTIAL,
-        configuration.grade,
+        grade,
         tuple(results),
         tuple(gaps),
         record,
@@ -589,10 +592,16 @@ def _evaluate_configuration(
             f"does not apply to the {entry.instrument_class.value} class",
         )
     return _evaluate_record(
-        configuration,
+        configuration.grade,
         record,
         get_gates(entry.instrument_class, configuration.grade),
-        gaps,
+        digest=configuration.digest,
+        holdout=(
+            None
+            if record is None
+            else configuration.get_holdout_gap(record.period, record.platform_periods)
+        ),
+        evidence_gaps=gaps,
     )
 
 

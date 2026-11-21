@@ -12,14 +12,16 @@ import numpy as np
 import pandas as pd
 
 import tatc
-from tatc.catalog import STANDARD_VERSION, InstrumentEntry
+from tatc.catalog import STANDARD_VERSION, SYSTEM_STANDARD_VERSION, InstrumentEntry
 from tatc.catalog.records import ConfigurationRecord, Transfer, ValidationRecord
+from tatc.catalog.system_schemas import SystemEntry, parse_system
 from tatc.constants import timescale
 
 # where the scripts write validation records and test fixtures
 REPOSITORY = pathlib.Path(__file__).resolve().parents[3]
 RECORDS = REPOSITORY / "src" / "tatc" / "resources" / "validation"
 FIXTURES = REPOSITORY / "tests" / "catalog" / "fixtures"
+SYSTEM_RECORDS = RECORDS / "systems"
 
 
 def source_of(script):
@@ -254,3 +256,80 @@ def write_results(
         metrics=metrics,
         fixture_metrics=fixture_metrics,
     )
+
+
+def p95_metric(name: str, values, scope: str | None = None) -> dict:
+    """
+    A metric of the 95th percentile of absolute values, as records state it.
+
+    Raises:
+        ValueError: If there are no values.
+    """
+    values = np.abs(np.asarray(values, dtype=float))
+    if values.size == 0:
+        raise ValueError(f"no values of {name}")
+    metric = {"name": name, "value": round(float(np.percentile(values, 95)), 4)}
+    if scope is not None:
+        metric["scope"] = scope
+    return metric
+
+
+def value_metric(name: str, value: float) -> dict:
+    """A metric of a value, as records state it."""
+    return {"name": name, "value": round(float(value), 4)}
+
+
+def system_result(
+    entry: SystemEntry,
+    key: str,
+    *,
+    source: str,
+    reference: str,
+    period: str,
+    platforms: list[str],
+    metrics: list[dict],
+    platform_periods: dict[str, str] | None = None,
+) -> ConfigurationRecord:
+    """
+    The record of a test of a system's configuration, with its digest (see
+    `SystemEntry.get_digest`) and the versions of TAT-C and of the system
+    standard.
+    """
+    return ConfigurationRecord(
+        digest=entry.get_digest(key),
+        standard_version=SYSTEM_STANDARD_VERSION,
+        tatc_version=tatc.__version__,
+        source=source,
+        reference=reference,
+        period=period,
+        platforms=platforms,
+        platform_periods=platform_periods or {},
+        metrics=metrics,
+    )
+
+
+def write_system_record(
+    entry: SystemEntry, results: dict[str, ConfigurationRecord]
+) -> pathlib.Path:
+    """
+    Writes the records of a system's configurations, keeping those of its other
+    configurations, after checking the record against the system.
+    """
+    path = SYSTEM_RECORDS / f"{entry.id}.json"
+    if path.exists():
+        record = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        record = {"entry_id": entry.id, "configurations": {}}
+    record["configurations"].update(
+        {
+            key: result.model_dump(mode="json", exclude_defaults=True)
+            for key, result in results.items()
+        }
+    )
+    record["configurations"] = dict(sorted(record["configurations"].items()))
+    ValidationRecord(**record)
+    parse_system({**entry.model_dump(mode="json"), "record": record})
+    SYSTEM_RECORDS.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    print(f"wrote {path}")
+    return path

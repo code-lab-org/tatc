@@ -35,9 +35,17 @@ Systems
 
 .. autofunction:: tatc.catalog.get_spacecraft_system
 
-.. autofunction:: tatc.catalog.get_instrument_ids
-
 .. autopydantic_model:: tatc.catalog.SystemEntry
+
+.. autopydantic_model:: tatc.catalog.SatelliteSystem
+
+.. autopydantic_model:: tatc.catalog.RadarNetwork
+
+.. autopydantic_model:: tatc.catalog.SurfaceNetwork
+
+.. autofunction:: tatc.catalog.system_schemas.parse_system
+
+.. autofunction:: tatc.catalog.system_schemas.describe_orbit
 
 .. autopydantic_model:: tatc.catalog.Spacecraft
 
@@ -115,6 +123,7 @@ The schemas of the validation records of entries.
 .. autopydantic_model:: tatc.catalog.records.Transfer
 
 .. autofunction:: tatc.catalog.records.get_period_days
+.. autofunction:: tatc.catalog.records.format_period
 
 Standard
 --------

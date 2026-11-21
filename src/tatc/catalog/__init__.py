@@ -20,7 +20,6 @@ from .loader import (
     build_payload,
     get_entry,
     get_entry_ids,
-    get_instrument_ids,
     get_spacecraft,
     get_spacecraft_system,
     get_system,
@@ -38,7 +37,13 @@ from .standard import (
     InstrumentClass,
     Tier,
 )
-from .system_schemas import Spacecraft, SystemEntry
+from .system_schemas import (
+    RadarNetwork,
+    SatelliteSystem,
+    Spacecraft,
+    SurfaceNetwork,
+    SystemEntry,
+)
 from .system_standard import SYSTEM_STANDARD_VERSION, SystemClass, SystemGrade
 
 __all__ = [
@@ -49,9 +54,12 @@ __all__ = [
     "InstrumentClass",
     "InstrumentEntry",
     "InstrumentPayload",
+    "RadarNetwork",
     "STANDARD_VERSION",
     "SYSTEM_STANDARD_VERSION",
+    "SatelliteSystem",
     "Spacecraft",
+    "SurfaceNetwork",
     "SystemClass",
     "SystemEntry",
     "SystemGrade",
@@ -59,7 +67,6 @@ __all__ = [
     "build_payload",
     "get_entry",
     "get_entry_ids",
-    "get_instrument_ids",
     "get_spacecraft",
     "get_spacecraft_system",
     "get_system",

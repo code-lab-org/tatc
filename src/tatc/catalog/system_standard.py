@@ -190,13 +190,13 @@ _GATES: dict[tuple[SystemClass, SystemGrade], tuple[Gate, ...]] = {
     ],
 }
 
-# the grade each class needs to be validated
-_REQUIRED_GRADES: dict[SystemClass, SystemGrade] = {
-    SystemClass.SUN_SYNCHRONOUS: SystemGrade.PLANE,
-    SystemClass.INCLINED: SystemGrade.PLANE,
-    SystemClass.GEOSTATIONARY: SystemGrade.GROUND_TRACK,
-    SystemClass.RADAR_NETWORK: SystemGrade.COVERAGE,
-    SystemClass.SURFACE_NETWORK: SystemGrade.SITING,
+# the grades each class needs to be validated
+_REQUIRED_GRADES: dict[SystemClass, tuple[SystemGrade, ...]] = {
+    SystemClass.SUN_SYNCHRONOUS: (SystemGrade.PLANE,),
+    SystemClass.INCLINED: (SystemGrade.PLANE,),
+    SystemClass.GEOSTATIONARY: (SystemGrade.GROUND_TRACK,),
+    SystemClass.RADAR_NETWORK: (SystemGrade.COVERAGE,),
+    SystemClass.SURFACE_NETWORK: (SystemGrade.SITING,),
 }
 
 # the grade that each grade also tests
@@ -247,7 +247,7 @@ def get_required_system_grades(
     Returns:
         tuple[SystemGrade, ...]: The required grades.
     """
-    return (_REQUIRED_GRADES[SystemClass(system_class)],)
+    return _REQUIRED_GRADES[SystemClass(system_class)]
 
 
 def serves_system(
@@ -300,10 +300,16 @@ def evaluate_system(entry: SystemEntry) -> EntryValidation:
             if untested:
                 gaps.append(f"not tested on {', '.join(untested)}")
         configurations[key] = _evaluate_record(
-            configuration,
+            configuration.grade,
             record,
             get_system_gates(entry.system_class, configuration.grade),
-            tuple(gaps),
+            digest=entry.get_digest(key),
+            holdout=(
+                None
+                if record is None
+                else entry.get_holdout_gap(key, record.period, record.platform_periods)
+            ),
+            evidence_gaps=tuple(gaps),
         )
     missing = tuple(
         grade

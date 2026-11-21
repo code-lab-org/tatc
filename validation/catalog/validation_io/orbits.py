@@ -9,23 +9,25 @@ each computed with public TAT-C methods.
 
 import functools
 import pathlib
+import warnings
 from datetime import datetime, time, timedelta, timezone
 
 import numpy as np
 import pandas as pd
 
 from tatc.catalog import get_spacecraft
+from tatc.catalog.system_schemas import GeostationarySlot
 from tatc.constants import EARTH_EQUATORIAL_RADIUS, timescale
 from tatc.schemas import GeneralPerturbationsOrbit, RepeatGroundTrackOrbit
 from tatc.schemas.orbit import AscendingNode
 
 from .archives import (
-    ARCHIVES,
     ELEMENT_SET_FOLDER,
     _parse_element_sets,
     _read_registry,
     get_element_set,
 )
+from .records import p95_metric
 
 # the time from an element set's epoch within which its nodes are compared, as
 # errors of element sets grow with propagation
@@ -34,6 +36,10 @@ NODE_WINDOW = timedelta(hours=6)
 # which a maneuver is presumed, after which sets are dropped for MANEUVER_SETTLING
 MANEUVER_JUMP = 50
 MANEUVER_SETTLING = timedelta(days=2)
+# the length (km) of a degree of longitude along the equator
+KM_PER_DEGREE = np.pi / 180 * EARTH_EQUATORIAL_RADIUS / 1e3
+# the iterations within which the fit of an ascending node converges
+NODE_FIT_ITERATIONS = 5
 
 
 def to_orbit(tle: list[str]) -> GeneralPerturbationsOrbit:
@@ -66,27 +72,18 @@ def to_time_of_day(hours: float) -> time:
     return time(seconds // 3600, seconds // 60 % 60, seconds % 60)
 
 
-def get_plane(tle: list[str]) -> dict:
+def get_plane(orbit: GeneralPerturbationsOrbit) -> dict:
     """
-    Gets the mean elements of the plane of an element set: its mean altitude
-    (meters, as TAT-C defines it), inclination (degrees), local time of ascending
-    node (hours), and whether it is sun-synchronous.
+    Gets the mean elements of the plane of an element set's orbit: its mean
+    altitude (meters, as TAT-C defines it), inclination (degrees), local time of
+    ascending node (hours), and whether it is sun-synchronous.
     """
-    orbit = to_orbit(tle)
     return {
         "mean_altitude": orbit.get_mean_altitude(),
         "inclination": orbit.get_inclination(),
         "local_time": get_local_time(orbit),
         "sun_synchronous": orbit.elements[0].is_sun_synchronous(),
     }
-
-
-def get_slot(tle: list[str]) -> dict:
-    """
-    Gets the mean longitude (degrees) of a geostationary satellite's subpoint over
-    the day after its element set's epoch, and the set's inclination (degrees).
-    """
-    return get_mean_slot(to_orbit(tle))
 
 
 def get_mean_slot(orbit: GeneralPerturbationsOrbit) -> dict:
@@ -106,6 +103,27 @@ def _wrap(degrees):
     return (np.asarray(degrees) + 180) % 360 - 180
 
 
+def compare(model, tles: list[list[str]], scope: str) -> list[dict]:
+    """
+    Compares a cataloged orbit with element sets: a geostationary slot (see
+    `compare_slot`), a plane (see `compare_plane`), or a repeat ground track
+    (see `compare_track`).
+
+    Args:
+        model: The cataloged orbit.
+        tles (list[list[str]]): The element sets.
+        scope (str): The scope of the metrics (the spacecraft).
+
+    Returns:
+        list[dict]: The metrics, as records state them.
+    """
+    if isinstance(model, GeostationarySlot):
+        return compare_slot(model, tles, scope)
+    if isinstance(model, RepeatGroundTrackOrbit):
+        return compare_track(model, tles, scope)
+    return compare_plane(model, tles, scope)
+
+
 def compare_plane(model, tles: list[list[str]], scope: str) -> list[dict]:
     """
     Compares the plane of a cataloged orbit (built at each set's epoch) with the
@@ -122,49 +140,42 @@ def compare_plane(model, tles: list[list[str]], scope: str) -> list[dict]:
     Returns:
         list[dict]: The metrics, as records state them.
     """
+    if isinstance(model, RepeatGroundTrackOrbit):
+        # pinned to its node, so the same at every set's epoch
+        pinned = (model.to_gp_orbit(), model.get_local_time_ascending_node())
+
+        def modeled(_):
+            return pinned
+
+    else:
+
+        def modeled(epoch):
+            gp = model.build(epoch).to_gp_orbit()
+            return gp, get_local_time(gp)
+
     altitude, inclination, local_time = [], [], []
     for tle in tles:
-        plane = get_plane(tle)
-        built = (
-            model
-            if isinstance(model, RepeatGroundTrackOrbit)
-            else model.build(get_epoch(tle))
-        )
-        gp = built.to_gp_orbit()
+        orbit = to_orbit(tle)
+        plane = get_plane(orbit)
+        gp, model_local_time = modeled(orbit.get_epoch())
         altitude.append((plane["mean_altitude"] - gp.get_mean_altitude()) / 1e3)
         inclination.append(plane["inclination"] - gp.get_inclination())
         if plane["sun_synchronous"]:
             local_time.append(
-                _wrap((plane["local_time"] - _get_model_local_time(built)) * 15)
-                / 15
-                * 60
+                _wrap((plane["local_time"] - model_local_time) * 15) / 15 * 60
             )
     metrics = [
-        _metric("altitude_error_p95", altitude, scope),
-        _metric("inclination_error_p95", inclination, scope),
+        p95_metric("altitude_error_p95", altitude, scope),
+        p95_metric("inclination_error_p95", inclination, scope),
     ]
     if local_time:
-        metrics.append(_metric("local_time_error_p95", local_time, scope))
+        metrics.append(p95_metric("local_time_error_p95", local_time, scope))
     return metrics
 
 
-def _get_model_local_time(orbit) -> float:
-    """Gets the local time (hours) of ascending node of a built orbit."""
-    if isinstance(orbit, RepeatGroundTrackOrbit):
-        return orbit.get_local_time_ascending_node()
-    return get_local_time(orbit.to_gp_orbit())
-
-
-def _metric(name: str, values, scope: str) -> dict:
-    """A metric of the 95th percentile of absolute values."""
-    return {
-        "name": name,
-        "value": round(float(np.percentile(np.abs(values), 95)), 4),
-        "scope": scope,
-    }
-
-
-def compare_slot(model, tles: list[list[str]], scope: str) -> list[dict]:
+def compare_slot(
+    model: GeostationarySlot, tles: list[list[str]], scope: str
+) -> list[dict]:
     """
     Compares a cataloged geostationary slot with element sets: the errors of the
     mean subpoint longitude (degrees, of the set's orbit less the cataloged
@@ -172,23 +183,40 @@ def compare_slot(model, tles: list[list[str]], scope: str) -> list[dict]:
     """
     longitude, inclination = [], []
     for tle in tles:
-        slot = get_slot(tle)
+        orbit = to_orbit(tle)
+        slot = get_mean_slot(orbit)
         # the cataloged orbit's own mean longitude over the same day
-        modeled = get_mean_slot(model.build(get_epoch(tle)).to_gp_orbit())
+        modeled = get_mean_slot(model.build(orbit.get_epoch()).to_gp_orbit())
         longitude.append(_wrap(slot["longitude"] - modeled["longitude"]))
         inclination.append(slot["inclination"] - model.inclination)
     return [
-        _metric("slot_longitude_error_p95", longitude, scope),
-        _metric("inclination_error_p95", inclination, scope),
+        p95_metric("slot_longitude_error_p95", longitude, scope),
+        p95_metric("inclination_error_p95", inclination, scope),
     ]
 
 
-def get_nodes(tle: list[str]) -> pd.DataFrame:
+def compare_track(
+    model: RepeatGroundTrackOrbit, tles: list[list[str]], scope: str
+) -> list[dict]:
     """
-    Gets the ascending nodes of an element set, propagated with its own drag,
-    within `NODE_WINDOW` of its epoch.
+    Compares an orbit maintained on a repeat ground track with element sets: the
+    errors of its plane (see `compare_plane`) and of its ascending nodes (see
+    `compare_nodes`, without the sets after maneuvers), as 95th percentiles of
+    their absolute values.
     """
-    orbit = to_orbit(tle)
+    delta_time, delta_longitude = compare_nodes(model, drop_maneuvers(tles))
+    return [
+        *compare_plane(model, tles, scope),
+        p95_metric("node_longitude_error_p95", delta_longitude, scope),
+        p95_metric("node_time_error_p95", delta_time, scope),
+    ]
+
+
+def get_nodes(orbit: GeneralPerturbationsOrbit) -> pd.DataFrame:
+    """
+    Gets the ascending nodes of an element set's orbit, propagated with its own
+    drag, within `NODE_WINDOW` of its epoch.
+    """
     epoch = orbit.get_epoch()
     return orbit.get_ascending_nodes(epoch - NODE_WINDOW, epoch + NODE_WINDOW)
 
@@ -213,7 +241,7 @@ def compare_nodes(
     period = 86400 * model.days / model.revolutions
     delta_time, delta_longitude = [], []
     for tle in tles:
-        nodes = get_nodes(tle)
+        nodes = get_nodes(to_orbit(tle))
         modeled = orbit.get_ascending_nodes(
             nodes.time.min().to_pydatetime() - timedelta(seconds=period),
             nodes.time.max().to_pydatetime() + timedelta(seconds=period),
@@ -224,10 +252,7 @@ def compare_nodes(
             delta_time.append(-offsets[nearest])
             delta_longitude.append(
                 float(_wrap(node.longitude - modeled.longitude.iloc[nearest]))
-                * np.pi
-                / 180
-                * EARTH_EQUATORIAL_RADIUS
-                / 1e3
+                * KM_PER_DEGREE
             )
     return np.asarray(delta_time), np.asarray(delta_longitude)
 
@@ -239,7 +264,8 @@ def fit_ascending_node(
     Fits the ascending node of an orbit maintained on a repeat ground track to the
     nodes of element sets: starting from a node of the first set, it moves the
     node by the median errors of time and longitude of every set's nodes (the
-    middle of the band within which the orbit is maintained), until they vanish.
+    middle of the band within which the orbit is maintained), until they vanish
+    (within `NODE_FIT_ITERATIONS`, or else with a warning).
 
     Args:
         tles (list[list[str]]): The element sets of the fitting period.
@@ -249,26 +275,29 @@ def fit_ascending_node(
     Returns:
         AscendingNode: The node, rounded to a millisecond and 1e-6 degree.
     """
-    first = get_nodes(tles[0]).iloc[0]
+    first = get_nodes(to_orbit(tles[0])).iloc[0]
     node = AscendingNode(
         time=first.time.to_pydatetime(), longitude=float(first.longitude)
     )
-    for _ in range(5):
+    for _ in range(NODE_FIT_ITERATIONS):
         model = RepeatGroundTrackOrbit(
             revolutions=revolutions, days=days, ascending_node=node
         )
         delta_time, delta_longitude = compare_nodes(model, tles)
         shift_time = float(np.median(delta_time))
-        shift_longitude = float(np.median(delta_longitude)) / (
-            np.pi / 180 * EARTH_EQUATORIAL_RADIUS / 1e3
-        )
+        shift_longitude = float(np.median(delta_longitude)) / KM_PER_DEGREE
         moment = node.time + timedelta(seconds=round(shift_time, 3))
         node = AscendingNode(
             time=moment.replace(microsecond=moment.microsecond // 1000 * 1000),
             longitude=round(float(_wrap(node.longitude + shift_longitude)), 6),
         )
         if abs(shift_time) < 0.01 and abs(shift_longitude) < 1e-5:
-            break
+            return node
+    warnings.warn(
+        f"the ascending node did not converge in {NODE_FIT_ITERATIONS} iterations "
+        f"(its last shift was {shift_time:.3f} s and {shift_longitude:.2e} deg)",
+        stacklevel=2,
+    )
     return node
 
 
@@ -278,9 +307,12 @@ def drop_maneuvers(tles: list[list[str]]) -> list[list[str]]:
     jump of the semimajor axis of more than `MANEUVER_JUMP` between consecutive
     sets (by epoch).
     """
-    orbits = sorted(((get_epoch(t), to_orbit(t), t) for t in tles), key=lambda x: x[0])
+    orbits = sorted(
+        ((to_orbit(tle), tle) for tle in tles), key=lambda item: item[0].get_epoch()
+    )
     kept, last_maneuver, previous = [], None, None
-    for epoch, orbit, tle in orbits:
+    for orbit, tle in orbits:
+        epoch = orbit.get_epoch()
         if (
             previous is not None
             and abs(orbit.get_semimajor_axis() - previous.get_semimajor_axis())
@@ -303,31 +335,62 @@ def _file_days(norad_id: int) -> dict[str, pathlib.Path]:
     return days
 
 
+@functools.cache
+def _registered_days(spacecraft_id: str) -> dict[str, list[str]]:
+    """
+    Gets a spacecraft's registered element sets by the days (UTC) of their own
+    epochs (the registry lists them by the days of the data that instrument
+    validations used them for, which may differ).
+    """
+    sets = {}
+    for tle in _read_registry().get(spacecraft_id, {}).values():
+        sets.setdefault(f"{get_epoch(tle):%Y-%m-%d}", list(tle))
+    return sets
+
+
 def get_available_days(spacecraft_id: str) -> list[str]:
     """
-    Gets the days on which a spacecraft has element sets, registered or in the
-    files of element sets (NOAA's archives of the JPSS satellites have every day,
-    so they are not listed).
+    Gets the days of the epochs of a spacecraft's element sets, registered or in
+    the files of element sets (NOAA's archives of the JPSS satellites have every
+    day, so they are not listed; see `ARCHIVES`).
     """
     norad_id = get_spacecraft(spacecraft_id).norad_id
-    days = set(_read_registry().get(spacecraft_id, {})) | set(_file_days(norad_id))
-    return sorted(days)
+    return sorted(set(_registered_days(spacecraft_id)) | set(_file_days(norad_id)))
 
 
 def get_element_sets(
     spacecraft_id: str, days: list[str], directory: pathlib.Path
-) -> list[list[str]]:
+) -> dict[str, list[str]]:
     """
-    Gets the element sets of a spacecraft on days: the one nearest the middle of
-    each day (from the registry, NOAA's archives, or the files).
+    Gets the element sets of a spacecraft for days: the registered set of each
+    day's epoch, or else the one nearest the middle of the day (from NOAA's
+    archives or the files), by the day (UTC) of its own epoch, without repeats
+    (as the nearest set of several days may be the same) or sets whose epochs
+    are outside the days' span.
+
+    Args:
+        spacecraft_id (str): The identifier of the spacecraft.
+        days (list[str]): The days (ISO 8601).
+        directory (pathlib.Path): Where to cache element sets downloaded from
+            NOAA's archives.
+
+    Returns:
+        dict[str, list[str]]: The element sets, by the days of their epochs, in
+        order.
     """
-    tles = []
+    if not days:
+        return {}
+    first, last = min(days), max(days)
+    sets = {}
     for day in days:
         moment = datetime.fromisoformat(day).replace(tzinfo=timezone.utc)
-        tles.append(get_element_set(spacecraft_id, moment, directory=directory))
-    return tles
-
-
-def has_archive(spacecraft_id: str) -> bool:
-    """Whether NOAA's archives have the spacecraft's element sets for every day."""
-    return spacecraft_id in ARCHIVES
+        tle = _registered_days(spacecraft_id).get(day)
+        if tle is None:
+            try:
+                tle = get_element_set(spacecraft_id, moment, directory=directory)
+            except FileNotFoundError:
+                continue
+        epoch = get_epoch(tle)
+        if first <= f"{epoch:%Y-%m-%d}" <= last:
+            sets.setdefault(epoch, tle)
+    return {f"{epoch:%Y-%m-%d}": sets[epoch] for epoch in sorted(sets)}

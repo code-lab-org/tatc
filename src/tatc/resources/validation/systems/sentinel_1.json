@@ -1,18 +1,59 @@
 {
   "entry_id": "sentinel_1",
   "configurations": {
-    "plane": {
-      "digest": "72aedf902159320f19fdb049b5afab9c7d7e592a1fcc96898dacc4364dc85e2e",
+    "ground_track": {
+      "digest": "c4f6c61111bc4fefccb85901612cdf70514556d7dbb19b185fba76d406815f17",
       "standard_version": 1,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
-      "period": "2026-10-02, 2026-11-10, 2026-11-21",
+      "period": "2026-10-02, 2026-11-11, 2026-11-21",
       "platforms": [
         "sentinel-1c"
       ],
       "platform_periods": {
-        "sentinel-1c": "2026-10-02, 2026-11-10, 2026-11-21"
+        "sentinel-1c": "2026-10-02, 2026-11-11, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0041,
+          "scope": "sentinel-1c"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0016,
+          "scope": "sentinel-1c"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.025,
+          "scope": "sentinel-1c"
+        },
+        {
+          "name": "node_longitude_error_p95",
+          "value": 0.1635,
+          "scope": "sentinel-1c"
+        },
+        {
+          "name": "node_time_error_p95",
+          "value": 1.5686,
+          "scope": "sentinel-1c"
+        }
+      ]
+    },
+    "plane": {
+      "digest": "eb85f672c9201b081f17390fab74b6e2c7ed53f9ff09abaddc2596d2f6b7811f",
+      "standard_version": 1,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-10-02, 2026-11-11, 2026-11-21",
+      "platforms": [
+        "sentinel-1c"
+      ],
+      "platform_periods": {
+        "sentinel-1c": "2026-10-02, 2026-11-11, 2026-11-21"
       },
       "metrics": [
         {

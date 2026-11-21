@@ -7,19 +7,19 @@
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
-      "period": "2026-06-11 to 2026-06-13, 2026-10-03 to 2026-10-07, 2026-11-04 to 2026-11-05, 2026-11-08, 2026-11-17 to 2026-11-18, 2026-11-21",
+      "period": "2026-06-11 to 2026-06-13, 2026-10-03 to 2026-10-07, 2026-11-07 to 2026-11-09, 2026-11-18, 2026-11-21",
       "platforms": [
         "metop-b",
         "metop-c"
       ],
       "platform_periods": {
-        "metop-b": "2026-06-11 to 2026-06-13, 2026-10-03 to 2026-10-07, 2026-11-04 to 2026-11-05, 2026-11-17, 2026-11-21",
-        "metop-c": "2026-06-11 to 2026-06-13, 2026-10-03 to 2026-10-07, 2026-11-05, 2026-11-08, 2026-11-18, 2026-11-21"
+        "metop-b": "2026-06-11 to 2026-06-13, 2026-10-04 to 2026-10-07, 2026-11-07 to 2026-11-08, 2026-11-18, 2026-11-21",
+        "metop-c": "2026-06-11 to 2026-06-13, 2026-10-03 to 2026-10-07, 2026-11-08 to 2026-11-09, 2026-11-18, 2026-11-21"
       },
       "metrics": [
         {
           "name": "altitude_error_p95",
-          "value": 0.1706,
+          "value": 0.1707,
           "scope": "metop-b"
         },
         {
@@ -29,7 +29,7 @@
         },
         {
           "name": "local_time_error_p95",
-          "value": 4.9132,
+          "value": 4.9175,
           "scope": "metop-b"
         },
         {

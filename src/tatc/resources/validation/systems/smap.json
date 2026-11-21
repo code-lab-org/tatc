@@ -7,12 +7,12 @@
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
-      "period": "2026-10-24, 2026-11-21",
+      "period": "2026-10-25, 2026-11-21",
       "platforms": [
         "smap"
       ],
       "platform_periods": {
-        "smap": "2026-10-24, 2026-11-21"
+        "smap": "2026-10-25, 2026-11-21"
       },
       "metrics": [
         {

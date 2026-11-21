@@ -23,32 +23,22 @@ author = "Stevens Institute of Technology"
 
 # The full version, including alpha/beta/rc tags
 
-import importlib.util
 import pathlib
+import sys
 
 import tatc
 
 release = tatc.__version__
 
-# write the catalog page from the catalog's entries and validation records
-_spec = importlib.util.spec_from_file_location(
-    "catalog_page", pathlib.Path(__file__).parent / "validation" / "catalog_page.py"
-)
-_catalog_page = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_catalog_page)
-_catalog_page.write_catalog_page(
-    pathlib.Path(__file__).parent / "validation" / "catalog.rst"
-)
+# write the pages of the catalog's instruments and systems from their entries
+# and validation records
+_VALIDATION = pathlib.Path(__file__).parent / "validation"
+sys.path.insert(0, str(_VALIDATION))
+import catalog_page  # pylint: disable=wrong-import-position
+import systems_page  # pylint: disable=wrong-import-position
 
-# write the systems page from the catalog's systems and validation records
-_spec = importlib.util.spec_from_file_location(
-    "systems_page", pathlib.Path(__file__).parent / "validation" / "systems_page.py"
-)
-_systems_page = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_systems_page)
-_systems_page.write_systems_page(
-    pathlib.Path(__file__).parent / "validation" / "systems.rst"
-)
+catalog_page.write_catalog_page(_VALIDATION / "catalog.rst")
+systems_page.write_systems_page(_VALIDATION / "systems.rst")
 
 
 # -- General configuration ---------------------------------------------------

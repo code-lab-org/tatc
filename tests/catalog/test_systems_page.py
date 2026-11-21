@@ -6,20 +6,14 @@ documentation, so these check the page here.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import importlib.util
 import pathlib
+import sys
 import unittest
 
 from tatc.catalog import get_system, get_system_ids
 
-SCRIPT = pathlib.Path(__file__).parents[2] / "docs" / "validation" / "systems_page.py"
-
-
-def _load_script():
-    spec = importlib.util.spec_from_file_location("systems_page", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+sys.path.insert(0, str(pathlib.Path(__file__).parents[2] / "docs" / "validation"))
+import systems_page  # pylint: disable=wrong-import-position,import-error
 
 
 class TestSystemsPage(unittest.TestCase):
@@ -29,7 +23,7 @@ class TestSystemsPage(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.script = _load_script()
+        cls.script = systems_page
         cls.page = cls.script.render()
 
     def test_every_system_listed_with_its_tier(self):

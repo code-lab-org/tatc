@@ -18,7 +18,7 @@ import h5py
 import requests
 import yaml
 
-from tatc.catalog import get_system, get_system_ids
+from tatc.catalog import SatelliteSystem, get_system, get_system_ids
 
 ELEMENT_SET_FOLDER = pathlib.Path(__file__).resolve().parents[1] / "elements"
 ELEMENT_SET_REGISTRY = ELEMENT_SET_FOLDER / "element_sets.yml"
@@ -333,10 +333,12 @@ def _select_element_sets(
 @functools.cache
 def _get_norad_ids() -> dict[str, int]:
     """Gets the NORAD catalog number of each spacecraft of the catalog's systems."""
+    systems = [get_system(system_id) for system_id in get_system_ids()]
     return {
         spacecraft.id: spacecraft.norad_id
-        for system_id in get_system_ids()
-        for spacecraft in get_system(system_id).spacecraft
+        for system in systems
+        if isinstance(system, SatelliteSystem)
+        for spacecraft in system.spacecraft
     }
 
 
