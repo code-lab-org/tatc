@@ -71,8 +71,8 @@ class SurfacePlatform(Point):
     instruments: list[AllInstruments] = Field(
         default=[Instrument()],
         min_length=1,
-        description="List of hosted instruments (`Instrument` or "
-        + "`PointedInstrument`).",
+        description="List of hosted instruments (`Instrument`, "
+        + "`PointedInstrument`, or `InSituInstrument`).",
     )
     terrain_mask: TerrainMask | None = Field(
         default=None,
@@ -94,7 +94,11 @@ class SurfacePlatform(Point):
         with an orbit plane).
         """
         _check_platform_instruments(
-            self.instruments, "a surface platform", "heading", allow_conical=False
+            self.instruments,
+            "a surface platform",
+            "heading",
+            allow_conical=False,
+            allow_in_situ=True,
         )
         return self
 

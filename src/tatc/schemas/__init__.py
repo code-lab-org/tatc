@@ -11,7 +11,13 @@ from .attitude import (
     GlintAttitude,
     TargetAttitude,
 )
-from .instrument import AllInstruments, ConicalInstrument, Instrument, PointedInstrument
+from .instrument import (
+    AllInstruments,
+    ConicalInstrument,
+    InSituInstrument,
+    Instrument,
+    PointedInstrument,
+)
 from .orbit import (
     AllOrbits,
     CircularOrbit,
@@ -65,6 +71,7 @@ __all__ = [
     "GeneralPerturbationsOrbit",
     "GeosynchronousOrbit",
     "GroundStation",
+    "InSituInstrument",
     "Instrument",
     "KeplerianOrbit",
     "MOGConstellation",

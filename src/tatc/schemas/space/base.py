@@ -11,7 +11,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, Field, field_serializer, model_validator
 
 from ..attitude import Attitude, AttitudeSchedule, GlintAttitude, TargetAttitude
-from ..instrument import AllInstruments, Instrument
+from ..instrument import AllInstruments, InSituInstrument, Instrument
 
 AllAttitudes = Annotated[
     Attitude | TargetAttitude | GlintAttitude | AttitudeSchedule,
@@ -42,6 +42,20 @@ class SpaceSystem(BaseModel):
         + "`None` for a body aligned with the nadir frame (each instrument's "
         + "`velocity_frame` then orients it).",
     )
+
+    @model_validator(mode="after")
+    def _check_in_situ(self) -> "SpaceSystem":
+        """
+        Checks that no instrument is in situ, which only a surface platform
+        carries.
+        """
+        for instrument in self.instruments:
+            if isinstance(instrument, InSituInstrument):
+                raise ValueError(
+                    f"Instrument {instrument.name!r} is an InSituInstrument, "
+                    + "which only a surface platform carries."
+                )
+        return self
 
     @model_validator(mode="after")
     def _check_velocity_frames(self) -> "SpaceSystem":

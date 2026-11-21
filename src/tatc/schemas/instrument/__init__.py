@@ -14,10 +14,12 @@ from ...utils.projection import VelocityFrame
 from .simple import Instrument
 from .pointed import PointedInstrument
 from .conical import ConicalInstrument
+from .in_situ import InSituInstrument
 
 _BASE_FIELDS = set(Instrument.model_fields)
 _POINTED_FIELDS = set(PointedInstrument.model_fields) - _BASE_FIELDS
 _CONICAL_FIELDS = set(ConicalInstrument.model_fields) - _BASE_FIELDS - _POINTED_FIELDS
+_IN_SITU_FIELDS = set(InSituInstrument.model_fields) - _BASE_FIELDS
 
 
 def _get_instrument_type(value: Any) -> str | None:
@@ -35,6 +37,8 @@ def _get_instrument_type(value: Any) -> str | None:
         return getattr(value, "type", None)
     if isinstance(value.get("type"), str):
         return value["type"]
+    if _IN_SITU_FIELDS.intersection(value):
+        return "in_situ"
     if _CONICAL_FIELDS.intersection(value):
         return "conical"
     if _POINTED_FIELDS.intersection(value):
@@ -45,7 +49,8 @@ def _get_instrument_type(value: Any) -> str | None:
 AllInstruments = Annotated[
     Annotated[Instrument, Tag("instrument")]
     | Annotated[PointedInstrument, Tag("pointed")]
-    | Annotated[ConicalInstrument, Tag("conical")],
+    | Annotated[ConicalInstrument, Tag("conical")]
+    | Annotated[InSituInstrument, Tag("in_situ")],
     Discriminator(_get_instrument_type),
 ]
 """Instruments, identified by their `type` or, if omitted, by their fields."""
@@ -56,13 +61,15 @@ def _check_platform_instruments(
     platform: str,
     direction: str,
     allow_conical: bool = True,
+    allow_in_situ: bool = False,
 ) -> None:
     """
     Checks that the views of instruments are defined on a platform other than
     a satellite (an aircraft or a surface platform), raising a `ValueError`
     otherwise: without roll or pitch angle profiles (which vary with an
     orbit's argument of latitude) or an inertial velocity frame (aligned with
-    an orbit plane), and, unless `allow_conical`, not a `ConicalInstrument`.
+    an orbit plane), unless `allow_conical`, not a `ConicalInstrument`, and,
+    unless `allow_in_situ`, not an `InSituInstrument`.
 
     Args:
         instruments (list[Instrument]): The instruments.
@@ -71,8 +78,14 @@ def _check_platform_instruments(
         direction (str): What defines the platform's along-track direction,
             as named in an error (for example, "track").
         allow_conical (bool): `True` to accept a `ConicalInstrument`.
+        allow_in_situ (bool): `True` to accept an `InSituInstrument`.
     """
     for instrument in instruments:
+        if isinstance(instrument, InSituInstrument) and not allow_in_situ:
+            raise ValueError(
+                f"instrument {instrument.name!r}: an InSituInstrument is only "
+                f"supported on a surface platform, not on {platform}"
+            )
         if isinstance(instrument, ConicalInstrument) and not allow_conical:
             raise ValueError(
                 f"instrument {instrument.name!r}: a ConicalInstrument is not "
@@ -96,4 +109,10 @@ def _check_platform_instruments(
             )
 
 
-__all__ = ["AllInstruments", "ConicalInstrument", "Instrument", "PointedInstrument"]
+__all__ = [
+    "AllInstruments",
+    "ConicalInstrument",
+    "InSituInstrument",
+    "Instrument",
+    "PointedInstrument",
+]

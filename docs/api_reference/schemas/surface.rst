@@ -28,6 +28,12 @@ Surface Platform
 .. autopydantic_model:: tatc.schemas.SurfacePlatform
   :members:
 
+In-Situ Instrument
+------------------
+
+.. autopydantic_model:: tatc.schemas.InSituInstrument
+  :members:
+
 Terrain Mask
 ------------
 
