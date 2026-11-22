@@ -714,8 +714,9 @@ class SystemEntry(_CatalogModel):
         Returns:
             dict[str, Any]: Its `system` (identifier), `name`, `class`,
             validation `tier`, `configurations` (comma-separated), number of
-            `members` (spacecraft or stations), and number of those built by
-            default (`active`: spacecraft not retired, or every station).
+            `members` (spacecraft or stations), number of those built by
+            default (`active`: spacecraft not retired, or every station), and
+            `role` (`observing`, or `transmitting` for navigation satellites).
         """
         return {
             "system": self.id,
@@ -725,6 +726,7 @@ class SystemEntry(_CatalogModel):
             "configurations": ", ".join(self.configurations),
             "members": len(self.get_members()),
             "active": len(self.get_default_members()),
+            "role": getattr(self, "role", "observing"),
         }
 
     def select_configuration(
@@ -785,6 +787,13 @@ class SatelliteSystem(SystemEntry):
     ] = Field(..., description="System class.")
     spacecraft: tuple[Spacecraft, ...] = Field(
         ..., min_length=1, description="The satellites of the system."
+    )
+    role: Literal["observing", "transmitting"] = Field(
+        default="observing",
+        description="What the satellites do: `observing`, carrying the instruments "
+        + "of the instrument catalog that list them, or `transmitting`, as the "
+        + "navigation satellites whose signals radio occultation receivers sound "
+        + "(see `tatc.analysis.collect_ro_observations`), which carry none.",
     )
     configurations: dict[str, OrbitConfiguration] = Field(
         ..., min_length=1, description="The ways of modeling it, by identifier."
@@ -927,7 +936,10 @@ class SatelliteSystem(SystemEntry):
         configuration that is not validated warns. A satellite that
         carries none (such as a radio occultation satellite, whose soundings are
         analyzed with their own methods) has TAT-C's default instrument, which
-        observes within a field of regard of 180 degrees, with a warning.
+        observes within a field of regard of 180 degrees, with a warning, as
+        do the satellites of a system whose `role` is `transmitting` (such as
+        those of a navigation system, for `tatc.analysis.collect_ro_observations`),
+        without one.
 
         Args:
             configuration (str | None): The configuration, if not selected by
@@ -970,6 +982,13 @@ class SatelliteSystem(SystemEntry):
         """
         key = self._select(configuration, grade)
         selected = self.configurations[key]
+        if self.role == "transmitting":
+            if payload not in (None, False):
+                raise ValueError(
+                    f"{self.id}'s satellites are transmitters, which carry no "
+                    "cataloged instruments"
+                )
+            payload = False
         if payload is None:
             payload = time_step is not None
             if not payload:

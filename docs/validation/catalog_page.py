@@ -118,7 +118,8 @@ def render_configuration(entry, key: str) -> str:
             "It is a radio occultation sounding: collect its observations with "
             "``build(...).sounding.collect_observations(receivers, transmitters, "
             "start, end)``, with the satellites of the constellations it tracks as "
-            "transmitters.\n"
+            "transmitters (from the catalog's navigation systems, "
+            "``sounding.get_transmitters(start)``).\n"
         )
     if record is not None:
         if validation.holdout_gap_days is None:

@@ -565,9 +565,10 @@ class Occultation(_CatalogModel):
     constellations: tuple[str, ...] = Field(
         ...,
         min_length=1,
-        description="The constellations of transmitters tracked (such as `gps`, "
-        + "`glonass`, `galileo`, or `beidou`), whose satellites are the "
-        + "transmitters of an analysis.",
+        description="The constellations of transmitters tracked, by the "
+        + "identifiers of the catalog's navigation systems (`gps`, `glonass`, "
+        + "`galileo`, or `beidou`), whose satellites are the transmitters of an "
+        + "analysis (see `get_transmitters`).",
     )
     max_yaw: float = Field(
         ...,
@@ -600,6 +601,29 @@ class Occultation(_CatalogModel):
             raise ValueError("the sample elevation is within the range of elevations")
         return self
 
+    def get_transmitters(self, epoch: datetime) -> list[Satellite]:
+        """
+        Builds the satellites of the constellations tracked, from the catalog's
+        navigation systems (see `tatc.catalog.SatelliteSystem.build`): their
+        planes, with each satellite's node and phase relative to the others,
+        at an epoch (such as the start of an analysis).
+
+        Args:
+            epoch (datetime.datetime): The epoch of the orbits.
+
+        Returns:
+            list[Satellite]: The transmitters.
+        """
+        # deferred import, as the loader imports this module
+        # pylint: disable-next=import-outside-toplevel,cyclic-import
+        from . import loader
+
+        return [
+            satellite
+            for constellation in self.constellations
+            for satellite in loader.get_system(constellation).build(epoch=epoch)
+        ]
+
     def collect_observations(
         self,
         receivers: Satellite | list[Satellite],
@@ -616,7 +640,8 @@ class Occultation(_CatalogModel):
             receivers (Satellite | list[Satellite]): The satellites that carry the
                 receiver.
             transmitters (Satellite | list[Satellite]): The satellites of the
-                constellations tracked.
+                constellations tracked (such as `get_transmitters(start)`, or
+                satellites of current element sets).
             start (datetime.datetime): The start of the analysis.
             end (datetime.datetime): The end of the analysis.
             time_step (datetime.timedelta): The time step with which each

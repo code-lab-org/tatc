@@ -48,11 +48,19 @@ REFERENCE = (
 )
 
 
-def get_fit_days(configuration: OrbitConfiguration, spacecraft: str) -> list[str]:
-    """Gets the days of the data to which a spacecraft's values were fitted."""
+def get_fit_days(
+    configuration: OrbitConfiguration, spacecraft: str, own: bool = False
+) -> list[str]:
+    """
+    Gets the days of the data to which a spacecraft's values were fitted (with
+    `own`, only those fitted to its own data, not its values relative to
+    another spacecraft's).
+    """
     days = set()
     for provenance in configuration.provenance[spacecraft].values():
-        if provenance.kind == "measured":
+        if provenance.kind == "measured" and (
+            not own or list(provenance.platforms) == [spacecraft]
+        ):
             for start, end in get_period_days(provenance.period):
                 days |= {
                     (start + timedelta(days=d)).isoformat()
@@ -109,9 +117,11 @@ def fit(run: SystemRun, key: str) -> None:
     """Prints the values of a configuration fitted on its days (or the run's)."""
     configuration = run.entry.configurations[key]
     given = [day.isoformat() for day in run.days]
+    fitted = {}
     for spacecraft, orbit in configuration.orbits.items():
-        days = given or get_fit_days(configuration, spacecraft)
+        days = given or get_fit_days(configuration, spacecraft, own=True)
         sets = load_element_sets(run, spacecraft, days)
+        fitted[spacecraft] = sets
         tles, found = list(sets.values()), list(sets)
         if not tles:
             continue
@@ -144,6 +154,30 @@ def fit(run: SystemRun, key: str) -> None:
                 "reference_time (if it drifts): "
                 f'"{orbit_of_set.get_epoch():%Y-%m-%dT%H:%M:%S}Z" ({found[0]})'
             )
+    if configuration.get_relative_values():
+        fit_relative(fitted)
+
+
+def fit_relative(fitted: dict[str, dict[str, list[str]]]) -> None:
+    """
+    Prints the node and phase of each spacecraft relative to the first's, at
+    12:00 UTC on the latest day of their element sets (one set each).
+    """
+    sets = {sc: list(by_day.values())[0] for sc, by_day in fitted.items() if by_day}
+    if not sets:
+        return
+    latest = max(day for by_day in fitted.values() for day in by_day)
+    moment = datetime.fromisoformat(latest).replace(hour=12, tzinfo=timezone.utc)
+    first = next(iter(sets))
+    phase_1, node_1 = orbits.get_relative_angles(sets[first], moment)
+    print(f"relative to {first} at {moment:%Y-%m-%dT%H:%MZ}:")
+    for spacecraft, tle in sets.items():
+        phase, node = orbits.get_relative_angles(tle, moment)
+        print(
+            f"{spacecraft}: right_ascension_ascending_node: "
+            f"{round((node - node_1) % 360, 2) % 360:g}, phase: "
+            f"{round((phase - phase_1) % 360, 2) % 360:g}"
+        )
 
 
 def test(run: SystemRun, key: str) -> ConfigurationRecord | None:

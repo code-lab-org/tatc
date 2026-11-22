@@ -7,6 +7,7 @@ standard that validates them.
 
 import copy
 import unittest
+import warnings
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -17,6 +18,7 @@ from tatc.catalog import (
     RadarNetwork,
     SatelliteSystem,
     SurfaceNetwork,
+    build_payload,
     clear_cache,
     get_entry,
     get_entry_ids,
@@ -87,6 +89,25 @@ EXPECTED_SYSTEM_STATUS = {
         },
         [],
     ),
+    "beidou": (
+        "nominal",
+        {
+            "plane": (
+                "nominal",
+                None,
+                [
+                    "altitude_error_p95",
+                    "inclination_error_p95",
+                    "test_sets",
+                    "test_span_days",
+                    "relative_phase_error_p95",
+                    "relative_node_error_p95",
+                    "no comparison with reference data",
+                ],
+            ),
+        },
+        [],
+    ),
     "cosmic_2": (
         "nominal",
         {
@@ -141,11 +162,49 @@ EXPECTED_SYSTEM_STATUS = {
         },
         [],
     ),
+    "galileo": (
+        "nominal",
+        {
+            "plane": (
+                "nominal",
+                None,
+                [
+                    "altitude_error_p95",
+                    "inclination_error_p95",
+                    "test_sets",
+                    "test_span_days",
+                    "relative_phase_error_p95",
+                    "relative_node_error_p95",
+                    "no comparison with reference data",
+                ],
+            ),
+        },
+        [],
+    ),
     "gcom_w": (
         "partial",
         {
             "plane": ("partial", 35, ["test_sets"]),
             "ground_track": ("partial", 35, ["test_sets"]),
+        },
+        [],
+    ),
+    "glonass": (
+        "nominal",
+        {
+            "plane": (
+                "nominal",
+                None,
+                [
+                    "altitude_error_p95",
+                    "inclination_error_p95",
+                    "test_sets",
+                    "test_span_days",
+                    "relative_phase_error_p95",
+                    "relative_node_error_p95",
+                    "no comparison with reference data",
+                ],
+            ),
         },
         [],
     ),
@@ -164,6 +223,25 @@ EXPECTED_SYSTEM_STATUS = {
         "validated",
         {
             "plane": ("validated", 81, []),
+        },
+        [],
+    ),
+    "gps": (
+        "nominal",
+        {
+            "plane": (
+                "nominal",
+                None,
+                [
+                    "altitude_error_p95",
+                    "inclination_error_p95",
+                    "test_sets",
+                    "test_span_days",
+                    "relative_phase_error_p95",
+                    "relative_node_error_p95",
+                    "no comparison with reference data",
+                ],
+            ),
         },
         [],
     ),
@@ -927,6 +1005,57 @@ class TestBuild(unittest.TestCase):
         self.assertAlmostEqual(nodes[0], 0, places=6)
         # Aqua's local time drifts later by more than half an hour a year
         self.assertGreater(nodes[365], 7.5)
+
+    def test_navigation_systems(self):
+        """
+        Test that navigation satellites are built as transmitters, without
+        cataloged instruments or warnings about them, and keep the planes of
+        their constellations.
+        """
+        gps = get_system("gps")
+        self.assertEqual(gps.role, "transmitting")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            satellites = gps.build(epoch=EPOCH)
+        self.assertEqual(len(satellites), len(gps.spacecraft))
+        self.assertFalse(
+            [w for w in caught if "instrument" in str(w.message)],
+            [str(w.message) for w in caught],
+        )
+        with self.assertRaisesRegex(ValueError, "transmitters"):
+            gps.build(epoch=EPOCH, payload=True)
+        # GLONASS's satellites are in three planes, 120 degrees apart
+        nodes = [
+            s.orbit.right_ascension_ascending_node
+            for s in get_system("glonass").build(epoch=EPOCH)
+        ]
+        offsets = [abs((n - nodes[0] + 60) % 120 - 60) for n in nodes]
+        self.assertLess(max(offsets), 10)
+
+    def test_occultation_transmitters(self):
+        """
+        Test that the constellations of radio occultation entries are the
+        catalog's navigation systems, whose satellites are their transmitters.
+        """
+        for entry_id in get_entry_ids():
+            for configuration in get_entry(entry_id).configurations.values():
+                sounding = configuration.sounding
+                if sounding is None or sounding.type != "occultation":
+                    continue
+                for constellation in sounding.constellations:
+                    self.assertEqual(get_system(constellation).role, "transmitting")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            (metop_c,) = get_system("metop").build(
+                epoch=EPOCH, payload=False, members="metop-c"
+            )
+            payload = build_payload("gras", orbit=metop_c.orbit, platform="metop-c")
+            transmitters = payload.sounding.get_transmitters(EPOCH)
+        self.assertEqual(len(transmitters), len(get_system("gps").spacecraft))
+        with self.assertRaisesRegex(ValueError, "alone"):
+            build_payload(
+                ["gras", "iasi"], orbit=metop_c.orbit, platform="metop-c", time_step=10
+            )
 
     def test_payload_given(self):
         """

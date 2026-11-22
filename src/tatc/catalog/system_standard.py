@@ -47,7 +47,10 @@ class SystemClass(str, Enum):
     SUN_SYNCHRONOUS = "sun_synchronous"
     """Satellites in sun-synchronous orbits."""
     INCLINED = "inclined"
-    """Satellites in other (non-sun-synchronous) low Earth orbits."""
+    """
+    Satellites in other (non-sun-synchronous) circular orbits, from low Earth
+    orbits to the medium Earth orbits of navigation satellites.
+    """
     GEOSTATIONARY = "geostationary"
     """Satellites in geostationary orbits."""
     RADAR_NETWORK = "radar_network"

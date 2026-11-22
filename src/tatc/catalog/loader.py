@@ -194,6 +194,12 @@ def build_payload(
                 end=end,
             )
         )
+    if any(payload.sounding is not None for payload in payloads):
+        if len(payloads) > 1:
+            raise ValueError(
+                f"a sounding is analyzed alone, not with other references: {references}"
+            )
+        return payloads[0]
     attitude = payloads[0].attitude
     for payload in payloads[1:]:
         if payload.attitude != attitude:

@@ -132,7 +132,13 @@ def render_entry(entry) -> str:
         heading(entry.name, "="),
         f'**System:** ``get_system("{entry.id}")``. **Class:** '
         f"``{entry.system_class.value}``. **Tier:** `{validation.tier.value}`. "
-        f"**Operator:** {escape(entry.operator)}.\n",
+        f"**Operator:** {escape(entry.operator)}."
+        + (
+            " **Role:** transmitting (navigation satellites, the transmitters of "
+            "radio occultations).\n"
+            if getattr(entry, "role", "observing") == "transmitting"
+            else "\n"
+        ),
     ]
     if entry.aliases:
         parts.append("**Also known as:** " + escape(", ".join(entry.aliases)) + ".\n")
