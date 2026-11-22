@@ -745,7 +745,11 @@ def _assemble_pixels(
         if times is not None
         else np.ones(len(points), dtype=bool)
     )
-    timed = {} if times is None else {"time": [list(times)[i] for i in index]}
+    if times is None:
+        timed = {}
+    else:
+        time_list = list(times)
+        timed = {"time": [time_list[i] for i in index]}
     frame = gpd.GeoDataFrame(
         {
             **timed,

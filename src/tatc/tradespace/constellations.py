@@ -54,7 +54,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -71,6 +71,9 @@ from ..schemas import (
 from .nodes import Derived, Fixed, Integer, Real, Repeat, Uncertain
 from .space import DesignSpace, _as_constraints
 from .values import ChoiceValues, RepeatValues, Scope, Values
+
+if TYPE_CHECKING:
+    from ..catalog import Grade
 
 WALKER = "walker"
 """The pattern of the layouts of `walker_space`."""
@@ -674,6 +677,8 @@ class Layout:
         time_step: float | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
+        grade: Grade | str | None = None,
+        platform: str | None = None,
     ) -> list[Satellite]:
         """
         Builds the satellites, in the order of the planes, each with a
@@ -691,6 +696,11 @@ class Layout:
                 catalog configurations that schedule their tilt by day.
             end (datetime.datetime | None): The end of the analysis, for
                 catalog configurations that schedule their tilt by day.
+            grade (Grade | str | None): The grade of the use, if any, which
+                every catalog configuration must serve.
+            platform (str | None): The identifier of the platform modeled, if
+                any, which selects the catalog configurations tested on it
+                (with a warning for a configuration not tested on it).
 
         Returns:
             list[Satellite]: the satellites
@@ -711,7 +721,14 @@ class Layout:
             raise ValueError("the orbits and names of a layout must match its planes")
         return [
             _make_satellite(
-                payload, satellite, orbit, time_step=time_step, start=start, end=end
+                payload,
+                satellite,
+                orbit,
+                time_step=time_step,
+                start=start,
+                end=end,
+                grade=grade,
+                platform=platform,
             )
             for plane_names, plane_orbits in zip(names, orbits)
             for satellite, orbit in zip(plane_names, plane_orbits)
@@ -1163,6 +1180,8 @@ def _make_satellite(
     time_step: float | None,
     start: datetime | None,
     end: datetime | None,
+    grade: Grade | str | None = None,
+    platform: str | None = None,
 ) -> Satellite:
     """
     Makes a satellite with a payload in an orbit (see `build_constellation`).
@@ -1178,7 +1197,13 @@ def _make_satellite(
     from ..catalog import build_payload
 
     return build_payload(
-        payloads, orbit=orbit, time_step=time_step, start=start, end=end
+        payloads,
+        orbit=orbit,
+        grade=grade,
+        time_step=time_step,
+        platform=platform,
+        start=start,
+        end=end,
     ).to_satellite(orbit, name=name)
 
 
@@ -1226,6 +1251,8 @@ def build_constellation(
     time_step: float | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
+    grade: Grade | str | None = None,
+    platform: str | None = None,
 ) -> list[Satellite]:
     """
     Builds the satellites of a layout: the values of a fragment (such as
@@ -1269,6 +1296,12 @@ def build_constellation(
             catalog configurations that schedule their tilt by day.
         end (datetime.datetime | None): The end of the analysis, for
             catalog configurations that schedule their tilt by day.
+        grade (Grade | str | None): The grade of the use, if any, which
+            every catalog configuration must serve (see
+            `tatc.catalog.build_payload`).
+        platform (str | None): The identifier of the platform modeled, if
+            any, which selects the catalog configurations tested on it (with
+            a warning for a configuration not tested on it).
 
     Returns:
         list[Satellite]: the satellites
@@ -1281,6 +1314,8 @@ def build_constellation(
         time_step=time_step,
         start=start,
         end=end,
+        grade=grade,
+        platform=platform,
     )
 
 

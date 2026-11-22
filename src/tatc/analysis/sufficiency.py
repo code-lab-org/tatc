@@ -238,7 +238,10 @@ def _error_terms_by_group(
     The sum of the correlations between pairs of samples follows, for the
     samples of a group in order of time, from the recursion `S_j = exp(-(t_j
     - t_(j-1)) / scale) * (S_(j-1) + 1)` (the sum of the correlations of
-    sample `j` with those before it), stepped for every group at once.
+    sample `j` with those before it), stepped for every group at once: step
+    `k` takes the `k`-th sample of each group with more than `k` samples, so
+    that the steps take each sample once, in memory proportional to the
+    number of samples.
     """
     if length <= 0 or np.any(scales <= 0):
         raise ValueError("the length and decorrelation time must be positive")
@@ -247,16 +250,17 @@ def _error_terms_by_group(
     counts = np.bincount(c, minlength=groups)
     first = np.concatenate([[0], np.cumsum(counts)[:-1]])
     position = np.arange(len(t)) - first[c]
-    width = int(counts.max()) if len(counts) > 0 and len(t) > 0 else 0
-    table = np.zeros((groups, max(width, 1)))
-    table[c, position] = t
+    # the samples (indices in t) in order of their position in their group
+    by_position = np.argsort(position, kind="stable")
+    bounds = np.concatenate([[0], np.cumsum(np.bincount(position))])
     recent = np.zeros(groups)  # S of the latest sample of each group
     total = np.zeros(groups)  # sum of S over the samples of each group
-    for k in range(1, width):
-        active = counts > k
-        gap = table[active, k] - table[active, k - 1]
-        recent[active] = np.exp(-gap / scales[active]) * (recent[active] + 1)
-        total[active] += recent[active]
+    for k in range(1, len(bounds) - 1):
+        step = by_position[bounds[k] : bounds[k + 1]]
+        group = c[step]
+        gap = t[step] - t[step - 1]
+        recent[group] = np.exp(-gap / scales[group]) * (recent[group] + 1)
+        total[group] += recent[group]
     with np.errstate(divide="ignore", invalid="ignore"):
         pairs = (counts + 2 * total) / counts.astype(float) ** 2
         cross = np.bincount(
@@ -616,6 +620,41 @@ def _field_longitudes(field: Any, dimension: str, longitude: np.ndarray) -> np.n
     return (longitude + 180) % 360 - 180
 
 
+def _coordinate_extent(values: np.ndarray) -> tuple[float, float]:
+    """
+    Gets the extent of a coordinate: half a spacing beyond its outer values
+    (the cells of which they are the centers), or unbounded for one value.
+    """
+    values = np.unique(np.asarray(values, dtype=float))
+    if len(values) < 2:
+        return -np.inf, np.inf
+    return (
+        values[0] - (values[1] - values[0]) / 2,
+        values[-1] + (values[-1] - values[-2]) / 2,
+    )
+
+
+def _outside_field(
+    field: Any,
+    lat_dim: str,
+    lon_dim: str,
+    latitude: np.ndarray,
+    longitude: np.ndarray,
+) -> np.ndarray:
+    """
+    Finds the places outside the extent of a field (see `_coordinate_extent`),
+    as of a regional nature run, in latitude and, unless the field's
+    longitudes go around the globe, in longitude (in the field's convention,
+    see `_field_longitudes`).
+    """
+    low, high = _coordinate_extent(field[lat_dim].to_numpy())
+    outside = (latitude < low) | (latitude > high)
+    low, high = _coordinate_extent(field[lon_dim].to_numpy())
+    if high - low < 360 - 1e-9:
+        outside |= (longitude < low) | (longitude > high)
+    return outside
+
+
 def _sample_values(
     field: Any,
     times: pd.Series,
@@ -626,7 +665,7 @@ def _sample_values(
 ) -> np.ndarray:
     """
     Samples a field at times and places (see `sample_field`): its nearest
-    value (`NaN` outside the period of the field) or its linear
+    value (`NaN` outside the period or extent of the field) or its linear
     interpolation in time and space.
 
     Args:
@@ -667,6 +706,9 @@ def _sample_values(
     values[(sample_times < coordinate.min()) | (sample_times > coordinate.max())] = (
         np.nan
     )
+    values[
+        _outside_field(field, lat_dim, lon_dim, latitude, where[lon_dim].to_numpy())
+    ] = np.nan
     return values
 
 
@@ -682,8 +724,10 @@ def sample_field(
     Samples a field (such as a variable of a nature run) at the time and place
     of each observation: at its point (or the representative point of its
     region), by the nearest value or by linear interpolation in time and
-    space. Observations outside the period of the field have no value
-    (`NaN`). Requires xarray.
+    space. Observations outside the period of the field, or outside its
+    extent (as of a regional nature run: by more than half a grid spacing
+    beyond its outer latitudes or, unless they go around the globe,
+    longitudes), have no value (`NaN`). Requires xarray.
 
     Args:
         observations (geopandas.GeoDataFrame): The observations, with the time
@@ -743,8 +787,9 @@ def compare_sampled_means(
     interpolated, at every time of the field in the period): the number of
     `samples`, the `sampled_mean`, the `true_mean`, and the `error` (sampled
     less true), which measures the sampling error against a simulation of
-    the field. Targets without samples have no sampled mean (`NaN`). Requires
-    xarray.
+    the field. Targets without samples have no sampled mean (`NaN`), and
+    targets outside the extent of the field (see `sample_field`) no true
+    mean. Requires xarray.
 
     Args:
         sampled (geopandas.GeoDataFrame): The observations with sampled
@@ -802,7 +847,12 @@ def compare_sampled_means(
         if method == "nearest"
         else period.interp(where)
     )
-    result["true_mean"] = at_targets.mean(dim=time_dim).to_numpy().astype(float)
+    true_mean = at_targets.mean(dim=time_dim).to_numpy().astype(float)
+    if method == "nearest":
+        true_mean[
+            _outside_field(field, lat_dim, lon_dim, latitude, where[lon_dim].to_numpy())
+        ] = np.nan
+    result["true_mean"] = true_mean
     samples = _get_samples(
         sampled, time_column, merge_overlapping, name, sample_interval
     )

@@ -147,6 +147,27 @@ class TestDecorrelationByTarget(unittest.TestCase):
         )
         self.assertAlmostEqual(single.relative_error[0], error.relative_error[0])
 
+    def test_groups_of_different_sizes(self):
+        """The terms of groups computed together equal those of each alone."""
+        # pylint: disable=import-outside-toplevel
+        from tatc.analysis.sufficiency import _error_terms, _error_terms_by_group
+
+        rng = np.random.default_rng(1)
+        sizes = [0, 1, 2, 7, 30]
+        codes = np.repeat(np.arange(len(sizes)), sizes)
+        seconds = rng.uniform(0, 86400, len(codes))
+        shuffle = rng.permutation(len(codes))
+        scales = np.array([600.0, 3600.0, 7200.0, 1800.0, 10800.0])
+        counts, pairs, variance = _error_terms_by_group(
+            seconds[shuffle], codes[shuffle], len(sizes), 86400.0, scales
+        )
+        self.assertEqual(list(counts), sizes)
+        self.assertTrue(np.isnan(pairs[0]) and np.isnan(variance[0]))
+        for group in range(1, len(sizes)):
+            expected = _error_terms(seconds[codes == group], 86400.0, scales[group])
+            self.assertAlmostEqual(pairs[group], expected[0], places=12)
+            self.assertAlmostEqual(variance[group], expected[1], places=12)
+
 
 class TestRevisitStatistics(unittest.TestCase):
     """
@@ -324,6 +345,32 @@ class TestSampleField(unittest.TestCase):
         sampled = sample_field(observations, self.field, name="t")
         self.assertAlmostEqual(sampled.t[0], 3 + 20 + 1.0)
         self.assertTrue(np.isnan(sampled.t[1]))
+
+    def test_nearest_outside_extent(self):
+        """Nearest values outside a regional field's extent have no value."""
+        regional = self.field.sel(lon=slice(0.0, 20.0))
+        # inside, within half a spacing of the outer latitude, and outside
+        observations = _observations({(10, 2): [3], (10, 10.4): [3], (10, 12): [3]})
+        observations = pd.concat(
+            [observations, _observations({(25, 0): [3], (-2, 0): [3]})],
+            ignore_index=True,
+        )
+        sampled = sample_field(observations, regional, name="t")
+        self.assertAlmostEqual(sampled.t[0], 3 + 20 + 1.0)
+        self.assertAlmostEqual(sampled.t[1], 3 + 100 + 1.0)
+        self.assertTrue(np.isnan(sampled.t[2:]).all())
+        # a global field goes around in longitude: none is outside
+        sampled = sample_field(_observations({(359.8, 0): [3]}), self.field, name="t")
+        self.assertFalse(np.isnan(sampled.t[0]))
+        comparison = compare_sampled_means(
+            sample_field(_observations({(10, 2): [12]}), regional),
+            regional,
+            START,
+            START + DAY,
+            targets=gpd.GeoSeries([Point(10, 2), Point(25, 0)]),
+        )
+        self.assertAlmostEqual(comparison.true_mean[0], 12 + 20 + 1)
+        self.assertTrue(np.isnan(comparison.true_mean[1]))
 
     def test_compare_means(self):
         """Sampled means are compared with the means of the field over the period."""
